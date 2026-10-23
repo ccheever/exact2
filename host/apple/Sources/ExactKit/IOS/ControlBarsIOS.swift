@@ -34,14 +34,23 @@ final class ControlBars {
         return k
     }
 
-    /// D1: a shown, in-flow, untransformed box in flow's place, with no
+    static func laid(_ node: NodeView) -> CGRect {
+        CGRect(x: node.center.x - node.bounds.width / 2, y: node.center.y - node.bounds.height / 2,
+               width: node.bounds.width, height: node.bounds.height)
+    }
+    static func onlyRide(_ node: NodeView) -> Bool {
+        let a = node.transform, b = CGAffineTransform(translationX: 0, y: node.controlRide)
+        return CATransform3DIsAffine(node.layer.transform) && zip([a.a, a.b, a.c, a.d, a.tx, a.ty], [b.a, b.b, b.c, b.d, b.tx, b.ty]).allSatisfy { abs($0 - $1) < 0.00001 }
+    }
+
+    /// D1: a shown, in-flow box with only its bar ride as a transform, with no
     /// background of the author's, holding at least one control and nothing
-    /// else but wrappers. A control is taken whole; a text, an image, a
+    /// else but wrappers and captions. A control is taken whole; an image, a
     /// picture, a native view, a scroller or a painted wrapper outside one
     /// makes it no bar.
     func isBar(_ box: NodeView) -> Bool {
         if let known = bars[ObjectIdentifier(box)] { return known }
-        let placed = !box.isHidden && NavigationHost.inFlow(box) && box.transform.isIdentity && CATransform3DIsIdentity(box.layer.transform)
+        let placed = !box.isHidden && NavigationHost.inFlow(box) && Self.onlyRide(box)
             && ["static", "relative"].contains(box.layoutPosition) && !box.wrote("background_color")
         let answer = placed && contents(box).map { $0 > 0 } == true
         bars[ObjectIdentifier(box)] = answer
@@ -71,7 +80,9 @@ final class ControlBars {
         else if isControl(n) { answer = 1 }
         // A wrapper is a plain box with no paint of its own: a text, an image, a picture, a canvas, a native
         // view or a scroller is not.
-        else if n.wrote("background_color") || n.scrollView != nil || n.kind != "view" { answer = nil }
+        else if n.wrote("background_color") || n.scrollView != nil { answer = nil }
+        else if n.isParagraph { answer = 0 }
+        else if n.kind != "view" { answer = nil }
         else if let ids = presenter.flats.children(of: n.id) { answer = ids.reduce(0) { sum, id in sum.flatMap { s in leaf(id).map { s + $0 } } } }
         else { answer = n.container.subviews.reduce(0) { sum, v in sum.flatMap { s in (v as? NodeView).map { contents($0).map { s + $0 } } ?? s } } }
         held[ObjectIdentifier(n)] = answer
@@ -109,7 +120,7 @@ final class ControlBars {
                 if !(top ? k.barsBefore[i] : k.barsAfter[i]) { return nil }
                 let side = (top ? k.all[..<i] : k.all[(i + 1)...]).compactMap { $0 }
                 // The host is not told the flex direction: the frames say which side a bar is on.
-                guard side.allSatisfy({ top ? $0.frame.maxY <= s.frame.minY + 0.5 : $0.frame.minY >= s.frame.maxY - 0.5 }) else { return nil }
+                guard side.allSatisfy({ top ? Self.laid($0).maxY <= s.frame.minY + 0.5 : Self.laid($0).minY >= s.frame.maxY - 0.5 }) else { return nil }
                 if side.isEmpty {
                     // Nothing between them: open only where it reaches its parent's edge.
                     if !reaches(s, room, top: top) { return nil }

@@ -792,6 +792,13 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
         if arena.style(s).display == Display::None {
             return Err(bad());
         }
+        // In the top layer the owner is laid out in its own block, after
+        // the region's shell: no trial can place it (stage 14 B). Whether
+        // it is in the top layer now, not whether the last layout's block
+        // still stands (a host's block is refused beside a region anyway).
+        if arena.top_layer_slots.contains(s) {
+            return Err(LayoutError::ContentRegion("region owner in the top layer"));
+        }
         // Fixed dimensions do not fix an exported child baseline: cutting the
         // child tree can replace its first baseline with the owner's height.
         // That baseline can propagate through intermediate ancestors. This

@@ -41,7 +41,9 @@
 //! 1027.000): ambient Date/Math.random reads and Intl.DateTimeFormat
 //! formatting without an explicit timestamp refuse, including at module
 //! initialization and after await. Explicit-value Date construction and UTC
-//! arithmetic remain available. There are no timers.
+//! arithmetic remain available. There are no timers. `scheduler.yield()`
+//! ends an answer's turn: the host asks it again at once, and it goes on in
+//! a new turn with a budget of its own (LLP 1141.001 D10).
 //!
 //! **Interrupts (LLP 1048.000 D10).** Another thread may stop a running call
 //! through [`DataSource::interrupt`]'s handle: the bake compiles with async
@@ -168,6 +170,19 @@ struct Parked {
 /// work outstanding, and is asked again after each delivery (LLP
 /// 1027.003.000 §13, the module-wide rule; hn-reader F7).
 const WAITING: u64 = u64::MAX - 1;
+
+/// The ticket of an answer that awaited `scheduler.yield()` (LLP 1141.001
+/// D10): the host asks it again at once (`Dispatch::Again`), and its yields
+/// resolve in that new turn, which has a budget of its own.
+const YIELDED: u64 = u64::MAX - 2;
+
+/// A turn of an answer over its budget: the message names the repair.
+fn over_budget(source: &str, took_ms: f64, budget_ms: f64) -> DataError {
+    DataError::Unavailable(format!(
+        "`{source}` took {took_ms:.1} ms, over the {budget_ms} ms budget for one turn; \
+         a long loop can `await scheduler.yield()` every few thousand items to go on in a new turn"
+    ))
+}
 
 /// What the host door reaches during one call: the store the seam handed
 /// `answer` or `parse` (none at bake — an empty store that refuses writes),
@@ -782,6 +797,12 @@ impl Module {
                 DataError::Failed(FailureCode::Shape, why, String::new())
             })),
             Some(1) => match (num("call"), num("ticket")) {
+                (Some(call), Some(0)) if reply.get("yielded") == Some(&Json::Bool(true)) => {
+                    Step::Pending {
+                        call,
+                        ticket: YIELDED,
+                    }
+                }
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
                     Step::Pending {
                         call,
@@ -952,10 +973,7 @@ impl Module {
         if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
-            return Err(DataError::Unavailable(format!(
-                "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                budget_ms
-            )));
+            return Err(over_budget(source, took_ms, budget_ms));
         }
         let answer = match result {
             Err(e) => Err(e),
@@ -969,7 +987,7 @@ impl Module {
                 e => e,
             }),
             Ok(Step::Pending { call, ticket }) => {
-                let request = if ticket == 0 || ticket == WAITING {
+                let request = if matches!(ticket, 0 | WAITING | YIELDED) {
                     Request::continuation(call)
                 } else {
                     let Some(request) = self.take_request(ticket) else {
@@ -1140,7 +1158,7 @@ impl Module {
             call, ticket, last, ..
         } = self.parked.remove(pos).1;
         self.retired.remove(&call);
-        if ticket == WAITING {
+        if ticket == WAITING || ticket == YIELDED {
             if let Outcome::Failed { message, .. } = &outcome {
                 // The answer ends here: its call is unlinked from the
                 // prelude's bookkeeping, so its pending fetches are dropped
@@ -1150,7 +1168,8 @@ impl Module {
                 self.forget_calls(vec![call]);
                 return Err(DataError::Unavailable(message));
             }
-        } else {
+        }
+        if ticket != WAITING {
             self.progress += 1; // a delivery: what a waiting answer waits for
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
@@ -1165,6 +1184,10 @@ impl Module {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == WAITING {
                 // Nothing to deliver: the work it waits on was another's.
+            } else if ticket == YIELDED {
+                engine
+                    .call("__exact_yielded", [&call.to_string(), "", ""])
+                    .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             } else if ticket == 0 {
                 if matches!(outcome, Outcome::Failed { .. }) {
                     engine
@@ -1216,16 +1239,13 @@ impl Module {
         if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
-            return Err(DataError::Unavailable(format!(
-                "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                budget_ms
-            )));
+            return Err(over_budget(source, took_ms, budget_ms));
         }
         let answer = match result {
             Err(e) => Err(e),
             Ok(Step::Done(r)) => r.map(Answer::Now),
             Ok(Step::Pending { call, ticket }) => {
-                let request = if ticket == 0 || ticket == WAITING {
+                let request = if matches!(ticket, 0 | WAITING | YIELDED) {
                     Request::continuation(call)
                 } else {
                     let Some(request) = self.take_request(ticket) else {

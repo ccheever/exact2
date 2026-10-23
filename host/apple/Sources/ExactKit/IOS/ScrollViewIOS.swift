@@ -27,6 +27,10 @@ package final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 package class ScrollView: UIScrollView {
+    package override func layoutSubviews() {
+        super.layoutSubviews()
+        keepPlatformViewsOver()
+    }
     package override var accessibilityElements: [Any]? {
         get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
         set { super.accessibilityElements = newValue }
@@ -245,7 +249,7 @@ extension NodeView {
         return node.isDescendant(of: sv) && !node.isHidden ? node.convert(node.bounds, to: sv) : nil
     }
 
-    func captureScrollPosition() {
+    func captureScrollPosition(focused: NodeView?) {
         // UIKit may have pending row geometry and its own offset adjustment.
         // Snapshot both from the same layout before preserving the reader.
         if groupedOwner { scrollView?.layoutIfNeeded() }
@@ -260,7 +264,7 @@ extension NodeView {
                     // UIKit quantizes offsets independently of fractional insets.
                     // A rounding difference at the start is not a reading anchor.
                     if sv.contentOffset.y + sv.adjustedContentInset.top > 0.5 { readingAnchors = presenter?.groupedLists?.scrollAnchors(for: id) ?? [] }
-                } else { captureScrollAnchor(sv) }
+                } else { captureScrollAnchor(sv, focused: focused) }
             }
             return
         }
@@ -312,7 +316,7 @@ extension NodeView {
                     let y = sv.isTracking || sv.isDecelerating ? top : min(max(top, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
                     // An element reveal heads for where its target now is instead (`IntoView.swift`).
                     if presenter?.elementScrolls.revealing(sv) != nil { presenter?.elementScrolls.retarget(sv) }
-                    else if y != sv.contentOffset.y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+                    else if y != sv.contentOffset.y { sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv, clamped: !(sv.isTracking || sv.isDecelerating)), animated: false) }
                 } else if !groupedOwner { restoreScrollAnchor(sv) }
             }
             return
@@ -345,9 +349,9 @@ extension NodeView {
             if prior.end { followsEndAfterInteraction = true }
             else if top != prior.top {
                 if groupedOwner {
-                    if sv.contentOffset.y != top { sv.contentOffset.y = top }
+                    if sv.contentOffset.y != top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: top), in: sv, clamped: false) }
                 }
-                else { sv.contentOffset.y += top - prior.top }
+                else { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: sv.contentOffset.y + top - prior.top), in: sv, clamped: false) }
             }
             anchoredScrollTop = sv.contentOffset.y
             return
@@ -361,7 +365,7 @@ extension NodeView {
             // smooth `scrollTop` write is; a shrink or a jump up lands at once.
             let animate = prior.end && y > sv.contentOffset.y && style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes && window != nil
             followingEndAnimated = animate
-            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: animate)
+            sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv), animated: animate)
         }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.

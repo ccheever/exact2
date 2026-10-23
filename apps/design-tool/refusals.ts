@@ -45,7 +45,23 @@ export const restoreRefusals = (builds: Map<string, Refusing>, kept: ReturnType<
 };
 
 /** A move up the chain sent to a build (tamber/1.16 `select`), until its page answers: an `unsupported inspect` in
- * that while is the page saying it can't step (Apple's for now), which greys out the tool's up control for that build
- * alone, never inspect (theme2 15:02). A selection from it ends the while. */
+ * that while that says the page can't step (an older build's) greys out the tool's up control for that build alone,
+ * never inspect (theme2 15:02), until it registers again. Any other (its selection gone in a new generation) is
+ * staleness: the move ends, the refusal is said as any is, and the control stays (theme2 06:05). A selection from
+ * it ends the while. */
 export const stepping = new Set<string>(), cantStep = new Set<string>();
-export const stepRefused = (id: string) => { if (!stepping.delete(id)) return false; cantStep.add(id); return true; };
+export const stepRefused = (id: string, detail?: unknown, b?: Refusing) => {
+  if (!stepping.delete(id)) return false;
+  // (The words an older web or Apple build answers `select` with: no shipped page says them now.)
+  // (Counted, so the move ends whether or not this tool still inspects there to say it.)
+  if (!/cannot move its selection up/.test(String(detail ?? ''))) { if (b) b.refusalSeq = (b.refusalSeq ?? 0) + 1; return false; }
+  cantStep.add(id); return true;
+};
+/** The server's list read: a build gone, or registered again (as `refusalOf` reads it: its status reset, or none and no
+ * refusal of inspect recorded), may step. */
+export const stepsAgain = (list: any[], was: Map<string, Refusing>) => {
+  for (const id of cantStep) {
+    const b = list.find(x => String(x.id) === id);
+    if (!b || (b.status == null && (was.get(id)?.status != null || b.unsupported?.what !== 'inspect'))) cantStep.delete(id);
+  }
+};

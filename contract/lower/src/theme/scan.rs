@@ -100,14 +100,15 @@ pub(crate) struct Said {
 }
 
 /// What a node of the walk sits in: whether an `svg` encloses it, its
-/// parent's tag, whether a `for` or `match` binds a name around it, whether
-/// its rows are left to the build, and the `font-family`s of it and the
+/// parent's tag, the typing of the `for` or `match` arm around it (none
+/// where a subject's type isn't known by its form), whether its rows are
+/// left to the build, and the `font-family`s of it and the
 /// elements around it (`rows::Row::within`).
 #[derive(Clone, Default)]
 struct Around<'a> {
     svg: bool,
     parent: Option<&'a str>,
-    local: bool,
+    typing: Option<super::rows::Typing>,
     left: bool,
     within: Option<std::sync::Arc<Vec<super::rows::Fonts>>>,
     grouped: Grouped,
@@ -301,14 +302,14 @@ impl Said {
     /// actions they read say of `design`'s tokens.
     /// `declared`: the app's fonts, which a font row is judged with;
     /// `typing`: the root's scope and the file's shapes, which type and
-    /// judge a computed row as lowering does.
+    /// judge a computed row as lowering does; a `for` or `match` arm's
+    /// typing pushes its names on it as lowering does.
     pub(crate) fn of(
         file: &File,
         root: &Component,
         design: &Design,
         declared: &std::sync::Arc<super::rows::Declared>,
         typing: &super::rows::Typing,
-        scope: &contract_types::Scope,
     ) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
@@ -335,8 +336,10 @@ impl Said {
         // as lowering's `svg::in_svg` reads them (an SVG element's rows are
         // renamed and coerced first, `svg::coerce_lengths`: `fePointLight x`
         // is the prop `lightX`, a unitless `rect x` a number); and whether a
-        // `for` or a `match` binds a name around it, which the root's scope
-        // does not type.
+        // typing of the `for` or `match` arm around it, its names pushed as
+        // lowering pushes them (`Scope::push_each_of`, `push_some_of`,
+        // `push_none`), or none where the subject's type isn't known by its
+        // form (`rows::typed`): there the region's rows are the build's.
         // A grouped list's label folded from an `if` chain of texts
         // (`grouped::folds`) holds one text lowering builds anew, at its
         // first arm's place: the chain's rows are left to the build
@@ -344,13 +347,22 @@ impl Said {
         let mut lowered = std::collections::HashMap::new();
         order(&root.view, &mut lowered);
         let mut unjudged: std::collections::HashSet<Span> = Default::default();
-        let mut stack: Vec<(&Node, Around)> =
-            root.view.iter().map(|n| (n, Around::default())).collect();
+        let mut stack: Vec<(&Node, Around)> = root
+            .view
+            .iter()
+            .map(|n| {
+                let around = Around {
+                    typing: Some(typing.clone()),
+                    ..Around::default()
+                };
+                (n, around)
+            })
+            .collect();
         while let Some((node, around)) = stack.pop() {
             let Around {
                 svg,
                 parent,
-                local,
+                typing: here,
                 left,
                 within,
                 grouped,
@@ -450,9 +462,10 @@ impl Said {
                     // applies it, and may be overridden there).
                     // A font row with its node's fonts, or not at all when
                     // they aren't known (an unknown class, the build's). A
-                    // computed row with its type and the root's typing, or
-                    // not at all when a local name is around (its scope is
-                    // the region's) or its form doesn't say its type.
+                    // computed row with its type and the typing of the arm
+                    // around it (the root's outside any), or not at all when
+                    // that arm isn't typed or the row's form doesn't say its
+                    // type.
                     let mut fonts = None;
                     // A module tag's row lowering refuses is never judged
                     // (`native::refused`, before any check of it).
@@ -464,8 +477,10 @@ impl Said {
                     }) {
                         let computed = match super::rows::kept(r) {
                             Some(false) => None,
-                            Some(true) if !local => match super::rows::typed(&r.value, scope) {
-                                Some(ty) => Some((ty, typing.clone())),
+                            Some(true) => match here.as_ref().and_then(|t| {
+                                super::rows::typed(&r.value, t).map(|ty| (ty, t.clone()))
+                            }) {
+                                Some(typed) => Some(typed),
                                 None => continue,
                             },
                             _ => continue,
@@ -503,8 +518,8 @@ impl Said {
                     // rows and sheet; a `button`'s, which `button_appearance`
                     // reads first, a native one refusing rows of its own; an
                     // `audio`'s `display`; a row a `delete=` swipe expands,
-                    // whose rows go before the class's), and one a `for` or
-                    // `match` binds a name around. A style row applied at any
+                    // whose rows go before the class's), and one in a `for`
+                    // or `match` arm that isn't typed. A style row applied at any
                     // such element is the build's at every element (`unjudged`,
                     // below): there it may be the build's first refusal of it,
                     // in its words.
@@ -513,7 +528,7 @@ impl Said {
                         .find(|r| r.name == "class")
                         .is_some_and(|c| matches!(c.value, Expr::Ident(..)));
                     let class_left = left
-                        || local
+                        || here.is_none()
                         || !plain_class
                         || in_svg
                         || tag == "svg"
@@ -559,8 +574,10 @@ impl Said {
                         }
                         let computed = match super::rows::kept(r) {
                             Some(false) => None,
-                            Some(true) => match super::rows::typed(&r.value, scope) {
-                                Some(ty) => Some((ty, typing.clone())),
+                            Some(true) => match here.as_ref().and_then(|t| {
+                                super::rows::typed(&r.value, t).map(|ty| (ty, t.clone()))
+                            }) {
+                                Some(typed) => Some(typed),
                                 None => continue,
                             },
                             _ => continue,
@@ -605,7 +622,7 @@ impl Said {
                     let inner = Around {
                         svg: inside,
                         parent: Some(tag.as_str()),
-                        local,
+                        typing: here,
                         left,
                         within,
                         grouped,
@@ -613,23 +630,61 @@ impl Said {
                     };
                     stack.extend(children.iter().map(|c| (c, inner.clone())));
                 }
+                // An `if`'s arms push a frame binding nothing, as lowering's do.
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, around.clone()))),
-                Node::Each { body, .. } => {
+                } => {
+                    let arm = Around {
+                        typing: here.as_ref().map(|t| t.pushed(|s| s.push_none())),
+                        ..around.clone()
+                    };
+                    stack.extend(then.iter().chain(otherwise).map(|c| (c, arm.clone())))
+                }
+                // A `for`'s item, and its position when named, typed as
+                // lowering types them from the list's type; a `match`'s
+                // binding in its `some` arm, and the frame its `none` arm
+                // pushes (binding nothing). A subject whose type isn't known
+                // by its form leaves the whole region untyped, the `none`
+                // arm too: the build lowers the `some` arm first, and its
+                // refusal there would be the build's first (Grok's round 1).
+                Node::Each {
+                    var,
+                    index,
+                    list,
+                    body,
+                    ..
+                } => {
+                    let typing = here.as_ref().and_then(|t| {
+                        let list = super::rows::typed(list, t)?;
+                        Some(t.pushed(|s| s.push_each_of(var, index.as_deref(), list)))
+                    });
                     let bound = Around {
-                        local: true,
+                        typing,
                         ..around.clone()
                     };
                     stack.extend(body.iter().map(|c| (c, bound.clone())))
                 }
-                Node::Match { some, none, .. } => {
-                    let bound = Around {
-                        local: true,
+                Node::Match {
+                    subject,
+                    some,
+                    none,
+                    ..
+                } => {
+                    let subject = here
+                        .as_ref()
+                        .and_then(|t| Some((t, super::rows::typed(subject, t)?)));
+                    let some_arm = Around {
+                        typing: subject
+                            .clone()
+                            .map(|(t, ty)| t.pushed(|s| s.push_some_of(&some.0, ty))),
                         ..around.clone()
                     };
-                    stack.extend(some.1.iter().map(|c| (c, bound.clone())));
-                    stack.extend(none.iter().map(|c| (c, around.clone())));
+                    let none_arm = Around {
+                        typing: subject.map(|(t, _)| t.pushed(|s| s.push_none())),
+                        ..around.clone()
+                    };
+                    stack.extend(some.1.iter().map(|c| (c, some_arm.clone())));
+                    stack.extend(none.iter().map(|c| (c, none_arm.clone())));
                 }
                 // An uninlined `use` is lowering's refusal, its children
                 // never lowered.

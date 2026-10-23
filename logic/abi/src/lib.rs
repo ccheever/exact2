@@ -6,14 +6,14 @@ use exact_plan::{
     Plan, Value,
 };
 use exact_runner::{
-    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Overlaid, Redirect,
-    Request, Response, Store, SurfaceOutcome, SurfaceRequest, Write,
+    Answer, DataError, DataSource, FailureKind, HttpScheduling, LongPoll, Outcome, Overlaid,
+    Redirect, Request, Response, Store, SurfaceOutcome, SurfaceRequest, Write,
 };
 
 pub mod draw;
 
 /// Seam version, independent of the plan format version.
-pub const ABI: u32 = 3;
+pub const ABI: u32 = 4;
 /// Maximum request or response bytes, enforced on both sides.
 pub const MAX_MESSAGE: usize = exact_runner::MAX_HOST_WORK_BYTES;
 
@@ -280,6 +280,20 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
 }
 fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
     match result {
+        // A long poll that is no stream's independent GET, or with bad terms (LLP
+        // 1016.000 D8), is refused before it crosses, ahead of every other kind.
+        Ok(Answer::Later(r))
+            if r.long_poll.is_some()
+                && (r.long_poll_refusal().is_some()
+                    || r.storage.is_some()
+                    || r.http == HttpScheduling::Ordered) =>
+        {
+            let why = r
+                .long_poll_refusal()
+                .unwrap_or("exactLongPoll: a long poll is a stream's independent HTTP request")
+                .to_string();
+            encode_result(w, Err(DataError::Unavailable(why)))
+        }
         Ok(Answer::Later(r))
             if (r.storage.is_some() || r.continuation.is_some() || r.surface.is_some())
                 && r.http != HttpScheduling::Ordered =>
@@ -297,6 +311,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w,
             Err(DataError::Unavailable(
                 "a request timeout cannot cross the Rust module seam".into(),
+            )),
+        ),
+        // Nor a held mark (LLP 1016.000 D9): refused, never silently waited on.
+        Ok(Answer::Later(r)) if r.held => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "a held request cannot cross the Rust module seam yet".into(),
             )),
         ),
         // Nor has it a file body (LLP 1108 D6 R2): refused, never sent empty.
@@ -357,11 +378,17 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
         {
             // Additive HTTP result kind. Older hosts reject tag 6 before
             // executing effects; it must never silently decode as ordered.
-            // A stream (tag 9) is always independent (LLP 1016.000).
+            // A stream (tag 9) is always independent (LLP 1016.000); a long
+            // poll (tag 10, D8) is a stream with its terms after the body.
+            let poll = r.long_poll.as_ref().filter(|_| r.stream);
             match r.http {
                 HttpScheduling::Ordered => w.u8(1),
                 HttpScheduling::Independent { max_response_bytes } => {
-                    w.u8(if r.stream { 9 } else { 6 });
+                    w.u8(match (r.stream, poll) {
+                        (true, Some(_)) => 10,
+                        (true, None) => 9,
+                        _ => 6,
+                    });
                     w.u32(max_response_bytes);
                 }
             }
@@ -371,6 +398,11 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w.string(&r.url);
             pairs(w, &r.headers);
             bytes(w, &r.body);
+            if let (Some(p), HttpScheduling::Independent { .. }) = (poll, r.http) {
+                w.string(&p.cursor);
+                w.string(&p.from);
+                w.u8(u8::from(p.same_cursor_event));
+            }
         }
         Ok(Answer::Later(r)) if r.continuation.is_some() => encode_result(
             w,
@@ -404,41 +436,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
     let tag = r.u8().map_err(error)?;
     Ok(match tag {
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
-        1 | 6 | 9 => Ok(Answer::Later(Request {
-            stream: tag == 9,
-            socket: false,
-            bytes: false,
-            timeout_ms: None,
-            body_from: None,
-            redirect: Redirect::Follow,
-            http: if tag != 1 {
-                let limit = r.u32().map_err(error)?;
-                if limit == 0 || limit > 64 << 20 {
-                    return Err("invalid independent HTTP response limit".into());
-                }
-                HttpScheduling::Independent {
-                    max_response_bytes: limit,
-                }
-            } else {
-                HttpScheduling::Ordered
-            },
-            continuation: None,
-            storage: None,
-            surface: None,
-            grants: {
-                let present = r.u8().map_err(error)?;
-                let s = r.string().map_err(error)?;
-                match present {
-                    0 => None,
-                    1 => Some(s),
-                    _ => return Err("invalid grant scope tag".into()),
-                }
-            },
-            method: r.string().map_err(error)?,
-            url: r.string().map_err(error)?,
-            headers: read_pairs(r)?,
-            body: read_bytes(r)?.to_vec(),
-        })),
+        1 | 6 | 9 | 10 => Ok(Answer::Later(read_http(r, tag)?)),
         5 => {
             let payload = read_bytes(r)?.to_vec();
             let present = r.u8().map_err(error)?;
@@ -476,6 +474,64 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         4 => Err(DataError::Unavailable(r.string().map_err(error)?)),
         _ => return Err("invalid result tag".into()),
     })
+}
+
+/// An HTTP result's request (tags 1, 6, 9 and 10): a stream's, a long poll's
+/// terms after its body (LLP 1016.000 D8).
+fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
+    let mut request = Request {
+        stream: tag >= 9,
+        socket: false,
+        bytes: false,
+        long_poll: None,
+        timeout_ms: None,
+        body_from: None,
+        redirect: Redirect::Follow,
+        held: false,
+        http: if tag != 1 {
+            let limit = r.u32().map_err(error)?;
+            if limit == 0 || limit > 64 << 20 {
+                return Err("invalid independent HTTP response limit".into());
+            }
+            HttpScheduling::Independent {
+                max_response_bytes: limit,
+            }
+        } else {
+            HttpScheduling::Ordered
+        },
+        continuation: None,
+        storage: None,
+        surface: None,
+        grants: {
+            let present = r.u8().map_err(error)?;
+            let s = r.string().map_err(error)?;
+            match present {
+                0 => None,
+                1 => Some(s),
+                _ => return Err("invalid grant scope tag".into()),
+            }
+        },
+        method: r.string().map_err(error)?,
+        url: r.string().map_err(error)?,
+        headers: read_pairs(r)?,
+        body: read_bytes(r)?.to_vec(),
+    };
+    if tag == 10 {
+        let (cursor, from) = (r.string().map_err(error)?, r.string().map_err(error)?);
+        let same = r.u8().map_err(error)?;
+        if same > 1 {
+            return Err("invalid long poll terms".into());
+        }
+        request.long_poll = Some(Box::new(LongPoll {
+            cursor,
+            from,
+            same_cursor_event: same == 1,
+        }));
+        if let Some(why) = request.long_poll_refusal() {
+            return Err(why.into());
+        }
+    }
+    Ok(request)
 }
 
 /// Decode identity exported by the actual instantiated module.

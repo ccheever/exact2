@@ -88,7 +88,9 @@ extension NodeView {
         // Worker surfaces encode ordinary lines only. Clear their key before
         // changing eligibility, including when an exclusion is removed.
         dropTextRaster()
+        let wasEmpty = flowShapes.isEmpty
         flowShapes = wire.compactMap(TextFlowShape.init)
+        if wasEmpty != flowShapes.isEmpty { cachedTextSpec = nil }
         cachedTextLayout = nil
         #if os(macOS)
         needsDisplay = true
@@ -207,13 +209,16 @@ extension NodeView {
         if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
             for i in runs.indices { runs[i].propagate(lines, color: ink) }
         }
+        var strut = InlineText.run("", style: style, href: props["href"] ?? "", dark: night,
+                                   contrast: contrast, elevated: elevated, tint: tint)
         // So do the lines of the boxes it stands in, each in that box's colour.
         for (lines, color) in decoratingAncestors(dark: night) {
             for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
+            strut.propagate(lines, color: color ?? ink)
         }
-        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
+        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
-                                  language: presenter?.documentLanguage ?? "")
+                                  language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty)
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

@@ -2,7 +2,7 @@
 // held proposals reviewed there (split from design-tool.test.mjs, two of its heaviest drives, so a lane
 // runs them beside the others).
 import { expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -44,8 +44,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
       // The tool's follow task (a commit later) runs on a moving clock, and its read of the file the rename wrote
       // reloads the branch panel, and with it the dialog, were it open: `clock +1` runs it if it is due, and no op
       // moves the clock between opening the dialog and confirming, so a changes answer that comes later arms it
-      // only to run after. (Not `clock settle`: follow re-arms on each answer of the changes poll, so a settle
-      // spends its 16 rounds on it, about 25 s each.)
+      // only to run after.
       'clock +1', 'clock data', 'tap remove', 'tap confirm-remove-yes', 'clock +1', 'clock data', 'tap apply', 'clock data',
       // The unformatted line itself, edited and undone.
       'clock +1', 'clock data', 'tap cell-text.primary-0-light', 'clock data', 'type branch-value light-dark(#000000, #e7e9ea)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data',
@@ -167,6 +166,32 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(now).not.toContain('#fefefe');
     expect(now).toContain('accent.fill = #2070f0');
     expect(now).not.toContain('accent.fill = #3070f0');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('Back to the default right after Set for this app on a package param is accepted the first time (the second pass\'s #9)', async () => {
+  // Inside the checkout, where `@exact/cards` resolves as it does for apps/library-gate.
+  const app = mkdtempSync(join(ROOT, 'target', 'design-tool-library-'));
+  cpSync(resolve(ROOT, 'apps/library-gate'), app, { recursive: true });
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const unsets = [];
+  const tool = await proxied(app, request => { if (request.method === 'propose' && request.ops?.some(o => o.op === 'unset-param')) unsets.push(request.ops); });
+  try {
+    await drive(tool.url, `design-tool-library-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      // Set for this app: written by the full name, as an exported library component's param is.
+      'type dial-@exact/cards/post-card.contract#PostCard.surface-field #ff3366', 'type dial-@exact/cards/post-card.contract#PostCard.surface-field key Enter', 'clock data', 'tap apply', 'clock data',
+      // The write's push read again (a design read follows it), then Back to the default at once.
+      'clock +1', 'clock held', 'tap param-PostCard.surface-reset', 'clock data', 'tap apply', 'clock data',
+    ]);
+    expect(tool.writes.map(w => [w.method, w.ok, w.error ?? null])).toEqual([['transaction', true, null], ['transaction', true, null]]);
+    expect(tool.writes[0].after).toContain('@exact/cards/post-card.contract#PostCard.surface = #ff3366');
+    // Proposed once: a refusal (the pass saw a 400) would have the tool propose it again.
+    expect(unsets.length).toBe(1);
+    expect(tool.writes[1].after).toBe(original);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

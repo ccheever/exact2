@@ -5,8 +5,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, ut
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, installedAlready, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard } from './devices.mjs';
-import { spawn } from 'node:child_process';
+import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, installedAlready, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard, replacedNote, keepInstalledRelease } from './devices.mjs';
+import { spawn, spawnSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
 
@@ -559,4 +559,52 @@ test('a page capture with no glass in it reads nothing of the display', async ()
 test('an iOS drive passes EXACT_STORE on to the app it launches, and nothing else of its environment', () => {
   expect(forwardedEnv({ EXACT_STORE: 'real', HOME: '/h' })).toEqual({ EXACT_STORE: 'real' });
   expect(forwardedEnv({ HOME: '/h' })).toEqual({});
+});
+
+
+test('both Release reinstall notes preserve spaces and apostrophes as one shell argument', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'devices-reinstall-'));
+  const keys = ['PATH', 'DEVELOPER_DIR', 'AA_INSTALLED_APP', 'AA_INSTALL_CALLS', 'AA_ARGUMENTS'];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const calls = resolve(dir, 'calls'), argumentsFile = resolve(dir, 'arguments.json');
+  try {
+    writeFileSync(resolve(dir, 'xcrun'), `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+if (args[1] === 'install') writeFileSync(process.env.AA_ARGUMENTS, JSON.stringify(args));
+else if (args[1] === 'get_app_container') {
+  let count = 0; try { count = Number(readFileSync(process.env.AA_INSTALL_CALLS, 'utf8')); } catch {}
+  writeFileSync(process.env.AA_INSTALL_CALLS, String(count + 1));
+  if (count % 2 === 0) process.exit(1);
+  console.log(process.env.AA_INSTALLED_APP);
+} else process.exit(2);
+`);
+    writeFileSync(resolve(dir, 'cp'), `#!${process.execPath}
+import { cpSync } from 'node:fs';
+cpSync(process.argv.at(-2), process.argv.at(-1), {recursive: true});
+`);
+    for (const name of ['xcrun', 'cp']) chmodSync(resolve(dir, name), 0o755);
+    process.env.PATH = `${dir}:${saved.PATH}`;
+    process.env.AA_INSTALL_CALLS = calls;
+    process.env.AA_ARGUMENTS = argumentsFile;
+    for (const name of ['Plain Notes', "Charlie's Notes"]) {
+      const installed = resolve(dir, 'installed', `${name}.app`), release = resolve(dir, 'release', `${name}.app`);
+      mkdirSync(installed, {recursive: true}); mkdirSync(release, {recursive: true});
+      writeFileSync(resolve(installed, 'receipt.json'), JSON.stringify({build: {trust: 'production'}}));
+      process.env.AA_INSTALLED_APP = installed;
+      const fromBuild = replacedNote('U1', {id: 'com.example.notes'}, {what: 'Release'}, release).split('put it back with ')[1];
+      const kept = keepInstalledRelease('U1', 'com.example.notes', resolve(dir, 'development'), 'Notes', {records: resolve(dir, 'records', name)});
+      const fromDrive = kept.note.split('Put it back with: ')[1];
+      const copy = resolve(dir, 'records', name, 'U1-com.example.notes', `${name}.app`);
+      expect(existsSync(resolve(copy, 'receipt.json'))).toBe(true);
+      for (const [command, path] of [[fromBuild, release], [fromDrive, copy]]) {
+        const ran = spawnSync('/bin/sh', ['-c', command], {encoding: 'utf8'});
+        expect(ran.status).toBe(0);
+        expect(JSON.parse(readFileSync(argumentsFile, 'utf8'))).toEqual(['simctl', 'install', 'U1', path]);
+      }
+    }
+  } finally {
+    for (const key of keys) if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+    rmSync(dir, {recursive: true, force: true});
+  }
 });

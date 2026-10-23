@@ -805,6 +805,11 @@
         "check": {
           "type": "object",
           "properties": {
+            "interval": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Seconds between foreground update checks; defaults to 900 under every activation policy."
+            },
             "background": {
               "type": "boolean"
             }
@@ -987,6 +992,18 @@
         "type": "array",
         "minItems": 1,
         "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "server": {
+      "type": "object",
+      "description": "The app's own server, started for tests, verification and agent drives.",
+      "additionalProperties": false,
+      "properties": {
+        "database": {
+          "type": "boolean",
+          "default": true,
+          "description": "False declares that the server keeps no database: DB is omitted and no scratch database is created or removed. Otherwise its entry or an imported module must read the database path from DB."
+        }
       }
     },
     "tamber": {

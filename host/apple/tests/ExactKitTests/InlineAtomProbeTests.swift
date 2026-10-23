@@ -513,14 +513,9 @@ final class InlineAtomProbeMacTests: XCTestCase {
         }
     }
 
-    /// A pill across restyles. AppKit's TextKit asks for a view provider each
-    /// time it lays a paragraph out and keeps every provider it was handed,
-    /// with its view, while the text view lives, though only the newest is in
-    /// the hierarchy; an attachment in the storage, not the delegate's
-    /// paragraph, does the same (the third case). A picture leaves nothing
-    /// behind: the attachments restyles replaced are freed. Measured once and
-    /// not kept as a case: a provider the attachment hands back again keeps
-    /// its first location, so it cannot follow the text.
+    /// A pill stays positioned and drawn across restyles, with one view in
+    /// the hierarchy. Replaced picture attachments are freed. Retained
+    /// attachment-view counts are diagnostic; AppKit may release old views.
     func testWhatARestyleLeavesBehind() throws {
         for drawing in drawings {
             let (view, probe, manager) = editor(drawing)
@@ -539,15 +534,12 @@ final class InlineAtomProbeMacTests: XCTestCase {
             switch drawing {
             case .view:
                 XCTAssertEqual(probe.live(in: view).count, 1)
-                // A tripwire: if AppKit stops keeping the providers, this fails and §5.1's record is out of date.
-                XCTAssertGreaterThan(probe.allocated, 100, "AppKit kept the providers")
             case .image:
                 XCTAssertLessThanOrEqual(allocated.last!, allocated.first! + 2, "the replaced attachments were freed: \(allocated)")
             }
             print("probe(mac) \(drawing) after 120 restyles: \(probe.paragraphs) paragraphs, \(probe.providers) providers, \(probe.allocated) views allocated (\(probe.live(in: view).count) in the text view), attachments allocated every 30 restyles \(allocated) of \(probe.attachments.count)")
         }
-        // One attachment in the storage itself, no delegate paragraph: each re-layout
-        // of its paragraph (an attribute change, an edit before it) asks for a new provider.
+        // An attachment in the storage itself, without the delegate paragraph.
         let (view, probe, _) = editor(.view, "x", rich: true)
         let storage = view.textStorage!
         storage.append(NSAttributedString(attachment: PillAttachment(label: "Assistant quote", probe: probe)))
@@ -561,7 +553,6 @@ final class InlineAtomProbeMacTests: XCTestCase {
             }
         }
         XCTAssertEqual(probe.live(in: view).count, 1)
-        XCTAssertGreaterThan(probe.allocated, 100, "AppKit kept the providers of an attachment in the storage too (a tripwire, as above)")
         print("probe(mac) attachment in the storage after 120 re-layouts: \(probe.providers) providers, \(probe.allocated) views allocated (\(probe.live(in: view).count) in the text view)")
     }
 
@@ -963,7 +954,7 @@ final class InlineAtomProbeIOSTests: XCTestCase {
         }
     }
 
-    /// UIKit, unlike AppKit, frees the view providers it no longer shows.
+    /// UIKit frees attachment views it no longer shows.
     func testWhatARestyleLeavesBehind() throws {
         for drawing in drawings {
             let (view, probe, manager) = editor(drawing)

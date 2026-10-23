@@ -89,3 +89,37 @@ fn a_comparison_sticky_inset_resolves_against_the_scrollport() {
     let c = k.sticky_constraint(k.arena().key_of(2).unwrap()).unwrap();
     assert_eq!(c.insets[0], Some(20.0));
 }
+
+#[test]
+fn sticky_end_edges_follow_measured_scrollbar_gutters() {
+    use exact_kernel::{HostCover, Offer};
+    let nodes = vec![
+        (2, 1, css_rows("display:flex;justify-content:flex-end;align-items:flex-end;width:600px;height:600px")),
+        (3, 2, css_rows("position:sticky;right:0;bottom:0;width:50px;height:50px")),
+    ];
+    let mut k = lay_out_with(
+        props(&css_rows("width:300px;height:200px;overflow:scroll")),
+        nodes,
+        &[],
+        &[],
+    );
+    let sticky = k.arena().key_of(3).unwrap();
+    for [right, bottom] in [
+        [0.0, 0.0],
+        [15.0, 0.0],
+        [0.0, 15.0],
+        [15.0, 15.0],
+        [0.0, 0.0],
+    ] {
+        k.set_host_cover(1, Some(HostCover::Gutter([right, bottom])))
+            .unwrap();
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        let c = k.sticky_constraint(sticky).unwrap();
+        assert_eq!(c.port, [0.0, 0.0, 300.0 - right, 200.0 - bottom]);
+        for scroll in [(0.0, 0.0), (30.0, 20.0)] {
+            let (dx, dy) = c.offset(scroll);
+            assert_eq!(c.natural[2] + dx - scroll.0, 300.0 - right);
+            assert_eq!(c.natural[3] + dy - scroll.1, 200.0 - bottom);
+        }
+    }
+}

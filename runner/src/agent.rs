@@ -22,6 +22,7 @@ use std::fmt::Write as _;
 
 mod lineage;
 mod looks;
+mod pending;
 mod row;
 /// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
 pub use row::row_json;
@@ -50,6 +51,13 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
+        // A polled module source's ask in flight (LLP 1133.009 D10 item 7):
+        // what a jump waits for before it replies.
+        Some("polls") => format!("{{\"asking\":{}}}", runner.polls_asking()),
+        // The requests the server holds and the replies landed for them (LLP
+        // 1016.000 D9): what `clock held` polls and a clock reply names,
+        // cheaper than `state`.
+        Some("held") => pending::held(runner),
         Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
@@ -115,7 +123,7 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
 /// The kernel's half of `layout agree` (LLP 1080.001 D2), a private
 /// message: `{"op":"frames","limit":N}` answers every live node in preorder
 /// as `[id, parent|null, x, y, w, h, bits]` — the parent-relative frame a
-/// host is sent — with bit 1 for the node's own `display: none`, 2 for an
+/// host is sent, a block's root's in its block — with bit 1 for the node's own `display: none`, 2 for an
 /// own transform row (`translate`, `translate_z`, `rotate`, `rotate_axis`,
 /// `scale`, `transform`) whose value is not the initial one (`scale: 1`,
 /// `translate: 0`, `transform: none` move nothing), 4 for a frame the host owns rather than the
@@ -164,8 +172,10 @@ pub fn frames<D: DataSource>(
         }
         count += 1;
         let f = node.frame;
+        // A block's root is in its block's space, not its parent's.
         let (px, py) = node
             .parent
+            .filter(|_| kernel.host_block(id).is_none())
             .and_then(|p| kernel.node(p))
             .map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
         let mut bits = 0u32;
@@ -840,40 +850,9 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
-    s.push_str(",\"pending\":[");
-    let in_flight = runner.in_flight();
-    for (i, (name, ticket)) in in_flight.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(name, &mut s);
-        let _ = write!(s, ",\"ticket\":{ticket}}}");
-    }
-    // Held device requests, after the network's (LLP 1069.007 D3): each
-    // with its capability and that capability's inspection summary.
-    let network = in_flight.len();
-    for (i, hold) in runner.device_holds().iter().enumerate() {
-        if i > 0 || network > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(&hold.name, &mut s);
-        let _ = write!(
-            s,
-            ",\"ticket\":{},\"device\":{{\"capability\":",
-            hold.ticket
-        );
-        quote(&hold.capability, &mut s);
-        s.push_str(",\"args\":");
-        if hold.args.starts_with('{') && hold.args.ends_with('}') {
-            s.push_str(&hold.args);
-        } else {
-            s.push_str("{}");
-        }
-        s.push_str("}}");
-    }
-    s.push_str("],");
+    s.push(',');
+    pending::state(runner, &mut s);
+    s.push(',');
     streams::state(runner, &mut s);
     // Native modules, as the runner answers them (LLP 1133.002 §6).
     if let Some(extensions) = runner.extensions_json() {

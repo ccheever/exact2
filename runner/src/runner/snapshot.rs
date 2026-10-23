@@ -61,6 +61,7 @@ impl<D: DataSource> Runner<D> {
                         // stage-1 snapshot owner. JS file reads use continuations
                         // whose storage context was endowed read-only before load.
                         if request.stream
+                            || request.long_poll.is_some()
                             || request.surface.is_some()
                             || request.storage.is_some()
                             || (request.continuation.is_none()

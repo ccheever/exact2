@@ -4,9 +4,30 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 import { placeReporter } from '../host/web/navigation.js';
+
+test('simulator drives reject --phone and preserve explicit --sim selection', () => {
+  for (const host of ['ios', 'host-ios']) {
+    expect(() => parseFlags([host, '--phone', 'other-lane', 'tree'])).toThrow('--phone needs --device; for a simulator use --sim');
+    expect(parseFlags([host, '--sim', 'our-lane', 'tree']).flags.sim).toBe('our-lane');
+  }
+  expect(parseFlags(['ios', '--device', '--phone', 'phone', 'tree']).flags.phone).toBe('phone');
+  expect(parseFlags(['trace', '--phone', 'phone']).flags.phone).toBe('phone');
+});
+
+test('polling host I/O waits for a cold guest and bounds a hung guest', async () => {
+  let time = 0, reads = 0;
+  const clock = { now: () => time, pause: async ms => { time += ms; } };
+  const loaded = await pollUntil(() => ({ loading: time < 2500 }), value => !value.loading, clock);
+  expect(loaded.loading).toBe(false);
+  expect(time).toBe(2500);
+  time = 0;
+  const stuck = await pollUntil(() => ({ loading: true, read: ++reads }), value => !value.loading, { ...clock, bound: 100 });
+  expect(time).toBe(100);
+  expect(stuck).toEqual({ loading: true, read: 3 });
+});
 
 // The Region's format apart from the language (`exactTime().formatLocale`): unsaid, no host is told one and each
 // answers the locale; said, it reaches the native hosts' environment and the page, as the fourth place field.
@@ -454,6 +475,150 @@ const other = 'http://127.0.0.1:4400';`;
   for (const value of ['file:///tmp/a', 'https://user:pw@backend.example', 'http://backend.example/path', ''])
     expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
   expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
+});
+
+test('backend selection moves the socket at the origin\'s host in plain grants', async () => {
+  const {injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const code = `export const origin = 'http://127.0.0.1:4790';
+export const grants = [\`net.fetch \${origin}\`, 'net.websocket ws://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:9999'].join('\\n');`;
+  const grants = (to) => staticFacts(injectBackendOrigin(code, to, parseSync), parseSync).grants.split('\n');
+  expect(staticFacts(code, parseSync).grants.split('\n')).toEqual(['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:9999']);
+  expect(grants('http://127.0.0.1:5000')).toEqual(['net.fetch http://127.0.0.1:5000', 'net.websocket ws://127.0.0.1:5000', 'net.websocket ws://127.0.0.1:9999']);
+  expect(grants('https://staging.example')).toEqual(['net.fetch https://staging.example', 'net.websocket wss://staging.example', 'net.websocket ws://127.0.0.1:9999']);
+  expect(() => injectBackendOrigin("const origin = 'http://a.example'; export const grants = `net.fetch ${origin}\\nnet.websocket ws://a.example`;", 'http://b.example', parseSync))
+    .toThrow(/net.websocket line at its host as a string of its own/);
+});
+
+const backendGrants = `export const origin = 'http://127.0.0.1:4790';
+export const grants = {
+  'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790', 'secret.keep fixture-token'],
+  'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg', 'secret.keep discord-token'],
+  'https://offline.example': 'secret.keep offline-token'
+};`;
+
+test('keyed grants select an exact origin and become the string native evaluation reads', async () => {
+  const {backendOrigin, injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  for (const [selection, expected] of [
+    [null, ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790', 'secret.keep fixture-token']],
+    [backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://discord.com/'}), ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg', 'secret.keep discord-token']],
+    ['https://offline.example', ['secret.keep offline-token']],
+  ]) {
+    const code=injectBackendOrigin(backendGrants,selection,parseSync);
+    const init=parseSync('app.ts',code).program.body[1].declaration.declarations[0].init;
+    expect(init.type).toBe('Literal');
+    expect(init.value).toBe(expected.join('\n'));
+    const facts=staticFacts(code,parseSync);
+    expect(facts.grants).toBe(expected.join('\n'));
+    const evaluated=new Function(code.replace(/^export /gm,'')+'\nreturn {origin,grants};')();
+    expect(evaluated.grants).toBe(facts.grants);
+    expect(evaluated.origin).toBe(selection ?? 'http://127.0.0.1:4790');
+  }
+  for (const [code, selection] of [[backendGrants,'https://missing.example'], [backendGrants.replace("origin = 'http://127.0.0.1:4790'", "origin = 'https://missing.example'"),null]]) {
+    expect(() => injectBackendOrigin(code,selection,parseSync)).toThrow('app.ts:2:23: grants: no entry for origin "https://missing.example"; keys: "http://127.0.0.1:4790", "https://discord.com", "https://offline.example"');
+  }
+});
+
+test('keyed grants name each origin once, as written canonically, and any spelling of the origin finds it', async () => {
+  const {injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const table = (origin, keys) => `export const origin = '${origin}';\nexport const grants = {\n${keys.map(k => `  ${JSON.stringify(k)}: 'secret.keep ${k.length}',`).join('\n')}\n};`;
+  // A key that is not already its origin is refused, with what to write; so is a second spelling of one origin.
+  for (const [key, canonical] of [['https://api.example.com:443', 'https://api.example.com'], ['https://api.example.com/', 'https://api.example.com'],
+    ['https://API.example.com', 'https://api.example.com'], ['http://127.0.0.1:80', 'http://127.0.0.1']]) {
+    for (const keys of [[key], ['https://api.example.com', key]])
+      expect(() => injectBackendOrigin(table('https://api.example.com', keys), null, parseSync))
+        .toThrow(`grants: write the origin key ${JSON.stringify(key)} as ${JSON.stringify(canonical)}`);
+  }
+  // The literal or the selection, in any spelling of the origin, finds its one entry.
+  for (const [literal, selection] of [['https://api.example.com:443', null], ['https://api.example.com', null],
+    ['http://127.0.0.1:4790', 'https://api.example.com'], ['https://API.example.com', null]]) {
+    const code = injectBackendOrigin(table(literal, ['https://api.example.com', 'http://127.0.0.1:4790']), selection, parseSync);
+    expect(staticFacts(code, parseSync).grants).toBe(`secret.keep ${'https://api.example.com'.length}`);
+  }
+});
+
+test('keyed grants refuse every nonliteral form by name and place, even in an unselected entry', async () => {
+  const {injectBackendOrigin} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const invalid = [
+    ["'https://discord.com': value", 'Identifier'],
+    ["'https://discord.com': `secret.keep token`", 'TemplateLiteral'],
+    ["['https://discord.com']: 'secret.keep token'", 'computed keys'],
+    ["...other", 'spread entries'],
+    ["'http://127.0.0.1:4790': ''", 'duplicate key'],
+    ["'https://discord.com'() { return ''; }", 'methods'],
+    ["get 'https://discord.com'() { return ''; }", 'accessors'],
+    ["origin: ''", 'string literal origin key'],
+    ["origin", 'string literal origin key'],
+    ["42: ''", 'string literal origin key'],
+    ["'https://discord.com': [value]", 'Identifier'],
+    ["'https://discord.com': [`secret.keep token`]", 'TemplateLiteral'],
+    ["'https://discord.com': [...other]", 'SpreadElement'],
+    ["'https://discord.com': [,]", 'array hole'],
+    ["'https://discord.com': ['a' + 'b']", 'BinaryExpression'],
+    ["'https://discord.com': 'a\\nb'", 'one grant line'],
+    ...['not-an-origin','ws://discord.com','https://discord.com/path','https://user:pw@discord.com','https://discord.com?query','https://discord.com#fragment']
+      .map(key=>[`${JSON.stringify(key)}: ''`, 'http(s) origin']),
+  ];
+  for (const [entry, message] of invalid) for (const selection of [null,'https://discord.com']) {
+    const code=`export const origin = 'http://127.0.0.1:4790';\nexport const grants = { 'http://127.0.0.1:4790': '',\n  ${entry}\n};`;
+    expect(parseSync('app.ts',code).errors).toEqual([]);
+    const attempt=()=>injectBackendOrigin(code,selection,parseSync);
+    expect(attempt).toThrow(/app.ts:3:\d+: grants/);
+    expect(attempt).toThrow(message);
+  }
+});
+
+test('static facts preserve numeric addition and string concatenation, and refuse conditionals', async () => {
+  const {staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  for (const [expression, expected] of [
+    ["'a' + 1 + 2",'a12'], ["1 + 2 + 'a'",'3a'],
+    ['`sum ${1 + 2}`','sum 3'], ["[1 + 2, 'a' + 1 + 2].join('\\n')",'3\na12'],
+    ['`${sum}`','3'], ['([1, 2] as const).join()', '1,2'],
+  ]) {
+    const code=`const sum = 1 + 2; export const grants = ${expression};`;
+    expect(staticFacts(code,parseSync).grants).toBe(expected);
+  }
+  // Grants that fold to a number are refused rather than handed on as one.
+  for (const [expression, value] of [['1', 1], ['1 + 2', 3], ['sum', 3]])
+    expect(() => staticFacts(`const sum = 1 + 2; export const grants = ${expression};`,parseSync)).toThrow(`grants must be a string; it is the number ${value}`);
+  for (const test of ["1 === '1'",'1 + 2 === 3',"1 !== '1'",'1 < 2']) {
+    expect(() => staticFacts(`export const grants = ${test} ? 'a' : 'b';`,parseSync))
+      .toThrow('app.ts:1:23: grants must be a constant the build reads without running the module');
+  }
+});
+
+test('keyed grants type-check in the rewritten capture and leave authored source untouched', async () => {
+  const {configure, check, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const {readFileSync, realpathSync} = await import('node:fs');
+  const {fileURLToPath} = await import('node:url');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'exact-keyed-grants-'))), app=resolve(root,'app'), stage=resolve(root,'stage');
+  const libraries=resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))),'lib');
+  const env=process.env.EXACT_BACKEND_ORIGIN;
+  try {
+    delete process.env.EXACT_BACKEND_ORIGIN;
+    mkdirSync(app); mkdirSync(stage); mkdirSync(resolve(app,'.exact'));
+    for (const dir of [app,stage]) writeFileSync(resolve(dir,'app.ts'),backendGrants);
+    writeFileSync(resolve(stage,'__exact_backend_source.json'),JSON.stringify(backendGrants));
+    writeFileSync(resolve(stage,'__exact_paths.json'),JSON.stringify({app,mounts:[]}));
+    writeFileSync(resolve(stage,'__exact_entry.ts'),"import * as app from './app';\nexport const grants: string = app.grants;\n");
+    for (const token of ['fixture-token','discord-token','offline-token','fixture-token']) {
+      if (token==='discord-token') writeFileSync(resolve(app,'.exact/backend-origin'),'https://discord.com');
+      if (token==='offline-token') process.env.EXACT_BACKEND_ORIGIN='https://offline.example';
+      if (token==='fixture-token') { delete process.env.EXACT_BACKEND_ORIGIN; rmSync(resolve(app,'.exact/backend-origin'),{force:true}); }
+      configure(stage,false,parseSync);
+      await check(stage,resolve(libraries,'tsc'),libraries);
+      expect(staticFacts(readFileSync(resolve(stage,'app.ts'),'utf8'),parseSync).grants).toContain(`secret.keep ${token}`);
+      expect(readFileSync(resolve(app,'app.ts'),'utf8')).toBe(backendGrants);
+    }
+  } finally {
+    if (env===undefined) delete process.env.EXACT_BACKEND_ORIGIN; else process.env.EXACT_BACKEND_ORIGIN=env;
+    rmSync(root,{recursive:true,force:true});
+  }
 });
 
 test('interactive faults resolve backend, warn on impossible prefixes, and reload keeps storage and live faults', async () => {

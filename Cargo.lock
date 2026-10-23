@@ -1224,6 +1224,7 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-kernel",
+ "exact-logic",
  "exact-markdown",
  "exact-markdown-editor",
  "exact-motion",
@@ -1264,6 +1265,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-svg-file",
  "exact-update",
  "serde_json",
  "sha2",
@@ -1741,6 +1743,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "libc",
+ "serde",
  "serde_json",
 ]
 
@@ -1810,6 +1813,7 @@ dependencies = [
  "contract",
  "contract-lower",
  "exact-bake",
+ "exact-data",
  "exact-kernel",
  "exact-motion",
  "exact-num",
@@ -1874,6 +1878,49 @@ dependencies = [
  "softbuffer",
  "windows-sys 0.61.2",
  "winit",
+]
+
+[[package]]
+name = "excord-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
+name = "excord-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "excord-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
+name = "excord-windows"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+ "exact-windows",
 ]
 
 [[package]]
@@ -2855,6 +2902,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "library-gate-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "library-gate-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "library-gate-data",
 ]
 
 [[package]]

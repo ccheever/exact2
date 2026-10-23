@@ -2,11 +2,12 @@
 // diff and its allowlist, and that every line says WAITS-ON before its parts.
 import { expect, test } from 'bun:test';
 import { encodePng } from './png.mjs';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
+import { apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -17,6 +18,30 @@ test('the command line', () => {
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');
   const b = parse(['baseline', '--copy', '/c', '--out', '/o', '--host', 'web']);
   expect([b.mode, b.copy, b.out, b.hosts]).toEqual(['baseline', '/c', '/o', ['web']]);
+});
+
+test('a stage\'s profile: stage 12 the default, s13c its own tag, adoption, screens and rendered ids', () => {
+  expect(parse([]).stage).toBe('s12');
+  expect(parse([]).out).toMatch(/stage12-gate-run\.txt$/);
+  expect(parse(['--stage', 's13c']).out).toMatch(/s13c-gate-run\.txt$/);
+  expect(parse(['--stage', 'nope'])).toMatch(/^--stage nope/);
+  try {
+    useStage('s13c');
+    expect(BASELINE_TAG).toBe('s13c-baseline');
+    expect(ADOPTED.map(i => i.split('#')[1])).toEqual(['PostCard', 'AtCard', 'ActionRow', 'PostButton', 'ListRow', 'SwitchRow', 'ProfileHeader', 'ComposeFrame', 'BarItem', 'HeaderButton']);
+    expect(BEFORE_USES.length).toBe(4);
+    expect(SCREENS.map(([n]) => n)).toEqual(['discover', 'author-ada', 'author-bo', 'thread', 'composer', 'settings', 'settings-account', 'settings-content', 'settings-notifications', 'home-signed-in']);
+    // Signed in only through the fixture form, as the composer is.
+    expect(SCREENS.find(([n]) => n === 'home-signed-in')[1]).toContain('type loginUsernameInput me.fixture.invalid');
+    expect(RENDERED.map(([n]) => n)).toEqual(['PostCard', 'ActionRow', 'AtCard', 'PostButton', 'ProfileHeader', 'ComposeFrame']);
+  } finally {
+    useStage('s12');
+  }
+  // Stage 12's run is the defaults, unchanged.
+  expect(BASELINE_TAG).toBe('s12e-baseline');
+  expect(ADOPTED.length).toBe(4);
+  expect(BEFORE_USES).toEqual([]);
+  expect(SCREENS.map(([n]) => n)).toEqual(STAGES.s12.screens.map(([n]) => n));
 });
 
 test('a screen is reached by its taps, each settled, the scheme first', () => {
@@ -128,7 +153,7 @@ test('release identity: every source compared and identical in every run, but li
   const row = (source, status, run = 'a..b') => ({ run, commits: ['Stage 12 E: x'], source, status });
   const file = rows => { const f = join(dir, `${Math.random()}.json`); writeFileSync(f, JSON.stringify(rows)); return f; };
   const sources = ['apps/a/app.contract', 'apps/expose/app.contract'];
-  const id = (f, src = sources, runs = ['a..b']) => releaseIdentity(f, src, runs);
+  const id = (f, src = sources, runs = ['a..b']) => releaseIdentity(f, src, runs, () => true);
   expect(id(null).status).toBe('WAITS');
   expect(id(file([])).status).toBe('FAIL');
   expect(id(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/library-gate/app.contract', 'build failed')])).status).toBe('PASS');
@@ -140,6 +165,14 @@ test('release identity: every source compared and identical in every run, but li
   const short = id(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/a/app.contract', 'identical', 'c..d')]));
   expect(short.status).toBe('FAIL');
   expect(short.evidence.join('\n')).toContain('NOT COMPARED apps/expose/app.contract over c..d');
+  // An app not in the tree at either end of a run (added since) has nothing to compare there.
+  const later = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')]), [...sources, 'apps/later/app.contract'], ['a..b'], (rev, src) => src !== 'apps/later/app.contract');
+  expect([later.status, later.evidence.join('\n').includes('apps/later')]).toEqual(['PASS', false]);
+  // In the tree at either end, it must be compared.
+  for (const end of ['a', 'b']) {
+    const once = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')]), [...sources, 'apps/later/app.contract'], ['a..b'], (rev, src) => src !== 'apps/later/app.contract' || rev === end);
+    expect([end, once.status, once.evidence.join('\n').includes('NOT COMPARED apps/later/app.contract over a..b')]).toEqual([end, 'FAIL', true]);
+  }
   expect(short.evidence.join('\n')).toContain('NOT A RUN OF STAGE 12 E c..d');
   // A run the history has that the file leaves out fails; so does a row with no commits.
   const ok = [row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')];
@@ -242,4 +275,135 @@ test('a boot flake in conform: rerun alone three times, at most two, never twice
   const q3 = ['a', 'b', 'c'].map(t => `- **Conformance's \`${t}\` fixture fails now and then`).join('\n');
   const r3 = flakyOf(three, base, fresh(), () => true, q3);
   expect([r3.failing.length, r3.seen.length]).toEqual([3, 3]);
+});
+
+// Stage 13 C's restyle cases (theme2 10:28, 10:42; s13c-restyle.mjs).
+test('stage 13 C\'s case values: pairwise apart in each case, past the read\'s tolerance (theme2 10:28 (1))', () => {
+  const channels = v => [1, 3, 5].map(i => Number.parseInt(v.slice(i, i + 2), 16));
+  for (const c of exactCases()) {
+    for (const [i, a] of c.set.entries()) {
+      for (const b of c.set.slice(i + 1)) {
+        if (a.kind !== b.kind) continue;
+        const gap = a.kind === 'color' ? Math.max(...channels(a.value).map((x, k) => Math.abs(x - channels(b.value)[k]))) : Math.abs(Number.parseFloat(a.value) - Number.parseFloat(b.value));
+        expect([c.name, a.name, b.name, gap >= (a.kind === 'color' ? 24 : a.kind === 'number' ? 0.05 : 2)]).toEqual([c.name, a.name, b.name, true]);
+      }
+    }
+  }
+  // Every length is past every default a package writes (none reaches 301 px).
+  for (const c of exactCases()) for (const s of c.set.filter(x => x.kind === 'length')) expect(Number.parseFloat(s.value)).toBeGreaterThanOrEqual(301);
+});
+
+test('a read\'s node by path, and a value matched, kept and apart', () => {
+  const tree = { nodes: [
+    { id: 1, parent: null, children: [2, 5, 6], props: {} },
+    { id: 2, parent: 1, children: [3], props: { testId: 'compose-bar-x' } },
+    { id: 3, parent: 2, children: [4], props: {} },
+    { id: 4, parent: 3, children: [], props: {} },
+    { id: 5, parent: 1, children: [], props: {} },
+    { id: 6, parent: 1, children: [7], props: {} },
+    { id: 7, parent: 6, children: [], props: {} },
+  ] };
+  expect(locate(tree, 'compose-bar-x', '.').id).toBe(2);
+  expect(locate(tree, 'compose-bar-x', '0/0').id).toBe(4);
+  expect(locate(tree, 'compose-bar-x', '>2/0').id).toBe(7);
+  expect(locate(tree, 'compose-bar-x', '0/1')).toBe(null);
+  expect(locate(tree, 'nope', '.')).toBe(null);
+  expect(matches(304, 304, 'length') && matches('304px', 304, 'length') && !matches(306, 304, 'length')).toBe(true);
+  expect(matches(0.35, 0.35, 'number') && !matches(0.45, 0.35, 'number')).toBe(true);
+  // A colour is exactly the one set, opaque: the runner's #rrggbb or
+  // #rrggbbff, the browser's rgb(); a gradient's first stop for its image.
+  expect(matches('#1a2b3cff', '#1a2b3c', 'color') && matches('#1a2b3c', '#1a2b3c', 'color') && matches('rgb(26, 43, 60)', '#1a2b3c', 'color')).toBe(true);
+  expect(matches('#1a2b3c80', '#1a2b3c', 'color') || matches('rgba(26, 43, 60, 0.5)', '#1a2b3c', 'color')).toBe(false);
+  expect(matches('light-dark(#000000, #1a2b3c)', '#1a2b3c', 'color') || matches('var(--exact-label, light-dark(#000000ff, #ffffffff))', '#1a2b3c', 'color')).toBe(false);
+  expect(matches('linear-gradient(180deg, #1a2b3cff 0%, #00000000 100%)', '#1a2b3c', 'color', 'background_image')
+    && matches('linear-gradient(rgb(26, 43, 60) 0%, rgba(0, 0, 0, 0) 100%)', '#1a2b3c', 'color', 'background_image')).toBe(true);
+  expect(matches('linear-gradient(180deg, #000000ff 0%, #1a2b3cff 100%)', '#1a2b3c', 'color', 'background_image')).toBe(false);
+  expect(matches('linear-gradient(#000000 0%, #1a2b3c 0%, transparent 100%)', '#1a2b3c', 'color', 'background_image')
+    || matches('linear-gradient(to bottom, #000000 0%, #1a2b3c 0%)', '#1a2b3c', 'color', 'background_image')).toBe(false);
+  expect(matches('linear-gradient(to bottom, #1a2b3c 0%, #000000 100%)', '#1a2b3c', 'color', 'background_image')).toBe(true);
+  expect(same(0.8, 0.805, 'number') || !same(0.8, 0.8004, 'number')).toBe(false);
+  expect(matches('0.15', 0.15, 'number') && matches('301px', 301, 'length')).toBe(true);
+  expect(same(16, '16px') && same('label', 'label') && !same(16, 18)).toBe(true);
+  expect(apart(16, 304, 'length') && !apart(303, 304, 'length') && apart('label', '#1a2b3c', 'color') && !apart('#1a2b3cff', '#1a2b3c', 'color')).toBe(true);
+});
+
+test('stage 13 C\'s reads: each against its own token\'s value, so a use moved to another token fails naming it', () => {
+  const c = exactCases().find(x => x.name === 'HeaderButton tokens');
+  const reads = caseReads(c);
+  const value = n => Number.parseFloat(c.set.find(s => s.name === n).value);
+  // A fake drive: library-gate's HeaderButton nodes, their rows at the base
+  // design, the case's values set (or, `swap`, the width at header-icon's).
+  const tree = { nodes: [{ id: 1, parent: null, children: [10, 20, 30], props: {} }] };
+  const ids = { 'hb-base': 10, 'hb-small': 20, 'hb-lead': 30 };
+  for (const [testId, id] of Object.entries(ids)) tree.nodes.push({ id, parent: 1, children: [id + 1], props: { testId } }, { id: id + 1, parent: id, children: [id + 2], props: {} }, { id: id + 2, parent: id + 1, children: [], props: {} });
+  const drive = swap => (plan, list) => {
+    const set = plan === 'set';
+    const nodes = new Map();
+    for (const id of list) {
+      const style = {};
+      for (const r of reads.filter(r => r.ids.some(i => locate(tree, i, r.path)?.id === id))) {
+        for (const row of r.rows) style[row] = { value: set ? (r.kind === 'color' ? `${r.want}ff` : r.want) : r.kind === 'color' ? 'label' : 1 };
+      }
+      if (set && swap && style.width && id % 10 === 0) style.width = { value: value('actions.header-icon') };
+      nodes.set(id, { id, style });
+    }
+    return { tree, nodes };
+  };
+  const plans = { base: 'base', [`${c.name} set`]: 'set', [`${c.name} removed`]: 'base' };
+  expect(readExact('linux', [c], plans, null, drive(false)).filter(r => !r.ok)).toEqual([]);
+  const failed = readExact('linux', [c], plans, null, drive(true)).filter(r => !r.ok);
+  expect([...new Set(failed.map(r => `${r.key} ${r.row}`))]).toEqual(['actions.header-slot width']);
+  expect(failed[0].why).toMatch(/^set \d+, expected 3\d\d$/);
+});
+
+// The mutation on a real build and drive (theme2 10:28 (4)): a Linux host
+// build is needed (cargo build --profile host-dev -p caltrain-linux), so it
+// runs when EXACT_GATE_DRIVES=1; the gate's restyle line runs it on every
+// run with Linux among its hosts and writes what it caught.
+test.skipIf(process.env.EXACT_GATE_DRIVES !== '1')('the mutation: a package\'s use of one length swapped for another fails its case, naming that token', () => {
+  const failed = mutationFails(mkdtempSync(join(tmpdir(), 'iosfix-s13c-mutation-')), 'linux');
+  expect([...new Set(failed.map(r => `${r.key} ${r.row}`))]).toEqual([`${MUTATION.token} ${MUTATION.row}`]);
+}, 900_000);
+
+test('the inventory reads any legal token or param name: dotted more than once, hyphenated, a literal default', () => {
+  const root = mkdtempSync(join(tmpdir(), 'iosfix-s13c-inventory-'));
+  for (const pkg of ['lists', 'cards', 'actions']) cpSync(join(import.meta.dir, '..', 'packages', pkg), join(root, 'packages', pkg), { recursive: true });
+  const cards = join(root, 'packages/cards/cards.tamber'), row = join(root, 'packages/lists/list-row.contract');
+  writeFileSync(cards, `${readFileSync(cards, 'utf8').trimEnd()}\n  cards.header.frame: length = 37px\n  cards.extra-ink: color = #123456\n`);
+  writeFileSync(row, readFileSync(row, 'utf8').replace(/(\n  params\n)/, '$1    extra-tint: color = "lists.switch-on" control = "token"\n    literal: color = "#abcdef" control = "token"\n'));
+  expect(newTokens(root).filter(t => ['cards.header.frame', 'cards.extra-ink'].includes(t.name))).toEqual([{ name: 'cards.header.frame', kind: 'length' }, { name: 'cards.extra-ink', kind: 'color' }]);
+  const params = packageParams(root).filter(p => p.key.startsWith('ListRow.'));
+  expect(params.map(p => [p.key, p.token])).toEqual([['ListRow.extra-tint', 'lists.switch-on'], ['ListRow.literal', null], ['ListRow.tint', 'lists.symbol-tint']]);
+});
+
+// theme2 13:47: library-gate's own wasm artifact links what its cells use,
+// so an s13c plan (the ProfileHeader batch's, its banner shade a gradient)
+// boots on it; another app's artifact refused it (Unlinked). A drive: it
+// needs the artifact built (EXACT_APP_DIR=apps/library-gate EXACT_WEB_DIST=…
+// bun host/web/build.mjs library-gate --wasm), so EXACT_GATE_DRIVES=1.
+test.skipIf(process.env.EXACT_GATE_DRIVES !== '1')('an s13c plan boots on library-gate\'s own wasm artifact', () => {
+  const plan = s13cPlan('ProfileHeader tokens');
+  const d = drivePlan('web-wasm', plan, null, [], null, (h, p, _png, ids, a) => inspectDrive(h, p, ids, a));
+  expect(d.tree.nodes.some(n => n.props?.testId === 'profile-header-ph-base')).toBe(true);
+}, 900_000);
+
+test('a shot scrolled past the top mark takes the viewport from the unscrolled shot, and only then', () => {
+  const img = { width: 100, height: 300, data: new Uint8Array(100 * 300 * 4) };
+  const scrolled = { viewport: { w: 100, h: 200 }, nodes: [{ testId: 'gate-top', x: 0, y: -500, w: 40, h: 12 }] };
+  expect(viewportTop(img, scrolled, 37)).toBe(37);
+  expect(() => viewportTop(img, scrolled, null)).toThrow(/top mark/);
+  // The mark on screen is read where it is, never the calibration (here: not found, so it fails).
+  const unscrolled = { viewport: { w: 100, h: 200 }, nodes: [{ testId: 'gate-top', x: 0, y: 0, w: 40, h: 12 }] };
+  expect(() => viewportTop(img, unscrolled, 37)).toThrow(/top mark/);
+});
+
+test('the components a shot shows, by each shown node\'s source map', () => {
+  const node = (file, component, y = 10) => ({ x: 0, y, w: 10, h: 10, sourceMap: { status: 'compatible', file, component } });
+  const out = JSON.stringify({ viewport: { w: 100, h: 100 }, nodes: [
+    node('/c/node_modules/@exact/lists/list-row.contract', 'ListRow'),
+    node('/sdk/packages/lists/switch-row.contract', 'SwitchRow__switch_row'),
+    node('/c/node_modules/@exact/actions/bar-item.contract', 'BarItem', 500), // off screen
+    node('/c/settings.contract', 'NavRow'),
+  ] });
+  expect(renderedComponents(`noise\n${out}\n`).sort()).toEqual(['@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow']);
 });

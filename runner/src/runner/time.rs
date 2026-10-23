@@ -192,6 +192,9 @@ impl<D: DataSource> Runner<D> {
     /// call: one commit per topic that anything watches. Announcements
     /// between two calls coalesce, so a fast producer costs one re-ask.
     pub fn apply_announced(&mut self) -> (Vec<CommitReceipt>, Option<RunnerError>) {
+        // A module's reply that carried handles may have left its
+        // implementation for a request no longer in flight (LLP 1133.009 D6).
+        self.dispose_dropped();
         let topics = std::mem::take(&mut *self.announced.lock().unwrap_or_else(|e| e.into_inner()));
         let mut receipts = Vec::new();
         for topic in topics {
@@ -237,7 +240,8 @@ impl<D: DataSource> Runner<D> {
                 None => which.push(i),
             }
         }
-        self.recommit(which, "changed")
+        // Each reader asks again under its own last ask's origin (LLP 1133.002 D12).
+        self.reasking(|r| r.recommit(which, "changed"))
     }
 
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {

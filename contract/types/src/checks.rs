@@ -949,8 +949,8 @@ pub(super) fn check_command(
         };
         return err("type-unknown-command", message, span);
     }
-    if super::frames::is(name) {
-        return super::frames::command_args(name, args, scope, shapes, span);
+    if super::frame_commands::is(name) {
+        return super::frame_commands::command_args(name, args, scope, shapes, span);
     }
     if name == "relaunch" && !args.is_empty() {
         return err("type-relaunch", "`relaunch()` takes no arguments", span);

@@ -34,7 +34,7 @@ extension NodeView {
         guard presenter?.tables.feeds.isEmpty == false else { return false }
         var above = superview
         while let view = above, !(view is NSTableView) {
-            if let cell = view as? TableRowCell { return cell.backgroundStyle == .emphasized }
+            if let cell = view as? TableRowCell { return cell.paintsSelection && cell.backgroundStyle == .emphasized }
             above = view.superview
         }
         return false
@@ -56,12 +56,11 @@ extension NodeView {
     }
 
     /// How a symbol's image cell is drawn in a row emphasized or not: as a
-    /// cell's image, unless a fixed tint or a fixed colour the untinted
-    /// symbol takes (LLP 1121 stage 9 B, `symbolInk`) keeps its ink. Asked
+    /// cell’s image, unless its computed color is fixed. Asked
     /// again whenever the symbol's look is (`updateSymbol`).
     func symbolBackground(_ emphasized: Bool) -> NSView.BackgroundStyle {
         let ink = symbolInk != nil ? style["text_color"] : nil
-        return emphasized && style["tint_color"]?.fixesInk != true && ink?.fixesInk != true ? .emphasized : .normal
+        return emphasized && ink?.fixesInk != true ? .emphasized : .normal
     }
 
     /// The row this node is the root view of became, or stopped being, a

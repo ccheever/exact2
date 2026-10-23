@@ -167,6 +167,16 @@ package final class TextSelection {
         report(next)
     }
 
+    /// The event parts whose exact geometry the reader worker must snapshot.
+    func rectangleRanges(_ node: NodeView) -> [NSRange] {
+        guard let selected = range(node), selected.length > 0 else { return [] }
+        var extents: [NSRange] = node.handlers.contains("selectionchange")
+            ? [NSRange(location: 0, length: (node.paragraphText as NSString).length)] : []
+        extents += node.inlineText.filter { $0.handlers.contains("selectionchange") }.map(\.range)
+        return extents.map { NSIntersectionRange(selected, $0) }.filter { $0.length > 0 }
+    }
+    func readerGeometryReady() { report(painted) }
+
     /// The web's `selectionchange` on a `text` (the reader diary): its part
     /// of the selection, in its source text's UTF-16 offsets, when that part
     /// changes; nothing selected there is "" at 0, 0, as on the web.
@@ -191,19 +201,33 @@ package final class TextSelection {
                 let part = NSIntersectionRange(source, extent)
                 let local = part.length > 0 ? NSRange(location: part.location - extent.location, length: part.length) : NSRange(location: 0, length: 0)
                 guard reported[id] ?? NSRange(location: 0, length: 0) != local else { continue }
-                reported[id] = local
                 let lo = node.readerParagraph == nil ? node.shapedOffset(part.location) : part.location
                 let hi = node.readerParagraph == nil ? node.shapedOffset(NSMaxRange(part)) : NSMaxRange(part)
-                let rects = part.length > 0 ? rectangles(node, range: NSRange(location: lo, length: hi - lo)) : []
+                let rects: [CGRect]
+                if part.length > 0 {
+                    guard let snapshot = rectangles(node, range: NSRange(location: lo, length: hi - lo)) else {
+                        node.readerParagraph?.update(node)
+                        continue
+                    }
+                    rects = snapshot
+                } else { rects = [] }
+                reported[id] = local
                 presenter.selectionChange(id, part.length > 0 ? text.substring(with: part) : "", local.location, NSMaxRange(local), rects: rects)
             }
         }
         reported = reported.filter { seen.contains($0.key) }
     }
 
-    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect] {
-        guard let range, let presenter, let paragraph = node.paragraphLayout() else { return [] }
+    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect]? {
+        guard let range, let presenter else { return [] }
         let clip = presenter.viewport.contentView
+        if let reader = node.readerParagraph {
+            guard let rects = reader.selectionRects(range) else { return nil }
+            let origin = node.contentBox().origin
+            return rects.map { node.drawnRect($0.offsetBy(dx: origin.x, dy: origin.y), in: clip)
+                .offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+        }
+        guard let paragraph = node.paragraphLayout() else { return [] }
         let selected = paragraph.selectedLines(range, align: node.paragraphSpec().align, in: node.paragraphBox(), dirty: .infinite)
         let local: [CGRect]
         if let fragments = node.columnRecord?.fragments, !fragments.isEmpty {
@@ -269,13 +293,16 @@ package final class TextSelection {
             if self.gesture == current, !(responder is NSWindow || responder === self.presenter?.viewport) { self.clear() }
         }
     }
-    /// A mouse-down on text a drag selects: the paragraph takes the focus
-    /// and the selection begins there or, with Shift, grows to there. The
+    /// A plain click keeps a field's editor. Other selection presses take
+    /// focus unless retainFocus applies. The
     /// focus moving between two paragraphs clears a selection; not one this
     /// click is about to extend.
     func press(_ node: NodeView, event: NSEvent) {
         holding = event.modifierFlags.contains(.shift) && anchor != nil
-        node.window?.makeFirstResponder(node)
+        let editing = (node.window?.firstResponder as? NSTextView)?.isEditable == true
+        if !node.retainsFocus && (!editing || holding || event.clickCount > 1 || atomic(node)) {
+            node.window?.makeFirstResponder(node)
+        }
         holding = false
         begin(node, event: event)
     }
@@ -459,6 +486,11 @@ package final class TextSelection {
     func drag(_ event: NSEvent) {
         if pendingBegin { deferredDrag = event; return }
         guard anchor != nil || list != nil else { return }
+        if let anchor {
+            holding = true
+            anchor.window?.makeFirstResponder(anchor)
+            holding = false
+        }
         dragged = true
         let point = event.locationInWindow
         let nodes = paragraphs.filter { list == nil || $0.isDescendant(of: list!) }
@@ -872,12 +904,65 @@ package final class TextSelection {
         let lines = paragraph.selectedLines(selection, align: spec.align, in: box, dirty: dirty)
         guard !lines.isEmpty else { return }
         let ink = Self.ink(focused: focused).cgColor, keepsFixed = Self.keepsFixedInk(dark: node.drawsDark)
+        var paint = spec, changed = false
+        for i in paint.runs.indices where !(keepsFixed && paint.runs[i].fixedInk) {
+            let run = paint.runs[i]
+            guard run.underlined || !run.decoration.isEmpty || run.underlineColor != nil || run.strikeColor != nil else { continue }
+            func opaque(_ color: [Double]?) -> [Double]? {
+                guard var color, color.count == 4, color[3] > 0, color[3] < 255 else { return color }
+                color[3] = 255; changed = true
+                return color
+            }
+            paint.runs[i].color = opaque(run.color ?? spec.color)
+            paint.runs[i].underlineColor = opaque(run.underlineColor)
+            paint.runs[i].strikeColor = opaque(run.strikeColor)
+        }
+        let indices = Set(lines.map(\.line))
+        var repainted: [Int: CTLine] = [:]
+        if changed, let engine = node.text {
+            // Change paint over the measured ranges. Rewrapping loses the
+            // exclusion intervals and column fragments that own these lines.
+            let ordered = indices.sorted()
+            let ranges = ordered.map { index -> CFRange in
+                if index == paragraph.lines.count - 1, let clamped = paragraph.clampedRange { return clamped }
+                if !paragraph.fragments.isEmpty {
+                    let fragment = paragraph.fragments[index]
+                    return CFRange(location: fragment.paint_start, length: fragment.paint_end - fragment.paint_start)
+                }
+                return CTLineGetStringRange(paragraph.lines[index])
+            }
+            let source: NSAttributedString, rebuilt: [CTLine]
+            if !paragraph.fragments.isEmpty, let flow = engine.paragraph(paint, width: .infinity).shape?.preparedFlow() {
+                source = flow.attributed
+                rebuilt = zip(ordered, ranges).map { index, range in
+                    let line = range.length > 0 ? CTTypesetterCreateLine(flow.typesetter, range)
+                        : CTLineCreateWithAttributedString(NSAttributedString(string: ""))
+                    return paragraph.fragments[index].hyphenated != 0
+                        ? TextEngine.inkedSoftHyphen(line, source: source, range: range) : line
+                }
+            } else {
+                (source, rebuilt) = engine.rasterLines(paint, ranges: ranges, width: box.width)
+            }
+            for (offset, index) in ordered.enumerated() where ranges[offset].length > 0 {
+                var line = rebuilt[offset]
+                let range = NSRange(location: ranges[offset].location, length: ranges[offset].length)
+                let fragment = paragraph.fragments.isEmpty ? nil : paragraph.fragments[index]
+                let width = fragment.map { Double($0.available) } ?? Double(box.width)
+                let flowClamped = fragment.map { $0.end < (paragraph.shape?.preparedFlow().utf8Count ?? source.string.utf8.count) && paint.lineClamp > 0 } ?? false
+                if index == paragraph.lines.count - 1, paragraph.clampedRange != nil || flowClamped {
+                    line = TextEngine.clampedLine(source, range: range, width: width) ?? line
+                } else if spec.ellipsis, CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line) > box.width + 0.5 {
+                    line = TextEngine.ellipsis(line, range: range, width: Double(box.width), source: source) ?? line
+                }
+                repainted[index] = line
+            }
+        }
         ctx.saveGState()
         ctx.clip(to: lines.map(\.rect))
         ctx.setFillColor(Self.fill(focused: focused).cgColor)
         ctx.fill(lines.map(\.rect))
-        for index in Set(lines.map(\.line)) {
-            let line = spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index]
+        for index in indices {
+            let line = repainted[index] ?? (spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index])
             let origin = CGPoint(x: box.minX + paragraph.origin(index, align: spec.align, width: box.width),
                                  y: box.minY + paragraph.baselines[index].rounded())
             TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, keepsFixed: keepsFixed, transparentInk: node.backgroundClip == "text")

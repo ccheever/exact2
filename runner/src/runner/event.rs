@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 
 mod focus;
+pub(super) mod frame_navigation;
 mod keyboard;
 pub use keyboard::KeyboardEvent;
 
@@ -358,7 +359,7 @@ pub enum Event {
     /// What an iframe's guest shows (@ref LLP 1020.002 D2): its
     /// `navigate`, `currententrychange`, `navigatesuccess` or
     /// `navigateerror`, with the `FrameNavigation` record.
-    FrameNavigation(EventKind, Box<super::frame_navigation::FrameNavigation>),
+    FrameNavigation(EventKind, Box<frame_navigation::FrameNavigation>),
     /// An authored sheet handle released: logical height and signed pixels/second.
     HeightRelease {
         /// Finite logical pixels in [0, f32::MAX].
@@ -1107,7 +1108,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Drop(_) => "drop",
                 Event::Dragenter(_) => "dragenter",
                 Event::Dragleave(_) => "dragleave",
-                Event::FrameNavigation(kind, _) => super::frame_navigation::name(*kind),
+                Event::FrameNavigation(kind, _) => frame_navigation::name(*kind),
                 Event::Dblclick => "dblclick",
                 Event::Pointerdown(_) => "pointerdown",
                 Event::Pointerup(_) => "pointerup",
@@ -1285,7 +1286,7 @@ impl<D: DataSource> Runner<D> {
             Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dragenter(_) => (EventKind::Dragenter, None, "dragenter"),
             Event::Dragleave(_) => (EventKind::Dragleave, None, "dragleave"),
-            Event::FrameNavigation(kind, _) => (*kind, None, super::frame_navigation::name(*kind)),
+            Event::FrameNavigation(kind, _) => (*kind, None, frame_navigation::name(*kind)),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),

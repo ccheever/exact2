@@ -1,5 +1,7 @@
 // The data seam's bytes, for prelude.js: base64 for what crosses the seam
-// as JSON, a string's UTF-8 length, and a stream message's data. Natively a
+// as JSON, a string's UTF-8 length, a stream message's data, and a long
+// poll's terms as the seam carries them (LLP 1016.000 D8; here, beside the
+// prelude, under its line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
 // names only its size, and the host fills an ArrayBuffer of it through the
 // bytes door (op 9, js/src/crypto.rs): base64 decoded byte by byte in the
@@ -54,11 +56,27 @@
   function gateDecode(track, type, timestamp, data) {
     door(8, data.byteOffset + " " + data.byteLength, data.buffer);
   }
+  // `exactLongPoll` (LLP 1016.000 D8), checked as the web's ts-stream.js checks it (names in code points, `from` a member
+  // or two joined by one `.`): the op's `long_poll`, nothing when there is none, or why it is refused.
+  function longPollOf(init, stream, method, url) {
+    var poll = init ? init.exactLongPoll : undefined, name = function (k) { var v = poll[k], n = typeof v === "string" ? Array.from(v).length : 0; return n > 0 && n <= 256 ? v : null; };
+    if (poll === undefined) return undefined;
+    if (!stream) return "exactLongPoll asks again for an answer that keeps coming: give exactStream too";
+    if (/^wss?:/i.test(String(url))) return "exactLongPoll: a long poll is HTTP, not a WebSocket";
+    if (method !== "GET") return "exactLongPoll: a long poll asks with GET";
+    if (poll === null || typeof poll !== "object") return "exactLongPoll is { cursor, from }";
+    if (!name("cursor")) return "exactLongPoll.cursor is the query parameter the cursor goes in, a name";
+    var parts = name("from") ? poll.from.split(".") : [];
+    if (!parts.length || parts.length > 2 || parts.some(function (p) { return !p; })) return "exactLongPoll.from is the reply's field the cursor comes from, a name, or two joined by one `.`";
+    if (poll.sameCursor !== undefined && poll.sameCursor !== "heartbeat" && poll.sameCursor !== "event") return "exactLongPoll.sameCursor is \"heartbeat\" (the default) or \"event\"";
+    return { cursor: poll.cursor, from: poll.from, same_cursor_event: poll.sameCursor === "event" ? true : undefined };
+  }
   global.__exact_binary = Object.freeze({
     fromBase64: fromBase64,
     toBase64: toBase64,
     utf8Length: utf8Length,
     messageData: messageData,
     gateDecode: door ? gateDecode : undefined,
+    longPollOf: longPollOf,
   });
 })(globalThis);

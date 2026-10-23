@@ -1,3 +1,8 @@
+#if os(iOS) || os(tvOS)
+import UIKit
+#else
+import AppKit
+#endif
 import XCTest
 @testable import ExactKit
 
@@ -39,6 +44,59 @@ final class ScrollAnchoringTests: XCTestCase {
         let rows = [Box("sticky", 200, 30, excluded: true), Box("row", 230, 30)]
         XCTAssertEqual(select(rows, port: port), "row")
         XCTAssertNil(select([Box("fixed", 200, 30, excluded: true)], port: port))
+    }
+
+    func testAFocusedEditableHasPriorityOverTheFirstVisibleBox() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let p = Presenter()
+        let bounds = CGRect(x: 0, y: 0, width: 320, height: 400)
+        #if os(iOS) || os(tvOS)
+        let window = UIWindow(frame: bounds)
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        #else
+        let window = NSWindow(contentRect: bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = p.viewport
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        #endif
+        p.viewport.frame = bounds
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "first"]],
+            ["op": "create", "id": 3, "kind": "input", "props": ["type": "text", "value": "Editing"]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 200],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 300, "h": 100],
+            ["op": "frame", "id": 3, "x": 0, "y": 120, "w": 200, "h": 40],
+            ["op": "content", "id": 1, "w": 300, "h": 600],
+        ]))
+        let scroller = try XCTUnwrap(p.views[1]), field = try XCTUnwrap(p.views[3])
+        #if os(iOS) || os(tvOS)
+        p.focusNode(field)
+        #else
+        window.makeFirstResponder(field.field)
+        #endif
+        XCTAssertEqual(p.focusedNode?.id, 3)
+        #if os(iOS) || os(tvOS)
+        let space = try XCTUnwrap(scroller.scrollView)
+        #else
+        let space = try XCTUnwrap(scroller.scroll?.documentView)
+        #endif
+        let port = CGRect(x: 0, y: 50, width: 300, height: 200)
+        let focused = p.focusedNode
+        func anchor() -> UInt32? { ScrollAnchoring.anchor(in: scroller, space: space, port: port, focused: focused)?.node.id }
+        XCTAssertEqual(ScrollAnchoring.anchor(in: scroller, space: space, port: port, focused: nil)?.node.id, 2,
+                       "a pass without a focused candidate uses tree order without looking up focus again")
+        XCTAssertEqual(anchor(), 3, "the focused editor wins over box 2")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["editable": "false"]]]))
+        XCTAssertEqual(anchor(), 2, "a read-only editor is no priority candidate")
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["editable"]],
+                           ["op": "frame", "id": 3, "x": 0, "y": 350, "w": 200, "h": 40]]))
+        XCTAssertEqual(anchor(), 2, "an offscreen editor is no priority candidate")
     }
 
     func testTheAdjustmentFollowsTheAnchorAndClamps() {

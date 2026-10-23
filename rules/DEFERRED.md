@@ -134,6 +134,14 @@ additional standalone showcase apps wait behind this composition; existing full
 stress workloads and controls remain intact. No new UI framework, general job
 scheduler or cross-device synchronization service is implied.
 
+**Expanded (Charlie, 2026-10-22: "Let's build a Discord app for iOS, MacOS, web,
+Windows, Android"):** Excord (`apps/excord/llp/0001-excord.rfc.md`), a client
+for the real Discord whose messages list and composer are its bar, built to find
+Exact's gaps. Unblocks a real service's chat on every host as the consumer for
+the transcript work. Take: waived by Charlie's ask. Voice, video, uploads beyond
+images, and push notifications stay out (its §1); no Discord protocol enters
+Exact itself.
+
 **Expanded (Charlie, 2026-09-20: "make an app that shows off clones of" the
 Pretext demos):** Reflow (`apps/reflow`) is a seventh showcase — balls, the
 illustrated dragon, masonry, a drag-to-reflow magazine, proportional ASCII
@@ -211,7 +219,7 @@ takes files and folders of any type, and a paste carries its files
 (`ClipboardEvent.files`, pasted image data as a PNG), each a `doc:` handle
 (LLP 1069.010, "Files dropped or pasted").
 Specific `accept` types remain bounded as above. `capture` stays refused
-(the camera is a native module, §Components, 2026-10-02). Linux editing is v2
+(the camera is the `@exact/camera` package, §Components, 2026-10-23). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -520,7 +528,14 @@ names no take; `:focus-within` remains out.
   does — we design nothing that closes it: an owned-pixel surface is a leaf node
   with a kernel-owned box (like `NativeView`), GPU content never influences layout,
   the host owns the frame, and animatable properties are extensible (CSS
-  `@property`). When it is built, it compiles no shaders at runtime (LLP 0559 F8).
+  `@property`). **Ruled (Charlie, 2026-10-22):** it compiles nothing on the
+  boot path (LLP 1009 D4, D5): a GPU module compiles its shaders at a canvas's
+  first use, after the first pixel, and Canvas 2D's module on Apple ships
+  them compiled (LLP 1056 §8.5). The exception is the Linux host's GPU
+  painter (LLP 1015 §7), which compiles its shaders on the first launch on
+  a machine and reads them from a pipeline cache after. That first launch
+  is accepted over the cold-start budget: on RADV, device creation and
+  shaders alone cost 170 ms (93 + 77 ms; LLP 1015 §6).
 - ~~Server generation in every form: SSR, streaming, static export, progressive
   forms, hydration, route payloads, response caching.~~ Moved 2026-09-23 (Charlie,
   LLP 1048): static and per-request pages, streaming, adoption in place of
@@ -688,8 +703,9 @@ reading. Nothing that isn't HTML is added by it.
   orchestrator's waiver under the same delegation. Still out: synthesis,
   loops, fades and gain automation, effects, a handle to one voice, a stop
   at a future time, compressed formats, sound produced by a data module,
-  microphone input, and output on Linux and Windows (LLP 1096 §7; rate and
-  pan came in with LLP 1125 D10). No tag is added.
+  the microphone as a sound source (recording it to a file is LLP
+  1133.009's, §Components), and output on Linux and Windows (LLP 1096 §7;
+  rate and pan came in with LLP 1125 D10). No tag is added.
 - **Expanded (LLP 1125; Charlie, 2026-10-16: "once happy with it, go ahead
   and implement"):** a sequence (`sequence NAME when COND`, `play(tracks,
   bpm=, from=, countIn=, clock=, clockOut=, ended=)`) that the runner expands
@@ -758,6 +774,35 @@ reading. Nothing that isn't HTML is added by it.
   an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
   app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
   barcode or document scanning stay out until a consumer asks.
+  **Expanded (Charlie, 2026-10-23, "Accept the take", on LLP 1133.008 §14
+  question 7):** the camera is the `@exact/camera` package, in place of the
+  app native module above, over `@exact/media-capture` (Media Capture's
+  `getUserMedia`, tracks, devices and permission facts, shared with
+  recording): a viewfinder (`exact-camera srcObject=`) and a photo by Image
+  Capture's `takePhoto`, on the web, iOS, macOS and Android, Android in a
+  fixture app; with the seam a package's view and an Android implementation's
+  Maven libraries need (LLP 1133.008 D8). Consumer: the photo editor, which
+  takes a photo and then edits it. Unblocks a photo in an app without app
+  Swift. Take: the photo editor's Android port moves to later. Still out,
+  each until a consumer asks (LLP 1133.008 §12): video recording, a camera
+  track in `video srcObject=` and frames to code, two cameras at once on
+  iOS, barcode and document scanning, constraint dictionaries, zoom on the
+  web, `input capture` and the system camera UI, and the Windows, Linux,
+  tvOS, visionOS and watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Expand, no take", on LLP 1133.009 §15
+  question 6):** recording the microphone to a file and reading its level,
+  by Media Capture's and MediaStream Recording's names (`getUserMedia(audio=)`
+  from `@exact/media-capture`; `startMediaRecorder`, `audioLevel` and the
+  rest from `@exact/recording`), on the web, iOS, macOS and Android, a
+  capture being a claim on the host's one audio session (LLP 1096 D8).
+  Consumer: the recorder, whose own module the package replaces. Unblocks a
+  recording without app Swift that leaves the app's own sounds playing.
+  Take: none; waived by that ruling. Still out, each until a consumer asks
+  (LLP 1133.009 §13): the microphone as a sound source, monitoring and
+  effects (the LLP 1096 entry's), data while recording, starting a capture
+  in the background, Android's background recording, constraint
+  dictionaries, two inputs at once, `getDisplayMedia`, and the Windows,
+  Linux, tvOS, visionOS and watchOS cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
@@ -1106,7 +1151,11 @@ This half matters more than the feature half.
   expected — the deciding already happened upstream. Specifying something nobody is
   assigned to build is not written at all. The old corpus is 330 RFCs of deliberation
   against 52 specs of conclusion; the new repo imports conclusions.
-- **No refine loops.** No dual-family review rounds, no READY verdicts, no revision ledgers.
+- **No refine loops** (narrowed by Charlie, 2026-10-22). No rounds repeated
+  until every reviewer says READY, no reviewer verdict deciding whether work
+  lands, no revision ledgers, and no scope growth because a review asked for
+  it. Blind review by two model families is allowed within `RULES.md`
+  §Loop shape's fix-round limit.
 - **No per-PR ceremony.** No framework decision log, no lane debt ledger, no provenance
   headers on hand-written files.
 - **No blocking check the author did not run locally in under a minute.**
@@ -1150,7 +1199,10 @@ an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 
-**AppDrop lane, 2026-10-14 (Eliot; Charlie's waiver or a take still owed):**
+**AppDrop lane, 2026-10-14 (Eliot; Charlie, waiver, 2026-10-22):** "for decisions,
+recs are ok", accepting the recommendation to waive the take for this lane and
+admit AppDrop as the remote tester-install path, TestFlight later (LLP 1030.003
+§6 Q4).
 `deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
 `--archive --unsigned` `.ipa` against the stream's release record and publish it
 to AppDrop (creating the link the first time, writing it to app.json), and the

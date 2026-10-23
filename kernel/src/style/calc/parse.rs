@@ -134,11 +134,22 @@ pub(crate) fn parse(text: &str) -> Result<Option<Dimension>, Refused> {
             false => Ok(None),
         };
     }
-    match calculation(t, true) {
+    match calculation(t, true, false) {
         Ok(node) => Ok(Some(super::dimension(super::simplify::simplify(node)))),
         Err(Fail::Env(e)) => Err(Refused::Env(e)),
         Err(Fail::Why(why)) => Err(Refused::Comparison(why)),
     }
+}
+
+/// Grid's length-percentage calculations use the same grammar and limits,
+/// without viewport or environment dependencies. Canonical CSS can add
+/// parentheses, so the wire checks author limits on the simplified tree.
+pub(crate) fn grid(text: &str, canonical: bool) -> Option<super::Comparison> {
+    let tree = super::simplify::simplify(calculation(text, !canonical, true).ok()?);
+    if canonical && !super::wire::within_author_limits(&tree) {
+        return None;
+    }
+    Some(super::Comparison::intern(tree))
 }
 
 /// The simplified tree a text parses to, for the wire's check that a tree
@@ -146,16 +157,19 @@ pub(crate) fn parse(text: &str) -> Result<Option<Dimension>, Refused> {
 /// written; the wire checks them on the tree itself ([`super::wire`]), since
 /// the text the kernel writes may open parentheses an author did not.
 pub(super) fn tree(text: &str) -> Option<Node> {
-    calculation(text, false).ok().map(super::simplify::simplify)
+    calculation(text, false, false)
+        .ok()
+        .map(super::simplify::simplify)
 }
 
 /// One math function or `env()`, the whole of `text`, as a length's tree.
-fn calculation(text: &str, limited: bool) -> Result<Node, Fail> {
+fn calculation(text: &str, limited: bool, grid: bool) -> Result<Node, Fail> {
     let mut input = ParserInput::new(text);
     let mut p = Parser::new(&mut input);
     let mut calc = Calc {
         values: 0,
         limited,
+        grid,
         comparisons: 0,
     };
     let (node, ty) = calc.value(&mut p, 0).map_err(fail)?;
@@ -193,6 +207,7 @@ fn why<'i, T>(p: &Parser<'i, '_>, why: &'static str) -> Parsed<'i, T> {
 struct Calc {
     values: usize,
     limited: bool,
+    grid: bool,
     /// The comparisons open around the token being read: a wrong `env()`
     /// inside one says why as the comparison's refusal.
     comparisons: usize,
@@ -201,7 +216,12 @@ struct Calc {
 impl Calc {
     fn count<'i>(&mut self, p: &Parser<'i, '_>) -> Parsed<'i, ()> {
         self.values += 1;
-        if self.limited && self.values > MAX_VALUES {
+        let limit = if self.limited {
+            MAX_VALUES
+        } else {
+            super::wire::MAX_NODES
+        };
+        if self.values > limit {
             return why(p, refusal::SIZE);
         }
         Ok(())
@@ -209,7 +229,12 @@ impl Calc {
 
     /// A level deeper: a function or parentheses.
     fn deeper<'i>(&self, p: &Parser<'i, '_>, depth: usize) -> Parsed<'i, usize> {
-        if self.limited && depth == MAX_DEPTH {
+        let limit = if self.limited {
+            MAX_DEPTH
+        } else {
+            super::wire::MAX_LEVELS
+        };
+        if depth >= limit {
             return why(p, refusal::DEPTH);
         }
         Ok(depth + 1)
@@ -291,12 +316,17 @@ impl Calc {
         let start = p.position();
         let token = p.next()?.clone();
         let text = p.slice_from(start);
+        if self.grid
+            && matches!(&token, Token::Dimension { unit, .. } if !unit.eq_ignore_ascii_case("px"))
+        {
+            return why(p, "grid calculations take only px and %");
+        }
         match token {
             Token::Function(name) => {
                 let name = name.to_ascii_lowercase();
                 match name.as_str() {
                     // `env()` substitutes a length: no level of the calculation
-                    "env" => p.parse_nested_block(|p| self.env(p, depth)),
+                    "env" if !self.grid => p.parse_nested_block(|p| self.env(p, depth)),
                     "calc" => {
                         let depth = self.deeper(p, depth)?;
                         p.parse_nested_block(|p| self.whole(p, depth))

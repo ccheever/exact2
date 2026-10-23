@@ -419,7 +419,7 @@ extension NodeView {
         f.textColor = fieldInk
         f.insertionPointColor = caretColor
         (f as? TextArea)?.placeholderColor = placeholderColor
-        let native = isNativeTextControl
+        let native = isNativeTextControl && !fieldInCell
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
@@ -559,11 +559,15 @@ final class Field: NSTextField {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    /// Once overridden, this is the role another process (VoiceOver) is
-    /// served, and `super`'s is `NSView`'s `AXUnknown`: an `NSTextField`'s
-    /// role is its cell's (`AXTextField`), so that is the answer for any
-    /// field but a number's.
-    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole() }
+    /// AppKit serves the field's protocol role and its cell's legacy attributes.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        if comboOwner != nil { return .comboBox }
+        return numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole()
+    }
+    override func isAccessibilityExpanded() -> Bool {
+        guard let node = comboOwner else { return super.isAccessibilityExpanded() }
+        return node.props["accessibilityExpanded"] == "true"
+    }
     override func accessibilityMinValue() -> Any? {
         guard let owner = numberOwner else { return super.accessibilityMinValue() }
         return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }
@@ -665,8 +669,30 @@ final class SecureField: NSSecureTextField {
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
+extension NSTextField {
+    var comboOwner: NodeView? {
+        guard let node = delegate as? NodeView, node.props["accessibilityRole"] == "combobox" else { return nil }
+        return node
+    }
+    func comboboxAttribute(_ attribute: NSAccessibility.Attribute) -> Any? {
+        guard comboOwner != nil else { return nil }
+        switch attribute {
+        case .role: return NSAccessibility.Role.comboBox.rawValue
+        case .roleDescription: return NSAccessibility.Role.comboBox.description(with: nil)
+        case .expanded: return isAccessibilityExpanded()
+        default: return nil
+        }
+    }
+}
 /// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
 final class SearchField: NSSearchField {
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        comboOwner != nil ? .comboBox : cell?.accessibilityRole() ?? super.accessibilityRole()
+    }
+    override func isAccessibilityExpanded() -> Bool {
+        guard let node = comboOwner else { return super.isAccessibilityExpanded() }
+        return node.props["accessibilityExpanded"] == "true"
+    }
     override class var cellClass: AnyClass? { get { SearchFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }

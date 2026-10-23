@@ -142,6 +142,11 @@ extension MenuHost {
         }
     }
 
+    /// The toolbar-item API chooses its own edge and has no gap parameter.
+    static func usesToolbarAnchor(_ pop: NodeView) -> Bool {
+        pop.style["position_area"] == nil && PositionArea.margins(of: pop) == .init()
+    }
+
     /// Whether `window` is one of this session's popovers'.
     func hosts(_ window: NSWindow) -> Bool {
         entries.contains { $0.native?.window === window } || leaving.contains { $0.window === window }
@@ -192,7 +197,11 @@ extension MenuHost {
             }
             (at, rect) = (content, content.convert(rect, from: view))
         }
-        native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
+        if Self.usesToolbarAnchor(pop), let item = presenter.toolbar.items[source.id], window.toolbar?.items.contains(where: { $0 === item }) == true {
+            native.popover.show(relativeTo: item)
+        } else {
+            native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
+        }
         guard native.popover.isShown else {
             // AppKit showed none (its invoker is hidden or scrolled out of
             // sight): the page paints it, as it would have. Its subtree goes

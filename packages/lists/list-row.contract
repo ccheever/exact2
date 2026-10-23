@@ -40,7 +40,7 @@ component ListRow
           if destructive
             image `symbol:${symbol}`
           else
-            image `symbol:${symbol}` -exact-tint-color="param.tint"
+            image `symbol:${symbol}` color="param.tint"
         text title
         if selected
           image "symbol:checkmark"
@@ -53,7 +53,7 @@ component ListRow
           if destructive
             image `symbol:${symbol}`
           else
-            image `symbol:${symbol}` -exact-tint-color="param.tint"
+            image `symbol:${symbol}` color="param.tint"
         text title
         if value != ""
           text value

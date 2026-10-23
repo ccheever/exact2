@@ -18,6 +18,26 @@ private extension NSView {
 final class AccessibilityTreeMacTests: XCTestCase {
     private var window: NSWindow!
 
+    func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {
+        let p = try fixture()
+        for value in ["false", "true", "mixed"] {
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityPressed": value]]]))
+            p.syncAccessibility()
+            let ax = p.axElements(roots: [p.viewport])
+            let button = try XCTUnwrap(elements(ax).first { $0["testId"] as? String == "named" })
+            XCTAssertEqual(button["role"] as? String, "button")
+            let states = try XCTUnwrap(button["states"] as? [String: Any])
+            if value == "mixed" { XCTAssertEqual(states["pressed"] as? String, "mixed") }
+            else { XCTAssertEqual(states["pressed"] as? Bool, value == "true") }
+            XCTAssertNil(states["checked"])
+            XCTAssertTrue((ax["observes"] as? [String] ?? []).contains("pressed"))
+        }
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityPressed"]]]))
+        let ax = p.axElements(roots: [p.viewport])
+        let button = try XCTUnwrap(elements(ax).first { $0["testId"] as? String == "named" })
+        XCTAssertNil((button["states"] as? [String: Any])?["pressed"])
+    }
+
     /// `painted`: a dialog and a popover in the page's top layer, the
     /// driver's own chrome, which is what the page's own projection of a
     /// modal is about; the last case here holds a dialog in AppKit's sheet.
@@ -42,6 +62,34 @@ final class AccessibilityTreeMacTests: XCTestCase {
         return p
     }
     private func elements(_ ax: [String: Any]) -> [[String: Any]] { ax["elements"] as? [[String: Any]] ?? [] }
+
+    func testViewportWalkOmitsHiddenAndInertSubtreesAndNamesRestoredCells() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityElementsHidden": "true"]],
+            ["op": "create", "id": 21, "kind": "control", "props": ["type": "checkbox", "accessibilityLabel": "Hidden checkbox", "testId": "hidden-check"], "handlers": ["change"]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["inert": "true"]],
+            ["op": "create", "id": 23, "kind": "input", "props": ["type": "password", "accessibilityLabel": "Password", "testId": "inert-password"]],
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "children", "id": 22, "ids": [23]],
+            ["op": "children", "id": 1, "ids": [2, 3, 20, 22]],
+            ["op": "frame", "id": 20, "x": 0, "y": 100, "w": 200, "h": 40],
+            ["op": "frame", "id": 21, "x": 0, "y": 0, "w": 100, "h": 30],
+            ["op": "frame", "id": 22, "x": 0, "y": 150, "w": 200, "h": 40],
+            ["op": "frame", "id": 23, "x": 0, "y": 0, "w": 100, "h": 30],
+        ]))
+        func named(_ name: String) -> [String: Any]? {
+            elements(p.axElements(roots: [p.viewport])).first { $0["testId"] as? String == name }
+        }
+        XCTAssertNil(named("hidden-check"))
+        XCTAssertNil(named("inert-password"))
+        p.apply(wireBatch([
+            ["op": "props", "id": 20, "clear": ["accessibilityElementsHidden"]],
+            ["op": "props", "id": 22, "clear": ["inert"]],
+        ]))
+        XCTAssertEqual(named("hidden-check")?["name"] as? String, "Hidden checkbox")
+        XCTAssertEqual(named("inert-password")?["name"] as? String, "Password")
+    }
 
     /// From `start` (a view, or an element such as a field's cell) up to the viewport, each parent serves its child.
     private func assertModalParentChain(_ start: Any, presenter p: Presenter, file: StaticString = #filePath, line: UInt = #line) throws {

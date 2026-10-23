@@ -56,7 +56,10 @@ final class NavigationBarIOSTests: XCTestCase {
         if module {
             session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
         }
-        spin(0.3)
+        until("fixture route and native work ready") {
+            session.presenter.navigation.primaryNavigation?.topViewController is RouteController &&
+                !Agent(session: session).nativeInFlight()
+        }
         return session
     }
 
@@ -80,6 +83,44 @@ final class NavigationBarIOSTests: XCTestCase {
         let item = try XCTUnwrap(item)
         let target = try XCTUnwrap(item.target as? NSObject, "the item's target is retained")
         _ = target.perform(try XCTUnwrap(item.action), with: item)
+    }
+
+    func testAuthoredClearTitleInkAndAbsenceUseDifferentAppearances() throws {
+        let session = try fixture("title-ink", module: false)
+        let heading = try node(session, "title-home")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let item = try XCTUnwrap(nav.topViewController?.navigationItem)
+        XCTAssertNil(item.standardAppearance)
+        session.presenter.apply(wireBatch([["op": "style", "id": heading.id,
+            "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]]))
+        let appearance = try XCTUnwrap(item.standardAppearance)
+        XCTAssertEqual((appearance.titleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+        XCTAssertEqual((appearance.largeTitleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+        session.presenter.apply(wireBatch([["op": "style", "id": heading.id,
+            "style": ["text_color": [255, 0, 0, 255]]]]))
+        XCTAssertNil(item.standardAppearance, "an inherited colour leaves UIKit's title alone")
+    }
+
+    func testTransparentTitleSurvivesRepeatedRoutePreparation() throws {
+        let session = try fixture("transparent-title-ink", module: false)
+        let p = session.presenter
+        let heading = try node(session, "title-home")
+        let route = try node(session, "route-home")
+        let item = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController?.navigationItem)
+        p.apply(wireBatch([
+            ["op": "props", "id": route.id, "set": ["navigationBar": "transparent"]],
+            ["op": "style", "id": heading.id, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]
+        ]))
+        for _ in 0..<2 {
+            let edge = try XCTUnwrap(item.scrollEdgeAppearance)
+            XCTAssertNil(edge.backgroundEffect)
+            XCTAssertEqual(edge.backgroundColor?.cgColor.alpha ?? 0, 0)
+            XCTAssertEqual((edge.titleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+            XCTAssertEqual((edge.largeTitleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+            p.apply(wireBatch([["op": "props", "id": heading.id, "set": ["accessibilityLabel": "Title"]]]))
+        }
+        p.apply(wireBatch([["op": "style", "id": heading.id, "style": ["text_color": [255, 0, 0, 255]]]]))
+        XCTAssertEqual(item.scrollEdgeAppearance, NavigationHost.clearScrollEdge)
     }
 
     func testAPushAfterKeyboardDismissalInstallsTheDestinationBeforeReturning() throws {
@@ -357,9 +398,9 @@ final class NavigationBarIOSTests: XCTestCase {
             ["op": "create", "id": 9, "kind": "text", "props": ["text": "Implied"]],
             ["op": "create", "id": 10, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
             ["op": "create", "id": 11, "kind": "image", "props": ["imageSource": "symbol:delete", "symbolName": "trash"],
-             "style": ["tint_color": red, "written": ["tint_color"]]],
+             "style": ["text_color": red, "written": ["text_color"]]],
             ["op": "create", "id": 12, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
-            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:add", "symbolName": "plus"], "style": ["tint_color": [0, 122, 255, 255]]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:add", "symbolName": "plus"], "style": ["text_color": [0, 122, 255, 255]]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "children", "id": 6, "ids": [7]],
@@ -379,8 +420,8 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertNil(try item(6).tint, "an inherited colour is UIKit's to draw")
         XCTAssertNil(try item(8).tint, "a colour the compiler implied is UIKit's to draw, though it differs from the page's")
         XCTAssertEqual(try item(10).symbol, "trash")
-        XCTAssertNotNil(try item(10).tint, "a tint its author wrote on the symbol")
-        XCTAssertNil(try item(12).tint, "a tint the symbol was only given (a sheet's) is UIKit's")
+        XCTAssertNotNil(try item(10).tint, "a color its author wrote on the symbol")
+        XCTAssertNil(try item(12).tint, "a color the symbol was only given (a sheet's) is UIKit's")
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
@@ -578,6 +619,11 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        let tapped = Agent(session: session).tap(["id": Int(try node(session, "segment-all").id)])
+        XCTAssertNil(tapped["error"], "\(tapped)")
+        XCTAssertEqual(tapped["native"] as? String, "segmented-control")
+        until("the agent presses the header projection") { state(session, "segment") as? String == "all" && control.selectedSegmentIndex == 0 }
+
         // LLP 1115.000 D11.6: the title takes its own width, the size UIKit
         // fits it to. Exact held each segment to 90 points at least, so two
         // short titles made a control 180 wide.
@@ -885,6 +931,18 @@ final class NavigationBarIOSTests: XCTestCase {
         let plain = buttons.map { HeaderShape.Item($0) }
         XCTAssertNotEqual(shape[0].source, plain[0].source, "regrouping invalidates the projected bar")
         XCTAssertEqual(presenter.navigation.barItems(plain, route).count, 4)
+    }
+
+    func testActionsFocusAndBlurTheProjectedSearchField() throws {
+        let session = try fixture("action-search", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+        let source = try node(session, "header-search")
+        source.props["id"] = "action-search"
+        session.presenter.focusElement(["action-search"])
+        XCTAssertTrue(search.searchBar.searchTextField.isFirstResponder)
+        session.presenter.blurElement(["action-search"])
+        XCTAssertFalse(search.searchBar.searchTextField.isFirstResponder)
     }
 
 }

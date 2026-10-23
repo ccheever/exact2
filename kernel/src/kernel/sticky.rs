@@ -5,7 +5,7 @@
 //! §3.4). The web's page does it itself; a native host asks this.
 
 use super::Kernel;
-use crate::generated::{Overflow, PositionType};
+use crate::generated::{Direction, Overflow, PositionType, StyleId};
 use crate::id::{NodeKey, ViewId};
 use crate::layout::LayoutMirror;
 use crate::style::Dimension;
@@ -121,16 +121,33 @@ impl Kernel {
         let content = |slot: u32| {
             let l = tree.layout(arena.taffy(slot)?);
             let [x0, y0, x1, y1] = at(slot);
-            let (p, b) = (l.padding, l.border);
+            let (p, b, gutter) = (l.padding, l.border, l.scrollbar_size);
+            let rtl = arena.computed_source(slot, StyleId::Direction).direction == Direction::Rtl;
             Some([
-                x0 + b.left + p.left,
+                x0 + b.left + p.left + if rtl { gutter.width } else { 0.0 },
                 y0 + b.top + p.top,
-                x1 - b.right - p.right,
-                y1 - b.bottom - p.bottom,
+                x1 - b.right - p.right - if rtl { 0.0 } else { gutter.width },
+                y1 - b.bottom - p.bottom - gutter.height,
             ])
         };
         let margin = tree.layout(arena.taffy(slot)?).margin;
-        let cb = content(parent)?;
+        let mut cb = content(parent)?;
+        // A scroller's own child has the content it scrolls for its
+        // containing block, not the scroller's box: Chrome, Firefox and
+        // WebKit keep such a box stuck through the whole scroll. The extent
+        // is the padding box grown to the content (`NodeArena::content`).
+        if parent == scroller && scroller != slot && scrolls(arena, scroller) {
+            let l = tree.layout(arena.taffy(scroller)?);
+            let (w, h) = arena.content(scroller);
+            cb[3] = cb[3].max(l.border.top + h - l.padding.bottom);
+            if arena
+                .computed_source(scroller, StyleId::Direction)
+                .direction
+                != Direction::Rtl
+            {
+                cb[2] = cb[2].max(l.border.left + w - l.padding.right);
+            }
+        }
         let port = content(scroller)?;
         let (w, h) = (port[2] - port[0], port[3] - port[1]);
         let env = arena.env();

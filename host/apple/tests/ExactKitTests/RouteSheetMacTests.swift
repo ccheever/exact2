@@ -200,6 +200,88 @@ final class RouteSheetMacTests: XCTestCase {
         return taken
     }
 
+    func testInitialModalRoutePresentsWhenItsWindowArrives() throws {
+        let f = try SheetFixture(page: Self.page.replacingOccurrences(of: "state screen = \"home\"", with: "state screen = \"add\""), settleOnMount: false)
+        fixture = f
+        let route = try f.node("add")
+        let sheet = try XCTUnwrap(f.window.attachedSheet)
+        XCTAssertTrue(route.window === sheet)
+        XCTAssertFalse(route.isDescendant(of: f.view), "the initial route leaves the parent before a run-loop turn")
+        XCTAssertFalse(route.isDescendant(of: try XCTUnwrap(f.window.contentView)))
+        XCTAssertEqual((sheet.contentView as? RouteChrome)?.title.stringValue, "New Book")
+    }
+
+    func testExitingTheNavigationRootRetiresItsFocusedSheetRoute() throws {
+        let f = try make()
+        try f.press("open-add")
+        let root = try f.node("root"), route = try f.node("add"), fieldNode = try f.node("add-title")
+        let field = try XCTUnwrap(fieldNode.field), window = try sheet(f).window
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        XCTAssertFalse(route.isDescendant(of: root))
+        f.presenter.apply(wireBatch([["op": "exit", "id": Int(root.id)]]))
+        XCTAssertNil(f.presenter.views[route.id])
+        XCTAssertNil(f.presenter.views[fieldNode.id])
+        XCTAssertFalse(window.firstResponder === editor)
+        XCTAssertNil(field.currentEditor())
+        XCTAssertTrue(try XCTUnwrap(f.presenter.leaving[root.id]).members.contains { $0 === route })
+        XCTAssertTrue(f.window.attachedSheet === window)
+        XCTAssertTrue(route.window === window)
+        XCTAssertTrue(route.routeInert)
+        XCTAssertTrue(route.isAccessibilityHidden())
+        f.presenter.apply(wireBatch([]))
+        XCTAssertTrue(f.window.attachedSheet === window, "exit retains the route sheet until destroy")
+        f.presenter.apply(wireBatch([["op": "destroy", "id": Int(root.id)]]))
+        XCTAssertNil(route.superview)
+        XCTAssertNil(f.window.attachedSheet)
+    }
+
+    func testPushesStayInTheirModalSegmentAndBackReturnsWithinTheSheet() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state screen = "home"
+          action open(s: string)
+            screen = s
+          view
+            column navigationKey=screen navigationBack="back" width="100%" height="100%"
+              column navigationKey="home" testId="home"
+                button testId="open" press=open("modal")
+                  text "Open"
+              if screen != "home"
+                column navigationKey="modal" navigationPresentation="modal" testId="modal" width=400
+                  header
+                    text "Modal" role="heading"
+                    button id="back" press=open("home")
+                      text "Cancel"
+                  button testId="push" press=open("detail")
+                    text "Push"
+              if screen == "detail"
+                column navigationKey="detail" testId="detail" width=400
+                  header
+                    button id="back" press=open("modal") testId="detail-back"
+                      text "Back"
+                    text "Detail" role="heading"
+                  input testId="detail-field" value="Edit" autofocus=true
+        """)
+        fixture = f
+        try f.press("open")
+        let first = try sheet(f).window
+        try f.press("push")
+        let (window, chrome) = try sheet(f)
+        XCTAssertTrue(window === first, "a push changes the content of the existing sheet")
+        XCTAssertTrue(try f.node("detail").window === window)
+        XCTAssertTrue(try f.node("modal").isHidden)
+        XCTAssertEqual(chrome.title.stringValue, "Detail")
+        let back = try XCTUnwrap(chrome.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Back" && !$0.isHidden })
+        XCTAssertLessThan(back.frame.midY, RouteChrome.titleRow)
+        back.performClick(nil); f.settle()
+        XCTAssertTrue(try sheet(f).window === first)
+        XCTAssertEqual(try sheet(f).chrome.title.stringValue, "Modal")
+        XCTAssertFalse(try f.node("modal").isHidden)
+        try sheet(f).chrome.cancel.performClick(nil); f.settle()
+        XCTAssertNil(f.window.attachedSheet)
+    }
+
     /// Shelf's shape. The route is in a sheet on the window, as large as its
     /// content; its heading is the sheet's title row and Cancel and Save the
     /// sheet's buttons at the bottom right, Save the default; the header is
@@ -575,7 +657,14 @@ final class RouteSheetMacTests: XCTestCase {
         addTeardownBlock { NodeView.everyClickCounts = ExactEnv.agentMode }
         let agent = f.session.agentInstance
         try f.press("open-add")
-        let route = try f.node("add"), author = try f.node("add-author"), (window, _) = try sheet(f)
+        let route = try f.node("add"), author = try f.node("add-author"), (window, chrome) = try sheet(f)
+        XCTAssertEqual(chrome.cancel.accessibilityIdentifier(), "add-cancel")
+        XCTAssertEqual(chrome.confirm.accessibilityIdentifier(), "add-save")
+        let elements = try XCTUnwrap(p.axElements(roots: [chrome])["elements"] as? [[String: Any]])
+        for testId in ["add-cancel", "add-save"] {
+            let button = try XCTUnwrap(elements.first { $0["testId"] as? String == testId }, "\(elements)")
+            XCTAssertEqual(button["id"] as? UInt32, try f.node(testId).id)
+        }
         let navigation = try XCTUnwrap(agent.stateSections()["navigation"] as? [String: Any])
         XCTAssertEqual(navigation["presentation"] as? String, "modal")
         XCTAssertEqual((navigation["stack"] as? [String])?.last, "add", "the route in its sheet is still its stack's")

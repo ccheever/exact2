@@ -231,3 +231,12 @@ for (const placement of ['main', 'worker']) {
     } finally { realm.done(); }
   });
 }
+
+// `scheduler.yield()` (LLP 1141.001 D10): the realm resolves an answer's
+// yields in a task of their own, and the answer goes on to its value.
+for (const placement of ['main', 'worker']) test(`${placement}: an answer that yields goes on to its value`, async () => {
+  const realm = await moduleRealm(`return (async () => { let n = 0; for (let i = 0; i < 5; i++) { await scheduler.yield(); n++; } return 'yielded ' + n; })();`, { placement });
+  try {
+    expect((await race(realm.ask('walk'))).value).toBe('yielded 5');
+  } finally { realm.done(); }
+});

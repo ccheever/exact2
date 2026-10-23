@@ -156,6 +156,145 @@ final class SplitMacTests: XCTestCase {
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
 
+    func testTheRunnerReadsFramesAndHitsInTheDetailPanesSpace() throws {
+        let source = app(tabs: false)
+            .replacingOccurrences(of: "  state query = \"\"", with: "  state observed = \"unread\"\n  state hit = \"unread\"\n  state query = \"\"")
+            .replacingOccurrences(of: "  action count\n", with: "  action readGeometry\n    let f = frame(\"geometry-card\")\n    observed = `${f.x},${f.y},${f.width}`\n    hit = match elementFromPoint(321 + f.width / 2, f.y + 5) { case some(id) => id, case none => \"none\" }\n  action count\n")
+            .replacingOccurrences(of: "box testId=`half-${e.params.id}`", with: "box id=\"geometry-card\" testId=`half-${e.params.id}`")
+            .replacingOccurrences(of: "testId=`field-${e.params.id}`", with: "testId=`field-${e.params.id}`\n            button testId=\"read-geometry\" press=readGeometry\n              text \"Read\"\n            text `${observed} ${hit}` testId=\"geometry-result\"")
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1000, sidebar: false)
+        let window = try XCTUnwrap(self.window)
+        try press("row-a")
+        func check(dx: CGFloat = 0) throws {
+            window.layoutIfNeeded()
+            session.presenter.settlePump()
+            try press("read-geometry")
+            let card = try node("half-a"), clip = session.presenter.viewport.contentView
+            XCTAssertTrue(card.isDescendant(of: columns.detailPane))
+            let shown = clip.convert(card.bounds, from: card).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY)
+            let words = try node("geometry-result").accessibleText.split(separator: " ")
+            let frame = try XCTUnwrap(words.first).split(separator: ",").compactMap { Double($0) }
+            XCTAssertEqual(frame.count, 3)
+            guard frame.count == 3 else { return }
+            XCTAssertGreaterThan(shown.minX, 200)
+            XCTAssertEqual(frame[0], shown.minX + dx, accuracy: 0.5)
+            XCTAssertEqual(frame[1], shown.minY, accuracy: 0.5)
+            XCTAssertEqual(frame[2], shown.width, accuracy: 0.5)
+            XCTAssertEqual(words.last, "geometry-card")
+        }
+        try check()
+        width(window, 1200)
+        try check()
+        window.orderFrontRegardless()
+        columns.detailPane.wantsLayer = true
+        window.displayIfNeeded()
+        CATransaction.flush()
+        let layer = try XCTUnwrap(columns.detailPane.layer)
+        let restingFrame = columns.detailPane.frame
+        let end = layer.position.x
+        let motion = CABasicAnimation(keyPath: "position.x")
+        motion.fromValue = end - 80; motion.toValue = end
+        motion.duration = 1; motion.speed = 0; motion.timeOffset = 0.5
+        motion.fillMode = .both; motion.isRemovedOnCompletion = false
+        layer.add(motion, forKey: "split-placement-test")
+        CATransaction.flush()
+        let deadline = Date(timeIntervalSinceNow: 30)
+        while layer.presentation() == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertEqual(try XCTUnwrap(layer.presentation()).position.x, end - 40, accuracy: 0.1)
+        XCTAssertEqual(columns.detailPane.frame, restingFrame, "presentation movement does not resize or move the model pane")
+        try check(dx: -40)
+        layer.removeAnimation(forKey: "split-placement-test")
+        try check()
+    }
+
+    func testTheDriverCapturesAndReadsBothPanes() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500))
+        let columns = compose(ExactView(session: session), width: 900, sidebar: false)
+        try press("row-a")
+        let agent = Agent(session: session)
+        let picture = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        defer { try? FileManager.default.removeItem(at: picture) }
+        let capture = agent.screenshot(["path": picture.path])
+        XCTAssertNil(capture["error"], "\(capture)")
+        XCTAssertEqual(capture["w"] as? Double, Double(columns.view.bounds.width))
+        let ax = agent.accessibilityElementsTree([:])["ax"] as? [String: Any]
+        let exposed = (ax?["elements"] as? [[String: Any]] ?? []).compactMap { $0["testId"] as? String }
+        XCTAssertTrue(exposed.contains("row-a"), "the list is still exposed")
+        XCTAssertTrue(exposed.contains("field-a"), "the detail is exposed too: \(exposed)")
+        let box = try node("half-a")
+        let frame = agent.box(box)
+        let point = NSPoint(x: frame.minX + 10, y: frame.minY + 10)
+        let pixels = agent.sample(["points": [[point.x, point.y]]])["values"] as? [[Double]]
+        let pixel = try XCTUnwrap(pixels?.first)
+        XCTAssertGreaterThan(pixel[0], 0.8)
+        XCTAssertLessThan(pixel[2], 0.1)
+        for name in ["row-a", "half-a"] {
+            let reply = agent.tap(["id": Int(try node(name).id), "hover": true])
+            XCTAssertNil(reply["error"], "\(name): \(reply)")
+        }
+        let split = session.presenter.navigation.split
+        split.listOwnsWindow = false
+        XCTAssertEqual(window?.title, "About a")
+        XCTAssertTrue(try node("title-a").isHiddenOrHasHiddenAncestor)
+        split.listOwnsWindow = true
+        XCTAssertEqual(window?.title, "Library")
+        XCTAssertFalse(try node("title-a").isHiddenOrHasHiddenAncestor)
+    }
+
+    func testAnUnsaidWindowGroundLetsTheSplitSurfaceShowThrough() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500))
+        let p = session.presenter
+        _ = compose(ExactView(session: session), width: 900, sidebar: false)
+        try press("row-a")
+        let role: [String: Any] = ["sys": "windowBackgroundColor", "c": [[255, 255, 255, 255], [30, 30, 30, 255]]]
+        let route = try node("route-book-a")
+        p.apply(wireBatch([["op": "style", "id": route.id, "style": ["background_color": role]]]))
+        XCTAssertNil(route.layer?.backgroundColor)
+        p.apply(wireBatch([["op": "style", "id": route.id, "style": ["background_color": role, "written": ["background_color"]]]]))
+        XCTAssertNotNil(route.layer?.backgroundColor, "an author's explicit role still paints")
+    }
+
+    func testPublicLayoutSamplesAndScreenshotClicksShareThePageOrigin() throws {
+        let source = app(tabs: true).replacingOccurrences(of: "box testId=`half-${e.params.id}`", with: "box press=count testId=`half-${e.params.id}`")
+        let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1100, sidebar: true)
+        try press("row-a")
+        let window = try XCTUnwrap(window), p = session.presenter, agent = Agent(session: session)
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        XCTAssertNotNil(window.toolbar)
+        XCTAssertGreaterThan(columns.sidebarWidth, 100)
+        let card = try node("half-a")
+        let layout = try XCTUnwrap(agent.layout()["nodes"] as? [[String: Any]])
+        let frame = try XCTUnwrap(layout.first { $0["id"] as? Int == Int(card.id) })
+        let x = try XCTUnwrap(frame["x"] as? Double), y = try XCTUnwrap(frame["y"] as? Double)
+        let sampled = agent.sample(["points": [[x + 5, y + 10]]])
+        let pixel = try XCTUnwrap((sampled["values"] as? [[Double]])?.first)
+        XCTAssertGreaterThan(pixel[0], 0.8)
+        XCTAssertLessThan(pixel[2], 0.1, "a public layout point samples the orange card")
+
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        defer { try? FileManager.default.removeItem(at: path) }
+        let capture = agent.screenshot(["path": path.path])
+        XCTAssertNil(capture["error"])
+        let image = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: path)))
+        let scale = CGFloat(image.pixelsWide) / CGFloat(try XCTUnwrap(capture["w"] as? Double))
+        var right = 0, top = image.pixelsHigh
+        for py in 0..<image.pixelsHigh { for px in 0..<image.pixelsWide {
+            guard let c = image.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+                  c.redComponent > 0.9, c.greenComponent > 0.5, c.greenComponent < 0.8, c.blueComponent < 0.05 else { continue }
+            right = max(right, px); top = min(top, py)
+        } }
+        XCTAssertGreaterThan(right, 0)
+        XCTAssertLessThan(top, image.pixelsHigh)
+        let reply = agent.tap(["id": Int(card.id), "hover": true, "x": CGFloat(right) / scale - 5, "y": CGFloat(top) / scale + 10])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let point = try XCTUnwrap(p.agentPointer)
+        let hit = window.contentView?.hitTest(point)
+        XCTAssertTrue(hit === card || hit?.isDescendant(of: card) == true, "a screenshot point sends the pointer to the card")
+    }
+
     func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
         try press("tab-stats")
@@ -194,6 +333,37 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(nil))
         session.presenter.focusEvents.reset()
         return (session.presenter, window, path)
+    }
+
+    func testExitingAnAncestorRetiresItsFocusedPaneRoute() throws {
+        let (p, window, path) = try listeningDetail()
+        let fieldNode = path[0], route = path[1], panel = path[2]
+        let field = try XCTUnwrap(fieldNode.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        XCTAssertFalse(route.isDescendant(of: panel))
+        let pane = try XCTUnwrap(route.superview), frame = route.frame
+        p.apply(wireBatch([["op": "exit", "id": Int(panel.id)]]))
+        XCTAssertNil(p.views[route.id])
+        XCTAssertNil(p.views[fieldNode.id])
+        XCTAssertFalse(window.firstResponder === editor)
+        XCTAssertNil(field.currentEditor())
+        let members = try XCTUnwrap(p.leaving[panel.id]).members
+        XCTAssertTrue(members.contains { $0 === route })
+        XCTAssertTrue(members.contains { $0 === fieldNode })
+        XCTAssertEqual(Set(members.map(\.id)).count, members.count)
+        XCTAssertTrue(route.superview === pane, "the exit keeps the pane content mounted")
+        XCTAssertTrue(route.window === window)
+        XCTAssertEqual(route.frame, frame)
+        XCTAssertFalse(route.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(route.routeInert)
+        XCTAssertTrue(route.isAccessibilityHidden())
+        XCTAssertTrue(p.navigation.split.holds(route))
+        p.apply(wireBatch([]))
+        XCTAssertTrue(route.superview === pane, "a later batch must not release it either")
+        p.apply(wireBatch([["op": "destroy", "id": Int(panel.id)]]))
+        XCTAssertNil(route.superview)
+        XCTAssertFalse(p.navigation.split.holds(route))
     }
 
     func testDetailFocusBubblesThroughItsAuthoredAncestorsAndStops() throws {

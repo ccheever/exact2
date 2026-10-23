@@ -31,17 +31,15 @@ extension Presenter {
         MainActor.assumeIsolated { HeldState.focusMoved(to: textHost(id)) } // the focus coming into a held focus's node or leaving it lets it go (HeldState.swift)
     }
     func blur(_ id: UInt32) {
+        #if os(iOS) || os(tvOS)
+        if menus.preservesFocus(id) { return }
+        #endif
         focusEvents.blur(id)
         // (After the turn: the focus that comes next, so one moving within the node keeps its hold.)
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated { HeldState.focusMoved(to: self?.focusedNode) }
             #if os(iOS)
-            // The focused node unmounted and nothing took the focus: the
-            // session's view holds it again, as at mount, so a hardware
-            // keyboard's keys still reach the shortcuts and the first root
-            // (`ExactView`), as HTML's focus fixup leaves keys to `<body>`.
-            if let self, self.views[id] == nil, let view = self.session?.view, view.window?.isKeyWindow == true,
-               FirstResponder.current == nil { _ = view.becomeFirstResponder() }
+            self?.session?.view?.syncKeyboardFocus()
             #endif
         }
     }

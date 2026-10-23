@@ -141,6 +141,7 @@ fn face_layout(
     rows: &ButtonFaceStyle,
     width: AxisOffer,
     filled: bool,
+    bordered: bool,
 ) -> FaceLayout {
     let neutral = look::neutral();
     let tab_root = rows.neutral_tab_root;
@@ -230,6 +231,12 @@ fn face_layout(
     let em = title_style.font_size;
     let said = |id| (neutral || filled) && rows.button.written.has(id);
     let (said_width, said_height) = (said(StyleId::Width), said(StyleId::Height));
+    let padding_block = neutral
+        && !rows.neutral_role_floor
+        && (said(StyleId::PaddingTop) || said(StyleId::PaddingBottom));
+    let padding_inline = neutral
+        && !rows.neutral_role_floor
+        && (said(StyleId::PaddingLeft) || said(StyleId::PaddingRight));
     let lone_symbol =
         (face.symbol.is_some() || face.raster) && face.title.is_none() && face.subtitle.is_none();
     let inline = if tab_root.is_some() {
@@ -276,6 +283,15 @@ fn face_layout(
         (StyleId::PaddingLeft, rows.button.padding_left, 9.0, inline),
     ]
     .map(|(id, d, default, look)| {
+        let edge = if !bordered
+            && match id {
+                StyleId::PaddingTop | StyleId::PaddingBottom => padding_block,
+                _ => padding_inline,
+            } {
+            0.0
+        } else {
+            edge
+        };
         edge + if rows.button.mask.has(id) || (tab_root.is_some() && rows.button.written.has(id)) {
             points(d)
         } else if neutral || filled {
@@ -332,7 +348,7 @@ fn face_layout(
     };
     let min_width = match filled && !said_width {
         true => material_dp(metric::FILLED_BUTTON_MIN_WIDTH) * scale,
-        false => floor(said_width),
+        false => floor(said_width || padding_inline),
     };
     let min_height = if tab_root.is_some() {
         if declared(&rows.button, StyleId::MinHeight) {
@@ -341,7 +357,7 @@ fn face_layout(
             tab_length(metric::TABBAR_HEIGHT, em)
         }
     } else {
-        floor(said_height)
+        floor(said_height || padding_block)
     };
     let natural = [
         (face.title.as_deref(), Some(&title_style)),
@@ -402,7 +418,14 @@ fn face_layout(
 
 pub(crate) fn measure(engine: &mut TextEngine, request: &ButtonMeasureRequest) -> ButtonMeasure {
     let filled = material_filled(request.button_style.as_deref());
-    let face = face_layout(engine, &request.face, &request.style, request.width, filled);
+    let face = face_layout(
+        engine,
+        &request.face,
+        &request.style,
+        request.width,
+        filled,
+        request.button_style.as_deref().unwrap_or("bordered") == "bordered",
+    );
     ButtonMeasure {
         width: face.width,
         height: face.height,
@@ -423,7 +446,7 @@ impl Painter {
     /// on it; `soft` and `text` are the accent as ink, on a tint of it or on
     /// nothing. A destructive button's accent is the red. Where a pointer
     /// hovers a wash of the ink lies over the fill, and a stronger one while
-    /// pressed, but for `fill`, which shows UIKit's highlight (neutral.css);
+    /// pressed, except `fill` and `text`, which fade their ink (neutral.css);
     /// disabled, the ink is the grey and an accent fill a neutral.
     fn neutral_face(
         &mut self,
@@ -431,6 +454,7 @@ impl Painter {
         shape: &Shape,
         style: &str,
         gray: bool,
+        menu_row: bool,
         ts: Transform,
     ) -> [u8; 4] {
         use look::{fade, number, role};
@@ -503,7 +527,7 @@ impl Painter {
                 let tint = fade(accent, number(metric::BUTTON_TINT_ALPHA));
                 (Some(tint), None, wash, accent)
             }
-            "text" => (None, None, neutral_wash(), accent),
+            "text" => (None, None, menu_row.then(neutral_wash).flatten(), accent),
             _ => {
                 let ink = if destructive { accent } else { label };
                 let fill = gray.then(|| role("-exact-secondary-fill", dark));
@@ -543,8 +567,18 @@ impl Painter {
         ts: Transform,
         face: &exact_kernel::PressFace,
         rows: &ButtonFaceStyle,
-        focused: bool,
+        walk: &super::Walk<'_, '_>,
     ) {
+        let focused = walk.scene.focus == Some(node.id) && self.ringless != Some(node.id);
+        let mut ancestor = node.parent;
+        let mut menu_row = false;
+        while let Some(parent) = ancestor.and_then(|id| walk.scene.kernel.node(id)) {
+            if parent.props.str(PropId::AccessibilityRole) == Some("menu") {
+                menu_row = true;
+                break;
+            }
+            ancestor = parent.parent;
+        }
         let dark = self.dark;
         let neutral = look::neutral();
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
@@ -660,7 +694,7 @@ impl Painter {
                 look::role("GrayText", dark)
             }
             _ if neutral && !look.contains("glass") => {
-                self.neutral_face(node, &shape, look, name == "gray", ts)
+                self.neutral_face(node, &shape, look, name == "gray", menu_row, ts)
             }
             "text" => accent,
             "soft" => {
@@ -711,6 +745,7 @@ impl Painter {
             rows,
             AxisOffer::Definite(rect.2),
             filled,
+            name == "bordered",
         );
         let (x, y, w, h) = rect;
         let [pt, pr, pb, pl] = layout.padding;
@@ -786,13 +821,22 @@ impl Painter {
                 by + (ch - layout.symbol) / 2.0,
             )
         };
+        let fade_face =
+            neutral && look == "text" && !disabled && !menu_row && self.presses(node.id);
         let color = |style: &StyleProps, fallback| {
-            if style.mask.has(StyleId::TextColor) {
+            let resolved = if style.mask.has(StyleId::TextColor) {
                 rgba(style.text_color.resolve(dark))
             } else if authored_accent.is_some() {
                 fallback
             } else {
                 dim(fallback)
+            };
+            // Resolve authored ink before fading; an explicitly tinted symbol
+            // bypasses this closure and the focus ring is painted separately.
+            if fade_face {
+                look::fade(resolved, look::number(metric::BUTTON_PRESSED_ALPHA))
+            } else {
+                resolved
             }
         };
         self.backend.push_clip(&Shape::rect(rect), ts);
@@ -864,6 +908,7 @@ mod tests {
             },
             style: ButtonFaceStyle {
                 neutral_tab_root: None,
+                neutral_role_floor: false,
                 title: StyleProps::default(),
                 subtitle: None,
                 symbol: StyleProps::default(),

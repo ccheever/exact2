@@ -65,10 +65,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
-    // A build's report reaches the tool on its long poll. (Real time in one step, not several: a jump
-    // that crosses one of the tool's timers first waits on what is in flight, up to 20 s (the agent's
-    // bound; the server holds the tool's changes poll 25 s), and a `+N real` step counts that wait as
-    // time passed.)
+    // A build's report reaches the tool on its long poll.
     const wait = ['clock +4000 real', 'clock data'];
     // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open.
     saidPlan = (async () => {

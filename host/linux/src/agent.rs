@@ -10,6 +10,7 @@
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
 pub(crate) mod contact;
+mod held;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -1013,6 +1014,7 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
         }
     }
+    held::name_pending(p, &mut tree);
     tree.to_string()
 }
 
@@ -1041,7 +1043,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     if field_bool(line, "land") {
         let (landed, e) = p.land_then();
         p.sync_surfaces();
-        return match e {
+        let reply = match e {
             Some(e) => {
                 let mut s = String::from("{\"error\":");
                 exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -1049,13 +1051,15 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             None => format!("{{\"clock\":{}}}", num(landed)),
         };
+        return held::held_named(p, reply);
     }
     if field_bool(line, "data") {
-        return land_data(p, SETTLE_BOUND);
+        let reply = land_data(p, SETTLE_BOUND);
+        return held::held_named(p, reply);
     }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
-    reply
+    held::held_named(p, reply)
 }
 
 /// `clock data`: the app's data lands — its deferred module activated (the
@@ -1198,7 +1202,10 @@ fn clock_within<D: DataSource>(
         if !settle_to_end {
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how
-            // much, as the web hosts' do (calendar F10, workout F6).
+            // much, as the web hosts' do (calendar F10, workout F6). A polled
+            // module source's ask it made lands first (LLP 1133.009 D10
+            // item 7).
+            wait_for_polls(p, deadline);
             let mut r = response(None, false);
             let inflight = p.host().runner().in_flight().len();
             if inflight > 0 {
@@ -1299,6 +1306,22 @@ fn clock_stepped<D: DataSource>(
         wait_for_replies(p, deadline);
     }
     p.clock(to)
+}
+
+/// Pump the executor until no polled module source's ask is in flight, or
+/// until the call's deadline.
+fn wait_for_polls<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) {
+    let asking = |p: &Presenter<D>| {
+        p.host()
+            .agent("{\"op\":\"polls\"}")
+            .contains("\"asking\":true")
+    };
+    while asking(p) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        if let Some(e) = p.pump(p.host().now()) {
+            eprintln!("exact: {e}");
+        }
+    }
 }
 
 /// Pump the executor until no request is in flight, or until the call's

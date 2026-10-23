@@ -400,3 +400,76 @@ component App
             .any(|line| line.contains("dlopen: missing activity arm")));
     }
 }
+
+#[test]
+fn a_same_clock_signed_zero_change_refuses_the_stale_candidate() {
+    let plan = contract::compile(
+        "component App\n  state value = 0\n  action negate\n    value = -value\n  view\n    button press=negate testId=\"negate\"\n      text `${value}`\n",
+    ).unwrap().encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Dot, Hooks::none(), 390., 844.);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let before = bridge.host.as_ref().unwrap().carry();
+    let kernel = bridge.host.as_ref().unwrap().runner().kernel();
+    let button = kernel
+        .node_by_key(kernel.find_by_test_id("negate")[0])
+        .unwrap()
+        .id;
+    bridge.dispatch(button, 0, 0, before.now_ms);
+    let latest = bridge.host.as_ref().unwrap().carry();
+    assert_eq!(latest.now_ms, before.now_ms);
+    let value = |bridge: &Bridge<Dot>| {
+        bridge
+            .host
+            .as_ref()
+            .unwrap()
+            .runner()
+            .slot("value")
+            .unwrap()
+            .as_number()
+            .unwrap()
+            .to_bits()
+    };
+    assert_eq!(value(&bridge), (-0.0f64).to_bits());
+    let len = bridge.commit_plan();
+    assert_eq!(output(&bridge, len)["pending"], true);
+    assert_eq!(value(&bridge), (-0.0f64).to_bits());
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let len = bridge.commit_plan();
+    assert_ne!(output(&bridge, len)["pending"], true);
+    assert_eq!(value(&bridge), (-0.0f64).to_bits());
+}
+
+#[test]
+fn a_clock_only_change_refuses_a_candidate_that_would_rewind_time() {
+    let plan = contract::compile("component App\n  state value = 0\n  view\n    text `${value}`\n")
+        .unwrap()
+        .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Dot, Hooks::none(), 390., 844.);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let before = bridge.host.as_ref().unwrap().carry();
+    bridge.advance(before.now_ms + 1000., 0);
+    let latest = bridge.host.as_ref().unwrap().carry();
+    assert_eq!(before.slots, latest.slots, "only time changed");
+    assert_eq!(before.store, latest.store);
+    assert_eq!(before.resources, latest.resources);
+    assert_eq!(latest.now_ms, before.now_ms + 1000.);
+    assert_eq!(
+        bridge.prepared.as_ref().unwrap().host.carry().now_ms,
+        before.now_ms,
+        "accepting this host would replace the live clock with its earlier value"
+    );
+    let len = bridge.check_prepared();
+    assert_eq!(output(&bridge, len)["pending"], true);
+    assert!(bridge.prepared.is_none());
+    assert_eq!(bridge.host.as_ref().unwrap().carry().now_ms, latest.now_ms);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let len = bridge.commit_plan();
+    assert_ne!(output(&bridge, len)["pending"], true);
+    assert_eq!(bridge.host.as_ref().unwrap().carry().now_ms, latest.now_ms);
+}

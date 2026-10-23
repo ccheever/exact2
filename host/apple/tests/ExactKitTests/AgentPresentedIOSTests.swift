@@ -51,6 +51,14 @@ final class AgentPresentedIOSTests: XCTestCase {
         return agent.screenshot(request)
     }
 
+    func testANativeTreeCarriesTheRunnersPendingSnapshot() throws {
+        let agent = mounted()
+        let tree = agent.decorateTree(["nodes": []])
+        let pending = try XCTUnwrap(tree["pending"] as? [[String: Any]], "the native tree must carry the snapshot used by missing-target diagnostics")
+        XCTAssertEqual(pending.compactMap { $0["name"] as? String }, agent.pendingRequests().compactMap { $0["name"] as? String })
+        XCTAssertTrue(pending.isEmpty, "this session starts with no source requests")
+    }
+
     func testAScreenshotIsTheViewportsWithNothingPresentedAndTheWindowsWithAnAlertOrSheetUp() throws {
         let agent = mounted()
         XCTAssertNil(agent.presentedOverApp())

@@ -10,6 +10,9 @@ use exact_plan::{BindingKind, BindingsRow, NodesId};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
+#[path = "text_style.rs"]
+mod text_style;
+
 impl Em<'_> {
     /// Clock ticks format cached instants without evaluating app code.
     pub(super) fn live_time(
@@ -156,6 +159,7 @@ impl Em<'_> {
         parts: &Parts,
         e: &str,
         f: &str,
+        scope: &crate::code::Scope,
     ) -> Result<(), String> {
         let plan = self.plan;
         let row = &plan.node(NodesId(i));
@@ -171,9 +175,6 @@ impl Em<'_> {
         let clock = |s: &str| s.trim_start().starts_with("-exact-clock(");
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
-        let dynamic = |id: StyleId| {
-            binding(id).is_some_and(|b| style::literal(plan, plan.code(b.expr)).is_none())
-        };
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
         // @ref LLP 1115.002 D6 — a metric the binding may name is its value
@@ -264,11 +265,10 @@ impl Em<'_> {
             let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
             return Ok(());
         }
-        // @ref LLP 1084 D7 — what the page's sheet reads to give a grouped
-        // row's separator way (index.html): a bound edge or background image
-        // its author wrote, while it holds a value, and a row's bound
-        // `display`, while it hides the row. A literal one is said by the
-        // element's own marks (`data-exact-said`, `data-exact-hidden`).
+        // Mark bound rows while they hold a value: grouped separators yield to
+        // authored edges and images (LLP 1084 D7), and a native button's floor
+        // yields to authored size and padding. Literal rows use data-exact-said.
+        let button = kind == NodeType::Control && parts.props.contains_key("data-button-style");
         let mark = match id {
             StyleId::BorderWidthTop if b.written => Some("data-exact-top-width"),
             StyleId::BorderStyleTop if b.written => Some("data-exact-top-style"),
@@ -281,6 +281,12 @@ impl Em<'_> {
             {
                 Some("data-exact-hidden")
             }
+            StyleId::Width if b.written && button => Some("data-exact-width"),
+            StyleId::Height if b.written && button => Some("data-exact-height"),
+            StyleId::PaddingTop if b.written && button => Some("data-exact-padding-top"),
+            StyleId::PaddingRight if b.written && button => Some("data-exact-padding-right"),
+            StyleId::PaddingBottom if b.written && button => Some("data-exact-padding-bottom"),
+            StyleId::PaddingLeft if b.written && button => Some("data-exact-padding-left"),
             _ => None,
         };
         if let Some(name) = mark {
@@ -452,36 +458,8 @@ impl Em<'_> {
                     ),
                 ]
             }
-            // A bound `font` shorthand: its style's weight and leading with
-            // its size (LLP 1115.000 D12.2), as a literal one's are written.
-            // What the node writes statically it keeps. A bound longhand may
-            // be `none`, which leaves the style's: the style's goes to a
-            // custom property that binding falls back on (below).
-            StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
-                let [weight, leading] = &*style::TEXT_STYLE_ROWS;
-                // A type token's size property stands for its text style
-                // here, as the literal's name would (`measures::size_styles`).
-                let styles = crate::measures::size_styles(plan, crate::modes::every_token());
-                let back = |map: &String| match styles.is_empty() {
-                    true => map.clone(),
-                    false => {
-                        let pairs: Vec<String> = styles.iter().map(|(v, s)| format!("{}:{}", serde_json::to_string(v).unwrap(), serde_json::to_string(s).unwrap())).collect();
-                        format!("(B=>v=>({map})(typeof v===\"string\"&&Object.hasOwn(B,v)?B[v]:v))({{{}}})", pairs.join(","))
-                    }
-                };
-                let (weight, leading) = (&back(weight), &back(leading));
-                let written = |name: &str| parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")));
-                let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
-                for (row, name, map) in [(StyleId::FontWeight, "font-weight", weight), (StyleId::LineHeight, "line-height", leading)] {
-                    if dynamic(row) {
-                        // `initial` where no style is named: one an ancestor
-                        // declared is not inherited here.
-                        w.push((style::style_fallback(name), String::new(), Some(format!("v=>({map})(v)??\"initial\""))));
-                    } else if binding(row).is_none() && !written(name) {
-                        w.push((name.into(), String::new(), Some(map.clone())));
-                    }
-                }
-                w
+            StyleId::FontSize if parts.tag != "img" => {
+                text_style::font_size(plan, row, parts, &mut |map| self.uses.share('m', map))
             }
             StyleId::FontSize | StyleId::FontWeight if parts.tag == "img" => {
                 let size = id == StyleId::FontSize;
@@ -575,27 +553,27 @@ impl Em<'_> {
                 )),
             ));
         }
-        // A longhand bound beside a bound `font` shorthand: where it says
-        // nothing, the shorthand's style's (above), as the kernel has it.
-        let writes = if matches!(id, StyleId::FontWeight | StyleId::LineHeight)
-            && parts.tag != "img"
-            && parts.props.contains_key("data-fontshorthand")
-            && dynamic(StyleId::FontSize)
-        {
-            writes
-                .into_iter()
-                .map(|(name, unit, map)| {
-                    let fallback = format!("var({})", style::style_fallback(&name));
-                    let inner = map.unwrap_or_else(|| "v=>v".into());
-                    (name, unit, Some(format!("v=>({inner})(v)??{fallback:?}")))
-                })
-                .collect()
-        } else {
-            writes
-        };
+        if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
+            let normal = self.uses.rt("normal");
+            // The marker depends on both rows: either can expose an inherited value.
+            let start = if parts.props.contains_key("data-fontshorthand") {
+                binding(StyleId::FontSize)
+                    .filter(|b| style::literal(plan, plan.code(b.expr)).is_none())
+                    .map(|b| {
+                        let size = self.f(b.expr, scope)?;
+                        let map = self
+                            .uses
+                            .share('m', text_style::style_map(plan, &style::TEXT_STYLE_ROWS[0]));
+                        Ok::<_, String>(format!("({map})(({size})())"))
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
+            text_style::longhand(plan, row, parts, id, &normal, start.as_deref(), &mut writes);
+        }
         // @ref LLP 1084 D7 — a grouped row's separator stands below its
         // bottom padding (the page's sheet, as `element::host_css_of` says).
-        let mut writes = writes;
         if id == StyleId::PaddingBottom && parts.props.contains_key("data-groupedrowseparator") {
             if let Some((_, unit, map)) = writes.first().cloned() {
                 // A length; a percentage, which a background cannot reach,
@@ -631,6 +609,11 @@ impl Em<'_> {
             && parts.props.get("data-exact-ink").is_some_and(|w| w != "b"))
         .then(|| format!("()=>{{const v=({f})();{e}.$ink=v!=null;return v}}"));
         let f = inked.as_deref().unwrap_or(f);
+        // A blank text row clears its start; `none` leaves that start exposed.
+        let clear = matches!(id, StyleId::FontWeight | StyleId::LineHeight).then(|| {
+            format!("()=>{{const v=({f})();return typeof v===\"string\"&&!v.trim()?\"unset\":v}}")
+        });
+        let f = clear.as_deref().unwrap_or(f);
         for (name, unit, map) in writes {
             let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS
@@ -1037,7 +1020,7 @@ fn sandboxed_source<'a>(
 pub(crate) fn pressed_transition_map() -> String {
     format!(
                     "v=>{{if(v==null)return v;{}const o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}}",
-                    crate::style::TRANSITION_ENTRIES
+                    crate::style::TRANSITION_ENTRIES.as_str()
                 )
 }
 
@@ -1157,6 +1140,7 @@ mod tests {
                 "none"
             ])
         );
+        crate::style::tests::assert_spring_transitions(&super::pressed_transition_map());
     }
 
     use crate::style::{
@@ -1278,7 +1262,8 @@ mod tests {
                     "12px"
                 ]
             ),
-            serde_json::json!([16, 56, 16, "12px"])
+            // A ramp's value is the 16-point body's in `rem`, so it follows the root size.
+            serde_json::json!([16, "3.4375rem", 16, "12px"])
         );
         // Red when destructive, by its role; the label's colour is no metric.
         assert_eq!(

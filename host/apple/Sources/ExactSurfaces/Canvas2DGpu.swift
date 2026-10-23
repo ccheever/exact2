@@ -20,7 +20,7 @@ import UIKit
 #endif
 import ExactKit
 
-/// The module's C ABI (version 2).
+/// The module's C ABI (version 3).
 final class Canvas2DGpuModule {
     typealias New = @convention(c) (UInt32, UInt32, Double) -> OpaquePointer?
     typealias Free = @convention(c) (OpaquePointer?) -> Void
@@ -65,9 +65,9 @@ final class Canvas2DGpuModule {
             Canvas2DGpuModule.log("canvas gpu: \(path) did not load: \(dlerror().map { String(cString: $0) } ?? "?")")
             return nil
         }
-        guard let abi = dlsym(lib, "ecg_abi"), unsafeBitCast(abi, to: (@convention(c) () -> UInt32).self)() == 2,
+        guard let abi = dlsym(lib, "ecg_abi"), unsafeBitCast(abi, to: (@convention(c) () -> UInt32).self)() == 3,
               let n = dlsym(lib, "ecg_name") else {
-            Canvas2DGpuModule.log("canvas gpu: \(path) is not an ABI 2 module (built without the Metal toolchain?)")
+            Canvas2DGpuModule.log("canvas gpu: \(path) is not an ABI 3 module (built without the Metal toolchain?)")
             return nil
         }
         func sym<T>(_ s: String, _: T.Type) -> T? { dlsym(lib, s).map { unsafeBitCast($0, to: T.self) } }
@@ -80,7 +80,7 @@ final class Canvas2DGpuModule {
         // The module's caches are rebuilt on demand: a memory warning or the
         // background drops them.
         for note in [UIApplication.didReceiveMemoryWarningNotification, UIApplication.didEnterBackgroundNotification] {
-            NotificationCenter.default.addObserver(forName: note, object: nil, queue: nil) { _ in trim() }
+            NotificationCenter.default.addObserver(forName: note, object: nil, queue: nil) { _ in Canvas2DGpuPixels.shared.trim(); trim() }
         }
         #endif
         Canvas2DGpuModule.log(String(format: "canvas gpu: %@ loaded in %.1f ms", name, (CFAbsoluteTimeGetCurrent() - t0) * 1000))
@@ -111,39 +111,11 @@ struct EcgHost {
     typealias TextRuns = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<Double>?, Int, UnsafePointer<UInt32>?, Int, UInt32,
                                          UnsafeMutablePointer<Int>?) -> UnsafeRawPointer?
     typealias Image = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UInt32>?,
-                                      UnsafeMutablePointer<UInt32>?) -> UnsafePointer<UInt8>?
+                                      UnsafeMutablePointer<UInt32>?, UnsafeMutablePointer<UInt64>?) -> UnsafePointer<UInt8>?
     var ctx: UnsafeMutableRawPointer?
     var textPath: TextPath?
     var textRuns: TextRuns?
     var image: Image?
-}
-
-/// Decoded images as premultiplied RGBA8, by handle: the module caches its
-/// uploads by pointer, so a handle's pixels live as long as the process.
-final class Canvas2DGpuPixels {
-    static let shared = Canvas2DGpuPixels()
-    private let lock = NSLock()
-    private var pixels: [String: (image: CGImage, bytes: UnsafeMutableRawPointer, w: Int, h: Int)] = [:]
-
-    func rgba(_ src: String, _ image: CGImage, p3: Bool) -> (UnsafeMutableRawPointer, Int, Int)? {
-        lock.lock(); defer { lock.unlock() }
-        let key = p3 ? "p3 " + src : src
-        if let hit = pixels[key], hit.image === image { return (hit.bytes, hit.w, hit.h) }
-        let (w, h) = (image.width, image.height)
-        guard w > 0, h > 0 else { return nil }
-        let bytes = UnsafeMutableRawPointer.allocate(byteCount: w * h * 4, alignment: 16)
-        guard let c = CGContext(data: bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: Canvas2DSpace(p3: p3).space,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
-            bytes.deallocate(); return nil
-        }
-        c.clear(CGRect(x: 0, y: 0, width: w, height: h))
-        c.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        // A re-decoded handle keeps its old pixels alive: the module may hold
-        // an upload keyed by the old pointer.
-        pixels[key] = (image, bytes, w, h)
-        return (bytes, w, h)
-    }
 }
 
 /// What one replay's callbacks read and hand back: the snapshot's fonts and
@@ -154,6 +126,7 @@ final class Canvas2DGpuCallbacks {
     /// The last callback's buffers, and the fonts its runs point at.
     private var held: [UnsafeMutableRawPointer] = []
     private var fonts: [CTFont] = []
+    private var imagePixels: Canvas2DGpuPixels.Entry?
 
     let p3: Bool
     init(env: Canvas2DEnv, p3: Bool) { self.env = env; self.p3 = p3 }
@@ -161,7 +134,7 @@ final class Canvas2DGpuCallbacks {
 
     private func release() {
         for p in held { p.deallocate() }
-        held.removeAll(); fonts.removeAll()
+        held.removeAll(); fonts.removeAll(); imagePixels = nil
     }
 
     /// A buffer holding `values`, kept until the next callback.
@@ -223,13 +196,15 @@ final class Canvas2DGpuCallbacks {
         return UnsafeRawPointer(me.hold(runs))
     }
 
-    static let image: EcgHost.Image = { ctx, src, srcN, w, h in
-        guard let ctx, let src, let w, let h else { return nil }
+    static let image: EcgHost.Image = { ctx, src, srcN, w, h, identity in
+        guard let ctx, let src, let w, let h, let identity else { return nil }
         let me = Unmanaged<Canvas2DGpuCallbacks>.fromOpaque(ctx).takeUnretainedValue()
+        me.release()
         let key = String(decoding: UnsafeBufferPointer(start: src, count: srcN), as: UTF8.self)
-        guard let image = me.env.canvasImage(key), let (bytes, iw, ih) = Canvas2DGpuPixels.shared.rgba(key, image, p3: me.p3) else { return nil }
-        w.pointee = UInt32(iw); h.pointee = UInt32(ih)
-        return UnsafePointer(bytes.assumingMemoryBound(to: UInt8.self))
+        guard let image = me.env.canvasImage(key), let entry = Canvas2DGpuPixels.shared.rgba(key, image, p3: me.p3) else { return nil }
+        me.imagePixels = entry
+        w.pointee = UInt32(image.width); h.pointee = UInt32(image.height); identity.pointee = entry.identity
+        return UnsafePointer(entry.bytes.assumingMemoryBound(to: UInt8.self))
     }
 }
 

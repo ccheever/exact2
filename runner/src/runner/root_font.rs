@@ -305,11 +305,11 @@ impl<D: DataSource> Runner<D> {
 
     /// Set the display's scale, which a hairline (`-exact-hairline`) is one
     /// device pixel of: the host's fact, told as the root font size is and
-    /// again when the window moves to another display. Where a row is a
-    /// hairline it commits what that moves, in one commit; where none is,
-    /// or it is the scale already set, it commits nothing and the next
-    /// hairline written resolves against it. A scale that is not finite and
-    /// positive is journaled and refused, changing nothing.
+    /// again when the window moves to another display. Hairlines and borders
+    /// snapped by the host relayout in one commit. Without those, or for the
+    /// same scale, it commits nothing; future lengths resolve against it.
+    /// A scale that is not finite and positive is journaled and refused,
+    /// changing nothing.
     pub fn set_display_scale(&mut self, scale: f64) -> Result<Option<CommitReceipt>, RunnerError> {
         if !fits(scale) {
             self.log(format!(
@@ -323,7 +323,7 @@ impl<D: DataSource> Runner<D> {
             .kernel
             .set_display_scale(scale as f32)
             .map_err(RunnerError::Kernel)?;
-        if !changed || !self.kernel.has_hairlines() {
+        if !changed || !self.kernel.has_display_lengths() {
             return Ok(None);
         }
         let result = self.commit_again(Vec::new(), "display scale");

@@ -617,6 +617,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "seed" NUMBER NL                     (* 0 through 2^32 - 1 *)
               | "fresh" [ STRING ] NL                (* the Snapback dev server emptied first, seeded from the file *)
               | "before" "data" NL                   (* the first step does not wait for data *)
+              | "prefer" IDENT IDENT NL              (* CSS media feature and value, before observations *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
@@ -633,6 +634,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
               | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
+              | "prefer" IDENT IDENT NL              (* change a media preference now *)
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
@@ -671,7 +673,11 @@ launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"` and `seed 7` are the driver's `--size`,
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
 each once. Written at the top of the file they apply to every test that does not
-name its own; either way they override the drive's flags. A file whose
+name its own; either way they override the drive's flags. Media preferences
+(`prefer prefers-color-scheme dark`) also lead a test or the file, and may
+change between steps. Defaults merge by feature name; duplicate names among
+leading lines are errors. A bad name or value fails that test at its line.
+The latest values survive `reload` and verify's relaunch. A file whose
 assertions depend on the date says so in the file. `epoch now` is the machine's
 clock, read once as each test launches, for a test whose app talks to a live
 backend on real time (`snapback4 dev`); its dates differ run to run, so its
@@ -709,10 +715,12 @@ after the persona (a status from 100 through 599, LLP 1116.010 D3) is the test o
 refusal: that status passes it, any other (a success too) fails it. The app
 shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
 `clock data` before the `expect` (a failed `expect` before the clock moved says so).
-`test` and `verify` run the server on an empty database (one already answering there,
-your dev server, is refused). Runs take the server's port in turn (another checkout's
+`test`, `verify` and `agent --test` run the server on an empty database (one already
+answering there, your dev server, is refused). Runs take the server's port in turn (another checkout's
 run on it is waited for, and named). `fail fetch` does not reach a `request`: the driver sends
-it, not the app.
+it, not the app. Arguments after the entry in app.json's `commands.server` are passed
+through in order. For a server that keeps no database, set `"server": { "database": false }`
+beside `commands` to omit `DB` and skip scratch database creation and removal.
 `tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
@@ -1509,14 +1517,14 @@ nothing presses. A secondary click in a modal dialog reaches an ancestor's
 `contextmenu` behind it, but that ancestor's `contextPopover` stays shut,
 since the modal makes it inert; a press bubbling to an invoker behind the
 modal follows the same rule ([Events](#events)).
-On macOS, the unmodified `ContextMenu` key opens it at the focused node's
-visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
-A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
-handler runs before its `contextPopover` opens; a text field keeps its editing
-menu, and a control in the node (a checkbox, a range, a date) has none, so the
-node's runs. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
-default on macOS, matching Chrome on that platform. Native context menus retain
-the existing `disabled` guard, including on plain containers.
+On Apple hosts, the unmodified `ContextMenu` key and Shift+F10 open it at the
+focused node's centre, after `key` handlers run, with `buttons=0` and
+`pressure=0`. A `key` handler's `preventDefault()` cancels it. The nearest
+`contextmenu` handler runs before its `contextPopover` opens; either declaration
+is sufficient. A text field keeps its editing menu. Drive it with
+`type "row" key "ContextMenu"` or `type "row" key "Shift+F10"`. UIKit presents
+keyboard-invoked actions through its native menu without the long-press preview.
+Disabled controls and inert nodes do not open menus.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is

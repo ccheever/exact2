@@ -228,7 +228,16 @@ fn three_messages_then_a_close_and_the_worker_stays_free() {
         matches!(&end, Outcome::Failed { kind: FailureKind::Network, message } if message == "the event stream ended"),
         "{end:?}"
     );
-    assert!(settled(&core), "the stream's reservation ends with it");
+    // The terminal outcome can drain before the async transport's physical
+    // end is processed. Its reservation belongs to that later event.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled(&core) {
+        assert!(
+            Instant::now() < deadline,
+            "the ended stream kept its reservation"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]
@@ -790,4 +799,21 @@ fn a_byte_stream_with_no_body_is_one_answer_as_on_the_web() {
         "{outcome:?}"
     );
     assert!(settled(&core));
+}
+
+#[test]
+#[ignore = "async lane: waits 50 ms of wall clock for the reader to fold each message; bun scripts/async.mjs runs it"]
+fn a_server_event_named_as_the_long_poll_reply_is_an_ordinary_event() {
+    let (core, script, woke) = setup();
+    core.run_owned(stream(1, "/events", 4096), None).unwrap();
+    let tx = feed(&script, 0);
+    tx.send(b"event: exact:reply\ndata: 1\n\n".to_vec())
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    tx.send(b"data: 2\n\n".to_vec()).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    // Folded as any two events: the newest lands, counting the one it replaced.
+    assert_eq!(data(&next(&core, &woke).1), ("2", 1));
+    drop(tx);
+    assert!(matches!(next(&core, &woke).1, Outcome::Failed { .. }));
 }

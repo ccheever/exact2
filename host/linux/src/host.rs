@@ -59,7 +59,7 @@ mod transform_binding;
 mod value_watch;
 pub use error::{HostError, LET_GO_AFTER};
 
-use system::{persist_store_writes, physical_memory, store_snapshot};
+use system::{physical_memory, store_snapshot, StoreWrites};
 
 /// Caller-owned plan bytes, or linked bytes whose data pool stays in place.
 #[derive(Clone, Copy)]
@@ -80,6 +80,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    store_writes: StoreWrites,
     doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
@@ -263,6 +264,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            store_writes: StoreWrites::default(),
             doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
@@ -747,6 +749,7 @@ impl<D: DataSource> Host<D> {
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         self.runner.set_socket_reader(executor.socket_reader());
+        self.runner.set_retry_reader(executor.retry_reader());
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(0, &mut self.runner)); // one session (LLP 1069.010 slice 3)
         executor
     }
@@ -1292,7 +1295,7 @@ impl<D: DataSource> Host<D> {
         // reload reads them back (platformer R10). The log is taken either way.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in persist_store_writes(&app_id, &writes) {
+        for line in self.store_writes.flush(&app_id, &writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();

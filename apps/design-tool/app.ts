@@ -14,7 +14,7 @@ import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, takeRefusals } from './refusals';
+import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -391,7 +391,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
-  buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
+  stepsAgain(list ?? [], buildsNow); buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
   for (const b of list ?? []) owned(b, client);
 };
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
@@ -1011,7 +1011,7 @@ const sources: Sources = {
     const gen = ++polls;
     // Another name is another client: what this tool inspects is read again.
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
-    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
+    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000, undefined, !!epoch); // a wait is held (`exactHeld`, LLP 1016.000 D9); the first ask, answered at once, is not
     answers += 1;
     const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
     if (error) return { ok: false, error, missed: false, ...state() };
@@ -1098,7 +1098,7 @@ const sources: Sources = {
         if (!e.state && e.reason) holdNotes.set(String(e.build), letGo(String(e.reason), e.detail));
       }
       else if (e.event === 'unsupported') {
-        const b = buildsNow.get(String(e.build)), step = e.what === 'inspect' && stepRefused(String(e.build)); if (b && !step) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+        const b = buildsNow.get(String(e.build)), step = e.what === 'inspect' && stepRefused(String(e.build), e.detail, b); if (b && !step) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
         // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
         if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
         if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && !step && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)

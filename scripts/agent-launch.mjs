@@ -18,6 +18,18 @@ import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInput
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
+/** Poll host I/O until ready; a bound only ends a hung load. Return its last observation for diagnostics. */
+export async function pollUntil(read, ready, { bound = 60_000, interval = 50, now = Date.now, pause = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const until = now() + bound;
+  while (true) {
+    const value = await read();
+    if (ready(value)) return value;
+    const remaining = until - now();
+    if (remaining <= 0) return value;
+    await pause(Math.min(interval, remaining));
+  }
+}
+
 // The compiler's warnings in a build's output, and the lines a drive says for them: app-cli.mjs, which runs a
 // drive's build first, has them; verify, the dev loop and agent-build.mjs read them from here.
 export { compilerWarnings, warningLines } from './app-cli.mjs';
@@ -477,6 +489,7 @@ export function parseFlags(argv) {
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if (['ios', 'host-ios'].includes(rest[0]) && flags.phone !== undefined && !flags.device) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
   if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };

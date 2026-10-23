@@ -47,6 +47,7 @@ final class NodeAside {
     var imageLayer: CALayer?
     var imageSource: String?
     var loadGeneration = 0
+    var buttonRasterView: UInt32?
     var paintGhosts = 0
     weak var ghostParent: NodeView?
 }
@@ -55,6 +56,7 @@ final class NodeAside {
 /// have one need none of its other fields, and an extras object is 1.5 KB
 /// (euxy's launch: 43 of its 47 extras held only these).
 final class NodePaintExtras {
+    var boxFill: CALayer?
     /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
     /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
@@ -161,6 +163,7 @@ final class NodeExtras {
     var pendingScrollTransfer = false
     /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
     /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
+    var controlRide: CGFloat = 0
     var scrollOrigin: CGFloat = 0
     /// …and the smallest inset it has had: its title collapsed.
     var scrollCollapsed: CGFloat = 0
@@ -225,12 +228,14 @@ extension NodeView {
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
+    var buttonRasterView: UInt32? { get { aside?.buttonRasterView } set { if newValue != nil || aside != nil { asideMade.buttonRasterView = newValue } } }
     var image: UIImage? { get { aside?.image } set { if newValue != nil || aside != nil { asideMade.image = newValue } } }
     var raster: NativeRasterLease? {
         get { aside?.raster }
         set {
             if newValue != nil || aside != nil { asideMade.raster = newValue }
             if newValue == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil }
+            if isNativeButton { presenter?.controls.refreshRaster(self) }
         }
     }
     /// An image's pixels as a sublayer's contents (`applyImageLayer`).
@@ -257,6 +262,7 @@ extension NodeView {
         let made = NodePaintExtras(); paintExtras = made
         return made
     }
+    var boxFill: CALayer? { get { paintExtras?.boxFill } set { if newValue != nil || paintExtras != nil { paintMore.boxFill = newValue } } }
     var boxGradient: CAGradientLayer? { get { paintExtras?.boxGradient } set { if newValue != nil || paintExtras != nil { paintMore.boxGradient = newValue } } }
     var aimedGradient: AimedGradient? { get { paintExtras?.aimedGradient } set { if newValue != nil || paintExtras != nil { paintMore.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { paintExtras?.shadowCaster } set { if newValue != nil || paintExtras != nil { paintMore.shadowCaster = newValue } } }
@@ -365,16 +371,20 @@ extension NodeView {
     #endif
 }
 extension NodeView {
+    var controlRide: CGFloat { get { extras?.controlRide ?? 0 } set { if newValue != 0 || extras != nil { more.controlRide = newValue } } }
     var scrollOrigin: CGFloat { get { extras?.scrollOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.scrollOrigin = newValue } } }
     var scrollCollapsed: CGFloat { get { extras?.scrollCollapsed ?? 0 } set { if newValue != 0 || extras != nil { more.scrollCollapsed = newValue } } }
     var scrollWritten: String? { get { extras?.scrollWritten } set { if newValue != nil || extras != nil { more.scrollWritten = newValue } } }
     var hatchReusable: Bool { get { extras?.hatchReusable ?? false } set { if newValue || extras != nil { more.hatchReusable = newValue } } }
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
-    /// top inset when a collapsing title's bar insets it — the scrollport's
+    /// top inset when UIKit insets it — a collapsing title's bar, or the bar
+    /// over a route's bottom-edge scroller (`reachBottom`), which stays
+    /// UIKit's to inset once the title collapses another: the scrollport's
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses), or past native content room.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
-        scrollOrigin > 0 ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
+        scrollOrigin > 0 || sv.contentInsetAdjustmentBehavior != .never
+            ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
     }
     /// Its page band (`NodeExtras.pageBand`), zero for most.
     var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }
@@ -419,6 +429,20 @@ extension UIColor {
     }
 }
 extension NodeView {
+    /// Whether this is a modal route on the system background the compiler
+    /// gave it (LLP 1116.009 D3), its author having said none: on iOS that
+    /// ground is its sheet's surface, which the presentation paints
+    /// (`ModalController.paintSurface`), so that below its large detent the
+    /// sheet is UIKit's glass (LLP 1141.001 D3).
+    var groundIsSheets: Bool {
+        #if os(iOS)
+        guard props["navigationPresentation"] == "modal", !wrote("background_color"),
+              case .object(let o)? = style["background_color"] else { return false }
+        return o["sys"]?.string == "systemBackgroundColor"
+        #else
+        return false
+        #endif
+    }
     /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
     /// as an attribute or a row of its class. The style says so row by row
     /// (`written`); it is false of a value the node only inherits and of a

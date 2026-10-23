@@ -20,7 +20,7 @@
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length;
+  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -529,6 +529,24 @@
     if (p) { pending.delete(ticket); p.release(); }
     return p;
   }
+  // --- scheduler.yield (WICG Prioritized Task Scheduling; LLP 1141.001 D10): `settle` parks the
+  // answer as `yielded`, the host asks it again at once (`Dispatch::Again`), and `__exact_yielded`
+  // resolves its yields in that new turn. Counted: an answer awaiting another's yielding work waits.
+  var yielded = 0;
+  function yieldTurn() {
+    if (overlaying) return Promise.reject(inOverlay("scheduler.yield()"));
+    var call = currentCall;
+    if (call && (call.letGo || (call.replied && call.status === "pending"))) return Promise.reject(new DOMException("the answer was let go", "AbortError"));
+    // No answer's turn to end (module evaluation, a mapper, background work, a continuation after its reply): go on.
+    if (!call || call === background || inMapper || call.status !== "pending" || call.replied) return Promise.resolve();
+    return new Promise(function (resolve, reject) { (call.yields || (call.yields = [])).push([resolve, reject]); yielded++; });
+  }
+  // End a call's yields, resolved or rejected with `error`: how many there were.
+  function endYields(call, error) {
+    var ys = call.yields || []; call.yields = []; yielded -= ys.length;
+    ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
+  }
+  fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()"); } }));
   function Response(r) {
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
@@ -714,15 +732,15 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
-    // A deadline for the whole exchange (headers and body), in milliseconds:
-    // the host cancels the request when it passes and the fetch rejects with
-    // a FetchError of kind "Timeout". A stream has none.
-    var timeout = init ? init.exactTimeout : undefined;
+    // A deadline for the whole exchange (headers and body), in milliseconds: the host cancels the request
+    // when it passes and the fetch rejects with a FetchError of kind "Timeout". A stream has none.
+    var timeout = init ? init.exactTimeout : undefined, held = init ? init.exactHeld : undefined;
     if (timeout !== undefined) {
       if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
         return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
       if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
+    if ((held !== undefined && held !== true && held !== false) || (held && stream)) return Promise.reject(new TypeError(held === true ? "exactHeld: a stream is never held; it stops counting at its first message" : "exactHeld is true or false")); var poll = longPollOf(init, stream, method, url); if (typeof poll === "string") return Promise.reject(new TypeError(poll)); // `exactHeld`: the server may hold the reply, and no clock waits on it (LLP 1016.000 D9); `exactLongPoll` (D8): the host asks again with each reply's cursor (binary.js `longPollOf`)
     // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
     // before the signal, and a throw rejects. Rust follows redirects, checking
     // each hop's grant, so "manual" answers with the 3xx and its Location.
@@ -742,7 +760,7 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect, held: held ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -1113,6 +1131,7 @@
   // background's, so nothing is stranded (kanban F22's reason to wait). On a
   // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
+    endYields(call); // a branch its value did not wait for goes on, as a browser's does
     call.replied = true;
     calls.delete(call.id); cleanUp();
     return text;
@@ -1138,6 +1157,7 @@
       var own = pending.get(call.tickets[i]);
       if (own && !own.claimed && own.call === call && (own.early || !others)) return claim(call, call.tickets[i]);
     }
+    if (!finished && call.yields && call.yields.length) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, yielded: true });
     if (call.storage > 0 && !call.lost) {
       if (finished && moving) {
         // Its value is ready: what it started and did not await is the
@@ -1172,7 +1192,7 @@
       // ticket (D2); an answer awaiting it waits with the module below.
       storing.forEach(function (c) { if (c !== background && !calls.has(c.id)) left = true; });
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
-      if (!final && (pending.size || storing.size)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+      if (!final && (pending.size || storing.size || yielded)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     } else if (moving && !final && background.storage > 0) {
       // The page's realm runs one answer at a time, but background work
       // goes on beside it: an answer awaiting it parks and is asked again
@@ -1336,7 +1356,7 @@
     dropped.forEach(function (p) {
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
-    var rejected = dropped.length ? " rejected" : "";
+    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) ? " rejected" : "";
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
     calls.delete(call.id); cleanUp();
@@ -1461,6 +1481,8 @@
     storing.delete(call);
     call.error = storageError(message);
   };
+  // A yielded answer's new turn: its yields resolve in the drain that follows.
+  global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;

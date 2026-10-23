@@ -1594,6 +1594,10 @@ Android's reader and the terminal.
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
+13. **Finishing the open threads, and the library's second wave** (*closed 2026-10-23, its parts gated
+    separately; C, D and E met, A's R4 and B's Figma run and `pen` importer carried; §10 "Stage 13: as built"*):
+    the hosted relay's service (R3), external clients, LLP 1139's second wave of library components and
+    package icons, the write check's open gaps, and the design tool after its hands-on pass, on `tamber/1.16`.
 
 **Checks that stay from stage 2:** `tamber-dial-inert` (and `tamber-param-unused` from stage
 7); golden IR and
@@ -5843,3 +5847,66 @@ design can't do yet" (1). D11 is amended (above).
   file; a non-template one refused; the source graph; describe and explain rows and `package_value`; the levels
   walker; a write's check of a package default's SVG), `library_rules.rs` (a library's icons as its names), and `tamber_package_params.rs`'s `a_package_icon_params_svg_is_a_source` now expects the package's
   `assets/` (and an app `params` line the app's).
+
+### Stage 13: as built, and closed (2026-10-23; brief `~/x2theme/stage13-brief.md`)
+
+Stage 13 was one stage with five parts, each gated on its own (the lead's 2026-10-21 decision), so a part waiting
+on Charlie held no other. Every part was built and reviewed under this RFC's process and signed off by theme2 (the
+design tool's code by review2). The rulings are in `~/x2theme/SIGNOFFS.md`. Its wire is the one `tamber/1.16`
+bullet: per-column shadow values (`76748724f3`, which opened 1.16), D4's `bases_by_tuple`, D5's Stretch form,
+package icons, and the selection's `fromAt` with `inspect {select: {up}}`.
+
+- **A, the hosted relay** (rt1): **R3** landed, the self-hostable relay service, through `ba5ca5e381`, with
+  3 rounds and a security pass. **R4 is carried** (below).
+- **B, external clients** (rt1): the `pen` importer's plan is approved (3 rounds and a security pass); it is in
+  flight. **The real-Figma run is carried** (below).
+- **C, the library's second wave** (iosfix with x2-perf4): `@exact/lists` (ListRow, SwitchRow; `21a1a836b3`),
+  ProfileHeader in `@exact/cards` (`b821a5f4d0`..`9aa14743f2`), ComposeFrame (`f926a60524`..`304de7b893`) and BarItem and
+  HeaderButton with lower-library-control's button rules (`ba2d017788`..`4f29a65443`) in `@exact/actions`, adopted by
+  the clone on its signed-out, synthetic copy. Package icon tokens followed (`22746a70cd`..`67c8eeed8f`, D11
+  amended above). Its gate is LLP 1139 §10's.
+- **D, the checker's open gaps** (reload1): the write check judges font rows, computed rows and `svg` subtrees
+  (D1–D3, `fade920ee5`..`93b827ca19`); `explain`'s `bases_by_tuple` (D4, `..76becad4ef`); the Stretch cell
+  (D5, `21a1a836b3`..`f134cefd86`, `SCHEMA_DIGEST` `0x41fc_75ef_b151_8e26`). Then it judges a style's rows at each
+  element that applies it (`f85d38ae54`..`4cc93c4172`), and written shorthand and flex rows
+  (`3d66eb069b`..`7b784e5751`).
+  - **What the write check judges now:** font and font-family rows through `type_tokens`; computed arms,
+    conservatively over the tokens they can produce; `svg` subtrees, with lowering's renaming; a style's rows
+    where each element applies it, refused in the build's order; a written shorthand or flex row as lowering
+    expands it. A choice of literals is judged whole, `none` arms included, and a row is also reached by its
+    expansion's text.
+  - **Still the build's:** each of these is refused by the build alone, and QUEUE says each.
+    - a computed shorthand or flex row;
+    - transition and animation rows;
+    - a `font` shorthand naming no type token, since it can name no design token;
+    - a style row at an element the check leaves to the build: under `for`/`match`, a choice of styles, SVG,
+      transforms, grouped lists, buttons, audio, `delete=`.
+- **E, the design tool after the hands-on pass** (dtool2, LLP 1122): the ghost-builds follow-up, the Stretch
+  "why" in the tool, a second pass over the library components with findings #1–#9 fixed or closed (#5 and #6 the
+  1.16 lines above; #9 closed by a regression test, since it no longer reproduced), and a polish commit. The pass
+  showed no need for per-instance variant pins (LLP 1139 §9 Q5) or native copies, so neither was built.
+
+| Part | Gate | Result |
+|---|---|---|
+| A | R4's lines on a deployed relay; the PSL PR filed | **Carried**: R3 met its loopback gate; R4 needs hosting |
+| B | The Figma line on a real file; a `.pen` file imported, re-imported and refused past the budget | **Carried**: the Figma run needs Charlie; `pen` is in flight |
+| C | Stage 12's gate lines over the new components | **Met** (LLP 1139 §10; `~/x2theme/s13c-gate-run.txt`) |
+| D | Each gap closed with same-words tests; plans byte-identical; the clone's write check in budget | **Met**: 55 write-check tests, each new one red under its mutation; 48 plans byte-identical; the clone's check 11–29 ms |
+| E | The pass's top findings fixed, each with a contract test; any 1.16 wire signed by theme2 | **Met** (`~/x2theme/stage13-e-gate.md`, confirmed by theme2) |
+
+**Carried to the next stage, named:**
+- **R4**, the deployed relay's gate. It waits on Charlie's hosting (a VPS), the domain, how accounts are issued,
+  and the PSL submission.
+- **The real-Figma run** (10b's gate line). It waits on Charlie's session.
+- **The `pen` importer**, in rt1's rounds.
+
+**Found and fixed on the way:** an open popover laid out in its parent's flow, fixed in the kernel with one
+accessor for a box's layout position and a guard on direct reads (`3fd6e52197`..`5bf1aecc9a`); iOS bar items and
+custom invokers that turned any popover into a pull-down; a clock that waited on replies a server holds (LLP
+1016.000 D9, `exactHeld` and `clock held`, `5752d1b032`..`58baabfe67`).
+
+**QUEUE:** top-layer layout as a computed-style default, with a compile-time guard; `fill-rule` in icon templates;
+multicolour package SVGs on the web; the Android slot-marker flake.
+
+**Stage 13 is closed** with C, D and E met and A and B carried as named. The `tamber/1.16` window is closed; the next
+wire change, a carried part's included, takes `tamber/1.17`.

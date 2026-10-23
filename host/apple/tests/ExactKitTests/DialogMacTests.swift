@@ -100,6 +100,9 @@ class DialogMacTests: XCTestCase {
     }
     func testActionCommandsShareModalFocusInertnessAndEscape() throws {
         let p = fixture(), opener = p.views[2]!, dialog = p.views[3]!, last = p.views[5]!
+        var cancelled: [UInt32] = []
+        dialog.handlers.insert("cancel")
+        p.dialogs.onCancel = { cancelled.append($0) }
         let field = try XCTUnwrap(p.views[4]?.field)
         front.makeFirstResponder(opener)
         p.dialogCommand("showModal", "form")
@@ -116,10 +119,12 @@ class DialogMacTests: XCTestCase {
         XCTAssertNil(p.dialogs.active)
         XCTAssertFalse(opener.inert)
         XCTAssertTrue(front.firstResponder === opener)
+        XCTAssertEqual(cancelled, [])
         p.dialogCommand("showModal", "form")
         XCTAssertTrue(p.dialogs.key(key(53)))
         XCTAssertNil(p.dialogs.active)
         XCTAssertTrue(front.firstResponder === opener)
+        XCTAssertEqual(cancelled, [dialog.id])
     }
 
     func testCloseEventsAreQueuedOnceAndCanReopenTheDialog() {
@@ -472,6 +477,8 @@ class DialogMacTests: XCTestCase {
         }
         window.makeKeyAndOrderFront(nil)
         p.press(2)
+        XCTAssertEqual(presses, [root.id], "the handlerless opener presses its ancestor")
+        presses.removeAll()
         let content = try XCTUnwrap(p.views[6]), window = try XCTUnwrap(content.window)
         let point = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: nil)
         func event(_ type: NSEvent.EventType) throws -> NSEvent {

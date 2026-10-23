@@ -113,6 +113,8 @@ mod events_tests;
 #[cfg(test)]
 mod kept_rows_tests;
 #[cfg(test)]
+mod longpoll_tests;
+#[cfg(test)]
 mod spacing_tests;
 #[cfg(test)]
 mod swipe_tests;
@@ -767,9 +769,14 @@ impl<D: DataSource> Presenter<D> {
         self.sync_field_values();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
-            // A deadline the surface and auth paths can't keep: the executor
+            // A deadline the surface and auth paths can't keep, or a long poll
+            // on work that is no HTTP request (LLP 1016.000 D8): the executor
             // refuses it at admission, fencing later ordered work.
-            if r.request.timeout_refusal().is_some() {
+            if r.request
+                .timeout_refusal()
+                .or(r.request.long_poll_refusal())
+                .is_some()
+            {
                 self.run_dispatch(r, exact_runner::Dispatch::Missing);
                 continue;
             }

@@ -1,0 +1,7 @@
+#!/bin/sh
+# The RUSTC_WRAPPER of the scripts' cargo calls on a Mac (`withHostDeployment`, scripts/filesystem.mjs):
+# Cargo runs it as `exact-rustc <rustc> <arguments>`. It links a proc macro without chained fixups.
+case " $* " in
+  *" --crate-type proc-macro "*) exec "$@" -C link-arg=-Wl,-no_fixup_chains ;;
+esac
+exec "$@"

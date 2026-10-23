@@ -639,11 +639,62 @@ the keyboard minimized behind the simulator's hardware keyboard: with the device
 `AutomaticMinimizationEnabled` set it raised nothing in another pose ("The pushed
 route's keyboard, found", above), but setting the key on 2026-10-21 left the full
 keyboard up. The other is a Japanese keyboard's candidates while composing: the driver's
-typing composes nothing, and its taps cannot reach keys below the viewport. The agent's
-`prefer segments` grid, the window's, does not follow the keyboard.
+typing composes nothing, and its taps cannot reach keys below the viewport. On iOS the
+agent's `prefer segments` grid uses window coordinates and follows the keyboard
+under the same policy as a device's fold.
 
 So a page places panes by a segment's edges and, under `resizes-content`, ends one under
 the keyboard at `100%` or `bottom: 0`, not by a segment's height (the foldables recipe).
 `smoke.mjs duo` checks that the keyboard leaves the lower segment's top and ends it with
 the viewport, and under `resizes-visual` that it ends the last row at the visual
 viewport's end.
+
+
+## As built (Split View, 2026-10-22)
+
+Measured on the Duo simulator with Xcode 27.1 and iOS 27.1 (24A94425):
+duo-lab beside Safari, with duo-lab on either side. Each duo-lab window is
+469×669 on the 951×669 inner display. Its tab rail follows the outside edge.
+An ordinary real tap selects the second item, and the selection and window
+size survive a fold from 180° to 130° and back. Each half reports a 1×1 grid
+with no segment rectangles, with posture `folded` at 130° and `continuous`
+at 180°. This measures duo-lab's geometry and input; Safari supplies the
+second app.
+
+The entry gesture is the Home gesture dragged sideways, as shown in
+[Design for iPhone Duo, 2:52](https://developer.apple.com/videos/play/tech-talks/111466/?time=172).
+Starting full screen, a drag from (475, 666) to (150, 330), at 600 points/s
+with a 0.5 s hold before lifting, places duo-lab on the left and the Home
+Screen on the right. Tapping Safari there completes the pair. Ending the
+drag at (800, 330) places duo-lab on the right. A drive first restores and
+checks the full-screen window: relaunching an app can retain its half-window.
+
+On the Duo, SpringBoard's `tap`, `hold` and `swipe` requests can name `screen`
+and `display`, as the app's touches do (`touches.swift`). `screen` is a point in
+the display's fixed portrait space; `display` is its size in points, which
+XCTest matches to its display id. A swipe also names `screenTo`, with
+optional `velocity` (points/s, default 1000) and `hold` (seconds, default 0).
+The swipe's 0.1 s press, move and hold together take at most 9 seconds,
+leaving room for completion within the driver's 15-second request limit.
+The app's aim supplies the fixed axes and display size. Scene coordinates
+are local to each half; fixed screen coordinates address the whole display.
+These gestures use the same synthesizer as app touches. An unmatched display
+or a failed or unfinished injection is refused without a coordinate fallback to XCTest's
+main display, the Duo's outer one. Default SpringBoard coordinate requests
+and snapshots still use XCTest's main display.
+
+For the full-screen landscape pose above, the left-side entry in fixed
+portrait coordinates is:
+
+```json
+{"action":"swipe","screen":[666,476],"screenTo":[330,801],"display":[951,669],"velocity":600,"hold":0.5}
+```
+
+A developer's resizable session (`devicectl device appResize`) is a separate
+measurement. It starts with an app in front and the device turned
+`landscape-right` or `landscape-left`. UIKit chooses its window for a size
+asked: 475 points wide for 400 and 320, 669×501 for 669×600, and 600×800 for
+669×800; devicectl reports the size asked. The agent's `screen` trails a
+resize by one step, as `UIWindowScene.screen` does. Partially folded, a
+669×501 window sits low on the panel and its first segment is 5.5 points
+tall, shorter than duo-lab's list pane's 20-point minimum.

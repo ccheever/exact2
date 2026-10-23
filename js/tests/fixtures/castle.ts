@@ -172,6 +172,28 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
     } as RequestInit);
+    // A long poll (LLP 1016.000 D8): each reply an event, its cursor the id.
+    case "changes": return fetch("https://api.castle.xyz/changes?since=" + args[0] + "&wait=25", {
+      exactStream: (e: { type: string; data: string; lastEventId: string; message?: string }) =>
+        e.type === "error" ? `ended: ${e.message}` : `${e.lastEventId}:${e.data}`,
+      exactLongPoll: { cursor: "since", from: "seq", ...(args[1] ? { sameCursor: args[1] } : {}) },
+    } as RequestInit);
+    // What a long poll refuses, each before anything is sent.
+    case "pollRefused": {
+      const poll: Record<string, unknown> = { cursor: "since", from: "seq" };
+      const map = (e: { type: string }) => e.type;
+      const asks: Record<string, [string, Record<string, unknown>]> = {
+        stream: ["https://api.castle.xyz/c", { exactLongPoll: poll }],
+        socket: ["wss://api.castle.xyz/c", { exactStream: map, exactLongPoll: poll }],
+        post: ["https://api.castle.xyz/c", { method: "POST", exactStream: map, exactLongPoll: poll }],
+        shape: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: "since" }],
+        cursor: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: { from: "seq" } }],
+        from: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: { cursor: "since", from: "x".repeat(257) } }],
+        same: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: { ...poll, sameCursor: "always" } }],
+      };
+      const [url, init] = asks[text(args, 0)];
+      return fetch(url, init as RequestInit).then(() => "sent", (e: Error) => e.message);
+    }
     // A body that is not events is bytes (LLP 1016.000, the byte stream).
     // LLP 1133.003 §9: the gate's stub decode is there under the agent only.
     case "gate": return typeof (globalThis as { __exact_gate_decode?: unknown }).__exact_gate_decode;
@@ -231,6 +253,10 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
+    // A reply the server may hold (LLP 1016.000 D9): marked on the request; beside a stream, or not a boolean, refused.
+    case "held": return fetch("https://api.castle.xyz/changes", (args[0] === "stream" || args[0] === "yes-stream"
+      ? { exactHeld: args[0] === "stream" ? true : "yes", exactStream: (event: unknown) => event }
+      : { exactHeld: args[0] === "true" ? true : args[0] === "false" ? false : args[0] }) as RequestInit).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
     case "redirected": return fetch("https://api.castle.xyz/moved", {
       ...(args[0] === "" ? {} : { redirect: args[0] }),
     }).then(r => r.status + " " + (r.headers.get("location") ?? ""));

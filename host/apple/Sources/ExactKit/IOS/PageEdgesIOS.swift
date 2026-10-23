@@ -55,18 +55,28 @@ extension Presenter {
         var routes: [ObjectIdentifier: (top: UIScrollView?, bottom: UIScrollView?)] = [:]
         for id in scrollers {
             guard let v = views[id] else { continue }
-            var found = Bands()
+            var found = Bands(), own = UIEdgeInsets.zero
             if let sv = v.scrollView, (sv as? ScrollView)?.scrollsY ?? true, v.window != nil {
                 let edgeEffect = v.style["scroll_edge_effect"]?.string != "none"
                 if let route = ViewPresentation.controllers(for: v).lazy.compactMap({ $0 as? RouteController }).first(where: { $0.host === navigation && v.isDescendant(of: $0.node) }) {
                     if let judge, edgeEffect { found = routeBands(of: v, sv, in: route, judge) }
+                    #if os(iOS)
+                    if route.edgeScroll === v, let top = keyboardTop,
+                       abs(route.node.convert(route.node.bounds, to: nil).maxY - top) < 1 {
+                        found.band.bottom += keyboardAccessoryHeight
+                    }
+                    #endif
+                    own = found.band
+                    // UIKit clips the inherited safe area at the node's layout box,
+                    // even though its scroll view draws the band outside that box.
+                    if !route.ridingBars.isEmpty { own.top += min(found.band.top, route.view.safeAreaInsets.top) }
                     var r = routes[ObjectIdentifier(route)] ?? (nil, nil)
                     if !found.top.isEmpty, navigation.contentScroller(of: route) === v { r.top = sv }
                     if !found.bottom.isEmpty { r.bottom = sv }
                     routes[ObjectIdentifier(route)] = r
-                } else { found = pageBands(of: v, sv, margins: m, area: area, edgeEffect ? judge : nil) }
+                } else { found = pageBands(of: v, sv, margins: m, area: area, edgeEffect ? judge : nil); own = found.band }
             }
-            if v.pageBand != found.band || v.bandInset != found.band { v.setPageBand(found.band) }
+            if v.pageBand != found.band || v.bandInset != own { v.setPageBand(found.band, inset: own) }
             bars += found.top.map { ($0, v, .top) } + found.bottom.map { ($0, v, .bottom) }
         }
         #if os(iOS)
@@ -115,12 +125,19 @@ extension Presenter {
     /// the route's edge on one side, and that side's other edge is banded or
     /// open, both reach the route's edges, the covers included; an edge the
     /// bar's collapse or the bottom edge already took is there already. None
-    /// under a large title.
+    /// under a large title unless the eligible top bars ride its safe area.
     private func routeBands(of v: NodeView, _ sv: UIScrollView, in c: RouteController, _ judge: ControlBars) -> Bands {
         #if os(iOS)
-        if let nav = c.navigationController, navigation.routeShowsBar(c, in: nav), c.navigationItem.largeTitleDisplayMode == .always { return Bands() }
+        if let nav = c.navigationController, navigation.routeShowsBar(c, in: nav), c.navigationItem.largeTitleDisplayMode == .always, c.ridingBars.isEmpty { return Bands() }
         #endif
-        let route = c.node, r = v.convert(v.bounds, to: route)
+        if !c.ridingBars.isEmpty, case .edges(let edges)? = navigation.covers[c.node.id], edges.top > 0.5 { return Bands() }
+        return controlBands(of: v, in: c.node, judge)
+    }
+
+    /// Collapse adoption and banding must agree about both edges and paint order.
+    func controlBands(of v: NodeView, in route: NodeView, _ judge: ControlBars) -> Bands {
+        guard let sv = v.scrollView else { return Bands() }
+        let r = v.convert(v.bounds, to: route)
         guard let top = judge.bars(of: v, in: route, top: true), let bottom = judge.bars(of: v, in: route, top: false),
               !top.isEmpty || !bottom.isEmpty, Self.over(top, v), Self.over(bottom, v) else { return Bands() }
         let band = UIEdgeInsets(top: max(0, r.minY), left: 0, bottom: max(0, route.bounds.height - r.maxY), right: 0)
@@ -158,7 +175,7 @@ extension NodeView {
         // the end.
         let follows = props["scrollFollowEnd"] == "true" || presenter?.collections.entries[id] != nil
         let atEnd = follows && sv.contentOffset.y >= end() - 1
-        let old = pageBand, oldOwn = bandInset, top = sv.contentOffset.y + scrollTopInset(sv)
+        let oldOwn = bandInset, top = sv.contentOffset.y + scrollTopInset(sv)
         more.pageBand = band; more.bandInset = own
         sv.frame = scrollFrame
         var inset = sv.contentInset, bars = sv.verticalScrollIndicatorInsets
@@ -168,9 +185,9 @@ extension NodeView {
         sv.verticalScrollIndicatorInsets = bars
         fitScroll()
         if atEnd { sv.layoutIfNeeded() }
-        sv.contentOffset.y = atEnd ? end() : top - scrollTopInset(sv)
+        sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: atEnd ? end() : top - scrollTopInset(sv)), in: sv, clamped: !sv.isTracking && !sv.isDragging && !sv.isDecelerating)
         // Offsets a layout in flight saved to restore are native: they move with the inset.
-        let moved = band.top - old.top
+        let moved = own.top - oldOwn.top
         if var saved = beforeLayoutScroll { saved.offset.y -= moved; saved.topInset += moved; beforeLayoutScroll = saved }
         if var followed = followedScroll { followed.top -= moved; followedScroll = followed }
         presenter?.collections.offsetsMoved(id, by: -moved)

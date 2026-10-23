@@ -16,7 +16,7 @@
 // another by EXACT2. EXACT_SIM names the simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
@@ -24,6 +24,7 @@ import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from '
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
+import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 /** The consumer's own targets among the required hosts (LLP 1139 §5): the
@@ -32,6 +33,10 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 export const CLONE_HOSTS = ['web', 'web-wasm', 'ios', 'macos', 'linux'];
 /** A side's wasm web dist, in its own target. */
 const cloneWasmDist = env => join(env.CARGO_TARGET_DIR ?? join(ROOT, 'target'), 'web-wasm-dist');
+/** And its JS build's, so the clone's web build never lands in the dist the
+ * library-gate lines drive (EXACT_WEB_DIST, Caltrain's JS build). */
+const cloneJsDist = env => join(env.CARGO_TARGET_DIR ?? join(ROOT, 'target'), 'web-js-dist');
+const cloneWebEnv = (env, wasm) => ({ ...env, EXACT_WEB_DIST: wasm ? cloneWasmDist(env) : cloneJsDist(env) });
 export const SCHEMES = ['light', 'dark'];
 /** The agent clock's zero for every drive: the fixture's posts read "3h". */
 export const EPOCH = '2026-10-01T15:00:00Z';
@@ -173,15 +178,37 @@ function driveScreens(copy, host, dir, env) {
       const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
+      let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      // A drive that failed before any layout (the simulator refusing a
+      // launch, say) is driven once more, and says so.
+      let retried = '';
+      if (!r.ok && !r.out.includes('"nodes"')) {
+        retried = r.out.trim().split('\n').filter(l => /rror/.test(l)).slice(0, 1).join('').slice(0, 160) || 'no layout';
+        r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      }
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], ...(retried ? { retried } : {}), said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
+}
+
+/** The library components a drive's whole layout shows, by the source map
+ * each shown node carries (its declaring file and component): one a
+ * package's file declares, as `@exact/<package>/<file>#<Component>`. */
+export function renderedComponents(out) {
+  const line = out.split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"') && l.includes('"viewport"')).at(-1);
+  if (!line) return [];
+  const layout = JSON.parse(line);
+  const ids = layout.nodes.filter(n => shown(n, layout.viewport)).map(n => {
+    // A package's file, in the checkout's packages/ or a copy's node_modules/@exact/.
+    const m = /\/(?:packages|node_modules\/@exact)\/([\w-]+)\/([\w-]+)\.contract$/.exec(n.sourceMap?.file ?? '');
+    return m && n.sourceMap.component ? `@exact/${m[1]}/${m[2]}.contract#${String(n.sourceMap.component).replace(new RegExp(`__${m[2].replace(/\W/g, '_')}$`), '')}` : null;
+  });
+  return [...new Set(ids.filter(Boolean))];
 }
 
 /** What a baseline was taken on (LLP 1139 §5: commit, OS, device). */
@@ -278,7 +305,7 @@ function edgeAt(img, x, y, edge) {
 }
 
 /** The tag the baseline was taken at, in the copy. */
-export const BASELINE_TAG = 's12e-baseline';
+export let BASELINE_TAG = 's12e-baseline';
 
 /** The files `before` differs from the baseline's tag by: only the lock a
  * newer SDK needs (`exact.mjs lock`) may differ. */
@@ -400,8 +427,11 @@ export function conformRead(out, name, error = null) {
 }
 export const conformFailures = out => out.split('\n').filter(l => l.startsWith('FAIL ')).map(l => l.replace(/\s*\([^()]*side-by-side\.png\)\s*$/, ''));
 
-/** What the adoption must use: the four components from the two packages. */
+/** What the adoption must use: the four components from the two packages
+ * (stage 12; a stage's profile adds its own, `useStage`). */
 export const ADOPTED = ['@exact/cards/post-card.contract#PostCard', '@exact/cards/at-card.contract#AtCard', '@exact/actions/action-row.contract#ActionRow', '@exact/actions/post-button.contract#PostButton'];
+/** What the baseline may use already: an earlier stage's adoption (none for stage 12). */
+export const BEFORE_USES = [];
 
 /** One side's builds, on every host, into a target of its own; iOS onto the
  * simulator, which both sides share (one app id), so a side is shot right
@@ -410,7 +440,7 @@ function buildSide(copy, side) {
   const env = { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`), CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? '4' };
   for (const verb of [['web-build'], ['web-build', '--wasm'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
     const wasm = verb[1] === '--wasm';
-    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
+    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: cloneWebEnv(env, wasm) });
     if (!r.ok) return `${side}: ${verb.join(' ')} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
   }
   if (jsTargetBuild(cloneWasmDist(env))) return `${side}: ${cloneWasmDist(env)} is not a wasm build`;
@@ -433,7 +463,10 @@ export function consumerPixels(opts) {
   if (!uses.before || !uses.after) return fail(`a copy's app did not build with its source map: ${['before', 'after'].filter(s => !uses[s]).join(', ')}`);
   const missing = ADOPTED.filter(id => !uses.after.includes(id));
   if (missing.length) return fail(`--copy does not use ${missing.join(', ')}: not the adoption`);
-  if (uses.before.length) return fail(`--before already uses library components (${uses.before.join(', ')}): not the baseline`);
+  // A package's own helpers (its common.contract's, which an adopted
+  // component places) count with the component, not on their own.
+  const early = uses.before.filter(id => !BEFORE_USES.includes(id) && !/\/common\.contract#/.test(id));
+  if (early.length) return fail(`--before already uses library components (${early.join(', ')}): not the baseline`);
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -453,15 +486,27 @@ export function consumerPixels(opts) {
   const own = run('git', ['grep', '-l', '-F', ...RENDERED.flatMap(([, , text]) => ['-e', text]), '--', '*.contract'], { cwd: opts.copy }).out.trim().split('\n').filter(Boolean);
   const seen = side => new Set(shots[side].shots.flatMap(x => x.shown ?? []));
   const unseen = RENDERED.filter(([, is]) => ![...seen('after')].some(is)).map(([name]) => name);
-  const early = RENDERED.filter(([name]) => name !== 'PostButton').filter(([, is]) => [...seen('before')].some(is)).map(([name]) => name);
+  const shownEarly = RENDERED.filter(([name]) => name !== 'PostButton' && !BEFORE_USES.some(id => id.endsWith(`#${name}`)))
+    .filter(([, is]) => [...seen('before')].some(is)).map(([name]) => name);
+  // And by the source map (theme2 23:03): each adopted component shown on
+  // some screen shot on every host, the screens that show it said; none of
+  // the stage's own shown before.
+  const onScreens = (side, host, id) => [...new Set(shots[side].shots.filter(x => x.host === host && (x.components ?? []).includes(id)).map(x => x.screen))];
+  const hosts = [...new Set(shots.after.shots.map(x => x.host))];
+  const byComponent = ADOPTED.map(id => ({ id, name: id.split('#')[1], per: Object.fromEntries(hosts.map(h => [h, onScreens('after', h, id)])) }));
+  const notShown = byComponent.flatMap(c => hosts.filter(h => !c.per[h].length).map(h => `${c.name} on ${h}`));
+  const shownBefore = ADOPTED.filter(id => !BEFORE_USES.includes(id)).filter(id => hosts.some(h => onScreens('before', h, id).length)).map(id => id.split('#')[1]);
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
+    ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
-    `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before none`,
-    `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${early.length ? `; before already shows ${early.join(', ')}` : ''}`,
+    `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
+    ...(TITLES['consumer-pixels'] && !unseen.length && !own.length && !shownEarly.length ? [] : [`rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`]),
+    `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
+    ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || early.length ? fail(...evidence) : pass(...evidence);
+  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
@@ -478,19 +523,25 @@ const wasmDist = () => resolve(process.env.EXACT_WASM_DIST ?? join(ROOT, 'target
 
 /** scale-check's drive on `host`, the web's two targets told apart: each
  * from a dist built for it, refused when the dist is the other's. */
-export function drivePlan(host, plan, png, steps = [], app = null) {
+export function drivePlan(host, plan, png, steps = [], app = null, driver = scaleDrive) {
   if (host === 'web-js') {
     if (!jsTargetBuild(webDist())) throw new Error(`the web dist ${webDist()} is not a JS-target build (bun host/web/build.mjs <app>)`);
-    return scaleDrive('web', plan, png, steps, app);
+    return driver('web', plan, png, steps, app);
   }
   if (host === 'web-wasm') {
-    const dist = wasmDist();
-    if (!existsSync(join(dist, '.exact-build.json')) || jsTargetBuild(dist)) throw new Error(`${dist} is not a wasm build (EXACT_WEB_DIST=${dist} bun host/web/build.mjs <app> --wasm)`);
-    const was = process.env.EXACT_WEB_DIST;
-    process.env.EXACT_WEB_DIST = dist;
-    try { return scaleDrive('web', plan, png, steps, app); } finally { if (was === undefined) delete process.env.EXACT_WEB_DIST; else process.env.EXACT_WEB_DIST = was; }
+    // library-gate's own artifact (apps/library-gate/web, theme2 13:47): a
+    // wasm links what its own plan uses, so another app's refuses a cell
+    // using what that app doesn't (Unlinked).
+    const dist = wasmDist(), build = `EXACT_APP_DIR=${LIBRARY_GATE} EXACT_WEB_DIST=${dist} bun host/web/build.mjs library-gate --wasm`;
+    if (!existsSync(join(dist, '.exact-build.json')) || jsTargetBuild(dist)) throw new Error(`${dist} is not a wasm build (${build})`);
+    if (JSON.parse(readFileSync(join(dist, '.exact-build.json'), 'utf8')).app?.id !== 'com.exact.library-gate') throw new Error(`${dist} is not library-gate's wasm build (${build})`);
+    const was = { dist: process.env.EXACT_WEB_DIST, app: process.env.EXACT_APP_DIR };
+    Object.assign(process.env, { EXACT_WEB_DIST: dist, EXACT_APP_DIR: LIBRARY_GATE });
+    try { return driver('web', plan, png, steps, app); } finally {
+      for (const [k, v] of [['EXACT_WEB_DIST', was.dist], ['EXACT_APP_DIR', was.app]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
   }
-  return scaleDrive(host, plan, png, steps, app);
+  return driver(host, plan, png, steps, app);
 }
 const LIBRARY_GATE = join(ROOT, 'apps/library-gate');
 
@@ -550,9 +601,13 @@ const shown = (n, v) => n && n.w > 0 && n.h > 0 && n.x >= 0 && n.y >= 0 && n.x +
  * the shot's pixels: library-gate's top mark (`gate-top`, its own colour),
  * found as scale-check finds a page's top, from neither marker's pixels;
  * 0 for a shot of the viewport. Throws when a taller shot shows no mark. */
-export function viewportTop(img, layout) {
+export function viewportTop(img, layout, unscrolled = null) {
   const k = img.width / layout.viewport.w;
   if (img.height <= layout.viewport.h * k + 2) return 0;
+  // A page scrolled past its top mark (a marker below the fold, tapped into
+  // view) has the host's bars where an unscrolled shot of it had them.
+  const mark = layout.nodes?.find(n => n.testId === 'gate-top');
+  if (unscrolled != null && mark && mark.y + mark.h <= 0) return unscrolled;
   const top = pageTop(img, layout, { background: '#ffffff', boxes: [{ testId: 'gate-top', fill: '#ff00ff' }] }, k);
   if (!(top > 0)) throw new Error('the shot is taller than the viewport and its top mark (gate-top) was not found');
   return top;
@@ -575,11 +630,15 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
   if (!ids.length) return [{ host, id: '(none)', ok: false, why: 'apps/library-gate places no slotted cell' }];
   if (host === 'terminal') {
     // Each marker tapped (a pressable box taps there since 2193289076), its
-    // cells read in the two text shots.
+    // cells read in the two text shots. The terminal taps only what it
+    // shows, and library-gate's page is taller than 64 rows with nothing
+    // scrolling it (its root grows), so the screen is made as tall as the
+    // page first.
+    const tall = 'resize 64x512';
     return ids.map(id => {
       const a = join(dir, `terminal-${id}-a.txt`), b = join(dir, `terminal-${id}-b.txt`);
       let layout;
-      try { layout = drivePlan('terminal', plan, null, [`tap marker-${id}`, 'layout', `screenshot ${a}`, `tap marker-${id}`, `screenshot ${b}`]); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
+      try { layout = drivePlan('terminal', plan, null, [tall, `tap marker-${id}`, 'layout', `screenshot ${a}`, `tap marker-${id}`, `screenshot ${b}`]); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
       const first = layout.earlier?.[0];
       if (!first) return { host, id, ok: false, why: 'the first render\'s layout was not read' };
       const [A, B] = [markerIn(first, id), markerIn(layout, id)];
@@ -593,6 +652,13 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
       return { host, id, ok: differ, why: differ ? '' : 'its cells read the same with both glyphs', cells: c };
     });
   }
+  // Where the viewport starts in a shot of the page at its top, for a shot
+  // scrolled past its top mark.
+  let unscrolled = null;
+  try {
+    const png = join(dir, `${host}-unscrolled.png`), l = drivePlan(host, plan, png, [], app);
+    unscrolled = viewportTop(decodePng(readFileSync(png)), l);
+  } catch { /* each marker's own shot says why */ }
   return ids.map(id => {
     const a = join(dir, `${host}-${id}-a.png`), b = join(dir, `${host}-${id}-b.png`);
     let layout;
@@ -604,7 +670,7 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
     if (!sameRect(A.n, B.n)) return { host, id, ok: false, why: 'its rect moved between the renders' };
     try {
       const [IA, IB] = [a, b].map(f => decodePng(readFileSync(f)));
-      const [topA, topB] = [viewportTop(IA, first), viewportTop(IB, layout)];
+      const [topA, topB] = [viewportTop(IA, first, unscrolled), viewportTop(IB, layout, unscrolled)];
       if (Math.abs(topA - topB) > 0.5) return { host, id, ok: false, why: `the viewport starts at ${topA} and ${topB} in the two shots` };
       const d = rectDiffers(IA, IB, B.n, layout.viewport.w, Math.round(topB));
       return { host, id, ok: d > 0, why: d > 0 ? '' : d < 0 ? 'the two shots differ in size' : 'its pixels are the same with both glyphs', px: d };
@@ -743,7 +809,7 @@ function restylePlan(dir, design = null) {
  * the line (its class), write it (`transaction`), `propose` its removal
  * (its class), and undo the write, which must leave the design's bytes as
  * they were. The designs: the line set, and after removal. */
-export async function restyleWrites(dir) {
+export async function restyleWrites(dir, list = RESTYLE) {
   const work = join(dir, 'server');
   restylePlan(work);
   const design = join(work, 'app', 'app.tamber'), original = readFileSync(design, 'utf8');
@@ -754,14 +820,15 @@ export async function restyleWrites(dir) {
     if (!hello.ok) throw new Error(`hello: ${hello.error?.message}`);
     let files = hello.ok.files;
     const out = [];
-    for (const c of RESTYLE) {
-      const set = [c.param ? { op: 'set-param', name: c.name, value: c.set } : { op: 'set-token', name: c.name, value: c.set }];
+    for (const c of list) {
+      const set = c.ops?.set ?? [c.param ? { op: 'set-param', name: c.name, value: c.set } : { op: 'set-token', name: c.name, value: c.set }];
+      const unset = c.ops?.unset ?? [c.unset];
       const said = (r, what) => { if (!r.ok) throw new Error(`${c.name}: ${what}: ${r.error?.message ?? JSON.stringify(r.error)}`); return r.ok; };
       const proposed = said(await server.ask({ method: 'propose', ops: set, files }), 'propose');
       const written = said(await server.ask({ method: 'transaction', client, ops: set, files }), 'transaction');
       files = written.files;
       const withLine = readFileSync(design, 'utf8');
-      const removal = said(await server.ask({ method: 'propose', ops: [c.unset], files }), 'propose its removal');
+      const removal = said(await server.ask({ method: 'propose', ops: unset, files }), 'propose its removal');
       const undone = said(await server.ask({ method: 'undo', client, inverse: written.inverse }), 'undo');
       files = undone.files;
       const after = readFileSync(design, 'utf8');
@@ -789,8 +856,10 @@ export function expected(read, v, v0, base, cell) {
  * the design's own px tokens). */
 export async function restyle(opts) {
   const dir = join(ROOT, 'target', 'stage12-gate', 'restyle');
+  // Stage 13 C's cases beside stage 12's (theme2 10:28): their writes as one.
+  const exact = EXACT ? exactCases().map(c => ({ ...c, ops: caseOps(c) })) : [];
   let writes;
-  try { writes = await restyleWrites(dir); } catch (e) { return fail(`the design server: ${String(e?.message ?? e).slice(0, 300)}`); }
+  try { writes = await restyleWrites(dir, [...RESTYLE, ...exact]); } catch (e) { return fail(`the design server: ${String(e?.message ?? e).slice(0, 300)}`); }
   const plans = { base: restylePlan(join(dir, 'base')) };
   for (const w of writes) {
     const at = w.name.replace(/[^\w.-]+/g, '-');
@@ -815,11 +884,13 @@ export async function restyle(opts) {
   };
   const paramOf = c => ir.components?.flatMap(x => x.params ?? []).find(p => p.name === c.name);
   const hosts = opts.hosts.length ? opts.hosts.filter(h => SLOT_HOSTS.includes(h)) : SLOT_HOSTS;
-  const rows = [];
+  const rows = [], exactRows = [];
   for (const host of hosts) {
     const L = {};
     try {
-      for (const [k, plan] of Object.entries(plans)) L[k] = drivePlan(host, plan, join(dir, `${host}-${k.replace(/\W+/g, '-')}.png`), [], opts.app);
+      for (const [k, plan] of Object.entries(plans)) {
+        if (k === 'base' || RESTYLE.some(c => k.startsWith(`${c.name} `))) L[k] = drivePlan(host, plan, join(dir, `${host}-${k.replace(/\W+/g, '-')}.png`), [], opts.app);
+      }
     } catch (e) { rows.push({ host, ok: false, why: whyOf(e) }); continue; }
     const cell = L.base.cell ?? null;
     for (const c of RESTYLE) {
@@ -844,12 +915,22 @@ export async function restyle(opts) {
         rows.push(row);
       }
     }
+    if (exact.length) exactRows.push(...readExact(host, exact, plans, opts.app));
   }
   const missing = SLOT_HOSTS.filter(h => !hosts.includes(h));
   const bad = rows.filter(r => !r.ok);
   const n = x => (Number.isFinite(x) ? Math.round(x * 100) / 100 : x);
+  // The mutation (theme2 10:28 (4)), on Linux: the case fails, naming the token.
+  let mutation = null;
+  if (exact.length && hosts.includes('linux')) {
+    try {
+      const caught = [...new Set(mutationFails(join(dir, 'mutation'), 'linux').map(r => `${r.key} ${r.row}`))];
+      const want = `${MUTATION.token} ${MUTATION.row}`;
+      mutation = { ok: caught.length === 1 && caught[0] === want, line: `the mutation (a scratch @exact/actions, ${MUTATION.file}'s ${MUTATION.from} made ${MUTATION.to}), on linux: ${MUTATION.case} fails naming ${caught.join(', ') || 'nothing'}${caught.length === 1 && caught[0] === want ? '' : `, not only ${want}`}` };
+    } catch (e) { mutation = { ok: false, line: `the mutation: ${whyOf(e)}` }; }
+  }
   const evidence = [
-    ...writes.map(w => `${w.name} (${RESTYLE.find(c => c.name === w.name).what}): propose ${w.classes.set}, written ${w.classes.written}, its removal proposed ${w.classes.removal}, undone ${w.classes.undo}; the design's bytes ${w.restored ? 'restored' : 'NOT restored'}`),
+    ...writes.map(w => `${w.name} (${RESTYLE.find(c => c.name === w.name)?.what ?? 'stage 13 C\'s batch'}): propose ${w.classes.set}, written ${w.classes.written}, its removal proposed ${w.classes.removal}, undone ${w.classes.undo}; the design's bytes ${w.restored ? 'restored' : 'NOT restored'}`),
     // One line per host, case and read: its instances, and each that failed.
     ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}\u0000${r.what}`))].flatMap(key => {
       const group = rows.filter(r => `${r.host}\u0000${r.case}\u0000${r.what}` === key), [first] = group, failed = group.filter(r => !r.ok);
@@ -857,14 +938,133 @@ export async function restyle(opts) {
         ...failed.map(r => `      ${r.id}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)} (expected ${n(r.want?.[0])}, ${n(r.want?.[1])}): ${r.why}`)];
     }),
     ...rows.filter(r => !r.case).map(r => `FAIL ${r.host}: ${r.why}`),
+    ...exactEvidence(exact, exactRows),
+    ...(mutation ? [`${mutation.ok ? 'ok  ' : 'FAIL'} ${mutation.line}`] : []),
     ...missing.map(h => `  ${h}: a required host not run`),
     ...skipped,
   ];
-  return bad.length || missing.length || !rows.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
+  const exactBad = exactRows.some(r => !r.ok) || (exact.length && !exactRows.length) || (mutation && !mutation.ok);
+  return bad.length || exactBad || missing.length || !rows.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
 }
 
 /** Sources that fail to build at both ends of every run, named: apps/expose
  * reads `./local`, which a checkout lacks (stage 11's gate, the same). */
+/** Whether the restyle line runs stage 13 C's exact cases (`useStage`). */
+let EXACT = false;
+/** The release comparison's runs when a stage names them (`useStage`). */
+let RELEASE = null;
+/** A stage's own line headlines (`useStage`). */
+let TITLES = {};
+
+/** Stage 13 C's cases on `host` (theme2 10:28, 10:42): the runner's tree
+ * of the base design names each read's node, by its instance's first
+ * testId and a path; a drive of the base design, then of each case set and
+ * removed, reads every node's rows (kind 1, exact). Each drive, the base's
+ * included, has the same node at each path, or it is no read of that node. One row a
+ * read, instance and row: { host, case, key, kind, id, row, ok, why }. */
+export function readExact(host, exact, plans, app, drive = (plan, ids) => drivePlan(host, plan, null, ids, app, (h, p, _png, list, a) => inspectDrive(h, p, list, a))) {
+  const out = [];
+  let tree;
+  try { tree = drive(plans.base, []).tree; } catch (e) { return [{ host, ok: false, why: whyOf(e) }]; }
+  const reads = exact.map(c => ({ c, reads: caseReads(c).flatMap(r => r.ids.map(inst => ({ ...r, inst, root: COMPONENTS[r.component].root(inst) }))) }));
+  for (const { reads: list } of reads) for (const r of list) r.id = locate(tree, r.root, r.path)?.id ?? null;
+  const ids = list => [...new Set(list.map(r => r.id).filter(id => id != null))];
+  let base;
+  try { base = drive(plans.base, ids(reads.flatMap(x => x.reads))); } catch (e) { return [{ host, ok: false, why: whyOf(e) }]; }
+  for (const { c, reads: list } of reads) {
+    const at = {};
+    for (const side of ['set', 'removed']) {
+      try { at[side] = drive(plans[`${c.name} ${side}`], ids(list)); } catch (e) { at[side] = e; }
+    }
+    for (const r of list) {
+      for (const row of r.rows) {
+        const o = { host, case: c.name, key: r.key, kind: r.kind, inst: r.inst, path: r.path, row, want: r.want, ok: true, why: [] };
+        if (r.id == null) o.why.push(`no node at ${r.root} ${r.path}`);
+        const value = side => {
+          const d = side === 'base' ? base : at[side];
+          if (d instanceof Error) throw d;
+          if (locate(d.tree, r.root, r.path)?.id !== r.id) throw new Error(`${side}: another node at ${r.root} ${r.path}`);
+          const v = d.nodes.get(r.id)?.style?.[row];
+          if (!v) throw new Error(`${side}: no ${row} on #${r.id}`);
+          // The JS target's typed computed value, before layout, where it gives one.
+          return v.computed ?? v.value;
+        };
+        try {
+          const b = value('base'), sv = value('set'), rv = value('removed');
+          Object.assign(o, { before: b, set: sv, removed: rv });
+          if (!standsApart(b, r.want, r.kind, row)) o.why.push(`the set value ${r.want} is within the read's tolerance of the base ${JSON.stringify(b)}`);
+          if (!matches(sv, r.want, r.kind, row)) o.why.push(`set ${JSON.stringify(sv)}, expected ${r.want}`);
+          if (!same(rv, b, r.kind)) o.why.push(`removed ${JSON.stringify(rv)}, not back to ${JSON.stringify(b)}`);
+        } catch (e) { o.why.push(String(e?.message ?? e)); }
+        o.ok = !o.why.length;
+        o.why = o.why.join('; ');
+        out.push(o);
+      }
+    }
+  }
+  return out;
+}
+
+/** The mutation (theme2 10:28 (4)): library-gate built against a scratch
+ * copy of @exact/actions whose HeaderButton sizes its width by
+ * actions.header-icon where it reads actions.header-slot, a length for a
+ * length; its case, set and removed, read on `host`. The reads that fail:
+ * the case catches the swap only if they are the width's, naming
+ * actions.header-slot. */
+/** library-gate's plan with token case `name` set (its lines in the
+ * design), built inside this checkout so the packages resolve. */
+export function s13cPlan(name) {
+  const c = exactCases().find(x => x.name === name);
+  const design = readFileSync(join(LIBRARY_GATE, 'app.tamber'), 'utf8').trimEnd();
+  const lines = c.set.map(t => (c.param ? null : `  ${t.name}${t.kind === 'color' ? '' : `: ${t.kind}`} = ${t.value}`)).filter(Boolean);
+  return restylePlan(join(ROOT, 'target', 'stage12-gate', 'boot', name.replace(/\W+/g, '-')), `${design}\n${lines.join('\n')}\n`);
+}
+
+export const MUTATION = { file: 'header-button.contract', from: 'width="actions.header-slot"', to: 'width="actions.header-icon"', token: 'actions.header-slot', row: 'width', case: 'HeaderButton tokens' };
+export function mutationFails(dir, host = 'linux', drive = undefined) {
+  rmSync(dir, { recursive: true, force: true });
+  for (const pkg of ['actions', 'cards', 'lists']) cpSync(join(ROOT, 'packages', pkg), join(dir, 'node_modules', '@exact', pkg), { recursive: true });
+  const file = join(dir, 'node_modules/@exact/actions', MUTATION.file), text = readFileSync(file, 'utf8');
+  if (!text.includes(MUTATION.from)) throw new Error(`${MUTATION.file} no longer says ${MUTATION.from}: the mutation needs another use`);
+  writeFileSync(file, text.replace(MUTATION.from, MUTATION.to));
+  const c = exactCases().find(x => x.name === MUTATION.case);
+  const design = readFileSync(join(LIBRARY_GATE, 'app.tamber'), 'utf8').trimEnd();
+  const lines = c.set.map(t => `  ${t.name}${t.kind === 'color' ? '' : `: ${t.kind}`} = ${t.value}`);
+  const plan = (name, tamber) => {
+    const app = join(dir, name, 'app');
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(app, 'app.contract'), readFileSync(join(LIBRARY_GATE, 'app.contract')));
+    writeFileSync(join(app, 'app.tamber'), tamber);
+    const out = join(dir, name, 'library-gate.plan');
+    const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(app, 'app.contract'), '-o', out]);
+    if (!r.ok) throw new Error(`the mutated library-gate did not compile (${name}): ${r.out.slice(-400)}`);
+    return out;
+  };
+  const base = plan('base', `${design}\n`);
+  const plans = { base, [`${c.name} set`]: plan('set', `${design}\n${lines.join('\n')}\n`), [`${c.name} removed`]: base };
+  return readExact(host, [c], plans, null, ...(drive ? [drive] : [])).filter(r => !r.ok);
+}
+
+/** The exact cases' evidence: each read's kind once (every read is kind
+ * 1, the computed row on its node), then a line a host and case with its
+ * reads' count, and every failed read by name. */
+export function exactEvidence(exact, rows) {
+  if (!exact.length) return [];
+  const keys = [...new Set(exact.flatMap(c => caseReads(c).map(r => r.key)))];
+  const n = x => (typeof x === 'number' ? Math.round(x * 100) / 100 : JSON.stringify(x));
+  return [
+    `stage 13 C's cases, every read kind 1 (exact: the row's computed value on its node, layout <id>), checked against its own token's or param's value; ${keys.length} tokens and params read:`,
+    ...keys.map(k => `  ${k}: ${readsOf(k).map(r => `${r.path} ${r.rows.join(',')} (${r.ids.length})`).join('; ')}`),
+    ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}`))].flatMap(key => {
+      const group = rows.filter(r => `${r.host}\u0000${r.case}` === key), failed = group.filter(r => !r.ok), [first] = group;
+      return [`${failed.length ? 'FAIL' : 'ok  '} ${first.host} ${first.case}: ${group.length - failed.length} of ${group.length} reads exact, each back at its base once removed`,
+        ...failed.slice(0, 40).map(r => `      ${r.key} ${r.inst} ${r.path} ${r.row}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)}: ${r.why}`),
+        ...(failed.length > 40 ? [`      … and ${failed.length - 40} more`] : [])];
+    }),
+    ...rows.filter(r => !r.case).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
+  ];
+}
+
 export const FAIL_ALIKE = ['apps/expose/app.contract'];
 
 /** `--release`'s comparison (~/x2ios/rel12/release-groups.py, as stage
@@ -873,7 +1073,7 @@ export const FAIL_ALIKE = ['apps/expose/app.contract'];
  * every run compares every app now in apps/ and the corpus, each built at
  * both ends and byte-identical, but apps/library-gate's own (the gate app
  * those commits make and change) and FAIL_ALIKE's. */
-export function releaseIdentity(file, sources = releaseSources(), expectedRuns = releaseRuns()) {
+export function releaseIdentity(file, sources = releaseSources(), expectedRuns = releaseRuns(), inTree = (rev, src) => run('git', ['cat-file', '-e', `${rev}:${src}`]).ok) {
   if (!file || !existsSync(file)) return { status: 'WAITS', on: 'the release identity run (--release <its JSON>)', evidence: [] };
   const rows = JSON.parse(readFileSync(file, 'utf8'));
   if (!Array.isArray(rows) || !rows.length) return { status: 'FAIL', evidence: ['release identity: no comparisons'] };
@@ -887,9 +1087,12 @@ export function releaseIdentity(file, sources = releaseSources(), expectedRuns =
   // Every run of stage 12 E commits on this checkout's history, found here
   // as the script finds them, and no other.
   const absent = expectedRuns.filter(run => !runs.includes(run)).map(run => `  RUN NOT COMPARED ${run}`);
-  const extra = runs.filter(run => !expectedRuns.includes(run)).map(run => `  NOT A RUN OF STAGE 12 E ${run}`);
-  const short = runs.flatMap(run => sources.filter(src => !rows.some(r => r.run === run && r.source === src)).map(src => `  NOT COMPARED ${src} over ${run}`));
-  const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of stage 12 E commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
+  const label = RELEASE?.label ?? 'stage 12 E';
+  const extra = runs.filter(run => !expectedRuns.includes(run)).map(run => `  NOT A RUN OF ${label.toUpperCase()} ${run}`);
+  // A source that isn't in the tree at either end of a run (an app added
+  // since) has nothing to compare there.
+  const short = runs.flatMap(r => sources.filter(src => !rows.some(x => x.run === r && x.source === src) && r.split('..').some(rev => inTree(rev, src))).map(src => `  NOT COMPARED ${src} over ${r}`));
+  const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of ${label} commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
     ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : r.status === 'both failed' ? 'FAILED AT BOTH ENDS' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits[0]})`), ...short, ...absent, ...extra];
   return { status: unnamed.length || short.length || absent.length || extra.length ? 'FAIL' : 'PASS', evidence };
 }
@@ -899,6 +1102,8 @@ export function releaseIdentity(file, sources = releaseSources(), expectedRuns =
  * matching), each `<parent>..<last>` by ten-character hashes. */
 export const STAGE12E = /^Stage 12 E|^LLP 1139 stage 12 E|^stage12-gate/;
 export function releaseRuns(from = '92f1cae184') {
+  // A stage whose commits landed as named ranges (s13c's pieces): those.
+  if (RELEASE) return RELEASE.runs.map(([first, last]) => `${run('git', ['rev-parse', `${first}^`]).out.trim().slice(0, 10)}..${run('git', ['rev-parse', last]).out.trim().slice(0, 10)}`);
   const log = run('git', ['log', '--topo-order', '--reverse', '--format=%H %s', `${from}^..HEAD`]).out.trim().split('\n').filter(Boolean);
   const runs = [];
   let cur = null;
@@ -1046,9 +1251,60 @@ function slotCheckTime() {
   return slow.length ? fail(...evidence, `over ${SLOT_BAR_MS} ms or unread: ${slow.length}`) : pass(...evidence, `bar: ${SLOT_BAR_MS} ms a check`);
 }
 
+/** The fixture form's sign-in (the composer screen's steps, theme2 09:19 (c)
+ * and 09:49): made-up credentials, the copy's synthetic data, no network. */
+const SIGN_IN = ['tap bottomBarSignInBtn', 'type loginPasswordInput fixture-password', 'type loginUsernameInput me.fixture.invalid', 'tap loginNextButton'];
+const SETTINGS = ['tap open-drawer', 'tap drawer-settings'];
+
+/** Each stage's gate (LLP 1139 §5): its baseline's tag on the copy, the
+ * components its adoption adds (an earlier stage's the baseline may use
+ * already), the screens shot, the package testIds that say a component
+ * rendered, and the restyle cases. Stage 12's is the module's defaults;
+ * `useStage` swaps a stage's in, so both stages run one set of lines. */
+export const STAGES = {
+  s12: { name: 'Stage 12', tag: 's12e-baseline', out: 'stage12-gate-run.txt', adopted: [...ADOPTED], before: [], screens: SCREENS.map(([n, t]) => [n, [...t]]), rendered: [...RENDERED], restyle: [...RESTYLE] },
+  s13c: {
+    name: 'Stage 13 C', tag: 's13c-baseline', out: 's13c-gate-run.txt',
+    adopted: [...ADOPTED, '@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow', '@exact/cards/profile-header.contract#ProfileHeader',
+      '@exact/actions/compose-frame.contract#ComposeFrame', '@exact/actions/bar-item.contract#BarItem', '@exact/actions/header-button.contract#HeaderButton'],
+    before: [...ADOPTED],
+    screens: [
+      ...SCREENS.map(([n, t]) => [n, [...t]]),
+      ['settings', [...SETTINGS]],
+      ['settings-account', [...SETTINGS, 'tap settings-account']],
+      ['settings-content', [...SETTINGS, 'tap settings-content']],
+      ['settings-notifications', [...SETTINGS, 'tap settings-notifications']],
+      // Signed in through the fixture form, so the bottom bar's tabs (BarItem) show.
+      ['home-signed-in', [...SIGN_IN, 'clock +1500 real']],
+    ],
+    // ListRow, SwitchRow, BarItem and HeaderButton write only the app's own
+    // testIds; the build's source map says they're placed.
+    rendered: [...RENDERED, ['ProfileHeader', id => id.startsWith('profile-header-'), 'profile-header-'], ['ComposeFrame', id => id === 'compose-bar', '"compose-bar"']],
+    restyle: [...RESTYLE],
+    // Stage 13 C's tokens and params, a batch a component (s13c-restyle.mjs).
+    exact: true,
+    titles: {
+      'consumer-pixels': 'The clone\'s settings rows, profile header, composer frame, bottom bar items and header buttons come from @exact/lists, @exact/cards and @exact/actions (ListRow, SwitchRow, ProfileHeader, ComposeFrame, BarItem, HeaderButton; stage 12\'s four kept) with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
+    },
+    // Release identity over the four pieces as they landed on main.
+    release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['b821a5f4d0', '9aa14743f2'], ['f926a60524', '304de7b893'], ['ba2d017788', '4f29a65443']] },
+  },
+};
+
+/** Run the gate as `stage`'s (`--stage`): its tag, adoption, screens, rendered testIds and restyle cases. */
+export function useStage(stage) {
+  const p = STAGES[stage];
+  BASELINE_TAG = p.tag;
+  EXACT = !!p.exact;
+  RELEASE = p.release ?? null;
+  TITLES = p.titles ?? {};
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle]]) list.splice(0, list.length, ...items);
+  return p;
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
-  return [
+  return withTitles([
     ['consumer-pixels', 'The clone\'s post card, AtCard, action row and Post button come from the two packages with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)', () => {
       if (!opts.baseline || !existsSync(join(opts.baseline, 'baseline.json'))) return waits('the baseline (`baseline --copy … --out …`, taken before the change)');
       if (!opts.copy || !opts.before) return waits('the clone copy\'s adoption (--copy) and its before (--before, the baseline\'s tag)');
@@ -1077,20 +1333,25 @@ export function lines(opts) {
       return r.ok && !forks.length ? pass(said) : fail(said, ...forks.slice(0, 5), ...(r.ok ? [] : [r.out.split('\n').filter(l => /error|\[/.test(l)).slice(0, 3).join(' / ').slice(0, 400)]));
     }],
     ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () => noRegressions(opts)],
-  ];
+  ]);
 }
 
+/** A stage's own headline for a line where stage 12's names its components. */
+const withTitles = list => list.map(([name, title, fn]) => [name, TITLES[name] ?? title, fn]);
+
 export function parse(argv) {
-  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null, release: null, conformBase: null };
+  const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base', '--stage'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
     if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
   }
+  if (!STAGES[opts.stage]) return `--stage ${opts.stage}: one of ${Object.keys(STAGES).join(', ')}`;
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
+  if (opts.mode === 'gate' && !opts.out) opts.out = join(homedir(), 'x2theme', STAGES[opts.stage].out);
   const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
   const unknownHost = opts.hosts.find(h => !allowed.includes(h));
   if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
@@ -1102,7 +1363,8 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c] [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  const stage = useStage(opts.stage);
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
     const bad = r.shots.filter(s => !s.ok);
@@ -1111,7 +1373,7 @@ if (import.meta.main) {
     process.exit(bad.length || !r.plan.sha ? 1 : 0);
   }
   const head = run('git', ['rev-parse', '--short', 'HEAD']).out.trim();
-  const text = [`# Stage 12 gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
+  const text = [`# ${stage.name} gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
   for (const [id, title, check] of lines(opts)) {
     let r;
     try { r = !opts.only.length || opts.only.includes(id) ? await check() : notRun('not selected'); } catch (e) { r = fail(`the line stopped: ${String(e?.stack ?? e).split('\n').slice(0, 3).join(' / ').slice(0, 400)}`); }

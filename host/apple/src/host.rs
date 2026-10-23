@@ -11,7 +11,7 @@
 //! truth; the mirror is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
 use exact_kernel::{
     Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
     ViewId,
@@ -70,6 +70,8 @@ mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
 use paragraph::props_for;
+#[path = "persistence.rs"]
+mod persistence;
 #[path = "presence.rs"]
 mod presence;
 #[path = "tamber.rs"]
@@ -154,6 +156,9 @@ pub(crate) struct Mirror {
     field_content: Option<Box<crate::batch::ContentBox>>,
     field_cell: bool,
     block: Option<(f32, f32)>,
+    /// Whether the block is the kernel's (a popover's, the viewport): a
+    /// host that gives the popover its own is sent the used size again.
+    implied: bool,
 }
 
 /// One runner, one presenter.
@@ -202,6 +207,7 @@ pub struct Host<D: DataSource> {
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
+    collection_heads: Option<Vec<exact_runner::CollectionSnapshot>>,
     engine: Engine,
     paint: paint::Paint,
     holds: BTreeMap<u64, HoldToken>,
@@ -233,6 +239,7 @@ pub struct Host<D: DataSource> {
     /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
+    pending_store_writes: Vec<exact_runner::StoreWrite>,
     data_activated: bool,
     /// The source's activation, run ahead of `activate_data` by `prepare_data`.
     source_prepared: Option<Result<(), String>>,
@@ -520,6 +527,7 @@ impl<D: DataSource> Host<D> {
             ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
+            collection_heads: Some(Vec::new()),
             engine: {
                 // Settled values only when the plan animates nothing (LLP 1047.001).
                 let mut engine = Engine::linked(links.engine);
@@ -563,6 +571,7 @@ impl<D: DataSource> Host<D> {
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,
+            pending_store_writes: Vec::new(),
             update_line: None,
             delivery,
             colors_seen: None,
@@ -754,12 +763,13 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
-    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it
-    /// (D7); watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes (D7) and
+    /// long polls' backoff waits (D8) from it; watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
     pub fn listen_io(&mut self, io: &dyn crate::executor::Io, owner: u64) {
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
+        self.runner.set_retry_reader(io.retry_reader());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
@@ -789,32 +799,6 @@ impl<D: DataSource> Host<D> {
             .ok()
             .flatten()
             .map(|(roots, _)| roots)
-    }
-
-    /// What the last commit kept or forgot, into the platform's store (LLP
-    /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
-    /// login; kept answers queued for their writer thread (`store.rs`). A
-    /// write that fails is journaled (a kept answer's at a later commit);
-    /// the app is otherwise unaffected, as a web app is when `setItem`
-    /// throws: the next launch will not remember.
-    fn persist(&mut self) {
-        let mut changed = self.runner.data().take_storage_changed();
-        for line in self.kept_failures() {
-            self.runner.log(line);
-        }
-        for w in self.runner.take_store_writes() {
-            let Some(secrets) = &self.secrets else {
-                continue;
-            };
-            if let Err(e) = secrets.write(&w) {
-                self.runner.log(format!("store {} failed: {e}", w.name));
-            } else {
-                changed = true;
-            }
-        }
-        if changed {
-            crate::store::widget_changed(self.runner.data_ref().app_id());
-        }
     }
 
     /// The kept answers the writer failed to write since the last call.
@@ -965,6 +949,22 @@ impl<D: DataSource> Host<D> {
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
+    /// Follow a declared route without an authored navigate handler.
+    pub fn host_go(&mut self, location: &str, now_ms: f64) -> String {
+        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
+        self.now_ms = a.now_ms.max(self.now_ms);
+        if a.error.is_none() {
+            match self.runner.host_go(location) {
+                Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(e) => a.error = Some(e),
+            }
+        }
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
     /// [`Host::dispatch_at`] at the clock's last value.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
         self.dispatch_at(view, event, self.now_ms)
@@ -1031,6 +1031,7 @@ impl<D: DataSource> Host<D> {
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> String {
         self.height_targets_dirty = true;
         let mut batch = Batch::new();
+        batch.controls = self.option_part(view);
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
             Ok(()) => self.layout(&mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
@@ -1046,6 +1047,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let mut error = None;
         for &(view, size) in sizes {
+            batch.controls |= self.option_part(view);
             if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
                 error.get_or_insert(format!("intrinsic: {e:?}"));
             }
@@ -1090,7 +1092,7 @@ impl<D: DataSource> Host<D> {
 
     /// The viewport's new size, in one batch.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
-        self.resize_inner(width, height, Batch::new(), None)
+        self.resize_at(width, height, self.now_ms)
     }
 
     /// A placement root's resolved margins and whether its width is the author's
@@ -1335,6 +1337,12 @@ impl<D: DataSource> Host<D> {
                 &|v| !runner.handlers_of(v).is_empty(),
             );
             svg_lower::hand_over_paths(runner.kernel(), &mut self.engine, self.svg.box_motion);
+            // A reveal changes a held play without changing its style row.
+            for (key, _) in &sync.animations {
+                if let Some(view) = self.keys.get(&node_key(*key)).copied() {
+                    self.svg.element(runner.kernel(), view);
+                }
+            }
             for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
                 self.svg.element(self.runner.kernel(), view);
             }

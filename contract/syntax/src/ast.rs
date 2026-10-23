@@ -249,11 +249,17 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `before data`: the test's first step does not wait for the app's
-    /// data. Without it the driver waits, as `clock data` does, so a store
-    /// opened at launch is open before the first step (habits, pomodoro).
-    /// What has landed without the wait is the host's: a native app runs on
-    /// real time before the driver connects, the web page on the agent's.
+    /// A media preference, before observations or between steps.
+    Prefer {
+        /// CSS media feature name.
+        name: String,
+        /// The driver's value.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `before data` skips the initial `clock data` wait. A native app runs
+    /// on real time before the driver connects; the web uses the agent's.
     BeforeData {
         /// Where.
         span: Span,
@@ -1201,9 +1207,7 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// typed by.
 pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
     match tag {
-        // An iframe's `navigate=` is its guest's, with a `FrameNavigation`
-        // (LLP 1020.002 D2), not the navigation root's location.
-        "iframe" => Some("iframe"),
+        "iframe" => Some("iframe"), // its `navigate=` is the guest's (LLP 1020.002 D2)
         "input" if input_control(tag, attrs).is_none() => Some("field"),
         "textarea" => Some(match attrs.iter().find(|a| a.name == "markup") {
             Some(a) if !matches!(&a.value, Expr::Str(m, _) if m == "none") => "markdown",
@@ -1218,19 +1222,6 @@ pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// field's `InputEvent`.
 pub fn edits_text(control: Option<&str>) -> bool {
     matches!(control, Some("field" | "markdown"))
-}
-
-/// The event a handler's payload and record are typed by, on a node whose
-/// [`payload_control`] is `control`: a text field's `selectionchange` is
-/// its `beforeinput`'s (an `InputEvent`), and an iframe's `navigate` is
-/// `framenavigate`, a `FrameNavigation` with no location (LLP 1020.002 D2).
-/// Every other event is itself.
-pub fn typed_event<'a>(event: &'a str, control: Option<&str>) -> &'a str {
-    match event {
-        "selectionchange" if edits_text(control) => "beforeinput",
-        "navigate" if control == Some("iframe") => "framenavigate",
-        _ => event,
-    }
 }
 
 /// The control an `input`'s literal `type` names; `None` for a text field's

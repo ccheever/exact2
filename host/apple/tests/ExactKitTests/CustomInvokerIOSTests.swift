@@ -13,10 +13,11 @@ final class CustomInvokerIOSTests: XCTestCase {
     }
     private final class Touch: UITouch {
         let target: UIView
+        var point: CGPoint?
         init(_ target: UIView) { self.target = target; super.init() }
         override var view: UIView? { target }
         override func location(in view: UIView?) -> CGPoint {
-            target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view)
+            target.convert(point ?? CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view)
         }
     }
     private final class Key: UIKey {
@@ -116,6 +117,89 @@ final class CustomInvokerIOSTests: XCTestCase {
         return p
     }
 
+    func testAHandlerlessPopoverInvokerShowsItsPressWhileForwardingTheContact() throws {
+        let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
+        let pop = try XCTUnwrap(p.views[4])
+        XCTAssertFalse(p.menus.pullsDown(pop))
+        XCTAssertNil(source.subviews.first { $0 is InvokerButton })
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let touch = Touch(source)
+        source.touchesBegan([touch], with: nil)
+        XCTAssertFalse(source.pressed, "the invoker does not take its ancestor's press")
+        XCTAssertTrue(parent.pressed)
+        XCTAssertNotNil(source.press.dimmedAt, "the custom invoker still shows the platform's press")
+        touch.point = CGPoint(x: source.bounds.maxX + 20, y: source.bounds.midY)
+        source.touchesMoved([touch], with: nil)
+        XCTAssertNil(source.press.dimmedAt, "the finger left the invoker")
+        touch.point = nil
+        source.touchesMoved([touch], with: nil)
+        XCTAssertNotNil(source.press.dimmedAt, "the finger came back")
+        source.touchesEnded([touch], with: nil)
+        delivered()
+        XCTAssertEqual(presses, [1], "the ancestor hears the press once")
+        XCTAssertFalse(parent.pressed)
+        XCTAssertFalse(source.pressed)
+        XCTAssertNil(source.press.dimmedAt)
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testASecondContactKeepsItsForwardedRouteAndTheOverlaysLook() throws {
+        for (cancelled, overlayFirst) in [(false, false), (true, false), (false, true), (true, true)] {
+            let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
+            p.apply(wireBatch([
+                ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+                ["op": "children", "id": 4, "ids": [7]],
+                ["op": "create", "id": 8, "kind": "button"],
+                ["op": "frame", "id": 8, "x": 10, "y": 10, "w": 80, "h": 24],
+                ["op": "children", "id": 2, "ids": [3, 8]],
+            ]))
+            p.menus.sync()
+            let overlay = try XCTUnwrap(source.subviews.compactMap { $0 as? InvokerButton }.first)
+            overlay.isHighlighted = true
+            let child = try XCTUnwrap(p.views[8]), touch = Touch(child)
+            var presses: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            child.touchesBegan([touch], with: nil)
+            XCTAssertTrue(parent.hasPressContact)
+            touch.point = CGPoint(x: -1000, y: -1000)
+            child.touchesMoved([touch], with: nil)
+            XCTAssertNotNil(source.press.dimmedAt, "the overlay still holds the invoker's look outside")
+            touch.point = nil
+            child.touchesMoved([touch], with: nil)
+            if overlayFirst { overlay.isHighlighted = false }
+            if cancelled { child.touchesCancelled([touch], with: nil) }
+            else { child.touchesEnded([touch], with: nil) }
+            XCTAssertEqual(presses, cancelled ? [] : [1], "the second down belonged to the ancestor")
+            XCTAssertFalse(parent.hasPressContact)
+            XCTAssertFalse(parent.pressed)
+            XCTAssertEqual(source.press.dimmedAt != nil, !overlayFirst, "only a remaining overlay holds the look")
+            overlay.isHighlighted = false
+            XCTAssertFalse(source.pressed)
+            XCTAssertNil(source.press.dimmedAt)
+            p.menus.reset()
+            window?.isHidden = true
+        }
+    }
+
+    func testACancelledInvokerContactClearsItsLookAndTheForwardedPress() throws {
+        let p = page(), source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1])
+        var presses = 0
+        p.onPress = { _ in presses += 1 }
+        let touch = Touch(source)
+        source.touchesBegan([touch], with: nil)
+        XCTAssertNotNil(source.press.dimmedAt)
+        source.touchesCancelled([touch], with: nil)
+        XCTAssertNil(source.press.dimmedAt)
+        XCTAssertFalse(parent.pressed)
+        XCTAssertEqual(presses, 0)
+        source.touchesBegan([touch], with: nil)
+        XCTAssertNotNil(source.press.dimmedAt)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+        XCTAssertNil(source.press.dimmedAt, "disabling retires the look with its contact")
+        XCTAssertFalse(parent.pressed)
+    }
+
     /// The activation target is the nearest button naming a target, resolved
     /// after the press handler, which may mount it; a link's activation is its
     /// own; an agent tap at a point light-dismisses by what the point lands on.
@@ -134,9 +218,16 @@ final class CustomInvokerIOSTests: XCTestCase {
                 ["op": "frame", "id": 31, "x": 10, "y": 10, "w": 160, "h": 40],
             ]))
         }
-        let reply = tap(agent, 3)
-        XCTAssertNil(reply["error"], "\(reply)")
+        let opener = try XCTUnwrap(p.views[2])
+        let contact = Touch(opener)
+        opener.touchesBegan([contact], with: nil)
+        XCTAssertNil(p.views[30], "the ancestor has not mounted the target yet")
+        XCTAssertFalse(opener.pressed, "the ancestor still owns the press")
+        XCTAssertTrue(try XCTUnwrap(p.views[1]).pressed)
+        XCTAssertNotNil(opener.press.dimmedAt, "a declared opening invocation shows contact before its target exists")
+        opener.touchesEnded([contact], with: nil)
         delivered()
+        XCTAssertNil(opener.press.dimmedAt)
         XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[30])), "the target its ancestor's press mounted opens")
         p.menus.action("hidePopover", ["late"])
         p.onPress = nil
@@ -186,7 +277,7 @@ final class CustomInvokerIOSTests: XCTestCase {
             XCTAssertFalse(p.menus.isOpen(pop))
             delivered()
         }
-        XCTAssertEqual(presses, [2, 2, 2, 2])
+        XCTAssertEqual(presses, [1, 1, 2, 2])
         XCTAssertEqual(events, ["closed,open", "open,closed", "closed,open", "open,closed"])
         source.props["commandfor"] = "choices"
         source.props["command"] = "toggle-popover"
@@ -458,14 +549,14 @@ final class CustomInvokerIOSTests: XCTestCase {
         p.menus.action("showPopover", ["choices"])
         try XCTUnwrap(p.controls.controls[8]).sendActions(for: .primaryActionTriggered)
         XCTAssertEqual(presses, [2, 2, 1, 1, 1])
-        XCTAssertTrue(p.menus.isOpen(other), "a native button's bubbled press also activates the custom invoker it passed")
-        // With no press anywhere above it, its action still activates the invoker.
+        XCTAssertFalse(p.menus.isOpen(other), "the native button owns activation even without a target")
+        // With no press anywhere above it, the button still owns activation.
         p.menus.action("hidePopover", ["other"])
         try XCTUnwrap(p.views[1]).handlers = []
         p.menus.action("showPopover", ["choices"])
         try XCTUnwrap(p.controls.controls[8]).sendActions(for: .primaryActionTriggered)
         XCTAssertEqual(presses, [2, 2, 1, 1, 1])
-        XCTAssertTrue(p.menus.isOpen(other), "no press target: the invoker still activates")
+        XCTAssertFalse(p.menus.isOpen(other), "an outer invoker does not activate")
     }
 
     func testSheetBubblingCannotOpenOutsideTheModalButPageActivationCan() throws {
@@ -515,6 +606,156 @@ final class CustomInvokerIOSTests: XCTestCase {
         settle { !p.menus.inTransition && self.window?.rootViewController?.presentedViewController == nil }
     }
 
+    func testPointerdownRearmsAHandlerlessInvokersPath() throws {
+        let session = ExactApp.shared.makeSession(label: "invoker-rearm")
+        let p = page(session: session), agent = Agent(session: session)
+        let source = try XCTUnwrap(p.views[2]), parent = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[4])
+        parent.handlers = []
+        source.handlers = ["pointerdown"]
+        p.onPointer = { id, phase, _ in
+            guard id == 2, phase == .down else { return }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": 2, "clear": ["disabled"]]]))
+        }
+        XCTAssertNil(agent.tap(["id": 2, "phase": "down"])["error"])
+        XCTAssertNil(agent.tap(["phase": "up"])["error"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testHeldInlineLinkAndSvgContactsKeepTheirCancellation() throws {
+        let session = ExactApp.shared.makeSession(label: "held-content")
+        let p = page(session: session), agent = Agent(session: session)
+        p.session = session
+        let source = try XCTUnwrap(p.views[2])
+        source.props.removeValue(forKey: "popovertarget")
+        p.apply(wireBatch([
+            ["op": "create", "id": 25, "kind": "text", "style": ["font_size": 16]],
+            ["op": "create", "id": 28, "kind": "svg"],
+            ["op": "svg", "id": 28, "scene": ["box": [0, 0, 20, 20], "t": [1, 0, 0, 1, 0, 0], "els": [
+                ["id": 29, "n": 29, "h": true, "o": 1, "p": [0, 0, 0, 1, 20, 0, 1, 20, 20, 1, 0, 20, 3], "f": [0, 0, 0, 255]],
+            ]]],
+            ["op": "children", "id": 2, "ids": [25, 28]],
+            ["op": "frame", "id": 25, "x": 0, "y": 0, "w": 120, "h": 24],
+            ["op": "frame", "id": 28, "x": 130, "y": 0, "w": 20, "h": 20],
+        ]))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        for mode in ["inline", "link", "svg"] {
+            p.apply(wireBatch([["op": "paragraph", "id": 25, "runs": [["id": 27, "parent": 25, "paint": true,
+                "props": mode == "link" ? ["text": "Read", "href": "/guide"] : ["text": "Read"], "style": [:], "handlers": mode == "link" ? [] : ["press"]]]]]))
+            let node = try XCTUnwrap(p.views[mode == "svg" ? 28 : 25])
+            let fragment = mode == "svg" ? node.bounds : try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(27))).first)
+            let point = CGPoint(x: fragment.midX, y: fragment.midY), at = p.client(node.convert(point, to: nil))
+            for synthetic in [false, true] {
+                presses = []
+                let touch = Touch(node); touch.point = point
+                if synthetic { XCTAssertNil(agent.tap(["id": Int(node.id), "phase": "down", "x": Double(at.x), "y": Double(at.y)])["error"]) }
+                else { node.touchesBegan([touch], with: nil) }
+                p.apply(wireBatch([["op": "props", "id": node.id, "set": ["disabled": "true"]]]))
+                p.apply(wireBatch([["op": "props", "id": node.id, "clear": ["disabled"]]]))
+                if synthetic {
+                    let up = agent.tap(["phase": "up"])
+                    XCTAssertNil(up["followed"], mode)
+                    XCTAssertTrue(up["pressed"] is NSNull, "\(mode): \(up)")
+                } else { node.touchesEnded([touch], with: nil) }
+                XCTAssertEqual(presses, [], "\(mode), agent: \(synthetic)")
+            }
+        }
+    }
+
+    func testKeysAndAgentResolveTheTargetAfterTheAncestorPress() throws {
+        let session = ExactApp.shared.makeSession(label: "late-invoker")
+        let p = page(session: session), source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[4])
+        let agent = Agent(session: session)
+        var presses: [UInt32] = []
+        p.onPress = { id in presses.append(id); pop.props["id"] = "late" }
+        for key in ["Enter", " ", "agent", "voiceover"] {
+            source.props["popovertarget"] = "late"
+            pop.props["id"] = "choices"
+            if key == "agent" { XCTAssertNil(agent.type(["id": 2, "key": "Enter"])["error"]) }
+            else if key == "voiceover" { XCTAssertTrue(source.accessibilityActivate()) }
+            else { XCTAssertTrue(source.activateKey(key)) }
+            XCTAssertTrue(p.menus.isOpen(pop), key)
+            p.menus.action("hidePopover", ["late"])
+        }
+        XCTAssertEqual(presses, [1, 1, 1, 1])
+    }
+
+    func testVoiceOverHandsTheFocusedInvokerToMountedAutofocus() throws {
+        let p = page(), source = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(source.becomeFirstResponder())
+        p.onPress = { _ in
+            p.apply(wireBatch([
+                ["op": "create", "id": 30, "kind": "input", "props": ["autofocus": "true"]],
+                ["op": "frame", "id": 30, "x": 20, "y": 500, "w": 240, "h": 40],
+                ["op": "children", "id": 1, "ids": [2, 4, 6, 30]],
+            ]))
+            p.syncAccessibility()
+        }
+        XCTAssertTrue(source.accessibilityActivate())
+        XCTAssertTrue(try XCTUnwrap(p.views[30]?.field).isFirstResponder)
+    }
+
+    func testStationaryPanContactStillInvokesWithoutAPressListener() throws {
+        let session = ExactApp.shared.makeSession(label: "pan-invoker")
+        let p = page(session: session), agent = Agent(session: session)
+        let parent = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[4])
+        parent.handlers = ["pan"]
+        XCTAssertNil(agent.tap(["id": 2, "phase": "down"])["error"])
+        XCTAssertNil(agent.tap(["phase": "up"])["error"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testOnlyAButtonShadowsAnEnclosingInvoker() throws {
+        let p = page(), text = try XCTUnwrap(p.views[3]), pop = try XCTUnwrap(p.views[4])
+        text.props["popovertarget"] = "other"
+        text.handlers = ["press"]
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let touch = Touch(text)
+        text.touchesBegan([touch], with: nil)
+        text.touchesEnded([touch], with: nil)
+        XCTAssertEqual(presses, [3])
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[6])))
+    }
+
+    func testInlineAndSvgPressesAlsoActivateTheirEnclosingInvoker() throws {
+        let session = ExactApp.shared.makeSession(label: "content-invoker")
+        let p = page(session: session), agent = Agent(session: session), pop = try XCTUnwrap(p.views[4])
+        p.session = session
+        p.apply(wireBatch([
+            ["op": "create", "id": 25, "kind": "text", "style": ["font_size": 16]],
+            ["op": "paragraph", "id": 25, "runs": [["id": 27, "parent": 25, "paint": true, "props": ["text": "Open choices"], "style": [:], "handlers": ["press"]]]],
+            ["op": "create", "id": 28, "kind": "svg"],
+            ["op": "svg", "id": 28, "scene": ["box": [0, 0, 20, 20], "t": [1, 0, 0, 1, 0, 0], "els": [
+                ["id": 29, "n": 29, "h": true, "o": 1, "p": [0, 0, 0, 1, 20, 0, 1, 20, 20, 1, 0, 20, 3], "f": [0, 0, 0, 255]],
+            ]]],
+            ["op": "children", "id": 2, "ids": [25, 28]],
+            ["op": "frame", "id": 25, "x": 0, "y": 0, "w": 120, "h": 24],
+            ["op": "frame", "id": 28, "x": 130, "y": 0, "w": 20, "h": 20],
+        ]))
+        let text = try XCTUnwrap(p.views[25]), svg = try XCTUnwrap(p.views[28])
+        let fragment = try XCTUnwrap(text.inlineRects(try XCTUnwrap(p.inlineText(27))).first)
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        for recognized in [false, true] {
+            for (node, point, expected) in [(text, CGPoint(x: fragment.midX, y: fragment.midY), UInt32(27)), (svg, CGPoint(x: 10, y: 10), UInt32(29))] {
+                if recognized {
+                    let at = node.convert(point, to: p.viewport)
+                    XCTAssertNil(agent.tap(["id": Int(node.id), "x": Double(at.x), "y": Double(at.y)])["error"])
+                } else {
+                    let touch = Touch(node); touch.point = point
+                    node.touchesBegan([touch], with: nil); node.touchesEnded([touch], with: nil)
+                }
+                XCTAssertEqual(presses.last, expected)
+                XCTAssertTrue(p.menus.isOpen(pop), "\(node.kind), recognized: \(recognized)")
+                p.menus.action("hidePopover", ["choices"])
+            }
+        }
+        XCTAssertEqual(presses, [27, 29, 27, 29])
+    }
+
     func testKeyboardAndAccessibilityActivateAHandlerlessInvoker() throws {
         let session = ExactApp.shared.makeSession(label: "custom-invoker")
         let p = page(session: session), agent = Agent(session: session)
@@ -540,6 +781,43 @@ final class CustomInvokerIOSTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(pop))
         XCTAssertEqual(presses, [1, 1, 1, 1, 1])
         XCTAssertEqual(handoffs.last, true, "VoiceOver's activation hands the press's focus on, as a tap's does")
+    }
+
+    private func productionInvoker(_ role: String) throws -> (Presenter, NodeView) {
+        let p = page(), source = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "button", "props": ["popovertarget": "choices", "popovertargetaction": "hide"], "handlers": ["press"]],
+            ["op": "create", "id": 11, "kind": "text", "props": ["text": "Keep"]],
+            ["op": "children", "id": 10, "ids": [11]], ["op": "children", "id": 4, "ids": [10]],
+            ["op": "props", "id": 4, "set": ["accessibilityRole": role]],
+        ]))
+        return (p, source)
+    }
+
+    func testProductionPullDownPressesAHandlerlessInvokersAncestor() throws {
+        guard hasScene else { throw missing("scene", "native menus need a window scene") }
+        let (p, source) = try productionInvoker("menu")
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let menu = try XCTUnwrap(source.subviews.compactMap { $0 as? MenuButton }.first)
+        if #available(iOS 17.4, *) { menu.performPrimaryAction() }
+        else { throw missing("iOS 17.4", "public primary action delivery") }
+        settle { !presses.isEmpty }
+        XCTAssertEqual(presses, [1])
+        menu.dismissMenu()
+        settle { !menu.isMenuOpen && !p.menus.focus.suspended }
+    }
+
+    func testProductionConfirmationPressesAHandlerlessInvokersAncestor() throws {
+        guard hasScene else { throw missing("scene", "native confirmations need a window scene") }
+        let (p, source) = try productionInvoker("alertdialog")
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let overlay = try XCTUnwrap(source.subviews.compactMap { $0 as? UIButton }.first)
+        overlay.sendActions(for: .touchUpInside)
+        settle { !p.menus.inTransition }
+        settle { self.window?.rootViewController?.presentedViewController is UIAlertController }
+        XCTAssertEqual(presses, [1])
     }
 
     func testCustomConfirmationInvokesOnceAndItsOverlayDispatchDoesNotReenter() throws {
@@ -616,5 +894,34 @@ final class CustomInvokerIOSTests: XCTestCase {
         XCTAssertEqual(controller.presentations, 3)
         XCTAssertEqual(presses, [2, 2, 2, 2, 2])
     }
+    func testDraggingOffAHandlerlessCloserDoesNotCloseOrPressItsAncestor() throws {
+        let p = page()
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "button", "props": ["popovertarget": "choices", "popovertargetaction": "hide"]],
+            ["op": "create", "id": 8, "kind": "text", "props": ["text": "Close"]],
+            ["op": "children", "id": 7, "ids": [8]], ["op": "children", "id": 4, "ids": [5, 7]],
+            ["op": "frame", "id": 7, "x": 0, "y": 60, "w": 80, "h": 40],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 80, "h": 40]
+        ]))
+        let closer = try XCTUnwrap(p.views[7]), pop = try XCTUnwrap(p.views[4])
+        p.press(2)
+        settle { !p.menus.inTransition }
+        XCTAssertTrue(p.menus.isOpen(pop))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let off = Touch(closer)
+        closer.touchesBegan([off], with: nil)
+        off.point = CGPoint(x: 140, y: 20)
+        closer.touchesMoved([off], with: nil)
+        closer.touchesEnded([off], with: nil)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertTrue(pressed.isEmpty)
+        let inside = Touch(closer)
+        closer.touchesBegan([inside], with: nil)
+        closer.touchesEnded([inside], with: nil)
+        XCTAssertEqual(pressed, [1])
+        XCTAssertFalse(p.menus.isOpen(pop))
+    }
+
 }
 #endif

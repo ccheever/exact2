@@ -214,3 +214,16 @@ impl std::fmt::Display for TypeExpr {
         }
     }
 }
+
+/// The event a handler's payload and record are typed by, on a node whose
+/// [`ast::payload_control`] is `control`: a text field's `selectionchange` is
+/// its `beforeinput`'s (an `InputEvent`), and an iframe's `navigate` is
+/// `framenavigate`, a `FrameNavigation` with no location (LLP 1020.002 D2).
+/// Every other event is itself.
+pub fn typed_event<'a>(event: &'a str, control: Option<&str>) -> &'a str {
+    match event {
+        "selectionchange" if ast::edits_text(control) => "beforeinput",
+        "navigate" if control == Some("iframe") => "framenavigate",
+        _ => event,
+    }
+}

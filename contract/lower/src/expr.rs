@@ -257,10 +257,10 @@ pub(crate) fn compile(
         },
         Expr::Member(obj, field, span) => {
             let t = compile(l, asm, obj, scope, locals)?;
-            let Ty::Record(shape) = t else {
-                return err("lower-not-a-record", format!("`{t}` has no fields"), *span);
-            };
-            let Some((index, ty)) = l.types.shapes.field(&shape, field) else {
+            let Some((index, ty)) = l.types.shapes.member(&t, field) else {
+                let Ty::Record(shape) = t else {
+                    return err("lower-not-a-record", format!("`{t}` has no fields"), *span);
+                };
                 return err(
                     "lower-unknown-field",
                     format!("`{shape}` has no field `{field}`"),
@@ -556,7 +556,7 @@ pub(crate) fn compile(
             let index = *locals;
             *locals += 1;
             let mut inner = scope.clone();
-            inner.push(vec![(name.clone(), Ref::Local(index as u32), ty)]);
+            inner.push_let(name, index as u32, ty);
             let ty = compile(l, asm, body, &inner, locals)?;
             *locals -= 1;
             asm.drop_local();

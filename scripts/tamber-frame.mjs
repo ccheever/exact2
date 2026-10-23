@@ -2,6 +2,7 @@
 // port than the one the loop was started for (EXACT_TOOL_PORT) is refused by the page's frame-ancestors, and Chrome
 // shows an empty canvas, saying why only in the console. `tamber tool --via` asks the page itself, says it once on
 // the terminal, and answers the tool's page at /__tamber/tool/canvas-check (the tool's own, not tamber/1).
+import { upstream } from './tamber-request.mjs';
 
 /** Whether a page at `page` whose Content-Security-Policy is `csp` (the header's value: policies joined by commas,
  * as fetch joins several headers) lets `ancestor` frame it (CSP3 frame-ancestors). Every policy that has the
@@ -75,7 +76,7 @@ function portFixes(source, self) {
  * hello `frame`), so `'self'` is that origin. */
 export async function canvasCheck(via, tool) {
   try {
-    const got = await fetch(`${via}/`, { headers: { accept: 'text/html' }, redirect: 'manual', signal: AbortSignal.timeout(5000) });
+    const got = await upstream(`${via}/`, { headers: { accept: 'text/html' }, redirect: 'manual', signal: AbortSignal.timeout(5000) });
     await got.body?.cancel();
     return { via, ...framesAllowed(got.headers.get('content-security-policy'), tool, `http://localhost:${new URL(via).port}`) };
   } catch { return { via, allowed: true, origins: [], portFixes: false }; }

@@ -121,15 +121,14 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
 /// 0069 §3). `None` keeps them in memory: a drive that names no scratch
 /// store, an app with no id, and Windows outside the agent (until its
 /// credential vault).
-pub(crate) fn secret_root(app_id: &str) -> Option<PathBuf> {
+pub(crate) fn secret_root(app_id: &str) -> Result<Option<PathBuf>, DataError> {
     if app_id.is_empty() || (cfg!(windows) && std::env::var_os("EXACT_AGENT").is_none()) {
-        return None;
+        return Ok(None);
     }
     // `roots[0]` is `<root>/data`. In a drive, secrets live in the scratch
     // tree, so a fresh drive's emptying of that tree ([`empty_fresh_tree`])
     // takes them too.
-    let (roots, _) = app_dirs(app_id).ok().flatten()?;
-    roots[0].parent().map(|path| path.to_path_buf())
+    Ok(app_dirs(app_id)?.and_then(|(roots, _)| roots[0].parent().map(|path| path.to_path_buf())))
 }
 
 /// The scratch trees a fresh drive has emptied in this process.

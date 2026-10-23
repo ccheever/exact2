@@ -30,7 +30,7 @@ mod tests;
 mod use_node;
 
 use derives::resolved_derives;
-use subst::{renamed_locals, subst_expr, subst_stmts, substituted, Subst};
+use subst::{renamed_locals, subst_expr, subst_stmts, Subst};
 
 fn err<T>(
     id: &'static str,
@@ -434,6 +434,7 @@ struct Ctx<'a> {
 struct Fill {
     nodes: Vec<Node>,
     subst: BTreeMap<String, Expr>,
+    value_only: BTreeSet<String>,
     provides: Vec<(String, Expr)>,
     outer: Option<Rc<Fill>>,
     instance: u32,
@@ -495,7 +496,8 @@ fn inline_nodes(
                     let provides = std::mem::replace(&mut ctx.provides, fill.provides.clone());
                     let outer_fill = std::mem::replace(&mut ctx.fill, fill.outer.clone());
                     let outer_instance = std::mem::replace(&mut ctx.instance, fill.instance);
-                    let mut site = Subst::new(&fill.subst, ctx.records);
+                    let mut site =
+                        Subst::new(&fill.subst, ctx.records).with_value_only(&fill.value_only);
                     let nodes = inline_nodes(&fill.nodes, &mut site, ctx);
                     ctx.provides = provides;
                     ctx.fill = outer_fill;

@@ -125,8 +125,8 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // Agent launch facts belong to the carrier, not the router's typed URL. Keep
 // them on every History entry so a browser reload retains its agent adapter.
-const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage', 'failFetch'];
-function historyURL(path) {
+const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
+export function historyURL(path) { // (exported for its test)
   if (!AGENT_ADMITTED) return location.origin + path;
   const facts = launched();
   if (!facts.has('agent')) return location.origin + path;
@@ -195,13 +195,13 @@ function appBarBack(nav, routes, index, split, shown) {
   // `keepsAuthoredHeader`).
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
     && !(route.firstElementChild === header && header.matches(authored) && headerShown);
-  // A header iOS makes no bar of that shows the control has no Back beside it, the web's choice so that one header shows
-  // one way back (iOS draws UIKit's there too). A control in its menu or a dialog, or in a header not shown, keeps the
-  // Back; in a header not shown, the Back is hidden with it. One hidden on its own in a shown header gets no Back, so
-  // nothing shows (QUEUE.md); there and in a header not shown, the browser's Back presses the control.
+  // A header iOS makes no bar of draws Back when it does not show a visible Back control (iOS draws it either way).
+  // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
   const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
-  const held = inShownHeader && !!items?.includes(control), drawn = pushed && (!inShownHeader || !!items);
+  const held = inShownHeader && !!items?.includes(control);
+  for (const el of route.querySelectorAll("[data-exact-bar-back]")) if (el !== control || !held) el.removeAttribute("data-exact-bar-back");
+  const drawn = pushed && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true }));
   if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
@@ -219,7 +219,7 @@ function appBarBack(nav, routes, index, split, shown) {
   button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
-  if (held && control.hasAttribute("aria-keyshortcuts")) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
+  if (control?.hasAttribute("aria-keyshortcuts") && !control.checkVisibility({ visibilityProperty: true })) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
 }
 /** The app bar's Back on `route`, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
  * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
@@ -1111,17 +1111,17 @@ export function launchLocation(platform = globalThis) {
   const rest = q.toString();
   return pathname + (rest ? '?' + rest : '');
 }
-// The drive's facts are the launch URL's, even after a route changes the
-// address bar (storage-environment.js `launchHref`).
+// Drive facts use the launch URL after route changes too (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
-let pageTime;
-export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
-let pagePlace;
-export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
+let pageTime; export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
+let pagePlace; export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
 // A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses sets the kept answers aside, a cache the runner bounds together, and is tried once more, the kept answers put back if it fails again; a kept answer it refuses leaves the older one, which the next launch may still match, and is said.
 export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
-  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
-
+  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); return false; } return true; }
+/** Failed writes belong to the page until a later commit persists or replaces them. */ export function pageStore(storage = () => localStorage, warn = console.warn) { const pending = new Map();
+  return { set(name, value) { pending.set(name, { value, warned: false }); }, flush() { for (const [name, entry] of pending) {
+    const report = (...line) => { if (!entry.warned) { entry.warned = true; warn(...line); } }; try { if (storeInPage(storage(), name, entry.value, report)) pending.delete(name); } catch (e) { report("exact: store", name, String(e)); }
+  } } }; }
 // An iframe guest's origin as authored when its `src` or `sandbox` was committed (an opaque
 // sandbox posts as "null"), which a `message` from it must match. The authored document owns
 // the channel: a later load revokes it until the app commits a new source.
@@ -1242,8 +1242,7 @@ const grantFNV = text => {
 // two ECMAScript line separators before the seal is calculated.
 const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error })
   .replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
-const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
-// A scheme-wide line (`net.fetch https:`, a CSP scheme source) admits every origin of these schemes.
+const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket', 'websocket-subdomains']);
 const schemeGrants = { 'fetch-scheme': ['http', 'https'], 'websocket-scheme': ['ws', 'wss'] };
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
@@ -1269,9 +1268,10 @@ const grantTupleValid = grant => {
       || /^(?:https?|wss?|ftp)$/.test(grant[1]) && /^[\d.]+$/.test(grant[2]);
     return grant.length === 4
     && /^[a-z][a-z0-9+.-]*$/.test(grant[1])
+    && (grant[0] !== 'websocket-subdomains' || /^(ws|wss)$/.test(grant[1]))
     && typeof grant[2] === 'string' && grant[2] === grant[2].toLowerCase() && grant[2].length > 0
     && Number.isInteger(grant[3]) && grant[3] >= 0 && grant[3] <= 65535
-    && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
+    && (!grant[0].endsWith('-subdomains') || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
   if (pathGrants.has(grant[0])) return grant.length >= 2
@@ -1295,10 +1295,10 @@ const pathTuple = (kind, target) => {
   return parts.some(part => part === '.' || part === '..') ? null : [kind, namespace, ...parts];
 };
 const networkTuple = (kind, target) => {
-  const wildcard = kind === 'fetch-subdomains';
+  const wildcard = kind.endsWith('-subdomains');
   if (wildcard && !target.includes('://*.')) return null;
   // Userinfo is refused, as in Rust: `https://a.example@evil.com` is evil.com.
-  if (target.includes('@')) return null;
+  if (target.includes('@') || (wildcard ? target.replace('://*.', '://') : target).includes('*')) return null;
   try {
     const url = new URL(wildcard ? target.replace('://*.', '://') : target);
     const port = Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
@@ -1330,7 +1330,7 @@ const sourceTuple = source => {
     return schemeGrants[kind].includes(scheme) ? [kind, scheme] : null;
   }
   if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
-  if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
+  if (capability === 'net.websocket') return networkTuple(target.includes('://*.') ? 'websocket-subdomains' : 'websocket', target);
   if (capability === 'fs.read') return pathTuple('fs-read', target);
   if (capability === 'fs.write') return pathTuple('fs-write', target);
   if (capability === 'sqlite.open') return pathTuple('sqlite-open', target);
@@ -1427,7 +1427,7 @@ export function admittingGrant(set, value, operation = 'fetch') {
   const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
   return set.entries.find(([, , grant]) => grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
     grant[0] === kind && grant[2] === host
-    || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
+    || grant[0] === kind + '-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   )))?.[1] ?? null;
 }
 export const admitsNetwork = (set, value, operation) => admittingGrant(set, value, operation) !== null;

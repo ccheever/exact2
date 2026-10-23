@@ -406,7 +406,12 @@ uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_m
 /* Gallery-only query: a fresh data seam and scratch store, no host activation. */
 uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
+/* First root's literal viewport-fit=cover, without settlement. Input plan
+ * bytes of length len, or the baked plan when len is zero. */
+uint32_t exact_plan_covers_viewport(ExactRuntime rt, size_t len);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
+/* Check every participant and commit in one owner job, without intervening turns. */
+uint32_t exact_check_prepared(ExactRuntime rt);
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match
@@ -452,6 +457,8 @@ uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
  * authored Back control under a root with no `navigate` handler: the
  * router's `back` as a commit of its own. A batch. */
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
+/* The runner's own go to the UTF-8 location in exact_in, a batch. */
+uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -639,7 +646,9 @@ uint32_t exact_midi(ExactRuntime rt, size_t len);
  * a native module source's preferred value. Returns the batch length. */
 uint32_t exact_extension(ExactRuntime rt, size_t len);
 /* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
- * line in the input buffer: the runner sends their names to the module. */
+ * line in the input buffer: the runner sends their names to the module. A
+ * line `agent <name>` is an implementation bound under the agent, which
+ * answers an interface that is its own substitute (LLP 1133.006 D8). */
 void exact_bind_extensions(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);

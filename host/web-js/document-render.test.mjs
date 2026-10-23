@@ -6,18 +6,19 @@ import { createDocument } from './dom.js';
 import { open } from '../../scripts/agent.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
-async function renderedPages(source, check, files = {}, manifest = {}) {
+async function renderedPages(source, check, files = {}, manifest = {}, renderer = 'js') {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/head-render-test-'));
   try {
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
+    if (renderer === 'js') writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
     writeFileSync(resolve(dir, 'app.contract'), source);
     for (const [name, text] of Object.entries(files)) {
       mkdirSync(dirname(resolve(dir, name)), { recursive: true });
       writeFileSync(resolve(dir, name), text);
     }
-    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'head-render-test', '--out', resolve(dir, 'dist'), '--render', 'js'], {
-      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    const app = renderer === 'rust' ? ['caltrain', '--contract', resolve(dir, 'app.contract')] : ['head-render-test'];
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', ...app, '--out', resolve(dir, 'dist'), '--render', renderer], {
+      cwd: root, env: { ...process.env, ...(renderer === 'js' ? { EXACT_APP_DIR: dir } : {}) }, stdout: 'pipe', stderr: 'pipe',
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
@@ -28,6 +29,152 @@ async function renderedPages(source, check, files = {}, manifest = {}) {
     }, html, resolve(dir, 'dist'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
+
+test('bare text styles keep their fills and inherited rows through server adoption', async () => {
+  const source = 'routes nav\n  home "/" render=build\n\n' + readFileSync(new URL('./conformance/bare-text-style.contract', import.meta.url), 'utf8');
+  for (const renderer of ['rust', 'js']) for (const weighted of [false, true]) await renderedPages(source.replace('state weighted = false', `state weighted = ${weighted}`), async (_, html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    try {
+      const measure = `Object.fromEntries(['alone','bound','clear-above','clear-own','nested','relative','shorthand-child','heading-child','control-child','control-own','dynamic','dynamic-own','dynamic-shorthand-child','cleared-shorthand-child','removed-style-inherits','removed-style-fills'].map(id => {
+        const e = document.querySelector('[data-testid="'+id+'"]'), s = getComputedStyle(e);
+        return [id, [s.fontWeight, s.lineHeight]];
+      }))`;
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      const before = await page.evaluate(measure);
+      const changing = on => ({ bound: on ? ['700', '40px'] : ['600', 'normal'],
+        dynamic: [on ? '400' : '600', 'normal'], 'dynamic-own': on ? ['700', '40px'] : ['600', 'normal'],
+        'dynamic-shorthand-child': on ? ['700', '40px'] : ['600', 'normal'], 'cleared-shorthand-child': [on ? '400' : '600', 'normal'],
+        'removed-style-inherits': on ? ['700', '40px'] : ['300', '24px'], 'removed-style-fills': on ? ['600', 'normal'] : ['300', '24px'] });
+      expect(before).toEqual({
+        alone: ['600', 'normal'], 'clear-above': ['600', 'normal'],
+        'clear-own': ['400', 'normal'], nested: ['400', 'normal'], relative: ['700', '40px'],
+        'shorthand-child': ['600', 'normal'], 'heading-child': ['700', 'normal'], 'control-child': ['500', '20px'], 'control-own': ['500', '20px'], ...changing(weighted),
+      });
+      // Static fills must become classes, so adoption cannot leave a stale inline weight.
+      const alone = html('').match(/<[^>]*data-testid="alone"[^>]*>/)?.[0];
+      expect(alone).toContain('class=');
+      expect(alone).not.toContain('style=');
+      browser = await open({ host: 'web', url: server.url.href });
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+      expect(await browser.carrier.evaluate(measure)).toEqual(before);
+      await browser.tap('flip');
+      expect(await browser.carrier.evaluate(measure)).toMatchObject(changing(!weighted));
+      await browser.tap('flip');
+      expect(await browser.carrier.evaluate(measure)).toEqual(before);
+      if (weighted) await browser.tap('flip');
+      expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="bound"]').parentElement.style.cssText`)).not.toContain('--exact-said-');
+    } finally {
+      await browser?.close(); await suite?.close(); server.stop(true);
+    }
+  }, {}, {}, renderer);
+}, 180000);
+
+async function textStylePage(ids, check, weighted = false) {
+  const source = 'routes nav\n  home "/" render=build\n\n' + readFileSync(new URL('./conformance/bare-text-style.contract', import.meta.url), 'utf8').replace('state weighted = false', `state weighted = ${weighted}`);
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, _html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    const measure = `Object.fromEntries(${JSON.stringify(ids)}.map(id => {
+      const e = document.querySelector('[data-testid="'+id+'"]'), s = getComputedStyle(e);
+      return [id, [s.fontWeight, s.lineHeight]];
+    }))`;
+    try {
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      const before = await page.evaluate(measure);
+      browser = await open({ host: 'web', url: server.url.href });
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+      await check(before, () => browser.carrier.evaluate(measure), id => browser.tap(id), browser);
+    } finally { await browser?.close(); await suite?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}
+
+test('keyed text styles track independent shorthand and longhand fields', async () => {
+  await textStylePage(['keyed-child'], async (before, read, tap, browser) => {
+    expect(before['keyed-child']).toEqual(['400', 'normal']);
+    expect(await read()).toEqual(before);
+    await tap('style-item');
+    expect((await read())['keyed-child']).toEqual(['600', 'normal']);
+    expect(await browser.carrier.evaluate(`['font-weight','line-height'].map(row => document.querySelector('[data-testid="keyed-child"]').parentElement.style.cssText.includes('--exact-said-'+row+':'))`)).toEqual([true, true]);
+    await tap('bold-item');
+    expect((await read())['keyed-child']).toEqual(['700', 'normal']);
+    await tap('lead-item');
+    expect((await read())['keyed-child']).toEqual(['700', '48px']);
+    await tap('style-item');
+    expect((await read())['keyed-child']).toEqual(['700', '48px']);
+    await tap('bold-item');
+    expect((await read())['keyed-child']).toEqual(['400', '48px']);
+    await tap('lead-item');
+    expect(await read()).toEqual(before);
+    await tap('style-item');
+    expect((await read())['keyed-child']).toEqual(['600', 'normal']);
+    await tap('style-item');
+    expect(await read()).toEqual(before);
+    expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="keyed-child"]').parentElement.style.cssText`)).not.toContain('--exact-said-');
+  });
+}, 60000);
+
+test('an unnamed dynamic text style inherits its ancestor rows', async () => {
+  await textStylePage(['no-style'], async (before, read, tap) => {
+    expect(before['no-style']).toEqual(['600', '40px']);
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect((await read())['no-style']).toEqual(['700', '48px']);
+    await tap('flip');
+    expect(await read()).toEqual(before);
+  });
+}, 60000);
+
+test('blank text rows clear a shorthand start through adoption', async () => {
+  await textStylePage(['blank-child'], async (before, read, tap) => {
+    expect(before['blank-child']).toEqual(['600', 'normal']);
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect((await read())['blank-child']).toEqual(['400', '40px']);
+    await tap('flip');
+    expect(await read()).toEqual(before);
+  });
+}, 60000);
+
+test('select and date text styles preserve shell leading only under a said row', async () => {
+  const ids = ['select-said','select-bound-said','date-said','time-bound-said','select-unsaid','select-bound-unsaid','date-unsaid','time-bound-unsaid'];
+  for (const weighted of [false, true]) await textStylePage(ids, async (before, read, tap, browser) => {
+    const expected = (small, coarse = false) => Object.fromEntries(ids.map(id => {
+      const size = small && id.includes('bound') ? 11 : 16;
+      return [id, ['400', id.endsWith('unsaid') ? 'normal' : `${size * (id.startsWith('select') ? (coarse ? 2.625 : 2.125) : 2)}px`]];
+    }));
+    expect(before).toEqual(expected(weighted));
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect(await read()).toEqual(expected(!weighted));
+    await tap('flip');
+    expect(await read()).toEqual(before);
+    await browser.prefer({ pointer: 'coarse' });
+    expect(await read()).toEqual(expected(weighted, true));
+  }, weighted);
+}, 60000);
+
+test('removing a control style and its bound leading restores the shell', async () => {
+  const expected = removed => ({ 'select-removed': ['400', removed ? '34px' : '24px'], 'datetime-removed': ['400', removed ? '32px' : '24px'] });
+  for (const weighted of [false, true]) await textStylePage(['select-removed', 'datetime-removed'], async (before, read, tap) => {
+    expect(before).toEqual(expected(weighted));
+    expect(await read()).toEqual(before);
+    await tap('flip');
+    expect(await read()).toEqual(expected(!weighted));
+    await tap('flip');
+    expect(await read()).toEqual(before);
+  }, weighted);
+}, 60000);
 
 test('JavaScript-rendered strings use the document language with an English translation available', async () => {
   await renderedPages(`routes nav
@@ -356,6 +503,169 @@ component Bars
   });
 }, 180000);
 
+// A page rendered ahead of time, by either renderer, works before its runtime runs as it will after: a wheel over the
+// content scrolls the route its URL selects, every other tab hidden and inert as the projection leaves it (LLP 1038
+// D6), while the document and the tab bar keep their place and the page cannot bounce (LLP 1115.000 D4.12). It adopts
+// without moving.
+test('pages rendered ahead of time scroll the selected route before they adopt, and adopt without moving', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/prerender-scroll-test-')), servers = {};
+  try {
+    const source = resolve(dir, 'app.contract');
+    writeFileSync(source, `routes nav
+  tab first "/" render=build
+  tab second "/second" render=build
+
+component Tabs
+  derive current = top(nav)
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=\`\${current.id}\` navigationBack="back" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=\`panel-\${t.name}\` position="absolute" inset=0
+            for e in t.stack key=e.id
+              column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column"
+                header padding="8px 16px"
+                  text e.name role="heading" aria-level=1
+                scroll testId=\`content-\${e.name}\` flex=1 min-height=0
+                  for i in range(30) key=i
+                    text \`\${e.name} \${i}\` padding=16
+      row role="tablist"
+        button role="tab" aria-controls="panel-first" aria-selected=(nav.tab == "first") press=pick("first") flex=1
+          text "First"
+        button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=pick("second") flex=1
+          text "Second"
+`);
+    for (const how of ['js', 'rust']) {
+      const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', resolve(dir, how), '--render', how], {
+        cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
+      });
+      const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+      expect({ how, status, error: status ? stdout + stderr : '' }).toEqual({ how, status: 0, error: '' });
+      servers[how] = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dir, how, /\.\w+$/.test(path) ? `.${path}` : `.${path}/index.html`)));
+      } });
+    }
+    // Each panel, route, bar and scroller: its box, whether it is seen, and whether it is inert.
+    const layout = () => [...document.querySelectorAll('[role=tabpanel], [navigationkey], header, [data-scroll], [role=tablist]')].map(e =>
+      [e.localName, e.id || e.getAttribute('data-testid'), ...Object.values(e.getBoundingClientRect().toJSON()).slice(0, 4), getComputedStyle(e).visibility, e.inert]);
+    // Whether the tab's scroller has scrolled, the document's offset, and the tab bar's box.
+    const scroll = tab => [document.querySelector(`[data-testid="content-${tab}"]`).scrollTop > 0, document.scrollingElement.scrollTop,
+      Object.values(document.querySelector('[role=tablist]').getBoundingClientRect().toJSON()).slice(0, 4)];
+    for (const engine of ['chromium', 'firefox', 'webkit']) {
+      const suite = await suiteBrowser(engine, { timeout: 10000 });
+      try {
+        for (const how of ['js', 'rust']) for (const [path, tab] of [['', 'first'], ['/second', 'second']]) {
+          const url = `${servers[how].url.href}${path.slice(1)}`, at = [engine, how, tab];
+          const before = await (await suite.newContext({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false })).newPage();
+          await before.goto(url);
+          expect([...at, await before.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).overscrollBehaviorY))]).toEqual([...at, ['none', 'none']]);
+          const built = await before.evaluate(layout), [, , bar] = await before.evaluate(scroll, tab);
+          const content = await before.locator(`[data-testid="content-${tab}"]`).boundingBox();
+          await before.mouse.move(content.x + content.width / 2, content.y + content.height / 2);
+          await before.mouse.wheel(0, 300);
+          // Poll from the driver because JavaScript-disabled pages do not run the page's animation-frame poller
+          for (let i = 0; i < 50 && !(await before.evaluate(scroll, tab))[0]; i++) {
+            await before.waitForTimeout(50);
+          }
+          expect([...at, ...(await before.evaluate(scroll, tab))]).toEqual([...at, true, 0, bar]);
+          const after = await (await suite.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+          await after.goto(url);
+          await after.waitForFunction(() => globalThis.exact?.journal?.some(l => l.endsWith('adopted the document')), null, { timeout: 15000 });
+          await after.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+          expect([...at, await after.evaluate(layout)]).toEqual([...at, built]);
+        }
+      } finally { await suite.close(); }
+    }
+  } finally {
+    for (const server of Object.values(servers)) server.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 240000);
+
+test('JavaScript prerender keeps every sheet and its underlying page visible through adoption', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+component Sheets
+  view
+    main navigationKey="top" navigationBack="back" height="100%"
+      column navigationKey="old" id="old" position="absolute" inset=0
+        text "Earlier page"
+      column navigationKey="base" id="base" position="absolute" inset=0
+        text "Base page"
+      column navigationKey="lower" id="lower" navigationPresentation="modal" height=500
+        text "Lower sheet"
+      column navigationKey="top" id="top" navigationPresentation="modal" height=200
+        text "Top sheet"
+`, async (_, _html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    const visibility = () => ['old', 'base', 'lower', 'top'].map(id => {
+      const node = document.getElementById(id);
+      return [id, getComputedStyle(node).visibility, node.inert];
+    });
+    const expected = [['old', 'hidden', true], ['base', 'visible', true], ['lower', 'visible', true], ['top', 'visible', false]];
+    try {
+      for (const engine of ['chromium', 'firefox', 'webkit']) {
+        const suite = await suiteBrowser(engine);
+        try {
+          const before = await suite.newPage({ javaScriptEnabled: false });
+          await before.goto(server.url.href);
+          expect([engine, 'prerender', await before.evaluate(visibility)]).toEqual([engine, 'prerender', expected]);
+          const after = await suite.newPage();
+          await after.goto(server.url.href);
+          await after.waitForFunction(() => globalThis.exact?.journal?.some(line => line.endsWith('adopted the document')));
+          expect([engine, 'adopted', await after.evaluate(visibility)]).toEqual([engine, 'adopted', expected]);
+        } finally { await suite.close(); }
+      }
+    } finally { server.stop(true); }
+  });
+}, 60000);
+
+test('both document renderers preserve browser scrolling before startup', async () => {
+  for (const how of ['js', 'rust']) {
+    await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  view
+    scroll document height="100%"
+      text "Document" height=1600
+`, async (_, html, dist) => {
+      expect(html('')).toMatch(/<html[^>]* data-scrolldocument/);
+      if (how === 'js') {
+        const { renderer } = await import('./render.mjs');
+        const page = await (await renderer(dist).begin('/')).finish();
+        expect(page.rest.startsWith('<script>document.documentElement.setAttribute("data-scrolldocument","")</script>')).toBe(true);
+      }
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(Bun.file(resolve(dist, 'index.html'))) });
+      try {
+        for (const engine of ['chromium', 'firefox', 'webkit']) {
+          const browser = await suiteBrowser(engine);
+          try {
+            const page = await browser.newPage({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
+            await page.goto(server.url.href);
+            expect([how, engine, await page.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).overscrollBehaviorY))]).toEqual([how, engine, ['auto', 'auto']]);
+            await page.mouse.move(195, 400);
+            await page.mouse.wheel(0, 300);
+            const scrolled = () => page.evaluate(() => document.scrollingElement.scrollTop > 0);
+            for (let i = 0; i < 50 && !await scrolled(); i++) {
+              await page.waitForTimeout(50);
+            }
+            expect(await scrolled()).toBe(true);
+          } finally { await browser.close(); }
+        }
+      } finally { server.stop(true); }
+    }, {}, {}, how);
+  }
+}, 180000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');
@@ -418,4 +728,51 @@ component ProgressDocument
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
+}, 180000);
+
+// The same CSS also supplies the independently measured kernel cases.
+test('calculated grid tracks survive web build, adoption, resize and a bound write', async () => {
+  const cards = 'repeat(auto-fill, minmax(min(100%, 200px), 1fr))';
+  const source = `routes nav
+  home "/" render=build
+component App
+  state columns = "${cards}"
+  state wide = false
+  action resize
+    wide = not wide
+  action change
+    columns = "calc(5e-1 * 100% - 10px) calc(5e-1 * 100% - 10px)"
+  view
+    view
+      button "Resize" press=resize testId="resize"
+      button "Change" press=change testId="change"
+      view display="grid" width=(wide ? 650 : 150) grid-template-columns=columns testId="cards"
+        view min-height=30
+        view min-height=30
+        view min-height=30
+      view display="grid" width=100 height=200 grid-template-rows="clamp(20px, 25%, 80px) max(10px, 20%)" testId="rows"
+        view
+        view
+`;
+  await renderedPages(source, async (_, html, dist) => {
+    expect(html('')).toContain(cards);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let browser;
+    try {
+      browser = await open({ host: 'web', url: server.url.href });
+      const widths = () => browser.carrier.evaluate(`Array.from(document.querySelector('[data-testid="cards"]').children, e => e.getBoundingClientRect().width)`);
+      expect(await widths()).toEqual([150, 150, 150]);
+      expect(await browser.carrier.evaluate(`getComputedStyle(document.querySelector('[data-testid="rows"]')).gridTemplateRows`)).toBe('50px 40px');
+      await browser.tap('resize');
+      expect(await widths()).toEqual([216.65625, 216.671875, 216.671875]);
+      await browser.tap('change');
+      expect(await widths()).toEqual([315, 315, 315]);
+      await browser.tap('resize');
+      expect(await widths()).toEqual([65, 65, 65]);
+      expect(await browser.carrier.evaluate(`globalThis.exact.journal.filter(l => l.includes('unset grid-template'))`)).toEqual([]);
+    } finally { await browser?.close(); server.stop(true); }
+  });
 }, 180000);

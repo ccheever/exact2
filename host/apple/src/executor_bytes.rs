@@ -3,13 +3,13 @@
 //! appends each read to the one message the runner has not taken, so the
 //! messages follow the runner's pace, not the transport's chunking, and no
 //! byte is dropped or reordered. What waits is bounded by the stream's
-//! ceiling, at most 1 MiB (D7's receive bound); a read that would pass it
+//! ceiling, at most 1 MiB; a read that would pass it
 //! ends the stream refused after the bytes already queued.
 use super::super::{complete, failed, has_ready, wake, Completed, Shared};
 use exact_runner::{FailureKind, Message, Outcome};
 use ibex2::stdlib::{abort::AbortController, fetch::StreamingResponse};
 
-/// The undelivered bytes a byte stream may hold (D7's receive bound).
+/// The undelivered bytes a byte stream may hold, unless its ceiling is lower.
 const RECEIVE_BYTES: usize = 1 << 20;
 
 /// What became of one read.
@@ -119,6 +119,7 @@ fn append(shared: &Shared, ticket: u64, bytes: &[u8], bound: usize) -> Read {
                 stream: true,
                 light: false,
                 again: false,
+                reply: false,
             })
         }
     }

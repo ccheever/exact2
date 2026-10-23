@@ -101,12 +101,20 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `scroll flex=1` inside with it. Cause: CSS `min-height: auto` on the column. Fix:
   `min-height=0` on the column, as `lower-scroll-grows` says; `layout <scroll>` shows the
   height. A UIKit sheet sizes nothing for you here. (euxy port 14, FRICTION 9.)
+- **A `symbol:` image's `-exact-tint-color` does nothing.** A symbol is drawn in its
+  computed `color` on every host (LLP 1081 stage 2); `-exact-tint-color` colours a
+  raster image only, and a native button's face symbol. Write
+  `image "symbol:forward-chevron" color="-exact-tertiary-label"`.
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
   Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
   it follows its text (in a button, tab or bar item, its title's font; give it a
   `font-size` if it must differ; a native button refuses its symbol's `width` and
   `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
   Clone, 2026-10-02.)
+- **`color-scheme="light dark"` is refused.** Contract accepts only `light` or
+  `dark` to fix a subtree's scheme. Leave it unsaid to follow the surrounding
+  scheme; put `color-scheme="dark"` on a media viewer itself, not its shared
+  page wrapper.
 - **In dark mode the navigation title and status bar turn white on a light page.**
   Cause: the app paints a fixed light background (`background-color="#FAF7F2"`)
   while the system is dark, so UIKit's bars and the platform's colours go dark
@@ -331,6 +339,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`xcrun simctl io <udid> recordVideo launch.mp4`, then `simctl launch`) and read its
   frames (the euxy port's white launch, 2026-10-21).
 
+- **A sticky child under the bar covers the first row at rest.** Cause: a `top` written
+  as the bar's height to clear it (React Conf's day picker, `top=114`). A route's
+  scroller begins at the bar's bottom, as a web scroller begins below a header in flow,
+  and `top` counts from there: at `scrollTop` 0 the box is moved down by `top` over
+  what follows, as Chrome draws it, and once scrolled it pins that far below the bar.
+  Fix: `position="sticky" top=0` pins it at the bar's bottom, in flow at rest. `check`
+  names the covered row ("under … at rest").
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
@@ -404,7 +419,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: write no
   colour (the accent is the platform's blue; a brand is an `app.tamber`); surfaces and text
   are roles (`-exact-label`) or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
-  first op. (LLP 1116.002 D1.)
+  first op, or `prefer prefers-color-scheme dark` before a test's first
+  observation. A later `prefer prefers-color-scheme light` switches back.
+  (LLP 1116.002 D1.)
 - **A card is white on a white page in light mode.** Cause:
   `-exact-secondary-grouped-background` (white in light) on a plain page (white), as
   start-here once suggested; two round-5 apps' cards vanished so. Fix: surfaces in
@@ -544,6 +561,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
 | `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below); nothing when the same style has `overflow: "hidden"`, which iOS draws without its shadow |
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
+| `fontSize: 16` | nothing; `verify` lists it as a fixed size | `font-size="1rem"` (16 ÷ 16), or a text style (`font="-exact-body"`): React Native's `fontSize` follows Dynamic Type by default (`allowFontScaling`), and a bare number here is points that do not (LLP 1115.000 D12) |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
 | `alignItems`, `justifyContent`, `gap` on a `View` (a flex column in RN) | `lower-flex-on-block` (warning) | `column` or `row`: a `view` is `display: block`, as a `<div>` is |
@@ -724,8 +742,13 @@ screen, 2026-10-16.)
 maps its whole catalog when the bundle loads. In `app.ts` that top level runs after
 first pixel, and every answer waits for it: Brooks' `catalog.products.map(product)`
 over a 2 MB JSON catalog took 314 ms in Hermes on an iPhone 17 Pro Max, where Bun
-takes 60 ms. Shape what a source answers in that source, or once on its first call.
-The journal names a top level slower than 50 ms.
+takes 60 ms. 220 ms of that was a derived list built for every product at load (`completeTheLook`, about
+250,000 regex matches), where the original computes it for one product when its page opens.
+Shape what a source answers in that source, or once on its first call, and check the first
+answer's cost too, so the work is not just moved there. The journal (`agent.mjs ios logs`
+after launch) names a top level slower than 50 ms. Where the top level cannot be made cheap,
+`"typescript": {"placement": "worker"}` in `app.json` evaluates it on its own thread, at a
+price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1).
 
 ## Actions
 
@@ -1186,26 +1209,9 @@ The journal names a top level slower than 50 ms.
   refused app file fires `error`, without a successful `load`. This does
   not provide a portable fit-to-width PDF viewer or toolbar controls.
 
-- **An `iframe` of `http://` from a named host loads under the agent and shows an
-  App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
-  `http://example.com/` read "The resource could not be loaded because the App
-  Transport Security policy requires the use of a secure connection" in the `.app`
-  (an IP literal such as `http://127.0.0.1` loads). Cause: ATS reads the bundle's
-  `Info.plist`, and `agent macos` runs the bare executable, which has none. Fix: set
-  `host.macos.appTransportSecurity` (and `host.ios.…` for iOS) to
-  `{ "allowsArbitraryLoadsInWebContent": true }` in `app.json`; it relaxes web views
-  only. On iOS, the host's wrapper for a remote HTTP page also uses HTTP:
-  an HTTPS wrapper would still block that page as mixed content after the ATS
-  opt-in. The inner iframe keeps its sandbox and its authored dimensions.
-  To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
-  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
-  stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is served at `exact-app://app/assets/…` (the next entry): an
-  absolute `http:` sub-resource on loopback loads, and one on a named host follows
-  the same ATS setting. A sub-resource that fails is logged (`exact: iframe
-  assets/…: <url> did not load (<reason>)`, or `… is not an app asset under assets/
-  or deck/`) (#135).
-  (Issue #106, 2026-10-06.)
+- **`EXACT_MAC_BIN` overrides the bundled macOS launch and skips the freshness
+  check.** A bare executable named by this override has no bundled App Transport
+  Security policy.
 
 - **A bundled web page that works on the web can break on Apple if it reaches its
   parent, sets cookies or registers a service worker.** An `iframe` of an HTML page
@@ -1434,12 +1440,66 @@ The journal names a top level slower than 50 ms.
   2026-10-07.)
 
 - **A native button refuses an image's frame or a third text.** Its face is
-  semantic: two texts (title and subtitle) and one symbol. The symbol's size
+  semantic: two texts (title and subtitle) and one symbol image. Raster faces
+  need `appearance="none"` until every graphical host paints them. The symbol's size
   is `font-size` on the image, not `width`, `height` or `object-fit`. Its own
   colour is `-exact-tint-color`; the title's is `color`. Use a custom `button`
   without `appearance="auto"` for aligned image frames or arbitrary children.
   `-exact-control-size` and `-exact-corner-style` are admitted only on an
   explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
+
+- **Natively, a Snapback resource or mutation fails with `native call outside an
+  answer` while the same app works on the web.** Seen with five resources
+  opening one `Snapback.switcher` partition at launch, and with a `setTyping`
+  write overlapping a `sendMessage` write. Cause: the native device is the
+  data module's native module, and the executor attributes a continuation to
+  the answer whose fetch resumed it; a source that awaited another answer's
+  promise (the switcher's opening, the partition's round in flight) continues
+  after that answer ends, and its next device call is refused. On the web the
+  device is wasm in the page, with no such guard. Fix: one read resource
+  answering everything the view shows (a `snapshot`), and writes that
+  `db.write` (admit; the device predicts) rather than `db.send`, so no write
+  waits on a round: the write's `refreshes world` runs it. Gate the live
+  timer on `not pending(...)` of every mutation. (Harmony, `~/projects/harmony`,
+  2026-10-21.)
+
+- **The Mac or iOS app says `Snapback4: the native module is not available: …
+  link exact_snapback4::Module`.** `exact new --snapback` wires the web's wasm
+  device only. Fix: in `apple/src/lib.rs` and `linux/src/main.rs`, wrap
+  `exact_snapback4::Module::new(APP, GRANTS)` in a struct implementing
+  `exact_js::NativeModule` (`configure_storage`, `call`), attach it with
+  `.with_native(factory)` on the `exact_js::Module`, add `exact-snapback4` and
+  `serde_json` to those crates' `Cargo.toml`, then `bun exact.mjs lock`.
+  (Harmony, 2026-10-21.)
+
+- **The web build refuses every brand token (`color="ink.light"` is not a valid
+  `color`) that `contract build` accepted a moment ago.** Cause: a later line
+  in `app.tamber` was refused (here `color-mix(in oklab, AccentColor 16%,
+  transparent)`, `tamber-residual`), and the web build reports the tokens the
+  design would have defined, not the design's refusal. Run `bun exact.mjs
+  contract build app.contract --json`, which names the design's line. Also:
+  a token's name is identifiers joined by dots (`hue.rose`, never `hue.1`).
+  (Harmony, 2026-10-21.)
+
+- **A brand token named by data (a custom emoji's `fill` from the server) is
+  black on iOS and the Mac, right on the web.** Natively a token is resolved
+  where the compiler sees its literal; a string from a source is not one.
+  Fix: a `fn fillToken(name: string): string` whose arms return the literal
+  token names, and for an SVG path `fill="currentcolor"` with the token on an
+  ancestor box's `color` (a token on `fill` itself draws black on the web).
+  (Harmony, 2026-10-21.)
+
+- **`bun exact.mjs tamber check .` in an app outside the checkout says each icon's
+  SVG under `assets/` is missing though it is there.** The check resolves
+  `assets/<path>` from the process's working directory, which `exact.mjs`
+  moves to the checkout; the app's build finds the files. Trust
+  `contract build`, or run the check from the checkout naming the app's
+  absolute path. (Harmony, 2026-10-21.)
+
+- **Under `agent macos` the tab bar sits at the bottom and no list splits beside
+  its detail.** The agent shows authored chrome by default; pass `--chrome
+  platform` to see the sidebar and the split as a person does (the screenshot
+  then captures the content column only). (Harmony, 2026-10-21.)
 
 ## Working on exact2 itself
 
@@ -1473,6 +1533,14 @@ The journal names a top level slower than 50 ms.
   seconds` line of the whole run, read the verdict from it, then kill the
   `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
   `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
+- **A manual iOS XCTest relink crashes with `no __TEXT,__exact_compat`.**
+  A normal app build left an archive that reads its compatibility document
+  from a Mach-O section; Xcode's test bundle supplies none. Before
+  `xcodebuild build-for-testing`, rebuild the embedded test archive with the
+  Cargo step in `host/apple/build.mjs`'s `test` function, without
+  `EXACT_BAKED` or a linked bake. Then relink and run the focused class.
+  (QUEUE 638 review, 2026-10-23.)
+
 - **`build.mjs <app> --test` can break tests that assume Caltrain data.** The
   Swift suite links the named app's plan and sources; its owner and batch tests
   call `defaultLocation`. Use `build.mjs --test` for the full AppKit suite, then

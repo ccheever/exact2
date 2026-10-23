@@ -138,22 +138,25 @@ package final class Runtime {
     package static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     package func on(_ body: () -> Batch) -> Batch {
         let (open, modal) = topLayer?() ?? ([], nil)
+        return Owner.shared.sync({
+            installTopLayer(open, modal: modal)
+            return body()
+        }, busy: Runtime.busy)
+    }
+    private func installTopLayer(_ open: [TopLayerFrame], modal: Int?) {
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
         let clips = open.flatMap { entry -> [Double] in
             guard let clip = entry.2 else { return [.nan, 0, 0, 0] }
             return [Double(clip.minX), Double(clip.minY), Double(clip.width), Double(clip.height)]
         }
-        return Owner.shared.sync({
-            ids.withUnsafeBufferPointer { ids in
-                rects.withUnsafeBufferPointer { rects in
-                    clips.withUnsafeBufferPointer { clips in
-                        exact_top_layer(rt, ids.baseAddress, rects.baseAddress, clips.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
-                    }
+        ids.withUnsafeBufferPointer { ids in
+            rects.withUnsafeBufferPointer { rects in
+                clips.withUnsafeBufferPointer { clips in
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, clips.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
                 }
             }
-            return body()
-        }, busy: Runtime.busy)
+        }
     }
     package func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
     package func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
@@ -282,6 +285,20 @@ package final class Runtime {
         }
     }
     package func commitPlan() -> Batch { islands(on { read(exact_commit_plan(rt)) }) }
+    /// The owner excludes replies between the final freshness check and every
+    /// commit. The durable callback runs on main through the usual T5 door.
+    package static func commitTogether(_ runtimes: [Runtime], commit: () -> Bool) -> (batches: [Batch]?, pending: Bool, requests: Bool) {
+        let result: (batches: [Batch]?, pending: Bool, requests: Bool) = Owner.shared.sync({
+            let checks = runtimes.map { $0.read(exact_check_prepared($0.rt)) }
+            guard checks.allSatisfy({ $0.error == nil && !$0.pending }) else {
+                return (nil, checks.contains { $0.pending || $0.requests }, checks.contains { $0.requests })
+            }
+            guard Owner.shared.callMain(commit) else { return (nil, false, false) }
+            return (runtimes.map { $0.read(exact_commit_plan($0.rt)) }, false, false)
+        }, busy: (nil, false, false))
+        guard let batches = result.batches else { return result }
+        return (zip(runtimes, batches).map { $0.islands($1) }, false, false)
+    }
     /// `letGo`: the dev loop's, past its settle window: requests in flight do not refuse it (LLP 1007 §6).
     package func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat, letGo: Bool = false) -> Batch {
         return on {
@@ -301,6 +318,15 @@ package final class Runtime {
 
     /// Every queued reply into the runner: the batch of their commits.
     package func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
+    /// Capture native presentation on the caller before parsing replies on the owner.
+    package func pumpAsync(now: Double, done: @escaping (Batch?) -> Void) {
+        let (open, modal) = topLayer?() ?? ([], nil)
+        Owner.shared.post { [self] in
+            guard !destroyed else { done(nil); return }
+            installTopLayer(open, modal: modal)
+            done(read(exact_pump(rt, now)))
+        }
+    }
     package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
     package func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
         return on {
@@ -579,6 +605,9 @@ package final class Runtime {
     package func hostBack(_ key: String, now: Double) -> Batch? {
         guard let id = UInt64(key) else { return nil }
         return on { read(exact_host_back(rt, id, now)) }
+    }
+    package func hostGo(_ location: String, now: Double) -> Batch {
+        on { read(exact_host_go(rt, write(location), now)) }
     }
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
