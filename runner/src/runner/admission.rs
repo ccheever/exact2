@@ -115,9 +115,8 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let pending = &mut self.pending[at?];
-        let (reason, _) = pending.refusal.take().unwrap();
-        // Ordered or not, the host has no later reply for it: a settlement its shaped failure traps in lets it go.
-        pending.refused = true;
+        let (reason, ordered) = pending.refusal.take().unwrap();
+        pending.refused = ordered;
         Some((
             pending.ticket,
             Outcome::Failed {
@@ -220,6 +219,7 @@ mod tests {
         deferred: bool,
         write_first: bool,
         shape_refusal: bool,
+        none_reply: bool,
         asks: usize,
         synchronous_effects: usize,
         delivered_writes: usize,
@@ -258,6 +258,7 @@ mod tests {
                     self.delivered_writes += 1;
                     Ok(Answer::Later(Request::get("https://example.test/read")))
                 }
+                Outcome::Response(_) if self.none_reply => Ok(Answer::Now(Value::NONE)),
                 Outcome::Response(_) => Ok(Answer::Now(Value::some(Value::str("fresh")))),
                 Outcome::Failed { .. } if self.shape_refusal => Ok(Answer::Now(Value::NONE)),
                 Outcome::Failed { kind, message } => Err(DataError::Failed(
@@ -412,6 +413,20 @@ mod tests {
         // As the ordered one above: the host has no later reply for it, so the trapped commit lets it go rather
         // than leaving it pending forever (and a clock or a `pending(…)` waiting on it).
         refuse_unordered(&mut r, request.ticket);
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn a_delivered_reply_that_traps_in_a_derive_releases_its_ticket() {
+        let mut r = boot(true);
+        r.data().none_reply = true;
+        let request = ask(&mut r);
+        // The host delivers its one reply; the source takes it (`none` conforms), and the derive's unwrap traps the
+        // commit. Nothing is left to answer it: it is let go, keeping the standing value, not pending forever.
+        assert!(r.fulfill(request.ticket, response(200)).unwrap().is_some());
         assert!(!r.is_poisoned());
         assert_failed_without_replay(&mut r, request.ticket);
         let failure = r.failed_why[0].as_ref().unwrap();
