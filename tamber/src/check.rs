@@ -2,6 +2,7 @@
 //! mode key, the `under scheme=dark` rules and completeness, folding every
 //! token for every full app tuple as it goes.
 
+use crate::bound::{Walk, MAX_REFERENCE_DEPTH};
 use crate::fold::{self, FoldError, Folded, Half, Named, Names};
 use crate::measure::{self, Kind, Length, Value};
 use crate::syntax::{role_spelling, At, Design, DialKind, Token};
@@ -59,31 +60,6 @@ pub(crate) enum DialValue {
 
 /// The tokens [`Checker::kind_of`] is following (`on`), the kinds it has
 /// found that met no cycle (`known`), and the cycles it has met.
-struct Walk {
-    on: Vec<bool>,
-    known: Vec<Option<Kind>>,
-    cycles: usize,
-    /// Kinds inferred, which only a cycle repeats (a kind found without
-    /// meeting one is kept): past [`Walk::budget`] the rest are colours,
-    /// as a cycle's are, so a small cycle read twice a level is no 2^n.
-    steps: usize,
-    /// The names followed to here: never past [`MAX_REFERENCE_DEPTH`].
-    depth: usize,
-}
-
-impl Walk {
-    /// The kinds a design's walk may infer: every token's once, four times
-    /// over, which no design without a cycle reaches.
-    fn budget(&self) -> usize {
-        4 * self.on.len() + 64
-    }
-}
-
-/// The deepest a chain of tokens naming one another may go (the checker's
-/// own bound, beside a value's bytes and nesting): each name followed is a
-/// level of recursion, so a longer one is refused before it would overflow
-/// the stack (`tamber-reference-depth`).
-pub const MAX_REFERENCE_DEPTH: usize = 256;
 
 struct Checker<'a> {
     design: &'a Design,
@@ -551,7 +527,7 @@ impl<'a> Checker<'a> {
                 DialKind::Color => {
                     let folded = css::parse(&d.value.value)
                         .map_err(|m| FoldError {
-                            id: syntax(&d.value.value, &m),
+                            id: css::refusal_id(&d.value.value, &m),
                             message: m,
                         })
                         .and_then(|items| fold::color(&items, &mut Literal { roles: &self.roles }));
@@ -1191,17 +1167,11 @@ impl<'a> Checker<'a> {
             kind,
             Kind::BoxShadow | Kind::TextShadow | Kind::Type | Kind::Family
         );
-        // A value past the checker's bounds is refused before any fold,
-        // a shadow's or a family's too (`css::over_limit`).
-        if let Some((id, why)) = css::over_limit(&value.value) {
-            self.at(value, id, why);
-            return None;
-        }
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(_) if shadow => Vec::new(),
             Err(m) => {
-                self.at(value, syntax(&value.value, &m), m);
+                self.at(value, css::refusal_id(&value.value, &m), m);
                 return None;
             }
         };
@@ -1263,7 +1233,7 @@ impl<'a> Checker<'a> {
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(m) => {
-                self.at(value, syntax(&value.value, &m), m);
+                self.at(value, css::refusal_id(&value.value, &m), m);
                 return None;
             }
         };
@@ -1517,10 +1487,4 @@ impl Names for Scope<'_, '_> {
         }
         Ok(Named::Unknown)
     }
-}
-
-/// A value's refusal id when it isn't read: the checker's own bound
-/// (`css::refusal_id`), else `tamber-syntax`.
-fn syntax(text: &str, why: &str) -> &'static str {
-    css::refusal_id(text, why)
 }

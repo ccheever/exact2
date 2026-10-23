@@ -381,8 +381,12 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             comment(c)?;
             // One metadata word each: `name=value`, a quoted value whole.
             for m in meta {
-                if let Some(no) = long(m) {
-                    return Err(no);
+                if m.len() > crate::css::MAX_VALUE_BYTES {
+                    return Err(refuse(format!(
+                        "a metadata word is at most {} bytes; this one is {}",
+                        crate::css::MAX_VALUE_BYTES,
+                        m.len()
+                    )));
                 }
                 one_line("meta", m)?;
                 let one = lex::words(m).len() == 1;

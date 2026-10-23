@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod bound;
 mod budget;
 mod check;
 mod color_fn;
@@ -37,7 +38,8 @@ mod syntax;
 mod trace;
 mod typeface;
 
-pub use check::{Checked, MAX_REFERENCE_DEPTH, MAX_TUPLES};
+pub use bound::MAX_REFERENCE_DEPTH;
+pub use check::{Checked, MAX_TUPLES};
 pub use component::{Component, Param};
 pub use css::{MAX_VALUE_BYTES, MAX_VALUE_DEPTH};
 pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
@@ -184,6 +186,12 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
 pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    // The checker's own bounds first: a value past them is refused where it
+    // is written, before anything reads it (`bound::preflight`).
+    let over = bound::preflight(&design);
+    if !over.is_empty() {
+        return Err(over);
+    }
     // An icon naming another is read as that one, whoever folds the design
     // (`params::laid` did this alone, so `check` and an export refused it).
     icon::aliased(&mut design.icons);
