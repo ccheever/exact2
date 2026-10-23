@@ -1,0 +1,137 @@
+{
+  "kind": "interface",
+  "name": "@exact/recording",
+  "version": "1.0.0",
+  "uses": "@exact/media-capture@1.0.0",
+  "grants": [
+    "device.microphone"
+  ],
+  "substitute": "implementation",
+  "shapes": {
+    "MediaRecorderInfo": {
+      "id": "string",
+      "state": "enum<inactive|recording|paused>",
+      "mimeType": "string",
+      "audioBitsPerSecond": "option<number>",
+      "path": "string",
+      "duration": "number",
+      "reason": "option<enum<requested|interrupted|media-reset|background|track-ended|error|session-ended>>",
+      "error": "option<string>",
+      "result": "option<RecordedMedia>"
+    },
+    "RecordedMedia": {
+      "path": "string",
+      "mimeType": "string",
+      "duration": "number",
+      "size": "number"
+    },
+    "AudioLevel": {
+      "audioLevel": "number",
+      "totalAudioEnergy": "number",
+      "totalSamplesDuration": "number",
+      "levels": "number[]"
+    },
+    "TypeSupport": {
+      "type": "string",
+      "supported": "bool"
+    }
+  },
+  "names": [
+    {
+      "send": "startMediaRecorder",
+      "grants": [
+        "device.microphone"
+      ],
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "stream": "handle<stream>",
+        "mimeType": "option<string>",
+        "audioBitsPerSecond": "option<number>",
+        "audioBitrateMode": "option<enum<constant|variable>>",
+        "path": {
+          "type": "path",
+          "access": "write",
+          "for": "recorder"
+        }
+      },
+      "answers": "MediaRecorderInfo",
+      "handles": {
+        "id": "recorder"
+      }
+    },
+    {
+      "send": "pauseMediaRecorder",
+      "grants": [
+        "device.microphone"
+      ],
+      "options": {
+        "recorder": "handle<recorder>"
+      },
+      "answers": "MediaRecorderInfo"
+    },
+    {
+      "send": "resumeMediaRecorder",
+      "grants": [
+        "device.microphone"
+      ],
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "recorder": "handle<recorder>"
+      },
+      "answers": "MediaRecorderInfo"
+    },
+    {
+      "send": "stopMediaRecorder",
+      "grants": [
+        "device.microphone"
+      ],
+      "options": {
+        "recorder": "handle<recorder>"
+      },
+      "answers": "RecordedMedia"
+    },
+    {
+      "source": "mediaRecorderState",
+      "live": true,
+      "poll": "interval",
+      "grants": [
+        "device.microphone"
+      ],
+      "options": {
+        "recorder": "handle<recorder>",
+        "interval": "option<number>"
+      },
+      "answers": "MediaRecorderInfo"
+    },
+    {
+      "source": "isTypeSupported",
+      "options": {
+        "type": "string"
+      },
+      "answers": "TypeSupport"
+    },
+    {
+      "source": "audioLevel",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 50
+      },
+      "grants": [
+        "device.microphone"
+      ],
+      "options": {
+        "track": "handle<track>",
+        "interval": "option<number>",
+        "history": "option<number>"
+      },
+      "answers": "AudioLevel",
+      "sync": {
+        "name": "audioLevelSync",
+        "from": "read"
+      }
+    }
+  ]
+}

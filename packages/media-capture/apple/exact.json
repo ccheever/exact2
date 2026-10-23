@@ -1,0 +1,40 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/media-capture@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleTrack": {
+      "portType": "option<string>",
+      "portName": "option<string>"
+    },
+    "AppleMicrophoneStatus": {
+      "recordPermission": "enum<undetermined|denied|granted|notDetermined|restricted|authorized>"
+    }
+  },
+  "options": {
+    "getUserMedia": {
+      "mode": "enum<default|measurement|voiceChat|videoChat|videoRecording>",
+      "categoryOptions": "enum<mixWithOthers|duckOthers|allowBluetoothHFP|allowBluetoothA2DP|defaultToSpeaker|bluetoothHighQualityRecording|farFieldInput|overrideMutedMicrophoneInterruption>[]",
+      "prefersNoInterruptionsFromSystemAlerts": "bool",
+      "preferredIOBufferDuration": "number",
+      "inputDataSource": "string",
+      "polarPattern": "enum<stereo|cardioid|omnidirectional>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "audioEngine"
+  ],
+  "sources": {
+    "swift": [
+      "MediaCapture.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "MediaCaptureModule"
+}
