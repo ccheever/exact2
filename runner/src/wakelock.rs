@@ -42,7 +42,7 @@ pub fn holders(kernel: &Kernel) -> Vec<ViewId> {
 }
 
 /// Whether `id` is displayed (the module's rule).
-fn displayed(kernel: &Kernel, id: ViewId) -> bool {
+pub(crate) fn displayed(kernel: &Kernel, id: ViewId) -> bool {
     let arena = kernel.arena();
     let mut at = Some(id);
     while let Some(id) = at {

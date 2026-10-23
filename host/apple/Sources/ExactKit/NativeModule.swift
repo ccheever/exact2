@@ -58,6 +58,9 @@
 // 216  module_tamber(module)                         size ≥ 224; nullable:
 //        after a batch that moved what a binding reads (LLP 1121 D12), the
 //        module asks its places again (ExactTamber.swift)
+// 224  create_view(module, view, tag, …)              size ≥ 232; nullable:
+//        `create` with the node's id (u64), which a package's view is made
+//        with and its displayed reports name (LLP 1133.008 D8 item 1)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -112,6 +115,7 @@ private final class NativeTable {
     var asksOnLine = false
     static let size: UInt32 = 104
     typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
+    typealias CreateViewFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
@@ -154,6 +158,8 @@ private final class NativeTable {
     var willQuit: WillQuitFn?
     /// The bindings' moved inputs (LLP 1121 D12), in one of 224 or more.
     var tamber: ModuleDestroyFn?
+    /// `create` with the node's id (LLP 1133.008 D8 item 1), in one of 232 or more.
+    var createView: CreateViewFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -236,6 +242,7 @@ private final class NativeTable {
         if size >= 208 { loaded.tickHatch = pointer(200).map { unsafeBitCast($0, to: HatchTickFn.self) } }
         if size >= 216 { loaded.willQuit = pointer(208).map { unsafeBitCast($0, to: WillQuitFn.self) } }
         if size >= 224 { loaded.tamber = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
+        if size >= 232 { loaded.createView = pointer(224).map { unsafeBitCast($0, to: CreateViewFn.self) } }
         return .success(loaded)
     }
 }
@@ -785,8 +792,12 @@ final class NativeViews {
         var error = [UInt8](repeating: 0, count: 512)
         let tag = Data(entry.name.utf8), json = Data(props.utf8)
         let handle = tag.withUnsafeBytes { t in json.withUnsafeBytes { p in
-            table.create(module, t.bindMemory(to: UInt8.self).baseAddress, UInt32(tag.count), p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count),
-                         nativeEventCallback, nativeReplyCallback, nil, nonce, &error, UInt32(error.count))
+            let (tag, json) = (t.bindMemory(to: UInt8.self).baseAddress, p.bindMemory(to: UInt8.self).baseAddress)
+            // The node's id, which a package's view is made with (`create_view`, a table of 232 or more).
+            if let createView = table.createView {
+                return createView(module, UInt64(entry.id), tag, UInt32(t.count), json, UInt32(p.count), nativeEventCallback, nativeReplyCallback, nil, nonce, &error, UInt32(error.count))
+            }
+            return table.create(module, tag, UInt32(t.count), json, UInt32(p.count), nativeEventCallback, nativeReplyCallback, nil, nonce, &error, UInt32(error.count))
         } }
         guard let handle else {
             NativeProcess.owners.removeValue(forKey: nonce)
