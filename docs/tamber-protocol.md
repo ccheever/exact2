@@ -167,13 +167,14 @@ on macOS and Linux.
   `tamber-length-size` and `tamber-reference-depth`, refused alike by `check`, the build and every write and import.
   It also adds `GET /__tamber/events?after=<cursor>&epoch=<e>&client=<c>` (stage 14 D): the events read for a client
   that re-asks by cursor (LLP 1016.000 D8's `exactLongPoll`), with the POST read's token, scope and doors. Each
-  answer carries a `cursor`, which is opaque (a client only compares it and sends it back), and `asked`, the cursor it
-  answers (null with none), so a client sees one it never had (a reply coalesced away); nothing new in 25 s is a
+  answer carries a `cursor`, which is opaque (a client only compares it and sends it back), and `asked`, the cursor
+  it answers (null with none), so a client sees one it never had (a reply coalesced away); nothing new in 25 s is a
   204 with no body (a heartbeat). An ask with no `after` (a stream's first, which its host waits on) is answered at
   once, as `wait: false` is: from `open=<cursor>` if given, the events since that cursor, `asked` being it (`open`
-  is read only with no `after`, so a host's re-asks, which set `after`, leave it unread; one this run can't serve, another run's or past what is kept, is answered `missed`, as the POST answers a gap). The POST read's answer
-  carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route sends no `Retry-After` longer than 30 s. A client polling so stays present
-  90 s after an answer (LLP 1122 D4).
+  is read only with no `after`, so a host's re-asks, which set `after`, leave it unread; one this run can't serve,
+  another run's or past what is kept, is answered `missed`, as the POST answers a gap). The POST read's answer
+  carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route
+  sends no `Retry-After` longer than 30 s. A client polling so stays present 90 s after an answer (LLP 1122 D4).
 
 ## Where it runs
 

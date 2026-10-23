@@ -24,13 +24,14 @@ export function eventsQuery(url) {
     if (q.getAll(key).length > 1) return { error: `\`${key}\` is given once` };
   }
   if (!q.has('after')) request.now = true;
-  for (const key of ['open', 'after']) {
+  // (`open` read only with no `after`: beside one, it is not looked at, as a host's re-asks keep it.)
+  for (const key of q.has('after') ? ['after'] : ['open']) {
     if (!q.has(key)) continue;
     const m = CURSOR.exec(q.get(key));
     const after = m && Number(m[1]), held = m?.[2] === undefined ? undefined : Number(m[2]);
     if (!m || !Number.isSafeInteger(after) || (held !== undefined && !Number.isSafeInteger(held))) return { error: `\`${key}\` is a cursor this server gave` };
     request.after = after;
-    if (held !== undefined) request.held = held; else delete request.held;
+    if (held !== undefined) request.held = held;
   }
   for (const key of ['epoch', 'client']) {
     if (!q.has(key)) continue;

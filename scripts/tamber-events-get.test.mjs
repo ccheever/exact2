@@ -92,6 +92,7 @@ test("the query is bounded as the body's fields are: a cursor this server gave, 
     // `open` only for an ask with no `after` (answered at once); the host's `after` wins on every later one.
     expect(eventsQuery(new URL('http://x/?open=12.3')).request).toEqual({ after: 12, held: 3, now: true });
     expect(eventsQuery(new URL('http://x/?open=12.3&after=14')).request).toEqual({ after: 14 });
+    expect(eventsQuery(new URL('http://x/?after=14&open=stale')).request).toEqual({ after: 14 });
   } finally { await tamber.close(); }
 });
 
