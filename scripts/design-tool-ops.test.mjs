@@ -44,8 +44,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
       // The tool's follow task (a commit later) runs on a moving clock, and its read of the file the rename wrote
       // reloads the branch panel, and with it the dialog, were it open: `clock +1` runs it if it is due, and no op
       // moves the clock between opening the dialog and confirming, so a changes answer that comes later arms it
-      // only to run after. (Not `clock settle`: follow re-arms on each answer of the changes poll, so a settle
-      // spends its 16 rounds on it, about 25 s each.)
+      // only to run after.
       'clock +1', 'clock data', 'tap remove', 'tap confirm-remove-yes', 'clock +1', 'clock data', 'tap apply', 'clock data',
       // The unformatted line itself, edited and undone.
       'clock +1', 'clock data', 'tap cell-text.primary-0-light', 'clock data', 'type branch-value light-dark(#000000, #e7e9ea)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data',
