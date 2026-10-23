@@ -32,6 +32,7 @@
 // (`largeTour`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
+import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
@@ -811,7 +812,7 @@ export function judgeRelaunch(test, fresh, after, { busy = [], failed = {}, held
 }
 
 /** The facts a launch is made under that a test may pin (agent-launch.mjs `launchFacts`): the date at the clock's zero, the
- * zone, the locale and the seed. */
+ * zone, the locale and the seed. Media preferences are applied through the session before observations. */
 const LAUNCH_FACTS = ['epoch', 'timeZone', 'locale', 'seed'];
 const launchOf = (launch) => Object.fromEntries(LAUNCH_FACTS.filter((k) => launch?.[k] != null).map((k) => [k, launch[k]]));
 
@@ -824,11 +825,11 @@ export const relaunchFacts = (test) => ({ ...test.end?.launch, ...(test.end?.rea
 export const movedClock = (test) => test.end?.reached != null && test.end.launch?.epoch != null && test.end.reached !== test.end.launch.epoch;
 
 /** Whether `test` launched under facts other than the driver's own, which the first screens launch under: a date, zone,
- * locale or seed its leading lines pinned. What it stored is read back under those facts, and a fresh launch to compare
+ * locale or seed its leading lines pinned, or a media preference it applied. What it stored is read back under those facts, and a fresh launch to compare
  * with must be made under them too (LLP 1116.007 D3.4). */
 export function pinnedLaunch(test, defaults) {
   const launch = test.end?.launch;
-  return !!launch && LAUNCH_FACTS.some((k) => launch[k] != null && launch[k] !== defaults[k]);
+  return !!launch && (LAUNCH_FACTS.some((k) => launch[k] != null && launch[k] !== defaults[k]) || Object.entries(launch.media ?? {}).some(([k, v]) => v !== (defaults.media?.[k] ?? LAUNCH_MEDIA[k])));
 }
 
 /** What a fresh launch shows under `launch`'s facts on an empty scratch store, for `seen`'s comparison. */
@@ -836,6 +837,7 @@ async function freshUnder(host, app, launch, store) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
   const s = await open({ host, app: app.name, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
   try {
+    for (const [name, value] of Object.entries(launch?.media ?? {})) await s.prefer({ [name]: value });
     await s.clock('data');
     await s.clock('settle');
     return await seen(s, await s.state().catch(() => ({})));
@@ -853,6 +855,7 @@ async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
   const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : { chrome: 'platform' }) });
   try {
+    for (const [name, value] of Object.entries(test.end?.launch?.media ?? {})) await s.prefer({ [name]: value });
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
     const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
     let state, busy;

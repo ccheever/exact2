@@ -3043,6 +3043,20 @@ lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 names, and `fresh` (the Snapback dev server emptied first, `fresh
 "seed.json"` seeded from a file; snapback4/README.md) — written first in the
 test or, for every test, at the top of the file.
+
+`prefer prefers-color-scheme dark` sets a media preference before the first
+observation. It can lead the test or the file, or appear later to change the
+preference between steps. Use the driver's CSS media feature names and values
+(`prefers-color-scheme light|dark`, `prefers-reduced-motion reduce|no-preference`,
+and the other media preferences listed above). A test's leading value overrides
+its file's default for that name only. Duplicate names at file level or among a
+test's leading launch lines are errors; later steps may change the same name.
+A bad name, value or unsupported emulation fails that test at its line.
+`reload` and verify's relaunch keep the latest applied preferences. On native
+hosts they are applied after connection, before the test observes the app;
+they do not set its appearance before mount. MIDI's `prefer midi.…` remains a
+step inside a test.
+
 Before the first step (and after a `reload`) the driver waits for the app's data
 as `clock data` does: its data module activated and every request launch started
 (a store's open, a fetch) answered, the clock unmoved and no timer fired, so a
