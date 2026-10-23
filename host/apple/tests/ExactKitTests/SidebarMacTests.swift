@@ -156,6 +156,32 @@ final class SidebarMacTests: XCTestCase {
         split.release()
     }
 
+    func testShowSidebarFollowsTheSelectedWindowSession() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        _ = compose(view)
+        let other = ExactApp.shared.makeSession(label: "without-sidebar")
+        defer { other.destroy() }
+        let previous = (NSApp.mainMenu, NSApp.windowsMenu, NSApp.helpMenu, NSApp.servicesMenu, DevMenu.session, DevMenu.planPath)
+        defer {
+            NSApp.mainMenu = previous.0; NSApp.windowsMenu = previous.1
+            NSApp.helpMenu = previous.2; NSApp.servicesMenu = previous.3
+            DevMenu.session = previous.4; DevMenu.planPath = previous.5
+        }
+        func sidebarItem() throws -> NSMenuItem {
+            let menu = try XCTUnwrap(NSApp.mainMenu?.items.first { $0.submenu?.title == "View" }?.submenu)
+            return try XCTUnwrap(menu.items.first { $0.action == #selector(NSSplitViewController.toggleSidebar(_:)) })
+        }
+        DevMenu.install(session: session, planPath: nil)
+        XCTAssertFalse(try sidebarItem().isHidden)
+        DevMenu.select(session: other)
+        XCTAssertTrue(try sidebarItem().isHidden)
+        session.presenter.shortcuts.sync()
+        XCTAssertTrue(try sidebarItem().isHidden, "the previous session cannot change the selected window's menu")
+        DevMenu.select(session: session)
+        XCTAssertFalse(try sidebarItem().isHidden)
+    }
+
     func testANativeTabsChangedFaceReachesItsSidebarRow() throws {
         let session = try boot(size: CGSize(width: 700, height: 500))
         let view = ExactView(session: session)
