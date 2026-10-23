@@ -608,11 +608,11 @@ test('Apple asset catalogs select platform modules and invalidate native receipt
   assert.equal(appleAssetCatalogInventory(app, 'ios')[0].path, shared[0].path);
   rmSync(resolve(dir, 'modules/apple/Shared.xcassets'), { recursive: true });
   assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
-  assert.equal(appleRunBinary(launchApp), paths.binary);
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
   launchApp.manifest.widgets = [{ kind: 'card', families: ['systemSmall'] }];
   mkdirSync(paths.products, { recursive: true });
   writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: null }));
-  assert.equal(appleRunBinary(launchApp), paths.binary, 'a widget declaration without an identity still launches the bare app');
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable), 'a widget declaration without an identity still launches the bundled app');
   writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: plistFile({ 'com.apple.security.application-groups': ['TEAM.com.exact.catalog.widgets'] }) }));
   assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
   assert.equal(appleRunBinary(launchApp, true), appleArtifacts(launchApp, { host: true }).binary);
