@@ -30,6 +30,15 @@ final class NativeGeometry {
         return from.convert(rect, to: to)
     }
 
+    /// A native clip changes size as well as position during UIKit animations.
+    static func bounds(of source: UIView, in destination: UIView) -> CGRect {
+        guard animates(source.layer) || animates(destination.layer),
+              let from = source.layer.presentation(), let to = destination.layer.presentation() else {
+            return source.convert(source.bounds, to: destination)
+        }
+        return from.convert(from.bounds, to: to)
+    }
+
     private static func animates(_ layer: CALayer) -> Bool {
         var at: CALayer? = layer
         while let current = at {
