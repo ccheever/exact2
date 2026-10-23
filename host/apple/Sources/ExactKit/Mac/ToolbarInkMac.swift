@@ -6,8 +6,9 @@ final class ToolbarInkMac {
     func button(_ item: NSToolbarItem, node: NodeView, face: ButtonFace?, target: AnyObject, action: Selector) {
         let title = face?.rows.title["text_color"] ?? (node.wrote("text_color") ? node.style["text_color"] : nil)
         let symbol = face?.rows.symbol["tint_color"]
-        guard let value = symbol ?? title,
-              let cg = value.cgColor(dark: node.drawsDark) else {
+        let titleInk = title?.cgColor(dark: node.drawsDark).flatMap(NSColor.init(cgColor:))
+        let symbolInk = symbol?.cgColor(dark: node.drawsDark).flatMap(NSColor.init(cgColor:))
+        guard titleInk != nil || symbolInk != nil else {
             if item.view != nil {
                 let title = item.title, image = item.image, target = item.target, action = item.action
                 item.view = nil
@@ -15,17 +16,15 @@ final class ToolbarInkMac {
             }
             return
         }
-        let ink = NSColor(cgColor: cg)
         let button = (item.view as? NSButton) ?? NSButton(title: "", target: target, action: action)
         button.tag = Int(node.id)
         button.bezelStyle = .texturedRounded
         button.title = face?.title ?? item.title
-        button.image = item.image
+        button.image = symbolInk.flatMap { ink in item.image.map { FaceSymbol.tinted($0, ink) } } ?? item.image
         button.imagePosition = button.title.isEmpty ? .imageOnly : button.image == nil ? .noImage : .imageLeading
-        button.contentTintColor = ink
-        if let ink, !button.title.isEmpty {
-            button.attributedTitle = NSAttributedString(string: button.title, attributes: [.foregroundColor: ink])
-        }
+        button.contentTintColor = titleInk
+        button.attributedTitle = NSAttributedString(string: button.title,
+            attributes: titleInk.map { [.foregroundColor: $0] } ?? [:])
         button.isEnabled = !node.disabled && !node.inert
         button.setAccessibilityLabel(item.label)
         button.sizeToFit()
