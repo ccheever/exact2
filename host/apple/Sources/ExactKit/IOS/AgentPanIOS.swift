@@ -155,7 +155,8 @@ extension Agent {
     /// Their pointer observers still hear the contact before the control acts.
     func nativePointer(_ node: NodeView, request: [String: Any], at point: CGPoint? = nil) -> Bool {
         let snapshot = HeldNode(node)
-        var point = point
+        let positioned = ["at", "x", "y"].contains { request[$0] != nil }
+        var point = positioned ? tapPoint(request, node: node).map { windowPoint($0) } : point
         if point == nil, case .success(let item)? = tabItem(node) {
             point = item.convert(CGPoint(x: item.bounds.midX, y: item.bounds.midY), to: nil)
         }
