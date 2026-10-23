@@ -427,13 +427,14 @@ fn a_long_poll_that_is_not_a_bodiless_http_get_is_refused() {
         Request::post_json("https://example.test/changes", "{}"),
         Request::get("wss://example.test/changes"),
     ] {
-        let (core, script, woke) = setup(vec![]);
+        let (core, script, _woke) = setup(vec![]);
         let exact_runner::Answer::Later(request) =
             exact_runner::Answer::stream(request.independent_http(4096).long_poll("since", "seq"))
         else {
             unreachable!()
         };
-        core.run_owned(
+        // Refused at admission, before any path (the host settles it as an admission refusal).
+        let refused = core.run_owned(
             RequestOut {
                 ticket: 1,
                 target: "live".into(),
@@ -441,12 +442,12 @@ fn a_long_poll_that_is_not_a_bodiless_http_get_is_refused() {
                 forced: false,
             },
             None,
-        )
-        .unwrap();
-        let (_, end) = next(&core, &woke);
+        );
         assert!(
-            matches!(&end, Outcome::Failed { kind: FailureKind::Refused, message } if message.starts_with("exactLongPoll")),
-            "{end:?}"
+            refused
+                .as_ref()
+                .is_err_and(|why| why.starts_with("exactLongPoll")),
+            "{refused:?}"
         );
         assert!(script.asked.lock().unwrap().is_empty());
     }
@@ -596,24 +597,46 @@ fn a_long_poll_on_a_real_connection_asks_with_each_cursor_and_closes_when_droppe
 }
 
 #[test]
-fn a_long_poll_on_native_work_handed_to_the_executor_is_refused() {
-    // As a deadline the host's other paths can't keep: the host hands it over with no work, the executor refuses.
-    let (core, script, woke) = setup(vec![]);
-    let request = Request::native(b"x".to_vec()).long_poll("since", "seq");
-    core.run_owned(
-        RequestOut {
-            ticket: 1,
-            target: "live".into(),
-            request,
-            forced: false,
-        },
-        None,
-    )
-    .unwrap();
-    let (_, end) = next(&core, &woke);
-    assert!(
-        matches!(&end, Outcome::Failed { kind: FailureKind::Refused, message } if message.starts_with("exactLongPoll")),
-        "{end:?}"
-    );
-    assert!(script.asked.lock().unwrap().is_empty());
+fn a_long_poll_on_other_work_is_refused_at_admission_and_fences_ordered_work() {
+    // As a deadline the work can't keep: refused before any path, an ordered one raising the barrier.
+    for request in [
+        Request::native(b"x".to_vec()).long_poll("since", "seq"),
+        Request::storage(b"{}".to_vec()).long_poll("since", "seq"),
+        Request::continuation(7).long_poll("since", "seq"),
+    ] {
+        let (core, script, _woke) = setup(vec![]);
+        let refused = core.run_owned(
+            RequestOut {
+                ticket: 1,
+                target: "live".into(),
+                request,
+                forced: false,
+            },
+            None,
+        );
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|why| why.starts_with("exactLongPoll")),
+            "{refused:?}"
+        );
+        // The ordered request after it is held behind the refusal, not sent.
+        let next = Request::get("https://example.test/changes?since=0");
+        assert!(core
+            .run_owned(
+                RequestOut {
+                    ticket: 2,
+                    target: "read".into(),
+                    request: next,
+                    forced: false
+                },
+                None
+            )
+            .is_ok());
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            script.asked.lock().unwrap().is_empty(),
+            "held behind the refusal"
+        );
+    }
 }

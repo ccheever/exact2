@@ -452,10 +452,13 @@ impl Core {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
         // A deadline on work that cannot take one (a stream, a continuation,
-        // native work) is refused here, before any path.
+        // native work), or a long poll that is no stream's HTTP GET (LLP
+        // 1016.000 D8), is refused here, before any path: an ordered one
+        // raises the barrier, as any admission refusal does.
         let checked = r
             .request
-            .timeout_refusal()
+            .long_poll_refusal()
+            .or(r.request.timeout_refusal())
             .or(r.request.body_from_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
