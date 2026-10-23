@@ -1,7 +1,7 @@
-// The JS target's media hold (host/web-js/media.js). The wasm host does not
-// count a media element that never becomes playable. A element with no
-// source, or one that stalls or empties, must release `inflight`. An opening
-// seek still holds until it finishes. The DOM and the glue are stand-ins.
+// The JS target's media hold (host/web-js/media.js over media-glue.js `mediaHold`, the wasm host's too). An
+// element with no source, or one that stalls or fails, releases `inflight`; an `emptied` releases only once the
+// source is gone (a changed source's load begins with one). An opening seek still holds until it finishes. The
+// DOM and the glue's install are stand-ins.
 import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,11 @@ const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-media-hold-'));
 copyFileSync(resolve(new URL('../../web-js/media.js', import.meta.url).pathname), resolve(dir, 'media.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, inflight, journal, data, clock } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'navigation.js'), 'export const liveById = id => document.getElementById(id);\n'); // host/web/navigation.js in a build
-writeFileSync(resolve(dir, 'media-glue.js'), 'globalThis.exact ??= {}; globalThis.exact.installMedia = () => {};\n');
+// The glue's own hold (`mediaHold`), its install a stand-in.
+globalThis.exact ??= {};
+globalThis.IntersectionObserver ??= class { observe() {} disconnect() {} };
+await import('../media-glue.js');
+writeFileSync(resolve(dir, 'media-glue.js'), 'globalThis.exact.installMedia = () => {};\n');
 const inflight = { n: 0 };
 globalThis.rtStandIn = { onEnd() {}, inflight, journal: [], data: { appId: 'com.example' }, clock: { now: 0, timers: [], agent: false, epoch: 0 } };
 globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => fn(0)); return 1; };
@@ -62,7 +66,7 @@ test('a media element with no source does not hold inflight', async () => {
   expect(inflight.n).toBe(start);
 });
 
-test('stalled and emptied release a load that never becomes playable', async () => {
+test('stalled releases a load that never becomes playable, and emptied only once its source is gone', async () => {
   const stalled = element();
   const before = inflight.n;
   media(stalled, { src: 'clip.mp4' });
@@ -71,12 +75,19 @@ test('stalled and emptied release a load that never becomes playable', async () 
   stalled.fire('stalled');
   expect(inflight.n).toBe(before);
 
+  // An `emptied` while it still has a source is a load beginning (a changed source's): it holds on. Its source let
+  // go (a view retired), it releases.
   const emptied = element();
   media(emptied, { src: 'other.mp4' });
   await flushed();
   expect(inflight.n).toBe(before + 1);
   emptied.fire('emptied');
+  expect(inflight.n).toBe(before + 1);
+  delete emptied.exactMedia.props.src;
+  emptied.removeAttribute('src');
+  emptied.fire('emptied');
   expect(inflight.n).toBe(before);
+
 });
 
 test('an opening seek holds until it finishes and a playable element does not', async () => {

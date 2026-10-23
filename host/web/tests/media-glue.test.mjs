@@ -14,11 +14,12 @@ function audio(props, { readyState = 4, error = null, handlers = ['error', 'seek
     exactMedia: { props, handlers }, duration, played: { length: played },
     set currentTime(t) { this.seeks.push(t); }, get currentTime() { return this.seeks.at(-1) ?? 0; },
     addEventListener(name, f) { (listeners[name] ??= []).push(f); },
+    removeEventListener(name, f) { listeners[name] = (listeners[name] ?? []).filter((g) => g !== f); },
     toggleAttribute(name, on) { if (on) this.attrs.add(name); else this.attrs.delete(name); },
     load() { this.loads++; this.readyState = 0; this.error = null; this.paused = true; },
     play() { this.plays++; this.paused = false; return Promise.resolve(); },
     pause() { this.paused = true; },
-    fire(name) { for (const f of listeners[name] ?? []) f(); },
+    fire(name) { for (const f of [...(listeners[name] ?? [])]) f({ type: name }); },
   };
   const sent = [];
   globalThis.exact.installMedia(el, text => takes() ? void sent.push(text) : false); // false: a report the host cannot take yet
@@ -54,6 +55,31 @@ test('load loads the source again, as a changed src does: the bound time waits f
   expect([el.loads, el.plays]).toEqual([1, plays + 1]);
   el.fire('loadedmetadata');
   expect(el.seeks.at(-1)).toBe(30);
+});
+
+test("a load or a seek in flight holds a settle until the element can play at rest; a changed source's `emptied` is its load beginning, not its end", async () => {
+  const settledOf = (held) => { let done = false; held?.done.then(() => { done = true; }); return () => done; };
+  const turn = () => new Promise((r) => setTimeout(r, 0));
+  // Ready at rest: nothing held.
+  expect(globalThis.exact.mediaHold(audio({ src: 'a.mp4' }))).toBe(null);
+  // A changed source (readyState 0 as the browser starts its load): held through `emptied` and the opening seek.
+  const el = audio({ src: 'b.mp4', currentTime: '0.5' }, { readyState: 0 });
+  el.currentSrc = 'b.mp4'; el.seeking = false;
+  const held = globalThis.exact.mediaHold(el), done = settledOf(held);
+  el.fire('emptied'); await turn();
+  expect(done()).toBe(false);
+  el.readyState = 4; el.seeking = true; el.fire('canplay'); await turn();
+  expect(done()).toBe(false); // seeking yet
+  el.seeking = false; el.fire('seeked'); await turn();
+  expect(done()).toBe(true);
+  // No source (a view retired: its source let go), a failure, a stall: each lets go.
+  for (const end of [(e) => { e.currentSrc = ''; e.exactMedia.props.src = undefined; e.fire('emptied'); }, (e) => { e.error = { code: 4 }; e.fire('error'); }, (e) => e.fire('stalled')]) {
+    const m = audio({ src: 'c.mp4' }, { readyState: 0 });
+    m.currentSrc = 'c.mp4'; m.seeking = false;
+    const h = globalThis.exact.mediaHold(m), d = settledOf(h);
+    end(m); await turn();
+    expect(d()).toBe(true);
+  }
 });
 
 test('a source refused before the glue had the element is reported', () => {
