@@ -256,7 +256,7 @@ test('a played contact refuses input and waiting clocks between, cancels with no
 /** `realTap`'s still touch on node 7 (a view that reports it reached it, `reports`), its log saying it reached it on
  *  log read `reachedAt` (never, when null); the runner lifts when an op calls `lift`, else after `liftAfter` ms. */
 function stillTouch({ reachedAt, liftAfter }) {
-  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], fixed: [30, 20], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
   const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'NativeButtonIOS', reports: true, node: 7, session: 'main', generation: 1 };
   const t = { reads: 0, after: 0, lifted: false };
   const ask = async (req) => {
@@ -264,10 +264,14 @@ function stillTouch({ reachedAt, liftAfter }) {
     // Ended in the read after the one that follows the ops, or once the runner lifted on its own.
     t.reads += 1;
     if (t.lift?.done) t.after += 1;
-    return { log: t.after > 1 || t.lifted ? [began, { ...began, seq: 6, phase: 'ended', t: 2 }] : [began], reached: reachedAt != null && t.reads >= reachedAt ? [1] : [], truncated: false };
+    const lifted = t.after > 1 || t.lifted;
+    const moved = t.end?.some((v, i) => v !== began.at[i]) ? [{ ...began, seq: 6, phase: 'moved', at: t.end }] : [];
+    return { now: 1 + (Date.now() - t.started) / 1000, log: lifted ? [began, ...moved, { ...began, seq: 7, phase: 'ended', t: 2, at: t.end ?? began.at }] : [began], reached: reachedAt != null && t.reads >= reachedAt ? [1] : [], truncated: false };
   };
   const touches = { async ask(req) {
     if (req.op === 'foreground') return { state: 'runningForeground' };
+    t.started = Date.now();
+    t.end = req.path?.at(-1)?.to ?? req.to;
     return new Promise((done) => {
       t.lift = () => { t.lift.done = true; done({ injected: {} }); };
       if (liftAfter) setTimeout(() => { t.lifted = true; done({ injected: {} }); }, liftAfter);
@@ -499,4 +503,19 @@ test('CLI path reads belong to each held leg and malformed paths refuse before i
   expect(await drag.path[0].during[0]()).toBe('held');
   expect(() => parseDrag(s, '0 120 hold 500 during "tap other" then 0 -120')).toThrow('not a read');
   expect(() => parseDrag(s, '0 120 then 0')).toThrow('finite');
+});
+
+
+test('an initial stationary checkpoint waits for view delivery even when a later leg moves', async () => {
+  const a = stillTouch({ reachedAt: 8, liftAfter: 650 }), seen = [];
+  const r = await a.run({ hold: 500, during: [async () => { seen.push(a.t.reads >= 8); return 'pressed'; }],
+    path: [{ dx: 0, dy: 100, over: 100, hold: 0 }] });
+  expect(seen).toEqual([true]);
+  expect(r.during).toEqual(['pressed']);
+  expect(r.reached).toEqual(expect.any(Number));
+
+  const b = stillTouch({ reachedAt: null, liftAfter: 250 }), ran = [];
+  await expect(b.run({ hold: 100, during: [async () => { ran.push('unpressed'); }],
+    path: [{ dx: 0, dy: 100, over: 100, hold: 0 }] })).rejects.toThrow('did not reach the view');
+  expect(ran).toEqual([]);
 });
