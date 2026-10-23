@@ -46,6 +46,12 @@ pub fn encode(result: Result<Answer, DataError>, local: &mut Store, logs: Vec<St
     let mut body = json!({"turn": 1, "reads": local.reads(), "topics": local.take_topics(), "writes": writes, "logs": logs});
     match result {
         Ok(Answer::Now(value)) => body["value"] = Json::String(base64(&value.to_bytes())),
+        // A long poll no host may run (LLP 1016.000 D8) is refused before it crosses: the envelope carries
+        // no surface, so its far side couldn't tell.
+        Ok(Answer::Later(request)) if request.long_poll_refusal().is_some() => {
+            let why = request.long_poll_refusal().unwrap_or_default();
+            body["error"] = error_json(&unavailable(why));
+        }
         Ok(Answer::Later(request)) => body["request"] = request_json(&request),
         Err(error) => body["error"] = error_json(&error),
     }
@@ -363,6 +369,18 @@ mod tests {
             Answer::Later(r) => assert_eq!(r.long_poll, request.long_poll),
             _ => panic!("a yield"),
         }
+    }
+
+    #[test]
+    fn a_long_poll_no_host_may_run_is_refused_before_it_crosses() {
+        // The envelope carries no surface: a long poll on one (here a continuation) is refused on this side.
+        let request = Request::continuation(3).long_poll("since", "seq");
+        let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
+        let refused = apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap_err();
+        assert!(
+            format!("{refused:?}").contains("exactLongPoll"),
+            "{refused:?}"
+        );
     }
 
     #[test]
