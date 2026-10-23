@@ -549,6 +549,9 @@ test("propose on the JS loop before its design reader is built is rebuild, said 
   const early = await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] });
   expect(early.ok.class).toBe('rebuild');
   expect(logged.some(l => l.includes('propose is rebuild here') && l.includes('not yet known: rebuild assumed'))).toBe(true);
+  // Held for review (an agent's), the same.
+  const held = await ask({ method: 'propose', client: 'agent:test', hold: true, ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] });
+  expect(held.ok?.class, JSON.stringify(held)).toBe('rebuild');
   built = true;
   expect((await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] })).ok.class).toBe('live');
   await close();
