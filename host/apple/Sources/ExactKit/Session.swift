@@ -1426,8 +1426,10 @@ public final class ExactSession {
     }
     @discardableResult public func navigate(_ location: String) -> Bool {
         guard state != .destroyed, booted else { return false }
-        guard let node = navigationRoot else { log("navigate refused: no navigation root handler"); return false }
-        let batch = runtime.navigate(node.id, location, now: now())
+        let batch: Batch
+        if let node = navigationRoot { batch = runtime.navigate(node.id, location, now: now()) }
+        else if runtime.routeMatches(location) { batch = runtime.hostGo(location, now: now()) }
+        else { log("navigate refused: no navigation root handler or matching route"); return false }
         apply(batch)
         return batch.error == nil
     }
