@@ -335,28 +335,25 @@ final class InkLayer: CALayer {
     override func action(forKey event: String) -> (any CAAction)? { nil }
 }
 
-/// A one-colour paragraph's ink (`TextRasterImage.tint`): its coverage as a
-/// mask over its colour. Updating coverage does not ask UIImageView to
-/// resolve another template image. Only its layer is in the tree, where
-/// `InkLayer` would be; like that, it never animates.
+/// A one-colour paragraph's ink (`TextRasterImage.tint`): its colour masked
+/// by its coverage, one layer as a label is. Updating coverage does not ask
+/// UIImageView to resolve another template image. Only its layer is in the
+/// tree, where `InkLayer` would be; like that, it never animates. A
+/// paragraph with a `text-shadow` is never tinted (`TextRasterizer`'s
+/// `tints`), so the mask clips no shadow.
 final class TintInk: UIView {
-    private let pigment = InkLayer()
     private let coverage = InkLayer()
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
-        // The outer layer casts the composited glyph's shadow. Masking it
-        // would clip the shadow to the coverage too.
-        layer.addSublayer(pigment)
-        pigment.mask = coverage
+        layer.mask = coverage
     }
     convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { nil }
     func show(_ image: CGImage, tint: CGColor, frame: CGRect, scale: CGFloat) {
         layer.frame = frame
-        pigment.frame = bounds
-        pigment.backgroundColor = tint
-        coverage.frame = pigment.bounds
+        layer.backgroundColor = tint
+        coverage.frame = bounds
         coverage.contentsScale = scale
         coverage.contents = image
     }
