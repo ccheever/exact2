@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { constants, createDeflate } from 'node:zlib';
 import { identifyPayload, identity, restHeaders } from './client.ts';
 import {
-  heartbeatDue, initialGateway, nextHeartbeatAt, snapshot, step,
+  gather, heartbeatDue, inflate, inflated, initialGateway, nextHeartbeatAt, snapshot, step,
   type GatewayState, type StepResult,
 } from './gateway.ts';
 
@@ -418,6 +418,31 @@ describe('gateway zlib-stream', () => {
     }
     const result = step(state, { type: 'message', data: compressed.slice(offset), nowMs: 2 });
     expect(dispatches(result)).toEqual([{ kind: 'dispatch', t: payload.t, s: 2, d: payload.d }]);
+  });
+
+  test('a packet inflated a few bytes at a time decodes whole, characters split across slices included', async () => {
+    const payload = { op: 0, t: 'MESSAGE_CREATE', s: 2, d: { content: 'slice 🦊 日本語 '.repeat(20_000) } };
+    const frames = await compressedFrames([JSON.parse(hello), ready, payload]);
+    const state = fresh();
+    open(state);
+    step(state, { type: 'message', data: frames[0], nowMs: 0 });
+    step(state, { type: 'message', data: frames[1], nowMs: 1 });
+    const packet = gather(state, frames[2])!;
+    for (let at = 0; at < packet.length; at += 7) inflate(state, packet.subarray(at, at + 7));
+    const result = step(state, { type: 'payload', payload: JSON.parse(inflated(state)), nowMs: 2 });
+    expect(dispatches(result)).toEqual([{ kind: 'dispatch', t: payload.t, s: 2, d: payload.d }]);
+    expect(step(state, { type: 'payload', invalid: true, nowMs: 3 }).state.phase).toBe('backoff');
+  });
+
+  test('a U+FEFF in the text survives at the start of an inflated chunk', async () => {
+    const payload = { op: 0, t: 'MESSAGE_CREATE', s: 2, d: { content: 'x\uFEFF'.repeat(300_000) } };
+    const frames = await compressedFrames([JSON.parse(hello), ready, payload]);
+    const state = fresh();
+    open(state);
+    step(state, { type: 'message', data: frames[0], nowMs: 0 });
+    step(state, { type: 'message', data: frames[1], nowMs: 1 });
+    const result = step(state, { type: 'message', data: frames[2], nowMs: 2 });
+    expect(dispatches(result)[0].d.content).toBe(payload.d.content);
   });
 
   test('one JSON document above 3 MiB inflates and parses completely in the same step', async () => {
