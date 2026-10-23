@@ -147,7 +147,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, refuseSelect = false, pageRefusesSelect = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -270,6 +270,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (request.select) {
           if (refuseSelect) return send({ error: { message: 'inspect is not on for this client on `web-1`: turn it on first' } }, 409);
           // (`/__stub/page-refuses-select`: sent, and the page answers it can't, as Apple's do.)
+          // (`/__stub/page-select-gone`, once: the page's selection went in a rebuild while the move was on its way.)
+          if (pageSelectGone) { pageSelectGone = false; log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'the selected node is gone in this generation: select it again', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           if (pageRefusesSelect) { log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'this build cannot move its selection up (select): click the node instead', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
           // (`/__stub/shallow-select`: a page whose tree changed has fewer above, and lands at the root.)
@@ -449,6 +451,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // The tool's canvas check as `tamber tool --via` answers it (scripts/tamber-frame.mjs), as a test sets it
   // (`/__stub/canvas-check`); not found by default, as a tool served without --via.
   '/__tamber/tool/canvas-check': { GET: () => (canvasCheck ? send(canvasCheck) : send({ message: 'Not found.' }, 404)) },
+  '/__stub/page-select-gone': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageSelectGone = true; return send({ ok: true }); } },
   '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
   '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
   '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
@@ -468,7 +471,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; refuseSelect = false; pageRefusesSelect = false;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
       copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;
