@@ -221,6 +221,8 @@ pub trait KeptStore {
     }
     /// Write one store change.
     fn write(&self, w: &StoreWrite) -> Result<(), String>;
+    /// Retry asynchronous writes that failed on an earlier turn.
+    fn retry_failed(&self) {}
     /// The kept answers the writer failed to write since the last call.
     fn kept_failures(&self) -> Vec<String>;
 }
@@ -261,6 +263,23 @@ impl KeptStore for Platform {
     }
     fn write(&self, w: &StoreWrite) -> Result<(), String> {
         Platform::write(self, w).map_err(|e| e.to_string())
+    }
+    fn retry_failed(&self) {
+        let owed = self.failed.2.lock().expect("kept");
+        let failed = self.failed.1.lock().expect("kept");
+        for key in failed.iter() {
+            if let Some((revision, value)) = owed.values.get(key) {
+                keep(
+                    (std::sync::Arc::as_ptr(&self.failed) as usize, key.clone()),
+                    Kept {
+                        kv: self.kv.clone(),
+                        value: value.clone(),
+                        failed: self.failed.clone(),
+                        revision: *revision,
+                    },
+                );
+            }
+        }
     }
     fn kept_failures(&self) -> Vec<String> {
         Platform::kept_failures(self)
@@ -352,10 +371,17 @@ impl Platform {
         }
         match (w.name.strip_prefix(Store::KEPT), &w.value) {
             (Some(key), value) => {
+                let mut owed = self.failed.2.lock().expect("kept");
+                owed.revision += 1;
+                let revision = owed.revision;
+                owed.values
+                    .insert(key.to_owned(), (revision, value.clone()));
+                self.failed.1.lock().expect("kept").remove(key);
                 let write = Kept {
                     kv: self.kv.clone(),
                     value: value.clone(),
                     failed: self.failed.clone(),
+                    revision,
                 };
                 keep(
                     (
@@ -388,7 +414,14 @@ impl Platform {
 struct Failures(
     std::sync::Mutex<Vec<String>>,
     std::sync::Mutex<std::collections::BTreeSet<String>>,
+    std::sync::Mutex<Owed>,
 );
+
+#[derive(Default)]
+struct Owed {
+    revision: u64,
+    values: std::collections::HashMap<String, (u64, Option<Vec<u8>>)>,
+}
 
 static ORPHANED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
@@ -409,6 +442,7 @@ impl Drop for Failures {
 /// written. A launch's snapshot and the process's orderly exit wait for the
 /// writer (`flush_kept`). An answer a crash loses is fetched again.
 struct Kept {
+    revision: u64,
     kv: Kv,
     value: Option<Vec<u8>>,
     failed: std::sync::Arc<Failures>,
@@ -484,9 +518,17 @@ fn write_one(key: &str, write: Kept) {
         Some(v) => write.kv.set(KEPT, key, v),
         None => write.kv.delete(KEPT, key),
     }));
+    let mut owed = write.failed.2.lock().expect("kept");
+    let current = owed
+        .values
+        .get(key)
+        .is_some_and(|(revision, _)| *revision == write.revision);
     let why = match done {
         Ok(Ok(())) => {
-            write.failed.1.lock().expect("kept").remove(key);
+            if current {
+                owed.values.remove(key);
+                write.failed.1.lock().expect("kept").remove(key);
+            }
             return;
         }
         Ok(Err(e)) => e.to_string(),
@@ -494,7 +536,9 @@ fn write_one(key: &str, write: Kept) {
     };
     let line = format!("store {}{key} failed: {why}", Store::KEPT);
     write.failed.0.lock().expect("kept").push(line);
-    write.failed.1.lock().expect("kept").insert(key.to_owned());
+    if current {
+        write.failed.1.lock().expect("kept").insert(key.to_owned());
+    }
 }
 
 /// Wait until nothing is waiting to be written and the writer is idle.
@@ -887,6 +931,77 @@ mod tests {
             platform.snapshot(memory.clone()).values,
             memory,
             "a failed kept write is unreadable even after its journal was drained"
+        );
+    }
+
+    #[test]
+    fn failed_asynchronous_answers_retry_and_newer_values_supersede_them() {
+        struct Refusing {
+            memory: std::sync::Arc<ibex2::kv::MemoryStore>,
+            refusing: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl ibex2::kv::KvStore for Refusing {
+            fn get(&self, scope: &str, key: &str) -> Result<Option<Vec<u8>>, HostError> {
+                self.memory.get(scope, key)
+            }
+            fn keys(&self, scope: &str) -> Result<Vec<String>, HostError> {
+                self.memory.keys(scope)
+            }
+            fn set(&self, scope: &str, key: &str, value: &[u8]) -> Result<(), HostError> {
+                if self.refusing.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(HostError::Failed("injected full disk".into()));
+                }
+                self.memory.set(scope, key, value)
+            }
+            fn delete(&self, scope: &str, key: &str) -> Result<(), HostError> {
+                self.memory.delete(scope, key)
+            }
+        }
+        let memory = std::sync::Arc::new(ibex2::kv::MemoryStore::new());
+        let refusing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let platform = Platform::of(
+            &endow_in(
+                Host::new()
+                    .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+                    .with_kv_store(Box::new(Refusing {
+                        memory: memory.clone(),
+                        refusing: refusing.clone(),
+                    })),
+                "",
+            )
+            .unwrap(),
+        );
+        let write = |value: &str| StoreWrite {
+            name: "exact.kept.feed".into(),
+            value: Some(value.as_bytes().to_vec()),
+        };
+        platform.write(&write("1")).unwrap();
+        flush_kept();
+        assert!(platform
+            .kept_failures()
+            .iter()
+            .any(|s| s.contains("injected full disk")));
+        refusing.store(false, std::sync::atomic::Ordering::SeqCst);
+        platform.retry_failed();
+        flush_kept();
+        use ibex2::kv::KvStore;
+        assert_eq!(
+            memory.get(KEPT, "feed").unwrap(),
+            Some(b"1".to_vec()),
+            "retry does not need a changed answer"
+        );
+        refusing.store(true, std::sync::atomic::Ordering::SeqCst);
+        platform.write(&write("2")).unwrap();
+        flush_kept();
+        assert!(!platform.kept_failures().is_empty());
+        refusing.store(false, std::sync::atomic::Ordering::SeqCst);
+        platform.write(&write("3")).unwrap();
+        platform.retry_failed();
+        flush_kept();
+        assert_eq!(
+            memory.get(KEPT, "feed").unwrap(),
+            Some(b"3".to_vec()),
+            "an old failure cannot replay over a newer write"
         );
     }
 
