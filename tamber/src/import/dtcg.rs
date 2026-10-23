@@ -1146,10 +1146,14 @@ fn planned(
     let mut names: BTreeMap<String, String> = BTreeMap::new();
     let mut taken: BTreeMap<String, String> = BTreeMap::new();
     let mut collided: BTreeMap<String, String> = BTreeMap::new();
-    for d in defs {
-        if names.contains_key(&d.path) || collided.contains_key(&d.path) {
+    // (a def no layer uses makes no name, nor takes one; each name made charged)
+    let unused: BTreeSet<usize> = read.unused.iter().map(|(i, _)| *i).collect();
+    for (i, d) in defs.iter().enumerate() {
+        if unused.contains(&i) || names.contains_key(&d.path) || collided.contains_key(&d.path) {
             continue;
         }
+        crate::budget::spend(2 * d.path.len() as u64)
+            .map_err(|m| refuse("tamber-import-source", m))?;
         let name = std::iter::once(prefix.to_string())
             .chain(d.path.split('.').map(segment))
             .collect::<Vec<_>>()
@@ -1167,7 +1171,6 @@ fn planned(
     // Each tuple's winners: its layers merged in order, a later one winning
     // whatever its kind.
     let active = |t: &Tuple, scopes: &[Scope]| scopes.iter().any(|scope| scope.holds(t, &axes));
-    let unused: BTreeSet<usize> = read.unused.iter().map(|(i, _)| *i).collect();
     let winners: Vec<BTreeMap<&str, usize>> = tuples
         .iter()
         .map(|t| {
