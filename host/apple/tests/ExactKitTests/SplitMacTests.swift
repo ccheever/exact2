@@ -235,6 +235,7 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor())
         XCTAssertFalse(route.isDescendant(of: panel))
+        let pane = try XCTUnwrap(route.superview), frame = route.frame
         p.apply(wireBatch([["op": "exit", "id": Int(panel.id)]]))
         XCTAssertNil(p.views[route.id])
         XCTAssertNil(p.views[fieldNode.id])
@@ -244,8 +245,18 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(members.contains { $0 === route })
         XCTAssertTrue(members.contains { $0 === fieldNode })
         XCTAssertEqual(Set(members.map(\.id)).count, members.count)
+        XCTAssertTrue(route.superview === pane, "the exit keeps the pane content mounted")
+        XCTAssertTrue(route.window === window)
+        XCTAssertEqual(route.frame, frame)
+        XCTAssertFalse(route.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(route.routeInert)
+        XCTAssertTrue(route.isAccessibilityHidden())
+        XCTAssertTrue(p.navigation.split.holds(route))
+        p.apply(wireBatch([]))
+        XCTAssertTrue(route.superview === pane, "a later batch must not release it either")
         p.apply(wireBatch([["op": "destroy", "id": Int(panel.id)]]))
         XCTAssertNil(route.superview)
+        XCTAssertFalse(p.navigation.split.holds(route))
     }
 
     func testDetailFocusBubblesThroughItsAuthoredAncestorsAndStops() throws {

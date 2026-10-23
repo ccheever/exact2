@@ -36,9 +36,11 @@ extension Presenter {
         }
         for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
         for member in members { release(member.id, forget: false) }
-        view.routeInert = true
-        view.setAccessibilityHidden(true)
-        view.setGhost(true)
+        for root in [view] + held {
+            root.routeInert = true
+            root.setAccessibilityHidden(true)
+            root.setGhost(true)
+        }
         leaving[id] = Leaving(view: view, members: members)
     }
 
@@ -46,14 +48,20 @@ extension Presenter {
     func endExit(_ id: UInt32) -> Bool {
         guard let ended = leaving.removeValue(forKey: id) else { return false }
         ended.view.setGhost(false)
-        for member in ended.members { member.forget() }
+        for member in ended.members {
+            if navigation.split.holds(member) {
+                member.setGhost(false)
+                navigation.split.retire(member)
+            }
+            member.forget()
+        }
         ended.view.removeFromSuperview()
         return true
     }
 
     func isLeaving(_ view: NSView) -> Bool {
         guard let node = view as? NodeView else { return false }
-        return leaving[node.id]?.view === node
+        return leaving.values.contains { $0.members.contains { $0 === node } }
     }
 
     /// Presented surface boxes and opacity, including ghosts absent from `tree`.
