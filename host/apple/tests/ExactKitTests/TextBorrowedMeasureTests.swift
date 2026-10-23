@@ -68,6 +68,32 @@ extension TextGeometryTests {
         #endif
     }
 
+    #if os(iOS)
+    func testEmergencyHyphenatedAnswersRemainReachableFromRawRequests() {
+        let painter = TextEngine(resolve: { _ in nil }), measurer = TextEngine(resolve: { _ in nil })
+        painter.connect(measurer: measurer, answerBytes: TextAnswers.defaultLimit)
+        var value = spec("Work antidisestablishmentarianism")
+        value.overflowWrap = 1
+        value.strut = value.runs[0]
+        for width: Float in [-2, -1, 140] {
+            withBorrowedRequest(value, width: width) { request in
+                let prepared = measurer.requestSpec(request)
+                XCTAssertFalse(prepared.emergencyBreaks.isEmpty)
+                let first = measurer.measure(request), hits = measurer.measureHits
+                for _ in 0..<3 { assertMetrics(measurer.measure(request), first) }
+                XCTAssertEqual(measurer.measureHits, hits + 3, "identical callbacks reuse the published raw-request answer")
+                if width >= 0 {
+                    XCTAssertNotNil(painter.measuredBreaks(prepared, width: CGFloat(width)), "prepared geometry remains available to the painter")
+                    let p = painter.paragraph(prepared, width: CGFloat(width))
+                    XCTAssertEqual(first.height, Float(p.height))
+                    XCTAssertEqual(first.baseline, Float(p.firstBaseline))
+                    XCTAssertEqual(CTLineGetStringRange(p.lines[0]).length, 5, "ordinary word boundaries keep priority")
+                }
+            }
+        }
+    }
+    #endif
+
     func testBorrowedMetricsMatchOriginalCallbackAcrossOffersAndStyles() {
         var values = [spec("É e\u{301} 🧑🏿‍🚀 אבג\nsecond line"), spec(""), spec("longwordwithoutbreaks")]
         var styled = values[0]

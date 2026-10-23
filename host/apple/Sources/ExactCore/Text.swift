@@ -1402,6 +1402,11 @@ package final class TextEngine {
         if intrinsic {
             if publishes { publish(identity, offer: offer, metrics, lines: nil) } else { residency.put(identity, kind: kind, metrics: metrics) }
         }
+        if spec.emergencyHyphens, publishes, request.markup == 0, let answers {
+            // Raw callbacks reuse scalar answers; prepared keys retain their synthetic line offsets.
+            let hash = TextAnswerKey.write(request, into: &answerKey)
+            answers.put(hash: hash, key: answerKey, offer: offer, metrics: metrics, lines: nil)
+        }
         measureSeconds += lookupSeconds + (ProcessInfo.processInfo.systemUptime - started)
         return metrics
     }
