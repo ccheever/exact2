@@ -538,6 +538,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             releaseGlassIsolation()
             let children = container.subviews.compactMap { $0 as? NodeView }
             let old = materialView
+            let oldContent = materialContent
             materialView = nil
             materialContent = nil
             materialKind = kind
@@ -549,7 +550,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 if apple == "glass" || apple == "glassClear", #available(macOS 26.0, *) {
                     let glass = GlassBackground(frame: bounds)
                     glass.style = apple == "glass" ? .regular : .clear
-                    glass.contentView = content
                     effect = glass
                 } else {
                     // The table's material; AppKit's stand-in where it lacks
@@ -558,13 +558,13 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                     blur.material = Materials.material(apple) ?? .popover
                     blur.blendingMode = .withinWindow
                     blur.state = .followsWindowActiveState
-                    blur.addSubview(content)
                     effect = blur
                 }
                 effect.autoresizingMask = [.width, .height]
                 effect.setAccessibilityElement(false)
                 content.setAccessibilityElement(false)
                 addSubview(effect, positioned: .below, relativeTo: subviews.first)
+                addSubview(content, positioned: .above, relativeTo: effect)
                 materialView = effect
                 materialContent = content
             }
@@ -572,7 +572,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // identities, their frames and their native editors intact.
             for child in children where child.superview !== container { container.addSubview(child) }
             old?.removeFromSuperview()
+            oldContent?.removeFromSuperview()
         }
+        materialView?.isHidden = cssVisibilityHidden
         applyMaterialRadius()
     }
 

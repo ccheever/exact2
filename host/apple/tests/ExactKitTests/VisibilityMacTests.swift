@@ -29,6 +29,45 @@ final class VisibilityMacTests: XCTestCase {
         return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
     }
 
+    func testHidingAnEditedFieldDefersItsChangeUntilAfterTheStyleBatch() throws {
+        let p = presenter(), window = try XCTUnwrap(window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "input", "props": ["value": "Before"], "handlers": ["input", "change"]],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 150, "h": 40]
+        ]))
+        let node = try XCTUnwrap(p.views[1]), field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        editor.string = "After"
+        field.stringValue = "After"
+        p.typed(1, "After", input: false)
+        var changes: [String] = []
+        var styling = true
+        p.onChange = { _, value in XCTAssertFalse(styling); changes.append(value) }
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["visibility": "hidden"]]]))
+        styling = false
+        XCTAssertEqual(changes, [])
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while changes.isEmpty, Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+        XCTAssertEqual(changes, ["After"])
+        XCTAssertTrue(field.isHidden)
+    }
+
+    func testHiddenBackdropBlurIsRemovedAndRestored() throws {
+        let p = presenter()
+        let blur: [String: Any] = ["backdrop_filter": [["blur": 10.0]]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "blur"], "style": blur],
+            ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100]
+        ]))
+        let layer = try XCTUnwrap(p.views[1]?.layer)
+        XCTAssertFalse(layer.backgroundFilters?.isEmpty ?? true)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": blur.merging(["visibility": "hidden"]) { $1 }]]))
+        XCTAssertTrue(layer.backgroundFilters?.isEmpty ?? true)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": blur]]))
+        XCTAssertFalse(layer.backgroundFilters?.isEmpty ?? true)
+    }
+
     func testAVisibleDescendantOfAHiddenBoxPaintsAndIsHit() throws {
         let p = presenter()
         p.apply(wireBatch([
