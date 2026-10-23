@@ -85,6 +85,7 @@ struct PreparedHost<D: DataSource> {
     hooks: Hooks,
     module: bool,
     let_go: bool,
+    carried_from: Option<exact_runner::Carried>,
 }
 
 fn not_booted() -> String {
@@ -887,6 +888,7 @@ impl<D: DataSource> Bridge<D> {
                     hooks,
                     module: false,
                     let_go: false,
+                    carried_from: self.host.as_ref().map(Host::carry),
                 });
                 self.output.len() as u32
             }
@@ -918,12 +920,8 @@ impl<D: DataSource> Bridge<D> {
     /// Commit the already-accepted candidate, without decoding or laying it
     /// out again. The app calls this only after every session prepared.
     pub fn commit_plan(&mut self) -> u32 {
-        let module = self
-            .prepared
-            .as_ref()
-            .is_some_and(|c| c.module && !c.let_go);
-        if module && self.host.as_ref().is_some_and(|h| h.runner().has_pending()) {
-            return self.refuse_pending();
+        if let Some(refusal) = self.preparation_refusal() {
+            return refusal;
         }
         let Some(mut candidate) = self.prepared.take() else {
             return self.prepare_error("no prepared plan");
@@ -1460,6 +1458,7 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 
 mod boot;
 mod colors;
+mod preparation;
 mod registry;
 mod snapshot;
 #[cfg(test)]

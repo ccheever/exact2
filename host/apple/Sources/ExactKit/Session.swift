@@ -14,32 +14,6 @@ import AppKit
 import CExact
 import Foundation
 import QuartzCore
-/// Supplied once per session launch and reused by every replacement runner.
-struct LaunchPlace: Equatable {
-    let locale: String
-    let timeZone: String
-    let seed: UInt64
-    /// The Region's format (`Locale.current`; English in Korea is `en-KR`), else empty (the locale).
-    let formatLocale: String
-    /// Under the agent, the Unix milliseconds at the clock's zero (LLP
-    /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
-    let epoch: Double?
-    init(environment: [String: String] = ExactEnv.environment) {
-        if environment["EXACT_AGENT"] == "1" {
-            locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
-            timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
-            seed = UInt32(environment["EXACT_AGENT_SEED"] ?? "1").map(UInt64.init) ?? 1 // below 2^32 (LLP 1116.005 D5); else 1, as exact_data::crypto takes it
-            formatLocale = environment["EXACT_AGENT_FORMAT_LOCALE"] ?? ""
-            epoch = Double(environment["EXACT_AGENT_EPOCH"] ?? "1767225600000") ?? 1_767_225_600_000
-        } else {
-            epoch = nil
-            locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
-            timeZone = TimeZone.current.identifier
-            seed = UInt64(UInt32.random(in: .min ... .max))
-            formatLocale = Locale.current.identifier(.bcp47)
-        }
-    }
-}
 /// The process facts every session reads: the agent drives the app
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
@@ -262,8 +236,8 @@ public final class ExactApp {
         applyTogether(bytes, label: label, resolver: resolver, token: 0, commit: { true })
     }
 
-    /// Every session and local consumer accepts before the composition's
-    /// durable commit runs. Refusal leaves the previous generation intact.
+    /// Every session accepts before the durable commit. Its callback runs on
+    /// main while the runtime owner holds replies; it cannot reenter a runtime.
     @discardableResult
     public func applyGeneration(_ candidate: ExactGeneration, label: String = "generation", commit: () -> Bool) -> Bool {
         applyTogether(candidate.plan, label: label, resolver: candidate.assets, token: candidate.token, module: candidate.module, commit: commit)
@@ -274,32 +248,37 @@ public final class ExactApp {
         guard !transaction else { return false }
         let module = module ?? lastModule
         let participants = sessions.filter { $0.state != .destroyed }
-        // An app may stage before creating a view. Validate its plan now,
-        // without committing a hidden runner or starting its requests.
+        // Validate a staged plan without starting a hidden runner's requests.
         if participants.isEmpty {
             let validator = ExactSession(app: self, label: "")
             defer { validator.destroy() }
             guard validator.prepare(bytes, resolver: candidateResolver, token: token, module: module, size: CGSize(width: 1, height: 1), letGo: letGo) != nil else { return false }
             validator.runtime.discardPlan()
         }
-        var prepared: [(ExactSession, ExactSession.Prepared)] = []
-        for session in participants {
-            guard let candidate = session.prepare(bytes, resolver: candidateResolver, token: token, module: module, letGo: letGo) else {
-                generationPending = session.modulePending || session.requestsPending; requestsHeld = session.requestsPending // asked again; `letGo` (the dev loop's, a second after requests first held it) lets them go (LLP 1007 §6)
-                for (session, _) in prepared { session.runtime.discardPlan() }
-                return false
-            }
-            prepared.append((session, candidate))
+        guard let prepared = prepareGeneration(participants, prepare: { session in
+            session.prepare(bytes, resolver: candidateResolver, token: token, module: module, letGo: letGo)
+        }) else {
+            generationPending = participants.contains { $0.modulePending || $0.requestsPending }
+            requestsHeld = participants.contains { $0.requestsPending }
+            for session in participants { session.runtime.discardPlan() }
+            return false
         }
         let surfaces = SurfacesLink.installed
         let shaderSources = surfaces?.shadersLoaded == true ? candidateResolver.shaderSources() : nil
         let shadersAccepted = shaderSources.map { surfaces?.acceptsShaders($0) == true } ?? true
-        guard candidateResolver.refusal == nil, shadersAccepted, commit() else {
+        guard candidateResolver.refusal == nil, shadersAccepted else {
             for (session, _) in prepared { session.runtime.discardPlan() }
             return false
         }
+        for (session, candidate) in prepared { session.configureCommit(candidate) }
         transaction = true
-        let batches = prepared.map { (session, candidate) in (session, session.commit(candidate)) }
+        let result = Runtime.commitTogether(prepared.map { $0.0.runtime }, commit: commit)
+        guard let committed = result.batches else {
+            transaction = false; generationPending = result.pending; requestsHeld = result.requests
+            for (session, _) in prepared { session.cancelCommit() }
+            return false
+        }
+        let batches = zip(prepared, committed).map { pair, batch in (pair.0, pair.0.commit(pair.1, batch: batch)) }
         resolver = candidateResolver
         #if EXACT_WIDGET_GALLERY
         NotificationCenter.default.post(name: Notification.Name("ExactWidgetGeneration"), object: self)
@@ -830,8 +809,7 @@ public final class ExactSession {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
             if app.selectedToken != 0 { app.lifecycle?.generationStarted(app, token: app.selectedToken) }
-            if let candidate = prepare(bytes, resolver: app.resolver, token: app.selectedToken, module: app.lastModule, size: size) {
-                let batch = commit(candidate)
+            if let candidate = prepare(bytes, resolver: app.resolver, token: app.selectedToken, module: app.lastModule, size: size), let batch = commit(candidate) {
                 presentCommitted(batch, label: "selected")
                 return batch
             }
@@ -936,15 +914,34 @@ public final class ExactSession {
         return Prepared(text: candidate, resolver: resolver, token: token)
     }
 
-    func commit(_ candidate: Prepared) -> Batch {
-        text = candidate.text
+    func commit(_ candidate: Prepared) -> Batch? {
+        configureCommit(candidate)
+        let result = Runtime.commitTogether([runtime], commit: { true })
+        guard let batch = result.batches?.first else {
+            modulePending = result.pending; requestsPending = result.requests
+            cancelCommit(); return nil
+        }
+        return commit(candidate, batch: batch)
+    }
+
+    func configureCommit(_ candidate: Prepared) {
         runtime.setProfileResolver(candidate.resolver)
-        updateToken = candidate.token
+        core.measure(with: candidate.text)
+        installControlText(on: candidate.text)
+        candidate.text.commitFonts()
+    }
+
+    func cancelCommit() {
+        runtime.discardPlan()
+        runtime.setProfileResolver(app.resolver)
         core.measure(with: text)
         installControlText()
-        text.commitFonts()
-        let batch = runtime.commitPlan()
+    }
+
+    func commit(_ candidate: Prepared, batch: Batch) -> Batch {
         precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
+        text = candidate.text
+        updateToken = candidate.token
         generation += 1
         return batch
     }
@@ -976,8 +973,7 @@ public final class ExactSession {
     /// uses prepare/commit across every attached session instead.
     @discardableResult
     public func apply(_ bytes: Data, label: String = "plan") -> Bool {
-        guard let candidate = prepare(bytes, resolver: app.resolver) else { return false }
-        let batch = commit(candidate)
+        guard let candidate = prepare(bytes, resolver: app.resolver), let batch = commit(candidate) else { return false }
         app.invalidateDevGeneration()
         presentCommitted(batch, label: label)
         return true
