@@ -258,9 +258,9 @@ export const heldTick = (s, to, target) => async (until, down) => {
   try {
     for (let left; s.now < to && (left = Math.floor(Math.min(to - s.now, until - Date.now(), TICK_STEP))) > 0;) {
       if (!await down()) return;
-      await s.clock(`+${left} real`);
+      await s.clock(`+${left} real`, 0, down);
     }
-    if (s.now < to && await down()) await s.clock(`+${to - s.now}`);
+    if (s.now < to && await down()) await s.clock(`+${to - s.now}`, 0, down);
   } finally { s.held = null; }
 };
 

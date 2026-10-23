@@ -355,7 +355,8 @@ function tickTouch({ pages, runner = { injected: {} }, liftAfter = 2000 }) {
   const t = { reads: 0, settled: false };
   const ask = async (req) => {
     if (req.aim) return { aim };
-    const page = pages[Math.min(t.reads++, pages.length - 1)];
+    let page = pages[Math.min(t.reads++, pages.length - 1)];
+    if (typeof page === 'function') page = await page(t);
     if (page instanceof Error) throw page;
     return { truncated: false, reached: [], ...page };
   };
@@ -364,7 +365,7 @@ function tickTouch({ pages, runner = { injected: {} }, liftAfter = 2000 }) {
     return new Promise((done) => {
       const end = () => { t.settled = true; done(runner); };
       t.lift = end;
-      setTimeout(end, liftAfter);
+      if (liftAfter != null) setTimeout(end, liftAfter);
     });
   } };
   return { t, run: (drag) => realTap({ ask, touches, id: 7, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400, ...drag } }) };
@@ -530,4 +531,27 @@ test('a missed reversal endpoint reports the net displacement asked', async () =
       { ...began, seq: 7, phase: 'ended', t: 1.2, at: [30, 22] }], truncated: false },
     touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } },
   })).rejects.toThrow('not the asked (0, 0)');
+});
+
+
+test('a runner that finishes during the hold log read advances no remaining clock', async () => {
+  const a = tickTouch({ pages: [{ log: [began] }, { log: [began] }, t => { t.lift(); return { log: [began] }; }],
+    runner: { error: 'XCTest stopped during the read' }, liftAfter: null });
+  const steps = [], s = { now: 0, held: null, async clock(spec) { steps.push(spec); } };
+  await expect(a.run({ hold: 100, tick: heldTick(s, 100, 'row') })).rejects.toThrow('XCTest stopped during the read');
+  expect(steps).toEqual([]);
+  expect(s.held).toBe(null);
+});
+
+test('a real clock step stops advancing as soon as its held touch ends', async () => {
+  const { open } = await import('./agent.mjs');
+  const { launchFacts } = await import('./agent-launch.mjs');
+  const requests = [];
+  let down = true;
+  const s = await open({ reuse: { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { requests.push(req); down = false; return { clock: req.to }; } } });
+  await heldTick(s, 1000, 'row')(Date.now() + 10_000, async () => down);
+  expect(requests).toHaveLength(1);
+  expect(s.now).toBe(requests[0].to);
+  expect(s.held).toBe(null);
 });

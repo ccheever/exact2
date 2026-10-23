@@ -1052,7 +1052,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return s.landed(await s.op(req));
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' (or wait, the clock frozen, for 'held' requests' replies) — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion), a task due a commit later (`after(1, …)`) included, for 16 rounds. Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
-    async clock(spec = 'settle', round = 0) { if (/^held(\s|$)/.test(String(spec))) return heldClock(s, String(spec).split(/\s+/).slice(1)); // `held`: agent-held.mjs
+    async clock(spec = 'settle', round = 0, down = null) { if (/^held(\s|$)/.test(String(spec))) return heldClock(s, String(spec).split(/\s+/).slice(1)); // `held`: agent-held.mjs
       const real = /^\+(\d+(?:\.\d+)?)\s+real$/.exec(String(spec)), time = real ? real[1] : typeof spec === 'string' && spec.startsWith('+') ? spec.slice(1) : spec;
       if (!['settle', 'data'].includes(spec) && !Number.isFinite(Number(time))) throw new MalformedOperation(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
@@ -1071,6 +1071,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (real) {
         const from = s.now, end = req.to, t0 = performance.now();
         for (;;) {
+          if (down && !await down()) return { clock: s.now, cancelled: true };
           const to = Math.max(s.now, Math.min(end, from + (performance.now() - t0))), r = await s.op({ op: 'clock', to, step: true }); // real time passes here: the host waits on no native motion
           s.now = r.clock;
           if (to >= end) return { ...r, real: Math.round(performance.now() - t0) };
@@ -1080,7 +1081,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of a web clock op's 60 s, from CLOCK_STEP_MS of world
       // time, at most 4x a step and CLOCK_SPAN_MS), so a cheap hour is a few presents, not 3,600; the final reply is the seek's.
       let span = CLOCK_STEP_MS; const jump = req.settle ? 0 : req.to - s.now; // the host lets native motion run once, after the last step, for up to all of it
-      for (let t0; !req.settle && req.to - s.now > span; span = clockSpan(span, performance.now() - t0)) t0 = performance.now(), s.now = (await s.op({ op: 'clock', to: s.now + span, step: true })).clock;
+      for (let t0; !req.settle && req.to - s.now > span; span = clockSpan(span, performance.now() - t0)) {
+        if (down && !await down()) return { clock: s.now, cancelled: true };
+        t0 = performance.now(); s.now = (await s.op({ op: 'clock', to: s.now + span, step: true })).clock;
+      }
+      if (down && !await down()) return { clock: s.now, cancelled: true };
       const r = await s.op(req.to - s.now < jump ? { ...req, jump } : req); // an intermediate step's pending state is stale by now; a failed step threw
       s.now = r.clock;
       // A store's or the network's reply comes on real time, which a jump does not wait for unless a timer fires first (calendar F10).

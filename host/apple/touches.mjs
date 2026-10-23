@@ -509,6 +509,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       }
       return r;
     };
+    const ticked = async (tick, until, down) => {
+      const work = tick(until, down);
+      try { return await raced(work); }
+      finally { await work.catch(() => {}); }
+    };
     let reached = [], hostNow;
     const entries = async () => {
       const out = [];
@@ -575,10 +580,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
               during.push(await raced(op()));
               await held();
             }
-            if (checkpoint.tick) await raced(checkpoint.tick(Date.now() + (end - hostNow) * 1000 - TICK_MARGIN, async () => {
+            if (checkpoint.tick) await ticked(checkpoint.tick, Date.now() + (end - hostNow) * 1000 - TICK_MARGIN, async () => {
+              if (finished) return false;
               const touch = ours(await entries());
               return !!touch && !touch.lifted && !finished && hostNow < end;
-            }));
+            });
           }
         } else {
           // Reads follow the move, inside its hold.
@@ -590,9 +596,13 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
           }
           if (ops.length && ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
         }
-        const down = async () => !finished && !ours(await entries()).lifted;
+        const down = async () => {
+          if (finished) return false;
+          const touch = ours(await entries());
+          return !finished && touch != null && !touch.lifted;
+        };
         // Until shortly before the lift, asking before each step that the finger is still down (`heldTick`).
-        if (drag.tick && !legs) await raced(drag.tick(seen + drag.press + (moves ? drag.over : 0) + drag.hold - TICK_MARGIN, down));
+        if (drag.tick && !legs) await ticked(drag.tick, seen + drag.press + (moves ? drag.over : 0) + drag.hold - TICK_MARGIN, down);
       })();
     } catch (error) {
       const done = await injecting;
