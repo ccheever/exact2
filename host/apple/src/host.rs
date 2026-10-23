@@ -204,6 +204,7 @@ pub struct Host<D: DataSource> {
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
+    collection_heads: Option<Vec<exact_runner::CollectionSnapshot>>,
     engine: Engine,
     paint: paint::Paint,
     holds: BTreeMap<u64, HoldToken>,
@@ -523,6 +524,7 @@ impl<D: DataSource> Host<D> {
             ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
+            collection_heads: Some(Vec::new()),
             engine: {
                 // Settled values only when the plan animates nothing (LLP 1047.001).
                 let mut engine = Engine::linked(links.engine);
