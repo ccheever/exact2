@@ -201,7 +201,7 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         })
         .transpose()?
         .unwrap_or_default();
-    Ok(Request {
+    let request = Request {
         surface: None,
         continuation: json["continuation"].as_u64(),
         http: match &json["max_response_bytes"] {
@@ -260,7 +260,12 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         redirect: Redirect::parse(json["redirect"].as_str())
             .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
         held: json["held"].as_bool().unwrap_or(false),
-    })
+    };
+    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
+    match request.long_poll_refusal() {
+        Some(why) => Err(unavailable(format!("turn reply: {why}"))),
+        None => Ok(request),
+    }
 }
 
 /// Standard base64 with padding, as the runner's agent module spells it.

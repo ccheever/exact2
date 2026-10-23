@@ -182,6 +182,12 @@ pub struct Request {
     pub held: bool,
 }
 
+/// The event of a long poll's message that is a reply but no event (LLP
+/// 1016.000 D8): a heartbeat or a transient failure, which takes the stream
+/// out of every clock's wait and raises `heldReplies`, with no mapper call.
+/// A long poll's own events have an empty event; no other stream sends it.
+pub const LONG_POLL_REPLY: &str = "exact:reply";
+
 /// A long poll's terms (LLP 1016.000 D8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LongPoll {
@@ -194,6 +200,22 @@ pub struct LongPoll {
     /// heartbeat (`sameCursor: "event"`): for an endpoint that sends new
     /// data under an unchanged cursor.
     pub same_cursor_event: bool,
+}
+
+impl LongPoll {
+    /// Why these terms are refused, if they are: each a name of 1 to 256
+    /// characters, `from` a member or two joined by one `.`.
+    pub fn refusal(&self) -> Option<&'static str> {
+        let named = |s: &str| (1..=256).contains(&s.chars().count());
+        if !named(&self.cursor) {
+            return Some("exactLongPoll.cursor is the query parameter the cursor goes in, a name of 1 to 256 characters");
+        }
+        let parts = self.from.split('.');
+        if !named(&self.from) || parts.clone().count() > 2 || parts.into_iter().any(str::is_empty) {
+            return Some("exactLongPoll.from is the reply's field the cursor comes from: a name, or two joined by one `.`, of 1 to 256 characters");
+        }
+        None
+    }
 }
 
 /// A long poll waiting to ask again after a transient failure (D8), as
@@ -425,8 +447,36 @@ impl Request {
         self
     }
 
+    /// Why this request's long poll is refused, if it is one and is (LLP
+    /// 1016.000 D8): a stream's GET with no body over `http:` or `https:`,
+    /// with good terms. Every host and seam checks it before anything is sent.
+    pub fn long_poll_refusal(&self) -> Option<&'static str> {
+        let poll = self.long_poll.as_deref()?;
+        if !self.stream {
+            return Some(
+                "exactLongPoll asks again for an answer that keeps coming: it is a stream's",
+            );
+        }
+        let http = ["http://", "https://"].iter().any(|s| {
+            self.url
+                .get(..s.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(s))
+        });
+        if !http {
+            return Some("exactLongPoll: a long poll is HTTP, not a WebSocket");
+        }
+        if !self.method.eq_ignore_ascii_case("GET")
+            || !self.body.is_empty()
+            || self.body_from.is_some()
+        {
+            return Some("exactLongPoll: a long poll is a GET with no body");
+        }
+        poll.refusal()
+    }
+
     /// As a long poll (see [`Request::long_poll`]): `cursor` the query
     /// parameter asked again with, `from` the reply's JSON field it comes from.
+    /// The request must be a stream's (`Answer::stream`).
     pub fn long_poll(mut self, cursor: &str, from: &str) -> Self {
         self.long_poll = Some(Box::new(LongPoll {
             cursor: cursor.into(),

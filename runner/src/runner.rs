@@ -332,6 +332,9 @@ struct PendingReq {
     /// Held (LLP 1016.000 D9, [`Request::is_held`]): pending, but no clock
     /// waits on it.
     held: bool,
+    /// A long poll (D8); `replied` once it has a reply of any kind: held and named, no clock's wait.
+    long_poll: bool,
+    replied: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -353,10 +356,9 @@ impl PendingReq {
         self.stream.is_none_or(|s| s.messages == 0)
     }
 
-    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in
-    /// flight and not held (LLP 1016.000 D9).
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
     fn waited(&self) -> bool {
-        self.in_flight() && !self.held
+        self.in_flight() && !self.held && !self.replied
     }
 }
 

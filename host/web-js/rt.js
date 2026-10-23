@@ -3,7 +3,7 @@ export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
-import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies } from "./held.js"; export { heldAsks, heldReplies }; // optimistic writes shown over answers (the runner's writes.rs)
+import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies, longPollReplied, longPollEnded } from "./held.js"; export { heldAsks, heldReplies }; // optimistic writes shown over answers (the runner's writes.rs)
 const heldOr = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); }; // a fact a development page holds over the app's own: kept as asked, applied when not held (LLP 1122 T7, theme2's F2)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
@@ -396,7 +396,7 @@ export const Store = {
 /** Every resource, in plan order: the checkpoint a render writes reads them. */
 export const Resources = [];
 let Ticket = 0;
-const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
+const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http && JSON.stringify(a.longPoll) === JSON.stringify(b.longPoll);
 /** Requests in flight, for the agent's `clock settle`. */
 export const inflight = { n: 0 };
 function send(t, land) {
@@ -408,16 +408,16 @@ function send(t, land) {
       if (t.closed) return;
       if (t.waiting) { t.waiting = false; counted(t, inflight); }
       t.elapsed = Math.max(0, Math.round(performance.now() - started));
-      if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else Open.delete(t);
+      if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else { Open.delete(t); longPollEnded(t); }
       say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);
     };
     const failed = e => done({ failed: 1, message: String(e?.message ?? e) });
-    // An answer that keeps coming (LLP 1016.000): a Rust source's streamed request, or a TypeScript
-    // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
-    // until its end or until its ticket is let go (`Open`, after each commit).
+    // An answer that keeps coming (LLP 1016.000): a Rust source's streamed request, or a TypeScript source's `exactStream`
+    // (ts-data.js). In flight until its first message (D5), then open until its end or until its ticket is let go (`Open`).
     if (t.stream || t.req?.stream) {
       t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.ctl.resource = !!t.r; t.messages = t.coalesced = 0; Open.add(t); // `resource`: a socket it owns takes its mapper's replies (ts-stream.js)
-      (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
+      t.ctl.replied = () => { if (t.waiting) { t.waiting = false; counted(t, inflight); } longPollReplied(t); }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held, a reply for `clock held`
+      (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => m.event === 'exact:reply' || done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }));
   });
@@ -427,7 +427,7 @@ function send(t, land) {
 const Open = new Set();
 function closeLetGo() {
   for (const t of Open) if (!t.held() || t.r?.gone) {
-    Open.delete(t); t.closed = true; t.ctl.abort();
+    Open.delete(t); longPollEnded(t); t.closed = true; t.ctl.abort();
     if (t.waiting) { t.waiting = false; counted(t, inflight); }
     say(`close stream ${t.id}: its ticket was let go`);
   }

@@ -30,9 +30,11 @@
     if (/^wss?:/i.test(String(url))) return "exactLongPoll: a long poll is HTTP, not a WebSocket";
     if (method !== "GET") return "exactLongPoll: a long poll asks with GET";
     if (poll === null || typeof poll !== "object") return "exactLongPoll is { cursor, from }";
-    var name = function (k) { var v = poll[k]; return typeof v === "string" && v.length > 0 && v.length <= 256 ? v : null; };
+    // (characters as the runner counts them, code points; `from` a member, or two joined by one `.`)
+    var name = function (k) { var v = poll[k], n = typeof v === "string" ? Array.from(v).length : 0; return n > 0 && n <= 256 ? v : null; };
     if (!name("cursor")) return "exactLongPoll.cursor is the query parameter the cursor goes in, a name";
-    if (!name("from")) return "exactLongPoll.from is the reply's field the cursor comes from, a name";
+    var parts = name("from") ? poll.from.split(".") : [];
+    if (!parts.length || parts.length > 2 || parts.some(function (p) { return !p; })) return "exactLongPoll.from is the reply's field the cursor comes from, a name, or two joined by one `.`";
     if (poll.sameCursor !== undefined && poll.sameCursor !== "heartbeat" && poll.sameCursor !== "event")
       return "exactLongPoll.sameCursor is \"heartbeat\" (the default) or \"event\"";
     return { cursor: poll.cursor, from: poll.from, same_cursor_event: poll.sameCursor === "event" ? true : undefined };
