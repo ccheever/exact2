@@ -153,6 +153,7 @@ extension CollectionHost {
                 target.y = min(maximum, max(-insets.top, target.y))
             }
         }
+        target = PixelGrid.offset(target, in: scroll, clamped: !(scroll.isTracking || scroll.isDragging || scroll.isDecelerating))
         guard scroll.contentOffset != target else { return }
         let moved = horizontal ? target.x - scroll.contentOffset.x : target.y - scroll.contentOffset.y
         scroll.contentOffset = target
@@ -238,10 +239,7 @@ extension CollectionHost {
     }
     /// `target` within the offsets the port can reach now.
     static func reachable(_ target: CGPoint, in scroll: UIScrollView) -> CGPoint {
-        let i = scroll.adjustedContentInset
-        let maxX = max(-i.left, scroll.contentSize.width + i.right - scroll.bounds.width)
-        let maxY = max(-i.top, scroll.contentSize.height + i.bottom - scroll.bounds.height)
-        return CGPoint(x: min(maxX, max(-i.left, target.x)), y: min(maxY, max(-i.top, target.y)))
+        PixelGrid.offset(target, in: scroll)
     }
     private func startOffsetDriver(_ id: UInt32, _ scroll: UIScrollView, to target: CGPoint) {
         let serial = animationSerial[id] ?? beginAnimation(id, to: target)
@@ -274,7 +272,7 @@ extension CollectionHost {
         // anchor's correction moves with it instead: `shift`). The next
         // native offset notification supplies the continuing intent.
         guard !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
-        let target: CGPoint
+        var target: CGPoint
         if horizontal {
             let maximum = max(-insets.left, scroll.contentSize.width + insets.right - scroll.bounds.width)
             target = CGPoint(x: min(maximum, max(-insets.left, CGFloat(top) + content.minX - insets.left)),
@@ -284,6 +282,7 @@ extension CollectionHost {
             target = CGPoint(x: scroll.contentOffset.x,
                 y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top + node.pageBand.top)))
         }
+        target = Self.reachable(target, in: scroll)
         // A smooth correction is UIKit's scroll animation (LLP 1070.000
         // §6.2): the window is already built at the destination; rows in
         // between are not (§11 declares it). Under the agent's frozen clock

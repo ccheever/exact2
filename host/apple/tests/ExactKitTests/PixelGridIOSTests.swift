@@ -11,6 +11,57 @@ import XCTest
 final class PixelGridIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }
+
+    func testCollectionCorrectionsAndReadingRestorationKeepEdgesSharp() throws {
+        for scale in [2, 3] as [CGFloat] {
+            let p = presenter([
+                ["op": "create", "id": 1, "kind": "list", "props": ["scrollFollowEnd": "true"], "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 2, "kind": "view", "props": ["testId": "line"], "style": ["background_color": [0, 0, 0, 255]]],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100],
+                ["op": "frame", "id": 2, "x": 0, "y": 150, "w": 100, "h": 1],
+                ["op": "content", "id": 1, "w": 100, "h": 1000],
+            ])
+            p.viewport.traitOverrides.displayScale = scale
+            p.viewport.updateTraitsIfNeeded(); p.root.updateTraitsIfNeeded()
+            let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+            node.updateTraitsIfNeeded(); scroll.updateTraitsIfNeeded()
+            p.regridAll()
+            scroll.contentOffset.y = 100
+            p.collections.keepStart(1, at: 100.2)
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.2, scale: scale), accuracy: 1e-6)
+            let reached = CollectionHost.reachable(CGPoint(x: 0, y: 200.2), in: scroll)
+            XCTAssertEqual(reached.y, PixelGrid.round(200.2, scale: scale), accuracy: 1e-6)
+            scroll.contentOffset.y = 100
+            node.followedScroll = (top: 100.2, end: false, start: false)
+            node.restoreScrollPosition()
+            XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.2, scale: scale), accuracy: 1e-6)
+            let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = true; format.preferredRange = .standard
+            let rule = try XCTUnwrap(p.views[2])
+            rule.layer.backgroundColor = UIColor.black.cgColor
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { context in
+                UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+                p.viewport.layer.render(in: context.cgContext)
+            }
+            let cg = try XCTUnwrap(image.cgImage), data = try XCTUnwrap(cg.dataProvider?.data)
+            let bytes = CFDataGetBytePtr(data)!
+            var blended = 0, dark = 0
+            for y in 0..<cg.height {
+                let at = y * cg.bytesPerRow + 20 * cg.bitsPerPixel / 8
+                if bytes[at] < 255 { dark += 1 }
+                if bytes[at] > 0 && bytes[at] < 255 { blended += 1 }
+            }
+            print("pixel-grid \(scale)x: \(blended) blended rows after reading restoration")
+            XCTAssertGreaterThan(dark, 0, "the captured rule must be visible")
+            XCTAssertEqual(blended, 0, "the one-point rule has solid pixel rows at \(scale)x")
+            if let directory = ProcessInfo.processInfo.environment["EXACT_PIXEL_CAPTURES"] {
+                try image.pngData()?.write(to: URL(fileURLWithPath: directory).appendingPathComponent("scroll-\(Int(scale))x.png"))
+            }
+            window.isHidden = true
+        }
+    }
+
     func testEachEdgeRoundsHalfUpAndTheSizeIsBetweenThem() {
         // At 3x, x = 10.1667 is 30.5 device pixels and rounds up to 31; its
         // right edge, 90.5, to 91. A 0.5 pt height from 0 is 0 to 1.5: 0 to 2.
