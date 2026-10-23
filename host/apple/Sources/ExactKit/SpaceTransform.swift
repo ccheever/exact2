@@ -239,7 +239,7 @@ extension NodeView {
     /// Layout supplies the untransformed overflow; the presenter adds boxes
     /// carried outside it by transforms, stopping at each clipping boundary.
     func documentOverflow(in document: SpaceView) -> CGRect {
-        var reach = drawnRect(CGRect(origin: .zero, size: content ?? bounds.size), in: document)
+        var reach = drawnRect(CGRect(origin: .zero, size: content), in: document)
         var below = [self]
         while let child = below.popLast() {
             guard child.style["display"]?.string != "none", child.props["semanticTag"] != "dialog",
