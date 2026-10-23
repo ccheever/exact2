@@ -233,7 +233,9 @@ extension NodeView {
             guard path.isLive else { return }
         }
         guard presenter.views[target.id] === target else { return }
-        presenter.press(target.id, bubbled: bubbled)
+        presenter.menus.activating(from: self, pressing: target) {
+            presenter.press(target.id, bubbled: bubbled)
+        }
         if !bubbled { target.finishPointerPress() }
     }
 }
