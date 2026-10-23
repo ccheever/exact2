@@ -838,12 +838,15 @@ final class TableFeedKeyMacTests: XCTestCase {
         other.isReleasedWhenClosed = false
         self.other = other
         /// A click on `view` while another window is key.
-        func first(_ view: NSView) {
+        func first(_ view: NSView) throws {
             other.makeKeyAndOrderFront(nil)
-            pump { other.isKeyWindow }
+            pump { other.isKeyWindow && NSApp.isActive }
+            try XCTSkipUnless(NSApp.isActive && other.isKeyWindow,
+                              "the first-click probe needs this application active and its other window key")
             XCTAssertFalse(f.window.isKeyWindow)
             click(view, in: f)
-            pump(1) { f.window.isKeyWindow }
+            pump(1) { f.window.isKeyWindow || !NSApp.isActive }
+            try XCTSkipUnless(NSApp.isActive, "another application became active during the first-click probe")
             XCTAssertTrue(f.window.isKeyWindow, "the click brought the window forward")
         }
         // A person's clicks first, then the driver's rule, under which every click counts (its window is never key).
@@ -853,16 +856,16 @@ final class TableFeedKeyMacTests: XCTestCase {
             NodeView.everyClickCounts = every
             let note = every ? "every click counts" : "AppKit's rule"
             let row = 6 + round, presses = 1 + round, bumps = 1 + round
-            first(try f.node("title-\(row)"))
+            try first(f.node("title-\(row)"))
             XCTAssertEqual(f.table.selectedRow, row, "\(note): the click selected the row")
             XCTAssertTrue(f.status.hasPrefix("opened \(row) presses \(presses) "), "\(note): and pressed it, \(f.status)")
-            first(try f.node("bump-3"))
+            try first(f.node("bump-3"))
             XCTAssertTrue(f.status.contains("presses \(presses) bumps \(bumps) "), "\(note): a button in a row took the click, \(f.status)")
             XCTAssertEqual(f.table.selectedRow, row, note)
-            first(try f.node("check-3"))
+            try first(f.node("check-3"))
             XCTAssertTrue(f.status.contains("bumps \(bumps) on \(round == 0) "), "\(note): a checkbox in a row took the click, \(f.status)")
             let field = try XCTUnwrap(try f.node("field-3").field)
-            first(field)
+            try first(field)
             XCTAssertNotNil(field.currentEditor(), "\(note): a field in a row took the click and the keyboard")
             XCTAssertEqual(f.table.selectedRow, row, note)
             XCTAssertTrue(f.window.makeFirstResponder(f.table))
