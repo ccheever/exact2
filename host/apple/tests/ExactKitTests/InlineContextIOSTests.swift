@@ -147,6 +147,29 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.context.open?.name, "tag-menu")
     }
 
+    func testAnUnresolvedInlinePopoverFallsThroughToTheParagraphHandler() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        var style = InlineStyle()
+        try style.set("font_size", .number(18))
+        p.applyParagraph(2, [InlineText(id: 10, parent: 2, props: ["text": "#tag", "contextPopover": "gone"], style: style, handlers: [], paints: true)])
+        node.handlers.insert("contextmenu")
+        node.updateContextGestures()
+        p.menus.context.sync()
+        var heard: [UInt32] = []
+        p.onContextmenu = { heard.append($0) }
+        let agent = Agent(session: try XCTUnwrap(session))
+        let request: [String: Any] = ["id": NSNumber(value: 10), "contextmenu": true]
+        let reply = agent.tap(request)
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["tapped"] as? Int, 2)
+        XCTAssertEqual(heard, [2])
+        node.handlers.remove("contextmenu")
+        XCTAssertNotNil(agent.tap(request)["error"], "a run with no handler and no live popover cannot claim delivery")
+        XCTAssertEqual(heard, [2])
+    }
+
     func testPlainAndInertRunsDoNotOpenTheInlineMenu() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }

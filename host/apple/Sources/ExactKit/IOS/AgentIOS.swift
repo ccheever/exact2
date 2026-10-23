@@ -745,10 +745,13 @@ extension Agent {
             if event == "contextmenu", let target = hit as? NodeView,
                presenter.menus.eligible(target, contextMenu: true),
                let run = target.inlineContextTarget(at: target.convert(p, from: nil)) {
-                MainActor.assumeIsolated { HeldState.input(at: hit) }
-                target.deliverContext(at: target.convert(p, from: nil), inline: run.id)
-                presenter.menus.agentContext(target, inline: run.id)
-                return ["tapped": Int(run.id), "event": event, "injected": true, "at": at]
+                let handled = run.handlers.contains("contextmenu")
+                if handled { target.deliverContext(at: target.convert(p, from: nil), inline: run.id) }
+                let opened = presenter.menus.agentContext(target, inline: run.id)
+                if handled || opened {
+                    MainActor.assumeIsolated { HeldState.input(at: hit) }
+                    return ["tapped": Int(run.id), "event": event, "injected": true, "at": at]
+                }
             }
             selection = presenter.agentSelect(hit, at: p, event: event)
             #endif
