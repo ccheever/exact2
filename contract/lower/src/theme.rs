@@ -347,20 +347,23 @@ impl Lowerer<'_> {
                 .or_default()
                 .push(t);
         }
+        // Each spelling kept; each lowercased name's tokens read once, however
+        // many spellings reach it (round 1 of the checker sweep).
+        let mut expanded = std::collections::HashSet::new();
         while let Some(name) = kept.pop() {
             if !roots.insert(name.clone()) {
                 continue;
             }
-            for t in by_lower
-                .get(&name.to_ascii_lowercase())
-                .into_iter()
-                .flatten()
-            {
+            words.insert(name.clone());
+            let lower = name.to_ascii_lowercase();
+            if !expanded.insert(lower.clone()) {
+                continue;
+            }
+            for t in by_lower.get(&lower).into_iter().flatten() {
                 let read =
                     std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
                 kept.extend(read.flat_map(|v| scan::words(v)).map(str::to_string));
             }
-            words.insert(name);
         }
         let retention = tamber::Retention {
             bindable,

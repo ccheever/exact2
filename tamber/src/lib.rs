@@ -359,9 +359,15 @@ fn contrast(design: &Design, tokens: &[Checked], tuples: usize, vocab: &Vocab) -
         }
     };
     let mut out = Vec::new();
+    // The checked tokens by name, the first of each (linear: round 1 of the
+    // checker sweep).
+    let mut by_name = std::collections::HashMap::new();
+    for u in tokens.iter().rev() {
+        by_name.insert(u.name.as_str(), u);
+    }
     for (t, declared) in tokens.iter().zip(&design.tokens) {
         for pair in &t.pairs {
-            let under = tokens.iter().find(|u| &u.name == pair);
+            let under = by_name.get(pair.as_str()).copied();
             let role = Folded::Host(Host::Role(pair.clone()));
             let mut lowest: Option<(f64, usize, usize, bool)> = None;
             for tuple in 0..tuples {

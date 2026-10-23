@@ -291,3 +291,44 @@ fn a_transaction_of_value_writes_parses_the_design_once() {
     let undone = exact_tamber::undo(&edited.text, &edited.inverse, &vocab()).unwrap();
     assert_eq!(undone.text, src);
 }
+
+/// New tokens (an import's, accepted) are added with one parse too (Astra's
+/// round 1: a parse per `add-token` made a large import operations x tokens
+/// outside the import's budget).
+#[test]
+fn a_transaction_of_new_tokens_parses_the_design_once() {
+    let n = 20_000;
+    let src = theme((0..n).map(|k| format!("  t{k} = #111111")));
+    let ops: Vec<Op> = (0..4096)
+        .map(|k| Op::AddToken {
+            name: format!("new.t{k}"),
+            kind: None,
+            value: "#222222".into(),
+            meta: Vec::new(),
+            whens: Vec::new(),
+            comment: None,
+            before: None,
+        })
+        .collect();
+    let edited = within(10, "4096 add-token", || {
+        exact_tamber::apply_all(&src, &ops, &vocab()).unwrap()
+    });
+    assert_eq!(edited.text.matches("#222222").count(), 4096);
+    let undone = exact_tamber::undo(&edited.text, &edited.inverse, &vocab()).unwrap();
+    assert_eq!(undone.text, src);
+}
+
+/// An import whose axes would pass the design's 32 keeps the cap's id
+/// through the landing check (Astra's round 1).
+#[test]
+fn an_import_past_the_axes_cap_is_refused_with_its_id() {
+    let mut src = String::from("tamber t\n\naxes\n");
+    for a in 0..exact_tamber::MAX_AXES {
+        src += &format!("  a{a} = v\n");
+    }
+    src += "\ntheme\n  ink = #111111\n";
+    let design = parse(&src).unwrap();
+    let css = ":root { --background: #ffffff; }\n.theme-blue { --background: #0000ff; }\n";
+    let d = exact_tamber::import::shadcn::import(css, "shadcn", &design, &vocab()).unwrap_err();
+    assert_eq!(d[0].id, "tamber-axes", "{d:?}");
+}

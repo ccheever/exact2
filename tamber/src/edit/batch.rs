@@ -11,7 +11,7 @@
 use super::{role_key, same_conds, valid, Doc, Op};
 use crate::syntax::{At, When};
 use crate::{Diagnostic, Vocab};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A design's tokens by exact name and by the role a name spells, each the
 /// first (as [`super::token_index`] finds them: the exact name, else the role).
@@ -50,6 +50,69 @@ impl Index {
 enum Target {
     Token(usize),
     Dial(String),
+}
+
+/// Many `add-token`s with no `before` (an import's tokens) with one parse:
+/// the first stepped as ever, each after it on the lines right after the one
+/// before, where stepping it would land (after the last token, the one just
+/// added). `None` for anything else, or any refusal (a field, a name taken):
+/// the caller steps them, with stepping's words.
+pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
+    let adds = ops
+        .iter()
+        .all(|op| matches!(op, Op::AddToken { before: None, .. }));
+    if ops.len() < 2 || !adds || ops.iter().any(|op| valid(op).is_err()) {
+        return None;
+    }
+    let design = crate::parse(src).ok()?;
+    let mut names: HashSet<&str> = design
+        .tokens
+        .iter()
+        .map(|t| t.name.value.as_str())
+        .collect();
+    let fresh = ops
+        .iter()
+        .all(|op| matches!(op, Op::AddToken { name, .. } if names.insert(name.as_str())));
+    if !fresh {
+        return None;
+    }
+    let mut doc = Doc::new(src);
+    doc.roles = vocab
+        .roles
+        .iter()
+        .map(|r| (r.name.clone(), r.system))
+        .collect();
+    let indents = doc.indents(&design);
+    let before = doc.lines.clone();
+    doc.apply(&design, &ops[0]).ok()?;
+    let suffix = before
+        .iter()
+        .rev()
+        .zip(doc.lines.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count()
+        .min(before.len());
+    let mut at = doc.lines.len() - suffix;
+    for op in &ops[1..] {
+        let Op::AddToken {
+            name,
+            kind,
+            value,
+            meta,
+            whens,
+            comment,
+            ..
+        } = op
+        else {
+            return None;
+        };
+        for l in super::added_lines(indents, name, kind, value, meta, whens, comment) {
+            let l = doc.ended(l);
+            doc.lines.insert(at, l);
+            at += 1;
+        }
+    }
+    Some(doc.text())
 }
 
 /// `ops` stepped on `src` with one parse, or `None` for the caller to step
@@ -321,5 +384,58 @@ mod tests {
             super::super::stepped_all(src, &ops, &vocab),
             one_at_a_time(src, &ops, &vocab)
         );
+    }
+
+    /// New tokens with one parse land where stepping each would put them:
+    /// designs with and without a `theme` block, closing comments, blank
+    /// lines, `when` lines, no final newline, and tokens with kinds,
+    /// metadata, `when` lines and comments.
+    #[test]
+    fn new_tokens_with_one_parse_land_where_stepping_puts_them() {
+        let designs = [
+            "tamber t\n",
+            "tamber t\n\ntheme\n",
+            "tamber t\n\ntheme\n  ink = #111111\n",
+            "tamber t\n\ntheme\n  ink = #111111",
+            "tamber t\n\naxes\n  tone = a | b\n\ntheme\n    ink = #111111\n        when tone=b: #222222\n    // the end\n\nicons\n  icon.a = icon(sf \"house\")\n",
+            "tamber t\n\ntheme\n  ink = #111111  // a note\n\n  // closing\n",
+            "tamber t\r\n\r\ntheme\r\n  ink = #111111\r\n",
+        ];
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for design in designs {
+            for _ in 0..40 {
+                let n = 2 + next(6);
+                let ops: Vec<Op> = (0..n)
+                    .map(|k| Op::AddToken {
+                        name: format!("new.t{k}"),
+                        kind: (next(3) == 0).then(|| "color".to_string()),
+                        value: format!("#{:06x}", next(0xffffff)),
+                        meta: match next(3) {
+                            0 => vec!["label=\"A b\"".into()],
+                            _ => Vec::new(),
+                        },
+                        whens: match (next(3), design.contains("tone")) {
+                            (0, true) => {
+                                vec![(vec![("tone".into(), "b".into())], "#000000".into(), None)]
+                            }
+                            _ => Vec::new(),
+                        },
+                        comment: (next(4) == 0).then(|| "// added".to_string()),
+                        before: None,
+                    })
+                    .collect();
+                assert_eq!(
+                    super::added(design, &ops, &vocab()),
+                    Some(one_at_a_time(design, &ops, &vocab()).unwrap()),
+                    "{design:?} {ops:?}"
+                );
+            }
+        }
     }
 }

@@ -334,10 +334,8 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         ))),
     };
     let conds = |c: &[(String, String)]| {
-        if c.iter()
-            .enumerate()
-            .any(|(i, (a, _))| c[..i].iter().any(|(b, _)| b == a))
-        {
+        let mut seen = std::collections::HashSet::new();
+        if !c.iter().all(|(a, _)| seen.insert(a)) {
             return Err(refuse("a `when` names each axis once"));
         }
         c.iter()
@@ -506,10 +504,23 @@ fn run(
         None => {
             let mut text = src.to_string();
             let mut inverse = Vec::new();
-            for op in ops {
-                let (next, undo) = step(&text, op, vocab, params)?;
+            let mut k = 0;
+            while k < ops.len() {
+                // A run of new tokens (an import's) with one parse, and one
+                // restore that takes them all out (round 1 of the sweep).
+                let run = ops[k..]
+                    .iter()
+                    .take_while(|op| matches!(op, Op::AddToken { before: None, .. }))
+                    .count();
+                if let Some(next) = batch::added(&text, &ops[k..k + run], vocab) {
+                    inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                    (text, k) = (next, k + run);
+                    continue;
+                }
+                let (next, undo) = step(&text, &ops[k], vocab, params)?;
                 text = next;
                 inverse.push(undo);
+                k += 1;
             }
             inverse.reverse();
             (text, inverse)
@@ -641,6 +652,21 @@ impl Doc {
     }
 
     /// The line `n` (1-based) split into its indent, code and comment.
+    /// The indents a new token's lines take: the first token's, and the
+    /// first `when` line's (two deeper with none).
+    pub(crate) fn indents(&self, design: &Design) -> (usize, usize) {
+        let indent = design
+            .tokens
+            .first()
+            .map_or(2, |t| self.parts(t.name.line).0);
+        let when_indent = design
+            .tokens
+            .iter()
+            .find_map(|t| t.whens.first())
+            .map_or(indent + 2, |w| self.parts(w.line).0);
+        (indent, when_indent)
+    }
+
     fn parts(&self, n: u32) -> (usize, String, Option<String>) {
         let raw = self.lines[n as usize - 1].trim_end_matches('\r');
         let (body, comment) = lex::split_comment(raw);
@@ -805,27 +831,8 @@ impl Doc {
                         format!("a token `{name}` is declared already"),
                     ));
                 }
-                let indent = design
-                    .tokens
-                    .first()
-                    .map_or(2, |t| self.parts(t.name.line).0);
-                let when_indent = design
-                    .tokens
-                    .iter()
-                    .find_map(|t| t.whens.first())
-                    .map_or(indent + 2, |w| self.parts(w.line).0);
-                let mut code = match kind {
-                    Some(k) => format!("{name}: {k} = {}", value.trim()),
-                    None => format!("{name} = {}", value.trim()),
-                };
-                if !meta.is_empty() {
-                    code.push_str("  ");
-                    code.push_str(&meta.join(" "));
-                }
-                let mut new = vec![line(indent, &code, comment.as_deref())];
-                for (conds, v, c) in whens {
-                    new.push(line(when_indent, &when_code(conds, v.trim()), c.as_deref()));
-                }
+                let indents = self.indents(design);
+                let new = added_lines(indents, name, kind, value, meta, whens, comment);
                 let at = match before {
                     Some(b) => {
                         let t = &design.tokens[token_index(design, &self.roles, b)?];
@@ -1171,6 +1178,31 @@ pub(crate) fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
             }),
     };
     found.map(|(r, _)| r.clone())
+}
+
+/// A new token's lines (`add-token`'s), at the token and `when` indents.
+pub(crate) fn added_lines(
+    (indent, when_indent): (usize, usize),
+    name: &str,
+    kind: &Option<String>,
+    value: &str,
+    meta: &[String],
+    whens: &[WhenLine],
+    comment: &Option<String>,
+) -> Vec<String> {
+    let mut code = match kind {
+        Some(k) => format!("{name}: {k} = {}", value.trim()),
+        None => format!("{name} = {}", value.trim()),
+    };
+    if !meta.is_empty() {
+        code.push_str("  ");
+        code.push_str(&meta.join(" "));
+    }
+    let mut new = vec![line(indent, &code, comment.as_deref())];
+    for (conds, v, c) in whens {
+        new.push(line(when_indent, &when_code(conds, v.trim()), c.as_deref()));
+    }
+    new
 }
 
 /// `when a=b c=d: value`.
