@@ -778,7 +778,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!reply.ok) return reply;
     const ok = { ...reply.ok };
     if (ok.class === 'live' && ok.texts) {
-      const why = await scrub.inline(ok.texts).catch(() => null);
+      const why = await scrub.inline(ok.texts).catch(e => `it could not be checked (${e?.message ?? e}): rebuild assumed`);
       if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
     }
     if (request.texts !== true) delete ok.texts;

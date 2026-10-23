@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 import { developmentGate } from './install-page.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
 import { tamberServer } from './tamber-server.mjs';
+import { inlineWhy } from '../host/web-js/dev-inline.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 const op = value => [{ op: 'set-token', name: 'ink', value }];
@@ -485,7 +486,9 @@ test('an update naming a scrub that ended opens none', async () => {
 // `propose` through a loop whose pages write some tokens inline (the JS
 // target): a live edit that moves one is `rebuild` there; one that moves
 // none stays live; `texts` only when asked.
-test('propose through a loop that writes a token inline is rebuild there, else as the session says', async () => {
+/** A design server on a loop whose `scrub.inline` is `inline`, over a session stand-in whose `propose` is live but
+ * for the value `rebuilds`: `ask` a request, the `texts` each propose was asked for (`asked`). */
+async function inlineLoop(inline) {
   const asked = [];
   const spawnServe = () => {
     const { PassThrough } = require('node:stream');
@@ -507,18 +510,24 @@ test('propose through a loop that writes a token inline is rebuild there, else a
     });
     return child;
   };
-  const inlined = [];
-  const inline = async texts => { inlined.push(texts['app.tamber']); return texts['app.tamber'].includes('600') ? '`ink` is written inline on this page (`font-weight`)' : null; };
   const local = createServer();
   await new Promise(ok => local.listen(0, '127.0.0.1', ok));
   const port = local.address().port;
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
-  const wire = tamberServer({ appDir: '/nowhere', spawnServe, log: () => {}, scrub: { preview: async () => ({}), restore: () => {}, inline } });
+  const logged = [];
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe, log: line => logged.push(line), scrub: { preview: async () => ({}), restore: () => {}, inline } });
   local.on('request', async (req, res) => { if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); } });
   const at = `http://127.0.0.1:${port}`;
   const { token } = await (await fetch(`${at}/__tamber/token`)).json();
   const h = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
   const ask = async q => (await fetch(`${at}/__tamber`, { method: 'POST', headers: h, body: JSON.stringify(q) })).json();
+  return { ask, asked, logged, close: async () => { await wire.close(); local.close(); } };
+}
+
+test('propose through a loop that writes a token inline is rebuild there, else as the session says', async () => {
+  const inlined = [];
+  const inline = async texts => { inlined.push(texts['app.tamber']); return texts['app.tamber'].includes('600') ? '`ink` is written inline on this page (`font-weight`)' : null; };
+  const { ask, asked, close } = await inlineLoop(inline);
   const weight = await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '600' }] });
   expect(weight.ok.class).toBe('rebuild');
   expect(weight.ok.texts).toBeUndefined();
@@ -528,6 +537,26 @@ test('propose through a loop that writes a token inline is rebuild there, else a
   expect((await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: 'rebuilds' }] })).ok.class).toBe('rebuild');
   expect(inlined).toEqual(['ink = 600', 'ink = #111111']);
   expect(asked).toEqual([true, true, true]);
-  await wire.close();
-  local.close();
+  await close();
+}, 30_000);
+
+test("propose on the JS loop before its design reader is built is rebuild, said why, and its true class once it is (theme2 10:01)", async () => {
+  // The JS loop's own check (host/web-js/dev.mjs), its reader held until the test lets it go.
+  let built = false;
+  const read = async text => ({ tokens: [{ name: 'ink', value: text.slice('ink = '.length), slices: [], inline: false }] });
+  const inline = texts => inlineWhy({ texts, file: 'app.tamber', ready: () => built, read, pages: () => ({ tokens: [{ name: 'ink', value: '#000000', slices: [] }] }), same: (a, b) => a.value === b.value });
+  const { ask, logged, close } = await inlineLoop(inline);
+  const early = await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] });
+  expect(early.ok.class).toBe('rebuild');
+  expect(logged.some(l => l.includes('propose is rebuild here') && l.includes('not yet known: rebuild assumed'))).toBe(true);
+  built = true;
+  expect((await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] })).ok.class).toBe('live');
+  await close();
+}, 30_000);
+
+test('propose through a loop whose inline check throws is rebuild, said why, never live', async () => {
+  const { ask, logged, close } = await inlineLoop(async () => { throw new Error('reader gone'); });
+  expect((await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] })).ok.class).toBe('rebuild');
+  expect(logged.some(l => l.includes('it could not be checked (reader gone): rebuild assumed'))).toBe(true);
+  await close();
 }, 30_000);
