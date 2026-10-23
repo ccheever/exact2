@@ -167,15 +167,15 @@ final class KeptDocumentsMacTests: XCTestCase {
                 // The clear lands late: what the fallback noted comes back, in its order.
                 controller.clearRecentDocuments(nil)
                 XCTAssertEqual(listed(["c.md", "a.md"], within: 5), ["c.md", "a.md"])
-                XCTAssertNil(KeptDocuments.late)
+                KeptDocuments.late = nil
             }
         }
     }
 
     /// While a late clear is watched for, a document forgotten stays gone,
-    /// and one reopened is no sign the old list is still there. Driven by
-    /// hand: the late clear has landed, the watch not yet looked.
-    func testALateWatchKeepsAForgottenDocumentGoneAndTakesAReopenedOneAsNew() throws {
+    /// and one reopened meanwhile comes back with the rest. Driven by hand:
+    /// the watch looks when the test asks first.
+    func testALateWatchKeepsAForgottenDocumentGoneAndBringsBackOneReopened() throws {
         _ = NSApplication.shared
         let controller = NSDocumentController.shared
         func listed(_ want: [String]) -> [String] {
@@ -191,10 +191,9 @@ final class KeptDocumentsMacTests: XCTestCase {
             saved.reversed().forEach(controller.noteNewRecentDocumentURL)
         }
         let urls = try ["a.md", "b.md", "c.md"].map { try write($0, $0) }
-        let cleared = Set(urls.map(KeptDocuments.file))
         // Forgotten meanwhile: a.md, which the fallback had noted.
         clear()
-        KeptDocuments.late = (cleared, [urls[0], urls[2]], KeptDocuments.generation)
+        KeptDocuments.late = ([urls[0], urls[2]], KeptDocuments.generation)
         let a = try XCTUnwrap(KeptDocuments.identity(urls[0].path))
         KeptDocuments.forgotten(device: a.device, inode: a.inode)
         KeptDocuments.watchLate()
@@ -203,11 +202,19 @@ final class KeptDocumentsMacTests: XCTestCase {
         XCTAssertEqual(came, ["c.md"])
         // Reopened meanwhile: c.md, one the old list had too.
         clear()
-        KeptDocuments.late = (cleared, [urls[0], urls[2]], KeptDocuments.generation)
+        KeptDocuments.late = ([urls[0], urls[2]], KeptDocuments.generation)
         KeptDocuments.note(urls[2])
+        _ = listed(["c.md"])
         KeptDocuments.watchLate()
         XCTAssertEqual(listed(["c.md", "a.md"]), ["c.md", "a.md"])
-        XCTAssertNil(KeptDocuments.late)
+        // The only document forgotten, reopened before its late clear lands: it comes back after it.
+        clear()
+        KeptDocuments.late = ([], KeptDocuments.generation)
+        KeptDocuments.note(urls[1])
+        _ = listed(["b.md"])
+        KeptDocuments.watchLate()
+        controller.clearRecentDocuments(nil)
+        XCTAssertEqual(listed(["b.md"]), ["b.md"])
     }
 }
 #endif

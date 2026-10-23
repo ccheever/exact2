@@ -99,7 +99,7 @@ public enum KeptDocuments {
         let it = { (url: URL) in identity(url.path).map { $0 == (device, inode) } ?? false }
         if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { !it($0) }); return }
         // (Watched after a late clear too: it never comes back.)
-        if let watched = late { late = (watched.cleared, watched.urls.filter { !it($0) }, watched.generation) }
+        if let watched = late { late = (watched.urls.filter { !it($0) }, watched.generation) }
         let controller = NSDocumentController.shared
         let urls = controller.recentDocumentURLs
         guard urls.contains(where: it) else { return }
@@ -116,9 +116,9 @@ public enum KeptDocuments {
     /// it; menus and opens are on it), asserted where they change.
     nonisolated(unsafe) static var toNote: (cleared: Set<String>, urls: [URL])?
     /// After the 2 s fallback (`noteWhenCleared`): what it noted, and the app's
-    /// notes since, watched while a clear that lands later still could drop
-    /// them (`watchLate`); the `generation` it began in.
-    nonisolated(unsafe) static var late: (cleared: Set<String>, urls: [URL], generation: Int)?
+    /// notes since, oldest first, watched while a clear that lands later still
+    /// could drop them (`watchLate`); the `generation` it began in.
+    nonisolated(unsafe) static var late: (urls: [URL], generation: Int)?
     /// Moved by Clear Menu and by each forget's own clear: a late watch begun
     /// before either stops, so a real Clear Menu is not undone.
     nonisolated(unsafe) static var generation = 0
@@ -132,8 +132,7 @@ public enum KeptDocuments {
         assert(Thread.isMainThread, "Open Recent's bookkeeping is the main thread's")
         if let waiting = toNote { toNote = (waiting.cleared, waiting.urls.filter { file($0) != file(url) } + [url]); return }
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
-        // (One noted again is no sign the old list is still there.)
-        if let watched = late { late = (watched.cleared.subtracting([file(url)]), watched.urls.filter { file($0) != file(url) } + [url], watched.generation) }
+        if let watched = late { late = (watched.urls.filter { file($0) != file(url) } + [url], watched.generation) }
     }
 
     /// AppKit empties the list a turn or more after `clearRecentDocuments`,
@@ -152,25 +151,24 @@ public enum KeptDocuments {
         toNote = nil
         waiting.urls.forEach(controller.noteNewRecentDocumentURL)
         guard tries == 0 else { return }
-        late = (waiting.cleared, waiting.urls, generation)
+        late = (waiting.urls, generation)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate() }
     }
 
-    /// A clear that landed after the fallback took what it noted: once none
-    /// of what was cleared is listed, it is all noted again, oldest first (so
-    /// the app's latest note stays newest). Every 250 ms for 10 s, and not
-    /// past a Clear Menu or another forget's clear (`generation`).
+    /// A clear that landed after the fallback took what it noted: whenever
+    /// one of those (still on disk) is not listed, they are all noted again,
+    /// oldest first, so the app's latest note stays newest. Every 250 ms for
+    /// 10 s, and not past a Clear Menu or another forget's clear (`generation`).
     static func watchLate(tries: Int = 40) {
         guard let watched = late, watched.generation == generation else { return }
-        let controller = NSDocumentController.shared
         guard tries > 0 else { late = nil; return }
-        guard !controller.recentDocumentURLs.contains(where: { watched.cleared.contains(file($0)) }) else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(tries: tries - 1) }
-            return
+        let controller = NSDocumentController.shared, listed = Set(controller.recentDocumentURLs.map(file))
+        if watched.urls.contains(where: { !listed.contains(file($0)) && FileManager.default.fileExists(atPath: $0.path) }) {
+            watched.urls.forEach(controller.noteNewRecentDocumentURL)
         }
-        late = nil
-        watched.urls.forEach(controller.noteNewRecentDocumentURL)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { watchLate(tries: tries - 1) }
     }
+
     /// The library's hook, set once.
     static let installed: Void = {
         exact_on_document_forgotten { device, inode in
