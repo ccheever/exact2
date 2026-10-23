@@ -128,6 +128,9 @@ component Excord
   mutation beat as shape Ack
   // The clock moved on and the gateway asked again: a backoff's retry.
   mutation redialed as shape Ack refreshes gateway
+  // An IDENTIFY goes out only once its record is kept (`recorded`), else the gateway stops.
+  mutation recorded as shape Ack then identifyNow
+  mutation identified as shape Ack
   mutation typed as shape Ack
   mutation joined as shape Ack
   derive rows = win.channel == open ? win.rows : []
@@ -155,6 +158,8 @@ component Excord
   // A dropped connection resumes once its backoff has passed.
   task redial when gateway.state == "backoff"
     every(1000, redialNow)
+  task record when gateway.state == "recording"
+    after(1, recordNow)
   task traffic when live and open != ""
     every(2500, trafficTick)
   // Discord's typing lasts ten seconds unless sent again.
@@ -193,6 +198,10 @@ component Excord
     send beat = heartbeat(time.epochAtZero + performanceNow())
   action redialNow
     send redialed = heartbeat(time.epochAtZero + performanceNow())
+  action recordNow
+    send recorded = recordIdentify()
+  action identifyNow
+    send identified = sendIdentify()
   action trafficTick
     send changed = inject(open, "message", topKey, time.epochAtZero + performanceNow())
   action stopTyping
@@ -518,6 +527,9 @@ component Excord
             header
               h1 (guild.name != "" ? guild.name : "Excord")
             list id="channels" appearance="auto" flex=1 min-height=0
+              if gateway.state == "stopped"
+                section
+                  text `Not connected: ${gateway.detail}` color="-exact-system-red" testId="stopped"
               section
                 for c in channels key=c.id
                   button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
