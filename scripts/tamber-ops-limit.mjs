@@ -30,7 +30,21 @@ export function reholds(request, scope, proposals) {
   const from = request.review?.from, p = typeof from === 'string' ? proposals.get(from) : undefined;
   if (request.method !== 'propose' || request.hold !== true || !p || request.ops.length > p.ops.length) return false;
   if (p.client !== request.client && !allows(scope, 'write')) return false;
-  const target = op => JSON.stringify([op?.op, op?.name ?? null]);
   const targets = new Set(p.ops.map(target));
   return request.ops.every(op => targets.has(target(op)));
+}
+
+// The operations whose `value` (and a new token's `when` lines' values) a
+// re-hold may change: every other field, and every field of any other
+// operation, is its target.
+const VALUED = new Set(['set-token', 'add-token', 'set-dial', 'set-param']);
+
+/** An operation's target: the whole operation but the values a re-hold may
+ * edit (Astra's round 1: by its kind and name alone, an axis value's or
+ * another file's op could stand in for a held one). */
+export function target(op) {
+  if (!op || typeof op !== 'object' || !VALUED.has(op.op)) return JSON.stringify(op ?? null);
+  const { value, ...rest } = op;
+  if (Array.isArray(rest.whens)) rest.whens = rest.whens.map(w => (Array.isArray(w) ? w.slice(0, 1) : w && typeof w === 'object' ? { ...w, value: undefined } : w));
+  return JSON.stringify(rest);
 }

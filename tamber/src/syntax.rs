@@ -255,10 +255,12 @@ pub(crate) fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool
     if a.len() <= 8 {
         return a.iter().all(|c| b.contains(c)) && b.iter().all(|c| a.contains(c));
     }
-    conds_key(a) == conds_key(b)
+    use std::collections::HashSet;
+    a.iter().collect::<HashSet<_>>() == b.iter().collect::<HashSet<_>>()
 }
 
-/// `when` conditions in one order, for a set of them.
+/// `when` conditions in one order, for a set of them: a `when` naming each
+/// axis once (the checker's rule, and history's before it keys one).
 pub(crate) fn conds_key(c: &[(String, String)]) -> Vec<&(String, String)> {
     let mut k: Vec<_> = c.iter().collect();
     k.sort();

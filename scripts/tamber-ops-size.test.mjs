@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { developmentGate } from './install-page.mjs';
 import { tamberServer } from './tamber-server.mjs';
+import { target } from './tamber-ops-limit.mjs';
 
 let dir, server, tamber, origin, headers;
 const gitIn = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' });
@@ -56,6 +57,10 @@ test("past 1024 operations: a held import's accept and revert are the server's o
   // A target the held proposal doesn't have, past 1024: refused.
   const added = await rehold({ ops: [...ops.slice(0, 1100), { op: 'add-token', name: 'stranger', value: '#000000' }] });
   expect([added.status, added.error?.id]).toEqual([400, 'tamber-ops-size']);
+  // An operation of the same kind and name on another target (another
+  // file, or an axis value's other axis), past 1024: refused (Astra's round 1).
+  const moved = await rehold({ ops: ops.map((op, i) => (i === 0 ? { ...op, file: 'other.tamber' } : op)) });
+  expect([moved.status, moved.error?.id]).toEqual([400, 'tamber-ops-size']);
   // More operations than the held proposal: refused.
   const more = await rehold({ ops: [...ops, ops[0]] });
   expect([more.status, more.error?.id]).toEqual([400, 'tamber-ops-size']);
@@ -74,3 +79,16 @@ test("past 1024 operations: a held import's accept and revert are the server's o
   expect(reverted.ok.ops.length).toBeGreaterThan(1024);
   gitIn('reset', '-q', '--hard', 'HEAD~1');
 }, 300_000);
+
+test("an operation's target is all of it but the values a re-hold may edit", () => {
+  const set = { op: 'set-token', name: 'ink', when: [{ axis: 'tone', value: 'b' }], value: '#111111' };
+  expect(target({ ...set, value: '#222222' })).toBe(target(set));
+  expect(target({ ...set, when: [] })).not.toBe(target(set));
+  expect(target({ ...set, file: 'other.tamber' })).not.toBe(target(set));
+  const add = { op: 'add-token', name: 'new', value: '#111111', whens: [{ when: [{ axis: 'tone', value: 'b' }], value: '#000000' }] };
+  expect(target({ ...add, whens: [{ ...add.whens[0], value: '#ffffff' }] })).toBe(target(add));
+  expect(target({ ...add, whens: [{ ...add.whens[0], when: [] }] })).not.toBe(target(add));
+  const axis = { op: 'add-axis-value', axis: 'theme', value: 'x' };
+  expect(target({ ...axis, axis: 'density' })).not.toBe(target(axis));
+  expect(target({ ...axis, value: 'y' })).not.toBe(target(axis));
+});

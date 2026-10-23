@@ -168,6 +168,16 @@ fn ambiguous(d: &Design) -> Option<String> {
         .or_else(|| twice(d.tokens.iter().map(|x| &x.name.value).collect(), "token"))
         .or_else(|| twice(d.icons.iter().map(|x| &x.name.value).collect(), "icon"))
         .or_else(|| {
+            // A `when` naming an axis twice reads as no set of conditions.
+            d.tokens.iter().find_map(|t| {
+                let twice = t.whens.iter().find(|w| {
+                    let mut axes = HashSet::new();
+                    !w.conds.iter().all(|(a, _)| axes.insert(a))
+                });
+                twice.map(|_| format!("names an axis twice in one `when` of `{}`", t.name.value))
+            })
+        })
+        .or_else(|| {
             d.tokens.iter().find_map(|t| {
                 let mut seen = HashSet::new();
                 t.whens

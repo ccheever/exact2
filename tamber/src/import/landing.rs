@@ -272,6 +272,11 @@ pub(super) fn landing(
         }
     };
     if let Some(d) = fold(&vec![true; tokens.len()]).first() {
+        // A design limit the axes pass (too many axes, `when` lines) keeps
+        // its own id, as every importer's refusal of one does.
+        if matches!(d.id, "tamber-axes" | "tamber-whens") {
+            return Err(d.clone());
+        }
         return Err(Diagnostic::new(
             "tamber-import-axis",
             format!(
