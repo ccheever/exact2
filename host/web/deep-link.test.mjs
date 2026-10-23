@@ -15,10 +15,10 @@ import {createApp} from '../../game/new.mjs';
 import {developmentBuildEnv} from '../../scripts/app.mjs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
-import {acceptsHTML, appDocumentPath, DirectoryOrigin} from '../../scripts/origin.mjs';
+import {acceptsHTML, appDocumentPath, DirectoryOrigin, webRootPath} from '../../scripts/origin.mjs';
 import {publishRoot} from '../../scripts/deploy.mjs';
 import {canonical, locationOf, matchPattern} from '../web-js/route-pattern.js';
-import {buildTreeFile, readWebRequest, serveBuildTree} from './serve.mjs';
+import {buildTreeFile, buildTreeFileAsync, readWebRequest, serveBuildTree} from './serve.mjs';
 
 test('a navigation to a dotted deep link is the document; a fetch of one is not', async () => {
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-'));
@@ -130,14 +130,40 @@ test('the shared pattern matcher retains the route corpus semantics without notf
 });
 
 afterEach(() => stopAll());
+// Hold producer replies so navigation can be tested before admission and after a host rebuild.
+const holdProducer = `
+import {ChildProcess} from 'node:child_process';
+const spawn = ChildProcess.prototype.spawn;
+ChildProcess.prototype.spawn = function(options) {
+  const result = spawn.call(this, options);
+  if (options.file.endsWith('/exact-js-bake') && options.args.includes('--serve')) {
+    const stream = this.stdout, emit = stream.emit, buffered = [];
+    let held = true;
+    stream.emit = function(event, ...args) {
+      if (held && event === 'data') { buffered.push(args); return true; }
+      return emit.call(this, event, ...args);
+    };
+    const admit = input => {
+      if (String(input).trim() !== 'admit') return;
+      held = false;
+      for (const args of buffered.splice(0)) emit.call(stream, 'data', ...args);
+    };
+    process.stdin.on('data', admit);
+    this.once('exit', () => process.stdin.off('data', admit));
+  }
+  return result;
+};
+`;
 // Fixture compilation is preparation; every wait on a running loop is bounded to 30 seconds.
 for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`, () => {
-  let dir, app, dist, source, env;
+  let dir, app, dist, source, env, preload;
   const root = resolve(import.meta.dir, '../..');
   beforeAll(async () => {
     dir = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-dev-'));
     app = resolve(dir, 'deep-links'); dist = resolve(dir, 'dist');
     if (wasm) {
+      preload = resolve(dir, 'hold-producer.mjs');
+      writeFileSync(preload, holdProducer);
       createApp(app, {id: 'com.exact.deep-links', title: 'Deep links'});
       writeFileSync(resolve(app, 'app.ts'), "export const appId = 'com.exact.deep-links';\nexport const grants = '';\nexport const answer = () => { throw new Error('no sources'); };\n");
     } else {
@@ -167,8 +193,8 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
     const port = listener.address().port;
     await new Promise(ok => listener.close(ok));
     const url = `http://127.0.0.1:${port}`;
-    const dev = spawnOwned(process.execPath, ['host/web/dev.mjs', '--app', app, '--port', String(port), ...(wasm ? ['--wasm'] : [])],
-      {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']});
+    const dev = spawnOwned(process.execPath, [...(wasm ? ['--preload', preload] : []), 'host/web/dev.mjs', '--app', app, '--port', String(port), ...(wasm ? ['--wasm'] : [])],
+      {cwd: root, env, stdio: ['pipe', 'pipe', 'pipe']});
     const controller = new AbortController();
     let streamTimer;
     try {
@@ -199,8 +225,26 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
         }
       };
       const sequence = frame => wasm ? frame.seq : frame.reload;
-      const initial = await nextBuild(frame => sequence(frame) > 0);
       const status = async (path, accept = 'text/html') => (await fetch(url + path, {headers: {accept}})).status;
+      let initial;
+      if (wasm) {
+        const hello = await nextBuild(frame => frame.hello);
+        expect(hello.ready).toBe(false);
+        const duringAdmission = async () => {
+          expect(await status('/')).toBe(200);
+          expect(await status('/exact.json')).toBe(404);
+          return status('/profile/photos.zip');
+        };
+        const startup = await duringAdmission();
+        dev.stdin.write('admit\n');
+        const first = await nextBuild(frame => sequence(frame) > 0);
+        dev.stdin.write('r\n');
+        await nextBuild(frame => frame.rebuilt);
+        const rebuilt = await duringAdmission();
+        dev.stdin.write('admit\n');
+        initial = await nextBuild(frame => sequence(frame) > sequence(first));
+        expect([startup, rebuilt]).toEqual([200, 200]);
+      } else initial = await nextBuild(frame => sequence(frame) > 0);
       expect(await status('/profile/photos.zip')).toBe(200);
       expect(await status('/deck/missing.html')).toBe(404);
       expect(await status('/missing.pdf')).toBe(404);
@@ -267,3 +311,39 @@ test('HTTP route caches read each plan asynchronously once and refresh after edi
     rmSync(dist, {recursive: true, force: true});
   }
 });
+
+
+for (const failure of ['published plan', 'published pointer', 'local plan', 'tree plan']) {
+  test(`route lookup retries a failed ${failure} read without a file change`, async () => {
+    const dist = mkdtempSync(resolve(tmpdir(), 'exact-route-read-failure-'));
+    const original = filesystem.filesystemRead;
+    let reads;
+    try {
+      writeFileSync(resolve(dist, 'index.html'), '<title>app</title>');
+      plan(dist, '/profile/:handle');
+      const published = failure.startsWith('published');
+      const root = published ? resolve(dist, 'origin') : dist;
+      if (published) await publishRoot({origin: new DirectoryOrigin(root), row: {}, web: dist});
+      // Local static reads retry four times inside one request; published reads fail closed immediately.
+      let remaining = failure === 'local plan' ? 4 : 1, pointers = 0;
+      reads = spyOn(filesystem, 'filesystemRead').mockImplementation(request => {
+        const selected = failure === 'published pointer'
+          ? request.path === webRootPath && ++pointers === 2
+          : request.path === 'app.plan' || request.path.endsWith('/app.plan');
+        if (remaining && selected) { remaining--; throw new Error('injected EMFILE'); }
+        return original(request);
+      });
+      const read = async path => failure === 'tree plan'
+        ? (await buildTreeFileAsync(root, path, 'text/html'))?.route
+        : (await readWebRequest(root, path, 'text/html')).found?.route;
+      expect(await read('/profile/photos.zip')).toBe(undefined);
+      expect(remaining).toBe(0);
+      expect(await read('/index.html')).toBe('/index.html');
+      expect(await read('/profile/photos.zip')).toBe('/index.html');
+      expect(await read('/deck/missing.html')).toBe(undefined);
+    } finally {
+      reads?.mockRestore();
+      rmSync(dist, {recursive: true, force: true});
+    }
+  });
+}

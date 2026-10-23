@@ -621,7 +621,9 @@ function* servedRoutePlan(dist, published = true) {
         plan = bytes === null ? null : {body: Buffer.from(bytes, 'base64')};
       }
       if (routePlanIdentity(dist, published) !== identity) continue;
-      if (plan) plan = {routes: planRoutes(plan.body), path: plan.path, published: plan.published};
+      // Static reads return null for both absence and failure; neither should suppress a retry.
+      if (!plan) return null;
+      plan = {routes: planRoutes(plan.body), path: plan.path, published: plan.published};
       if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
       servedRoutePlans.set(key, {identity, plan});
       return plan;
