@@ -98,6 +98,18 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** The session this instance belongs to. Android runs one session a process. */
     val session: String = "1"
 
+    /** Who made the call being answered now, `app`, `tool` or `wake`, read at [ExactExtension.later]'s entry: a
+     * capture's first lease is refused to a tool's read (LLP 1133.009 D6). */
+    var origin = "app"
+        internal set
+
+    /** The session's track table, which its implementations share (LLP 1133.009 D10 item 6). */
+    val tracks: Tracks get() = Extensions.tracks
+
+    /** The file an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's
+     * scratch tree under the agent. Admission checked the path against the calling source's grants. */
+    fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
+
     /** Whether the app is in the foreground, as the runner's admission reads it ([ExactExtension.foreground]). */
     var foreground = true
         internal set
@@ -128,6 +140,8 @@ internal object Extensions {
     }
     private val roster: Map<String, (ExtensionContext) -> ExactExtension> get() = written?.extensions ?: emptyMap()
     private val made = HashMap<String, ExactExtension>()
+    /** The one session's track table. */
+    val tracks = Tracks()
     private var application: Context? = null
     private var foreground = false
     private var asking = false
@@ -165,8 +179,10 @@ internal object Extensions {
                     if (args != null) extension.release(released, args) else extension.release(released)
                     reply(JSONObject())
                 }
-                declared.isNotEmpty() ->
+                declared.isNotEmpty() -> {
+                    extension.context.origin = request.optString("origin").ifEmpty { "app" }
                     extension.later(declared, request.optJSONObject("args") ?: JSONObject(), request.opt("preferred"), reply)
+                }
                 request.has("preferred") -> {
                     extension.preferred(request.optJSONObject("preferred") ?: JSONObject())
                     reply(JSONObject())

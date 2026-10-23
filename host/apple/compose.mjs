@@ -14,11 +14,11 @@ export function composedModule(packages, ownModule) {
   for (const p of packages) lines.push(
     `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
     `    let impl: ${p.className}, context: ExactPackageContext`,
-    `    init(_ module: ExactModuleContext, session: String) {`,
-    `        context = ExactPackageContext(agent: module.agent && !ExactExtensions.real.contains(${JSON.stringify(p.extension)}), session: session, changed: { [weak module] topic in module?.changed(topic) }, log: { [weak module] line in module?.diagnostics.log(line) }, now: { [weak module] in module?.now() ?? 0 })`,
+    `    init(_ module: ExactModule, session: String) {`,
+    `        context = ExactExtensions.context(module, ${JSON.stringify(p.extension)}, session: session)`,
     `        impl = ${p.className}(context: context)`,
     '    }',
-    '    override func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: ExactReply) { impl.later(name, args, preferred: preferred) { reply.send($0) } }',
+    '    override func later(_ name: String, _ args: [String: Any], preferred: Any?, origin: String, reply: ExactReply) { context.origin = origin; impl.later(name, args, preferred: preferred) { reply.send($0) } }',
     '    override func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] { try impl.call(name, args) }',
     '    override func release(_ name: String) { impl.release(name) }',
     '    override func release(_ name: String, args: [String: Any]) { impl.release(name, args: args) }',
@@ -42,7 +42,7 @@ export function composedModule(packages, ownModule) {
     '    override func setProps(_ props: [String: String]) throws { try made.setProps(props) }',
     '    override func destroy() { made.destroy() }',
     '}');
-  lines.push(`let exactExtensions: [String: (ExactModuleContext, String) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0, session: $1) }`).join(', ') || ':'}]`);
+  lines.push(`let exactExtensions: [String: (ExactModule, String) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0, session: $1) }`).join(', ') || ':'}]`);
   const views = packages.flatMap(p => (p.views ?? []).map(tag => `${JSON.stringify(tag)}: ExactNativeFactory(package: { try ExactExtensions.view($0, ${JSON.stringify(p.extension)}, ${JSON.stringify(tag)}, id: $1, props: $2, events: $3) })`));
   lines.push(`let exactPackageViews: [String: ExactNativeFactory] = [${views.join(', ') || ':'}]`);
   if (!ownModule) lines.push('final class ExactComposedModule: ExactModule {}', 'let exactModule: ExactModule.Type = ExactComposedModule.self');

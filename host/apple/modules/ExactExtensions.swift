@@ -9,8 +9,8 @@
 // extension's adapter, made once a session on its first request; the app's
 // own module never sees it:
 //
-// - `{"extension", "source"|"send", "args", "preferred"?}`: a call of one
-//   of its names;
+// - `{"extension", "source"|"send", "args", "preferred"?, "origin"?}`: a
+//   call of one of its names, `origin` when a tool or a wake made it;
 // - `{"extension", "release", "args"?}`: a live source with no reader left,
 //   or, with `args`, an argument group of one (LLP 1133.009 D10 item 12);
 // - `{"extension", "preferred"}`: the agent's preferred values, for an
@@ -26,11 +26,14 @@
 // An error is answered as `{"error": code}`. At the session's end each
 // adapter's `destroy` is called and waited for, a second at most (item 1).
 import Foundation
+#if canImport(ExactPackage)
+import ExactPackage
+#endif
 
 /// One extension's adapter, as the build writes it.
 open class ExactExtensionAdapter {
     public init() {}
-    open func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: ExactReply) {
+    open func later(_ name: String, _ args: [String: Any], preferred: Any?, origin: String, reply: ExactReply) {
         reply.send(["error": "NotSupportedError"])
     }
     open func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
@@ -62,6 +65,9 @@ enum ExactExtensions {
     /// The extensions a drive binds as in production (`--bind`, `EXACT_AGENT_BIND`).
     static let real = Set((ProcessInfo.processInfo.environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
 
+    /// Each session's track table, which its adapters share (LLP 1133.009 D10 item 6).
+    private static var tables: [ObjectIdentifier: AnyObject] = [:]
+
     private static func adapter(_ m: ExactModule, _ name: String) -> ExactExtensionAdapter? {
         let key = ObjectIdentifier(m)
         if let a = made[key]?[name] { return a }
@@ -71,9 +77,19 @@ enum ExactExtensions {
             sessions[key] = String(nextSession)
             return String(nextSession)
         }()
-        let a = make(m.context, session)
+        let a = make(m, session)
         made[key, default: [:]][name] = a
         return a
+    }
+
+    /// An `app:/` path's file in the session's directories.
+    static func file(_ path: String, _ module: ExactModuleContext) -> URL? {
+        guard path.hasPrefix("app:/") else { return nil }
+        let parts = path.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        let roots = ["data": module.data, "cache": module.cache, "tmp": module.temporary]
+        guard let root = roots[parts[0]] else { return nil }
+        return parts.dropFirst().reduce(root) { $0.appendingPathComponent($1) }
     }
 
     /// A request of the runner's; `false` for one that names no extension.
@@ -102,7 +118,7 @@ enum ExactExtensions {
             a.foreground(shown)
             reply.send([:])
         } else if let name = (request["source"] ?? request["send"]) as? String {
-            a.later(name, args ?? [:], preferred: request["preferred"], reply: reply)
+            a.later(name, args ?? [:], preferred: request["preferred"], origin: request["origin"] as? String ?? "app", reply: reply)
         } else {
             reply.send(["error": "NotSupportedError"])
         }
@@ -131,6 +147,7 @@ enum ExactExtensions {
         let key = ObjectIdentifier(m)
         let adapters = made.removeValue(forKey: key) ?? [:]
         sessions[key] = nil
+        tables[key] = nil
         guard !adapters.isEmpty else { return }
         var waiting = Set(adapters.keys)
         for (name, a) in adapters { a.destroy { waiting.remove(name) } }
@@ -143,3 +160,61 @@ enum ExactExtensions {
         }
     }
 }
+
+/// A capture's claims on the host's audio session (LLP 1133.009 D7), through
+/// the host table's `audio_claim` and `audio_release` (NativeHatches.swift).
+enum AudioClaims {
+    typealias EventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
+    /// `audio_claim(host, mode, modeLen, options, background, event, ctx)` → claim (0: refused).
+    typealias ClaimFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt64, UInt32, EventFn, UnsafeMutableRawPointer?) -> UInt64
+    typealias ReleaseFn = @convention(c) (UnsafeMutableRawPointer?, UInt64) -> Void
+    final class Box {
+        let events: (String) -> Void
+        init(_ events: @escaping (String) -> Void) { self.events = events }
+    }
+    /// `AVAudioSession.CategoryOptions` by name, as the host's bits read them.
+    static let options = ["mixWithOthers", "duckOthers", "allowBluetoothHFP", "allowBluetoothA2DP", "defaultToSpeaker",
+                          "bluetoothHighQualityRecording", "farFieldInput", "overrideMutedMicrophoneInterruption"]
+
+    /// The release, or nil when the host refused the claim; a host with no
+    /// audio session owner composes nothing, and the claim is empty.
+    static func claim(_ h: ExactHatches, mode: String?, options: [String], background: Bool, events: @escaping (String) -> Void) -> (() -> Void)? {
+        guard let claimFn = h.audioClaimFn, let releaseFn = h.audioReleaseFn else { return {} }
+        let bits = options.reduce(UInt64(0)) { bits, name in Self.options.firstIndex(of: name).map { bits | 1 << UInt64($0) } ?? bits }
+        let box = Unmanaged.passRetained(Box(events)), word = Array((mode ?? "").utf8)
+        let id = word.withUnsafeBufferPointer { claimFn(h.host, $0.baseAddress, UInt32($0.count), bits, background ? 1 : 0, audioEvent, box.toOpaque()) }
+        guard id != 0 else { box.release(); return nil }
+        let host = h.host
+        return { releaseFn(host, id); box.release() }
+    }
+}
+
+/// The host's word for an audio session event, to the claim's `events`.
+private let audioEvent: AudioClaims.EventFn = { ctx, code in
+    guard let ctx else { return }
+    let box = Unmanaged<AudioClaims.Box>.fromOpaque(ctx).takeUnretainedValue()
+    box.events(["", "interrupted", "resumed", "reset", "route"][Int(min(code, 4))])
+}
+
+#if canImport(ExactPackage)
+// Only an artifact that composes packages has their seam to compile against.
+extension ExactExtensions {
+    /// The context of extension `name`'s implementation in `m`'s session
+    /// (ExactPackage.swift): the session's clock, journal, track table,
+    /// files and the host's audio session.
+    static func context(_ m: ExactModule, _ name: String, session: String) -> ExactPackageContext {
+        let module = m.context, tracks = tables[ObjectIdentifier(m)] as? ExactTracks ?? ExactTracks()
+        tables[ObjectIdentifier(m)] = tracks
+        return ExactPackageContext(
+            agent: module.agent && !real.contains(name), session: session,
+            changed: { [weak module] topic in module?.changed(topic) },
+            log: { [weak module] line in module?.diagnostics.log(line) },
+            now: { [weak module] in module?.now() ?? 0 },
+            tracks: tracks,
+            file: { [weak module] path in module.flatMap { file(path, $0) } },
+            audioSession: ExactAudioSession { [weak m] mode, options, background, events in
+                m?.hatches.flatMap { AudioClaims.claim($0, mode: mode, options: options, background: background, events: events) }
+            })
+    }
+}
+#endif

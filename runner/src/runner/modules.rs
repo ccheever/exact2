@@ -87,6 +87,9 @@ pub(super) struct Extensions {
     polls: BTreeMap<String, f64>,
     /// What each package view's implementation was told (`views.rs`).
     views: views::Views,
+    /// The polled sources whose last answer was an error, not asked again by
+    /// a poll (`poll.rs`).
+    failed: BTreeSet<String>,
 }
 
 /// A held request's outcome once the agent answered it.
@@ -303,7 +306,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The reply to a held module request, as `fulfill` parses it.
     pub(super) fn module_parse(
-        &self,
+        &mut self,
         ty: TypesId,
         source: &str,
         outcome: Outcome,
@@ -316,6 +319,7 @@ impl<D: DataSource> Runner<D> {
         let json: Json = serde_json::from_slice(&body)
             .map_err(|e| DataError::Unavailable(format!("{key}: {e}")))?;
         let json = self.overlaid(&row, json);
+        self.note_poll_answer(&row, error_code(&json).is_some());
         self.answer_json(ty, &key, &json).map(Answer::Now)
     }
 

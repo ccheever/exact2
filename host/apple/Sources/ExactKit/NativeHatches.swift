@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                120
+//    0  u32 size                136
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -35,10 +35,16 @@
 //  112  on_line(host) → 1 online, 0 offline, 2 not answered (off main, or a
 //        destroyed session): `app.onLine`, read when the module asks, so
 //        the path monitor starts only then (PageFacts)
+//  120  audio_claim(host, mode, len, options, background, event, ctx) → claim
+//  128  audio_release(host, claim): a package capture's claim on the audio
+//        session (LLP 1133.009 D7, AudioSession.swift)
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
 import CExact
+#if os(iOS) || os(tvOS)
+import AVFoundation
+#endif
 import Foundation
 #if os(macOS)
 import AppKit
@@ -140,6 +146,39 @@ typealias HatchOnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
 let hatchOnLine: HatchOnLineFn = { host in
     guard hatchSession(host) != nil else { return 2 }
     return PageFacts.onLine ? 1 : 0
+}
+
+/// A package's capture claims the audio session (LLP 1133.009 D7): its
+/// mode's name, `AVAudioSession.CategoryOptions` by bit (ExactExtensions.swift
+/// `AudioClaims.options`), whether it may run in the background, and where
+/// the owner's events go. 0 when the session would not activate. The Mac has
+/// no session: a claim there composes nothing and hears nothing.
+typealias HatchAudioEventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
+typealias HatchAudioClaimFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt64, UInt32, HatchAudioEventFn, UnsafeMutableRawPointer?) -> UInt64
+typealias HatchAudioReleaseFn = @convention(c) (UnsafeMutableRawPointer?, UInt64) -> Void
+nonisolated(unsafe) private var macClaims: UInt64 = 0
+private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, background, event, context in
+    let word = hatchText(mode, length)
+    hatchSession(host)?.log("audio session: claimed by a capture\(word.isEmpty ? "" : " (mode \(word))")")
+    #if os(iOS) || os(tvOS)
+    // `AudioClaims.options`' names, in order, as `CategoryOptions`' raw values; unsaid, the speaker and a headset's microphone.
+    let raw: [UInt] = [0x1, 0x2, 0x4, 0x20, 0x8, 1 << 19, 1 << 18, 0x80]
+    let chosen = raw.indices.filter { options & (1 << UInt64($0)) != 0 }.reduce(UInt(0)) { $0 | raw[$1] }
+    let modes: [String: AVAudioSession.Mode] = ["default": .default, "measurement": .measurement, "voiceChat": .voiceChat, "videoChat": .videoChat, "videoRecording": .videoRecording]
+    let id = AudioSession.claimCapture(mode: modes[word] ?? .default, options: options == 0 ? [.defaultToSpeaker, .allowBluetoothHFP] : AVAudioSession.CategoryOptions(rawValue: chosen),
+                                       background: background != 0) { code in event(context, code) }
+    if id == 0 { hatchSession(host)?.log("audio session: the capture's claim was refused (the session would not activate)") }
+    return id
+    #else
+    macClaims += 1
+    return macClaims
+    #endif
+}
+private let hatchAudioRelease: HatchAudioReleaseFn = { host, id in
+    hatchSession(host)?.log("audio session: a capture's claim released")
+    #if os(iOS) || os(tvOS)
+    AudioSession.releaseCapture(id)
+    #endif
 }
 
 private let hatchLog: HatchLogFn = { host, bytes, length in
@@ -246,7 +285,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 120
+    let size = 136
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -264,6 +303,8 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchTamber, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchStack, to: UnsafeRawPointer.self), toByteOffset: 104, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchOnLine, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchAudioClaim, to: UnsafeRawPointer.self), toByteOffset: 120, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchAudioRelease, to: UnsafeRawPointer.self), toByteOffset: 128, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 
