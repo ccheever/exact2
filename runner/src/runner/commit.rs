@@ -813,6 +813,8 @@ impl<D: DataSource> Runner<D> {
                 Target::Resource(_) => None,
             },
             held: request.is_held(),
+            long_poll: request.stream && request.long_poll.is_some(),
+            replied: false,
         });
         self.requests.push(RequestOut {
             ticket,
@@ -954,6 +956,16 @@ impl<D: DataSource> Runner<D> {
         &self.held_replies
     }
 
+    /// A long poll's reply, an event or not (LLP 1016.000 D8): from its first
+    /// it is held, and each raises `heldReplies` for `clock held`.
+    fn long_poll_replied(&mut self, pos: usize) {
+        let p = &mut self.pending[pos];
+        p.replied = true;
+        let target = p.target;
+        self.count_held_reply(target);
+        self.sync_pending_flags();
+    }
+
     fn count_held_reply(&mut self, target: Target) {
         let name = self.target_name(target);
         match self.held_replies.iter_mut().find(|(n, _)| *n == name) {
@@ -968,7 +980,7 @@ impl<D: DataSource> Runner<D> {
     pub fn held_requests(&self) -> Vec<(String, u64)> {
         self.pending
             .iter()
-            .filter(|p| p.in_flight() && p.held && !self.held_for_agent(p))
+            .filter(|p| (p.in_flight() && p.held || p.replied) && !self.held_for_agent(p))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect()
     }
@@ -1079,14 +1091,19 @@ impl<D: DataSource> Runner<D> {
             }
             return Ok(None);
         };
-        if let (Some(_), Outcome::Message(_)) = (self.pending[pos].stream, &outcome) {
+        if let (Some(_), Outcome::Message(m)) = (self.pending[pos].stream, &outcome) {
+            // A long poll's reply that is no event (LLP 1016.000 D8): it holds.
+            if self.pending[pos].long_poll && m.event == crate::LONG_POLL_REPLY {
+                self.long_poll_replied(pos);
+                return Ok(None);
+            }
             return self.message(pos, outcome, &summary);
         }
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
-        if p.held {
+        if p.held || p.long_poll {
             self.count_held_reply(p.target);
         }
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
@@ -1130,6 +1147,9 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
+        if self.pending[pos].long_poll {
+            self.long_poll_replied(pos);
+        }
         let p = &mut self.pending[pos];
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
             count.messages += 1;

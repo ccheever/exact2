@@ -29,9 +29,11 @@ function longPollOf(poll, method, url) {
   if (/^wss?:/i.test(url)) throw new TypeError('exactLongPoll: a long poll is HTTP, not a WebSocket');
   if (method !== 'GET') throw new TypeError('exactLongPoll: a long poll asks with GET');
   if (poll === null || typeof poll !== 'object') throw new TypeError('exactLongPoll is { cursor, from }');
-  const name = k => typeof poll[k] === 'string' && poll[k].length > 0 && poll[k].length <= 256;
+  // (characters as the runner counts them, code points; `from` a member, or two joined by one `.`)
+  const name = k => typeof poll[k] === 'string' && [...poll[k]].length > 0 && [...poll[k]].length <= 256;
   if (!name('cursor')) throw new TypeError('exactLongPoll.cursor is the query parameter the cursor goes in, a name');
-  if (!name('from')) throw new TypeError("exactLongPoll.from is the reply's field the cursor comes from, a name");
+  if (!name('from') || poll.from.split('.').length > 2 || poll.from.split('.').some(p => !p))
+    throw new TypeError("exactLongPoll.from is the reply's field the cursor comes from, a name, or two joined by one `.`");
   if (poll.sameCursor !== undefined && poll.sameCursor !== 'heartbeat' && poll.sameCursor !== 'event')
     throw new TypeError('exactLongPoll.sameCursor is "heartbeat" (the default) or "event"');
   return { cursor: poll.cursor, from: poll.from, sameCursorEvent: poll.sameCursor === 'event' };
@@ -141,7 +143,8 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
     } finally { if (turn) answering.mapper = null; }
   };
-  const message = m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
+  // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper.
+  const message = m => m.event === 'exact:reply' ? undefined : deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
   const timed = m => {
     const g = gate();
     if (!g) return message(m);

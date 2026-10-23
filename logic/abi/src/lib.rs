@@ -351,6 +351,12 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w.u8(u8::from(r.grants.is_some()));
             w.string(r.grants.as_deref().unwrap_or(""));
         }
+        // A long poll that is no stream's GET, or with bad terms (LLP 1016.000 D8),
+        // is refused before it crosses.
+        Ok(Answer::Later(r)) if r.long_poll_refusal().is_some() => {
+            let why = r.long_poll_refusal().unwrap_or_default().to_string();
+            encode_result(w, Err(DataError::Unavailable(why)))
+        }
         // The seam's HTTP kinds carry no redirect mode yet: a module asking
         // for one is refused, never silently followed.
         Ok(Answer::Later(r)) if r.redirect != Redirect::Follow => encode_result(
@@ -505,8 +511,7 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
     if tag == 10 {
         let (cursor, from) = (r.string().map_err(error)?, r.string().map_err(error)?);
         let same = r.u8().map_err(error)?;
-        let named = |s: &str| (1..=256).contains(&s.chars().count());
-        if !named(&cursor) || !named(&from) || same > 1 {
+        if same > 1 {
             return Err("invalid long poll terms".into());
         }
         request.long_poll = Some(Box::new(LongPoll {
@@ -514,6 +519,9 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
             from,
             same_cursor_event: same == 1,
         }));
+        if let Some(why) = request.long_poll_refusal() {
+            return Err(why.into());
+        }
     }
     Ok(request)
 }

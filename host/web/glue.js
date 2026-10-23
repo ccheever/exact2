@@ -749,7 +749,7 @@ function apply(batch) {
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
           message: (m) => { if (messages++ === 0) first(); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
         };
-        controllers.add(controller);
+        controllers.add(controller); if (op.longPoll) controller.replied = () => { first(); if (!heldAsks.has(op.ticket)) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held and named
         if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))

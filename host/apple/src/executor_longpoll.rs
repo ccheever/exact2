@@ -24,13 +24,20 @@ const RETRY_AFTER_MAX_MS: u64 = 60_000;
 const BACKOFF_MAX_MS: u64 = 30_000;
 /// The least time from one heartbeat's request to the next (a test's shorter).
 const HEARTBEAT_FLOOR: Duration = Duration::from_millis(if cfg!(test) { 40 } else { 1000 });
+/// The longest cursor, in bytes.
+const CURSOR_MAX: usize = 4096;
 
 /// What one ask came to.
 enum Asked {
-    /// A reply, read whole: its status, headers and body.
-    Reply(u16, Vec<(String, String)>, Vec<u8>),
-    /// It failed in a way a long poll asks again after: the network.
-    Transient(String),
+    /// An event: its cursor and the body's text.
+    Event(String, String),
+    /// A reply that is no event: a 204, a 304, an empty body.
+    Heartbeat,
+    /// A reply asking to be asked again later (a 408, 429, 502, 503 or 504),
+    /// with its `Retry-After` in ms.
+    Busy(u16, Option<u64>),
+    /// No reply: the network failed, or the request's own deadline passed.
+    Down(String),
     /// It ended the stream.
     End(Outcome),
 }
@@ -68,107 +75,97 @@ pub(super) fn run(
         from: String::new(),
         same_cursor_event: false,
     });
+    let aborted = || failed(FailureKind::Aborted, "native request aborted");
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // (a Rust source's request is checked here; the prelude refused a TypeScript one already)
-        let http = ["http://", "https://"].iter().any(|s| {
-            (request.url.get(..s.len())).is_some_and(|p| p.eq_ignore_ascii_case(s))
-        });
-        if !http {
-            return failed(FailureKind::Refused, "exactLongPoll: a long poll is HTTP, not a WebSocket");
+        if let Some(why) = request.long_poll_refusal() {
+            return failed(FailureKind::Refused, why);
         }
-        if !request.method.eq_ignore_ascii_case("GET") || !request.body.is_empty() || request.body_from.is_some() {
-            return failed(FailureKind::Refused, "exactLongPoll: a long poll is a GET with no body");
-        }
+        // Each reply that is no event, as the runner counts it (`heldReplies`).
+        let replied = || {
+            let m = Message {
+                event: exact_runner::LONG_POLL_REPLY.into(),
+                ..Message::default()
+            };
+            message(shared, ticket, m)
+        };
         let mut url = request.url.clone();
         let mut failures: u32 = 0;
         loop {
             if abort.signal().aborted() {
-                return failed(FailureKind::Aborted, "native request aborted");
+                return aborted();
             }
             let asked_with = query_value(&url, &terms.cursor);
             let mut req = request.clone();
             req.url = url.clone();
-            // (a heartbeat asks again at most once a second: a server that answers at once is not held on)
+            // (a reply asks again at most once a second: a server that answers at once is not held on)
             let asked_at = Instant::now();
-            let beat = || {
-                let left = HEARTBEAT_FLOOR.saturating_sub(asked_at.elapsed());
-                (left.as_millis() as u64, String::new())
-            };
+            let floor = || millis_up(HEARTBEAT_FLOOR.saturating_sub(asked_at.elapsed()));
             let (wait, error) = match ask(b, req, forced, limit, &abort) {
                 Asked::End(outcome) => return outcome,
-                Asked::Transient(_) if abort.signal().aborted() => {
-                    return failed(FailureKind::Aborted, "native request aborted")
+                Asked::Event(next, _)
+                    if !terms.same_cursor_event && asked_with.as_deref() == Some(next.as_str()) =>
+                {
+                    failures = 0;
+                    if !replied() {
+                        return aborted();
+                    }
+                    (floor(), None)
                 }
-                Asked::Transient(error) if error.is_empty() => {
-                    (backoff(ticket, &mut failures), "a network error".into())
+                Asked::Event(next, data) => {
+                    failures = 0;
+                    let m = Message {
+                        id: next.clone(),
+                        data,
+                        ..Message::default()
+                    };
+                    if !message(shared, ticket, m) {
+                        return failed(FailureKind::Aborted, "the stream was let go");
+                    }
+                    url = with_query_value(&url, &terms.cursor, &next);
+                    continue;
                 }
-                Asked::Transient(error) => (backoff(ticket, &mut failures), error),
-                Asked::Reply(status, headers, body) => match status {
-                    204 | 304 => {
-                        failures = 0;
-                        beat()
+                Asked::Heartbeat => {
+                    failures = 0;
+                    if !replied() {
+                        return aborted();
                     }
-                    200..=299 => {
-                        failures = 0;
-                        if body.iter().all(u8::is_ascii_whitespace) {
-                            beat()
-                        } else {
-                        let event_stream = headers.iter().any(|(k, v)| {
-                            k.eq_ignore_ascii_case("content-type")
-                                && v.split(';').next().is_some_and(|t| {
-                                    t.trim().eq_ignore_ascii_case("text/event-stream")
-                                })
-                        });
-                        if event_stream {
-                            return failed(
-                                FailureKind::Refused,
-                                "an event stream under exactLongPoll: a long poll's replies are JSON",
-                            );
-                        }
-                        let Some(next) = cursor_of(&body, &terms.from) else {
-                            return Outcome::Response(Response { status, headers, body });
-                        };
-                        if !terms.same_cursor_event && asked_with.as_deref() == Some(next.as_str()) {
-                            beat()
-                        } else {
-                        let m = Message {
-                            id: next.clone(),
-                            data: String::from_utf8_lossy(&body).into_owned(),
-                            ..Message::default()
-                        };
-                        if !message(shared, ticket, m) {
-                            return failed(FailureKind::Aborted, "the stream was let go");
-                        }
-                        url = with_query_value(&url, &terms.cursor, &next);
-                        continue;
-                        }
-                        }
+                    (floor(), None)
+                }
+                Asked::Busy(status, after) => {
+                    if !replied() {
+                        return aborted();
                     }
-                    408 | 429 | 502 | 503 | 504 => {
-                        let wait = match retry_after(&headers, now_epoch_ms()) {
-                            Some(ms) => {
-                                failures = failures.saturating_add(1);
-                                ms
-                            }
-                            None => backoff(ticket, &mut failures),
-                        };
-                        (wait, format!("HTTP {status}"))
-                    }
-                    _ => return Outcome::Response(Response { status, headers, body }),
-                },
+                    let wait = match after {
+                        Some(ms) => {
+                            failures = failures.saturating_add(1);
+                            ms
+                        }
+                        None => backoff(ticket, &mut failures),
+                    };
+                    (wait.max(floor()), Some(format!("HTTP {status}")))
+                }
+                Asked::Down(_) if abort.signal().aborted() => return aborted(),
+                Asked::Down(error) => {
+                    let error = if error.is_empty() {
+                        "a network error".into()
+                    } else {
+                        error
+                    };
+                    (backoff(ticket, &mut failures), Some(error))
+                }
             };
-            // (a heartbeat's wait is no retry: `error` names one)
-            let retrying = !error.is_empty();
-            if retrying {
+            // (a heartbeat's wait is no retry)
+            if let Some(error) = &error {
                 let at = Instant::now() + Duration::from_millis(wait);
-                (shared.retrying.lock().unwrap()).insert(ticket, (failures, at, error));
+                (shared.retrying.lock().unwrap()).insert(ticket, (failures, at, error.clone()));
             }
             let waited = wait == 0 || pause(&abort, wait);
-            if retrying {
+            if error.is_some() {
                 shared.retrying.lock().unwrap().remove(&ticket);
             }
             if !waited {
-                return failed(FailureKind::Aborted, "native request aborted");
+                return aborted();
             }
         }
     }))
@@ -177,7 +174,14 @@ pub(super) fn run(
     super::super::complete(shared, ticket, run);
 }
 
-/// One request of the poll, its reply read whole within `limit`.
+/// `d` in whole ms, rounded up: a floor is never cut short.
+fn millis_up(d: Duration) -> u64 {
+    d.as_micros().div_ceil(1000).min(u128::from(u64::MAX)) as u64
+}
+
+/// One request of the poll: what it came to, judged by its status and
+/// headers first, so a reply that asks again or is an event stream is never
+/// read; an event's body read whole within `limit`.
 fn ask(
     b: &ibex2::host::Bindings,
     request: Request,
@@ -185,6 +189,10 @@ fn ask(
     limit: usize,
     abort: &AbortController,
 ) -> Asked {
+    let from = request
+        .long_poll
+        .as_deref()
+        .map_or(String::new(), |p| p.from.clone());
     let mut req = fetch_request(request, forced);
     if !req.headers.has("accept") {
         req.headers.set("accept", "application/json");
@@ -197,13 +205,37 @@ fn ask(
                 Outcome::Failed {
                     kind: FailureKind::Network | FailureKind::Timeout,
                     message,
-                } => Asked::Transient(message),
+                } => Asked::Down(message),
                 other => Asked::End(other),
             }
         }
     };
     let (status, headers) = (r.status, r.headers.entries().to_vec());
     let mut body = r.body;
+    let event_stream = headers.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("content-type")
+            && v.split(';')
+                .next()
+                .is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream"))
+    });
+    match status {
+        204 | 304 => {
+            body.cancel();
+            return Asked::Heartbeat;
+        }
+        408 | 429 | 502 | 503 | 504 => {
+            body.cancel();
+            return Asked::Busy(status, retry_after(&headers, now_epoch_ms()));
+        }
+        200..=299 if event_stream => {
+            body.cancel();
+            return Asked::End(failed(
+                FailureKind::Refused,
+                "an event stream under exactLongPoll: a long poll's replies are JSON",
+            ));
+        }
+        _ => {}
+    }
     let mut bytes = Vec::new();
     let mut chunk = [0; 16 * 1024];
     loop {
@@ -217,24 +249,65 @@ fn ask(
             Err(_) if abort.signal().aborted() => {
                 return Asked::End(failed(FailureKind::Aborted, "native request aborted"))
             }
-            Err(e) => return Asked::Transient(e.to_string()),
+            Err(e) => return Asked::Down(e.to_string()),
         }
     }
-    Asked::Reply(status, headers, bytes)
+    if !(200..=299).contains(&status) {
+        return Asked::End(Outcome::Response(Response {
+            status,
+            headers,
+            body: bytes,
+        }));
+    }
+    // (a byte order mark is no part of the JSON, as a browser's decoder drops it)
+    let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+    if text
+        .iter()
+        .all(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
+    {
+        return Asked::Heartbeat;
+    }
+    match cursor_of(text, &from) {
+        Ok(Some(next)) => Asked::Event(next, String::from_utf8_lossy(text).into_owned()),
+        Ok(None) => Asked::End(Outcome::Response(Response {
+            status,
+            headers,
+            body: bytes,
+        })),
+        Err(why) => Asked::End(failed(FailureKind::Refused, why)),
+    }
 }
 
 /// The cursor a reply's JSON gives at `from` (`a` or `a.b`): a string as it
-/// is, a number as JSON writes it; none for anything else.
-fn cursor_of(body: &[u8], from: &str) -> Option<String> {
-    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+/// is, a whole number within 2^53 as JSON writes it; none for anything else
+/// (no JSON, nothing there, another kind). One that would not round-trip
+/// every host, or not fit a message's id, is refused.
+fn cursor_of(body: &[u8], from: &str) -> Result<Option<String>, &'static str> {
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Ok(None);
+    };
     let mut at = &json;
     for part in from.splitn(2, '.') {
-        at = at.get(part)?;
+        match at.get(part) {
+            Some(v) => at = v,
+            None => return Ok(None),
+        }
     }
     match at {
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Number(n) => Some(n.to_string()),
-        _ => None,
+        serde_json::Value::String(s) if s.len() > CURSOR_MAX || s.chars().any(char::is_control) => {
+            Err("a long poll's cursor is at most 4096 bytes, with no control characters")
+        }
+        serde_json::Value::String(s) => Ok(Some(s.clone())),
+        // (`1e3` and `1.0` are whole numbers too, as a browser reads them)
+        serde_json::Value::Number(n) => match n
+            .as_i64()
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9e15).map(|f| f as i64))
+            .filter(|n| n.unsigned_abs() < 1 << 53)
+        {
+            Some(n) => Ok(Some(n.to_string())),
+            None => Err("a long poll's numeric cursor is a whole number within 2^53: send a larger one as a string"),
+        },
+        _ => Ok(None),
     }
 }
 
@@ -431,17 +504,32 @@ mod tests {
     }
 
     #[test]
-    fn the_cursor_is_a_string_or_a_number_at_its_field() {
+    fn the_cursor_is_a_string_or_a_whole_number_at_its_field() {
+        let at = |body: &str, from| cursor_of(body.as_bytes(), from);
         assert_eq!(
-            cursor_of(br#"{"seq":12,"changes":[]}"#, "seq").as_deref(),
-            Some("12")
+            at(r#"{"seq":12,"changes":[]}"#, "seq"),
+            Ok(Some("12".into()))
         );
         assert_eq!(
-            cursor_of(br#"{"meta":{"next":"abc"}}"#, "meta.next").as_deref(),
-            Some("abc")
+            at(r#"{"meta":{"next":"abc"}}"#, "meta.next"),
+            Ok(Some("abc".into()))
         );
-        assert_eq!(cursor_of(br#"{"seq":null}"#, "seq"), None);
-        assert_eq!(cursor_of(br#"not json"#, "seq"), None);
+        assert_eq!(
+            at(r#"{"seq":-9007199254740991}"#, "seq"),
+            Ok(Some("-9007199254740991".into()))
+        );
+        assert_eq!(at(r#"{"seq":1e3}"#, "seq"), Ok(Some("1000".into())));
+        assert_eq!(at(r#"{"seq":null}"#, "seq"), Ok(None));
+        assert_eq!(at("not json", "seq"), Ok(None));
+        // What would not round-trip a browser, or would break a message's id, is refused.
+        for bad in [
+            r#"{"seq":9007199254740993}"#,
+            r#"{"seq":1.5}"#,
+            r#"{"seq":"a\nb"}"#,
+        ] {
+            assert!(at(bad, "seq").is_err(), "{bad}");
+        }
+        assert!(at(&format!(r#"{{"seq":"{}"}}"#, "x".repeat(4097)), "seq").is_err());
     }
 
     #[test]

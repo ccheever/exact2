@@ -20,14 +20,16 @@ for (const [carrier, build] of [['web-js', 'host/web-js/build.mjs']]) {
       { body: '{"seq":1}' }, { status: 204 }, { status: 503, headers: { 'retry-after': '2' } },
       { body: '{"seq":2}' }, { body: '{"seq":2}' },
     ];
-    const polls = [], loads = [], held = [];
+    const polls = [], loads = [], held = [], release = [];
     const cors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'retry-after' };
     const peer = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === '/load') { loads.push(url.searchParams.get('at')); return new Response('loaded ' + url.searchParams.get('at'), { headers: cors }); }
       polls.push(url.search);
-      const a = url.searchParams.get('gen') === '1' ? answers.shift() : null;
-      if (!a) return new Promise((resolve) => { held.push(req); req.signal.addEventListener('abort', () => resolve(new Response(null, { status: 204, headers: cors }))); });
+      // gen 2 answers one heartbeat, then holds until the test answers it (`release`).
+      const gen2 = url.searchParams.get('gen') === '2' && !polls.slice(0, -1).some(p => p.includes('gen=2'));
+      const a = url.searchParams.get('gen') === '1' ? answers.shift() : gen2 ? { status: 204 } : null;
+      if (!a) return new Promise((resolve) => { held.push(req); release.push(() => resolve(new Response('{"seq":7}', { headers: { ...cors, 'content-type': 'application/json' } }))); req.signal.addEventListener('abort', () => resolve(new Response(null, { status: 204, headers: cors }))); });
       return new Response(a.body ?? null, { status: a.status ?? 200, headers: { ...cors, 'content-type': 'application/json', ...a.headers } });
     } });
     const origin = `http://127.0.0.1:${peer.port}`;
@@ -91,7 +93,17 @@ export function answer(name: string, args: any[]): any {
       // New arguments let the long poll go: the request it held is aborted.
       await browser.tap('next');
       await until(() => held.length === 2 && held[0].signal.aborted, 'the held request aborted');
-      expect(polls.at(-1)).toBe('?since=0&gen=2');
+      expect(polls.slice(-2)).toEqual(['?since=0&gen=2', '?since=0&gen=2']);
+      // Its first reply a heartbeat, the poll is held: `clock settle` waits on it no more, state names it held,
+      // and `clock held live` returns on its next reply, an event here.
+      const settled = await browser.clock('settle');
+      expect(settled.settled).not.toBe(false);
+      const named = await browser.state();
+      expect(named.pending).toContainEqual(expect.objectContaining({ name: 'live', held: true }));
+      setTimeout(() => release.at(-1)(), 300);
+      const heldReply = await browser.clock('held live 10s');
+      expect(heldReply.settled).not.toBe(false);
+      expect((await until(s => s.resources.live === '7', 'the held reply')).resources.live).toBe('7');
     } finally {
       await browser?.close(); server?.stop(true); peer.stop(true); rmSync(dir, { recursive: true, force: true });
     }
