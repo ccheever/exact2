@@ -906,8 +906,15 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
         Dispatch::Again => executor.again(&r),
         Dispatch::Host(_) | Dispatch::Missing => executor.run(r, None),
     };
-    if admitted.is_err() {
-        held.busy.insert(ticket);
+    match admitted {
+        // A long poll no host may run (LLP 1016.000 D8) is a refusal of what was asked, not the render being busy.
+        Err(why) if why.starts_with("exactLongPoll") => {
+            held.refused.insert(ticket);
+        }
+        Err(_) => {
+            held.busy.insert(ticket);
+        }
+        Ok(()) => {}
     }
 }
 
@@ -1407,6 +1414,55 @@ mod fence_tests {
         let rendered = render(&plan, || Burst, Default::default(), "/", &site, DEADLINE).unwrap();
         assert_eq!(BURST.load(Ordering::SeqCst), 17, "all but the seventeenth");
         assert_eq!(rendered.settled, Settled::Busy);
+    }
+
+    static POLL_RAN: AtomicUsize = AtomicUsize::new(0);
+
+    /// LLP 1016.000 D8: `polled` asks for a continuation with a long poll attached, no HTTP request's.
+    struct PollsOtherWork;
+    impl DataSource for PollsOtherWork {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(
+                Request::continuation(1).long_poll("since", "seq"),
+            ))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| {
+                POLL_RAN.fetch_add(1, Ordering::SeqCst);
+                Outcome::Storage(vec![])
+            }))
+        }
+    }
+
+    /// The renderer refuses it before its work runs, and the page renders with its placeholder.
+    #[test]
+    fn a_long_poll_on_other_work_is_refused_before_its_work_runs() {
+        let plan = contract::compile(
+            "component App\n  resource polled = polled() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let site = Site {
+            name: "Polls",
+            origin: None,
+        };
+        let rendered = render(
+            &plan,
+            || PollsOtherWork,
+            Default::default(),
+            "/",
+            &site,
+            DEADLINE,
+        )
+        .unwrap();
+        assert_eq!(POLL_RAN.load(Ordering::SeqCst), 0, "its work never ran");
+        assert_ne!(
+            rendered.settled,
+            Settled::Busy,
+            "a refusal, not a busy render"
+        );
     }
 
     static AGAINS: AtomicUsize = AtomicUsize::new(0);

@@ -62,10 +62,14 @@ impl<D: DataSource> Host<D> {
     /// Run what the last commit asked for, and what it released.
     pub(crate) fn run_requests(&mut self) {
         for r in self.runner.take_requests() {
-            // A long poll on work that is no HTTP request (LLP 1016.000 D8): refused before its work runs.
+            // A long poll on work that is no HTTP request (LLP 1016.000 D8): refused before its work runs, its
+            // refusal landing as any outcome does (this host settles no admission refusals of its own).
             if let Some(why) = r.request.long_poll_refusal() {
-                let ordered = r.request.is_ordered();
-                self.runner.refuse_request(r.ticket, why, ordered);
+                let reply = self.requests.reply(r.ticket);
+                reply(Outcome::Failed {
+                    kind: exact_runner::FailureKind::Refused,
+                    message: why.into(),
+                });
                 continue;
             }
             let dispatch = match r.request.continuation {

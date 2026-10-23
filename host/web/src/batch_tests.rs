@@ -471,3 +471,18 @@ fn every_op_writes_the_json_it_always_wrote() {
         assert_eq!(text, golden, "{name}");
     }
 }
+
+/// LLP 1016.000 D8 on the web page: a long poll attached to work that is no
+/// HTTP request is refused in the batch, before `emit_request` dispatches any
+/// continuation, auth or storage work (host.rs `emit_request`, first line).
+#[test]
+fn a_long_poll_on_other_work_is_refused_before_dispatch() {
+    for request in [
+        Request::continuation(7).long_poll("since", "seq"),
+        Request::storage(b"{}".to_vec()).long_poll("since", "seq"),
+        Request::native(b"x".to_vec()).long_poll("since", "seq"),
+    ] {
+        let why = crate::batch::request_refusal(&request);
+        assert!(why.is_some_and(|w| w.starts_with("exactLongPoll")), "{why:?}");
+    }
+}
