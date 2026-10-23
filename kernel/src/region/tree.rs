@@ -43,13 +43,7 @@ impl Derived {
                     stack.push(b)
                 }
             } else {
-                stack.extend(
-                    arena
-                        .children(s)
-                        .iter()
-                        .rev()
-                        .filter(|&&c| !arena.blocks.holds(c)),
-                );
+                stack.extend(arena.children(s).iter().rev().copied());
             }
         }
         for &s in &slots {
@@ -223,9 +217,7 @@ impl Derived {
                 }
             } else {
                 for &c in arena.children(s).iter().rev() {
-                    if !arena.blocks.holds(c) {
-                        stack.push((c, frame.x, frame.y, next_parent, hidden))
-                    }
+                    stack.push((c, frame.x, frame.y, next_parent, hidden))
                 }
             }
         }
@@ -322,7 +314,8 @@ pub(super) fn shell(
             height_measured: tree.height_measured(n),
         });
         if s != cut {
-            // A subtree with a block is laid out in it, after the region.
+            // A popover in the shell is laid out in its block, after the
+            // region (one in the region stays in its trial: imply_blocks).
             for &c in arena.children(s).iter().rev() {
                 if !arena.blocks.holds(c) {
                     stack.push((c, frame.x, frame.y, hidden))

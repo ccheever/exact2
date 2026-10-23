@@ -316,7 +316,10 @@ impl Kernel {
     /// top layer, where `width: 50%` is half the viewport whatever box the
     /// popover was written in. Before each layout, after the viewport is
     /// the offer's; until a definite offer has given a viewport there is
-    /// none, and a top-layer box stays in its positioned ancestor.
+    /// none, and a top-layer box stays in its positioned ancestor. One
+    /// exception: under a registered content region a top-layer box stays
+    /// in the region's trial (QUEUE, "A popover under a registered content
+    /// region").
     pub(super) fn imply_blocks(&mut self) {
         let arena = &self.arena;
         if arena.top_layer_slots.is_empty() && !arena.blocks.any() {
@@ -330,14 +333,18 @@ impl Kernel {
         });
         let mut slots = arena.blocks.implied_slots();
         slots.extend(lifted.iter().filter(|s| arena.blocks.implied(*s).is_none()));
+        let region = self.region.as_ref().map(|r| r.binding.owner.index);
         let wants: Vec<_> = slots
             .into_iter()
             .map(|slot| {
                 // One its host replaced whole (a closed popover, a Linux
-                // shell's menu) has no layout to lay out in it.
+                // shell's menu) has no layout to lay out in it. One under a
+                // registered content region stays in the region's trial
+                // (theme2 09:54; the native region captures it: QUEUE).
                 let boxed = !arena.is_root(slot)
                     && !arena.is_inline_run(slot)
-                    && arena.cover(slot) != Some(super::HostCover::Whole);
+                    && arena.cover(slot) != Some(super::HostCover::Whole)
+                    && region.is_none_or(|owner| !arena.is_ancestor(owner, slot));
                 (slot, viewport.filter(|_| lifted.contains(slot) && boxed))
             })
             .filter(|&(slot, want)| arena.blocks.implied(slot) != want)
