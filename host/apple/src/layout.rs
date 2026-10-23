@@ -390,15 +390,17 @@ impl<D: DataSource> Host<D> {
                 m.field_cell = field_cell;
                 batch.field_content(id, field_content, field_cell);
             }
-            if m.frame != Some(rel) || m.block.is_some() != block.is_some() {
+            let framed = m.frame != Some(rel);
+            if framed || m.block.is_some() != block.is_some() {
                 moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
             }
-            if m.block != block {
-                m.block = block;
-                if let Some((w, h)) = block {
-                    batch.block(id, w, h);
+            let implied = kernel.host_block_implied(id);
+            if m.block != block || m.implied != implied || (framed && block.is_some()) {
+                (m.block, m.implied) = (block, implied);
+                if let Some(size) = block {
+                    batch.block(id, size, (rel.0, rel.1));
                 }
             }
             if let Some(c) = content {

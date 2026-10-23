@@ -73,6 +73,9 @@ final class BlockHost {
     private var turns = 0
     /// Each block's used size, as the last layout returned it.
     private(set) var used: [UInt32: CGSize] = [:]
+    /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
+    /// a popover's in the page too: what a painted popover is reported by.
+    private(set) var rects: [UInt32: CGRect] = [:]
     /// A block's used size changed: a sheet sizes its window from it.
     var onUsed: ((UInt32, CGSize) -> Void)?
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -159,6 +162,7 @@ final class BlockHost {
 
     /// The batch's `block` op: a block's used size.
     func applied(_ op: BatchOp) {
+        if let rect = op.blockRect { rects[op.id] = rect }
         guard op.payload["op"] as? String == "block", entries[op.id] != nil,
               let w = op.payload["w"] as? NSNumber, let h = op.payload["h"] as? NSNumber else { return }
         let size = CGSize(width: w.doubleValue, height: h.doubleValue)
@@ -175,7 +179,7 @@ final class BlockHost {
     /// The node is gone, and its block with it.
     func destroyed(_ id: UInt32) {
         if let node = entries[id]?.node { onDestroyed?(node) }
-        entries[id] = nil; used[id] = nil
+        entries[id] = nil; used[id] = nil; rects[id] = nil
     }
 
     private func tell(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) {
