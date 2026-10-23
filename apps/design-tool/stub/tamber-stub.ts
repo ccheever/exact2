@@ -126,6 +126,8 @@ const save = () => writeFileSync(DB, JSON.stringify(log));
 
 /** One event as a test adds it: logged, and the state it moves. */
 function take(e: Record<string, any>) {
+  // (`pad`: an event this many bytes larger, up to 4 MiB, as a test makes one larger than a stream's default ceiling.)
+  if (typeof e.pad === 'number') { const { pad, ...rest } = e; e = { ...rest, note: 'x'.repeat(Math.min(pad, 4 << 20)) }; }
   // An event's `files` are the digests from then on.
   if (e.files) FILES = { ...FILES, ...e.files };
   // A `builds` event is the list hello gives from then on, and a

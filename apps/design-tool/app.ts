@@ -367,7 +367,7 @@ let polls = 0, resync = true, polled = '', seeded = '';
 // The changes' poll (stage 14 D): `reread`, a reply the long poll could not fold alone (a coalesced one, from
 // another cursor, or starting again), so the next ask reads once by POST; its answers' common part.
 let reread = false, byCursor = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
-const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
+const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), ...refusalRows(buildsNow.values()) });
 /** One reply of the long poll (wire.ts `longPoll`), folded as it comes, or the poll's end (`ok: false`, asked again
  * after 3 s). A reply that names another cursor than the last folded, or carries others folded into it (D4's
  * coalescing keeps the newest), or starts again (missed, another run), is read again once by POST instead, which
@@ -375,7 +375,8 @@ const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoc
 function streamed(e: StreamEvent, used: string, gen: number, epoch: string, client: string) {
   answers += 1;
   if (gen !== polls) return { ok: true, error: '', missed: false, stream: true, ...changesState() };
-  if (e.type === 'error') return { ok: false, error: `The design server's change stream ended (${String((e as { message?: string }).message ?? 'no reason given')}): asking again.`, missed: false, stream: false, ...changesState() };
+  // (Its end, whatever ended it, one too large to carry included: the next ask reads by POST, then opens again.)
+  if (e.type === 'error') { reread = true; return { ok: false, error: `The design server's change stream ended (${String((e as { message?: string }).message ?? 'no reason given')}): asking again.`, missed: false, stream: false, ...changesState() }; }
   let r: any = null;
   try { r = JSON.parse(String(e.data)); } catch { /* read again */ }
   // (Each reply names the cursor it answers, the first `open`'s: in step only if that is the last one folded.)

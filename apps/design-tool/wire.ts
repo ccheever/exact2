@@ -34,6 +34,8 @@ export const NEEDS: Record<string, string> = {
   canvas: 'read',
 };
 const SCOPES = ['read', 'propose', 'write'];
+// The long poll's reply ceiling: 16 MiB, room for a held import's diffs (a native host counts twice that running).
+const LONG_POLL_MAX = 16 * 1024 * 1024;
 /** What a request needs, as the server reads it: inspect other than a
  * refresh is `write` (it moves the builds), and so is a drop of another
  * client's held proposal (`ownerOf` its proposer, null when not known); a
@@ -162,7 +164,8 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
   // (The server checks every scope; the tool's own reading of it only words and greys.)
   /** The changes' long poll (tamber/1.17's GET, `exactLongPoll`): its stream, made at once with the token in hand
    * (the web build takes a stream's fetch only before an answer's first await), each event mapped with that token's
-   * handle; null when no token is in hand, or this client was revoked: the caller reads once instead, which asks. */
+   * handle; null when no token is in hand, or this client was revoked: the caller reads once instead, which asks.
+   * Its replies may be as large as a read's (a held import's diffs): `LONG_POLL_MAX`, not a stream's 1 MiB. */
   function longPoll<T>(query: string, map: (event: StreamEvent, used: string) => T): Promise<T> | null {
     if (!token || (paired && (gone || token !== pairedToken))) return null;
     const used = handleOf(token), at = session, sent = token;
@@ -173,7 +176,7 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
       if (event.type !== 'error' || at !== session || token !== sent) return;
       if (status === 401 && paired) { gone = true; token = null; } else if (status === 404 && !paired) token = null;
     };
-    return fetch(`${base}/__tamber/events?${query}`, { exactStream: (event: StreamEvent) => (ended(event), map(event, used)), exactLongPoll: { cursor: 'after', from: 'cursor' }, redirect: 'error', headers: { 'x-exact-tamber-token': token } });
+    return fetch(`${base}/__tamber/events?${query}`, { exactStream: (event: StreamEvent) => (ended(event), map(event, used)), exactLongPoll: { cursor: 'after', from: 'cursor' }, exactIndependentHttp: { maxResponseBytes: LONG_POLL_MAX }, redirect: 'error', headers: { 'x-exact-tamber-token': token } });
   }
 
   return { call, longPoll, RESTARTED, pairWith, remote: () => (paired ? base : ''), scope: () => scope };

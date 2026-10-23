@@ -806,11 +806,24 @@ fn media_preferences_inherit_by_name_and_can_change_between_steps() {
 /// `clock held [<resource>…]` (LLP 1016.000 D9): the driver's `clock held`, real time with the clock frozen until each
 /// held request, or each named, has had a reply; the line's names are its targets, the next line's step its own.
 #[test]
-fn clock_held_names_its_targets_up_to_the_line_end() {
-    let src = "test \"push\"\n  clock held\n  clock held changes uses\n  tap \"go\"\n";
+fn clock_held_names_its_targets_up_to_the_line_end_and_a_bound_last() {
+    let src = "test \"push\"\n  clock held\n  clock held changes uses\n  clock held changes 30s\n  clock held 500ms\n  tap \"go\"\n";
     let tests = contract::tests(src).unwrap();
     let steps = &tests[0].steps;
     assert!(matches!(&steps[0], Step::Clock { arg, .. } if arg == "held"));
     assert!(matches!(&steps[1], Step::Clock { arg, .. } if arg == "held changes uses"));
-    assert!(matches!(&steps[2], Step::Tap { target, .. } if target == "go"));
+    // A bound last, as the driver takes it.
+    assert!(
+        matches!(&steps[2], Step::Clock { arg, .. } if arg == "held changes 30s"),
+        "{:?}",
+        steps[2]
+    );
+    assert!(
+        matches!(&steps[3], Step::Clock { arg, .. } if arg == "held 500ms"),
+        "{:?}",
+        steps[3]
+    );
+    assert!(matches!(&steps[4], Step::Tap { target, .. } if target == "go"));
+    // A number with no unit is no bound.
+    assert!(contract::tests("test \"push\"\n  clock held changes 30\n").is_err());
 }
