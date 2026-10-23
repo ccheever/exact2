@@ -78,6 +78,31 @@ fn the_precedence_fixture_keeps_exacts_bare_contact_target() {
     assert_eq!(r.slot("pressed"), Some(&Value::Number(1.0)));
 }
 #[test]
+fn an_explicit_native_button_accepts_a_raster_image_and_subtitle() {
+    let mut r = boot(&app(
+        "button appearance=\"auto\" testId=\"photo\"\n  image \"photo.png\"\n  text \"Photo\"\n  text \"Choose a picture\"",
+    ));
+    let face = r.kernel().press_face(view_of(&r, "photo")).unwrap();
+    assert!(face.raster);
+    assert_eq!(face.subtitle.as_deref(), Some("Choose a picture"));
+    let image = face.image.unwrap();
+    assert_eq!(image.source, "photo.png");
+    assert_eq!(image.size, None);
+    r.kernel_mut()
+        .set_intrinsic_size(image.view, Some((32.0, 20.0)))
+        .unwrap();
+    assert_eq!(
+        r.kernel()
+            .press_face(view_of(&r, "photo"))
+            .unwrap()
+            .image
+            .unwrap()
+            .size,
+        Some((32.0, 20.0))
+    );
+}
+
+#[test]
 fn its_face_is_its_children_read_live() {
     let mut r = boot(&app(
         "button appearance=\"auto\" press=go testId=\"b\"\n  image \"symbol:send\"\n  if n == 0\n    text \"Send\"\n  else\n    text \"Sent  again\"",
@@ -91,6 +116,7 @@ fn its_face_is_its_children_read_live() {
             placement: exact_kernel::ButtonImagePlacement::Leading,
             symbol: Some("send".into()),
             raster: false,
+            image: None,
             leading: true,
             label: None,
             fits: true,
@@ -204,12 +230,8 @@ fn its_face_is_a_title_a_symbol_or_both() {
             "takes no `font-family`",
         ),
         (
-            "button appearance=\"auto\" press=go aria-label=\"x\"\n  image \"photo.png\"",
-            "is a symbol",
-        ),
-        (
             "button appearance=\"auto\" press=go aria-label=\"x\"\n  image \"symbol:sf/\"",
-            "is a symbol",
+            "needs a symbol",
         ),
         (
             "button appearance=\"auto\" press=go\n  if busy\n    text \"Wait\"",
@@ -321,6 +343,7 @@ fn every_button_has_a_face_custom_or_native() {
             placement: exact_kernel::ButtonImagePlacement::Leading,
             symbol: Some("send".into()),
             raster: false,
+            image: None,
             leading: true,
             label: Some("Save it".into()),
             fits: true,

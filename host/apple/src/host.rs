@@ -1009,6 +1009,7 @@ impl<D: DataSource> Host<D> {
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> String {
         self.height_targets_dirty = true;
         let mut batch = Batch::new();
+        batch.controls = self.option_part(view);
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
             Ok(()) => self.layout(&mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
@@ -1024,6 +1025,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let mut error = None;
         for &(view, size) in sizes {
+            batch.controls |= self.option_part(view);
             if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
                 error.get_or_insert(format!("intrinsic: {e:?}"));
             }
