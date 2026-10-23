@@ -19,6 +19,32 @@ final class HostBlockMacTests: XCTestCase {
         super.tearDown()
     }
 
+    func testACapturedBlockReportExpiresWhenItsPlanCommits() throws {
+        _ = NSApplication.shared
+        let s = ExactApp.shared.makeSession(label: "stale-block-report")
+        session = s
+        let p = s.presenter, container = NSView()
+        let node = NodeView(id: 1, kind: "view", presenter: p)
+        p.views[1] = node; p.root.addSubview(node)
+        s.holdFillForTests()
+        p.blocks.show(node, in: container, block: .size(CGSize(width: 200, height: 300)),
+                      placement: BlockPlacement(rect: CGRect(x: 10, y: 20, width: 200, height: 300), within: 2))
+        let generation = s.generation
+        s.commitForTests()
+        p.reset()
+        let replacement = NodeView(id: 1, kind: "view", presenter: p)
+        p.views[1] = replacement; p.root.addSubview(replacement)
+        let before = s.appliedBatches
+        s.publishFillForTests(1, wireBatch([]), generation: generation)
+        s.drainFill()
+        let released = expectation(description: "captured reports released")
+        DispatchQueue.main.async { released.fulfill() }
+        wait(for: [released], timeout: 5)
+        XCTAssertEqual(s.appliedBatches, before, "the old block and placement never reach the replacement runtime")
+        p.blocks.show(replacement, in: container, block: .size(CGSize(width: 400, height: 500)))
+        XCTAssertEqual(s.appliedBatches, before + 1, "the current view still reports")
+    }
+
     private func plan(_ source: String) throws -> Data {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
