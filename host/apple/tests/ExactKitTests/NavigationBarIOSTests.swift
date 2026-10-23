@@ -98,6 +98,28 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertNil(item.standardAppearance, "an inherited colour leaves UIKit's title alone")
     }
 
+    func testTransparentTitleSurvivesRepeatedRoutePreparation() throws {
+        let session = try fixture("transparent-title-ink", module: false)
+        let p = session.presenter
+        let heading = try node(session, "title-home")
+        let route = try node(session, "route-home")
+        let item = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController?.navigationItem)
+        p.apply(wireBatch([
+            ["op": "props", "id": route.id, "set": ["navigationBar": "transparent"]],
+            ["op": "style", "id": heading.id, "style": ["text_color": [0, 0, 0, 0], "written": ["text_color"]]]
+        ]))
+        for _ in 0..<2 {
+            let edge = try XCTUnwrap(item.scrollEdgeAppearance)
+            XCTAssertNil(edge.backgroundEffect)
+            XCTAssertEqual(edge.backgroundColor?.cgColor.alpha ?? 0, 0)
+            XCTAssertEqual((edge.titleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+            XCTAssertEqual((edge.largeTitleTextAttributes[.foregroundColor] as? UIColor)?.cgColor.alpha, 0)
+            p.apply(wireBatch([["op": "props", "id": heading.id, "set": ["accessibilityLabel": "Title"]]]))
+        }
+        p.apply(wireBatch([["op": "style", "id": heading.id, "style": ["text_color": [255, 0, 0, 255]]]]))
+        XCTAssertEqual(item.scrollEdgeAppearance, NavigationHost.clearScrollEdge)
+    }
+
     func testAPushAfterKeyboardDismissalInstallsTheDestinationBeforeReturning() throws {
         let session = try fixture("synchronous-push", module: false)
         let presenter = session.presenter
