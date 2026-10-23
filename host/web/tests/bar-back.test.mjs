@@ -224,6 +224,78 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
   }
 }, 30000);
 
+// Exercise the shared input helpers with the browser's real shadow trees, inert ancestry and scroll boxes.
+async function withBackPage(engine, run) {
+  const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', () => `<div id="exact-root"><div id="wrapper">${stack('detail', symbol())}</div></div>`)
+    .replace('<script type="module" src="./glue.js"></script>', () => `<script type="module">
+      import { navigation, inertAncestor } from '/navigation.js';
+      import { reveal, viewBox } from '/input-glue.js';
+      const root = document.getElementById('exact-root'); navigation.connect(root, () => false, () => {});
+      window.project = () => navigation.project(root, () => {}); project();
+      Object.assign(window, { reveal, viewBox, inertAncestor, ready: true });
+    </script>`);
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/') return new Response(html, { headers: { 'content-type': 'text/html' } });
+    const file = Bun.file(resolve(ROOT, 'host/web', '.' + path));
+    return await file.exists() ? new Response(file) : new Response(null, { status: 404 });
+  } });
+  let suite;
+  try {
+    suite = await suiteBrowser(engine);
+    const page = await suite.newPage({ viewport: { width: 400, height: 600 } });
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => window.ready);
+    await run(page);
+  } finally { await suite?.close(); server.stop(true); }
+}
+
+for (const engine of ['chromium', 'firefox', 'webkit']) {
+  test(`${engine}: Back under inert ancestry leaves scrolling unchanged`, () => withBackPage(engine, async page => {
+    const results = await page.evaluate(() => {
+      const wrapper = document.getElementById('wrapper'), control = document.querySelector('#detail #back');
+      wrapper.style.marginTop = '2000px';
+      const results = [];
+      for (const held of [true, false]) {
+        if (!held) {
+          control.style.visibility = 'hidden';
+          control.closest('header').append(document.querySelector('#detail h2').cloneNode(true)); project();
+        }
+        wrapper.inert = true;
+        for (const check of [undefined, inertAncestor]) {
+          scrollTo(0, 0);
+          const before = scrollY, offscreen = viewBox(control).top > innerHeight;
+          results.push([held, offscreen, reveal(control, 'back', check).scrolled, scrollY - before]);
+        }
+        wrapper.inert = false;
+      }
+      return results;
+    });
+    expect(results).toEqual([[true, true, false, 0], [true, true, false, 0], [false, true, false, 0], [false, true, false, 0]]);
+  }));
+  test(`${engine}: Back on a covered route retains its visible box`, () => withBackPage(engine, async page => {
+    const results = await page.evaluate(() => {
+      const route = document.getElementById('detail'), nav = route.parentElement, control = route.querySelector('#back');
+      nav.insertAdjacentHTML('beforeend', '<div navigationKey="3" navigationPresentation="modal"><header><h2>Sheet</h2></header></div>');
+      nav.setAttribute('navigationKey', '3'); project();
+      const results = [];
+      for (const held of [true, false]) {
+        if (!held) {
+          control.style.visibility = 'hidden';
+          control.closest('header').append(route.querySelector('h2').cloneNode(true)); project();
+        }
+        const back = route.querySelector('header').shadowRoot.querySelector('button[part="back"]');
+        const visible = back.checkVisibility({ visibilityProperty: true }), box = back.getBoundingClientRect();
+        results.push([held, route.inert, control.hasAttribute('data-exact-bar-back'), visible, box.width > 0,
+          JSON.stringify(viewBox(control)) === JSON.stringify(box)]);
+      }
+      return results;
+    });
+    expect(results).toEqual([[true, true, true, true, true, true], [false, true, false, true, true, true]]);
+  }));
+}
+
 // Compiled, through each runtime and the agent: a tap that names the control the bar stands for presses the bar's
 // Back, which presses the control. A header iOS makes no bar of draws Back when it shows no visible Back control.
 // Build the wasm fixture first: EXACT_WEB_LINK=all EXACT_WEB_DIST=<dist> bun host/web/build.mjs caltrain-web --wasm.
