@@ -139,7 +139,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
                 // the node pool lets park with it.
                 recognizers[ObjectIdentifier(interaction)] = companions(of: v).subtracting(before).subtracting([ObjectIdentifier(interaction)])
             }
-            v.contextRecognizer?.isEnabled = v.hasInlinePlainContextMenu
+            v.contextRecognizer?.isEnabled = (v.handlers.contains("contextmenu") && v.props["contextPopover"]?.isEmpty != false) || v.hasInlinePlainContextMenu
         }
     }
 

@@ -96,6 +96,30 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(contexts, [11, 11])
     }
 
+    func testAParagraphHandlerRecognizesOutsideItsInlineNativeMenu() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        node.handlers.insert("contextmenu")
+        node.updateContextGestures()
+        p.menus.context.sync()
+        XCTAssertEqual(node.contextRecognizer?.isEnabled, true)
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let plain = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(11))).first)
+        let point = CGPoint(x: plain.midX, y: plain.midY)
+        XCTAssertNil(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: point))
+        var heard: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
+        let gesture = LongPress()
+        gesture.point = point
+        node.openContext(gesture)
+        XCTAssertEqual(heard, [2])
+        let tag = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first)
+        _ = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: tag.midX, y: tag.midY)))
+        _ = p.menus.context.menu(try XCTUnwrap(p.menus.context.open))
+        XCTAssertEqual(heard, [2, 10])
+    }
+
     func testPlainAndInertRunsDoNotOpenTheInlineMenu() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
