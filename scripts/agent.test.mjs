@@ -12,6 +12,34 @@ import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
 
+test('a simulator console retries one stale FIFO failure and leaves other exits alone', async () => {
+  const { simulatorConsole } = await import('./agent-wire.mjs');
+  const { EventEmitter } = await import('node:events');
+  for (const output of ['Unable to establish FIFO data/tmp/launch_console-123-1: File exists', 'launch failed: app crashed']) {
+    const launched = [], observed = [], lines = [];
+    const launch = simulatorConsole(() => {
+      const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+      launched.push(child); return child;
+    }, lines, child => observed.push(child));
+    assert.equal(launch.retry(), false);
+    launch.process.stderr.write(output.slice(0, 24)); launch.process.stderr.write(output.slice(24));
+    launch.process.emit('close', 1, null);
+    const exited = launch.exited;
+    assert.deepEqual(await exited, { code: 1, signal: null });
+    assert.equal(launch.retry(), output.includes('FIFO'));
+    if (output.includes('FIFO')) {
+      assert.equal(launch.done, false);
+      assert.notEqual(launch.exited, exited);
+      launch.process.stderr.write(output); launch.process.emit('close', 1, null);
+      await launch.exited;
+      assert.equal(launch.retry(), false);
+    }
+    assert.equal(launched.length, output.includes('FIFO') ? 2 : 1);
+    assert.deepEqual(observed, launched);
+    assert.match(lines.join('\n'), /app: /);
+  }
+});
+
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
     '<!doctype html><main id="exact-root" data-boot-ms="0"></main><script>globalThis.exact = {ready: Promise.resolve(), agentSettled: async () => ({})};</script>',
