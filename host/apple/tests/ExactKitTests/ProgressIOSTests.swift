@@ -94,6 +94,45 @@ final class ProgressIOSTests: XCTestCase {
         for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.02, "\([r, g, b, a])") }
     }
 
+    func testAnInheritedAccentResolvesInTheSpinnersAppearance() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        let pair: [Any] = [[200, 0, 0, 255], [0, 200, 0, 255]]
+        var ops = box(1) + box(5) + progress(2)
+        ops[0]["style"] = ["accent_color": pair]
+        ops[2]["style"] = ["accent_color": tint]
+        ops[4]["style"] = ["accent_color": tint]
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [5]], ["op": "children", "id": 5, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let author = try XCTUnwrap(p.views[1]), requestor = try XCTUnwrap(p.views[2])
+        author.applyStyle(author.style.merging(["color_scheme": "light"]) { $1 })
+        requestor.applyStyle(requestor.style.merging(["color_scheme": "dark"]) { $1 })
+        requestor.updateTraitsIfNeeded()
+        p.controls.syncProgress()
+        XCTAssertFalse(try XCTUnwrap(p.views[1]).drawsDark)
+        XCTAssertTrue(try XCTUnwrap(p.views[2]).drawsDark)
+        let color = try XCTUnwrap(p.controls.spinners[2]?.color)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual([r, g, b, a].map { ($0 * 255).rounded() }, [0, 200, 0, 255])
+    }
+
+    func testHighlightUnderTheRoleUsesTheAuthoringViewsTint() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        let highlight: [String: Any] = ["sys": "@tint/0.2", "c": [[0, 136, 255, 51], [0, 145, 255, 51]]]
+        var ops = box(1) + box(5) + progress(2)
+        ops[0]["style"] = ["accent_color": highlight]
+        ops[2]["style"] = ["accent_color": tint]
+        ops[4]["style"] = ["accent_color": tint]
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [5]], ["op": "children", "id": 5, "ids": [2]], ["op": "roots", "ids": [1]]])
+        p.views[1]?.tintColor = .systemRed
+        p.views[2]?.tintColor = .systemBlue
+        p.controls.syncProgress()
+        let owner = try XCTUnwrap(p.views[1]), requestor = try XCTUnwrap(p.views[2]), spinner = try XCTUnwrap(p.controls.spinners[2])
+        let expected = try XCTUnwrap(owner.style["accent_color"]?.channels(dark: requestor.drawsDark, tint: owner.tintColor))
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, expected) { XCTAssertEqual(got, want, accuracy: 0.01) }
+    }
+
     func testItIsUIKitsActivityIndicatorSizedByItsBox() throws {
         let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"], written: true) + progress(3, side: 40, y: 40)
                           + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
