@@ -159,7 +159,7 @@ export function longPollRefusal(op, method, body) {
   const { cursor, from, sameCursorEvent } = op.longPoll ?? {};
   if (!op.stream) return "exactLongPoll asks again for an answer that keeps coming: it is a stream's";
   const named = v => typeof v === 'string' && [...v].length >= 1 && [...v].length <= 256;
-  if (!/^https?:/i.test(op.url)) return 'exactLongPoll: a long poll is HTTP, not a WebSocket';
+  if (!/^https?:\/\//i.test(op.url)) return 'exactLongPoll: a long poll is HTTP, not a WebSocket';
   if (!/^GET$/i.test(method) || op.bodyFrom != null || body) return 'exactLongPoll: a long poll is a GET with no body';
   if (!named(cursor)) return 'exactLongPoll.cursor is the query parameter the cursor goes in, a name of 1 to 256 characters';
   if (!named(from) || from.split('.').length > 2 || from.split('.').some(p => !p)) return "exactLongPoll.from is the reply's field the cursor comes from: a name, or two joined by one `.`, of 1 to 256 characters";

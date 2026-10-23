@@ -22,7 +22,7 @@ function request(input, init, redirect) {
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
   const method = methodOf(input, init), url = request ? request.url : String(input);
   // (a Request's own body comes along when `init` names none: a long poll has none)
-  if (init.exactLongPoll !== undefined && request?.body != null && init.body === undefined)
+  if (init.exactLongPoll !== undefined && request?.body != null && init.body == null)
     throw new TypeError('exactLongPoll: a long poll is a GET with no body');
   return { method, url, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url) };
 }
