@@ -804,7 +804,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
         /** The type a field is set in ([Native.fields]): size in px, weight, slant, tracking in ems, the line's
          * height in px (0: the font's own), the face's file with its index in a collection (`path#index`; empty:
          * the device's default family) and its axes as CSS writes `font-variation-settings` (empty: the weight's
-         * alone), which a file's face takes and the device's default family does not. */
+         * alone). The default family's typeface takes no axes, so a field that moves one names the file text is drawn
+         * from instead. */
         private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String, axes: String) {
             v.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
             v.typeface = faces.getOrPut("$family|$weight|$italic|$axes") {

@@ -113,6 +113,7 @@ typedef struct ExactTextRun {
     uint8_t variation_count;      /* CSS font-variation-settings: axes set */
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
     float variation_values[8];    /* in the axis's own units */
+    uint8_t optical_sizing_none;  /* 1 for CSS font-optical-sizing: none */
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's

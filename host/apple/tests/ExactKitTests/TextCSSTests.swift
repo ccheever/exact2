@@ -222,7 +222,8 @@ final class TextCSSTests: XCTestCase {
 
     /// LLP 1019 D9: `font-variation-settings` draws after the weight, the
     /// width and the size, each axis it names winning; `font-stretch` on a
-    /// platform face is its `wdth`, as Chrome and WebKit set San Francisco's.
+    /// platform face is its `wdth`, as Chrome and WebKit set San Francisco's;
+    /// `font-optical-sizing: none` leaves `opsz` to the face.
     func testFontVariationSettingsWinAndAPlatformFaceStretches() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
         let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
@@ -255,6 +256,14 @@ final class TextCSSTests: XCTestCase {
         XCTAssertLessThan(width(0, 400, 75), width(0, 400, 100))
         XCTAssertLessThan(width(0, 400, 100), width(0, 400, 125))
         XCTAssertEqual(width(0, 400, 75), width(0, 400, 100, [FontAxis(tag: tag("wdth"), value: 75)]))
+        // `font-optical-sizing: none` keeps the face's own `opsz` (Roboto
+        // Flex's default is 14) rather than the size, and San Francisco's
+        // text cut rather than the display cut CoreText picks at 48.
+        let own = [FontAxis.ownOpticalSize]
+        XCTAssertNotEqual(width(8, 700, 100, own), width(8, 700, 100))
+        XCTAssertEqual(width(8, 700, 100, own), width(8, 700, 100, [FontAxis(tag: tag("opsz"), value: 14)]))
+        XCTAssertEqual(width(8, 700, 100), width(8, 700, 100, [FontAxis(tag: tag("opsz"), value: 48)]))
+        XCTAssertGreaterThan(width(0, 400, 100, own), width(0, 400, 100))
     }
 
     /// LLP 1019 D2, D8: a face declared over a weight range and a width range
