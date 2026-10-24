@@ -1,6 +1,6 @@
 # Code review: relay deploy (R4 prep), security pass (grok)
 
-- **Family:** xAI. Grok 4.7 via `grok`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at ``.
+- **Family:** xAI. Grok 4.7 via `grok`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at `b64f9b280d`.
 - **Method:** one brief (sha256 `ff1c1977793b312c54ecb1c40bb337928bfdcab16bce9439bdcabe43da4b8287`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
 - **Transcription:** the final message, unedited.
 

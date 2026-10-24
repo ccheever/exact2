@@ -1,6 +1,6 @@
 # Code review: relay deploy (R4 prep), security pass (astra)
 
-- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, read-only sandbox, a throwaway worktree at ``.
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, read-only sandbox, a throwaway worktree at `b64f9b280d`.
 - **Method:** one brief (sha256 `ff1c1977793b312c54ecb1c40bb337928bfdcab16bce9439bdcabe43da4b8287`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
 - **Transcription:** the final message, unedited.
 
