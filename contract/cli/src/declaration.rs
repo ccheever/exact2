@@ -307,13 +307,22 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             return Err("an interface's `agent` names each word's type".into());
         }
     }
-    // A send that shows the person a choice (`choose`, LLP 1133.019 §10):
-    // its ticket's answer is the agent word it names.
+    // A send that shows the person a choice (`choose`, LLP 1133.019 §10;
+    // a sheet, LLP 1133.018 D13 item 4): its ticket, the agent word its
+    // typed answer sets if it names one, its taps besides `cancel`, whether
+    // it takes a typed answer, and the option that lets it take several ids.
     if let Some(choose) = out.get("choose") {
-        let word = choose["word"].as_str().unwrap_or_default();
-        if !choose["ticket"].is_string() || interface["agent"][word].is_null() {
+        let word_ok = choose["word"].is_null()
+            || (choose["word"].as_str()).is_some_and(|w| !interface["agent"][w].is_null());
+        let choices_ok = choose["choices"].is_null()
+            || (choose["choices"].as_array())
+                .is_some_and(|c| c.iter().all(|c| c.is_string() && c != "cancel"));
+        let many_ok = choose["many"].is_null()
+            || (choose["many"].as_str()).is_some_and(|o| !object(&entry["options"])[o].is_null());
+        let typed_ok = choose["typed"].is_null() || choose["typed"].is_boolean();
+        if !choose["ticket"].is_string() || !word_ok || !choices_ok || !many_ok || !typed_ok {
             return Err(format!(
-                "`{name}`'s `choose` names its ticket and one of the interface's `agent` words"
+                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, and the option that allows `many`"
             ));
         }
     }
@@ -484,6 +493,18 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             )?,
             // A send made inside the press that asks it (D12 item 5).
             "gesture" => check(value.is_boolean(), "`gesture` is true or false")?,
+            // The grant lines a request is satisfied by, narrowest first: a
+            // permission decision grants the first the app declares (LLP
+            // 1133.018 D13 item 3).
+            "asks" => check(
+                (value.as_array())
+                    .is_some_and(|l| !l.is_empty() && l.iter().all(Value::is_string)),
+                "`asks` lists the grant lines that satisfy it, narrowest first",
+            )?,
+            // A module name that writes the person's store under its line,
+            // which derives the line's write permission where a platform
+            // splits it (Android's `WRITE_CALENDAR`, D11).
+            "writes" => check(value.is_boolean(), "`writes` is true or false")?,
             // A read of the app's own item, let through under another grant
             // line on the targets named (LLP 1133.019 D11 item 4).
             "owned" => check(

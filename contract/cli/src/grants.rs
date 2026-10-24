@@ -263,23 +263,23 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
     out
 }
 
-/// Each native module interface the app reads or sends, once, by its first
-/// use: its grant lines, where, and the call.
+/// Each set of grant lines a native module's names the app reads or sends
+/// answer under, once, by its first use: the lines, where, and the call. A
+/// name's own list of lines is its set (an empty one, as a picker's, needs
+/// none: LLP 1133.018 D4); else its interface's.
 fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
     let mut out: Vec<(Vec<String>, Span, String)> = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
+    let mut seen: Vec<(&str, Vec<String>)> = Vec::new();
     for m in &file.modules {
-        if seen.contains(&m.extension.as_str()) {
-            continue;
-        }
-        let grants: Vec<String> = serde_json::from_str::<serde_json::Value>(&m.substitute)
-            .ok()
-            .and_then(|s| s["grants"].as_array().cloned())
-            .unwrap_or_default()
-            .iter()
+        let sub = serde_json::from_str::<serde_json::Value>(&m.substitute).unwrap_or_default();
+        let lines = match &sub["nameGrants"] {
+            serde_json::Value::Array(own) => own.clone(),
+            _ => sub["grants"].as_array().cloned().unwrap_or_default(),
+        };
+        let grants: Vec<String> = (lines.iter())
             .filter_map(|g| g.as_str().map(str::to_owned))
             .collect();
-        if grants.is_empty() {
+        if grants.is_empty() || seen.contains(&(m.extension.as_str(), grants.clone())) {
             continue;
         }
         fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
@@ -305,7 +305,7 @@ fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
                     .find_map(|a| sends(&a.body, &m.name))
             });
         if let Some(span) = used {
-            seen.push(&m.extension);
+            seen.push((&m.extension, grants.clone()));
             out.push((grants, span, format!("`{}`", m.declared)));
         }
     }
