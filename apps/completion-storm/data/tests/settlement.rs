@@ -92,7 +92,7 @@ fn failures_settle_as_data_and_never_count_as_valid_successes() {
         assert!(r.fulfill(request.ticket, outcome).unwrap().is_some());
     }
     assert!(r.pending().is_empty());
-    assert_eq!(text(&r, "valid-count"), "1 valid successes in this wave");
+    assert_eq!(text(&r, "valid-count"), "1 valid success in this wave");
     assert_eq!(
         text(&r, "failed-count"),
         "5 failed or invalid replies in this wave"
@@ -136,7 +136,7 @@ fn replacement_and_unmount_drop_late_replies_without_reusing_results() {
         response(200, json!({"wave":13,"lane":0,"value":"wave 13 lane 0"})),
     )
     .unwrap();
-    assert_eq!(text(&r, "valid-count"), "1 valid successes in this wave");
+    assert_eq!(text(&r, "valid-count"), "1 valid success in this wave");
     assert_eq!(r.data_ref().accepted(), 1);
     tap(&mut r, "interact");
     assert_eq!(r.slot("clicks"), Some(&Value::Number(1.0)));

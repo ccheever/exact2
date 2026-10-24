@@ -460,7 +460,7 @@ component ExactLive
               LoadButton(n=32, label="Change 32", selected=batch, choose=chooseBatch)
               button press=startSelected disabled=(count == 0 or running) testId="start-selected" padding=8 border-width=0 border-radius=6 background-color=theme.card
                 text "Run selected load" font-size=(12 * k) color=theme.accent
-            text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body bytes · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=(11 * k) color=theme.muted
+            text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body ${history.bodyBytes == 1 ? "byte" : "bytes"} · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=(11 * k) color=theme.muted
             row gap=6 flex-wrap="wrap"
               LoadButton(n=0, label="Curated runbook", selected=bookBytes, choose=chooseBook)
               LoadButton(n=1048576, label="1MiB paragraph", selected=bookBytes, choose=chooseBook)
@@ -577,7 +577,7 @@ component RundownPanel
         column flex-shrink=0 padding=20 gap=8
           text "OUTSIDE, TOGETHER" font-size=(10 * k) letter-spacing=2 color=theme.accent
           text "A little room to wander." font-size=(30 * k) font-weight=600 letter-spacing=-0.7 color=theme.ink
-          text `${gallery.total} photographic scenes · one launch sequence` font-size=(12 * k) color=theme.muted
+          text `${gallery.total} photographic ${gallery.total == 1 ? "scene" : "scenes"} · one launch sequence` font-size=(12 * k) color=theme.muted
           if gallery.reordering
             row gap=6 flex-wrap="wrap" align-items="center" testId="manual-move"
               text gallery.previewLabel font-size=(12 * k) color=theme.accent flex=1 min-width=180
@@ -661,13 +661,13 @@ component RunbookPanel
       if busy
         column padding=20 gap=8 testId="runbook-pending"
           text "Preparing the full document…" font-size=(18 * k) font-weight=600
-          text `${requested} requested bytes` font-size=(12 * k) color=theme.muted
+          text `${requested} requested ${requested == 1 ? "byte" : "bytes"}` font-size=(12 * k) color=theme.muted
       else
         scroll flex=1 min-height=0 width="100%" overflow-x="hidden" aria-label="Runbook" testId="runbook-scroll"
           column padding=20 width="100%" max-width=(narrow ? 480 : 760) box-sizing="border-box" align-self="center" gap=8
             for block in book.blocks key=block.id
               Blocks(block=block)
-            text `${book.sourceBytes} actual UTF-8 source bytes` font-size=(10 * k) color=theme.muted padding-top=20 padding-bottom=20
+            text `${book.sourceBytes} actual UTF-8 source ${book.sourceBytes == 1 ? "byte" : "bytes"}` font-size=(10 * k) color=theme.muted padding-top=20 padding-bottom=20
 
 component Viewer
   inject
