@@ -209,9 +209,14 @@ fn module(
         (None, Some(name)) => (ModuleKind::Send, name),
         _ => return Err("each of `names` is a `source` or a `send`".into()),
     };
-    let answers = entry["answers"]
-        .as_str()
-        .ok_or_else(|| format!("`{name}` names what it `answers`"))?;
+    // An answer typed by an argument (LLP 1133.016 D15 item 4), `{"shape":
+    // "<option>", "else": "<Shape>"}`: a call whose literal option names a
+    // shape answers that shape, any other `else`.
+    let answers = match &entry["answers"] {
+        Value::Object(by) if by.get("shape").is_some_and(Value::is_string) => by["else"].as_str(),
+        other => other.as_str(),
+    }
+    .ok_or_else(|| format!("`{name}` names what it `answers`"))?;
     let request = match &entry["request"] {
         Value::Bool(true) => "always",
         Value::String(s) if s == "when-prompt" => "when-prompt",
@@ -400,6 +405,21 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if !surfaces.is_empty() {
         out.insert("surfaceOptions".into(), Value::Array(surfaces));
     }
+    // Where a call writes a shape's name (LLP 1133.016 D15 item 4), which
+    // the bake writes as its JSON Schema: an option, or a field of the
+    // records an option takes (`tools[].inputSchema`); and the option a
+    // typed answer follows.
+    let names = shape_names(entry, interface);
+    if !names.is_empty() {
+        out.insert("shapeNames".into(), Value::Array(names));
+    }
+    if let Some(by) = entry["answers"]["shape"].as_str() {
+        check(
+            names_option(entry, by),
+            &format!("typed answer follows `{by}`, one of its shape-name options"),
+        )?;
+        out.insert("answersBy".into(), Value::String(by.to_owned()));
+    }
     let option = |name: &Value| {
         name.as_str()
             .is_some_and(|o| !object(&entry["options"])[o].is_null())
@@ -473,12 +493,47 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             "poll" => {
                 let option = value.as_str().or(value["option"].as_str());
                 let default = &value["default"];
+                // `while`: the answer's field and the values for which the
+                // poll goes on (LLP 1133.016 D15 item 3).
+                let during = &value["while"];
+                let during_ok = during.is_null()
+                    || during.as_object().is_some_and(|w| {
+                        w.values().all(|v| {
+                            v.as_array()
+                                .is_some_and(|vs| vs.iter().all(Value::is_string))
+                        })
+                    });
                 check(
                     option.is_some_and(|o| !object(&entry["options"])[o].is_null())
-                        && (default.is_null() || default.is_number()),
-                    "`poll` names one of its options, or is {\"option\", \"default\"} with a default period",
+                        && (default.is_null() || default.is_number())
+                        && during_ok,
+                    "`poll` names one of its options, or is {\"option\", \"default\", \"while\"}: a default period, and the answer's values it goes on for",
                 )?
             }
+            // The implementation lays the agent's preferred value over its
+            // own answer, since what it does next depends on it (LLP
+            // 1133.016 §9: a download started while `downloadable`).
+            "overlays" => check(
+                value == "implementation",
+                "`overlays` is \"implementation\"",
+            )?,
+            // A send that may start a download (LLP 1133.016 D5, D10): the
+            // availability it starts one in, and what the call needs then.
+            "download" => check(
+                value["when"].is_string(),
+                "`download` names the availability `when` it starts one",
+            )?,
+            // The field path in a call's options that names data sources its
+            // implementation may run (`invoke`, LLP 1133.016 D15 item 1); and
+            // the handle option whose handlers a call's own handles take.
+            "handlers" => check(value.is_string(), "`handlers` is a field path")?,
+            "handlersFrom" => check(
+                value.as_str().is_some_and(|o| {
+                    (object(&entry["options"])[o].as_str())
+                        .is_some_and(|t| t.trim().starts_with("handle<"))
+                }),
+                "`handlersFrom` names one of its handle options",
+            )?,
             _ => continue,
         }
         let key = if field == "grants" {
@@ -670,6 +725,11 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     if (ty.starts_with("handle<") || ty.starts_with("json<")) && ty.ends_with('>') {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
+    // One of the app's shapes by name, which the bake writes as its JSON
+    // Schema (LLP 1133.016 D15 item 4): a string to Contract.
+    if ty == "shape-name" {
+        return Ok(TypeExpr::Named("string".to_owned(), span));
+    }
     let named = match ty {
         "strings-key" | "surface" => "string",
         "number" | "string" | "bool" | "unit" => ty,
@@ -682,6 +742,49 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         _ => return Err(format!("`{ty}` is not a declaration's type")),
     };
     Ok(TypeExpr::Named(named.to_owned(), span))
+}
+
+/// `ty` without `option<…>` and a list's `[]`, and whether a list was there.
+fn bare(ty: &str) -> (&str, bool) {
+    let mut ty = ty.trim();
+    let mut list = false;
+    loop {
+        if let Some(inner) = ty.strip_prefix("option<").and_then(|t| t.strip_suffix('>')) {
+            ty = inner.trim();
+        } else if let Some(inner) = ty.strip_suffix("[]") {
+            ty = inner.trim();
+            list = true;
+        } else {
+            return (ty, list);
+        }
+    }
+}
+
+/// The paths in a call of `entry` at which a shape's name is written: an
+/// option of type `shape-name`, or such a field of the interface's shape an
+/// option takes, `tools[].inputSchema`.
+fn shape_names(entry: &Value, interface: &Value) -> Vec<Value> {
+    let mut out = Vec::new();
+    for (option, ty) in object(&entry["options"]) {
+        let Some(ty) = ty.as_str() else { continue };
+        let (named, list) = bare(ty);
+        if named == "shape-name" {
+            out.push(Value::String(option.clone()));
+            continue;
+        }
+        for (field, fty) in object(&interface["shapes"][named]) {
+            if fty.as_str().map(|t| bare(t).0) == Some("shape-name") {
+                let at = if list { "[]." } else { "." };
+                out.push(Value::String(format!("{option}{at}{field}")));
+            }
+        }
+    }
+    out
+}
+
+/// Whether `option` is one of `entry`'s `shape-name` options.
+fn names_option(entry: &Value, option: &str) -> bool {
+    (object(&entry["options"])[option].as_str()).is_some_and(|t| bare(t).0 == "shape-name")
 }
 
 fn object(value: &Value) -> &Map<String, Value> {

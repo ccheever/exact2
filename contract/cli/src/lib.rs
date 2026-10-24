@@ -39,6 +39,7 @@ mod package_views;
 pub mod picker;
 mod resolve;
 mod retained;
+mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
 mod rust;
 mod sources;

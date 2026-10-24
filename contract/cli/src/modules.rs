@@ -11,6 +11,13 @@ use crate::CompileError;
 use contract_syntax::{Expr, Field, File, ModuleDecl, ModuleKind, ShapeDecl, Span, Stmt, TypeExpr};
 use std::collections::HashMap;
 
+/// What a call's literals are checked against: the canvases' surface names
+/// the file places, and its shapes, by name.
+struct Known {
+    surfaces: Vec<String>,
+    shapes: HashMap<String, ShapeDecl>,
+}
+
 /// Rewrite every call of a module name in `file`, and declare the records
 /// the calls build. Every refusal in one run.
 pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
@@ -26,7 +33,14 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
         file.shapes.extend(records(m));
     }
     let mut errors = Vec::new();
-    let surfaces = surfaces(file);
+    let surfaces = Known {
+        surfaces: surfaces(file),
+        shapes: file
+            .shapes
+            .iter()
+            .map(|s| (s.name.clone(), s.clone()))
+            .collect(),
+    };
     for c in &mut file.components {
         for r in &mut c.resources {
             if let Some(p) = &r.placeholder {
@@ -55,7 +69,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
                 ));
                 continue;
             }
-            check_answers(m, &r.shape, &r.name, r.span, &mut errors);
+            check_answers(m, &r.args, &r.shape, &r.name, r.span, &mut errors);
             if r.identity.is_some() {
                 errors.push(error(
                     "contract-module-with",
@@ -88,7 +102,7 @@ fn stmts(
     body: &mut [Stmt],
     modules: &HashMap<String, ModuleDecl>,
     shapes: &HashMap<String, TypeExpr>,
-    surfaces: &[String],
+    surfaces: &Known,
     errors: &mut Vec<CompileError>,
 ) {
     for stmt in body {
@@ -114,7 +128,7 @@ fn stmts(
                     continue;
                 }
                 if let Some(shape) = shapes.get(target.as_str()) {
-                    check_answers(m, shape, target, *span, errors);
+                    check_answers(m, args, shape, target, *span, errors);
                 }
                 match call(m, std::mem::take(args), *span, surfaces) {
                     Ok(rewritten) => *args = rewritten,
@@ -191,8 +205,9 @@ fn call(
     m: &ModuleDecl,
     args: Vec<Expr>,
     span: Span,
-    surfaces: &[String],
+    known: &Known,
 ) -> Result<Vec<Expr>, Vec<CompileError>> {
+    let surfaces = &known.surfaces;
     let mut errors = Vec::new();
     let mut options: Vec<(String, Expr)> = Vec::new();
     let mut words: Vec<(String, Vec<(String, Expr)>)> = Vec::new();
@@ -303,6 +318,18 @@ fn call(
             ));
         }
     }
+    // A shape named by its literal goes as its schema (LLP 1133.016 D15 item 4).
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+    let paths: Vec<String> = (sub["shapeNames"].as_array().into_iter().flatten())
+        .filter_map(|p| p.as_str().map(str::to_owned))
+        .collect();
+    crate::shape_schema::rewrite(
+        &m.declared,
+        &paths,
+        &mut options,
+        &known.shapes,
+        &mut errors,
+    );
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -475,23 +502,39 @@ fn member(name: &str, ty: &TypeExpr, value: &Expr) -> Option<CompileError> {
 /// A resource's or a mutation's `as shape` against what the module answers.
 fn check_answers(
     m: &ModuleDecl,
+    args: &[Expr],
     shape: &TypeExpr,
     name: &str,
     span: Span,
     errors: &mut Vec<CompileError>,
 ) {
-    if !same(shape, &m.answers) {
+    let answers = typed_answer(m, args).unwrap_or_else(|| m.answers.clone());
+    if !same(shape, &answers) {
         errors.push(error(
             "contract-module-answers",
             format!(
                 "`{name}` reads `{}`, which answers `{}`: write `as shape {}`",
                 m.declared,
-                written(&m.answers),
-                written(&m.answers)
+                written(&answers),
+                written(&answers)
             ),
             span,
         ));
     }
+}
+
+/// What a call of `m` answers when its answer is typed by an argument (LLP
+/// 1133.016 D15 item 4): the shape its literal option names.
+fn typed_answer(m: &ModuleDecl, args: &[Expr]) -> Option<TypeExpr> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).ok()?;
+    let by = sub["answersBy"].as_str()?;
+    args.iter().find_map(|a| match a {
+        Expr::NamedArg(n, v, _) if n == by => match v.as_ref() {
+            Expr::Str(shape, at) => Some(TypeExpr::Named(shape.clone(), *at)),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// Two written types alike, wherever each was written.
