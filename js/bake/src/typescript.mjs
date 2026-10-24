@@ -42,8 +42,13 @@ export function backendOriginWarning(code, selection, parse) {
 /** The socket origin at an http(s) origin's host: ws for http, wss for https. */
 const socketOrigin = (origin) => origin.replace(/^http/, 'ws');
 // Validate every entry, including those this bake does not select. No value
-// in this form goes through the constant evaluator or the grant URL rewrite.
-function keyedGrants(node, origin, at) {
+// in this form goes through the constant evaluator or the plain form's grant
+// URL rewrite. The entry is the selected origin's own; in a development build
+// only, an origin at a private-network address with no entry takes the entry
+// of the same server at loopback (same scheme and port), its fetch and socket
+// lines moved to that address: a phone reaching the fixture on this Mac's LAN.
+// A production build refuses it as any missing entry.
+function keyedGrants(node, origin, at, development) {
   const entries=new Map();
   const refuse=(node, why)=>{ throw new Error(`app.ts:${at(node.start)}: grants: ${why}`); };
   const line=(node, place)=>{
@@ -66,13 +71,53 @@ function keyedGrants(node, origin, at) {
     entries.set(key.value,value.type==='ArrayExpression' ? value.elements.map(n=>line(n,value)).join('\n') : line(value,value));
   }
   const wanted=new URL(origin).origin;
-  if (!entries.has(wanted)) refuse(node,`no entry for origin ${JSON.stringify(wanted)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
-  return entries.get(wanted);
+  if (entries.has(wanted)) return entries.get(wanted);
+  const local=development && privateNetwork(wanted) ? [...entries.keys()].filter(key=>sameServer(key,wanted)) : [];
+  if (local.length>1) refuse(node,`origin ${JSON.stringify(wanted)} is the server of more than one loopback key: ${local.map(k=>JSON.stringify(k)).join(', ')}`);
+  if (!local.length) refuse(node,`no entry for origin ${JSON.stringify(wanted)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
+  return movedLines(entries.get(local[0]),local[0],wanted);
+}
+
+/** A build that is not production (`EXACT_UPDATE_TRUST` unset or `development`, as `bake/src/compat.rs` reads it). */
+const developmentTrust = (env) => env.EXACT_UPDATE_TRUST === undefined || env.EXACT_UPDATE_TRUST === 'development';
+
+/** Whether an origin's host is a private-network address: RFC 1918 IPv4, link-local IPv4 (RFC 3927),
+ * unique-local IPv6 (fc00::/7, RFC 4193) or link-local IPv6 (fe80::/10, RFC 4291). */
+export function privateNetwork(origin) {
+  const host=new URL(origin).hostname;
+  const v4=host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (v4) {
+    const [a,b]=[Number(v4[1]),Number(v4[2])];
+    return a===10 || (a===172 && b>=16 && b<=31) || (a===192 && b===168) || (a===169 && b===254);
+  }
+  if (!host.startsWith('[')) return false;
+  const first=host.slice(1).split(':')[0];
+  if (!first) return false;
+  const bits=parseInt(first,16);
+  return (bits & 0xfe00)===0xfc00 || (bits & 0xffc0)===0xfe80;
+}
+
+/** Whether key `key` is a loopback origin of the server `origin` names: its scheme and port. */
+function sameServer(key, origin) {
+  const [k,o]=[new URL(key),new URL(origin)];
+  return ['127.0.0.1','localhost','[::1]'].includes(k.hostname) && k.protocol===o.protocol && k.port===o.port;
+}
+
+/** A loopback entry's lines for the same server at `to`: each `net.fetch` and `net.websocket` line at the
+ * loopback origin moves to `to`, keeping its path; every other line stays as written. */
+function movedLines(lines, from, to) {
+  const move=(target, a, b)=>target===a || target.startsWith(a+'/') ? b+target.slice(a.length) : target;
+  return lines.split('\n').map(line=>{
+    const m=line.match(/^(net\.fetch|net\.websocket) (\S+)(.*)$/);
+    if (!m) return line;
+    const [a,b]=m[1]==='net.fetch' ? [from,to] : [socketOrigin(from),socketOrigin(to)];
+    return `${m[1]} ${move(m[2],a,b)}${m[3]}`;
+  }).join('\n');
 }
 
 /** Select literal keyed grants, or move the plain form's matching fetch and
  * socket grant lines with the origin. Only the captured copy is rewritten. */
-export function injectBackendOrigin(code, origin, parse) {
+export function injectBackendOrigin(code, origin, parse, env=process.env) {
   const parsed=parse('app.ts',code);
   if (parsed.errors.length) {
     if (origin===null) return code;
@@ -96,7 +141,7 @@ export function injectBackendOrigin(code, origin, parse) {
     for (const d of [...targets,...keyed]) if (!statements.some(s=>s?.kind==='const' && s.declarations.includes(d)))
       throw new Error(`app.ts:${at(d.start)}: grants keyed by origin require const ${d.id.name}`);
     httpOrigin(origin ?? literal,`app.ts:${at(init.start)}: grants origin`);
-    for (const d of keyed) edits.push([d.init.start,d.init.end,JSON.stringify(keyedGrants(bare(d.init),origin ?? literal,at))]);
+    for (const d of keyed) edits.push([d.init.start,d.init.end,JSON.stringify(keyedGrants(bare(d.init),origin ?? literal,at,developmentTrust(env)))]);
   }
   const previous=literal.replace(/\/+$/,'');
   const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
