@@ -18,6 +18,8 @@
 //   recording recorder (D8); a track that ends stops it (`track-ended`).
 // - `audioLevel` (D1): the RMS of each `interval`, computed on the audio
 //   thread; an answer covers every interval since the last one.
+// - `<audio-waveform>` (D13) draws a track's level on the display link from
+//   a meter of its own, so no level crosses into Contract.
 // - Under the agent (§10) no engine runs: the level is the synthetic signal
 //   on the session clock, and a stopped recorder's file is WAV of a tone that
 //   follows it, answered as `audio/wav`.
@@ -26,6 +28,11 @@
 import AVFoundation
 import ExactPackage
 import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 public final class RecordingModule: ExactPackage {
     private let context: ExactPackageContext
@@ -67,6 +74,23 @@ public final class RecordingModule: ExactPackage {
 
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
         name == "audioLevelSync" ? level(args) : ["error": "NotSupportedError"]
+    }
+
+    /// `<audio-waveform>` (D13).
+    public func view(_ tag: String, id: String, props: [String: String], events: ExactPackageEvents) throws -> ExactPackageView {
+        guard tag == "audio-waveform" else { throw ExactPackageRefusal("no view \(tag)") }
+        let waveform = Waveform(module: self)
+        try waveform.setProps(props)
+        return waveform
+    }
+
+    var now: Double { context.now() }
+
+    /// A waveform's own meter of `track`, a reader that never starts it.
+    func waveformMeter(_ track: String) -> Meter? {
+        let m = Meter(interval: 50, history: 1000, agent: context.agent, now: context.now())
+        m.subscription = try? context.tracks.subscribe(track, m, start: false, origin: context.origin)
+        return m.subscription == nil ? nil : m
     }
 
     private func announce() { context.changed("recording.mediaRecorderState") }
@@ -403,7 +427,8 @@ final class Meter: ExactTrackConsumer {
     let interval: Double, history: Int, agent: Bool
     var subscription: ExactSubscription?
     private var tap: ExactSubscription?
-    private var levels: [Double] = [], energy = 0.0, duration = 0.0, last = 0.0
+    private(set) var levels: [Double] = []
+    private var energy = 0.0, duration = 0.0, last = 0.0
     private var at: Double, running = false, quiet = false
     /// Each interval's RMS, from the audio thread.
     private let measured = Measured()
@@ -458,4 +483,117 @@ final class Measured: @unchecked Sendable {
         if done.count > 4096 { done.removeFirst(done.count - 4096) }
     }
     func take() -> [Double] { lock.lock(); defer { lock.unlock() }; let out = done; done = []; return out }
+}
+
+// MARK: the waveform (D13)
+
+#if os(macOS)
+typealias WaveformColor = NSColor
+#else
+typealias WaveformColor = UIColor
+#endif
+
+/// `<audio-waveform track=…>`: the track's levels as bars, newest at the
+/// right, drawn each display frame from a meter of its own, so no level
+/// crosses into Contract. A reader of the track, never a start: an idle
+/// track draws silence.
+final class Waveform: NSObject, ExactPackageView {
+    private let canvas = WaveformCanvas()
+    private let module: RecordingModule
+    private var track = ""
+
+    init(module: RecordingModule) {
+        self.module = module
+        super.init()
+        canvas.levels = { [weak self] fit in self?.levels(fit) ?? [] }
+    }
+
+    var view: ExactPackagePlatformView { canvas }
+
+    func setProps(_ props: [String: String]) throws {
+        canvas.color = props["tint"].flatMap(Waveform.color) ?? canvas.color
+        let next = props["track"] ?? ""
+        guard next != track else { return }
+        canvas.meter?.stop()
+        track = next
+        canvas.meter = track.isEmpty ? nil : module.waveformMeter(track)
+        canvas.bars = []
+    }
+
+    private func levels(_ fit: Int) -> [Double] {
+        guard let meter = canvas.meter else { return [] }
+        _ = meter.read(module.now)
+        return Array(meter.levels.suffix(fit))
+    }
+
+    func destroy() { canvas.stop(); canvas.meter?.stop() }
+
+    /// `#rgb` or `#rrggbb`.
+    static func color(_ hex: String) -> WaveformColor? {
+        var digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        if digits.count == 3 { digits = digits.map { "\($0)\($0)" }.joined() }
+        guard digits.count == 6, let v = UInt32(digits, radix: 16) else { return nil }
+        let c = { (shift: UInt32) in CGFloat((v >> shift) & 0xff) / 255 }
+        return WaveformColor(red: c(16), green: c(8), blue: c(0), alpha: 1)
+    }
+}
+
+final class WaveformCanvas: ExactPackagePlatformView {
+    var color: WaveformColor = .systemRed
+    var meter: Meter?
+    var bars: [Double] = []
+    var levels: (Int) -> [Double] = { _ in [] }
+    private var link: AnyObject?
+    static let bar: CGFloat = 3, gap: CGFloat = 2
+
+    init() {
+        super.init(frame: .zero)
+        #if os(macOS)
+        wantsLayer = true
+        let link = displayLink(target: self, selector: #selector(tick))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        #else
+        isUserInteractionEnabled = false
+        isOpaque = false
+        contentMode = .redraw
+        let link = CADisplayLink(target: self, selector: #selector(tick))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        #endif
+    }
+
+    required init?(coder: NSCoder) { fatalError("not from a coder") }
+
+    #if os(macOS)
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    #endif
+
+    @objc private func tick() {
+        let fit = max(0, Int((bounds.width + Self.gap) / (Self.bar + Self.gap)))
+        bars = levels(fit)
+        #if os(macOS)
+        needsDisplay = true
+        #else
+        setNeedsDisplay()
+        #endif
+    }
+
+    func stop() { (link as? CADisplayLink)?.invalidate(); link = nil }
+
+    override func draw(_ rect: CGRect) {
+        #if os(macOS)
+        guard let g = NSGraphicsContext.current?.cgContext else { return }
+        #else
+        guard let g = UIGraphicsGetCurrentContext() else { return }
+        #endif
+        let w = bounds.width, h = bounds.height
+        g.setFillColor(color.cgColor)
+        for (i, level) in bars.enumerated() {
+            let x = w - CGFloat(bars.count - i) * (Self.bar + Self.gap) + Self.gap
+            let half = max(1, CGFloat(level) * (h / 2 - 2))
+            g.fill(CGRect(x: x, y: h / 2 - half, width: Self.bar, height: half * 2))
+        }
+    }
 }

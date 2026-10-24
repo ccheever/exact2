@@ -7,6 +7,14 @@
     "device.microphone"
   ],
   "substitute": "implementation",
+  "views": {
+    "audio-waveform": {
+      "props": {
+        "track": "handle<track>",
+        "tint": "option<string>"
+      }
+    }
+  },
   "shapes": {
     "MediaRecorderInfo": {
       "id": "string",

@@ -38,7 +38,9 @@ const sources: Record<string, (args: any, store: unknown, storage: Storage) => P
     }).sort((a, b) => Number(a.name.slice(5)) - Number(b.name.slice(5)));
     return { takes, next: takes.reduce((n, t) => Math.max(n, Number(t.name.slice(5)) || 0), 0) + 1 };
   },
-  keepTake: async ([path, duration, level], _store, storage) => {
+  // The take's level is its RMS over the time metered (WebRTC statistics' `totalAudioEnergy` over `totalSamplesDuration`).
+  keepTake: async ([path, duration, energy, seconds], _store, storage) => {
+    const level = seconds > 0 ? Math.sqrt(energy / seconds) : 0;
     const take: Kept = { name: nameOf(path), seconds: Math.round(duration / 100) / 10, level: Math.round(level * 100) };
     const kept = (await index(storage)).filter((t) => t.name !== take.name);
     await storage.fs.mkdir(DIR);

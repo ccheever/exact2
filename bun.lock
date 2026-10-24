@@ -13,6 +13,7 @@
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/reading": "workspace:*",
+        "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
       },
