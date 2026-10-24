@@ -826,6 +826,12 @@ const api = {
     deliverPosts(name);
     return null;
   },
+  // The agent's substitute's sensor samples (LLP 1133.013 D6), a frame's at a
+  // time, on the path posts take: `[{surface, event}]`, each event input JSON.
+  sensors(events) {
+    for (const { surface, event } of events) { const queued = posts.get(surface) ?? posts.set(surface, []).get(surface); if (queued.length < 1024) queued.push(event); } // a world's queue holds 1,024
+    for (const name of new Set(events.map(e => e.surface))) deliverPosts(name);
+  },
   // The driver's `post` (LLP 1139.004 D1): a canvas's surface name, the page's
   // one world's, and whether posts to a name still wait for its canvas.
   surfaceOf: (view) => surfaces.get(view)?.name,

@@ -98,6 +98,7 @@ mod miswiring;
 mod module_seam;
 mod module_views;
 mod modules;
+mod motion;
 mod motion_feel;
 mod mutation;
 mod names;

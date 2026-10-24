@@ -41,6 +41,7 @@ mod bound;
 mod handles;
 mod poll;
 mod presence;
+mod samples;
 mod views;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
@@ -94,6 +95,17 @@ pub(super) struct Extensions {
     failed: BTreeSet<String>,
     /// Presence secrets: the host's backend and the calls on it (`presence.rs`).
     presence: presence::Presence,
+    /// Sampled sources' cursors, tracks and canvas inputs (`samples.rs`).
+    samples: samples::Samples,
+}
+
+/// A Contract read or send of a module's name, as admission saw it.
+struct Called<'a> {
+    target: Target,
+    source: &'a str,
+    ty: TypesId,
+    origin: CallOrigin,
+    timeout: Option<f64>,
 }
 
 /// A held request's outcome once the agent answered it.
@@ -240,13 +252,47 @@ impl<D: DataSource> Runner<D> {
         ty: TypesId,
     ) -> Result<Answer, DataError> {
         let row = self.module_row(source);
-        let key = self.key(&row);
-        let args = self.args_json(&row, args);
+        let mut args = self.args_json(&row, args);
+        self.clamp_bounds(&row, &mut args);
         let send = matches!(target, Target::Mutation(_));
         let timeout = send.then(|| self.timeout(&row, &args)).flatten();
         let origin = self.origin_for(Some(target));
-        let route = self.route(&row);
+        let reader = match target {
+            Target::Resource(i) => Some(samples::Reader::Resource(i)),
+            Target::Mutation(_) => None,
+        };
+        // A sampled source's reader is known to its answer (`samples.rs`).
+        self.extensions.samples.asking = reader.map(|r| (r, origin));
+        self.sampled_ask(&row, &args);
         let decision = self.admitted(&row, &args, origin, send, timeout);
+        let called = Called {
+            target,
+            source,
+            ty,
+            origin,
+            timeout,
+        };
+        let out = self.module_decided(called, &row, args, decision);
+        self.extensions.samples.asking = None;
+        out
+    }
+
+    /// [`Self::module_target`] once admission decided.
+    fn module_decided(
+        &mut self,
+        called: Called,
+        row: &ModulesRow,
+        args: Json,
+        decision: Decision,
+    ) -> Result<Answer, DataError> {
+        let Called {
+            target,
+            source,
+            ty,
+            origin,
+            timeout,
+        } = called;
+        let (row, key, route) = (row.clone(), self.key(row), self.route(row));
         let what = match target {
             Target::Resource(i) => format!("query {}", self.plan.str(self.plan.resources[i].name)),
             Target::Mutation(m) => format!("send {}", self.plan.str(self.plan.mutations[m].name)),
@@ -269,6 +315,13 @@ impl<D: DataSource> Runner<D> {
                     "refused"
                 };
                 self.log(format!("{what}: {key} ({how})"));
+                if error_code(&json).is_none() && route == Route::Substitute {
+                    self.sampled_answered(&row, &json);
+                    self.sampled_reader(&row, &args);
+                    if !self.substitute(&row)["feeds"].is_null() {
+                        self.feed(&row, &args, origin);
+                    }
+                }
                 self.answer_json(ty, &key, &json).map(Answer::Now)
             }
             Decision::Hold(waits) => {
@@ -340,6 +393,7 @@ impl<D: DataSource> Runner<D> {
     /// The reply to a held module request, as `fulfill` parses it.
     pub(super) fn module_parse(
         &mut self,
+        target: Target,
         ty: TypesId,
         source: &str,
         outcome: Outcome,
@@ -354,6 +408,11 @@ impl<D: DataSource> Runner<D> {
         let json = self.overlaid(&row, json);
         let json = self.presence_status(&row, json);
         self.note_poll_answer(&row, error_code(&json).is_some());
+        if let (Target::Resource(i), None) = (target, error_code(&json)) {
+            self.extensions.samples.asking = Some((samples::Reader::Resource(i), CallOrigin::App));
+            self.sampled_answered(&row, &json);
+            self.extensions.samples.asking = None;
+        }
         self.answer_json(ty, &key, &json).map(Answer::Now)
     }
 
@@ -387,14 +446,28 @@ impl<D: DataSource> Runner<D> {
             .cloned()
     }
 
+    /// Permission `name`'s state: what the agent or a ticket set, else the
+    /// state its declaration starts in (`initial`: `granted` where every
+    /// native platform grants without asking, LLP 1133.013 §9), else
+    /// `prompt`.
     fn permission_state(&self, name: &str) -> String {
-        (self.extensions.permission.get(name).cloned()).unwrap_or_else(|| "prompt".into())
+        if let Some(state) = self.extensions.permission.get(name) {
+            return state.clone();
+        }
+        (self.plan.modules.iter())
+            .map(|m| self.substitute(m)["permission"].clone())
+            .find(|p| p["name"] == name)
+            .and_then(|p| p["initial"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| "prompt".into())
     }
 
     /// §6's transitions for a read (or a send) of `row` now.
     fn decide(&self, row: &ModulesRow, send: bool, args: &Json) -> Decision {
+        if self.unavailable(row) {
+            return Decision::Now(json!({ "error": "NotSupportedError" }));
+        }
         self.decide_permission(row, send, args)
-            .unwrap_or_else(|| self.decide_value(row, &self.substitute(row), send))
+            .unwrap_or_else(|| self.decide_value(row, &self.substitute(row), send, args))
     }
 
     /// What the runner's permission decides of `row` now: its status
@@ -416,7 +489,10 @@ impl<D: DataSource> Runner<D> {
         // A denial that only gates part of what a call can ask fails a call
         // that asks for that part alone (`continues`: Face ID refused, the
         // passcode still works, LLP 1133.010 D12).
-        if state == "denied" && self.denial_fails(&sub, args) {
+        // A request that answers the status answers it denied too (WebKit's
+        // `requestPermission` resolves `denied`, LLP 1133.013 D11).
+        let answers_denied = send && sub["deniedAnswers"] == true;
+        if state == "denied" && self.denial_fails(&sub, args) && !answers_denied {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
         let asks = match self.plan.str(row.request) {
@@ -424,8 +500,13 @@ impl<D: DataSource> Runner<D> {
             "when-prompt" => !send,
             _ => false,
         };
-        (state == "prompt" && asks && self.status_asks(row, &sub))
-            .then_some(Decision::Hold(Waits::Permission))
+        if state == "prompt" && asks && self.status_asks(row, &sub) {
+            return Some(Decision::Hold(Waits::Permission));
+        }
+        // A name that is no request fails until the state is granted, where
+        // the permission says so, naming the request that asks (D11).
+        (state == "prompt" && !asks && permission["whilePrompt"].is_object())
+            .then(|| Decision::Now(permission["whilePrompt"].clone()))
     }
 
     /// Whether a denial fails a call with `args`: always, unless the
@@ -451,7 +532,17 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// What answers `row` once its permission allows it.
-    fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool) -> Decision {
+    fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool, args: &Json) -> Decision {
+        if !send && sub["samples"].is_object() {
+            return Decision::Now(self.sampled(row, args));
+        }
+        // A send that feeds a canvas's input answers which (`samples.rs`).
+        if send && sub["feeds"].is_object() {
+            let field = |k: &str| (sub["feeds"][k].as_str()).map(|o| args[o].clone());
+            return Decision::Now(
+                json!({ "surface": field("surface"), "sensor": field("sensor") }),
+            );
+        }
         // A person's check, unless the status says the device has none.
         if send && sub["check"].is_object() {
             let status = (sub["permission"]["status"].as_str())
@@ -762,18 +853,30 @@ impl<D: DataSource> Runner<D> {
         if row.send != send {
             return Some(now(json!({ "error": "NotSupportedError" })));
         }
-        let args = v.get("args").cloned().unwrap_or(json!({}));
+        let mut args = v.get("args").cloned().unwrap_or(json!({}));
+        self.clamp_bounds(&row, &mut args);
         let held_args = args.clone();
         let timeout = self.timeout(&row, &args);
         let origin = self.data_origin();
         let route = self.route(&row);
-        match self.admitted(&row, &args, origin, send, timeout) {
+        let reader = self.data_reader(&row, &args);
+        self.extensions.samples.asking = Some((reader.clone(), origin));
+        self.sampled_ask(&row, &args);
+        let decision = self.admitted(&row, &args, origin, send, timeout);
+        let out = match decision {
             Decision::Forward => {
                 if !send {
                     self.bound_read(&key);
                 }
+                let sampled = self.samples_of(&row);
                 let body = self.forward_body(&row, args, None);
-                Some(self.to_implementation(body))
+                let work = self.to_implementation(body);
+                Some(match (sampled, reader) {
+                    (Some(decl), samples::Reader::Data(id)) => {
+                        self.cursored(work, id, decl["cursor"].as_str().unwrap_or("sequence"))
+                    }
+                    _ => work,
+                })
             }
             Decision::Now(answer) => {
                 let how = if route == Route::Substitute || error_code(&answer).is_none() {
@@ -782,6 +885,9 @@ impl<D: DataSource> Runner<D> {
                     "refused"
                 };
                 self.log(format!("native {key} ({how})"));
+                if error_code(&answer).is_none() {
+                    self.sampled_answered(&row, &answer);
+                }
                 Some(now(self.completed(&row, answer)))
             }
             Decision::Hold(waits) => {
@@ -820,7 +926,31 @@ impl<D: DataSource> Runner<D> {
                     }
                 }))))
             }
-        }
+        };
+        self.extensions.samples.asking = None;
+        out
+    }
+
+    /// `work`, a data-code read of a sampled source, whose reply sets its
+    /// reader's cursor as it leaves the implementation (`samples.rs`).
+    fn cursored(&self, work: Dispatch, id: String, field: &str) -> Dispatch {
+        let Dispatch::Run(Work::Later(run)) = work else {
+            return work;
+        };
+        let (cursors, field) = (self.data_cursors(), field.to_owned());
+        Dispatch::Run(Work::Later(Box::new(move |reply| {
+            run(Reply::new(move |outcome| {
+                if let Outcome::Response(Response { body, .. }) = &outcome {
+                    let at = serde_json::from_slice::<Json>(body)
+                        .ok()
+                        .and_then(|v| v[&field].as_f64());
+                    if let (Some(at), Ok(mut cursors)) = (at, cursors.lock()) {
+                        cursors.insert(id, at);
+                    }
+                }
+                reply.send(outcome);
+            }));
+        })))
     }
 
     /// The topic a data-code read of a module's source watches, its key.
@@ -1145,6 +1275,7 @@ impl<D: DataSource> Runner<D> {
     /// released, a refused commit): retired with their tickets (§6).
     pub(super) fn retire_modules(&mut self) {
         self.release_idle();
+        self.release_sampled();
         self.dispose_dropped();
         self.prune_origins();
         let gone: Vec<u64> = (self.extensions.held.iter())

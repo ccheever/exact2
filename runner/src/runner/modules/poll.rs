@@ -57,10 +57,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The polled sources an implementation answers and a reader reads, each
-    /// with when its next ask is due.
+    /// with when its next ask is due. The substitute's sampled sources are
+    /// polled too: their batches are taken on the session clock (LLP
+    /// 1133.013 §9).
     fn polled(&self) -> Vec<(String, f64)> {
         (self.plan.modules.iter())
-            .filter(|m| m.live && !m.send && self.route(m) != Route::Substitute)
+            .filter(|m| m.live && !m.send)
+            .filter(|m| self.route(m) != Route::Substitute || self.samples_of(m).is_some())
             .filter_map(|m| {
                 let key = self.key(m);
                 if self.extensions.failed.contains(&key) {

@@ -25,6 +25,7 @@
     "@exact/local-auth": "workspace:*",
     "@exact/camera": "workspace:*",
     "@exact/media-capture": "workspace:*",
+    "@exact/motion": "workspace:*",
     "@exact/recording": "workspace:*",
     "@exact/speech-recognition": "workspace:*",
     "@exact/speech-synthesis": "workspace:*",

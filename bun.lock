@@ -12,6 +12,7 @@
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
+        "@exact/motion": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
@@ -60,6 +61,10 @@
     },
     "packages/media-capture": {
       "name": "@exact/media-capture",
+      "version": "1.0.0",
+    },
+    "packages/motion": {
+      "name": "@exact/motion",
       "version": "1.0.0",
     },
     "packages/reading": {
@@ -113,6 +118,8 @@
     "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
 
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
+
+    "@exact/motion": ["@exact/motion@workspace:packages/motion"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
