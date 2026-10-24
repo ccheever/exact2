@@ -39,6 +39,7 @@ mod admit;
 mod agent;
 mod bound;
 mod ceremony;
+mod fed;
 mod handles;
 mod permits;
 mod pictures;
@@ -105,6 +106,8 @@ pub(super) struct Extensions {
     ceremonies: Vec<(u64, String, Json)>,
     /// The pictures admitted and refused, by extension (`pictures.rs`).
     pictures: pictures::Pictures,
+    /// The canvases packages feed, and their leases (`fed.rs`).
+    fed: fed::Fed,
 }
 
 /// A Contract read or send of a module's name, as admission saw it.
@@ -322,9 +325,13 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => Some(i),
             Target::Mutation(_) => None,
         };
+        let feeds = !self.substitute(&row)["feeds"].is_null();
         match decision {
             Decision::Forward => {
                 self.log(format!("{what}: {key} (native)"));
+                if feeds {
+                    self.fed_send(&row, &args, origin);
+                }
                 Ok(Answer::Later(self.bound_request(&row, args, reader)))
             }
             Decision::Now(json) => {
@@ -339,7 +346,8 @@ impl<D: DataSource> Runner<D> {
                 if error_code(&json).is_none() && route == Route::Substitute {
                     self.sampled_answered(&row, &json);
                     self.sampled_reader(&row, &args);
-                    if !self.substitute(&row)["feeds"].is_null() {
+                    if feeds {
+                        self.fed_send(&row, &args, origin);
                         self.feed(&row, &args, origin);
                     }
                 }

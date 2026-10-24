@@ -79,6 +79,10 @@ impl<D: DataSource> Runner<D> {
             if let Some(pictures) = self.pictures_json(extension) {
                 entry["pictures"] = pictures;
             }
+            // The canvases its inputs feed, and their leases (D6).
+            if let Some(surfaces) = self.fed_json(extension) {
+                entry["surfaces"] = surfaces;
+            }
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
                 .and_then(|p| p.values().next().cloned());
