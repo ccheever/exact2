@@ -2145,8 +2145,8 @@ bundle built and signed, installed on nothing, so it needs the tvOS SDK and
 Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
 `--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
 host and every Linux app (`-p '*-linux'`: each `apps/<app>/linux` crate is a
-workspace member named `<app>-linux`) and for the Windows host and Windows Desk. Install
-`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+workspace member named `<app>-linux`) and for the Windows host and Windows Desk, on x64 and ARM64. Install
+`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu` and `aarch64-pc-windows-gnullvm` with `rustup target add`
 and provide `zig` on the Mac: it compiles C, and C++ for the Linux target
 (Hermes's JSI bindings). The check runs offline, so install the pinned Linux
 Hermes bundle once per Hermes pin (again whenever the pin changes): `cargo run
