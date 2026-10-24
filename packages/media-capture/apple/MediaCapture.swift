@@ -535,7 +535,7 @@ final class ProcessCapture: ExactAudioSource {
         stop()
         do {
             try start(options)
-            log("media-capture: capture reopened, \(Int(Date().timeIntervalSince(began) * 1000)) ms")
+            log("media-capture: capture reopened, \(Int(Date().timeIntervalSince(began) * 1000)) ms, \(Int(format.sampleRate)) Hz, \(format.channelCount) ch")
             tell("reopened")
         } catch {
             log("media-capture: the capture did not reopen: \(error)")

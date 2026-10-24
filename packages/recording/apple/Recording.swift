@@ -237,6 +237,7 @@ final class Recorder: ExactTrackConsumer {
         do {
             let writer = try Writer(url: url, type: type, format: format, bitRate: bitRate, apple: apple)
             queue.sync { self.writer = writer }
+            context.log("recording: \(id) writes \(Writer.describe(format))")
         } catch {
             return finish("error", error: "the file did not open: \(error)") { _ in }
         }
@@ -288,18 +289,18 @@ final class Recorder: ExactTrackConsumer {
                 try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? Writer.tone(spans).write(to: url)
             }
-            let complete = { DispatchQueue.main.async { self.completed(why, duration) } }
+            let complete = { let failure = writer?.failure; DispatchQueue.main.async { self.completed(why, duration, failure: failure) } }
             if let writer { writer.finish(complete) } else { complete() }
         }
     }
 
     /// The file is finished: the result, answered to every stop that waited.
-    private func completed(_ why: String, _ duration: Double) {
+    private func completed(_ why: String, _ duration: Double, failure: String?) {
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
         subscription?.cancel(); subscription = nil
         let result: [String: Any] = ["path": path, "mimeType": type, "duration": duration, "size": size]
         self.result = result
-        context.log("recording: \(id) stopped (\(why)), \(path), \(size) bytes")
+        context.log("recording: \(id) stopped (\(why)), \(path), \(size) bytes" + (failure.map { "; the writer failed: \($0)" } ?? ""))
         changed()
         for f in finishing { f(result) }
         finishing = []
@@ -339,9 +340,18 @@ final class Writer {
     private var asset: AVAssetWriter?, input: AVAssetWriterInput?, file: AVAudioFile?
     private var frames: Int64 = 0
     private let rate: Double
+    /// The format the file was opened with. A capture reopened by a route or
+    /// hardware change can deliver another (an iPhone's input went from
+    /// 48 kHz to 24 kHz as the session activated), which is converted to
+    /// this one: the writer fails on a buffer of another format.
+    private let format: AVAudioFormat
+    private var converter: AVAudioConverter?
+    /// Why the file holds less than was recorded, the first time it happened.
+    private(set) var failure: String?
 
     init(url: URL, type: String, format: AVAudioFormat, bitRate: Double?, apple: [String: Any]) throws {
         rate = format.sampleRate
+        self.format = format
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
         if type == "audio/wav" {
@@ -369,9 +379,39 @@ final class Writer {
     /// One buffer, on the recorder's queue. Its time is the frames written,
     /// so a pause leaves no gap in the file.
     func append(_ buffer: AVAudioPCMBuffer) {
-        if let file { try? file.write(from: buffer); return }
+        guard let buffer = conformed(buffer) else { return fail("a buffer of \(Writer.describe(buffer.format)) did not convert to \(Writer.describe(format))") }
+        if let file {
+            do { try file.write(from: buffer) } catch { fail(Writer.code(error)) }
+            return
+        }
         guard let input, input.isReadyForMoreMediaData, let sample = sample(buffer) else { return }
-        if input.append(sample) { frames += Int64(buffer.frameLength) }
+        if input.append(sample) { frames += Int64(buffer.frameLength) } else { fail(asset?.error.map(Writer.code) ?? "the writer refused a buffer") }
+    }
+
+    private func fail(_ why: String) { if failure == nil { failure = why } }
+
+    /// An error by its domain and code, and its underlying one's: AVFoundation's text names neither.
+    static func code(_ error: Error) -> String {
+        let e = error as NSError
+        let under = (e.userInfo[NSUnderlyingErrorKey] as? NSError).map { " (\($0.domain) \($0.code))" } ?? ""
+        return "\(e.domain) \(e.code)\(under)"
+    }
+
+    static func describe(_ f: AVAudioFormat) -> String { "\(Int(f.sampleRate)) Hz, \(f.channelCount) ch" }
+
+    /// `buffer` in the file's format.
+    private func conformed(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        if buffer.format == format { return buffer }
+        if converter?.inputFormat != buffer.format { converter = AVAudioConverter(from: buffer.format, to: format) }
+        guard let converter else { return nil }
+        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * format.sampleRate / buffer.format.sampleRate).rounded(.up)) + 1
+        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        var given = false
+        let status = converter.convert(to: out, error: nil) { _, state in
+            if given { state.pointee = .noDataNow; return nil }
+            given = true; state.pointee = .haveData; return buffer
+        }
+        return status == .error ? nil : out
     }
 
     private func sample(_ buffer: AVAudioPCMBuffer) -> CMSampleBuffer? {
@@ -393,7 +433,10 @@ final class Writer {
     func finish(_ done: @escaping () -> Void) {
         guard let asset, let input else { file = nil; return done() }
         input.markAsFinished()
-        asset.finishWriting(completionHandler: done)
+        asset.finishWriting { [self] in
+            if asset.status == .failed { fail(asset.error.map(Writer.code) ?? "the writer failed") }
+            done()
+        }
     }
 
     /// The agent's take: WAV, 16-bit mono at 8 kHz, of a 440 Hz tone whose amplitude follows the signal over its spans (§10).
