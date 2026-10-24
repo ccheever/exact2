@@ -112,7 +112,8 @@ impl Lowerer<'_> {
             positional,
             &expanded[sheet.len()..],
             face,
-            !self.fns.contains_key("startsWith"),
+            !self.fns.contains_key("startsWith")
+                && !contract_types::records::is_record_call("startsWith", &self.types.shapes),
         );
         crate::popover_surface::check_authored(expanded)?;
         let surfaced = crate::popover_surface::implied(expanded, *span);
