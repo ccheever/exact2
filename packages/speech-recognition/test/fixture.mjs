@@ -30,8 +30,8 @@ export function spokenFile() {
 }
 
 /** The fixture app's directory and its bundle id. `recognition` and `mediaCapture` are the two dependencies
- * (`file:` the packages here by default). */
-export function makeFixture({ recognition = `file:${pkg}`, mediaCapture = `file:${capture}` } = {}) {
+ * (`file:` the packages here by default); `dependencies` adds others. */
+export function makeFixture({ recognition = `file:${pkg}`, mediaCapture = `file:${capture}`, dependencies = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'exact-speech-recognition-')), app = join(dir, 'recogfixture');
   run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
   for (const f of ['app.contract', 'app.ts', 'strings']) cpSync(join(here, 'fixture', f), join(app, f), { recursive: true });
@@ -39,7 +39,7 @@ export function makeFixture({ recognition = `file:${pkg}`, mediaCapture = `file:
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
   writeFileSync(join(app, 'app.ts'), readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id));
   const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
-  manifest.dependencies = { ...manifest.dependencies, '@exact/media-capture': mediaCapture, '@exact/speech-recognition': recognition };
+  manifest.dependencies = { ...manifest.dependencies, '@exact/media-capture': mediaCapture, '@exact/speech-recognition': recognition, ...dependencies };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
   return { app, id };
