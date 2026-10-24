@@ -99,7 +99,7 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
-import { packageDesigns } from './tamber-package-designs.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
@@ -114,7 +114,7 @@ const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, 
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
 const GONE = 'this paired client was revoked or its token expired';
-export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'edit-held', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -736,6 +736,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
+    if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, { expire, proposals, take: id => { proposals.delete(id); heldRevision++; }, restore, hold, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
     if (request.method === 'history') return history(request);
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
@@ -945,7 +946,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
-  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false) {
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false, editedBy = undefined) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -992,7 +993,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // The operations by index, as `accept`'s items name them.
     const size = Buffer.byteLength(JSON.stringify({ diff: planned.ok.diff, changed: planned.ok.changed, ops, review }));
     if (size > 4 << 20 || size + [...proposals.values()].reduce((n, q) => n + (q.size ?? 0), 0) > 32 << 20) return /* a proposal at most 4 MiB, all held at most 32 MiB */ { status: 413, error: { message: 'the proposal is over 4 MiB, or the held ones together over 32 MiB: accept or drop some, or propose it in parts' } };
-    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(editedBy ? { editedBy } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
     // At most 64 held. A client below `write` may not drop another's
     // (theme2's ruling (a)): at the cap its own oldest goes, and with none
     // of its own its hold is refused, decided here, in the same turn as the
@@ -1054,7 +1055,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
       if (!p.reimport && review) { delete review.dials; delete review.pins; } // a client's own marks are not carried past its operations
-      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring); } catch (e) { restore(id, p); throw e; }
+      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring, p.shown.editedBy); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };

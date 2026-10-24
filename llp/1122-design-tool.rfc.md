@@ -646,6 +646,9 @@ An agent is a client with the same token, reads and writes.
   - **If a file has moved since**, or only some items were accepted, the server recomputes
     the transaction on the current files. The tool shows the recomputed diff, and the person
     accepts that, never the old operations replayed onto new bases.
+  - **Editing a value** before accepting (an import's token, in one mode) is `edit-held` (tamber/1.17): the server
+    sets that value and holds the rest again in the proposal's place, the proposer's still, with no ops sent
+    (theme2's ruling, 2026-10-24). A server before 1.17 is sent the edited list held again, and the old one dropped.
 - **Prompt-as-tweak** (0158 §9). A selection-scoped request goes to an agent with a bundle:
   - the selection's provenance;
   - the rungs;
