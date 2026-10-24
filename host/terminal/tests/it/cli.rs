@@ -1156,3 +1156,25 @@ fn layout_and_plan_answer_as_json() {
         "{layout}"
     );
 }
+
+#[test]
+fn type_distinguishes_offscreen_fields_from_ineligible_fields() {
+    let path = entry("type-offscreen");
+    std::fs::write(&path, APP.replace("button press=pick(v) commandfor=\"d\" command=\"close\" text-align=\"start\" testId=v\n              text v", "input value=v testId=v")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+        .arg(path)
+        .args(["--size", "40x12", "tap", "open", "type", "epsilon", "hello"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("type: #epsilon is not on the screen"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let (ok, _, err) = run("type-ineligible", &["type", "locked", "hello"]);
+    assert!(
+        !ok && err.contains("type: #locked is not available for input"),
+        "{err}"
+    );
+}

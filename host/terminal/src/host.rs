@@ -445,7 +445,8 @@ impl<D: DataSource> Host<D> {
         self.layers
             .retain(|(id, ..)| self.runner.kernel().node(*id).is_some());
         self.sync_top_layer();
-        if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
+        // A popover narrows Tab traversal, but page focus remains eligible.
+        if self.focus.is_some_and(|f| !self.input_eligible(f)) {
             self.focus = None;
         }
         // An `autofocus` control takes the focus once, as it arrives with
@@ -700,8 +701,7 @@ impl<D: DataSource> Host<D> {
         let mut at = Some(view);
         while let Some(id) = at {
             if self.runner.handlers_of(id).contains(&kind) {
-                // An ineligible hit never falls through to an ancestor.
-                return (kind != EventKind::Press || self.presses(id)).then_some(id);
+                return Some(id);
             }
             at = self.kernel().node(id)?.parent;
         }
@@ -719,8 +719,13 @@ impl<D: DataSource> Host<D> {
         {
             return false;
         }
-        let top = self.layers.last().map(|(id, ..)| *id);
+        let top = self
+            .layers
+            .last()
+            .filter(|(.., modal)| *modal)
+            .map(|(id, ..)| *id);
         let mut in_top = top.is_none();
+        let mut in_open_layer = false;
         let mut at = Some(id);
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else {
@@ -729,18 +734,19 @@ impl<D: DataSource> Host<D> {
             if node.style.display == exact_kernel::Display::None
                 || node.props.bool(PropId::Disabled) == Some(true)
                 || node.props.bool(PropId::Inert) == Some(true)
-                || (Self::is_layer(&node) && !self.layers.iter().any(|(open, ..)| *open == id))
             {
                 return false;
+            }
+            if Self::is_layer(&node) && !in_open_layer {
+                if self.open_mode(id).is_none() {
+                    return false;
+                }
+                in_open_layer = true;
             }
             in_top |= top == Some(id);
             at = node.parent;
         }
         in_top
-    }
-
-    fn presses(&self, id: ViewId) -> bool {
-        self.runner.handlers_of(id).contains(&EventKind::Press) && self.input_eligible(id)
     }
 
     pub(crate) fn is_field(&self, id: ViewId) -> bool {
