@@ -1044,17 +1044,18 @@ with.
 
 **`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
 holds it again in its place, sending no ops:
-- `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of that operation's
-  `whens` branches; with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,
+- `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of an `add-token`'s
+  `whens` branches (a `set-token` writes its value alone); with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,
   keeps only those operations, and must keep `index`.
-- The proposal is taken out at once (a concurrent `accept`, `drop` or `edit-held` finds none), the value set, and
-  the rest held again on the current files as a **new** proposal, the original client's (its owner, who may accept or
+- A held revert is not edited (it is planned from its commit: drop it and revert again).
+- The proposal stays held, and counted in the held caps, while its edit is planned; a concurrent `accept`, `drop` or
+  `edit-held` of it finds none (404), and it doesn't expire meanwhile. The value is set, and the rest held again on the current files as a **new** proposal, the original client's (its owner, who may accept or
   drop it), with its own guards and a fresh expiry. The proposal carries `editedBy`, its last editor's client (the
   owner's own name when the owner edits it), wherever it is shown: the list, `subscribed`, the `proposal` event, and
   a recompute of it. Its review is renumbered as a recompute's, marked `kept` (its overrides were ticked) and `from` the
   old id. A server re-import is held as an edit: the value given, not marked again.
 - The reply is a recompute's, `{recomputed: true, replaces, proposal, …}`. The old one's end is
-  `proposal-dropped {reason: "edited", replacedBy, editedBy}`. A plan that fails puts the old one back as it was.
+  `proposal-dropped {reason: "edited", replacedBy, editedBy}`. A plan that fails leaves the old one held as it was.
 - It needs `propose` for the client's own proposal and `write` for another client's, as `drop` does.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
