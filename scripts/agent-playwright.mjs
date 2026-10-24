@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { backLayer, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
-import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { generationOf, leaseGeneration } from '../host/web/generations.mjs';
+import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { bootedGeneration, leaseGeneration } from '../host/web/generations.mjs';
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -86,7 +86,7 @@ async function files({ plan, pageURL, app, webDist, port, env }) {
     served = planBuild;
   }
   // The drive's build, leased while its server runs (host/web/generations.mjs; agent.mjs's carrier does the same).
-  const pinned = js ? generationOf(served) : null, release = pinned ? leaseGeneration(served, pinned) : () => {};
+  const pinned = js ? await bootedGeneration(served) : null, release = pinned ? leaseGeneration(served, pinned) : () => {};
   const server = createServer((req, res) => {
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }

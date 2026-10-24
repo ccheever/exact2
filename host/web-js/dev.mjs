@@ -12,7 +12,7 @@
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer, request } from 'node:http';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
@@ -900,12 +900,13 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
         // That build's plan, read whole from it (generationFile: its own rules, no link out), into a file of this
         // loop's for the table's compiler.
         const kept = await generationFile(dist, inspectAt.id, '/app.plan');
-        if (kept === 'gone' || !kept) { res.writeHead(kept ? 410 : 404, { 'cache-control': 'no-store' }); return res.end(); }
+        if (typeof kept === 'string' || !kept) { res.writeHead(kept === 'gone' ? 410 : kept === 'busy' ? 503 : 404, { 'cache-control': 'no-store' }); return res.end(); }
         digest = createHash('sha256').update(kept.body).digest('hex');
-        plan = resolve(app.target, `inspect-plan-${digest}-${process.pid}.plan`);
-        if (!existsSync(plan)) writeFileSync(plan, kept.body);
+        // (a name of its own, made anew, never through a link there; gone once its table is made)
+        plan = resolve(app.target, `inspect-plan-${digest}-${process.pid}-${randomBytes(6).toString('hex')}.plan`);
+        writeFileSync(plan, kept.body, { flag: 'wx' });
       } else try { digest = createHash('sha256').update(readFileSync(plan)).digest('hex'); } catch { /* no build */ }
-      const bytes = digest && await inspectTable(digest, plan);
+      const bytes = digest && await inspectTable(digest, plan).finally(() => { if (inspectAt) rmSync(plan, { force: true }); });
       if (!bytes) { res.writeHead(503, { 'cache-control': 'no-store' }); return res.end(); }
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       return res.end(bytes);
@@ -987,7 +988,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // From the build the page booted (host/web/generations.mjs): a document names its generation in its base, and
     // its scripts, chunks and plan are read from that build while the next one is put in place.
     const served = await servedFile(dist, url.pathname, req.headers.accept);
-    if (served.status === 410 || served.status === 400) { res.writeHead(served.status, { 'cache-control': 'no-store' }); res.end(); return; }
+    if (served.status === 410 || served.status === 400 || served.status === 503) { res.writeHead(served.status, { 'cache-control': 'no-store', ...(served.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
     const found = served.status === 200 ? served : null;
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }

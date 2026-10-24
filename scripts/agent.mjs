@@ -41,7 +41,7 @@ export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, postCommand, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, crashWatch, developmentLaunchEnvironment, forwardedEnv, keepInstalledRelease, phone, showSimulator, simulator, displayAsIs, withDisplay, withMaterials, withSoftwareKeyboard } from '../host/apple/devices.mjs';
-import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { generationOf, leaseGeneration } from '../host/web/generations.mjs';
+import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { bootedGeneration, leaseGeneration } from '../host/web/generations.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -98,7 +98,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   // The drive's build: the generation it boots, leased while it runs, so another build put in place meanwhile (a dev
   // loop's, another `test web`'s) never answers this page (generations.mjs). One kept no more (a lease a crash lost)
   // ends the drive: it never moves to another build on its own.
-  const pinned = js ? generationOf(served) : null, release = pinned ? leaseGeneration(served, pinned) : () => {};
+  const pinned = js ? await bootedGeneration(served) : null, release = pinned ? leaseGeneration(served, pinned) : () => {};
   let gone = null;
   const server = createServer((req, res) => {
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }

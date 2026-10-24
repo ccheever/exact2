@@ -63,14 +63,25 @@ function live(dir, name) {
   const now = startOf(pid);
   return !written || !now || written === now;
 }
+/** The generation a drive boots on `dist`: asked again, for up to a second, between a swap's two renames (no dist
+ * then, or a build with no receipt yet); null for a build that has none (served unpinned, as before). */
+export async function bootedGeneration(dist) {
+  for (const end = Date.now() + 1000; ; await sleep(10)) {
+    const id = generationOf(dist);
+    if (id || (realDirectory(dist) && !swapping(dist)) || Date.now() > end) return id;
+  }
+}
 let leases = 0;
 /** A lease on generation `id` of `dist` (a drive's, for as long as it runs; one each, so two drives of one process
  * hold two): the release. */
 export function leaseGeneration(dist, id) {
   if (!GENERATION.test(id ?? '')) return () => {};
-  const dir = resolve(leasesOf(dist), id), file = resolve(dir, `${process.pid}-${++leases}`);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(file, startOf(process.pid));
+  const dir = resolve(leasesOf(dist), id), file = resolve(dir, `${process.pid}-${++leases}`), start = startOf(process.pid);
+  // Made and written together, again if another process's cleanup took the empty directory between the two.
+  for (let attempt = 0; ; attempt++) {
+    try { mkdirSync(dir, { recursive: true }); writeFileSync(file, start); break; }
+    catch (e) { if (e.code !== 'ENOENT' || attempt >= 5) throw e; }
+  }
   return () => { rmSync(file, { force: true }); try { if (!readdirSync(dir).length) rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } };
 }
 /** The generations of `dist` some live process leases (dead ones' leases removed). */
@@ -148,7 +159,8 @@ function swapping(dist) {
 }
 /** A file of generation `id` of `dist` for a request path, read whole from that build: the current one when it is
  * still `id` after the read, else the kept tree (asked again, for up to a second, while a swap holds `dist.lock`:
- * its rename lands under it); 'gone' for a generation reaped, null for no such file or an id that names nothing. */
+ * its rename lands under it); 'gone' for a generation reaped, 'busy' while a swap still holds the lock past that
+ * second, null for no such file or an id that names nothing. */
 export async function generationFile(dist, id, pathname, accept = '') {
   for (const end = Date.now() + 1000; ;) {
     if (generationOf(dist) === id) {
@@ -167,7 +179,9 @@ export async function generationFile(dist, id, pathname, accept = '') {
       // No such file there, unless the tree is being reaped under the swap's lock (its files go before it does).
       if (!found && realDirectory(dir) && !swapping(dist)) return null;
     }
-    if (!swapping(dist) || Date.now() > end) return reapedIds(dist).has(id) ? 'gone' : null;
+    if (!swapping(dist)) return reapedIds(dist).has(id) ? 'gone' : null;
+    // A swap still under way past the second (a slow reap): not known yet, said as such (503), never as absent.
+    if (Date.now() > end) return 'busy';
     await sleep(10);
   }
 }
@@ -192,6 +206,7 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
     const id = under ? under.id : pinned, path = under ? under.path : pathname.slice(base.length - 1) || '/';
     found = await generationFile(dist, id, path, accept);
     if (found === 'gone') return { status: 410, id };
+    if (found === 'busy') return { status: 503 };
   } else {
     // Read whole from one build: its generation the same before and after. Between a swap's two renames (no one-step
     // exchange) there is no dist, and `.previous` answers with no generation: asked again until the swap is done.
