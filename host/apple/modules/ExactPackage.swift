@@ -97,6 +97,7 @@ public final class ExactPackageContext {
     private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
     private let emitFn: (String, [Any]) -> Void
     private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
+    private let wakeFn: (String, [Any], String) -> Void
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
@@ -106,13 +107,20 @@ public final class ExactPackageContext {
                 surfaces: ExactSurfaces = ExactSurfaces { _ in nil }, orientation: @escaping () -> Double = { 0 },
                 invoke: @escaping (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void = { _, _, _, reply in reply(["error": "NotSupportedError"]) },
                 emit: @escaping (String, [Any]) -> Void = { _, _ in },
-                activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] }) {
+                activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] },
+                wake: @escaping (String, [Any], String) -> Void = { _, _, _ in }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; invokeFn = invoke
-        emitFn = emit; activationFn = activation
+        emitFn = emit; activationFn = activation; wakeFn = wake
     }
+
+    /// Raise the interface's wake event `name` with `args` for the platform
+    /// object `id` (a `BGTask`, a scheduler's block; LLP 1133.017 D8): the
+    /// events of one id are one wake, run with the wake's origin, and
+    /// `woke(id, outcome)` is told its end. Main thread.
+    public func wake(_ name: String, _ args: [Any], id: String) { wakeFn(name, args, id) }
 
     /// Raise the interface's event `name` with `args` (LLP 1133.004 D6):
     /// delivered in order, once, with the device's origin. Any thread.
@@ -170,7 +178,9 @@ public protocol ExactPackage: AnyObject {
     /// A source's read or a send, by its declared name, with the keyword
     /// arguments the call wrote; `reply` once. Under the agent, `preferred`
     /// is the agent's value for the name, which the runner also lays over
-    /// the answer (LLP 1133.009 D10 item 11).
+    /// the answer (LLP 1133.009 D10 item 11). An answer that is not an
+    /// object (a list) is replied as `["exact:answer": value]`, a key no
+    /// shape's field can take.
     func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void)
     /// A synchronous form, answered now (LLP 1133.002 D14).
     func call(_ name: String, _ args: [String: Any]) throws -> [String: Any]
@@ -223,6 +233,10 @@ public protocol ExactPackage: AnyObject {
     func displayed(surface: String, _ shown: Bool, origin: String)
     /// The session window's angle changed (`ExactPackageContext.orientation`).
     func orientation(_ angle: Double)
+    /// The wake `context.wake` raised for `id` ended: `completed`,
+    /// `expired`, `superseded`, `refused`, or `unheard` when no handler
+    /// hears its event. Complete the platform's task now.
+    func woke(_ id: String, _ outcome: String)
 }
 
 public extension ExactPackage {
@@ -245,6 +259,7 @@ public extension ExactPackage {
     func permissions(_ states: [String: String]) {}
     func displayed(surface: String, _ shown: Bool, origin: String) {}
     func orientation(_ angle: Double) {}
+    func woke(_ id: String, _ outcome: String) {}
 }
 
 // MARK: canvas inputs (LLP 1133.013 D6, D12 item 3)

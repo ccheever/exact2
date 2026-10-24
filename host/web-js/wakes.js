@@ -89,7 +89,8 @@ export function wakes({ events, say, value, run, toEpoch, onLine, lists, changed
       const running = current.invocations.find(i => i.state === "running"), next = current.invocations.find(i => i.state === "queued");
       if (running) { if (owns()) return again(); base = null; end(running, "completed"); continue; }
       if (next) { deliver(next); continue; }
-      if (storage() > 0) return again();
+      // An expired wake ends without waiting for storage: the platform's time is up.
+      if (storage() > 0 && !current.expired) return again();
       finish();
     }
   }
