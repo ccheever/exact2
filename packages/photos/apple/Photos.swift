@@ -1,7 +1,8 @@
 // @exact/photos on Apple (LLP 1133.019): the photo library read and added
-// to. Under the agent it asks PhotoKit for nothing and answers from the
-// agent's library (AgentLibrary.swift, §10); the runner holds the
-// permission tickets and lays the status it keeps over each answer.
+// to. Outside the agent PhotoKit answers (Library.swift); under the agent
+// it asks PhotoKit for nothing and answers from the agent's library
+// (AgentLibrary.swift, §10), the runner holding the permission tickets and
+// laying the status it keeps over each answer.
 //
 // - A photo reaches the app as an id, a picture (`photos:<id>`, which an
 //   `img` draws through the host's raster loader, D2) or a copy in
@@ -10,13 +11,28 @@
 //   access narrowed) has its pictures revoked: every `img` showing it is
 //   emptied and fires `error` (D2).
 // - `managePhotoSelection` is iOS's alone; macOS has no limited picker.
+// - Tier 3 (D9): the three hatches below, each called on the main thread
+//   for every request, after the module's own settings.
 import ExactPackage
 import Foundation
 import ImageIO
+import Photos
 
 public final class PhotosModule: ExactPackage {
+    /// Before each `photoAssets` fetch: the app may add predicates and
+    /// `includeAssetSourceTypes`; the sort, the limit and the image
+    /// predicate are the module's.
+    public static var fetchOptions: ((PHFetchOptions) -> Void)?
+    /// Before each picture request: `deliveryMode`, `isNetworkAccessAllowed`
+    /// and `resizeMode` are the module's.
+    public static var imageRequestOptions: ((PHImageRequestOptions) -> Void)?
+    /// Inside an add's change block, after the module adds the photo's
+    /// resource: the app may set `creationDate`, `location`, `isFavorite`.
+    public static var creationRequest: ((PHAssetCreationRequest) -> Void)?
+
     let context: ExactPackageContext
     private let library = AgentLibrary()
+    private lazy var photoKit = PhotoKitLibrary(context: context)
     private var copies = 0
     /// Emptied once a launch.
     private static var emptied = false
@@ -32,7 +48,17 @@ public final class PhotosModule: ExactPackage {
     private func say(_ line: String) { context.log("photos: \(line)") }
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
-        guard context.agent else { return reply(["error": "NotSupportedError", "message": "the library is read under the agent only in this build"]) }
+        guard context.agent else {
+            let origin = context.origin
+            switch name {
+            case "photoLibraryStatus": return reply(photoKit.status())
+            case "photoAssets": return photoKit.assets(args, origin: origin, reply: reply)
+            case "copyPhotoAsset": return photoKit.copy(args, origin: origin, reply: reply)
+            case "addToPhotoLibrary": return photoKit.add(args, origin: origin, reply: reply)
+            case "managePhotoSelection": return photoKit.manage(origin: origin, reply: reply)
+            default: return reply(["error": "NotSupportedError"])
+            }
+        }
         switch name {
         case "photoLibraryStatus": reply(status())
         case "photoAssets": reply(["assets": assets(args)])
@@ -49,7 +75,17 @@ public final class PhotosModule: ExactPackage {
     }
 
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
-        name == "photoLibraryStatus" && context.agent ? status() : ["error": "NotSupportedError"]
+        guard name == "photoLibraryStatusSync" || name == "photoLibraryStatus" else { return ["error": "NotSupportedError"] }
+        return context.agent ? status() : photoKit.status()
+    }
+
+    public func foreground(_ shown: Bool) {
+        if shown, !context.agent { photoKit.recheck() }
+    }
+
+    public func destroy(_ done: @escaping () -> Void) {
+        if !context.agent { photoKit.stop() }
+        done()
     }
 
     /// Under the agent: the access the runner's status gives and the
@@ -72,8 +108,8 @@ public final class PhotosModule: ExactPackage {
     }
 
     public func image(_ source: String, width: Int, height: Int, fit: String, owned: Bool, reply: @escaping (CGImage?, String?) -> Void) {
-        guard context.agent else { return reply(nil, "NotSupportedError") }
         let id = String(source.dropFirst("photos:".count))
+        guard context.agent else { return photoKit.picture(id, width: width, height: height, fit: fit, reply: reply) }
         guard let asset = library.asset(id) else {
             say("picture \(id) at \(width)x\(height): NotFoundError")
             return reply(nil, "NotFoundError")
