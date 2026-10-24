@@ -26,6 +26,7 @@
 // An error is answered as `{"error": code}`. At the session's end each
 // adapter's `destroy` is called and waited for, a second at most (item 1).
 import Foundation
+import Security
 #if canImport(ExactPackage)
 import ExactPackage
 #endif
@@ -50,6 +51,11 @@ open class ExactExtensionAdapter {
     }
     open func displayed(_ id: String, _ shown: Bool, origin: String) {}
     open func bound(_ id: String, _ prop: String, origin: String) {}
+    /// The authenticator entry (ExactPackage.swift's `ExactAuthenticator`),
+    /// for the extension `exactAuthenticator` names.
+    open func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {
+        reply(nil, ["error": "NotSupportedError", "message": "this extension serves no authenticator"])
+    }
 }
 
 /// The adapters of each session's module, by extension; main thread only.
@@ -139,6 +145,17 @@ enum ExactExtensions {
             return ["error": "NotSupportedError"]
         }
         return try a.call(name, request["args"] as? [String: Any] ?? [:])
+    }
+
+    /// A presence check (LLP 1133.010 D13), by the extension whose
+    /// interface declares the authenticator entry, made now if no call
+    /// made it first.
+    static func authenticate(_ m: ExactModule, _ request: [String: Any], _ accessControl: SecAccessControl,
+                             reply: @escaping (AnyObject?, [String: Any]?) -> Void) {
+        guard let name = exactAuthenticator, let a = adapter(m, name) else {
+            return reply(nil, ["error": "NotSupportedError", "message": "this build composes no authenticator"])
+        }
+        a.evaluate(accessControl, request, reply: reply)
     }
 
     /// The session's module is going: each adapter finishes what it must,

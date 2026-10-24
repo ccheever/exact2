@@ -9,6 +9,7 @@
 // Every entry is on the main thread (LLP 1067.000 D4).
 import AVFAudio
 import Foundation
+import Security
 #if os(macOS)
 import AppKit
 /// The platform's view a package's view puts in its node's box.
@@ -163,6 +164,25 @@ public extension ExactPackage {
     }
     func displayed(_ id: String, _ shown: Bool, origin: String) {}
     func bound(_ id: String, _ prop: String, origin: String) {}
+}
+
+// MARK: the authenticator entry (LLP 1133.010 D13)
+
+/// What an implementation serves when its interface declares an
+/// `authenticator`: the host's presence backend asks it for the person's
+/// check before reading a locked keychain item, in this process. The sheet
+/// has one owner, the implementation, with one permission history and one
+/// origin rule; the item and its bytes stay the host's.
+public protocol ExactAuthenticator: AnyObject {
+    /// Evaluate `accessControl` for the use of its item, showing the
+    /// platform's sheet with `reason`, already translated. `policy` is the
+    /// grant line's words after the name (`user-presence optional`);
+    /// `origin` who made the call (`app`, `tool`, `wake`). `reply` once, on
+    /// the main thread: the evaluated context (an `LAContext`), which the
+    /// host reads the item with and then invalidates, or a failure
+    /// `{"error": code, "message": text}` in the interface's codes.
+    func evaluate(accessControl: SecAccessControl, reason: String, policy: String, origin: String,
+                  reply: @escaping (AnyObject?, [String: Any]?) -> Void)
 }
 
 // MARK: tracks (LLP 1133.009 D3, D6, D10 item 6)

@@ -1037,7 +1037,9 @@ export function appleImplementations(app, target) {
       for (const [,value] of rustSources(app).matchAll(new RegExp(`\\b${snake}\\s*:\\s*(?:Some\\()?"([^"]+)"`,'g'))) keys.add(value);
       return {key,keys:[...keys].sort()};
     }).filter(p=>p.keys.length);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl)}];
+    // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
+    const authenticator=!!i.declaration?.authenticator?.apple;
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator}];
   });
 }
 

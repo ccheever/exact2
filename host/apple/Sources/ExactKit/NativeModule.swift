@@ -61,6 +61,8 @@
 // 224  create_view(module, view, tag, …)              size ≥ 232; nullable:
 //        `create` with the node's id (u64), which a package's view is made
 //        with and its displayed reports name (LLP 1133.008 D8 item 1)
+// 232  authenticate(module, json, len, access, ctx, done)  size ≥ 240;
+//        nullable: a presence check (LLP 1133.010 D13), Presence.swift
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -160,6 +162,8 @@ private final class NativeTable {
     var tamber: ModuleDestroyFn?
     /// `create` with the node's id (LLP 1133.008 D8 item 1), in one of 232 or more.
     var createView: CreateViewFn?
+    /// The authenticator entry (LLP 1133.010 D13), in one of 240 or more.
+    var authenticate: PresenceAuthenticateFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -243,6 +247,7 @@ private final class NativeTable {
         if size >= 216 { loaded.willQuit = pointer(208).map { unsafeBitCast($0, to: WillQuitFn.self) } }
         if size >= 224 { loaded.tamber = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
         if size >= 232 { loaded.createView = pointer(224).map { unsafeBitCast($0, to: CreateViewFn.self) } }
+        if size >= 240 { loaded.authenticate = pointer(232).map { unsafeBitCast($0, to: PresenceAuthenticateFn.self) } }
         return .success(loaded)
     }
 }
@@ -684,6 +689,14 @@ final class NativeViews {
                 table.moduleLater(m, b.bindMemory(to: UInt8.self).baseAddress, body.count, reply, { reply, status, bytes, length in exact_app_reply(reply, status, bytes, length) })
             }
         }
+    }
+
+    /// The module's authenticator entry and its instance, made if need be;
+    /// nil for an artifact without one. Main thread.
+    func authenticator() -> (UnsafeMutableRawPointer, PresenceAuthenticateFn)? {
+        guard hasAppModule, case .success(let table) = self.table(), let entry = table.authenticate,
+              case .success(let m) = module(table) else { return nil }
+        return (m, entry)
     }
 
     /// A `native.call`, on the main thread: answered before this returns.
