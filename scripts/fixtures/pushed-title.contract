@@ -19,6 +19,7 @@
 // `edit` opens a focused field under the native Back control, with and without
 // document overflow in the Duo smoke.
 // `viewport` exercises native scrolling, anchored popovers and deferred reveals.
+// `sheet` presents an independent stack in UIKit's centered sheet on an open Duo.
 // `long` offers each of the others, pushed over it or in its place.
 routes nav
   tab home "/"
@@ -26,6 +27,7 @@ routes nav
     short "/short"
     edit "/edit"
     viewport "/viewport"
+    sheet "/sheet"
     inline "/inline"
     rows "/rows"
     plain "/plain"
@@ -89,7 +91,7 @@ component PushedTitle
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
-              column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header testId=`header-${e.name}` display="flex" align-items="center" padding="8px 16px"
                   text (e.name.slice(0, 1).toUpperCase() + e.name.slice(1)) role="heading" aria-level=(e.name == "inline" or e.name == "seek" ? 2 : 1)
                   if e.name == "find"
@@ -138,7 +140,7 @@ component PushedTitle
                         text "Open Visual Editor"
                       button press=openViewport testId="home-open-viewport"
                         text "Open Viewport"
-                      for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap"] key=l
+                      for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap", "sheet"] key=l
                         button press=open(l) testId=`home-open-${l}`
                           text ("Open " + l.slice(0, 1).toUpperCase() + l.slice(1))
                       button press=change("short") testId="home-replace-short"
@@ -167,7 +169,7 @@ component PushedTitle
                 else
                   scroll testId=`${e.name}-scroll` flex=1 min-height=0
                     text `${e.name} top` testId=`${e.name}-top`
-                    for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap", "edit"] key=l
+                    for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap", "edit", "sheet"] key=l
                       button press=open(l) testId=`${e.name}-open-${l}`
                         text ("Open " + l.slice(0, 1).toUpperCase() + l.slice(1))
                     button press=change("short") testId=`${e.name}-replace-short`
