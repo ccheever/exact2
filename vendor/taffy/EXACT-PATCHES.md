@@ -1937,7 +1937,7 @@ first screen: 312 caches of 448 bytes become 312 of 120 and their slots.
 compares every answer with an eagerly stored cache through 240 mixed stores,
 hits and clears) and the kernel's layout tests.
 
-## Patch 61: transfer an intrinsic flex row's resolved width through its ratio
+## Patch 61: transfer an intrinsic flex container's resolved width through its ratio
 
 After intrinsic main sizing resolves a flex row's width, repeat preliminary
 layout with that width and the input definiteness flags. The known width
@@ -1969,7 +1969,21 @@ minimum); a 100% item measures 60×60. Controls cover wrapping and reverse
 wrapping, padding under both box-sizing modes, definite width, percentage
 height bounds, ratio 2, a zero minimum and hidden overflow. Taller content and
 multiple lines check that the ratio's percentage basis stays below the used
-height when content exceeds it. Intrinsic columns remain in `QUEUE.md`.
+height when content exceeds it.
+
+Columns repeat after cross sizing supplies their width, before the size-only
+return. Repeat only when both dimensions were unknown: the supplied width
+bounds recursion even when the ratio height remains automatic. The input
+definiteness flags and the ratio's percentage basis are preserved as for rows.
+
+The same test holds 18 literal `Chrome 151 intrinsic ratio column percentages`
+cases, measured with Chrome 151.0.7922.34 on 2026-10-24 in `width:max-content`
+wrappers. Before the column repeat, 31 frames in 15 cases differed. The reported
+root changes from 60×0 to 60×60 and its 50% item from 60×0 to 60×30. With a
+120px-tall sibling, the root grows to 60×150 while the item stays 60×30.
+Controls cover definite width and height, no ratio, column-reverse, wrapping
+and reverse wrapping, ratio 2, width and height caps, padding and borders under
+both box-sizing modes, zero minimum, hidden overflow and percentage bounds.
 
 ## Patch 62: allocate rare style fields only when needed
 
