@@ -395,9 +395,9 @@ public final class HeadlessSession {
         Owner.shared.sync { HeadlessWakes.callbacks[wakeKey] = wake }
     }
 
-    private var wakeKey: UInt { UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()) }
+    private let wakeKey = HeadlessWakes.key()
 
-    // A session dropped without `close()` leaves no wake for a later one at its address.
+    // A session dropped without `close()` leaves no wake behind.
     deinit {
         let key = wakeKey
         Owner.shared.syncOrLater { HeadlessWakes.callbacks[key] = nil }
@@ -510,6 +510,10 @@ public final class HeadlessSession {
 /// function on its executor's thread; the callback runs on the main queue.
 private enum HeadlessWakes {
     nonisolated(unsafe) static var callbacks: [UInt: () -> Void] = [:]
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var last: UInt = 0
+    /// A key no session had before, so a wake queued for a dropped session reaches no later one.
+    static func key() -> UInt { lock.withLock { last += 1; return last } }
     static let call: ExactWakeFn = { ctx in
         let key = UInt(bitPattern: ctx)
         DispatchQueue.main.async {
