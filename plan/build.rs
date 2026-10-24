@@ -143,7 +143,7 @@ fn rust_type(c: &Codec) -> String {
 /// (format.json, its bytes and FORMAT_DIGEST unchanged), typed
 /// `IconPathId` in Rust so that nothing reads it as a string. An even-odd
 /// icon's path carries its rule's `evenodd:` marker, which only
-/// `exact_kernel::Icon` strips; `IconPathId::raw_for_icon` is the way out,
+/// `exact_kernel::Icon` strips; `IconPathId`'s one method is the way out,
 /// which `exact_runner::icon_of` alone calls (a guard test holds that).
 fn icon_path(table: &str, field: &str) -> bool {
     table == "icons" && field == "path"
