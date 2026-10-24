@@ -44,7 +44,7 @@ component SummaryCard
       row align-items="center" gap=6 min-width=0
         match symbol
           case some(s)
-            image s font="-exact-headline" flex-shrink=0 aria-hidden=true -exact-tint-color="AccentColor"
+            image s font="-exact-headline" flex-shrink=0 aria-hidden=true color="AccentColor"
           case none
         text label font="-exact-headline" flex=1 min-width=0 aria-hidden=true
       row flex-wrap="wrap" align-items="baseline" column-gap=10 min-width=0
@@ -131,7 +131,7 @@ component DoneMark
     column align-items="center" gap=4 min-width=0 role="img"
       aria-label=(caption == "" ? (done ? "Done" : "Not done") : `${caption}, ${done ? "done" : "not done"}`)
       image (done ? "symbol:select-fill" : "symbol:circle") width=26 height=26 object-fit="contain" aria-hidden=true
-        -exact-tint-color=(done ? "-exact-system-green" : "-exact-tertiary-label")
+        color=(done ? "-exact-system-green" : "-exact-tertiary-label")
       if caption != ""
         text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" -exact-fit="shrink"
           aria-hidden=true
@@ -165,7 +165,7 @@ component EmptyState
       column margin-top="auto" margin-bottom="auto" align-items="center" padding="48px 24px" text-align="center"
         if not text.accessibilityTextSize
           image symbol width=48 height=48 object-fit="contain" margin-bottom=15 aria-hidden=true
-            -exact-tint-color="-exact-secondary-label"
+            color="-exact-secondary-label"
         text title role="heading" aria-level=2
         text message font="-exact-subheadline" color="-exact-secondary-label" max-width="22.5rem" margin-top=3
         row flex-wrap="wrap" justify-content="center" gap=8 margin-top=20
@@ -312,7 +312,7 @@ component AnswerTile
         background-color=(status == "correct" ? "-exact-system-green" : "-exact-system-red")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
         image (status == "correct" ? "symbol:checkmark" : "symbol:close") width="1.375rem" height="1.375rem"
-          object-fit="contain" flex-shrink=0 aria-hidden=true -exact-tint-color="-exact-label"
+          object-fit="contain" flex-shrink=0 aria-hidden=true color="-exact-label"
     else
       button appearance="none" press=press disabled=(status == "dimmed" or status == "chosen") testId=testId
         aria-label=(status == "selected" or status == "chosen" ? `${label}, selected` : label)
@@ -322,4 +322,4 @@ component AnswerTile
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
         if status == "selected" or status == "chosen"
           image "symbol:checkmark" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
-            aria-hidden=true -exact-tint-color="AccentColor"
+            aria-hidden=true color="AccentColor"
