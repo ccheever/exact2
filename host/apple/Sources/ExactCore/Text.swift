@@ -762,28 +762,31 @@ package final class TextEngine {
                                                       size, nil) as PlatformFont
             }
             let base = candidate(face)
-            var seen = Set<String>(), cascade: [CTFontDescriptor] = []
+            // The other families fall back in stack order; a one-family stack
+            // is its face alone.
+            var seen: Set<String> = [face.family], cascade: [CTFontDescriptor] = []
             for member in faces where seen.insert(member.family).inserted {
                 let group = faces.filter { $0.family == member.family }
                 cascade.append(CTFontCopyFontDescriptor(candidate(TextEngine.matched(group, weight: weight, italic: italic, stretch: stretch)) as CTFont))
             }
+            guard !cascade.isEmpty else { fonts[key] = base; return base }
             let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: cascade] as CFDictionary)
             let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
             fonts[key] = f
             return f
         }
-        let w: PlatformFont.Weight
-        switch weight {
-        case ..<200: w = .ultraLight
-        case 200..<300: w = .thin
-        case 300..<400: w = .light
-        case 400..<500: w = .regular
-        case 500..<600: w = .medium
-        case 600..<700: w = .semibold
-        case 700..<800: w = .bold
-        case 800..<900: w = .heavy
-        default: w = .black
-        }
+        // Each hundred's named instance is kept under its own key, so a
+        // weight between two (a transition's frame) makes one font.
+        var f = weight % 100 == 0 && (100...900).contains(weight)
+            ? namedSystemFace(size: size, weight: TextEngine.namedWeight(weight), family: family, italic: italic)
+            : TextEngine.cssWeight(weight, size: size) { self.font(size: size, weight: $0, family: family, italic: italic) }
+        f = TextEngine.cssAxes(f, stretch: stretch, variations: variations, size: size)
+        fonts[key] = f
+        return f
+    }
+
+    /// A platform generic at a named weight, as UIKit (AppKit) makes it.
+    private func namedSystemFace(size: CGFloat, weight w: PlatformFont.Weight, family: Int, italic: Bool) -> PlatformFont {
         var f = (family == 5 || family == 6)
             ? PlatformFont.monospacedSystemFont(ofSize: size, weight: w)
             : PlatformFont.systemFont(ofSize: size, weight: w)
@@ -796,35 +799,21 @@ package final class TextEngine {
             if let d = f.fontDescriptor.withDesign(design), let designed = NSFont(descriptor: d, size: size) { f = designed }
             #endif
         }
-        // A declared stack returned above with one of its real descriptors.
+        // A declared stack is drawn from its real descriptors (`font` above).
         // This trait resolver is only for a platform generic, never a shear
         // applied to custom bytes (LLP 1019 §5).
         if italic {
             #if canImport(UIKit)
-            if let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) { f = UIFont(descriptor: d, size: size) }
+            // Its bold trait kept: semibold and heavier would be regular italic.
+            if let d = f.fontDescriptor.withSymbolicTraits(f.fontDescriptor.symbolicTraits.union(.traitItalic)) { f = UIFont(descriptor: d, size: size) }
             #else
             // AppKit's font manager is main's (LLP 1072 §8.1): a variant first
-            // met while the owner thread measures is resolved there, once.
+            // met while the owner thread measures is resolved there.
             let upright = f
             f = Owner.shared.callMain { NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask) }
             #endif
         }
-        f = TextEngine.cssWeight(f, weight: weight, size: size)
-        f = TextEngine.cssAxes(f, stretch: stretch, variations: variations, size: size)
-        fonts[key] = f
         return f
-    }
-
-    /// CSS `font-weight` on a variable system face is its `wght` axis at
-    /// that number, as Chrome and WebKit set it: UIKit's semibold is `wght`
-    /// 590 and its medium 510, so `600` text measured 0.2% narrower than
-    /// Chrome's ("Heavy list" at 17 px: 77.67 against 77.87).
-    package static func cssWeight(_ font: PlatformFont, weight: Int, size: CGFloat) -> PlatformFont {
-        let tag = 0x77676874 as NSNumber // 'wght'
-        guard let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let current = axes[tag],
-              current.intValue != weight else { return font }
-        let d = CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: [tag: weight as NSNumber]] as CFDictionary)
-        return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
     /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
