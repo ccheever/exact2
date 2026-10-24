@@ -348,9 +348,8 @@ function mavenGraph(app, writeLocks) {
 }
 
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
- * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), the
- * permissions the app's grant lines derive (the bake's `reach.android`), and the `<queries>` intent actions the
- * implementations declare (LLP 1133.012 D12 item 3), as Gradle properties. */
+ * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
+ * permissions the app's grant lines derive (the bake's `reach.android`), as Gradle properties. */
 function extensionArgs(app, out) {
   const bound = app.manifest.game ? [] : androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
@@ -366,9 +365,7 @@ function extensionArgs(app, out) {
       `    override val views: Map<String, String> = mapOf(${bound.flatMap((b) => (b.views ?? []).map((tag) => `${JSON.stringify(tag)} to ${JSON.stringify(b.extension)}`)).join(', ')})`,
       '}', ''].join('\n'));
   }
-  const queries = [...new Set(bound.flatMap((b) => b.queries ?? []))].sort();
-  return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
-    ...(queries.length ? [`-Pqueries=${queries.join(',')}`] : [])];
+  return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : [])];
 }
 
 if (import.meta.main && process.argv[2] === 'relay') {
