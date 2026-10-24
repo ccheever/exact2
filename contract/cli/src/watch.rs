@@ -111,13 +111,23 @@ fn calculated(e: &Expr) -> bool {
 fn attrs<'a>(tag: &str, attrs: impl IntoIterator<Item = &'a Attr>, errors: &mut Vec<CompileError>) {
     for a in attrs {
         let fail = |id, edit: &str| refusal(id, format!("`{}` on `{tag}`: {edit}", a.name), a.span);
-        // A named style's state block (`:active`, `:hover`…) paints a host state the
-        // driver does not draw, as `-exact-press-background-color` would.
-        if a.name.starts_with(':') {
-            errors.push(fail(
-                "watch-state",
-                "the watch draws no pressed or hovered paint; remove this state from the watch entry's style",
-            ));
+        // A state part's row (`:disabled opacity`, LLP 1121 D8). The runner's states
+        // fold into ordinary rows, checked as they are; a host state (`:active`,
+        // `:hover`, `:focus-visible`) is paint the driver does not draw, as
+        // `-exact-press-background-color` would be.
+        if let Some((state, row)) = contract_syntax::state::state_of(&a.name) {
+            if matches!(state, "disabled" | "checked") {
+                let plain = Attr {
+                    name: row.to_owned(),
+                    ..a.clone()
+                };
+                self::attrs(tag, std::iter::once(&plain), errors);
+            } else {
+                errors.push(fail(
+                    "watch-state",
+                    "the watch draws no pressed, hovered or focus paint; remove this state from the watch entry",
+                ));
+            }
             continue;
         }
         if a.name == "hatch" {
@@ -163,9 +173,10 @@ fn attrs<'a>(tag: &str, attrs: impl IntoIterator<Item = &'a Attr>, errors: &mut 
 /// the app group, never the network. A source computed at run time is the runtime's.
 fn remote_image(src: &Expr) -> bool {
     match src {
-        Expr::Template(parts, _) => {
-            matches!(parts.first(), Some(TemplatePart::Text(t)) if t.contains("://"))
-        }
+        Expr::Template(parts, _) => parts.iter().any(|p| match p {
+            TemplatePart::Text(t) => t.contains("://"),
+            TemplatePart::Expr(e) => remote_image(e),
+        }),
         Expr::Str(..) => !crate::snapshot::local_image(src),
         Expr::Ternary(_, a, b, _)
         | Expr::Match {
@@ -264,7 +275,7 @@ pub fn check(file: &File) -> Result<(), Vec<CompileError>> {
     }
     // A style several elements apply is refused once.
     let mut seen = HashSet::new();
-    errors.retain(|e| seen.insert((e.id.clone(), e.span.line, e.span.col, e.message.clone())));
+    errors.retain(|e| seen.insert((e.id.clone(), e.span, e.message.clone())));
     if errors.is_empty() {
         Ok(())
     } else {
@@ -322,10 +333,14 @@ mod tests {
         assert_eq!(ids(computed), Vec::<String>::new());
         // The element's own row wins over its style's, as lowering has it; a
         // style's state block is a host state the watch does not paint.
-        let overridden = "style Shared\n  overflow-x=\"auto\"\nstyle Pressy\n  :active\n    background-color=\"red\"\ncomponent A\n  view\n    column class=Shared overflow-x=\"hidden\"\n      column class=Pressy\n        text \"hi\"\n      column class=Pressy\n        text \"again\"\n";
+        let overridden = "style Shared\n  overflow-x=\"auto\"\nstyle Pressy\n  :active\n    background-color=\"red\"\n  :disabled\n    opacity=0.4\ncomponent A\n  view\n    column class=Shared overflow-x=\"hidden\"\n      column class=Pressy\n        text \"hi\"\n      column class=Pressy\n        text \"again\"\n";
         assert_eq!(ids(overridden), ["watch-state"]);
+        let disabled = "style Off\n  :disabled\n    box-shadow=\"0 1px #000\"\ncomponent A\n  view\n    column class=Off\n      text \"hi\"\n";
+        assert_eq!(ids(disabled), ["watch-row"]);
         let branched = "component A\n  state id = \"a\"\n  state on = false\n  view\n    image (on ? `https://example.com/${id}.png` : \"assets/b.png\") width=10 height=10\n";
         assert_eq!(ids(branched), ["watch-image"]);
+        let tokened = "component A\n  view\n    column border=\"1px solid accent.fill\" background-image=\"linear-gradient(accent.fill, white)\"\n      column background-image=\"conic-gradient(accent.fill, white)\"\n        text \"hi\"\n";
+        assert_eq!(ids(tokened), ["snapshot-gradient"]);
     }
 
     /// An app directory holding `files`, removed on drop.
