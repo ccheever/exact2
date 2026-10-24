@@ -33,7 +33,8 @@ pub fn rank(id: &str, message: &str) -> u8 {
         | "lower-swipe-wiring"
         | "lower-row-delete-button"
         | "lower-delete-row"
-        | "lower-sound-undeclared" => 0,
+        | "lower-sound-undeclared"
+        | "lower-symbol-tint" => 0,
         "lower-symbol-alias" => 2,
         _ => 1,
     }
