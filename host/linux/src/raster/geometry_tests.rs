@@ -3,6 +3,35 @@ use crate::paint::border;
 use exact_kernel::corner::CornerShape;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+// The original shape path, without passing through radius normalization.
+fn original_shape_path(shape: &Shape) -> Vec<PathOp> {
+    let mut ops = Vec::new();
+    if let Some(corners) = shape
+        .corners
+        .as_ref()
+        .filter(|c| !c.is_round() && shape.rounded())
+    {
+        for seg in exact_kernel::corner::outline(shape.rect, shape.radii, corners).0 {
+            ops.push(match seg {
+                exact_kernel::svg::Seg::Move(x, y) => PathOp::Move(x, y),
+                exact_kernel::svg::Seg::Line(x, y) => PathOp::Line(x, y),
+                exact_kernel::svg::Seg::Cubic(a, b, c, d, e, f) => PathOp::Cubic(a, b, c, d, e, f),
+                exact_kernel::svg::Seg::Close => PathOp::Close,
+            });
+        }
+    } else {
+        border::rounded_rect(&mut ops, shape.rect, shape.radii);
+    }
+    ops
+}
+
+fn draw_border(part: &BorderFill, ts: Transform) -> Pixmap {
+    let mut raster = Raster::new();
+    raster.begin(96.0, 80.0, 0.75);
+    raster.fill_border(part, ts);
+    raster.finish().unwrap()
+}
+
 fn transforms() -> [Transform; 4] {
     [
         Transform::identity(),
@@ -133,61 +162,68 @@ fn malformed_radii_paint_like_sanitized_css_radii() {
         // Half-box limits belong to the interior-fill optimizations, not CSS.
         let valid = shape(41.0, corners);
         assert_eq!(border::reduced(valid.radii, 80.0, 60.0), valid.radii);
-        let mut original = Vec::new();
-        border::shape_path(&mut original, &valid);
+        let original = original_shape_path(&valid);
         assert_eq!(rounded_rect(&valid), tiny_path(&original));
     }
 }
 
 #[test]
-fn unsafe_border_regions_and_clips_are_not_rasterized() {
-    let mut panics = Vec::new();
+fn malformed_border_radii_paint_like_sanitized_css_radii() {
+    let mut changed = Vec::new();
     for corners in [None, Some(CornerShape::check("squircle").unwrap())] {
-        for radius in [-1e30, 1e30] {
-            let mut unsafe_path = Vec::new();
-            border::shape_path(&mut unsafe_path, &shape(radius, corners));
-            let mut safe_path = Vec::new();
-            border::shape_path(&mut safe_path, &shape(4.0, corners));
+        for radius in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -1e30,
+            1e30,
+            41.0,
+        ] {
+            let mut actual_ops = Vec::new();
+            border::shape_path(&mut actual_ops, &shape(radius, corners));
+            let sanitized = shape(
+                if radius.is_finite() {
+                    radius.max(0.0)
+                } else {
+                    0.0
+                },
+                corners,
+            );
+            let reference_ops = original_shape_path(&Shape {
+                radii: border::reduced(sanitized.radii, 80.0, 60.0),
+                ..sanitized
+            });
+            let safe_ops = original_shape_path(&shape(4.0, corners));
             for ts in transforms() {
                 for alpha in [255, 128] {
                     for field in 0..3 {
-                        let part = BorderFill {
+                        let part = |ops: &Vec<PathOp>| BorderFill {
                             region: if field == 0 {
-                                unsafe_path.clone()
+                                ops.clone()
                             } else {
-                                safe_path.clone()
+                                safe_ops.clone()
                             },
-                            clip: (field == 1).then(|| unsafe_path.clone()),
-                            ring_clip: (field == 2).then(|| unsafe_path.clone()),
+                            clip: (field == 1).then(|| ops.clone()),
+                            ring_clip: (field == 2).then(|| ops.clone()),
                             color: [10, 20, 30, alpha],
                             ring: None,
                         };
-                        let result = catch_unwind(AssertUnwindSafe(|| {
-                            let mut raster = Raster::new();
-                            raster.begin(96.0, 80.0, 0.75);
-                            raster.fill_border(&part, ts);
-                            raster.finish().unwrap()
-                        }));
-                        match result {
-                            Ok(pixels) => {
-                                // The squircle outline already makes a negative radius square.
-                                let safe = corners.is_some() && radius < 0.0;
-                                assert_eq!(
-                                    pixels.data().chunks_exact(4).any(|p| p != [255; 4]),
-                                    safe,
-                                    "{corners:?}, {radius}, {ts:?}, {alpha}, field {field}"
-                                );
-                            }
-                            Err(_) => panics.push(format!(
+                        let reference = draw_border(&part(&reference_ops), ts);
+                        assert!(reference.data().chunks_exact(4).any(|p| p != [255; 4]));
+                        if draw_border(&part(&actual_ops), ts).data() != reference.data() {
+                            changed.push(format!(
                                 "{corners:?}, {radius}, {ts:?}, {alpha}, field {field}"
-                            )),
+                            ));
                         }
                     }
                 }
             }
         }
     }
-    assert!(panics.is_empty(), "panicked: {panics:#?}");
+    assert!(
+        changed.is_empty(),
+        "incorrect border geometry: {changed:#?}"
+    );
 }
 
 #[test]
@@ -200,8 +236,10 @@ fn constructor_radii_preserve_original_paths_and_pixels() {
             Shape::new((0.0, 0.0, 82.0, 62.0), [52.0; 4]).inset(1.0),
         ] {
             let shape = shape.with_corners(corners);
-            let mut ops = Vec::new();
-            border::shape_path(&mut ops, &shape);
+            let ops = original_shape_path(&shape);
+            let mut actual_ops = Vec::new();
+            border::shape_path(&mut actual_ops, &shape);
+            assert_eq!(actual_ops, ops, "{shape:?}");
             let original = tiny_path(&ops).unwrap();
             if rounded_rect(&shape).as_ref() != Some(&original) {
                 changed.push(format!("path: {shape:?}"));
@@ -228,8 +266,10 @@ fn constructor_radii_preserve_original_paths_and_pixels() {
         for radius in [edge, edge * 1.7, 51.0, 100.0, 1e30] {
             let shape = Shape::new((0.0, 0.0, edge, edge), [radius; 4]);
             if shape.rounded() {
-                let mut ops = Vec::new();
-                border::shape_path(&mut ops, &shape);
+                let ops = original_shape_path(&shape);
+                let mut actual_ops = Vec::new();
+                border::shape_path(&mut actual_ops, &shape);
+                assert_eq!(actual_ops, ops, "{shape:?}");
                 assert_eq!(rounded_rect(&shape), tiny_path(&ops), "{shape:?}");
             }
         }
@@ -305,31 +345,43 @@ fn large_covering_boxes_preserve_original_pixels() {
 }
 
 #[test]
-fn border_scanline_overflow_is_not_rasterized() {
-    let mut unsafe_path = Vec::new();
-    border::shape_path(
-        &mut unsafe_path,
-        &Shape::rect((0.0, -1_700_000_000.0, 40.0, 1_700_000_128.0)),
-    );
-    let mut safe_path = Vec::new();
-    border::shape_path(&mut safe_path, &Shape::rect((0.0, 0.0, 40.0, 80.0)));
-    for field in 0..3 {
-        let mut raster = Raster::new();
-        raster.begin(200.0, 100.0, 1.0);
-        raster.fill_border(
-            &BorderFill {
-                region: if field == 0 {
-                    unsafe_path.clone()
-                } else {
-                    safe_path.clone()
+fn sheared_border_regions_and_clips_preserve_original_pixels() {
+    let ops = vec![
+        PathOp::Move(0.0, 0.0),
+        PathOp::Line(600_000_000.0, 600_000_000.0),
+        PathOp::Line(600_000_000.0, 600_000_064.0),
+        PathOp::Line(0.0, 64.0),
+        PathOp::Close,
+    ];
+    let ts = Transform::from_row(1.0, -1.0, 0.0, 1.0, 0.0, 0.0);
+    let path = tiny_path(&ops).unwrap();
+    let mut changed = Vec::new();
+    for alpha in [255, 128] {
+        let color = [10, 20, 30, alpha];
+        let mut reference = Pixmap::new(200, 100).unwrap();
+        reference.fill(Color::WHITE);
+        reference.fill_path(&path, &solid(color), FillRule::EvenOdd, ts, None);
+        assert!(reference.data()[..200 * 64 * 4]
+            .chunks_exact(4)
+            .all(|p| p != [255; 4]));
+        assert!(reference.data()[200 * 64 * 4..].iter().all(|v| *v == 255));
+        for field in 0..3 {
+            let mut raster = Raster::new();
+            raster.begin(200.0, 100.0, 1.0);
+            raster.fill_border(
+                &BorderFill {
+                    region: ops.clone(),
+                    clip: (field == 1).then(|| ops.clone()),
+                    ring_clip: (field == 2).then(|| ops.clone()),
+                    color,
+                    ring: None,
                 },
-                clip: (field == 1).then(|| unsafe_path.clone()),
-                ring_clip: (field == 2).then(|| unsafe_path.clone()),
-                color: [10, 20, 30, 255],
-                ring: None,
-            },
-            Transform::identity(),
-        );
-        assert!(raster.finish().unwrap().data().iter().all(|v| *v == 255));
+                ts,
+            );
+            if raster.finish().unwrap().data() != reference.data() {
+                changed.push((alpha, field));
+            }
+        }
     }
+    assert!(changed.is_empty(), "lost shear coverage: {changed:?}");
 }
