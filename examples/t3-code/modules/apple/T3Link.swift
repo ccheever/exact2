@@ -1,7 +1,6 @@
 // The module's own connections to the environments the data module has connected. The server
 // connections are the data module's (src/transport/transport.ts); what stays native here is what
-// feeds native views: the terminal's attach streams (T3TerminalSessions.swift; their bytes go
-// straight into the terminal's buffer), the Browser's automation replies and recording uploads
+// feeds native views: the Browser's automation replies and recording uploads
 // (T3BrowserAutomation.swift) and the device hub's tickets (T3DeviceStream.swift). The data module
 // hands over each connected environment's origin and bearer (`links`, with its connection's
 // generation); a link opens its own socket, with a ticket of its own, only while something here
@@ -92,22 +91,6 @@ enum T3Wire {
     }
 }
 
-/// One `terminal.attach` stream on a link. Its chunks go to the native session, never to the data module, and each
-/// is acknowledged only after the session's buffer holds it: the server sends at most 8 chunks or 64 KiB ahead of
-/// the acknowledgements (T3 Code apps/server/src/terminal/OutputProtocol.ts), so a busy main thread slows the shell
-/// instead of growing a queue.
-final class T3TerminalStream {
-    let id: String
-    let epoch: Int
-    /// On the link's queue: the chunk's values and the acknowledgement to call once they are held.
-    let receive: ([Any], @escaping () -> Void) -> Void
-    /// On the link's queue: the stream ended (nil: a normal end) or the socket went away (`lost`).
-    let ended: (_ failure: T3Failure?, _ lost: Bool) -> Void
-    init(id: String, epoch: Int, receive: @escaping ([Any], @escaping () -> Void) -> Void, ended: @escaping (T3Failure?, Bool) -> Void) {
-        self.id = id; self.epoch = epoch; self.receive = receive; self.ended = ended
-    }
-}
-
 /// One environment's link: its origin and bearer as the data module has them, and a socket opened on demand.
 final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     typealias Done = (T3Failure?, Any?) -> Void
@@ -124,12 +107,9 @@ final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     private var epoch = 0, serial = 0
     private var pending: [String: Done] = [:]
     private var waiting: [() -> Void] = []
-    var terminalStreams: [String: T3TerminalStream] = [:]
     private var lastPong = Date()
     private var tick: DispatchSourceTimer?
     private var alive = true
-    /// The reference's worst case: 11 mounted threads × 4 terminals.
-    static let maximumTerminalStreams = 44
     /// The bearer of the embedded server (memory only), for the primary's link.
     var primaryBearer: () -> String? = { T3LocalBackend.shared.bearerToken() }
 
@@ -173,32 +153,6 @@ final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
             do { try send(T3Wire.encode(T3Wire.request(id: id, method: method, payload: payload))) } catch { return done(fail(error), nil) }
             pending[id] = done
         }
-    }
-
-    /// Opens an attach stream (`terminal.attach`, which also starts a shell when none runs).
-    func terminalAttach(payload: [String: Any], readOnly: Bool = false, receive: @escaping ([Any], @escaping () -> Void) -> Void,
-                        ended: @escaping (T3Failure?, Bool) -> Void, opened: @escaping (String?, T3Failure?) -> Void) {
-        withSocket(done: { failure in opened(nil, failure) }) { [self] in
-            guard terminalStreams.count < Self.maximumTerminalStreams else { return opened(nil, T3Failure(kind: "Busy", message: "Too many terminals are attached.")) }
-            let id = nextID()
-            do { try send(T3Wire.encode(T3Wire.request(id: id, method: readOnly ? "terminal.observe" : "terminal.attach", payload: payload))) } catch { return opened(nil, fail(error)) }
-            terminalStreams[id] = T3TerminalStream(id: id, epoch: epoch, receive: receive, ended: ended)
-            opened(id, nil)
-        }
-    }
-
-    /// Stops an attach stream (an Interrupt). A late chunk is still acknowledged.
-    func terminalDetach(_ id: String) {
-        queue.async { [self] in
-            guard terminalStreams.removeValue(forKey: id) != nil else { return }
-            try? send(T3Wire.encode(["_tag": "Interrupt", "requestId": id]))
-            closeIfIdle()
-        }
-    }
-
-    /// A one-shot terminal RPC (`terminal.write`, `terminal.resize`, `provider.auth.respond`).
-    func terminalCall(_ method: String, payload: [String: Any], done: @escaping (T3Failure?) -> Void) {
-        request(method, payload: payload) { failure, _ in done(failure) }
     }
 
     /// A short-lived socket ticket for requests that cannot carry the bearer (the device hub's media).
@@ -298,24 +252,9 @@ final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
         if tag == "Ping" { try send(T3Wire.encode(["_tag": "Pong"])); return }
         if tag == "Defect" || tag == "ClientProtocolError" { throw T3Wire.failure(frame) }
         guard let id = T3Wire.identifier(frame["requestId"]), let requestId = frame["requestId"] else { throw T3Failure(kind: "Protocol", message: "The server RPC response has no request ID.") }
-        if tag == "Chunk" {
-            let values = frame["values"] as? [Any] ?? []
-            let current = epoch
-            guard let stream = terminalStreams[id] else { return try send(T3Wire.encode(["_tag": "Ack", "requestId": requestId])) }
-            stream.receive(values) { [weak self] in
-                self?.queue.async { [weak self] in
-                    guard let self, self.epoch == current else { return }
-                    try? self.send(T3Wire.encode(["_tag": "Ack", "requestId": requestId]))
-                }
-            }
-            return
-        }
+        if tag == "Chunk" { return try send(T3Wire.encode(["_tag": "Ack", "requestId": requestId])) }
         guard tag == "Exit", let exit = frame["exit"] as? [String: Any] else { throw T3Failure(kind: "Protocol", message: "The server sent an unsupported RPC response.") }
         let success = exit["_tag"] as? String == "Success"
-        if let stream = terminalStreams.removeValue(forKey: id) {
-            stream.ended(success ? nil : T3Wire.failure(exit), false)
-            return closeIfIdle()
-        }
         if let done = pending.removeValue(forKey: id) {
             if success { done(nil, exit["value"] ?? NSNull()) } else { done(T3Wire.failure(exit), nil) }
             closeIfIdle()
@@ -330,8 +269,6 @@ final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
         old?.cancel(with: .goingAway, reason: nil)
         let calls = pending; pending = [:]
         for done in calls.values { done(failure, nil) }
-        let streams = terminalStreams; terminalStreams = [:]
-        for stream in streams.values { stream.ended(nil, true) }
         let works = waiting; waiting = []
         if !works.isEmpty, alive, failure.kind == "Replaced" {
             // The connection moved: the work waiting for it opens the new one.
@@ -341,10 +278,10 @@ final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
 
     /// Nothing here needs the socket any more: let it go after a minute.
     private func closeIfIdle() {
-        guard pending.isEmpty, terminalStreams.isEmpty else { return }
+        guard pending.isEmpty else { return }
         let current = epoch
         queue.asyncAfter(deadline: .now() + 60) { [weak self] in
-            guard let self, self.epoch == current, self.pending.isEmpty, self.terminalStreams.isEmpty, self.socket != nil else { return }
+            guard let self, self.epoch == current, self.pending.isEmpty, self.socket != nil else { return }
             self.lost(T3Failure(kind: "Idle", message: "The link was idle."))
         }
     }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CompositionKeys, eventKeyNames, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData, terminalKeyShortcutData, themeFrom } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -164,46 +164,31 @@ describe("the input's composing state", () => {
 });
 
 describe("keys that began while text composed", () => {
-  const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; keyCode: number }> = {}) =>
-    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, keyCode: 0, code, ...init });
+  const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; keyCode: number }> = {}) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, keyCode: 0, code, ...init });
 
-  test("each mark is taken once, by the next keydown with its modifiers and key", () => {
-    let now = 0;
-    const keys = new CompositionKeys(() => now);
-    keys.mark(key("KeyC", { ctrlKey: true }));
-    // A composing key WebKit still had queued (plain) does not take a ⌃ chord's mark.
-    expect(keys.take(key("KeyG", { keyCode: 229 }))).toBe(false);
-    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(true);
-    // The second ⌃C, after the commit, is the shell's.
-    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
-    keys.mark(key("Enter", { altKey: true }));
-    expect(keys.take(key("Enter", { altKey: true, shiftKey: true }))).toBe(false);
-    expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
+  test("the input method's Process keydown, and any key while a composition lasts, are the input method's", () => {
+    const tracker = new CompositionTracker(() => 0);
+    expect(tracker.composed(key("KeyG", { keyCode: 229 }))).toBe(true);
+    expect(tracker.composed(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+    tracker.set(true);
+    expect(tracker.composed(key("KeyG", { keyCode: 71 }))).toBe(true);
   });
 
-  test("a mark is taken by its own key, or by the input method's Process keydown", () => {
-    const keys = new CompositionKeys(() => 0);
-    keys.mark(key("KeyC", { ctrlKey: true }));
-    // A ⌃ key whose mark never reached the page (the key went elsewhere) is not taken for it.
-    expect(keys.take(key("KeyD", { ctrlKey: true, keyCode: 68 }))).toBe(false);
-    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 229 }))).toBe(true);
-    keys.mark(key("KeyK", { ctrlKey: true }));
-    expect(keys.take(key("", { ctrlKey: true, keyCode: 229 }))).toBe(true);
-    // A key the native view has no name for is matched by its modifiers.
-    keys.mark(key("", { ctrlKey: true }));
-    expect(keys.take(key("F13", { ctrlKey: true, keyCode: 124 }))).toBe(true);
-  });
-
-  test("a mark whose keydown never came lapses, and so do marks older than the one taken", () => {
+  test("a ⌃ chord or ⌥Return the input method declined, right after the commit it caused, is the input method's", () => {
     let now = 0;
-    const keys = new CompositionKeys(() => now);
-    keys.mark(key("KeyC", { ctrlKey: true }));
-    now = 1000;
-    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
-    keys.mark(key("KeyC", { ctrlKey: true }));
-    keys.mark(key("Enter", { altKey: true }));
-    expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
-    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+    const tracker = new CompositionTracker(() => now);
+    tracker.set(true);
+    now = 10; tracker.set(false);
+    now = 12;
+    expect(tracker.composed(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(true);
+    expect(tracker.composed(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
+    // A plain key, and a ⌘ chord, after the commit are the shell's and the app's.
+    expect(tracker.composed(key("KeyA", { keyCode: 65 }))).toBe(false);
+    expect(tracker.composed(key("KeyK", { metaKey: true, ctrlKey: true, keyCode: 75 }))).toBe(false);
+    // The second ⌃C, typed later, is the shell's.
+    now = 200;
+    expect(tracker.composed(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
   });
 });
 
@@ -211,19 +196,17 @@ describe("the text the input method converts for ⌥Return", () => {
   const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
     ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code, ...init });
 
-  test("only a waiting ⌥Return mark asks for it", () => {
+  test("only ⌥Return the input method took, a moment ago, asks for it", () => {
     let now = 0;
-    const keys = new CompositionKeys(() => now);
-    keys.mark(key("KeyC", { ctrlKey: true }));
-    expect(keys.awaitsOptionReturn()).toBe(false);
-    keys.mark(key("Enter", { altKey: true }));
-    expect(keys.awaitsOptionReturn()).toBe(true);
-    expect(keys.take({ ...key("Enter", { altKey: true }), keyCode: 229 })).toBe(true);
-    expect(keys.awaitsOptionReturn()).toBe(false);
-    keys.mark(key("NumpadEnter", { altKey: true, shiftKey: true }));
-    expect(keys.awaitsOptionReturn()).toBe(true);
+    const tracker = new CompositionTracker(() => now);
+    tracker.composed({ ...key("KeyC", { ctrlKey: true }), keyCode: 229 });
+    expect(tracker.converting()).toBe(false);
+    tracker.composed({ ...key("Enter", { altKey: true }), keyCode: 229 });
+    expect(tracker.converting()).toBe(true);
     now = 1000;
-    expect(keys.awaitsOptionReturn()).toBe(false);
+    expect(tracker.converting()).toBe(false);
+    tracker.composed({ ...key("NumpadEnter", { altKey: true }), keyCode: 229 });
+    expect(tracker.converting()).toBe(true);
   });
 
   /** An input that empties itself on every commit, as the surface's does (surface.ts onCompositionEnd). */
@@ -294,5 +277,19 @@ describe("the terminal theme", () => {
     expect(light?.[15]).toEqual({ r: 0xa5, g: 0xa5, b: 0xa5 });
     // A custom background keeps the scheme's palette.
     expect(themeFrom({ dark: true, background: { r: 1, g: 2, b: 3 } }).theme.palette).toEqual(dark);
+  });
+});
+
+describe("the messages the page takes", () => {
+  const parent = {}, self = {};
+  test("only its app's: the parent, on the web from the page's own origin, on Apple through its own window", () => {
+    const web = { parent, location: { origin: "https://app.example" } };
+    expect(fromApp({ source: parent, origin: "https://app.example", data: "{}" }, web, self)).toBe(true);
+    expect(fromApp({ source: parent, origin: "https://elsewhere.example", data: "{}" }, web, self)).toBe(false);
+    expect(fromApp({ source: {}, origin: "https://app.example", data: "{}" }, web, self)).toBe(false);
+    expect(fromApp({ source: parent, origin: "https://app.example", data: {} }, web, self)).toBe(false);
+    // A bundled page on Apple is its own top document: the host's replies come through its own window.
+    const apple = { parent: self, location: { origin: "exact-app://app" } };
+    expect(fromApp({ source: self, origin: "", data: "{}" }, apple, self)).toBe(true);
   });
 });

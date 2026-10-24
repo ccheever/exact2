@@ -150,7 +150,7 @@ final class T3Composer {
     /// the keyboard (a bare window, Exact's root view or an inert surface).
     static func redirectable(_ responder: NSResponder?, in window: NSWindow) -> Bool {
         guard let responder, responder !== window, responder !== window.contentView else { return true }
-        // WKWebView (the terminal's native responder) is an NSTextInputClient even though
+        // WKWebView (an iframe's or the Browser's page) is an NSTextInputClient even though
         // its accessibility container is AXGroup. It already owns printable keys and paste.
         if responder is NSTextInputClient || responder is NSText || responder is NSTextField || responder is NSControl { return false }
         guard let view = responder as? NSView else { return false }

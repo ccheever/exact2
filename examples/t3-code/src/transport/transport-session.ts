@@ -920,6 +920,18 @@ export class Session {
 
   // MARK: HTTP ops
 
+  /** A socket URL with a fresh ticket for the terminal page, which opens its own socket to this server (entry.ts). */
+  async terminalSocketAccess(): Promise<Reply> {
+    if (this.state !== 'connected') throw notConnected();
+    const epoch = this.generation, origin = this.origin;
+    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a socket ticket.');
+    if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', 'The connection changed while preparing the terminal socket.');
+    this.privateValues.push(ticket);
+    this.privateValues = this.privateValues.slice(-32);
+    return this.ok({ url: socketURL(origin, ticket, true) });
+  }
+
   private async previewStreamAccess(): Promise<Reply> {
     if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;

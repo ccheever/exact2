@@ -14,6 +14,7 @@ import { workspaceOf } from './panel-surfaces';
 import { buildFileContextMenuItems, fileActionFailureTitle, fileContextMenuCapabilities, fileTreeContextMenuItems, menuItemIds,
   pullRequestLinkContextMenuItems, resolveFileContextMenuAbsolutePath } from '../shared/context-menus';
 import { menuRows, type MenuItem, type MenuRow } from '../sidebar/sidebar-menu';
+import { openExternal } from '../client/external-open';
 
 /**
  * The Files tree's one context popover (files-surface.contract FilesExplorer `files-tree-menu`): showEntryContextMenu's
@@ -76,8 +77,7 @@ export async function pullRequestLinkPick(client: T3Client, native: Native, valu
       const reply = await bridgeReply(native, { op: 'copyText', text: url });
       if (!reply.ok) throw new Error(reply.error?.message);
     } else {
-      const result = await client.call(native, { op: 'terminalOpenExternal', url });
-      if (result.opened !== true) throw new Error('not opened');
+      if (!openExternal(url)) throw new Error('not opened');
     }
   } catch (error) {
     if (letGo(error)) throw error;

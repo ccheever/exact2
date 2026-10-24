@@ -7,8 +7,8 @@ Markdown editor owns composer text, selection, styling and undo; TypeScript supp
 source's block and reference projection and guarded edit intents. A drop, a paste and Attach files
 are Contract's `drop`, `paste` and file input, their files staged in TypeScript
 (`composer-attach-stage.ts`), and a large text paste folds into a file in the composer's `paste`.
-An app-local Swift module (`modules/apple/`) adapts type-to-focus,
-modifier events, terminal and browser web views, menus,
+The terminal is T3 Code's own page in an `iframe`, with its own server socket. An app-local Swift
+module (`modules/apple/`) adapts type-to-focus, modifier events, the browser web view, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
@@ -37,8 +37,8 @@ bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
 The terminal page is a build output: the Apple bundle copies `assets/` as it is and has no
-step that makes an app's assets first, so without `terminal-host/build.mjs` the terminal view
-stays blank and its status names the load error.
+step that makes an app's assets first, so without `terminal-host/build.mjs` the terminal frame
+stays blank and the host logs that `assets/terminal/index.html` is not an app asset.
 
 Generated sources are built, not committed. `tools/generate/generate.mjs` makes them from the
 packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the versions the
@@ -52,7 +52,7 @@ and `settings-brands`, each a `.contract` in its feature's folder under `src/`, 
 in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their hand-written
 components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
 and the terminal buffer vectors
-(`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
+(`tests/terminal/vectors.json`, whose expectations are test data committed in
 `gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
@@ -99,7 +99,7 @@ no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T
 (the driver then skips its stale-build check, so rebuild after every source change).
 
 Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
-terminal, the browser surface, the rendered-HTML preview) are
+browser surface, the rendered-HTML preview) are
 `isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
 build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
@@ -293,9 +293,15 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   details card's inline under the diff size.
 - Terminal: the thread terminal drawer below the chat column (`terminal.contract`,
   `terminal-drawer*.ts`; T3 Code's ThreadTerminalDrawer in its drawer mode): sessions on the
-  server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
-  Ghostty emulator page (`terminal-host/`, built into `assets/`) in a web view
-  (`T3TerminalView.swift`); the sessions are native (`T3TerminalSessions.swift`).
+  server, split and close, the drawer's state kept per thread. Each pane is T3 Code's own
+  Ghostty emulator page (`terminal-host/`, built into `assets/terminal/`) as a bundled page in an
+  `iframe` (`terminal-frame.contract`, LLP 1020.001). The page holds the session and its buffer and
+  opens its own server socket with a ticket the transport mints for the terminal's environment
+  (`terminal-host/src/session.ts`, `terminal-frames.ts`), as the reference's renderer holds the
+  attach stream, so output never passes a commit. A pane shown again (a thread switch, a remount)
+  attaches again and gets its history back from the server's attach snapshot. The theme, font,
+  keybindings and visibility go to the page by `postMessage`; the selection popup and the context
+  menu are a menu-shaped popover at the point the page names (an NSMenu).
   ANSI colours use VS Code's palette for the scheme. Shift+PageUp and Shift+PageDown page through
   the scrollback, ⌘⇧Home and ⌘⇧End jump to its start and the latest output (full-screen programs
   keep these keys), and ⌘A or the context menu's Select all selects the whole history; Jump to
@@ -328,8 +334,8 @@ a composing syllable first and match by key code under a non-Latin source such a
 the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
 character, as the reference's `resolveEventKeys` does (`T3LatinChords.swift`), so ⌘B and ⌘K
 still match. exact2 #168 matches declared chords by physical key itself, and AppKit matches the
-menu's own items by the key's Latin letter, but neither reaches the terminal's web view or the
-module's own key monitors, so the re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
+menu's own items by the key's Latin letter, but neither reaches the module's own key monitors, so
+the re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
 slid under it is hovered, as a browser's synthetic mouse move does (the host's own, exact2 #139). The menu bar is the reference
 desktop app's (DesktopApplicationMenu.ts), built from main's menu hints (LLP 1021 §5.3.1): the app
 menu has Check for Updates… directly under About and Help holds it alone (two app-wide Contract
@@ -589,15 +595,15 @@ Differences that belong to the app:
   its timeout can come up to a second early. A connect replies once the socket's URL is in, not
   once the socket opens, since an answer may await only what this module's fetch, storage or open
   stream settles.
-- The terminal's attach stream, the Browser's automation replies and the device hub's tickets keep
-  a second, module-owned socket per environment (`T3Link.swift`), which the transport's `links` op
-  tells the routes and bearers of the environments it has connected: the terminal's bytes go
-  straight to its web view instead of through a commit each.
+- The Browser's automation replies and the device hub's tickets keep a second, module-owned socket
+  per environment (`T3Link.swift`), which the transport's `links` op tells the routes and bearers
+  of the environments it has connected. Each terminal page opens a socket of its own (one per pane,
+  the reference's renderer has one for all).
 - The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
   window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
   (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
   never reach the root: typing in the terminal alone does not keep the reader recent, where the
-  reference's terminal is in its page (until the terminal is a bundled page, task A5). The root
+  reference's terminal is in its page (an `iframe` guest's events stay in its page). The root
   hears a hovering pointer only while the window is key (ExactKit's hover tracking), where
   Chromium's window listeners also hear one over a background window.
 - While the device tab's rename field has the focus, the keybinding chords of the reference's
@@ -1020,10 +1026,11 @@ click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeh
 - Terminal, Korean 2-Set with VoiceOver on (C9): VoiceOver was not the cause. When another
   process selects the input source with TISSelectInputSource (an input switcher, or the
   real-input harness's own tool) while the terminal has the focus, WebKit's input context can be
-  left with no input method, and keys reached the shell as the layout's characters (ㅎ ㅏ ㄴ or
-  g k s). The terminal now reconnects its input context when the selected source changes
-  (T3TerminalInputSource.swift). T3 Code under Chromium loses at most the first key in that
-  case. Not yet investigated: in a freshly launched lane the native composer once sent the first
+  left with no input method, and keys reach the shell as the layout's characters (g k s). The
+  native terminal reconnected its input context when the selected source changed; the terminal
+  page's web view is the host's `iframe`, which does not yet (`clone/issues/terminal-page-socket-input-source.md`).
+  Selecting the source before focusing the terminal composes. T3 Code under Chromium loses at most
+  the first key in that case. Not yet investigated: in a freshly launched lane the native composer once sent the first
   2-Set syllable as jamo (ㅎㅏㄴ한글).
 
 - Terminal, Korean 2-Set, first syllable: in an app it has not yet met, macOS's Korean input
@@ -1039,9 +1046,10 @@ click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeh
   Code: the syllable goes to the shell when the input method commits it, and the candidate picked
   (or the syllable again, on Escape) follows it, as under T3 Code's Chromium page. ⌃C commits the
   syllable alone, and a second ⌃C is the shell's. ⌃L commits it without clearing, as T3 Code
-  does: its drawer reads the "Process" key's `key` ("ㅣ"), so a ⌃ chord typed during a terminal
-  composition is no longer re-issued with its Latin letter (T3LatinChords). A composing syllable is
-  not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
+  does: its drawer reads the "Process" key's `key` ("ㅣ"). A ⌃ chord or ⌥Return the input method
+  declines comes to the page with its own key right after the commit, where Chromium sends
+  "Process"; the page counts it as the input method's (entry.ts `CompositionTracker`). A composing
+  syllable is not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
 
 Real-input sessions should type IME rows with held keys: orca's zero-dwell press-key can make the
 input method commit a jamo at once. They should switch input sources with the system shortcut or
@@ -1180,7 +1188,7 @@ for d in examples/t3-code/macos/tests/*/; do
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests"
+  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests"
 done
 ```
 
@@ -1206,9 +1214,8 @@ xcrun swiftc -swift-version 5 -package-name apple -module-name ExactKit -I host/
 target/t3-tests/timeline-keyboard-tests
 ```
 
-`terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
-`assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
-`bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
+The terminal page's tests are Bun's (`terminal-host/src/*.test.ts`, the vendored surface's among
+them); `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
 The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.

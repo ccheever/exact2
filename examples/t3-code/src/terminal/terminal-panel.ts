@@ -1,6 +1,7 @@
 import { can, requirePermission } from '../connections/command-permissions';
 import { terminalLayout, terminalSplitLabel, terminalTabs } from './terminal-layout';
 import { recordTerminalFocus, clearTerminalFocus } from './terminal-focus';
+import { mintTerminalSocket, terminalFrameMessage, terminalFramePosted } from './terminal-frames';
 // T3 Code 1e2ecbd975 rightPanelStore and ChatView terminal surface actions.
 import type { T3Client } from '../client/client';
 import type { OpOut } from '../client/client-ops';
@@ -8,7 +9,7 @@ import type { Files, Native } from '../client/protocol';
 import { obj, str } from '../client/domain';
 import { panelState, surfaceStore, type PanelState, type Surface } from '../panel/panel-surfaces';
 import { closeSurface, registerSurfaceClose } from '../panel/right-panel-tabs';
-import { activeRef, ensureTerminalRef, launchFor, paneLaunchProps, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, revealTerminal, type TerminalDrawerView } from './terminal-drawer-view';
+import { activeRef, ensureTerminalRef, launchFor, paneLaunchProps, paneFrame, terminalMenuPick, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, revealTerminal, type TerminalDrawerView } from './terminal-drawer-view';
 import { nextTerminalId, resolveTerminalSessionLabel } from './terminal-labels';
 import { terminalCloseConfirmMessage } from './terminal-close';
 import { parseScopedThreadKey, scopedThreadKey, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
@@ -21,12 +22,6 @@ export function terminalPanelIds(client: T3Client, ref: ScopedThreadRef): string
   // Panels and the drawer share the scoped server-thread key.
   const state = surfaceStore(client).panels.get(scopedThreadKey(ref));
   return state?.surfaces.flatMap(surface => surface.terminal?.terminalIds ?? []) ?? [];
-}
-export function terminalPanelRetained(client: T3Client): string[] {
-  return [...surfaceStore(client).panels].flatMap(([key, state]) => {
-    const ref = parseScopedThreadKey(key);
-    return ref ? state.surfaces.flatMap(surface => (surface.terminal?.terminalIds ?? []).map(id => JSON.stringify([ref.environmentId, ref.threadId, id]))) : [];
-  });
 }
 export function panelTerminalLabel(client: T3Client, terminalId: string): string {
   const ref = activeRef(client);
@@ -110,17 +105,6 @@ export async function terminalPanelLocal(client: T3Client, native: Native, op: s
   if (['new', 'split', 'split-vertical', 'close'].includes(op)) requirePermission(client.scopes, 'terminal:operate');
   const ref = activeRef(client), state = panelState(client);
   if (!ref) return '';
-  if (op === 'focus-in' || op === 'focus-out') {
-    const terminalId = id.slice(id.lastIndexOf('|') + 1);
-    const owner = parseScopedThreadKey(id.slice(0, id.lastIndexOf('|')));
-    if (!owner) return '';
-    recordTerminalFocus(client, { ...owner, terminalId, surface: value, focused: op === 'focus-in' });
-    if (op === 'focus-in') {
-      const surface = state.surfaces.find(entry => entry.id === value);
-      if (surface?.terminal?.terminalIds.includes(terminalId)) surface.terminal.activeTerminalId = terminalId;
-    }
-    return '';
-  }
   if (op === 'message') {
     let message; try { message = obj(JSON.parse(value)); } catch { return ''; }
     if (message.type === 'focus') {
@@ -133,7 +117,7 @@ export async function terminalPanelLocal(client: T3Client, native: Native, op: s
     }
     if (await handleTerminalMessage(client, native, message)) return '';
     if (message.type !== 'exited') return '';
-    op = 'exited'; id = `${scopedThreadKey(ref)}|${str(message.terminalId)}`;
+    op = 'exited'; id = `${scopedThreadKey(ref)}|${str(message.terminalId)}`; value = JSON.stringify({ terminalId: str(message.terminalId) });
   }
   if (op === 'new') { await addTerminalSurface(client, native); return ''; }
   const terminalId = id.slice(id.lastIndexOf('|') + 1);
@@ -165,7 +149,8 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
   const threadKey = scopedThreadKey(ref), terminalId = terminal.activeTerminalId, label = panelTerminalLabel(client, terminalId);
   const [closeTitle, closeBody] = terminalCloseConfirmMessage([label]);
   const panes = terminal.terminalIds.map(id => ({ terminalId: id, label: panelTerminalLabel(client, id), sessionKey: JSON.stringify([ref.environmentId, ref.threadId, id]),
-    active: id === terminalId, focusRequest: id === terminalId ? focus.get(client) ?? 0 : 0, target: `${threadKey}|${id}`, ...paneLaunchProps(client, ref, id) }));
+    active: id === terminalId, focusRequest: id === terminalId ? focus.get(client) ?? 0 : 0, target: `${threadKey}|${id}`, ...paneLaunchProps(client, ref, id),
+    frame: paneFrame(client, ref, id, surface.id) }));
   // RightPanelTerminalSurface: the surface is the drawer component's one group, so 2+ panes show the tab list.
   const groups = [{ id: surface.id, terminalIds: terminal.terminalIds, splitDirection: terminal.splitDirection }];
   const layout = terminalLayout(terminal.terminalIds, groups, terminalId, surface.id);
@@ -185,8 +170,12 @@ export async function terminalPanelOps(this: T3Client, op: string, id: string, v
   if (!op.startsWith('terminalpanellocal:')) return false;
   void n; void storage;
   Object.assign(out, { message: '', id, value });
-  if (op === 'terminalpanellocal:message') {
+  if (op === 'terminalpanellocal:posted') { terminalFramePosted(this, id, value); return true; }
+  if (op === 'terminalpanellocal:menu') { await terminalMenuPick(this, native, id, value); return true; }
+  if (op === 'terminalpanellocal:message' || op === 'terminalpanellocal:ticket') {
+    if (op === 'terminalpanellocal:ticket') op = 'terminalpanellocal:message';
     let message; try { message = obj(JSON.parse(value)); } catch { return true; }
+    if (await terminalFrameMessage(this, id, message, { canAddToChat: true, mint: () => mintTerminalSocket(this, native, str(message.environmentId)) })) return true;
     if (message.type === 'command') {
       const command = terminalCommandAction(this, message);
       if (!command) return true;
