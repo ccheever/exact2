@@ -28,6 +28,12 @@ theme
   warnEdge="light-dark(#f5c6c0, #5d302a)" // its border
   warnInk="light-dark(#8a1c12, #f0a89c)" // its text
 
+// Inline atoms (LLP 1045.000): a citation link is always one, a mention and
+// a skill only when a face names them.
+atom citation link="t3-citation:"
+atom mention prefix="@"
+atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
+
 shape Run
   id: string
   text: string
@@ -357,6 +363,17 @@ component DocumentBody
   state unavailable = ""
   state linkOpen = false
   state linkUrl = ""
+  // The atom fixture (LLP 1045.000 §5 stage 1).
+  state atomText = "Ask [Assistant quote](t3-citation://v1/quote?text=a%20long%20quoted%20passage) about @src/main.rs and $tidy here.\n\n@a-very-long-file-name-that-does-not-fit-in-a-narrow-field.rs [B](t3-citation:2)[C](t3-citation:3) end"
+  state atomPress = ""
+  state atomSelected = ""
+  derive atomFaces = [AtomFace(source="@src/main.rs", label="main.rs", icon="", title="src/main.rs"), AtomFace(source="$tidy", label="tidy", icon="", title="Skill: tidy"), AtomFace(source="@a-very-long-file-name-that-does-not-fit-in-a-narrow-field.rs", label="", icon="", title="")]
+  action editAtoms(value)
+    atomText = value
+  action pressedAtom(e: AtomEvent)
+    atomPress = `${e.kind} ${e.start}-${e.end}${e.metaKey ? " meta" : ""}`
+  action selectedAtom(s)
+    atomSelected = s.atom
   action selected(s)
     formats = s.formats
     mixed = s.mixed
@@ -406,6 +423,9 @@ component DocumentBody
             text `${mixed ? "Mixed · " : ""}${formats}` testId="markup-selection" min-height=16 font-size=12 color="softInk"
             textarea id="markup-editor" markup="markdown" value=editorText input=editMarkdown select=selected testId="markup-editor" aria-label="Markdown editor" width="100%" height=260 box-sizing="border-box" padding=12 border-width=1 border-color="fieldEdge" border-radius=8 background-color="fieldBg" color="ink" font-size=16 line-height="26px"
             text editorText markup="markdown" testId="markup-preview" width="100%" font-size=16 line-height="26px" color="ink"
+            textarea id="atom-editor" markup="markdown" value=atomText input=editAtoms select=selectedAtom atoms="citation mention skill" atomFaces=atomFaces atompress=pressedAtom testId="atom-editor" aria-label="Atoms" width="100%" height=160 box-sizing="border-box" padding=12 border-width=1 border-color="fieldEdge" border-radius=8 background-color="fieldBg" color="ink" font-size=16 line-height="26px"
+            text `pressed: ${atomPress} · selected: ${atomSelected}` testId="atom-state" font-size=12 color="softInk"
+            text atomText markup="markdown" atoms="citation mention skill" atomFaces=atomFaces atompress=pressedAtom testId="atom-reader" width="100%" font-size=16 line-height="26px" color="ink"
             text doc.source markup="markdown" testId="markup-node" width="100%" font-size=16 line-height="26px" color="ink"
     else
       if windowed
