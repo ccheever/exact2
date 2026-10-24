@@ -1122,7 +1122,8 @@ function moduleType(t, inList=false) {
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
   else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
   // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string'}[t] ?? t;
+  // A `shape-name` is a JSON Schema object in data code (LLP 1133.016 D8).
+  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>'}[t] ?? t;
   return inList ? '('+union+')' : union;
 }
 
@@ -1139,7 +1140,8 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
   const dictionaries=new Set((declaration.names ?? []).flatMap(e=>[e.answers,...Object.values(e.options ?? {})])
     .flatMap(t=>[...String(typeof t==='string' ? t : '').matchAll(/json<([A-Za-z0-9_]+)>/g)].map(m=>m[1])));
   if (dictionaries.size) lines.push(...dom([...dictionaries]));
-  const pathless=(t)=>t && typeof t==='object' && t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t;
+  // A path option is a string; a bounded one (`{"type", "min", …}`) is its `type`.
+  const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
   const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
   for (const entry of declaration.names ?? []) {
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
@@ -1149,12 +1151,14 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
       if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
     }
     lines.push(`export interface ${type} {`, ...fields, '}');
+    // An answer typed by an argument (LLP 1133.016 D15 item 4) is `else` in data code, whose constraint is a schema.
+    const answers=entry.answers && typeof entry.answers==='object' ? entry.answers.else : entry.answers;
     const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
     const verb=entry.source ? 'source' : 'send';
-    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(entry.answers)}> {`,
+    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(answers)}> {`,
       `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');
     // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
-    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(entry.answers)} {`,
+    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
       `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
   }
   lines.push(
