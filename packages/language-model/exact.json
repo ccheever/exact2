@@ -30,7 +30,8 @@
       "leavesDevice": "bool",
       "structuredOutput": "enum<enforced|validated|none>",
       "tools": "bool",
-      "apple": "option<AppleLanguageModelStatus>"
+      "apple": "option<AppleLanguageModelStatus>",
+      "android": "option<AndroidLanguageModelStatus>"
     },
     "LanguageModelInfo": {
       "id": "string",
@@ -67,7 +68,8 @@
       "error": "option<string>",
       "reason": "option<string>",
       "message": "option<string>",
-      "apple": "option<AppleLanguageModelResponse>"
+      "apple": "option<AppleLanguageModelResponse>",
+      "android": "option<AndroidLanguageModelResponse>"
     },
     "LanguageModelSessionInfo": {
       "id": "string",
