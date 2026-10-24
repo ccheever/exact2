@@ -7,8 +7,10 @@ step says what to see; a step that shows something else is a failure to
 report with a screenshot.
 
 Build Excord for the device and sign in with a real account, or against the
-fixture (`bun apps/excord/fixture/server.ts --world transcript` on this Mac,
-the phone on the same network).
+fixture (`bun apps/excord/fixture/server.ts --world transcript` on this Mac),
+which signs in by itself. Excord's fixture origin is `http://127.0.0.1:4790`:
+an Android phone reaches it through `adb reverse tcp:4790 tcp:4790`, and an
+iPhone cannot reach it yet (QUEUE.md).
 
 ## iPhone with Face ID
 

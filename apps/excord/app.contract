@@ -180,7 +180,9 @@ component Excord
   derive newCount = max(0, chan.arrived - baseArrived)
   // The lock is offered where the device can keep the token locked (on the web it cannot).
   derive lockable = session.signedIn and lock.available and lock.presenceSecrets
-  derive lockLabel = lock.biometry == "faceID" ? "Require Face ID" : lock.biometry == "touchID" ? "Require Touch ID" : lock.biometry == "opticID" ? "Require Optic ID" : "Require Passcode"
+  derive biometryLabel = lock.biometry == "faceID" ? "Require Face ID" : lock.biometry == "touchID" ? "Require Touch ID" : lock.biometry == "opticID" ? "Require Optic ID" : "Require Passcode"
+  // Android names no modality: the switch takes the platform's own label ("Use fingerprint").
+  derive lockLabel = match lock.android { case some(a) => match a.label { case some(l) => l, case none => biometryLabel }, case none => biometryLabel }
   derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 and not win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
 
   task tick mount
