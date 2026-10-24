@@ -82,19 +82,25 @@ public final class ExactPackageContext {
     /// Whether the app is in the foreground, as the runner's admission reads
     /// it; the host sets it before `foreground(_:)` is told each change.
     public var foreground = true
+    /// The session's canvases, whose input an implementation may feed (LLP
+    /// 1133.013 D6).
+    public let surfaces: ExactSurfaces
     private let changedFn: (String) -> Void
     private let logFn: (String) -> Void
     private let nowFn: () -> Double
     private let pictureFn: (UInt32, String) -> Void
+    private let orientationFn: () -> Double
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
                 tracks: ExactTracks = ExactTracks(), file: @escaping (String) -> URL? = { _ in nil },
                 audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
-                picture: @escaping (UInt32, String) -> Void = { _, _ in }) {
+                picture: @escaping (UInt32, String) -> Void = { _, _ in },
+                surfaces: ExactSurfaces = ExactSurfaces { _ in nil }, orientation: @escaping () -> Double = { 0 }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
+        self.surfaces = surfaces; orientationFn = orientation
     }
 
     /// A picture of the interface's `img` scheme changed (LLP 1133.019 D11
@@ -105,6 +111,12 @@ public final class ExactPackageContext {
     /// drops a later reply to them; each such `img` fires `error`. A load
     /// after `pictureChanged(source)` asks again.
     public func revokePicture(_ source: String) { pictureFn(1, source) }
+
+
+    /// The angle of the session's window, as the web's `screen.orientation.angle`
+    /// (0, 90, 180, 270; LLP 1133.013 D12 item 4): the window scene's interface
+    /// orientation on iOS, 0 on the Mac. `orientation(_:)` is told each change.
+    public var orientation: Double { orientationFn() }
 
     /// The file an admitted `app:/` path names (LLP 1133.009 D10 item 4):
     /// the session's own directories, a scratch tree under the agent.
@@ -169,6 +181,14 @@ public protocol ExactPackage: AnyObject {
     /// The runner's permission states for this interface, by name, when
     /// bound under the agent and whenever one changes.
     func permissions(_ states: [String: String])
+    /// The canvases of `surface`, which this implementation's input feeds,
+    /// were displayed or hidden, by the origin of the commit that did it (LLP
+    /// 1133.013 D6, D12 item 3). The lease: hidden, the input pauses; shown
+    /// by an `app` commit, it resumes; shown by a `tool`'s or a `wake`'s, it
+    /// stays paused. A start on a hidden canvas is told this before the start.
+    func displayed(surface: String, _ shown: Bool, origin: String)
+    /// The session window's angle changed (`ExactPackageContext.orientation`).
+    func orientation(_ angle: Double)
 }
 
 public extension ExactPackage {
@@ -188,6 +208,45 @@ public extension ExactPackage {
         reply(nil, "NotSupportedError")
     }
     func permissions(_ states: [String: String]) {}
+    func displayed(surface: String, _ shown: Bool, origin: String) {}
+    func orientation(_ angle: Double) {}
+}
+
+// MARK: canvas inputs (LLP 1133.013 D6, D12 item 3)
+
+/// The session's canvases, as an implementation feeds them.
+public final class ExactSurfaces {
+    public typealias Open = (_ surface: String) -> ExactSurfaceInput?
+    private let open: Open
+    public init(_ open: @escaping Open) { self.open = open }
+    /// The input of surface `surface`'s canvas: the host drains what is
+    /// written there into the live canvas of that surface once a display
+    /// frame, before the frame's input reaches its module, every sample in
+    /// order. Nil when the session places no canvas of that surface, or the
+    /// host feeds none (an older host, one with no GPU module).
+    public func input(surface: String) -> ExactSurfaceInput? { open(surface) }
+}
+
+/// A canvas's input that an implementation writes (`ExactSurfaces.input`).
+/// Main thread. The host keeps about a second at the fastest rate a phone
+/// samples; past it the oldest samples go, and the next sample of their
+/// sensor delivered counts them in its `dropped`.
+public final class ExactSurfaceInput {
+    public typealias Write = (_ sensor: String, _ values: [Double], _ dropped: Int, _ at: Double, _ ended: Bool) -> Void
+    public let surface: String
+    private let write: Write
+    public init(surface: String, write: @escaping Write) { self.surface = surface; self.write = write }
+    /// One sample of `sensor` (a Generic Sensor name: `gravity`,
+    /// `gyroscope`, …): x, y, z, and w for an orientation's quaternion, in
+    /// the frame the input asked for; finite. `dropped` counts the samples
+    /// lost before it (a pause); `at` is the session clock's time (ms) when
+    /// it was taken, which also stamps the canvas's keys and touches.
+    public func sample(_ sensor: String, _ values: [Double], dropped: Int = 0, at: Double) {
+        write(sensor, values, dropped, at, false)
+    }
+    /// The input of `sensor` ended (`stopSensorInput`, the canvas gone): its
+    /// last sample no longer stands.
+    public func end(_ sensor: String, at: Double) { write(sensor, [], 0, at, true) }
 }
 
 // MARK: the authenticator entry (LLP 1133.010 D13)

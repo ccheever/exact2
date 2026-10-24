@@ -21,6 +21,8 @@
 //   it (item 3);
 // - `{"extension", "view", "displayed"|"bound", "origin"}`: a package view's
 //   displayed state or binding prop changed (LLP 1133.008 D8 item 2);
+// - `{"extension", "surface", "displayed", "origin"}`: the canvases of a
+//   surface its input feeds were displayed or hidden (LLP 1133.013 D6);
 // - `{"extension", "sync", "args"}`, through `call`: data code's
 //   synchronous form.
 //
@@ -60,6 +62,8 @@ open class ExactExtensionAdapter {
         reply(nil, "NotSupportedError")
     }
     open func permissions(_ states: [String: String]) {}
+    open func displayed(surface: String, _ shown: Bool, origin: String) {}
+    open func orientation(_ angle: Double) {}
     /// The authenticator entry (ExactPackage.swift's `ExactAuthenticator`),
     /// for the extension `exactAuthenticator` names.
     open func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {
@@ -120,6 +124,9 @@ enum ExactExtensions {
             if let shown = request["displayed"] as? Bool { a.displayed(view, shown, origin: origin) }
             if let prop = request["bound"] as? String { a.bound(view, prop, origin: origin) }
             reply.send([:])
+        } else if let surface = request["surface"] as? String, let shown = request["displayed"] as? Bool {
+            a.displayed(surface: surface, shown, origin: request["origin"] as? String ?? "app")
+            reply.send([:])
         } else if let name = request["release"] as? String {
             if let args { a.release(name, args: args) } else { a.release(name) }
             reply.send([:])
@@ -146,6 +153,11 @@ enum ExactExtensions {
     static func view(_ m: ExactModule, _ extensionName: String, _ tag: String, id: String, props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
         guard let a = adapter(m, extensionName) else { throw ExactNativeRefusal("no extension \(extensionName) for \(tag)") }
         return try a.view(tag, id: id, props: props, events: events)
+    }
+
+    /// The session window's angle changed: each adapter made in `m`'s session is told.
+    static func orientation(_ m: ExactModule, _ angle: Double) {
+        for a in (made[ObjectIdentifier(m)] ?? [:]).values { a.orientation(angle) }
     }
 
     /// A synchronous form (`{"extension", "sync", "args"}`); `nil` for a request that names no extension.
@@ -238,7 +250,7 @@ private let audioEvent: AudioClaims.EventFn = { ctx, code in
 extension ExactExtensions {
     /// The context of extension `name`'s implementation in `m`'s session
     /// (ExactPackage.swift): the session's clock, journal, track table,
-    /// files and the host's audio session.
+    /// files, the host's audio session, its canvases' inputs and the window's angle.
     static func context(_ m: ExactModule, _ name: String, session: String) -> ExactPackageContext {
         let module = m.context, tracks = tables[ObjectIdentifier(m)] as? ExactTracks ?? ExactTracks()
         tables[ObjectIdentifier(m)] = tracks
@@ -252,7 +264,14 @@ extension ExactExtensions {
             audioSession: ExactAudioSession { [weak m] mode, options, background, events in
                 m?.hatches.flatMap { AudioClaims.claim($0, mode: mode, options: options, background: background, events: events) }
             },
-            picture: { [weak m] kind, source in m?.hatches?.picture(kind, source) })
+            picture: { [weak m] kind, source in m?.hatches?.picture(kind, source) },
+            surfaces: ExactSurfaces { [weak m] surface in
+                guard m?.hatches?.hasSurface(surface) == true else { return nil }
+                return ExactSurfaceInput(surface: surface) { [weak m] sensor, values, dropped, at, ended in
+                    m?.hatches?.sensor(surface, sensor, values, dropped: dropped, at: at, ended: ended)
+                }
+            },
+            orientation: { [weak m] in m?.hatches?.window?.angle ?? 0 })
     }
 }
 #endif
