@@ -68,6 +68,14 @@ fn parsed_color(s: &str) -> bool {
         || ColorValue::parse_light_dark(s).is_some()
         || Color::parse(s).is_some()
 }
+/// A background the bake cannot parse (a stop that names a design token) whose
+/// kind the leaf draws: never conic, repeating or an image.
+fn unparsed_gradient(s: &str) -> bool {
+    exact_kernel::gradient::BackgroundImage::check(s).is_err()
+        && !["conic-gradient", "repeating-", "url("]
+            .iter()
+            .any(|k| s.contains(k))
+}
 fn radius(e: &Expr) -> bool {
     match e {
         Expr::Number(n, _) => n.is_finite() && *n >= 0.0,
@@ -146,6 +154,8 @@ pub(crate) fn attribute(a: &Attr, errors: &mut Vec<CompileError>, live: bool) {
     }
     let rows = match contract_lower::style_values(&a.name, &a.value) {
         Ok(rows) => rows,
+        // A live entry's shorthand may name a design token, which lowering binds.
+        Err(_) if live => return,
         Err(_) if border => {
             errors.push(fail("snapshot-border", BORDER));
             return;
@@ -198,7 +208,7 @@ pub(crate) fn attribute(a: &Attr, errors: &mut Vec<CompileError>, live: bool) {
             BorderStyleTop | BorderStyleRight | BorderStyleBottom | BorderStyleLeft => Some((words(&value, &["solid", "dashed", "dotted", "none", "hidden"]), "snapshot-border", BORDER)),
             BorderRadiusTopLeft | BorderRadiusTopRight | BorderRadiusBottomLeft | BorderRadiusBottomRight => Some((choices(&value, &radius), "snapshot-radius", RADIUS)),
             BackgroundColor | TextColor | BorderColorTop | BorderColorRight | BorderColorBottom | BorderColorLeft => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if color(s) || live && !parsed_color(s))), "snapshot-color", COLOR)),
-            BackgroundImage => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if gradient(s) || live && exact_kernel::gradient::BackgroundImage::check(s).is_err())), "snapshot-gradient", GRADIENT)),
+            BackgroundImage => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if gradient(s) || live && unparsed_gradient(s))), "snapshot-gradient", GRADIENT)),
             _ => None,
         };
         if let Some((false, id, edit)) = rule {
