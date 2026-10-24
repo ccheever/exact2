@@ -859,6 +859,16 @@ fn inline_paint_carries_colours_decorations_and_links_without_crossing_siblings(
     }
 }
 
+#[test]
+fn typing_a_disabled_field_never_falls_back_to_previous_focus() {
+    let (ok, out, err) = run(
+        "disabled-type",
+        &["type", "field", "kept", "type", "locked", "leak", "print"],
+    );
+    assert!(!ok, "{out}\n{err}");
+    assert!(err.contains("#locked"), "{err}");
+}
+
 fn run(name: &str, ops: &[&str]) -> (bool, String, String) {
     run_in("--inline", name, ops)
 }

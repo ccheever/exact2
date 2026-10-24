@@ -6,6 +6,8 @@ use std::time::Instant;
 
 #[path = "fail_backend.rs"]
 mod fail_backend;
+#[path = "input_clock_tests.rs"]
+mod input_clock;
 #[path = "projection_discriminator_tests.rs"]
 mod projection_discriminator;
 const APP: &str = r#"component App

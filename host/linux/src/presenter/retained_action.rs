@@ -262,27 +262,38 @@ impl<D: DataSource> Presenter<D> {
             .then(|| target.binding.upgrade())
             .flatten()
     }
+    fn prepare_retained_target(
+        &mut self,
+        target: &Target,
+        held: Option<HoldToken>,
+        now_ms: f64,
+    ) -> Option<Rc<ActionBinding>> {
+        let binding = self.retained_binding(target)?;
+        let committed =
+            self.host
+                .advance_retained_input(target.key, &binding, target.kind, held, now_ms)?;
+        if committed {
+            if let Some(error) = self.after_commit() {
+                self.host.log(error);
+            }
+        }
+        // Recheck the acknowledged picture, ancestors and swipe policy as
+        // well as the action arguments. Timers and their effects can change any.
+        self.retained_binding(target)
+    }
     pub(crate) fn retained_press(&mut self, hit: ViewId, now_ms: f64) -> Option<ViewId> {
         let key = self.host.kernel().node(hit)?.key;
         let target = self.retained_route(key, EventKind::Press).ok().flatten()?;
         self.retained_press_target(&target, now_ms)
     }
     pub(super) fn retained_press_target(&mut self, target: &Target, now_ms: f64) -> Option<ViewId> {
-        let binding = self.retained_binding(target)?;
+        let binding = self.prepare_retained_target(target, None, now_ms)?;
         let view = self.host.kernel().node_by_key(target.key)?.id;
-        let epoch = self.host.kernel().epoch();
         match self
             .host
-            .dispatch_retained(target.key, &binding, EventKind::Press, now_ms)
+            .dispatch_retained(target.key, &binding, EventKind::Press, None)
         {
-            Ok(false) => {
-                if self.host.kernel().epoch() != epoch {
-                    if let Some(error) = self.after_commit() {
-                        self.host.log(error);
-                    }
-                }
-                return None;
-            }
+            Ok(false) => return None,
             Err(error) => self.host.log(error),
             Ok(true) => {}
         }
@@ -302,14 +313,13 @@ impl<D: DataSource> Presenter<D> {
         token: exact_motion::HoldToken,
         now_ms: f64,
     ) -> Result<bool, String> {
-        let Some(binding) = self.retained_binding(target) else {
+        let Some(binding) = self.prepare_retained_target(target, Some(token), now_ms) else {
             return Ok(false);
         };
-        let epoch = self.host.kernel().epoch();
-        let accepted = self
-            .host
-            .dispatch_retained_held(token, target.key, &binding, now_ms);
-        if accepted != Ok(false) || self.host.kernel().epoch() != epoch {
+        let accepted =
+            self.host
+                .dispatch_retained(target.key, &binding, EventKind::Swiperight, Some(token));
+        if accepted != Ok(false) {
             if let Some(error) = self.after_commit() {
                 return Err(error);
             }
