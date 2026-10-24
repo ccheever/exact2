@@ -5,6 +5,7 @@ use crate::{dataset, native, shorthands, svg, tags, values, LowerError, MAX_REFU
 use contract_syntax::{Attr, File, Node, Span};
 use contract_types::Ty;
 use exact_kernel::StyleId;
+use exact_motion::animation::LONGHANDS;
 
 pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
     let hint = tags::html_tag(tag)
@@ -168,7 +169,9 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
                 _ => value.as_str(),
             };
             let string_shorthand = matches!(tags::attr(name), Some(tags::AttrTarget::Shorthand))
-                && !matches!(name, "column-count" | "column-rule-width");
+                && !matches!(name, "column-count" | "column-rule-width")
+                // Quoting an invalid count can let `columns` parse it as a width.
+                && (name != "columns" || value.parse::<u16>().is_ok_and(|n| n > 0));
             // A number token begins with a digit (`.5` is not one).
             if !string_shorthand
                 && value.starts_with(|c: char| c.is_ascii_digit())
@@ -209,8 +212,9 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
 /// Whether two CSS properties may set the same thing: one name, one a prefix
 /// of the other at a hyphen (`flex` and `flex-grow`, `border` and
 /// `border-top-left-radius`), or a shorthand whose longhands are named
-/// otherwise. Shared style rows also overlap; the name checks retain CSS
-/// relationships that the rows do not represent, such as `font`/`line-height`.
+/// otherwise. Shared rows overlap unless the properties compose independent
+/// parts. Name checks retain CSS relationships the rows do not represent,
+/// such as `font`/`line-height`.
 fn overlap(a: &str, b: &str) -> bool {
     let prefix = |short: &str, long: &str| {
         long.len() > short.len() && long.starts_with(short) && long.as_bytes()[short.len()] == b'-'
@@ -238,12 +242,16 @@ fn overlap(a: &str, b: &str) -> bool {
             _ => &[],
         }
     };
+    // Animation longhands set independent components of their shared row.
+    let animation_parts = LONGHANDS.contains(&a) && LONGHANDS.contains(&b);
     a == b
         || prefix(a, b)
         || prefix(b, a)
         || family(a, b)
         || family(b, a)
-        || rows(a).iter().any(|row| rows(b).contains(row))
+        || rows(a)
+            .iter()
+            .any(|row| rows(b).contains(row) && (*row != StyleId::Animation || !animation_parts))
 }
 
 /// CSS declarations split at `;` outside quotes and parentheses
