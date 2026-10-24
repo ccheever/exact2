@@ -137,7 +137,7 @@ fn hidden_computed_and_authored_headers_or_wrappers_get_the_benefit() {
 }
 
 #[test]
-fn navigation_keys_anywhere_in_the_expanded_view_suppress_the_warning() {
+fn only_routes_in_the_expanded_view_suppress_the_warning() {
     for tail in [
         "column navigationKey=\"home\"",
         "if shown\n  column navigationKey=\"home\"",
@@ -149,9 +149,57 @@ fn navigation_keys_anywhere_in_the_expanded_view_suppress_the_warning() {
     ] {
         let view = format!("{}{}", screen(HEADER), tail.lines().map(|line| format!("  {line}\n")).collect::<String>());
         let src = format!("{}component Home\n  view\n    column navigationKey=\"home\"\n", app(&view));
-        assert!(warnings(&src).is_empty(), "{src}");
+        assert_eq!(warnings(&src).len(), 1, "a lone root is not a route: {src}");
+        let routed = src.replacen("    column", "    column navigationKey=\"root\"", 1);
+        assert!(warnings(&routed).is_empty(), "{routed}");
+    }
+    for key in [
+        "navigationKey=\"home\"",
+        "navigationKey=\"home\" navigationBack=\"back\"",
+    ] {
+        let src = app(&screen(HEADER).replacen("column", &format!("main {key}"), 1));
+        assert_eq!(warnings(&src).len(), 1, "{src}");
     }
     let repaired = screen(&screen(HEADER).replacen("column", "column navigationKey=\"home\"", 1))
         .replacen("column", "column navigationKey=\"home\"", 1);
     assert!(warnings(&app(&repaired)).is_empty());
+}
+
+#[test]
+fn a_popover_is_not_the_screen_header() {
+    for view in [
+        screen(HEADER).replacen("column", "column id=\"info\" popover=\"auto\"", 1),
+        screen(&HEADER.replacen("header", "header id=\"info\" popover=\"auto\"", 1)),
+        screen(&screen(HEADER).replacen("column", "column id=\"info\" popover=\"auto\"", 1)),
+        screen(HEADER).replacen("column", "dialog id=\"info\"", 1),
+    ] {
+        let src = app(&view);
+        assert!(warnings(&src).is_empty(), "{src}");
+    }
+}
+
+#[test]
+fn unknown_presentation_only_matters_where_a_heading_could_be() {
+    let cases = [
+        (HEADER.replace("text \"3 items\"", "text \"3 items\" display=(shown ? \"none\" : \"flex\")"), true),
+        (HEADER.replace("text \"3 items\"", "text \"3 items\" class=(shown ? Loud : Quiet)"), true),
+        (HEADER.replace("button disabled=true", "button disabled=true class=(shown ? Loud : Quiet)"), true),
+        (HEADER.replace("button disabled=true", "button disabled=true role=(shown ? \"button\" : \"status\")"), true),
+        (HEADER.replace("text \"3 items\"", "row display=(shown ? \"none\" : \"flex\")\n    text \"3 items\""), true),
+        (HEADER.replace("text \"3 items\"", "row class=(shown ? Loud : Quiet)\n    text \"3 items\""), true),
+        (HEADER.replace("text \"3 items\"", "row role=(shown ? \"group\" : \"status\")\n    text \"3 items\""), true),
+        (HEADER.replace("text \"3 items\"", "text \"3 items\" role=(shown ? \"heading\" : \"status\")"), false),
+        (HEADER.replace("role=\"heading\"", "role=\"heading\" class=(shown ? Loud : Quiet)"), false),
+        (HEADER.replace("role=\"heading\"", "role=\"heading\" display=(shown ? \"none\" : \"flex\")"), false),
+        (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row display=(shown ? \"none\" : \"flex\")\n    text \"Household\" role=\"heading\""), false),
+        (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row class=(shown ? Loud : Quiet)\n    text \"Household\" role=\"heading\""), false),
+        (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row role=(shown ? \"group\" : \"tablist\")\n    text \"Household\" role=\"heading\""), false),
+    ];
+    for (header, expected) in cases {
+        let src = format!(
+            "style Loud\n  opacity=1\nstyle Quiet\n  opacity=0.5\n{}",
+            app(&screen(&header))
+        );
+        assert_eq!(warnings(&src).len(), usize::from(expected), "{src}");
+    }
 }
