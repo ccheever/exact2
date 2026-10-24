@@ -81,11 +81,11 @@ fn a_zero_length_subpath_paints_its_cap() {
 }
 
 /// LLP 1084 §4: a portable symbol role is its path, stroked as the web
-/// strokes it, in its tint; an `sf/` name stays an empty box, unless it is a
+/// strokes it, in its `color`; an `sf/` name stays an empty box, unless it is a
 /// role's own Apple name, which draws that role (LLP 1121 D10).
 #[test]
 fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
-    const SYMBOLS: &str = "component App\n  view\n    row\n      image \"symbol:checkmark\" testId=\"role\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark.seal\" testId=\"sf\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark\" testId=\"apple\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n";
+    const SYMBOLS: &str = "component App\n  view\n    row\n      image \"symbol:checkmark\" testId=\"role\" width=48 height=48 object-fit=\"contain\" color=\"#ff0000\"\n      image \"symbol:sf/checkmark.seal\" testId=\"sf\" width=48 height=48 object-fit=\"contain\" color=\"#ff0000\"\n      image \"symbol:sf/checkmark\" testId=\"apple\" width=48 height=48 object-fit=\"contain\" color=\"#ff0000\"\n";
     let plan = contract::compile(SYMBOLS).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
@@ -116,7 +116,7 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
     };
     assert!(
         reds(&mut p, "role") > 40,
-        "the checkmark's stroke, in its tint"
+        "the checkmark's stroke, in its color"
     );
     assert_eq!(
         reds(&mut p, "sf"),
@@ -129,7 +129,7 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
     );
     // An icon token's form: its path filled under its own viewBox (a square
     // over Material's box fills the image).
-    const ICON: &str = "component App\n  view\n    image \"symbol:icon||0 -960 960 960|M0-960h960v960H0Z|\" testId=\"icon\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n";
+    const ICON: &str = "component App\n  view\n    image \"symbol:icon||0 -960 960 960|M0-960h960v960H0Z|\" testId=\"icon\" width=48 height=48 object-fit=\"contain\" color=\"#ff0000\"\n";
     let plan = contract::compile(ICON).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
@@ -155,7 +155,7 @@ fn every_symbol_role_draws_its_path() {
     let mut source = String::from("component App\n  view\n    column\n");
     for role in roles {
         source.push_str(&format!(
-            "      image \"symbol:{role}\" testId=\"{role}\" width=24 height=24 font-size=24 -exact-tint-color=\"#ff0000\"\n"
+            "      image \"symbol:{role}\" testId=\"{role}\" width=24 height=24 font-size=24 color=\"#ff0000\"\n"
         ));
     }
     let plan = contract::compile(&source).unwrap_or_else(|e| panic!("{e}"));
