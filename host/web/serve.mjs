@@ -695,6 +695,7 @@ export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
  * build in a stage of their own and swap here in turn, under `dist.lock`, so none deletes or overwrites the files
  * another is writing (app farm round 1: two of three concurrent builds failed and the third lost `app.css`). */
 export function replaceBuild(stage, dist) {
+  mkdirSync(dirname(dist), { recursive: true });
   const lock = `${dist}.lock`, started = Date.now(), nap = new Int32Array(new SharedArrayBuffer(4));
   const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
   for (;;) {
