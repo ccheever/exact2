@@ -10,11 +10,8 @@
 // reads are counted and its writes grant-checked in Rust (LLP 1018).
 (function (global) {
   "use strict";
-  // (op, a, b) -> string | undefined. Ops: 1 request(ticket, json),
-  // 2 store.get(name), 3 store.set(name, value), 4 store.forget(name), 5 storage capability check,
-  // 6 native, 7 pure, 8 the answer drew secure randomness, 9/10 canvas text and images,
-  // 11 the agent's repeatable random bytes (hex; undefined outside the agent),
-  // 12 the carrier's auth callback ("callback") or a web worker realm's placement.
+  // (op, a, b) -> string | undefined, js/src/door.rs's ops: 1 a request, 2-4 and 18-20 the store, 5 storage,
+  // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line.
   var host = global.__exact_host;
   delete global.__exact_host;
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
@@ -811,12 +808,13 @@
   };
 
   // --- the store (LLP 1018): reads counted, writes grant-checked, in Rust -
+  var presence = binary.presence(host, function (name) { return store.get(name); }, function (api) { if (overlaying) throw inOverlay(api); });
   var store = {
-    get: function (name) { if (overlaying) throw inOverlay("store.get()"); var v = host(2, String(name), ""); return v === undefined ? null : v; },
-    set: function (name, value) { if (overlaying) throw inOverlay("store.set()"); var e = host(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
+    get: function (name) { if (overlaying) throw inOverlay("store.get()"); var v = presence.door(2, String(name), ""); return v === undefined ? null : v; },
+    set: function (name, value) { if (overlaying) throw inOverlay("store.set()"); var e = presence.door(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
     forget: function (name) { if (overlaying) throw inOverlay("store.forget()"); var e = host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
-    keepKey: function (name, pair) { return keepKey(name, pair); },
-    key: function (name) { return keptKey(name); },
+    has: presence.has, locked: presence.locked, unlock: presence.unlock, protect: presence.protect, unprotect: presence.unprotect,
+    keepKey: function (name, pair) { return keepKey(name, pair); }, key: function (name) { return keptKey(name); },
   };
 
   // Storage is a capability argument, never an ambient global. Native hosts

@@ -118,11 +118,7 @@ pub fn call_request(
     let mut w = header(if outcome.is_some() { 4 } else { 3 });
     w.string(source);
     Value::list(args.to_vec()).encode(&mut w);
-    let snapshot = store
-        .snapshot()
-        .into_iter()
-        .filter(|(name, _)| !name.starts_with(Store::KEPT) && store.granted().contains(name))
-        .collect::<Vec<_>>();
+    let snapshot = store.call_snapshot(store.granted());
     store_pairs(&mut w, &snapshot);
     if let Some(outcome) = outcome {
         encode_outcome(&mut w, outcome);
@@ -615,6 +611,12 @@ impl<D: DataSource> Session<D> {
                     self.data.parse(&mut store, &source, &args, outcome)
                 } else {
                     self.data.answer(&mut store, &source, &args)
+                };
+                // An answer that read a locked presence name with `get` fails,
+                // as it does in process (LLP 1133.010 D5).
+                let result = match store.take_locked_read() {
+                    Some(name) => Err(exact_runner::StoreError::Locked(name).into()),
+                    None => result,
                 };
                 w.u8(u8::from(store.reads() > 0));
                 let writes = store.take_writes();

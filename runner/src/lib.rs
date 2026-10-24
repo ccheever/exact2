@@ -63,6 +63,7 @@ pub mod lists;
 pub mod notify;
 pub mod page;
 pub mod perf;
+pub mod presence;
 pub mod request;
 pub mod runner;
 pub mod save_file;
