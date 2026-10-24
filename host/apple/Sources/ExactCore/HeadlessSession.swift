@@ -324,6 +324,22 @@ public final class HeadlessSession {
         }
     }
 
+    /// A pop of several levels, as the platform's stack makes one: Back from each
+    /// route in `keys`, the top first, each only while it is the active route and
+    /// only after the one above it went. A route whose own Back control did not take
+    /// it away (a confirmation, a refusal) ends the pop there. Nil when the first is refused.
+    @discardableResult
+    public func back(root: UInt32, routes keys: [String], at now: Double) throws -> Snapshot? {
+        var last: Snapshot?
+        for key in keys {
+            guard Owner.shared.sync({ nodes[root]?.props["navigationKey"] }) == key,
+                  let next = try back(root: root, route: key, at: now) else { break }
+            last = next
+            if next.nodes[root]?.props["navigationKey"] == key { break }
+        }
+        return last
+    }
+
     private func way(root: UInt32, route key: String) -> NavigationBack.Way? {
         guard let container = nodes[root] else { return nil }
         let routes = container.children.filter { nodes[$0]?.props["navigationKey"] != nil }
@@ -339,15 +355,16 @@ public final class HeadlessSession {
     }
 
     /// A link the reader followed, as `ExactSession.follow` takes it (LLP 1038 §7): a
-    /// path naming one of the app's routes goes to the navigation root's `navigate`.
-    /// Nil for anything else, which is the host's to open, or with no such root.
+    /// path naming one of the app's routes goes to the navigation root's `navigate`,
+    /// else to the runner's router. Nil for anything else, which is the host's to open.
     @discardableResult
     public func follow(_ href: String, at now: Double) throws -> Snapshot? {
         guard href.hasPrefix("/"), !href.hasPrefix("//"), core.runtime.routeMatches(href) else { return nil }
         let root = Owner.shared.sync {
             nodes.values.filter { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }.map(\.id).min()
         }
-        guard let root else { return nil }
+        // With no root that hears `navigate`, the runner's router goes there itself, as iOS's.
+        guard let root else { return try turn { core.runtime.hostGo(href, now: now) } }
         return try turn { core.runtime.navigate(root, href, now: now) }
     }
 
@@ -379,6 +396,12 @@ public final class HeadlessSession {
     }
 
     private var wakeKey: UInt { UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()) }
+
+    // A session dropped without `close()` leaves no wake for a later one at its address.
+    deinit {
+        let key = wakeKey
+        Owner.shared.syncOrLater { HeadlessWakes.callbacks[key] = nil }
+    }
 
     package func agentFacts() -> [String: Any] {
         let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)
@@ -445,14 +468,17 @@ public final class HeadlessSession {
             }
             changed.insert(op.id)
         }
-        // The callback refuses before shaping raw Markdown. Inspect unmeasured
-        // nodes too (for example display:none) so boot never returns a partial tree.
-        // A face reads the control and its subtree: read again when either changed.
-        if !changed.isEmpty {
-            for (id, node) in nodes where node.kind == "control" && (changed.contains(id) || changed.contains { holds(id, $0) }) {
+        // A face reads the control and its subtree: read again when either changed,
+        // and every face when the batch says a control's viewless contents did
+        // (a native button's text, which no op carries; iOS's `facesChanged`).
+        if batch.controls || !changed.isEmpty {
+            for (id, node) in nodes where node.kind == "control"
+                && (batch.controls || changed.contains(id) || changed.contains { holds(id, $0) }) {
                 nodes[id]?.controlTitle = pressFaceTitle(id)
             }
         }
+        // The callback refuses before shaping raw Markdown. Inspect unmeasured
+        // nodes too (for example display:none) so boot never returns a partial tree.
         for id in changed {
             // A `time` is a paragraph the platform may draw live (LLP 1126 D6):
             // its runs carry the font the kernel measured it in.

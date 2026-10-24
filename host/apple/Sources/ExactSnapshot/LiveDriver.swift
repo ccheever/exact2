@@ -21,10 +21,13 @@ public final class LiveModel {
     @ObservationIgnored public var onCommand: ((HeadlessSession.Command) -> Void)?
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var phase: ScenePhase
+    /// While inactive, the earliest a timer may run (the runner clock): a minute after
+    /// the scene went inactive or after the last inactive timer, which other turns keep.
+    @ObservationIgnored private var inactiveNotBefore: Double?
     @ObservationIgnored private let log = Logger(subsystem: "dev.exact.watch", category: "live")
 
     /// While the scene is inactive (a lowered wrist, Always On), timers run at most
-    /// this often: `TimelineView`'s minutes cadence (LLP 1126.002 D6, proposed).
+    /// this often: `TimelineView`'s minutes cadence (LLP 1126.002 D6, as amended 2026-10-23).
     public static let inactiveInterval: TimeInterval = 60
 
     /// `session` is a live one (`HeadlessSession(…, live: true)`), on the clock `now()` reads;
@@ -32,6 +35,7 @@ public final class LiveModel {
     public init(session: HeadlessSession, phase: ScenePhase) throws {
         self.session = session; self.phase = phase
         snapshot = try session.snapshot()
+        if phase == .inactive { inactiveNotBefore = now() + Self.inactiveInterval * 1000 }
         session.onWake { [weak self] in self?.run("reply") { try $0.session.pump(at: $0.now()) } }
         schedule()
     }
@@ -59,14 +63,12 @@ public final class LiveModel {
     }
 
     /// The platform's Back from each route in `keys`, the top first, as a pop of
-    /// several levels takes them (`HeadlessSession.back`); a refusal stops it, and
-    /// the snapshot republished puts the stack back where the runner is.
+    /// several levels takes them (`HeadlessSession.back(root:routes:at:)`); a route
+    /// that stays stops it, and the snapshot republished puts the stack back where
+    /// the runner is.
     public func back(root: UInt32, routes keys: [String]) {
         run("back") { model in
-            for key in keys {
-                guard try model.session.back(root: root, route: key, at: model.now()) != nil else { break }
-            }
-            return try model.session.snapshot()
+            try model.session.back(root: root, routes: keys, at: model.now()) ?? model.session.snapshot()
         }
     }
 
@@ -103,33 +105,43 @@ public final class LiveModel {
         guard phase != self.phase else { return }
         let rises = phase == .active
         self.phase = phase
+        inactiveNotBefore = phase == .inactive ? now() + Self.inactiveInterval * 1000 : nil
         log.notice("phase \(String(describing: phase), privacy: .public) at \(self.now(), format: .fixed(precision: 0)) ms")
         if rises { run("resume") { try $0.session.advance(at: $0.now()) } } else { schedule() }
     }
 
     private func run(_ label: StaticString, _ turn: (LiveModel) throws -> HeadlessSession.Snapshot) {
         let start = liveUptime()
+        var failed = false
         do {
             snapshot = try turn(self); failure = nil
         } catch {
-            failure = "\(error)"
+            failure = "\(error)"; failed = true
             log.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         }
         let ms = (liveUptime() - start) * 1000
         log.debug("turn \(label, privacy: .public) \(ms, format: .fixed(precision: 2)) ms at \(self.now(), format: .fixed(precision: 0))")
         for command in session.takeCommands() { onCommand?(command) }
-        schedule()
+        // A failed turn left the runner's deadline where it was, often past: a second
+        // passes before the next try, not none.
+        schedule(after: failed ? 1000 : 0)
     }
 
-    private func schedule() {
+    /// Arms the timer at the runner's deadline, no sooner than `after` ms from now.
+    private func schedule(after floor: Double = 0) {
         timer?.invalidate(); timer = nil
         guard phase != .background, let due = session.timerDue else { return }
         let active = phase == .active
-        let delay = max(due - now(), active ? 0 : Self.inactiveInterval * 1000) / 1000
+        let clock = now()
+        let delay = (max(due, clock + floor, active ? clock : inactiveNotBefore ?? clock) - clock) / 1000
         log.debug("deadline \(due, format: .fixed(precision: 0)) in \(delay * 1000, format: .fixed(precision: 0)) ms")
         // In the common modes, so a deadline fires while the Crown scrolls a list.
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.run("timer") { try $0.session.advance(at: $0.now()) } }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.phase == .inactive { self.inactiveNotBefore = self.now() + Self.inactiveInterval * 1000 }
+                self.run("timer") { try $0.session.advance(at: $0.now()) }
+            }
         }
         // A tenth of the delay lets the system group this wake with others (Apple's
         // Energy Efficiency Guide: at least 10%), at most 100 ms on an active screen;
@@ -226,7 +238,7 @@ struct LiveNodeView: View {
         case "control", "input": LiveLeaf(node: node, input: input)
         default:
             if node.props["navigationKey"] != nil, node.children.contains(where: { tree.nodes[$0]?.props["navigationKey"] != nil }) {
-                LiveNavigation(root: node, tree: tree, environment: environment, input: input)
+                LiveNavigation(root: node, tree: tree, environment: environment, input: input, privacy: ownPrivacy)
             } else if node.props["type"] == "progress" {
                 SnapshotProgressView(node: node, environment: environment)
             } else {
@@ -255,6 +267,8 @@ private struct LiveNavigation: View {
     let tree: HeadlessSession.Snapshot
     let environment: SnapshotEnvironment
     let input: LiveInput
+    /// The root's `data-privacy`, or its nearest ancestor's, which its routes inherit.
+    let privacy: String?
 
     private var routes: [HeadlessSession.Node] {
         root.children.compactMap { tree.nodes[$0] }.filter { $0.props["navigationKey"] != nil }
@@ -280,7 +294,7 @@ private struct LiveNavigation: View {
     private func page(_ route: HeadlessSession.Node?) -> some View {
         if let route {
             FrameLayout(frames: [CGRect(origin: .zero, size: route.frame.size)], size: route.frame.size) {
-                LiveNodeView(node: route, tree: tree, environment: environment, input: input)
+                LiveNodeView(node: route, tree: tree, environment: environment, input: input, privacy: privacy)
             }
         }
     }

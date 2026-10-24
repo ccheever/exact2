@@ -29,7 +29,7 @@ fn choices(e: &Expr, accepts: &impl Fn(&Expr) -> bool) -> bool {
     }
 }
 /// Whether every branch of `e` is a literal, so a refusal names the value.
-fn literal(e: &Expr) -> bool {
+pub(crate) fn literal(e: &Expr) -> bool {
     choices(e, &|e| {
         matches!(
             e,
@@ -120,7 +120,11 @@ fn gradient(s: &str) -> bool {
     })
 }
 
-pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
+/// The paint values the snapshot driver's leaves draw. `live` is the watch's
+/// live driver (LLP 1126.002 D9), which draws with the same leaves: it scrolls
+/// (its own admission refuses a horizontal scroller), its rows are its own
+/// column's, and a computed value is the runtime's to meet, not the bake's.
+pub(crate) fn attribute(a: &Attr, errors: &mut Vec<CompileError>, live: bool) {
     let fail = |id, edit: &str| refusal(id, format!("`{}`: {edit}", a.name), a.span);
     let border = a.name == "border" || a.name.starts_with("border-") && !a.name.ends_with("radius");
     if border
@@ -156,14 +160,17 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
                 v.iter().all(|p| Some(p) == v.first())
             }
             Expr::Number(_, _) => true,
-            _ => false,
+            _ => live,
         })
     {
         errors.push(fail("snapshot-border", BORDER));
     }
     for (row, value) in rows {
         use StyleId::*;
-        if !admits(row) {
+        if live && (matches!(row, OverflowX | OverflowY) || !literal(&value)) {
+            continue;
+        }
+        if !live && !admits(row) {
             let edit = match row {
                 Visibility => "use display: none or a condition",
                 ZIndex => "use document order to set the paint order",
