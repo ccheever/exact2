@@ -360,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 71] = [
+pub const HANDLERS: [&str; 74] = [
     "press",
     "change",
     "input",
@@ -452,6 +452,11 @@ pub const HANDLERS: [&str; 71] = [
     "nexttrack",
     "stop",
     "navigate",
+    // An iframe's guest, by the Navigation API's names (LLP 1020.002 D2):
+    // each may hand its action a `FrameNavigation`.
+    "currententrychange",
+    "navigatesuccess",
+    "navigateerror",
     "heightrelease",
     "transformgeometry",
     "transformrelease",
@@ -679,11 +684,7 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let checked_attr = if attr == "selectionchange" && contract_syntax::edits_text(control) {
-            "beforeinput"
-        } else {
-            attr
-        };
+        let checked_attr = contract_syntax::typed_event(attr, control);
         let valid = handler_accepts(checked_attr, given, params);
         if !valid {
             let declared = view.actions.actions.get(index as usize);

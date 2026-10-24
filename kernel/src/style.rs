@@ -1456,6 +1456,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // A grouped list's card and cell margins, as the platform's list has them.
     crate::grouped::apply_margins(arena, slot, &mut s);
     crate::rows::apply_margins(arena, slot, &mut s);
+    crate::replaced::apply_zoom(arena, slot, &mut s);
     if direction == Direction::Rtl {
         sides::mirror_unsaid(arena.style(slot), &mut s);
     }

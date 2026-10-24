@@ -27,6 +27,7 @@ mod component;
 mod decorations;
 mod enums;
 mod failure;
+mod frame_commands;
 mod frames;
 mod geometry;
 mod injects;
