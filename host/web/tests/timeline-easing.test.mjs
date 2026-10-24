@@ -19,6 +19,7 @@ import { readyPage } from './page.mjs';
 import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
 const GLUE = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
@@ -356,7 +357,7 @@ check('a real commit rebinds a spring follower on the wasm and JS runtimes', asy
   let session;
   try {
     writeFileSync(resolve(tmp, 'follower.contract'), FOLLOWER_SOURCE);
-    run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'follower.contract'), '-o', plan]);
+    run(compiler, ['build', resolve(tmp, 'follower.contract'), '-o', plan]);
     // Use the lane's prepared Caltrain builds when both paths are set (the plan reads no app data), else build
     // Interaction Gallery's
     const { EXACT_MOTION_DIST: preparedWasm, EXACT_WEB_JS_DIST: preparedJs } = process.env;

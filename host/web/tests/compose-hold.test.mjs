@@ -22,6 +22,7 @@ import { readyPage } from './page.mjs';
 import { standIns } from './stand-ins.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const WEB_JS = resolve(ROOT, 'host/web-js');
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
@@ -140,7 +141,7 @@ for (const [target, dist] of Object.entries(dists)) {
     try {
       const source = resolve(tmp, 'hold.contract'), plan = resolve(tmp, 'hold.plan');
       writeFileSync(source, CONTRACT);
-      const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+      const c = spawnSync(compiler, ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
       if (c.status !== 0) throw new Error('the fixture does not compile: ' + c.stderr);
       const s = await open({ host: 'web', plan, webDist: resolve(dist) });
       try { await lowered(s.carrier.evaluate, s.carrier.call); } finally { await s.close(); }

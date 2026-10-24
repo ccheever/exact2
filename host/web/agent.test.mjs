@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
@@ -16,6 +17,8 @@ import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-
 import { nodeNamed } from '../../scripts/agent-test.mjs';
 import { browserMissing } from '../../scripts/agent-playwright.mjs'; import { required } from '../../scripts/coverage.mjs';
 import { declaration, deferred, fixture, requestClock, source, timedRequests } from './glue-fixture.mjs';
+
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../target', import.meta.url)), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -494,7 +497,7 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
         column height=600
           text "Long"
 `);
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding:'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
   expect(build.status, build.stderr).toBe(0);
@@ -666,8 +669,16 @@ test('non-flow operation transcripts remain byte-for-byte equal to the existing 
   expect(actual).toBe(expected);
 });
 
-// Exercise the moved module through the real attach() adapter, with browser
-// scheduling under the test's control. Geometry remains a browser concern.
+// Run the input adapter with controlled scheduling; browser tests cover geometry.
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+for (const name of ['prompt-glue', 'alert-message']) {
+  const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
+  if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
+  inputSource = stripped;
+}
+const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputScript = new vm.Script(inputCode + '\n' + declaration('attach'), { filename: 'input-glue.js' });
+
 function inputFixture() {
   const listeners = new Map(), windowListeners = new Map(), frames = new Map(), sent = [], captured = [];
   let serial = 0;
@@ -692,10 +703,7 @@ function inputFixture() {
     addEventListener(kind, fn) { const list = windowListeners.get(kind) ?? []; list.push(fn); windowListeners.set(kind, list); },
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
-  const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, module);
-  const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
-  vm.runInContext(tested + '\n' + declaration('attach'), f);
+  inputScript.runInContext(f);
   f.attach(el, 7, ['pan']);
   function event(extra = {}) {
     return { isPrimary: true, button: 0, pointerId: 1, clientX: 0, clientY: 0,
@@ -1191,7 +1199,6 @@ test('tree --ax renders each element with its join and frame, then its findings'
   expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');
 });
 
-// Astra's review of a6d847f1 (llp/reviews/code-2026-10-03-1080.002-ax-tree.astra.md): 2, 5, 8, 11, 12.
 const fakeChrome = ({ nodes, stamps, plain }) => {
   const order = [];
   const snapshot = { strings: ['data-agent-view', '1'], documents: [{ nodes: { backendNodeId: [100], attributes: [[0, 1]], parentIndex: [-1], nodeType: [1], nodeName: [0] }, layout: { nodeIndex: [], bounds: [] } }] };
@@ -1255,7 +1262,6 @@ test('tree --ax: an aria-pressed toggle is a button on every source', () => {
   expect(axParity(web, ios).findings).toEqual([]);
 });
 
-// Astra's round 2 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r2.astra.md): 3 and 4.
 test('tree --ax: parity compares expanded where a side reports it, and AppKit\'s true-only report', () => {
   const web = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: true } }), el(1, 'button', 'Other', { testId: 'other', states: { expanded: false } })]);
   const ios = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: false }, native: { role: ['button'] } }), el(1, 'button', 'Other', { testId: 'other', states: { expanded: false }, native: { role: ['button'] } })], { source: 'uikit' });
@@ -1289,7 +1295,6 @@ test('tree --ax: sixty long guest-frame URLs still leave a reply within 256 KB, 
   expect(h.ax.truncated.excluded).toBe(60);
 });
 
-// Astra's round 3 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r3.astra.md): 1, 2 and 4.
 test('tree --ax: the host resolves the target (the active route\'s view first), and the reply is scoped by that id', async () => {
   const plain = { epoch: 1, incarnation: 1, roots: [1], nodes: [
     { id: 1, parent: null, props: {}, children: [2, 3] }, { id: 2, parent: 1, props: { testId: 'dup' }, inactive: true, children: [] }, { id: 3, parent: 1, props: { testId: 'dup' }, children: [] }] };
@@ -1321,8 +1326,7 @@ test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded
   expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
 });
 
-// files F11: a held device request is named by the node its answer arrives at
-// or by its capability, whatever ticket the host's counter gave it.
+// A held request is addressed by node or capability, independently of its ticket.
 test('a hold is addressed by its node or capability, and an unclear name is refused', () => {
   const pending = [{ name: 'notes', ticket: 4 }, { name: 'folder-input', ticket: 7, device: { capability: 'open-directory', args: { id: 'folder-input' } } },
     { name: 'share', ticket: 9, device: { capability: 'share', args: {} } }, { name: 'export-input', ticket: 11, device: { capability: 'export', args: { id: 'export-input' } } }];
@@ -1340,8 +1344,6 @@ test('a pick answer keeps a path with a space when it comes one per line', () =>
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
 });
 
-// Review A1: `tap … drag … mouse` (an authored test's `drag … from x y mouse`) holds the left button on the web: the
-// page hears a mouse's pointerdown and pointerup, where `tap` itself refuses `mouse` beside `down` (its click form).
 test('a mouse drag presses and releases the left button on the web', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, `component MouseDrag
@@ -1353,7 +1355,7 @@ test('a mouse drag presses and releases the left button on the web', async () =>
       column testId="pad" width=300 height=100 touch-action="none" pointerdown=at("down") pointerup=at("up") background-color="#dddddd"
       text log testId="log"
 `);
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding:'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
   expect(build.status, build.stderr).toBe(0);
@@ -1375,8 +1377,6 @@ test('a mouse drag presses and releases the left button on the web', async () =>
   }
 }, 120000);
 
-// Review A1 delta: a native contact's held left button ends with its lift, its cancel, or a down that failed — an
-// error reply or a request that threw — so a later finger is not sent as a mouse.
 test('a native mouse contact holds the button until it lifts or its down fails', async () => {
   const { mouseContact } = await import('../../scripts/agent.mjs');
   const sent = [], c = mouseContact(), send = (reply) => (button) => { sent.push(button.mouse === true); if (reply instanceof Error) throw reply; return reply; };
