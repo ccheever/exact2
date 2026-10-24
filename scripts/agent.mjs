@@ -1122,10 +1122,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         if (!carrier.touches || touch !== 'platform') {
           throw new Error('native Back needs iOS with --touch platform');
         }
-        if ((await carrier.ask({ op: 'state' })).navigation?.nativeBack !== true) {
-          throw new Error('native Back needs a pushed route in the app\'s only mounted Exact session; settle that route or drive a single-session fixture');
+        const container = (await carrier.ask({ op: 'state' })).navigation?.nativeBack;
+        if (typeof container !== 'string' || !container.length) {
+          throw new Error('native Back needs a mounted session with a pushed route and a native bar; settle that route first');
         }
-        const r = await carrier.touches.ask({ op: 'tap', back: true }, 150000);
+        const r = await carrier.touches.ask({ op: 'tap', back: true, container }, 150000);
         if (r.error) {
           throw new Error(r.error);
         }

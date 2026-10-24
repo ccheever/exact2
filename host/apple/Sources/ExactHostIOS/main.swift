@@ -203,6 +203,15 @@ func agentReady() {
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Select the file plan before a view's first layout can boot the bake
+        if let path = ExactEnv.environment["EXACT_PLAN"] {
+            guard let bytes = FileManager.default.contents(atPath: path) else {
+                fatalError("host: could not read the requested plan at \(path); compile the fixture and retry")
+            }
+            guard exact.apply(bytes, label: "file plan") else {
+                fatalError("host: the requested plan at \(path) was refused; compile it for this host app and retry")
+            }
+        }
         a = exact.makeSession(delegate: delegate, label: "a")
         b = exact.makeSession(delegate: delegate, label: "b")
         #if !os(tvOS)
@@ -234,15 +243,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         w.rootViewController = rootController
         w.makeKeyAndVisible()
         window = w
-        // EXACT_PLAN boots a file plan into both; otherwise each view boots
-        // the archive's plan at its first size.
-        if let path = ExactEnv.environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
-            rootController.view.layoutIfNeeded()
-            for (label, exactView) in rootController.views where !exactView.session.booted {
-                _ = exactView.session.boot(plan: bytes, size: exactView.bounds.size)
-                log("host: \(label) booted the file plan")
-            }
-        }
         watchControl()
     }
     func sceneDidBecomeActive(_ scene: UIScene) {
