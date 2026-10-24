@@ -4,6 +4,8 @@
 // held import edited with no ops sent, every refusal, another client's needing `write`, an edit racing an accept, and
 // a failed plan putting the old one back.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -192,3 +194,52 @@ test('the scope: one\'s own at propose, another client\'s at write, as drop', ()
   expect(made.review).toEqual({ importer: 'css', kept: true, from: 'prop-e-1', offers: [] });
   expect(p.ops[0].value).toBe('#000');
 });
+
+/** A stand-in for `contract tamber serve` whose plan of an op valued `#barrier` waits for `release()`. */
+function barrierServe() {
+  let release, gate = new Promise(ok => { release = ok; });
+  const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
+  child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
+  let buf = '';
+  child.stdin.on('data', chunk => {
+    buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
+    for (const line of lines) {
+      const r = JSON.parse(line), answer = () => child.stdout.write(`${JSON.stringify({ id: r.id, ok: { files: {}, diff: '', changed: [], class: 'live' } })}\n`);
+      if ((r.ops ?? []).some(o => o?.value === '#barrier')) gate.then(answer); else answer();
+    }
+  });
+  return { child, release: () => release() };
+}
+
+test('while an edit plans, its proposal is held and counted but no one else\'s: an accept, a drop or an edit finds none, and a hold at the cap evicts another', async () => {
+  const serve = barrierServe();
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: () => serve.child, log: () => {} });
+  const call = async (body, path = '/__tamber') => {
+    let text = '', status = 0;
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': wire.token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify(body)));
+    await wire.handle(req, Object.assign(new EventEmitter(), { writeHead(s) { status = s; }, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }), new URL(`http://127.0.0.1${path}`), { allowed: true, local: true });
+    return { status, ...JSON.parse(text) };
+  };
+  try {
+    // 64 held, the first the one edited (the oldest, the first a cap would take).
+    const p = (await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'a', value: '#000000' }] })).ok.proposal;
+    for (let i = 1; i < 64; i++) await call({ method: 'propose', hold: true, client: `other-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] });
+    const editing = call({ method: 'edit-held', client: 'person', proposal: p, index: 0, value: '#barrier' });
+    await Bun.sleep(20);
+    const [accepted, dropped, second] = await Promise.all([call({ method: 'accept', client: 'person', proposal: p }), call({ method: 'drop', client: 'agent', proposal: p }), call({ method: 'edit-held', client: 'person', proposal: p, index: 0, value: '#000002' })]);
+    expect([accepted.status, dropped.status, second.status]).toEqual([404, 404, 404]);
+    // A 65th hold meanwhile: the cap takes the oldest one not being edited, never the one planning.
+    const extra = await call({ method: 'propose', hold: true, client: 'late', ops: [{ op: 'set-token', name: 'a', value: '#000003' }] });
+    expect(extra.status).toBe(200);
+    const listed = (await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals.map(q => q.proposal);
+    expect(listed).toContain(p);
+    serve.release();
+    const edit = await editing;
+    expect(edit.status).toBe(200);
+    const after = (await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals;
+    expect(after.map(q => q.proposal)).not.toContain(p);
+    expect(after.find(q => q.proposal === edit.ok.proposal)).toMatchObject({ client: 'agent', editedBy: 'person', replaces: p });
+    expect(after.length).toBe(64);
+  } finally { await wire.close(); }
+}, 60_000);
