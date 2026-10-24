@@ -80,14 +80,15 @@ pub const DEVICES: &[Device] = &[
         android: &["android.permission.RECORD_AUDIO"],
         ..ROW
     },
-    // A camera is a native module's (`rules/DEFERRED.md`, moved 2026-10-02):
-    // the row is what that module declares.
+    // The camera, `@exact/camera`'s (LLP 1133.008 D6). Its Android features
+    // are declared not required where the permission is (app/build.gradle.kts).
     Device {
         name: "camera",
         ios: &["NSCameraUsageDescription"],
         macos: &["NSCameraUsageDescription"],
         hardened: Some("com.apple.security.device.camera"),
         web: Some("camera"),
+        android: &["android.permission.CAMERA"],
         ..ROW
     },
     Device {

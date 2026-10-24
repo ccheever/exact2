@@ -150,7 +150,33 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
      * at once, since the platform would present nothing.
      */
     fun requestPermissions(permissions: Array<String>, done: () -> Unit) = Extensions.ask(permissions, done)
+
+    /**
+     * Runtime permission [name]'s state, from the one history every module reads (LLP 1133.008 D8 item 7): `granted`;
+     * `denied` once a request was refused and the platform owes no rationale after it, so it will not ask again; else
+     * `prompt`. A grant in Settings clears the history.
+     */
+    fun permission(name: String): PermissionState {
+        val granted = application.checkSelfPermission(name) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val history = application.getSharedPreferences("exact.permissions", Context.MODE_PRIVATE)
+        if (granted && history.getBoolean(name, false)) history.edit().remove(name).apply()
+        val rationale = !granted && activity?.shouldShowRequestPermissionRationale(name) == true
+        val permanent = !granted && history.getBoolean(name, false)
+        return PermissionState(if (granted) "granted" else if (permanent) "denied" else "prompt", rationale, permanent)
+    }
+
+    /** [requestPermissions] for [name], keeping the history [permission] reads. */
+    fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) {
+        val a = activity
+        if (permission(name).state != "granted" && a != null && !a.shouldShowRequestPermissionRationale(name)) {
+            application.getSharedPreferences("exact.permissions", Context.MODE_PRIVATE).edit().putBoolean(name, true).apply()
+        }
+        done()
+    }
 }
+
+/** A runtime permission's state and the platform's words for it ([ExtensionContext.permission]). */
+class PermissionState(val state: String, val shouldShowRationale: Boolean, val permanentlyDenied: Boolean)
 
 /** The process's extensions: made at their first call, they outlive the activities that show the app. */
 internal object Extensions {

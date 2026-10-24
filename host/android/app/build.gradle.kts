@@ -71,8 +71,12 @@ android {
     providers.gradleProperty("permissions").orNull?.split(',')?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }?.let { names ->
         val permissions = layout.buildDirectory.file("permissions/AndroidManifest.xml").get().asFile
         permissions.parentFile.mkdirs()
+        // CAMERA implies the back camera and autofocus as required features, which would filter the app from a
+        // device without them; each is declared not required (LLP 1133.008 D6).
+        val features = if ("android.permission.CAMERA" in names) listOf("camera.any", "camera", "camera.autofocus", "camera.flash") else emptyList()
         permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
-            names.joinToString("") { "    <uses-permission android:name=\"$it\" />\n" } + "</manifest>\n")
+            names.joinToString("") { "    <uses-permission android:name=\"$it\" />\n" } +
+            features.joinToString("") { "    <uses-feature android:name=\"android.hardware.$it\" android:required=\"false\" />\n" } + "</manifest>\n")
         sourceSets["release"].manifest.srcFile(permissions)
     }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).
@@ -89,7 +93,20 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
+// The Maven libraries the bound modules' implementations name (`-Pmaven`, LLP 1133.008 D8 item 5), resolved with the
+// reader's own AndroidX in this one graph. The graph is locked to the app's lock file (`-PmavenLock`, beside its other
+// locks) and verified against its checksums (`agent-android.mjs` puts the app's verification file in place and passes
+// `--dependency-verification=strict`); `--write-locks` there writes both. An app with none resolves as before.
+val maven = providers.gradleProperty("maven").orNull?.split(',')?.filter { it.isNotEmpty() }.orEmpty()
+if (maven.isNotEmpty()) {
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode.set(LockMode.STRICT)
+        lockFile.set(file(providers.gradleProperty("mavenLock").get()))
+    }
+}
 dependencies {
+    maven.forEach { implementation(it) }
     implementation(project(":canvas"))
     if (compose) {
         implementation(platform(libs.compose.bom))

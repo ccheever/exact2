@@ -37,5 +37,10 @@
     ]
   },
   "artifacts": [],
-  "class": "exact.mediacapture.MediaCaptureModule"
+  "class": "exact.mediacapture.MediaCaptureModule",
+  "maven": [
+    "androidx.camera:camera-camera2:1.6.2",
+    "androidx.camera:camera-lifecycle:1.6.2",
+    "androidx.lifecycle:lifecycle-runtime:2.9.4"
+  ]
 }

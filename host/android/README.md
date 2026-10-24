@@ -492,7 +492,37 @@ names (`--bind`) as in production and the rest told they run under the agent, wh
 own substitute behind the runner's tickets; the substitute answers every other. Android runs one session a process,
 which ends with the process: `destroy(done)` is not called.
 `openURL("app-settings:")` opens the app's page in Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`), journaled only
-under the agent. `packages/geolocation/android/Geolocation.kt` is one.
+under the agent. `packages/geolocation/android/Geolocation.kt` is one. `permission(name)` and `askPermission(name,
+done)` read and ask a runtime permission with the one history every module shares: `denied` once a request was
+refused and the platform owes no rationale after it (LLP 1133.008 D8 item 7; the camera's uses it, geolocation's and
+the microphone's still keep their own). `tracks` is the session's track table: a package that opens an input adds its
+tracks (`TrackEntry`, with `state` and, for a camera, `video`, the running capture), and one that consumes a track
+subscribes (`TrackConsumer.live` for audio, `liveVideo` for a camera, whose `VideoSource` takes CameraX use cases
+typed `Any`, so the reader links no CameraX).
+
+### Maven libraries: one locked, verified Gradle graph (LLP 1133.008 D8 item 5)
+
+An implementation may name Maven coordinates on Google's Maven and Maven Central in its `exact.json`,
+`"maven": ["androidx.camera:camera-camera2:1.6.2", …]` (`packages/camera`, `packages/media-capture`). It adds no
+repository and no plugin. They resolve in the app's one Gradle graph, with the reader's own AndroidX (Compose, for an
+app with a date or time control), so a camera beside a date picker builds; two closures of AndroidX would not.
+`agent-android.mjs` passes the union of the bound implementations' coordinates (`-Pmaven`), and the graph is held by
+Gradle's own means:
+
+- **Locked:** `dependencyLocking` in `STRICT` mode, to the app's `gradle.lockfile` beside its other locks
+  (`-PmavenLock`). A module, or a version, the lock does not name is refused by Gradle, naming it.
+- **Verified:** Gradle's dependency verification (SHA-256 of every artifact and its metadata, plugins included),
+  from the app's `gradle-verification.xml`. Gradle reads that file only from the reader's `gradle/`, so the build
+  copies it to `gradle/verification-metadata.xml` for the run and takes it away after (ignored by Git), and passes
+  `--dependency-verification=strict`. `gradle.properties` leaves verification off for every other build.
+- **Written** once, and again when a module's coordinates change:
+  `bun scripts/agent-android.mjs build <app> --apk --write-locks` (Gradle's `--write-locks` and
+  `--write-verification-metadata sha256`); the app keeps both files with its source. Without them, an app whose
+  modules name libraries is refused before Gradle runs, with that command.
+
+An app with no Maven libraries resolves as before, unlocked and unverified. Two such builds at once on one checkout
+would share the placed verification file. A library that is not on those repositories stays LLP 1133.001 D9's pinned
+`artifacts`. `packages/camera/test/android.mjs` checks each step on a fixture app with CameraX and Compose.
 
 ## Text fields (LLP 1115.001 D8)
 
