@@ -204,6 +204,11 @@ impl<D: DataSource> Runner<D> {
                 self.raise_emitted(event);
                 continue;
             }
+            // A wake a bound implementation raised (LLP 1133.017 D8).
+            if let Some(wake) = topic.strip_prefix(super::modules::TOLD) {
+                self.raise_told_wake(wake);
+                continue;
+            }
             match self.changed(&topic) {
                 Ok(Some(receipt)) => receipts.push(receipt),
                 Ok(None) => {}
