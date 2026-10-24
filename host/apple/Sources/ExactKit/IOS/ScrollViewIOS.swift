@@ -69,11 +69,14 @@ package class ScrollView: UIScrollView {
     /// from there.
     var remoteStepTarget: (offset: CGPoint, at: CFTimeInterval)?
     #endif
-    /// A pan cancels a touch in progress, as it does a custom button's; UIKit
-    /// would leave a `UIControl` its touch, so a native button (LLP 1069.011
-    /// D4) is named. A canvas that owns its input keeps it.
+    /// Let native body buttons (LLP 1069.011 D4) and tap-only invoker overlays
+    /// yield to scrolling; UIKit normally keeps a UIControl's touch. Input-owning
+    /// surfaces and other controls keep their existing rules.
     package override func touchesShouldCancel(in view: UIView) -> Bool {
-        !CanvasInputs.owns(view) && (view is NativeButtonIOS || super.touchesShouldCancel(in: view))
+        guard !CanvasInputs.owns(view) else { return false }
+        if view is NativeButtonIOS { return true }
+        if let button = view as? InvokerButton, !button.showsMenuAsPrimaryAction { return true }
+        return super.touchesShouldCancel(in: view)
     }
     package override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === panGestureRecognizer {
