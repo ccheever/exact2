@@ -31,8 +31,11 @@ component Proposals
             // An import (LLP 1122 D11): mapped tokens in until unticked, role
             // overrides out until ticked, what it did not map, and the count.
             text `${h.client} imports a ${h.importer} theme` font="-exact-headline" testId=`held-title-${h.proposal}`
+            if h.editedBy != "" and h.editedBy != h.client
+              text `Edited by ${h.editedBy}` font="-exact-footnote" color="-exact-secondary-label" testId=`held-edited-${h.proposal}`
             text h.counted color=(h.countOk ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId=`held-count-${h.proposal}`
-            if h.replaces != ""
+            // (An edit names the one it replaces as `from` too: the recompute's words are for a recompute.)
+            if h.replaces != "" and h.replaces != h.from
               text `Recomputed from ${h.replaces} with the items chosen, on the files as they are now: review its diff, then accept it to write it. The overrides kept are on because they were ticked.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             else if h.from != ""
               text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
@@ -71,7 +74,12 @@ component Proposals
                 text "Drop"
           else
             text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
-            if h.replaces != ""
+            if h.editedBy != "" and h.editedBy != h.client
+              text `Edited by ${h.editedBy}` font="-exact-footnote" color="-exact-secondary-label" testId=`held-edited-${h.proposal}`
+            // (Edited, then perhaps recomputed: either way held again, the editor named above.)
+            if h.replaces != "" and h.editedBy != ""
+              text `Held again from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+            else if h.replaces != ""
               text `Recomputed from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
             for it in h.items key=`${it.index}`

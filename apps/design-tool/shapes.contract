@@ -161,6 +161,8 @@ shape Unmapped
 shape Held
   proposal: string
   client: string
+  // The last editor's client (`edit-held`, 1.17), "" for one never edited: shown when it isn't the proposer.
+  editedBy: string
   tint: string
   diff: string
   tokens: string[]
