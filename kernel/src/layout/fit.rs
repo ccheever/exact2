@@ -65,6 +65,7 @@ pub(super) fn measure<'a>(
         arena.text_runs_at(slot, scale, runs);
         (!runs.is_empty()).then(|| {
             measurer.measure(&TextMeasureRequest {
+                atoms: arena.markup_atoms(slot),
                 exclusions: &[],
                 runs,
                 paragraph: arena.paragraph_at(slot, scale),

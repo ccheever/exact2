@@ -216,6 +216,8 @@ typedef struct ExactMeasureRequest {
     uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
     uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
     uint8_t text_wrap_style; /* CSS text-wrap-style: 0 auto, 1 balance (LLP 1001 §6) */
+    const uint8_t *atoms; size_t atoms_len; /* LLP 1045.000 D2: a Markdown paragraph's `atoms` JSON, UTF-8; 0 length for none */
+    const uint8_t *faces; size_t faces_len; /* its `atomFaces` JSON */
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
@@ -228,24 +230,28 @@ typedef struct ExactMarkupPiece {
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
     float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
     uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
+    const uint8_t *atom; size_t atom_len; /* LLP 1045.000 D6: an inline atom's JSON {kind,role,icon,title,href,source,start,end}, its text the label; null otherwise */
 } ExactMarkupPiece;
+/* LLP 1045.000 D2: a node's `atoms` and `atomFaces` JSON, parsed once; pass the handle (0 for none)
+ * to the calls below that take `atoms`, and free it with exact_markup_free. */
+uint64_t exact_markup_atoms(const uint8_t *kinds, size_t kinds_len, const uint8_t *faces, size_t faces_len);
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
-uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
+uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, uint64_t atoms, const ExactMarkupPiece **out, size_t *count);
 /* Styling for an editor, as JSON (see host/apple/src/markup.rs `style`): paragraphs, spans, hidden
  * ranges, replacements and link destinations over the source in UTF-16 units; the selection reveals
  * markers it touches, never a link destination (sel_start UINT32_MAX for none). Valid until
  * exact_markup_free(handle). */
-uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
+uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
 /* UTF-16 replacement JSON: {replacements:[[start,end,text],...],selection:[start,end]}.
  * Invalid commands return {error:...}; the original source is unchanged. */
 uint64_t exact_markup_edit(const uint8_t *utf8, size_t len, uint32_t start, uint32_t end,
     const uint8_t *command, size_t command_len, const uint8_t *argument, size_t argument_len,
     const uint8_t **out, size_t *count);
-/* {formats:string,mixed:bool,link:string,unavailable:string}; token lists use spaces. */
-uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint32_t start, uint32_t end,
+/* {formats:string,mixed:bool,link:string,unavailable:string,atom:string}; token lists use spaces. */
+uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end,
     const uint8_t **out, size_t *count);
 /* Raw UTF-8 plain text, sharing the same handle lifetime. */
-uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, const uint8_t **out, size_t *count);
+uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, const uint8_t **out, size_t *count);
 void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {

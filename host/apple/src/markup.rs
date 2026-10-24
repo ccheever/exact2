@@ -41,6 +41,12 @@ pub struct CPiece {
     pub indent: f32,
     /// 1 for a list marker, hung before the indent with its end at it.
     pub hang: u8,
+    /// An inline atom's detail as JSON (LLP 1045.000 D6): `{kind, role,
+    /// icon, title, href, source, start, end}`, its text the label; null
+    /// for any other piece.
+    pub atom: *const u8,
+    /// Its length.
+    pub atom_len: usize,
 }
 
 /// An expansion kept alive for its handle: the pieces own the text the
@@ -48,6 +54,7 @@ pub struct CPiece {
 struct Held {
     _pieces: Vec<exact_markdown::Piece>,
     _flat: Vec<CPiece>,
+    _atoms: Vec<String>,
 }
 
 fn slice<'a>(p: *const u8, n: usize) -> Option<&'a [u8]> {
@@ -63,12 +70,50 @@ fn slice<'a>(p: *const u8, n: usize) -> Option<&'a [u8]> {
 thread_local! {
     static HELD: RefCell<HashMap<u64, Held>> = RefCell::new(HashMap::new());
     static STYLES: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
+    static ATOMS: RefCell<HashMap<u64, std::rc::Rc<exact_markdown::Atoms>>> = RefCell::new(HashMap::new());
     static NEXT: RefCell<u64> = const { RefCell::new(1) };
 }
 
-/// Expand `len` bytes of Markdown at `text`. Writes the pieces' address and
-/// count and returns a handle; zero (and no pieces) for invalid input.
-pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut usize) -> u64 {
+fn next_handle() -> u64 {
+    NEXT.with_borrow_mut(|n| {
+        let h = *n;
+        *n += 1;
+        h
+    })
+}
+
+/// A node's `atoms` and `atomFaces` JSON, parsed once for the calls that
+/// take its handle (LLP 1045.000 D2). Freed by [`free`]; invalid UTF-8 reads
+/// as none.
+pub fn atoms(kinds: *const u8, kinds_len: usize, faces: *const u8, faces_len: usize) -> u64 {
+    let text = |p, n| {
+        slice(p, n)
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .unwrap_or("")
+    };
+    let parsed = exact_markdown::Atoms::parse(text(kinds, kinds_len), text(faces, faces_len));
+    let handle = next_handle();
+    ATOMS.with_borrow_mut(|held| held.insert(handle, std::rc::Rc::new(parsed)));
+    handle
+}
+
+/// The atoms behind `handle`; none for zero or a freed handle.
+fn atoms_of(handle: u64) -> std::rc::Rc<exact_markdown::Atoms> {
+    ATOMS
+        .with_borrow(|held| held.get(&handle).cloned())
+        .unwrap_or_default()
+}
+
+/// Expand `len` bytes of Markdown at `text`, with the atoms behind
+/// `atoms` (zero for none). Writes the pieces' address and count and returns
+/// a handle; zero (and no pieces) for invalid input.
+pub fn pieces(
+    text: *const u8,
+    len: usize,
+    atoms: u64,
+    out: *mut *const CPiece,
+    count: *mut usize,
+) -> u64 {
     if out.is_null() || count.is_null() {
         return 0;
     }
@@ -79,10 +124,23 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
     let Some(source) = slice(text, len).and_then(|b| std::str::from_utf8(b).ok()) else {
         return 0;
     };
-    let pieces = exact_markdown::pieces(source);
+    let pieces = exact_markdown::pieces_with(source, &atoms_of(atoms));
+    let details: Vec<String> = pieces
+        .iter()
+        .map(|p| match (&p.atom, p.source) {
+            (Some(a), Some(range)) => serde_json::json!({
+                "kind": a.kind, "icon": a.icon, "title": a.title, "href": a.href, "source": a.source,
+                "role": if a.role == exact_markdown::AtomRole::Link { "link" } else { "button" },
+                "start": range.start, "end": range.end,
+            })
+            .to_string(),
+            _ => String::new(),
+        })
+        .collect();
     let flat: Vec<CPiece> = pieces
         .iter()
-        .map(|p| CPiece {
+        .zip(&details)
+        .map(|(p, detail)| CPiece {
             text: p.text.as_ptr(),
             len: p.text.len(),
             scale: p.scale,
@@ -105,13 +163,15 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
             href_len: p.href.len(),
             indent: p.indent,
             hang: u8::from(p.hang),
+            atom: if detail.is_empty() {
+                std::ptr::null()
+            } else {
+                detail.as_ptr()
+            },
+            atom_len: detail.len(),
         })
         .collect();
-    let handle = NEXT.with_borrow_mut(|n| {
-        let h = *n;
-        *n += 1;
-        h
-    });
+    let handle = next_handle();
     unsafe {
         *out = flat.as_ptr();
         *count = flat.len();
@@ -122,6 +182,7 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
             Held {
                 _pieces: pieces,
                 _flat: flat,
+                _atoms: details,
             },
         )
     });
@@ -135,14 +196,18 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
 /// "l":[[open,open_end,start,end]…]}`.
 /// Kinds: paragraph 0 body 1 heading 2 bullet 3 ordered 4 task 5 rule 6 fence
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
-/// 1 box 2 checked box 3 rule 4 footnote. `l` is each link's opener and its
+/// 1 box 2 checked box 3 rule 4 footnote. `a` is each inline atom (LLP
+/// 1045.000): `[start,end,kind,label,icon,title,role,href]`; no hidden range
+/// lies inside one and no atom link is in `l`. `l` is each link's opener and its
 /// `](target)`, which the editor hides whatever the selection, as the web
 /// editor does (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
 /// text's address and length; returns a handle to free. Zero for invalid
 /// input.
+#[allow(clippy::too_many_arguments)]
 pub fn style(
     text: *const u8,
     len: usize,
+    atoms: u64,
     sel_start: u32,
     sel_end: u32,
     out: *mut *const u8,
@@ -160,7 +225,8 @@ pub fn style(
     };
     let reveal = (sel_start != u32::MAX).then(|| exact_markdown::Range::new(sel_start, sel_end));
     // One parse for both: the styling, and the link syntax in it.
-    let styled = exact_markdown::style(source, reveal);
+    let atoms = atoms_of(atoms);
+    let styled = exact_markdown::style_with(source, reveal, &atoms);
     let mut json = exact_markdown::wire::styled(&styled);
     // The document is one object: its closing brace makes room for `l`.
     json.pop();
@@ -174,16 +240,37 @@ pub fn style(
         }
         json.push_str(&format!("[{o},{oe},{c},{ce}]"));
     }
-    json.push_str("]}");
+    json.push_str("],\"a\":");
+    let rows: Vec<serde_json::Value> = styled
+        .atoms
+        .iter()
+        .map(|a| {
+            let kind = &atoms.kinds[a.kind];
+            let face = atoms.face(&a.source).cloned().unwrap_or_default();
+            let role = if kind.role == exact_markdown::AtomRole::Link {
+                "link"
+            } else {
+                "button"
+            };
+            serde_json::json!([
+                a.range.start,
+                a.range.end,
+                kind.name,
+                a.label,
+                face.icon,
+                face.title,
+                role,
+                a.href
+            ])
+        })
+        .collect();
+    json.push_str(&serde_json::Value::Array(rows).to_string());
+    json.push('}');
     hold_json(json, out, count)
 }
 
 fn hold_json(json: String, out: *mut *const u8, count: *mut usize) -> u64 {
-    let handle = NEXT.with_borrow_mut(|n| {
-        let h = *n;
-        *n += 1;
-        h
-    });
+    let handle = next_handle();
     unsafe {
         *out = json.as_ptr();
         *count = json.len();
@@ -246,9 +333,11 @@ pub fn edit(
 }
 
 /// Shared toolbar facts, serialized as JSON; no offsets cross into app state.
+/// The selected atom's source is `atom` (LLP 1045.000 D3).
 pub fn selection(
     text: *const u8,
     len: usize,
+    atoms: u64,
     start: u32,
     end: u32,
     out: *mut *const u8,
@@ -258,18 +347,33 @@ pub fn selection(
         return 0;
     };
     hold_json(
-        exact_markdown::wire::selection(source, exact_markdown::Range::new(start, end)),
+        exact_markdown::wire::selection_with(
+            source,
+            exact_markdown::Range::new(start, end),
+            &atoms_of(atoms),
+        ),
         out,
         count,
     )
 }
 
-/// Copy Markdown as plain UTF-8 text; the caller frees the returned handle.
-pub fn plain(text: *const u8, len: usize, out: *mut *const u8, count: *mut usize) -> u64 {
+/// Copy Markdown as plain UTF-8 text, each atom its label; the caller frees
+/// the returned handle.
+pub fn plain(
+    text: *const u8,
+    len: usize,
+    atoms: u64,
+    out: *mut *const u8,
+    count: *mut usize,
+) -> u64 {
     let Some(source) = text_input(text, len, out, count) else {
         return 0;
     };
-    hold_json(exact_markdown::plain(source), out, count)
+    hold_json(
+        exact_markdown::plain_with(source, &atoms_of(atoms)),
+        out,
+        count,
+    )
 }
 
 /// Release one expansion or styling. Zero, stale, and repeated frees are no-ops.
@@ -278,6 +382,9 @@ pub fn free(handle: u64) {
         held.remove(&handle);
     });
     HELD.with_borrow_mut(|held| {
+        held.remove(&handle);
+    });
+    ATOMS.with_borrow_mut(|held| {
         held.remove(&handle);
     });
 }
@@ -291,22 +398,34 @@ macro_rules! markup_exports {
         pub extern "C" fn exact_markup_pieces(
             text: *const u8,
             len: usize,
+            atoms: u64,
             out: *mut *const $crate::markup::CPiece,
             count: *mut usize,
         ) -> u64 {
-            $crate::markup::pieces(text, len, out, count)
+            $crate::markup::pieces(text, len, atoms, out, count)
+        }
+        /// Parse a node's `atoms` and `atomFaces` for the calls that take atoms.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_atoms(
+            kinds: *const u8,
+            kinds_len: usize,
+            faces: *const u8,
+            faces_len: usize,
+        ) -> u64 {
+            $crate::markup::atoms(kinds, kinds_len, faces, faces_len)
         }
         /// Style Markdown source for editing, as JSON.
         #[no_mangle]
         pub extern "C" fn exact_markup_style(
             text: *const u8,
             len: usize,
+            atoms: u64,
             sel_start: u32,
             sel_end: u32,
             out: *mut *const u8,
             count: *mut usize,
         ) -> u64 {
-            $crate::markup::style(text, len, sel_start, sel_end, out, count)
+            $crate::markup::style(text, len, atoms, sel_start, sel_end, out, count)
         }
         /// Apply a source-relative formatting command, as JSON replacements.
         #[no_mangle]
@@ -340,22 +459,24 @@ macro_rules! markup_exports {
         pub extern "C" fn exact_markup_selection(
             text: *const u8,
             len: usize,
+            atoms: u64,
             start: u32,
             end: u32,
             out: *mut *const u8,
             count: *mut usize,
         ) -> u64 {
-            $crate::markup::selection(text, len, start, end, out, count)
+            $crate::markup::selection(text, len, atoms, start, end, out, count)
         }
         /// Copy Markdown as plain UTF-8 text.
         #[no_mangle]
         pub extern "C" fn exact_markup_plain(
             text: *const u8,
             len: usize,
+            atoms: u64,
             out: *mut *const u8,
             count: *mut usize,
         ) -> u64 {
-            $crate::markup::plain(text, len, out, count)
+            $crate::markup::plain(text, len, atoms, out, count)
         }
         /// Release one expansion or styling.
         #[no_mangle]
@@ -373,7 +494,7 @@ mod tests {
     fn pieces_cross_the_seam_and_free() {
         let source = "# T\n\n**b** [l](u)";
         let (mut out, mut count) = (std::ptr::null(), 0usize);
-        let handle = pieces(source.as_ptr(), source.len(), &mut out, &mut count);
+        let handle = pieces(source.as_ptr(), source.len(), 0, &mut out, &mut count);
         assert!(handle != 0 && count >= 4);
         let flat = unsafe { std::slice::from_raw_parts(out, count) };
         let first = unsafe { std::slice::from_raw_parts(flat[0].text, flat[0].len) };
@@ -388,12 +509,12 @@ mod tests {
         free(handle);
         // A list item's paragraph attribute crosses too (LLP 1045 D4).
         let source = "- a";
-        let handle = pieces(source.as_ptr(), source.len(), &mut out, &mut count);
+        let handle = pieces(source.as_ptr(), source.len(), 0, &mut out, &mut count);
         let flat = unsafe { std::slice::from_raw_parts(out, count) };
         assert_eq!((flat[0].hang, flat[0].indent), (1, 40.0));
         assert_eq!((flat[1].hang, flat[1].indent), (0, 40.0));
         free(handle);
-        assert_eq!(pieces(b"\xff".as_ptr(), 1, &mut out, &mut count), 0);
+        assert_eq!(pieces(b"\xff".as_ptr(), 1, 0, &mut out, &mut count), 0);
         assert_eq!(count, 0);
     }
 
@@ -421,14 +542,14 @@ mod tests {
         );
         free(handle);
         let source = "**bold**";
-        let handle = selection(source.as_ptr(), source.len(), 3, 3, &mut out, &mut count);
+        let handle = selection(source.as_ptr(), source.len(), 0, 3, 3, &mut out, &mut count);
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
         assert_eq!(
             json,
-            r#"{"formats":"bold","mixed":false,"link":"","unavailable":""}"#
+            r#"{"formats":"bold","mixed":false,"link":"","unavailable":"","atom":""}"#
         );
         free(handle);
-        let handle = plain(source.as_ptr(), source.len(), &mut out, &mut count);
+        let handle = plain(source.as_ptr(), source.len(), 0, &mut out, &mut count);
         assert_eq!(unsafe { std::slice::from_raw_parts(out, count) }, b"bold");
         free(handle);
         assert_eq!(
@@ -457,6 +578,7 @@ mod tests {
         let handle = style(
             source.as_ptr(),
             source.len(),
+            0,
             u32::MAX,
             0,
             &mut out,
@@ -466,10 +588,10 @@ mod tests {
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
         assert_eq!(
             json,
-            r#"{"p":[[0,3,1,1,0,0],[5,21,0,0,0,0]],"s":[[7,8,1,""],[12,13,16,"u"]],"h":[[0,2],[5,7],[8,10],[11,12],[13,21]],"r":[],"l":[[11,12,13,21]]}"#
+            r#"{"p":[[0,3,1,1,0,0],[5,21,0,0,0,0]],"s":[[7,8,1,""],[12,13,16,"u"]],"h":[[0,2],[5,7],[8,10],[11,12],[13,21]],"r":[],"l":[[11,12,13,21]],"a":[]}"#
         );
         // The caret inside the bold reveals its markers as MARKER spans.
-        let revealed = style(source.as_ptr(), source.len(), 7, 7, &mut out, &mut count);
+        let revealed = style(source.as_ptr(), source.len(), 0, 7, 7, &mut out, &mut count);
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
         assert!(
             json.contains(r#"[5,7,64,""]"#) && json.contains(r#"[8,10,64,""]"#),
@@ -477,11 +599,99 @@ mod tests {
         );
         // A caret in the link's paragraph reveals its brackets, never its
         // destination.
-        let linked = style(source.as_ptr(), source.len(), 12, 12, &mut out, &mut count);
+        let linked = style(
+            source.as_ptr(),
+            source.len(),
+            0,
+            12,
+            12,
+            &mut out,
+            &mut count,
+        );
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
-        assert!(json.ends_with(r#""l":[[11,12,13,21]]}"#), "{json}");
+        assert!(json.ends_with(r#""l":[[11,12,13,21]],"a":[]}"#), "{json}");
         free(linked);
         free(handle);
         free(revealed);
+    }
+
+    /// LLP 1045.000: a node's atoms, parsed once, reach styling, pieces,
+    /// selection facts and plain copy through one handle.
+    #[test]
+    fn atoms_cross_the_seam_through_one_handle() {
+        let kinds = r#"[{"name":"citation","link":"t3-citation:"}]"#;
+        let faces =
+            r#"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T"}]"#;
+        let atoms = atoms(kinds.as_ptr(), kinds.len(), faces.as_ptr(), faces.len());
+        let source = "a [q](t3-citation:1) b";
+        let (mut out, mut count) = (std::ptr::null(), 0usize);
+        let read = |out: *const u8, count: usize| {
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) })
+                .unwrap()
+                .to_string()
+        };
+        let styled = style(
+            source.as_ptr(),
+            source.len(),
+            atoms,
+            u32::MAX,
+            0,
+            &mut out,
+            &mut count,
+        );
+        let json = read(out, count);
+        assert!(
+            json.ends_with(
+                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1"]]}"#
+            ),
+            "{json}"
+        );
+        assert!(json.contains(r#""h":[]"#), "{json}");
+        free(styled);
+        let facts = selection(
+            source.as_ptr(),
+            source.len(),
+            atoms,
+            2,
+            20,
+            &mut out,
+            &mut count,
+        );
+        let json = read(out, count);
+        assert!(
+            json.contains(r#""link":"t3-citation:1""#)
+                && json.ends_with(r#""unavailable":"link","atom":"[q](t3-citation:1)"}"#),
+            "{json}"
+        );
+        free(facts);
+        let copied = plain(source.as_ptr(), source.len(), atoms, &mut out, &mut count);
+        assert_eq!(read(out, count), "a Quote b");
+        free(copied);
+        let (mut flat, mut n) = (std::ptr::null(), 0usize);
+        let expanded = pieces(source.as_ptr(), source.len(), atoms, &mut flat, &mut n);
+        let flat = unsafe { std::slice::from_raw_parts(flat, n) };
+        let atom = flat.iter().find(|p| !p.atom.is_null()).unwrap();
+        assert_eq!(read(atom.text, atom.len), "Quote");
+        let detail: serde_json::Value =
+            serde_json::from_str(&read(atom.atom, atom.atom_len)).unwrap();
+        assert_eq!(detail["source"], "[q](t3-citation:1)");
+        assert_eq!(
+            (detail["start"].as_u64(), detail["end"].as_u64()),
+            (Some(2), Some(20))
+        );
+        free(expanded);
+        free(atoms);
+        // A freed handle reads as no atoms.
+        let styled = style(
+            source.as_ptr(),
+            source.len(),
+            atoms,
+            u32::MAX,
+            0,
+            &mut out,
+            &mut count,
+        );
+        assert!(read(out, count).ends_with(r#""a":[]}"#));
+        free(styled);
     }
 }

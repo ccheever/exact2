@@ -1252,6 +1252,7 @@ impl LayoutTree {
                                 _ => Vec::new(),
                             };
                             let request = TextMeasureRequest {
+                                atoms: arena.markup_atoms(slot),
                                 exclusions: &shapes,
                                 runs: &runs,
                                 paragraph,
