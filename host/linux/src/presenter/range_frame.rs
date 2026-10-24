@@ -68,6 +68,9 @@ impl InlineGeometry for Painted {
     }
 }
 
+#[cfg(test)]
+thread_local! { static PUBLICATION_BOX_VISITS: Cell<usize> = const { Cell::new(0) }; }
+
 impl<D: DataSource> Presenter<D> {
     /// Hand a new runner the reader, which reads nothing it has not
     /// painted. Android's fields are the platform's own, so it has none.
@@ -96,14 +99,19 @@ impl<D: DataSource> Presenter<D> {
         }
         // Text with no box beside it is not read: a failed paint can drop
         // the boxes, leaving its placement unknown.
-        for (id, paragraph) in &self.brush.inline_text {
-            if self.boxes.iter().any(|b| b.id == *id && !b.projected()) {
+        if self.brush.inline_text.is_empty() && self.brush.field_text.is_empty() {
+            return;
+        }
+        for b in &self.boxes {
+            #[cfg(test)]
+            PUBLICATION_BOX_VISITS.set(PUBLICATION_BOX_VISITS.get() + 1);
+            if let Some(paragraph) = self.brush.inline_text.get(&b.id).filter(|_| !b.projected()) {
                 inline.extend(paragraph.views().map(|view| (view, paragraph.clone())));
             }
-        }
-        for (id, field) in &self.brush.field_text {
-            if let Some(b) = self.boxes.iter().find(|b| b.id == *id) {
-                fields.insert(*id, (field.clone(), b.projected()));
+            if let Some(field) = self.brush.field_text.get(&b.id) {
+                fields
+                    .entry(b.id)
+                    .or_insert_with(|| (field.clone(), b.projected()));
             }
         }
     }
