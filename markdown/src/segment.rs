@@ -3,7 +3,10 @@
 //! @ref LLP 1045 D4, D7 — a text segment is what one node paints; an image,
 //! an embed and a table are the blocks text cannot be.
 
+use std::borrow::Cow;
+
 use crate::block::BlockKind;
+use crate::inline::{angle_destination, decode_destination};
 use crate::style::{analyze, Replacement};
 
 /// Who serves an embed.
@@ -56,14 +59,14 @@ pub enum Segment<'a> {
         /// The caption, drawn beneath and read as the accessible name.
         caption: &'a str,
         /// The image's source.
-        src: &'a str,
+        src: Cow<'a, str>,
     },
     /// A lone video file: `![Caption](clip.mp4)`.
     Video {
         /// The caption.
         caption: &'a str,
         /// The video's source.
-        src: &'a str,
+        src: Cow<'a, str>,
     },
     /// A lone embeddable URL, bare or as `[Caption](url)`.
     Embed {
@@ -81,30 +84,40 @@ pub enum Segment<'a> {
 
 /// What a paragraph that is one figure says: (caption, target, image syntax).
 /// `![Caption](src)`, `[Caption](url)`, a bare URL, or one in angle brackets.
-pub(crate) fn figure(text: &str) -> Option<(&str, &str, bool)> {
+pub(crate) fn figure(text: &str) -> Option<(&str, Cow<'_, str>, bool)> {
     let t = text.trim();
     let url = |t: &str| {
         (t.starts_with("https://") || t.starts_with("http://")) && !t.contains(char::is_whitespace)
     };
     if let Some(inner) = t.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
-        return url(inner).then_some(("", inner, false));
+        return url(inner).then_some(("", Cow::Borrowed(inner), false));
     }
     if url(t) {
-        return Some(("", t, false));
+        return Some(("", Cow::Borrowed(t), false));
     }
     let image = t.starts_with('!');
     let body = t.strip_prefix('!').unwrap_or(t);
-    let body = body.strip_prefix('[')?.strip_suffix(')')?;
+    let body = body.strip_prefix('[')?;
     let at = body.find("](")?;
     let (caption, target) = (&body[..at], &body[at + 2..]);
-    if caption.contains(['[', ']', '\n']) || target.contains([')', '(']) {
+    if caption.contains(['[', ']', '\n']) {
         return None;
     }
-    let target = target.split_whitespace().next().unwrap_or("");
-    let target = target
-        .strip_prefix('<')
-        .and_then(|t| t.strip_suffix('>'))
-        .unwrap_or(target);
+    let target = target.trim_start_matches([' ', '\t', '\n', '\r']);
+    let target = if target.starts_with('<') {
+        let cs: Vec<_> = target.char_indices().collect();
+        let (close, range) = angle_destination(&cs, 0, cs.len())?;
+        if close + 1 != cs.len() {
+            return None;
+        }
+        decode_destination(&target[range])
+    } else {
+        let target = target.strip_suffix(')')?;
+        if target.contains([')', '(']) {
+            return None;
+        }
+        Cow::Borrowed(target.split_whitespace().next().unwrap_or(""))
+    };
     if target.is_empty() && !image {
         return None;
     }
@@ -125,9 +138,9 @@ pub fn video(target: &str) -> bool {
 /// What a lone figure paragraph is: an embed, a video, or an image.
 pub(crate) fn kind(text: &str) -> Option<BlockKind> {
     let (_, target, image) = figure(text)?;
-    if !image && embed(target).is_some() {
+    if !image && embed(&target).is_some() {
         Some(BlockKind::Embed)
-    } else if image && video(target) {
+    } else if image && video(&target) {
         Some(BlockKind::Video)
     } else if image {
         Some(BlockKind::Image)
@@ -276,7 +289,7 @@ pub fn segments<'a>(source: &'a str, limit: usize) -> Vec<Segment<'a>> {
         let line = block.content.first().map(|r| source[r.clone()].trim());
         let alone = match (&block.kind, line) {
             (BlockKind::Embed, Some(line)) => figure(line).and_then(|(caption, target, _)| {
-                embed(target).map(|embed| Segment::Embed { caption, embed })
+                embed(&target).map(|embed| Segment::Embed { caption, embed })
             }),
             (BlockKind::Video, Some(line)) => {
                 figure(line).map(|(caption, src, _)| Segment::Video { caption, src })
