@@ -242,13 +242,15 @@ fn documents(path: &str, owner: u64) -> Result<DocumentLease, DocumentError> {
 }
 
 /// The platform's image codec ([`exact_data::image`]), as ibex2's
-/// (`fs.compressImage`, LLP 1069.002 A1): the one a Rust source's storage
-/// requests run too.
+/// (`fs.compressImage`, LLP 1069.002 A1; `fs.transformImage`, LLP 1133.019
+/// D14): the one a Rust source's storage requests run too.
 pub(crate) struct ImageCodec;
+/// A transform's output side bounds the service; `compressImage`'s own
+/// `maxDimension` is the codec's to check (8192).
 fn image_limits() -> fs_image::WorkLimits {
     fs_image::WorkLimits {
         max_job_bytes: 640 << 20,
-        max_dimension: exact_data::image::MAX_DIMENSION,
+        max_dimension: exact_data::image::edit::MAX_SIDE,
         ..fs_image::WorkLimits::default()
     }
 }
@@ -265,27 +267,36 @@ impl fs_image::ImageCodec for ImageCodec {
         request: fs_image::ImageRequest,
         control: &fs_image::WorkControl,
     ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
-        exact_data::image::compress_controlled(
+        let call = request.call();
+        exact_data::image::encode_request(
             bytes,
+            request.transform,
+            request.options.as_deref(),
             match request.format {
                 fs_image::ImageFormat::Jpeg => exact_data::image::Format::Jpeg,
                 fs_image::ImageFormat::Png => exact_data::image::Format::Png,
             },
-            request.max_dimension,
-            request.max_bytes,
-            control.deadline(),
-            &|| {
-                control
-                    .check()
-                    .map_err(|e| exact_data::image::failure("timeout", e))
+            (request.max_dimension, request.max_bytes),
+            exact_data::image::Deadline {
+                at: control.deadline(),
+                check: &|| {
+                    control
+                        .check()
+                        .map_err(|e| exact_data::image::edit::failure_named(call, "timeout", e))
+                },
+                max_pixels: control
+                    .limits()
+                    .max_pixels
+                    .min(exact_data::image::MAX_SOURCE_PIXELS),
+                max_scratch_bytes: control.limits().max_scratch_bytes,
             },
-            control.limits().max_pixels,
-            control.limits().max_scratch_bytes,
         )
         .map(|c| fs_image::CompressedImage {
             bytes: c.bytes,
             width: c.width,
             height: c.height,
+            report: c.report,
+            extension: c.extension,
         })
         .map_err(ibex2::boundary::HostError::Failed)
     }
