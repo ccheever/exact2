@@ -762,6 +762,10 @@ public final class Agent {
         var wallDeadline: Date?, scrollDeadline: Date?
         #endif
         var world = WorldClock()
+        // A canvas's sensor input steps the worlds a frame at a time (AgentSensors.swift).
+        if let e = sensorFrames(to: to, deadline: deadline, floor: from)?.error {
+            return ["error": "clock: \(e)", "clock": session.clock ?? from]
+        }
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
             out["clock"] = landed
