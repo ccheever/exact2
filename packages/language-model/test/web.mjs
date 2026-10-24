@@ -24,7 +24,7 @@
 import { rmSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { checker, makeFixture, root, run } from './fixture.mjs';
+import { agentDrives, checker, makeFixture, root, run } from './fixture.mjs';
 
 const args = process.argv.slice(2), agent = args.includes('--agent');
 const engines = args.filter(a => a !== '--agent').length ? args.filter(a => a !== '--agent') : ['chromium', 'firefox', 'webkit'];
@@ -32,26 +32,11 @@ const { check, failed } = checker();
 const { app } = makeFixture();
 
 if (agent) {
-  // Each drive's operations, and what its output must show.
-  const drive = (name, ops, want) => {
+  for (const [name, ops, want] of agentDrives()) {
     const r = spawnSync('bun', ['exact.mjs', 'agent', 'web', ...ops], { cwd: app, encoding: 'utf8', maxBuffer: 64 << 20 });
     const out = `${r.stdout}\n${r.stderr}`, missing = want.filter(w => !out.includes(w));
     check('agent', name, r.status === 0 && !missing.length, `missing ${JSON.stringify(missing)}\n${out.split('\n').slice(-30).join('\n')}`);
-  };
-  const script = v => `prefer extension language-model.responses=${JSON.stringify(v)}`;
-  drive('a constrained prompt answers the shape it names; a tool runs the app\'s handler',
-    [script([{ value: { title: 'Rust lifetimes' } }, { toolCalls: [{ name: 'findNotes', arguments: { query: 'lifetimes' } }], text: 'You noted it.' }]),
-      'tap create', 'clock data', 'tap make-title', 'clock data', 'tree title', 'tap stream', 'clock data', 'clock +1000', 'clock data', 'tree', 'logs'],
-    ['[title] "Rust lifetimes"', '[tool] "findNotes done [{\\"title\\":\\"Borrowing\\"', '[reply] "You noted it."', 'findNotes for response-', 'tool:model:response-']);
-  drive('drive 8: a handler prompting its own session fails at once, and one that would download is refused',
-    ['tap prepare', 'clock data', 'prefer extension language-model.languageModelAvailability={"availability":"downloadable"}',
-      script([{ toolCalls: [{ name: 'promptOwn', arguments: {} }, { name: 'startDownload', arguments: {} }], text: 'done' }]),
-      'tap reenter', 'clock data', 'tree reentered', 'tree availability', 'logs'],
-    ['[reentered] "promptOwn InvalidStateError; startDownload NotAllowedError"', '[availability] "downloadable', 'person-required (tool origin)']);
-  drive('drive 8: a prompt whose mutation is sent again is cancelled at the implementation',
-    [script([{ text: 'A held reply', hold: true }]), 'tap create', 'clock data', 'tap stream', 'clock data', 'tap make-title', 'tap make-title', 'clock data', 'logs'],
-    ['cancel language-model.prompt request', 'cancelled: its call (request']);
-  drive('data code\'s constraint is a schema object, its answer JSON text', ['tap ask', 'clock data', 'tree asked'], ['[asked] "{\\"title\\":\\"\\"}"']);
+  }
 } else {
   run('bun', ['exact.mjs', 'web-build', '--render', 'none'], app);
   const dist = join(app, 'target/web-dist');

@@ -79,6 +79,10 @@ public final class ExactPackageContext {
     /// the host before each `later`, read by an implementation at its entry,
     /// as a capture's first lease is refused to a tool's read (LLP 1133.009 D6).
     public var origin = "app"
+    /// The runner's number for the send being answered now, set beside
+    /// `origin`: the one `cancel(_:)` names when the call is let go (LLP
+    /// 1133.016 D15 item 2). Nil for a read.
+    public var request: Int?
     /// Whether the app is in the foreground, as the runner's admission reads
     /// it; the host sets it before `foreground(_:)` is told each change.
     public var foreground = true
@@ -90,17 +94,27 @@ public final class ExactPackageContext {
     private let nowFn: () -> Double
     private let pictureFn: (UInt32, String) -> Void
     private let orientationFn: () -> Double
+    private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
                 tracks: ExactTracks = ExactTracks(), file: @escaping (String) -> URL? = { _ in nil },
                 audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
                 picture: @escaping (UInt32, String) -> Void = { _, _ in },
-                surfaces: ExactSurfaces = ExactSurfaces { _ in nil }, orientation: @escaping () -> Double = { 0 }) {
+                surfaces: ExactSurfaces = ExactSurfaces { _ in nil }, orientation: @escaping () -> Double = { 0 },
+                invoke: @escaping (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void = { _, _, _, reply in reply(["error": "NotSupportedError"]) }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
-        self.surfaces = surfaces; orientationFn = orientation
+        self.surfaces = surfaces; orientationFn = orientation; invokeFn = invoke
+    }
+
+    /// The app's handler `handler` run for the work `handle` names (LLP
+    /// 1133.016 D15 item 1): one a call that made the handle listed, run by
+    /// the runner as a fresh answer whose origin is at most `tool`. `reply`
+    /// gets `{"text": JSON}` or `{"error", "message"}`, on the main thread.
+    public func invoke(_ handle: String, _ handler: String, _ args: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+        invokeFn(handle, handler, args, reply)
     }
 
     /// A picture of the interface's `img` scheme changed (LLP 1133.019 D11
@@ -155,6 +169,9 @@ public protocol ExactPackage: AnyObject {
     /// Handles a reply carried that the runner dropped: never the app's (LLP
     /// 1133.009 D10 item 10).
     func dispose(_ ids: [String])
+    /// The send numbered `request` (`context.request` when it was asked) was
+    /// let go: stop its work, whose reply no one reads (LLP 1133.016 D15 item 2).
+    func cancel(_ request: Int)
     /// The app went to the foreground or left it.
     func foreground(_ shown: Bool)
     /// The session ends: finish what must be finished, then `done`; the
@@ -197,6 +214,7 @@ public extension ExactPackage {
     func release(_ name: String, args: [String: Any]) {}
     func preferred(_ values: [String: Any]) {}
     func dispose(_ ids: [String]) {}
+    func cancel(_ request: Int) {}
     func foreground(_ shown: Bool) {}
     func destroy(_ done: @escaping () -> Void) { done() }
     func view(_ tag: String, id: String, props: [String: String], events: ExactPackageEvents) throws -> ExactPackageView {

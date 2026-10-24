@@ -162,6 +162,11 @@ impl<D: DataSource> Runner<D> {
         if origin != super::CallOrigin::App {
             body["origin"] = json!(origin.word());
         }
+        // A send's number, which `cancel` names if it is let go (LLP 1133.016 D15 item 2).
+        if row.send {
+            self.extensions.requests += 1;
+            body["request"] = json!(self.extensions.requests);
+        }
         if row.live && !row.send {
             self.note_poll(row);
             if let Some(i) = reader {
@@ -182,6 +187,48 @@ impl<D: DataSource> Runner<D> {
             body["args"]["after"] = json!(after);
         }
         body.to_string().into_bytes()
+    }
+
+    /// Request `ticket` went out with `body`: a send to an implementation
+    /// is kept by its number until its reply lands.
+    pub(in crate::runner) fn note_send(&mut self, ticket: u64, body: &[u8]) {
+        let Ok(v) = serde_json::from_slice::<Json>(body) else {
+            return;
+        };
+        if let (Some(extension), Some(send), Some(n)) = (
+            v["extension"].as_str(),
+            v["send"].as_str(),
+            v["request"].as_u64(),
+        ) {
+            (self.extensions.sent).insert(ticket, (format!("{extension}.{send}"), n));
+        }
+    }
+
+    /// Request `ticket`'s reply landed: its send is no longer cancelled.
+    pub(in crate::runner) fn landed_send(&mut self, ticket: u64) {
+        self.extensions.sent.remove(&ticket);
+    }
+
+    /// Each send let go before its reply landed (superseded, its commit
+    /// refused): its implementation is told `{"extension", "cancel": n}`,
+    /// so the work no one reads stops (LLP 1133.016 D15 item 2).
+    pub(in crate::runner) fn cancel_let_go(&mut self) {
+        let gone: Vec<u64> = (self.extensions.sent.keys())
+            .filter(|t| !self.pending.iter().any(|p| p.ticket == **t))
+            .copied()
+            .collect();
+        let handler = self.native_slot().handler();
+        for ticket in gone {
+            let Some((key, n)) = self.extensions.sent.remove(&ticket) else {
+                continue;
+            };
+            self.log(format!("cancel {key} request {n}: its call was let go"));
+            let extension = key.split_once('.').map_or(key.as_str(), |(e, _)| e);
+            if let Some(handler) = &handler {
+                let body = json!({ "extension": extension, "cancel": n });
+                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+            }
+        }
     }
 
     /// The preferred values the agent set for `extension`'s names, for its

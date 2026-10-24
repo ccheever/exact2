@@ -9,8 +9,8 @@
 //! under the agent a jump's reply waits for the ask it made
 //! (`polls_asking`, the agent's `polls`).
 
-use super::super::{CommitReceipt, DataSource, Runner, RunnerError};
-use super::{Json, ModulesRow, Route};
+use super::super::{CommitReceipt, DataSource, Runner, RunnerError, Target};
+use super::{error_code, Json, ModulesRow, Route};
 
 impl<D: DataSource> Runner<D> {
     /// `row`'s poll option and its default period, if it is polled.
@@ -66,7 +66,7 @@ impl<D: DataSource> Runner<D> {
             .filter(|m| self.route(m) != Route::Substitute || self.samples_of(m).is_some())
             .filter_map(|m| {
                 let key = self.key(m);
-                if self.extensions.failed.contains(&key) {
+                if self.extensions.failed.contains(&key) || self.poll_ended(&key) {
                     return None;
                 }
                 let last = *self.extensions.polls.get(&key)?;
@@ -86,16 +86,49 @@ impl<D: DataSource> Runner<D> {
     /// A polled source answered: an error (a reader of a recorder or a track
     /// the session does not hold) is not polled again until a reader asks
     /// anew or the implementation announces a change, so a reader waiting
-    /// for an id asks nothing each period.
-    pub(in crate::runner) fn note_poll_answer(&mut self, row: &ModulesRow, failed: bool) {
+    /// for an id asks nothing each period. Nor is a source whose every
+    /// Contract reader's last answer is outside its `while` (LLP 1133.016
+    /// D15 item 3: a response no longer generating changes no more).
+    pub(in crate::runner) fn note_poll_answer(
+        &mut self,
+        row: &ModulesRow,
+        target: Target,
+        answer: &Json,
+    ) {
         if self.poll_of(row).is_none() {
             return;
         }
         let key = self.key(row);
-        match failed {
-            true => self.extensions.failed.insert(key),
+        match error_code(answer).is_some() {
+            true => self.extensions.failed.insert(key.clone()),
             false => self.extensions.failed.remove(&key),
         };
+        let sub = self.substitute(row);
+        let (Some(within), Target::Resource(i)) = (sub["poll"]["while"].as_object(), target) else {
+            return;
+        };
+        let inside = (within.iter()).all(|(field, values)| {
+            values
+                .as_array()
+                .is_some_and(|v| v.contains(&answer[field]))
+        });
+        self.extensions
+            .within
+            .entry(key)
+            .or_default()
+            .insert(i, inside);
+    }
+
+    /// Whether every Contract reader of `key` last read an answer outside
+    /// its `while`.
+    fn poll_ended(&self, key: &str) -> bool {
+        let (Some(readers), Some(within)) = (
+            self.extensions.readers.get(key),
+            self.extensions.within.get(key),
+        ) else {
+            return false;
+        };
+        !readers.is_empty() && readers.keys().all(|i| within.get(i) == Some(&false))
     }
 
     /// When the next poll is due, for a host on the live clock to wake at.
