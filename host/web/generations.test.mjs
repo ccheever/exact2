@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, ut
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildTreeFile, replaceBuild } from './serve.mjs';
-import { GENERATION, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
+import { GENERATION, generationFile, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
 
 /** A JS-target build naming `k` in every file: its document (base `/`), its module, a lazy chunk named by `k` as a
  * hashed chunk is, its plan; and its receipt. */
@@ -122,4 +122,75 @@ test('a generation path is checked strictly: its id\'s form, no dot segment or e
     // Under another base (a server that serves the build under a path): the same, under that path.
     expect(generationPath(`/tool/.exact/gen/${id}/app.js`, '/tool/')).toEqual({ id, path: '/app.js' });
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('leases: each drive its own (two in one process), a live process whose start `ps` cannot say or another user\'s kept', () => {
+  const { root, dist, stage } = workspace();
+  try {
+    replaceBuild(stage(1), dist);
+    const id = generationOf(dist), a = leaseGeneration(dist, id), b = leaseGeneration(dist, id);
+    a();
+    expect([...leasedGenerations(dist)]).toEqual([id]); // the other drive's still holds it
+    b();
+    expect([...leasedGenerations(dist)]).toEqual([]);
+    // A start `ps` could not say (written empty) of a live process; another user's process (EPERM): kept.
+    mkdirSync(join(`${dist}.leases`, id), { recursive: true });
+    writeFileSync(join(`${dist}.leases`, id, `${process.pid}-x`), '');
+    expect([...leasedGenerations(dist)]).toEqual([id]);
+    rmSync(join(`${dist}.leases`, id, `${process.pid}-x`));
+    writeFileSync(join(`${dist}.leases`, id, '1-x'), '');
+    expect([...leasedGenerations(dist)]).toEqual([id]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a build reaped while a page asks: told gone (410) once the swap is done, not a passing 404', async () => {
+  const { root, dist, stage } = workspace();
+  try {
+    replaceBuild(stage(1), dist); const old = generationOf(dist);
+    replaceBuild(stage(2), dist);
+    // A swap under way (this live process holds the lock), the kept tree's files going first.
+    writeFileSync(`${dist}.lock`, String(process.pid));
+    rmSync(join(`${dist}.gen`, old, 'app.js'));
+    const asked = generationFile(dist, old, '/app.js');
+    await new Promise((ok) => setTimeout(ok, 50));
+    rmSync(join(`${dist}.gen`, old), { recursive: true, force: true });
+    writeFileSync(`${dist}.gen.reaped`, old + '\n');
+    rmSync(`${dist}.lock`);
+    expect(await asked).toBe('gone');
+    // A lock a killed build left (its owner gone) holds nothing up.
+    writeFileSync(`${dist}.lock`, String(spawnSync(process.execPath, ['-e', '0']).pid));
+    const at = Date.now();
+    expect(await generationFile(dist, '1'.repeat(32), '/app.js')).toBe(null);
+    expect(Date.now() - at).toBeLessThan(500);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('with two renames for a swap (no one-step exchange), a page\'s files are still one build\'s and no page goes unpinned', () => {
+  // A process of its own: the exchange is chosen once a process.
+  const r = spawnSync(process.execPath, ['-e', `
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs'); const { join } = await import('node:path'); const { tmpdir } = await import('node:os');
+    const { replaceBuild } = await import(${JSON.stringify(new URL('./serve.mjs', import.meta.url).pathname)});
+    const { servedFile } = await import(${JSON.stringify(new URL('./generations.mjs', import.meta.url).pathname)});
+    const root = mkdtempSync(join(tmpdir(), 'exact-generations-renames-')), dist = join(root, 'dist');
+    const build = (k) => { const d = join(root, 's' + k); mkdirSync(d); writeFileSync(join(d, 'index.html'), '<base href="/"><p>build ' + k + '</p>'); writeFileSync(join(d, 'app.js'), 'build ' + k);
+      writeFileSync(join(d, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', files: [{ name: 'app.js', sha256: String(k) }] })); return d; };
+    replaceBuild(build(0), dist);
+    let k = 0, done = false, bad = 0, pages = 0;
+    const writer = (async () => { while (k < 60) { replaceBuild(build(++k), dist); await new Promise((ok) => setTimeout(ok, 1)); } done = true; })();
+    while (!done) {
+      const page = await servedFile(dist, '/', 'text/html');
+      if (page.status === 503) { await new Promise((ok) => setTimeout(ok, 0)); continue; }
+      const text = Buffer.from(page.body).toString(), base = /<base href="([^"]+)">/.exec(text)[1], booted = /build (\\d+)/.exec(text)[1];
+      if (base === '/') bad++;
+      const js = await servedFile(dist, base + 'app.js');
+      if (js.status !== 410 && Buffer.from(js.body).toString() !== 'build ' + booted) bad++;
+      pages++; await new Promise((ok) => setTimeout(ok, 0));
+    }
+    await writer;
+    console.log(JSON.stringify({ bad, pages }));
+  `], { encoding: 'utf8', env: { ...process.env, EXACT_DIRECTORY_EXCHANGE: '0' } });
+  expect(r.status, r.stderr).toBe(0);
+  const { bad, pages } = JSON.parse(r.stdout.trim().split('\n').at(-1));
+  expect(pages).toBeGreaterThan(5);
+  expect(bad).toBe(0);
 });

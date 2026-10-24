@@ -48,19 +48,27 @@ export function keepGeneration(old, dist) {
   return id;
 }
 
-/** A process's start, as `ps` says it (a pid is reused; with its start it names one process). */
-const startOf = (pid) => spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).stdout.trim();
-/** Whether lease file `name` (`<pid>`) with `start` still names a live process. */
+/** A process's start, as `ps` says it (a pid is reused; with its start it names one process), or '' when `ps` can't
+ * say (none here, or it failed). */
+const startOf = (pid) => String(spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).stdout ?? '').trim();
+/** Whether lease file `name` (`<pid>-<n>`, holding the process's start) still names a live process: one that exists
+ * (EPERM: it does, another user's) and whose start, when `ps` can say it, is the one written. What can't be told is
+ * kept, as the repo's other claims keep it (app.mjs `claimLive`). */
 function live(dir, name) {
-  const pid = Number(name);
+  const pid = Number.parseInt(name, 10);
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); } catch (e) { if (e.code !== 'EPERM') return false; }
-  try { return readFileSync(resolve(dir, name), 'utf8') === startOf(pid); } catch { return false; }
+  let written;
+  try { written = readFileSync(resolve(dir, name), 'utf8'); } catch { return false; }
+  const now = startOf(pid);
+  return !written || !now || written === now;
 }
-/** This process's lease on generation `id` of `dist` (a drive's, for as long as it runs): the release. */
+let leases = 0;
+/** A lease on generation `id` of `dist` (a drive's, for as long as it runs; one each, so two drives of one process
+ * hold two): the release. */
 export function leaseGeneration(dist, id) {
   if (!GENERATION.test(id ?? '')) return () => {};
-  const dir = resolve(leasesOf(dist), id), file = resolve(dir, String(process.pid));
+  const dir = resolve(leasesOf(dist), id), file = resolve(dir, `${process.pid}-${++leases}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, startOf(process.pid));
   return () => { rmSync(file, { force: true }); try { if (!readdirSync(dir).length) rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } };
@@ -131,6 +139,13 @@ export function generationPath(pathname, base = '/') {
 }
 
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+/** Whether a swap holds `dist.lock` now: its owner alive (a lock a killed build left counts for nothing). */
+function swapping(dist) {
+  let owner;
+  try { owner = Number(readFileSync(`${dist}.lock`, 'utf8')); } catch { return false; }
+  if (!Number.isInteger(owner) || owner <= 0) return true; // being written: a swap is starting
+  try { process.kill(owner, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
 /** A file of generation `id` of `dist` for a request path, read whole from that build: the current one when it is
  * still `id` after the read, else the kept tree (asked again, for up to a second, while a swap holds `dist.lock`:
  * its rename lands under it); 'gone' for a generation reaped, null for no such file or an id that names nothing. */
@@ -146,10 +161,13 @@ export async function generationFile(dist, id, pathname, accept = '') {
     const dir = resolve(generationsOf(dist), id);
     if (realDirectory(dir)) {
       const found = await buildTreeFileAsync(dir, pathname, accept);
-      if (!found) return realDirectory(dir) ? null : 'gone';
-      try { return { ...found, body: readFileSync(found.path), id }; } catch { /* reaped meanwhile */ }
+      let body = null;
+      try { body = found && readFileSync(found.path); } catch { /* reaped meanwhile */ }
+      if (body) return { ...found, body, id };
+      // No such file there, unless the tree is being reaped under the swap's lock (its files go before it does).
+      if (!found && realDirectory(dir) && !swapping(dist)) return null;
     }
-    if (!existsSync(`${dist}.lock`) || Date.now() > end) return reapedIds(dist).has(id) ? 'gone' : null;
+    if (!swapping(dist) || Date.now() > end) return reapedIds(dist).has(id) ? 'gone' : null;
     await sleep(10);
   }
 }
@@ -175,11 +193,15 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
     found = await generationFile(dist, id, path, accept);
     if (found === 'gone') return { status: 410, id };
   } else {
-    for (let attempt = 0; attempt < 4 && found === undefined; attempt++) {
+    // Read whole from one build: its generation the same before and after. Between a swap's two renames (no one-step
+    // exchange) there is no dist, and `.previous` answers with no generation: asked again until the swap is done.
+    for (const end = Date.now() + 1000; found === undefined; ) {
       const id = generationOf(dist), at = await buildTreeFileAsync(dist, pathname.slice(base.length - 1) || '/', accept);
       let body = null;
-      try { body = at && readFileSync(at.path); } catch { continue; }
-      if (generationOf(dist) === id) found = at ? { ...at, body, id } : null;
+      try { body = at && readFileSync(at.path); } catch { /* moved */ }
+      if (generationOf(dist) === id && realDirectory(dist) && (!at || body)) found = at ? { ...at, body, id } : null;
+      else if (Date.now() > end) return { status: 503 };
+      else await sleep(10);
     }
   }
   if (!found) return { status: 404 };

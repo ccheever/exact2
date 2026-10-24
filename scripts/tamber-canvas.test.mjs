@@ -201,6 +201,12 @@ test('the route table: read, write, and what is never passed', () => {
   for (const p of ['/', '/index.html', '/app.js', '/__dev', '/__dev/page', '/__dev/hello', '/__dev/commands', '/__dev/generation/1/exact.json', '/__dev/map/abc', '/__dev/inspect.js', '/dev-inspect.json', '/exact.json', '/modules/a.js', '/__dev/design']) expect(needs('GET', p)).toBe('read');
   for (const p of ['/__dev/reloaded', '/__dev/painted', '/__dev/gpu', '/__dev/report']) expect(needs('POST', p)).toBe('read');
   for (const p of ['/__dev/design', '/__dev/checkpoint', '/__dev/open']) expect(needs('POST', p)).toBe('write');
+  // A page's files under the build generation it booted (host/web/generations.mjs): that exact form, read; any other
+  // `/.exact` path, a wrong id, the id in capitals, a bare prefix or a POST, never.
+  const gen = '/.exact/gen/0123456789abcdef0123456789abcdef';
+  for (const p of [`${gen}/app.js`, `${gen}/lazy-ab12.js`, `${gen}/assets/a.png`, `${gen}/dev-inspect.json`]) expect([p, needs('GET', p)]).toEqual([p, 'read']);
+  for (const [m, p] of [['GET', `${gen}/`], ['GET', gen], ['GET', '/.exact/gen/0123/app.js'], ['GET', gen.toUpperCase() + '/app.js'], ['GET', '/.exact/gen/0123456789abcdef0123456789abcdeg/app.js'],
+    ['GET', '/.EXACT/gen/0123456789abcdef0123456789abcdef/app.js'], ['GET', '/.exact/install/index.html'], ['POST', `${gen}/app.js`]]) expect([m, p, needs(m, p)]).toEqual([m, p, null]);
   for (const [m, p] of [['GET', '/__tamber'], ['POST', '/__tamber'], ['GET', '/__tamber/token'], ['GET', '/__tamber/tool/'], ['POST', '/__tamber/events'], ['GET', '/__dev/install/ios'], ['POST', '/__exact/trace'], ['GET', '/__exact/trace'], ['GET', '/.exact/install/index.html'], ['POST', '/'], ['PUT', '/x'], ['DELETE', '/'], ['GET', '/canvas/c/'], ['PUT', '/__dev/gpu'], ['GET', '/__TAMBER/token'], ['GET', '/__Tamber'], ['GET', '/.EXACT/install/index.html'], ['GET', '/.Exact/install.json'], ['GET', '/__DEV/open'], ['POST', '/__Dev/open'], ['GET', '/__dev/OPEN']]) expect(needs(m, p)).toBeNull();
 });
 
