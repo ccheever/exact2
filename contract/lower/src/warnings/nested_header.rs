@@ -14,7 +14,7 @@ use contract_syntax::Node;
 /// plain layout boxes. A `section` is left out (a grouped list's section
 /// opens with its own `header`), and so is a scroller, a list and anything
 /// else that gives its first child a meaning of its own.
-const WRAPPERS: &[&str] = &["view", "box", "column", "row", "main", "article"];
+pub(super) const WRAPPERS: &[&str] = &["view", "box", "column", "row", "main", "article"];
 
 /// The `header` at the end of the route's chain of first children, past at
 /// least one box, with the tag of the box that is the route's first child.
