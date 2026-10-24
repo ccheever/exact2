@@ -8,6 +8,11 @@ use HomeActionResult, MediaCompletion, AppLink, Camera, SettingsScopeEvent, Sett
 use WorkspaceEntry from "./mobile-workspace.contract"
 use homeAutomationPath from "./home-routes.contract"
 
+fn newTaskModal(name: string, route: string, session: string, split: bool): bool = name == "newTask" and route == session and not split
+fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "settings" and not split ? "settings" : name == "connections" or name == "connect" ? "true" : ""
+fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" ? "fullscreen" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or (name == "settings" and not split) or name == "threadQueue" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
+fn mobileRouteDetent(name: string, route: string, session: string, split: bool): string = name == "threadQueue" ? "medium large" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) ? "large" : ""
+
 shape HomeReplyPlan
   archiveRefresh: number
   alertTitle: string
@@ -263,12 +268,13 @@ shape TaskReplyPlan
   environmentId: string
   threadId: string
   nextLocation: string
+fn taskReplyNavigation(result: NewTaskFlowResult, operation: string): string = result.message != "" ? "" : result.submitted ? "thread" : result.nextLocation == "@close" ? "close" : result.nextLocation == "@back" ? "back" : result.nextLocation == "/" ? "home" : result.nextLocation != "" ? "push" : operation == "environment" or operation == "branch" ? "back" : ""
 fn taskReplyPlan(reply: option<NewTaskFlowResult>, operation: string): TaskReplyPlan = match reply {
   case some(result) => TaskReplyPlan(hasReply=true, requestRoute=result.requestRoute,
     contextDelta=(operation != "draft" and operation != "send" and operation != "send-alternate" ? 1 : 0),
     alertTitle=(result.alertTitle != "" ? result.alertTitle : operation == "scratch" ? "Could not start without a project" : "Could not update task"),
     message=result.message, environmentId=result.environmentId, threadId=result.threadId, nextLocation=result.nextLocation,
-    navigation=(result.message != "" ? "" : result.submitted ? "thread" : result.nextLocation == "@close" ? "close" : result.nextLocation == "/" ? "home" : result.nextLocation != "" ? "push" : operation == "environment" or operation == "branch" ? "back" : "")
+    navigation=taskReplyNavigation(result, operation)
   ),
   case none => TaskReplyPlan(hasReply=false, requestRoute="", contextDelta=0, alertTitle="", message="", navigation="", environmentId="", threadId="", nextLocation="")
 }
