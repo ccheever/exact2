@@ -117,5 +117,22 @@ final class ScrollChainIOSTests: XCTestCase {
         page.contentOffset = .zero
         XCTAssertFalse(inner.handsOff(CGPoint(x: 0, y: 400)))
     }
+
+    func testANativeRouteBoundaryStopsChainingToThePage() throws {
+        let (page, inner) = nested(horizontal: false)
+        let owner = try XCTUnwrap(inner.superview)
+        let p = Presenter(), route = NodeView(id: 3, kind: "view", presenter: p)
+        let viewport = Viewport(frame: page.bounds)
+        viewport.documentNode = route
+        viewport.contentSize = viewport.bounds.size
+        route.frame = viewport.bounds
+        page.addSubview(viewport)
+        viewport.addSubview(route)
+        route.addSubview(owner)
+        for behavior in ["auto", "contain", "none", "auto"] {
+            route.style["overscroll_behavior_y"] = .string(behavior)
+            XCTAssertEqual(inner.chains(CGPoint(x: 0, y: 400)), behavior == "auto", "\(behavior) applies even when the intervening route has no range")
+        }
+    }
 }
 #endif

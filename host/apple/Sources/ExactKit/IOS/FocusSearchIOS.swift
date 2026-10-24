@@ -18,7 +18,7 @@
 // field, a web view, a map or a player otherwise had UIKit walk every view
 // of the session for each update — 30–40 ms a second of an iPad's main
 // thread in a fast fling of the Extra Heavy feed — to reach the few it can
-// focus. Only the viewport answers: UIKit logs, at every init, each view of
+// focus. Only document viewports answer: UIKit logs, at every init, each view of
 // a class that answers `focusItems(in:)`.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -50,8 +50,10 @@ enum FocusSearch {
         }
     }
 }
-/// A session's viewport (`Presenter.viewport`), which answers the search.
+/// Answer UIKit's focus search for a document viewport.
 final class Viewport: ScrollView {
+    /// The route whose document this viewport scrolls; the session's viewport has no route.
+    weak var documentNode: NodeView?
     /// Its bands past the page's area (`Presenter.pageMargins`, LLP 1130 D1).
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
@@ -71,8 +73,9 @@ final class Viewport: ScrollView {
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
-/// A native document's or presentation's non-scrolling mount. Both answer
-/// the session's focus search as the viewport does (LLP 1123 D2).
+/// What a presentation mounts its navigation in (`ModalHost.present`): the
+/// other way into a session's views, which answers the search as the
+/// viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {
     #if os(iOS)
     /// What the route's logical ancestors listen for (`MountRelay`).

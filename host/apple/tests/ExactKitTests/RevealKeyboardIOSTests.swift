@@ -173,7 +173,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
     /// app. A root that names no `interactive-widget` ends the viewport at
     /// the keyboard's top, so the routes end above the keys, a scroller's
     /// last rows and the field in it reachable there; `resizes-visual` opts
-    /// out to the web's inset.
+    /// out to an inset on the route's scrollport.
     func testTheDefaultEndsTheViewportAtTheKeyboardsTop() throws {
         let env = ProcessInfo.processInfo.environment
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
@@ -213,9 +213,20 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertEqual(p.keyboardPolicy, "resizes-visual")
         p.applyKeyboard(top: 574, duration: 0, curve: 0)
         spin(0.3)
-        XCTAssertEqual(p.viewport.contentInset.bottom, 300, accuracy: 0.5, "inset by the overlap")
+        let scrollport = try XCTUnwrap(p.navigation.controllers[route.id]?.contentViewport)
+        XCTAssertEqual(scrollport.contentInset.bottom, 300, accuracy: 0.5, "the route's scrollport takes the overlap")
+        XCTAssertEqual(p.viewport.contentInset.bottom, 0, "the outer page gains no keyboard range")
         XCTAssertEqual(bottom(), 874, accuracy: 0.5, "laid out as without a keyboard")
         p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        for policy in ["resizes-content", "overlays-content"] {
+            p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
+            p.applyKeyboard(top: 574, duration: 0, curve: 0)
+            p.navigation.clearOwnerAllocation()
+            XCTAssertEqual(p.viewport.contentInset.bottom, 0, "\(policy) adds no scroll range when native ownership ends")
+            p.navigation.fitOwner()
+            XCTAssertEqual(p.viewport.contentInset.bottom, 0, "\(policy) adds no scroll range when ownership returns")
+            p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        }
     }
 
     func testWithoutAKeyboardAnActionInsideTheViewportStaysPut() throws {

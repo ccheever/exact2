@@ -48,9 +48,10 @@ struct PressPath {
 }
 
 extension Presenter {
-    /// Whether `view` is mounted in this session's document or a presentation beside it.
+    /// Whether `view` is mounted in this session: in its viewport, or in a
+    /// presentation beside it.
     func mounts(_ view: UIView) -> Bool {
-        view.isDescendant(of: viewport) || view.isDescendant(of: documentMount) || surface(containing: view).map { $0.kind != .document } == true
+        view.isDescendant(of: viewport) || surface(containing: view).map { $0.kind != .document } == true
     }
 
     /// Where a finger reaches `view`, in viewport points (the viewport's
@@ -76,7 +77,7 @@ extension Presenter {
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
-        presentations(includingRetiring: true).reduce(documentMount.endEditing(true) || viewport.endEditing(true)) { $1.endEditing(true) || $0 }
+        presentations(includingRetiring: true).reduce(viewport.endEditing(true)) { $1.endEditing(true) || $0 }
     }
 
     /// The next view reached by a touch or its listeners: the superview,
@@ -238,18 +239,14 @@ final class OwnerBlocks {
             guard let route = controller as? RouteController, let view = route.viewIfLoaded,
                   presenter.views[route.node.id] === route.node else { return nil }
             let block = self.block(in: view)
+            route.fitContentViewport(in: block)
             return (route, view, block, view.window != nil && !block.isEmpty, presented)
         }
     }
 
-    /// A route's block: its controller's view, ending where the document
-    /// ends when the view is in the document. A keyboard that resizes the
-    /// document ends it at the keys (`interactive-widget`'s
-    /// `resizes-content`), and the routes follow (LLP 1123 C29), while the
-    /// tab container keeps the screen's height so that its bar stays under
-    /// the keys (`NavigationHost.ownerFrame`). The document's end is the
-    /// routes' owner's, in its own untransformed space.
-    private func block(in view: UIView) -> CGRect {
+    /// Native chrome caps the route at the pinned viewport; authored chrome at the document's end.
+    /// A content-resizing keyboard shortens the native allocation while tabs stay under the keys.
+    func block(in view: UIView) -> CGRect {
         guard let document = presenter.navigation.container, view.isDescendant(of: document) else {
             // A route of the top presentation, the one that holds the focused
             // editor, ends at the docked keyboard: the top of its sheet's
@@ -270,7 +267,13 @@ final class OwnerBlocks {
             #endif
             return block
         }
-        let end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
+        let end: CGFloat
+        if ExactEnv.authoredChrome {
+            end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
+        } else {
+            guard let owner = presenter.navigation.primaryOwner?.viewIfLoaded else { return view.bounds }
+            end = view.convert(CGPoint(x: owner.bounds.minX, y: owner.bounds.minY + presenter.viewportSize.height), from: owner).y
+        }
         var block = view.bounds
         block.size.height = max(0, min(block.height, end - block.minY))
         return block
@@ -344,7 +347,7 @@ final class OwnerBlocks {
         // A block taken back forgets its placement with it
         blocks += told.keys.filter { now[$0] == nil && presenter.views[$0] != nil }.map { ($0, nil) }
         told = now
-        if !blocks.isEmpty || !placements.isEmpty { session.apply(session.runtime.blocks(blocks, placements: placements)) }
+        if !blocks.isEmpty || !placements.isEmpty { session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true) }
         // A sheet's editor whose keys settled shows in the blocks just told
         if revealOwed {
             revealOwed = false
@@ -371,7 +374,7 @@ final class OwnerBlocks {
     /// itself. None while the owner is not in the window.
     private func placement(of route: RouteController, block: CGRect, in view: UIView) -> BlockPlacement? {
         guard let owner = presenter.navigation.container, owner.window != nil, owner.window === view.window else { return nil }
-        return BlockPlacement(rect: NativeGeometry.convert(block, from: view, to: owner), within: owner.id)
+        return BlockPlacement(rect: NativeGeometry.convert(block, from: view, to: owner), within: owner.id, contentOffset: route.contentViewport?.contentOffset)
     }
 
     /// The runtime is being replaced: the routes `teardown` takes down were

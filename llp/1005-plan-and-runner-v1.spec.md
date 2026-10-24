@@ -818,6 +818,9 @@ It does not bubble. The root is the nearest ancestor CSS scroll container
 and requires CSS number syntax (digits after a decimal point or exponent).
 Percentages follow Chrome: root height for top/bottom, root width for left/right. The margin expands only the root;
 intervening clips still apply. This is geometric intersection, not occlusion or painted visibility.
+A placed native scrollport is also an observer root, including at offset zero.
+Fixed pane allocations keep their clips. Ancestors above an explicit observer
+root only map coordinates, as [Intersection Observer §3.2.7](https://w3c.github.io/IntersectionObserver/#compute-the-intersection) requires.
 
 The browser's IntersectionObserver with threshold 0 supplies initial delivery
 (including an offscreen node), then enter/leave. Edge contact may report true
@@ -826,7 +829,8 @@ change alone does not deliver. Removed nodes stop observing without a synthetic
 leave; a new mount gets a fresh initial delivery. Callback entries retain browser
 order within a root/margin observer; different observers have no ordering
 guarantee. Static rendering dispatches nothing.
-A changed nearest root restarts observation with a fresh initial delivery.
+A changed nearest authored root restarts observation with a fresh initial delivery.
+Native viewport geometry updates preserve the implicit-root observation.
 
 Host coverage: both web targets use the same browser adapter. AppKit, UIKit
 (including tvOS) and Linux use one runner sampler over laid-out frames and

@@ -184,7 +184,7 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        var pending = [presenter.viewport, presenter.documentMount] + presenter.presentations(includingRetiring: true)
+        var pending = [presenter.viewport] + presenter.presentations(includingRetiring: true)
         let now = CACurrentMediaTime()
         var moving = false
         Agent.pruneUnbegun(now: now)
@@ -398,7 +398,7 @@ extension Agent {
         var inertBy: String? = host.isUserInteractionEnabled ? nil : describe(host)
         var clipped = b.isEmpty
         var chain: [[String: Any]] = []
-        var clippers: [(NodeView, String)] = []
+        var clippers: [(UIView, UInt32, String)] = []
         var canvas: NodeView? = nil
         var above = host.superview
         while let s = above {
@@ -412,23 +412,29 @@ extension Agent {
             }
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
+            if let sv = s as? ScrollView, let route = sv.superview?.next as? RouteController, route.contentViewport === sv {
+                let port = box(sv, region: sv.bounds.inset(by: sv.adjustedContentInset))
+                chain.append(["route": Int(route.node.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y),
+                              "port": [port.minX, port.minY, port.width, port.height].map(Agent.r2)].merging(Agent.range(of: sv)) { a, _ in a })
+                clippers.append((sv, route.node.id, "viewport"))
+            }
             if let n = s as? NodeView {
                 if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv)), "port": port(of: n, sv)].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
-                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
-                if n.clipPath != nil { clippers.append((n, "clip-path")) }
+                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, n.id, "overflow")) }
+                if n.clipPath != nil { clippers.append((n, n.id, "clip-path")) }
             }
             above = s.superview
         }
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
-        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) || $0.isDescendant(of: presenter.documentMount) } ?? (presenter.port(of: host) === vp)
+        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
         var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
                                                   : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
-        for (n, kind) in clippers.reversed() {
-            clip.append(["id": Int(n.id), "kind": kind])
+        for (n, id, kind) in clippers.reversed() {
+            clip.append(["id": Int(id), "kind": kind])
             if let w = host.window, !host.convert(host.bounds, to: w).intersects(n.convert(n.bounds, to: w)) { clipped = true }
         }
         node["scroll"] = scroll
@@ -973,7 +979,7 @@ extension Agent {
                         return
                     }
                 }
-                if let owner = sv.superview as? NodeView,
+                if let owner = (sv as? ScrollView)?.scrollingNode ?? (sv.superview as? NodeView),
                    (dx != 0 && owner.style["overscroll_behavior_x"]?.string ?? "auto" != "auto")
                     || (dy != 0 && owner.style["overscroll_behavior_y"]?.string ?? "auto" != "auto") { return }
             }
@@ -1256,10 +1262,7 @@ extension Agent {
             $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
         }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
-            let drawn = CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size)
-            captureView.drawHierarchy(in: drawn, afterScreenUpdates: true)
-            // The document standing beside the viewport, in its space (`mountDocument`)
-            if captureView === vp, presenter.documentPort !== vp { presenter.documentMount.drawHierarchy(in: drawn, afterScreenUpdates: true) }
+            captureView.drawHierarchy(in: CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size), afterScreenUpdates: true)
             UIColor.systemRed.setStroke()
             for node in unshown {
                 let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1).offsetBy(dx: -captureView.bounds.minX - margins.left, dy: -captureView.bounds.minY - margins.top)
