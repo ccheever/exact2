@@ -1245,7 +1245,7 @@ component App
     branchQuery = value
   action chooseNewProject
     if top(nav).name == "newTaskDraft" and newTaskFlow.ready
-      nav = push(nav, `${path("newTask")}?draftRoute=${encodeURIComponent(`${top(nav).id}`)}`)
+      nav = push(nav, path("newTask") + "?draftRoute=" + encodeURIComponent(`${top(nav).id}`))
     else
       nav = go(nav, path("newTask"))
   action chooseNewEnvironment
