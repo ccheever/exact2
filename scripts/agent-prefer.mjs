@@ -83,7 +83,15 @@ export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, c
       throw new Error(`Chrome prefer cannot emulate ${pointer != null ? `pointer ${pointer}` : ''}${pointer != null && hover != null ? ' with ' : ''}${hover != null ? `hover ${hover}` : ''}: its touch emulation pairs pointer coarse with hover none and pointer fine with hover hover`);
     await call('Emulation.setTouchEmulationEnabled', { enabled: touch, ...(touch ? { maxTouchPoints: 5 } : {}) }); await frame();
   }
-  if (Object.keys(rest).length) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, rest)).map(([name, value]) => ({ name, value })) }); await frame(); }
+  if (Object.keys(rest).length) {
+    // Each query this flips is heard in the page (its `change`, which reaches the app's own listeners first) before
+    // the next step reads the app: two frames alone, cut at 250 ms, could pass first on a loaded machine (an authored
+    // test's launch `prefer`s read back as the machine's). Bounded at 5 s a query.
+    await evaluate(`(globalThis.__exactMediaHeard = Promise.all(${JSON.stringify(Object.entries(rest))}.map(([n, v]) => { const q = matchMedia('(' + n + ': ' + v + ')'); return q.matches ? null : new Promise(ok => { q.addEventListener('change', ok, { once: true }); setTimeout(ok, 5000); }); })).then(() => true), true)`);
+    await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, rest)).map(([name, value]) => ({ name, value })) });
+    await evaluate('globalThis.__exactMediaHeard');
+    await frame();
+  }
   let foldRequest = null;
   if (Object.keys(fold).length) {
     const v = await evaluate('({ w: innerWidth, h: innerHeight })'), grid = fold.cols != null || fold.rows != null || fold.gap != null;
