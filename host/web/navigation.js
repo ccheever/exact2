@@ -733,36 +733,21 @@ export function refuseURL(el, name, value) {
 // A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the item's indent as `padding-left`; its marker
 // (flags 32) is a 40 px box pulled into the gutter by the block's negative `text-indent`, the marker's end at the
 // indent (`flex-end`, overflowing leftwards as the browser's outside marker does): `<ul>`/`<ol>`'s layout, the one
-// native hosts copy with a head indent. 40 is exact-markdown's `LIST_INDENT`.
+// native hosts copy with a head indent. 40 is exact-markdown's `LIST_INDENT`. An inline atom (flags 64) is `atomBox`'s pill.
 export function renderMarkup(el, json) {
-  let pieces;
-  try { pieces = JSON.parse(json); } catch { pieces = []; }
+  let pieces, styles = {}, box = el, start = true; try { pieces = JSON.parse(json); } catch { pieces = []; } try { styles = JSON.parse(el.getAttribute("data-atom-styles") || "{}"); } catch {}
   el.replaceChildren();
-  let box = el, start = true;
-  const paragraph = indent => {
-    if (start) { start = false; box = el; if (indent > 0) { box = document.createElement("span"); box.style.display = "block"; box.style.paddingLeft = `${indent}px`; el.appendChild(box); } }
-    return box;
-  };
-  for (const [text, scale, weight, flags, href, indent = 0] of pieces) {
-    const destination = flags & 8 && href ? navigableURL(href) : null;
+  const paragraph = indent => { if (start) { start = false; box = el; if (indent > 0) { box = document.createElement("span"); box.style.display = "block"; box.style.paddingLeft = `${indent}px`; el.appendChild(box); } } return box; };
+  for (const [text, scale, weight, flags, href, indent = 0, atom] of pieces) {
+    const destination = flags & 8 && href && !atom ? navigableURL(href) : null, look = span => { if (scale !== 1) span.style.fontSize = `${scale}em`; if (weight) span.style.fontWeight = weight; if (flags & 1) span.style.fontStyle = "italic"; if (flags & 4) span.style.textDecoration = "line-through"; return span; };
+    if (atom) { const [kind, role, icon, title, target, source, from, to] = atom; paragraph(indent).appendChild(look(atomBox({ kind, role, label: text, icon, title, href: target, source, start: from, end: to }, styles[kind], false))); continue; }
     const make = () => {
-      const span = document.createElement(destination ? "a" : "span");
-      if (scale !== 1) span.style.fontSize = `${scale}em`;
-      if (weight) span.style.fontWeight = weight;
-      if (flags & 1) span.style.fontStyle = "italic";
-      if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
-      if (flags & 4) span.style.textDecoration = "line-through";
-      if (flags & 16) span.style.opacity = "0.62";
-      if (destination) span.href = destination;
+      const span = look(document.createElement(destination ? "a" : "span"));
+      if (flags & 2) span.style.fontFamily = "ui-monospace, monospace"; if (flags & 16) span.style.opacity = "0.62"; if (destination) span.href = destination;
       if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
       return paragraph(indent).appendChild(span);
     };
-    if (flags & 32) {
-      const marker = make();
-      marker.style.cssText += "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0";
-      marker.textContent = text; box.style.textIndent = "-40px";
-      continue;
-    }
+    if (flags & 32) { const marker = make(); marker.style.cssText += "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0"; marker.textContent = text; box.style.textIndent = "-40px"; continue; }
     // Newlines are `<br>`s: the node's own white-space row still applies to the rest.
     let span = null;
     text.split("\n").forEach((line, i) => {
@@ -770,6 +755,21 @@ export function renderMarkup(el, json) {
       if (line) (span ??= make()).appendChild(document.createTextNode(line));
     });
   }
+}
+/** An inline atom's pill (LLP 1045.000 D4, D8), the reader's and the Markdown editor's: modeled on the macOS token, one line at the line's text height, its label cut with an ellipsis at the line's width; its kind's `color` and `background-color` (`css`) win. A button (or a link, as declared) named by its label and described by its title; its icon is not read. `editing` makes it the editor's island: no tab stop, no source of its own. Its `data-atom-*` attributes are what `atomPresses` reports. */
+export function atomBox(a, css = "", editing) {
+  const box = document.createElement("span"), set = (k, v) => v && box.setAttribute(k, v); box.className = "exact-atom"; box.dataset.exactAtom = a.kind; box.dataset.atomSource = a.source; box.dataset.atomHref = a.href ?? ""; box.dataset.atomStart = a.start; box.dataset.atomEnd = a.end; box.setAttribute("role", a.role === "link" ? "link" : "button"); set("aria-label", a.label); set("aria-description", a.title); set("title", a.title); if (editing) box.contentEditable = "false"; else box.tabIndex = 0;
+  box.style.cssText = "display:inline-block;box-sizing:border-box;max-width:100%;vertical-align:bottom;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-indent:0;padding:0 .3em;border-radius:.3em;background-color:light-dark(#e1e7f3,#3b4252);color:inherit;cursor:default;user-select:none;-webkit-user-select:none;" + css;
+  if (a.icon && !a.icon.startsWith("symbol:")) { const img = box.appendChild(document.createElement("img")); img.src = a.icon; img.alt = ""; img.setAttribute("aria-hidden", "true"); img.style.cssText = "width:.75em;height:.75em;margin-inline-end:.25em;vertical-align:baseline;object-fit:contain"; }
+  box.append(a.label); return box;
+}
+/** Each inline atom on the page, as the agent's `state.atoms` (LLP 1045.000 D9): its node's id, kind, source and range, label, and its pill's frame from the node's top left (where `tap <node> at x y` presses it). */
+export function atomState(idOf) { const out = [], add = (host, a, b) => { const h = host.getBoundingClientRect(), r = b.getBoundingClientRect(); out.push({ id: idOf(host), ...a, frame: [r.x - h.x, r.y - h.y, r.width, r.height].map(n => Math.round(n * 100) / 100) }); }; for (const el of document.querySelectorAll('.exact-markdown-editor')) for (const a of el.exactMarkup?.atoms?.() ?? []) add(el, a, a.box); for (const box of document.querySelectorAll('[data-exact-atom]:not([contenteditable="false"])')) { const d = box.dataset, host = box.closest('[data-exact-text]') ?? box.parentElement; add(host, { kind: d.exactAtom, source: d.atomSource, start: Number(d.atomStart), end: Number(d.atomEnd), label: box.getAttribute('aria-label') ?? '' }, box); } return out.map(({ box, ...a }) => a); }
+/** A press on an atom in `el` (a click, or Return or Space on a reader's atom) is `el`'s `atompress`, its detail the `AtomEvent` record (LLP 1045.000 D7). */
+export function atomPresses(el) {
+  if (el.exactAtomPresses) return; el.exactAtomPresses = true; const fire = (box, e) => { const d = box.dataset; el.dispatchEvent(new CustomEvent("atompress", { detail: [d.exactAtom, d.atomSource, d.atomHref ?? "", Number(d.atomStart), Number(d.atomEnd), e.shiftKey, e.ctrlKey, e.altKey, e.metaKey] })); };
+  const hit = e => { const box = e.target?.closest?.("[data-exact-atom]"); return box && el.contains(box) && box.contentEditable !== "false" ? box : null; }; el.addEventListener("click", e => { const box = hit(e); if (box) fire(box, e); });
+  el.addEventListener("keydown", e => { const box = (e.key === "Enter" || e.key === " ") && !e.repeat && e.target === hit(e) && hit(e); if (box) { e.preventDefault(); fire(box, e); } });
 }
 // @ref LLP 1007 §6 — a page the dev server serves names its current generation, and its first boot is that one, not
 // app.wasm's older baked plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked (glue.js asks

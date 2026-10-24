@@ -4,12 +4,13 @@
 // placement, deletion, pending formats, list Return, undo — is the shared
 // exact-markdown-editor crate, in markup-editor.wasm, fetched with this module
 // only when a Markdown textarea mounts.
-import { inertAncestor } from './navigation.js';
+import { inertAncestor, atomBox } from './navigation.js';
 
 const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
 // beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
 const KINDS = { historyUndo: 1, historyRedo: 2, formatBold: 3, formatItalic: 4, formatStrikeThrough: 5, insertParagraph: 7, insertLineBreak: 7,
-  insertText: 8, insertReplacementText: 9, insertFromPaste: 10, insertFromDrop: 10, insertFromYank: 10, deleteContentBackward: 11, deleteContentForward: 12 };
+  insertText: 8, insertReplacementText: 9, insertFromPaste: 10, insertFromDrop: 10, insertFromYank: 10, deleteContentBackward: 11, deleteContentForward: 12,
+  deleteWordBackward: 15, deleteWordForward: 16 };
 const HISTORY = { undo: 'historyUndo', redo: 'historyRedo' };
 const kindOf = t => KINDS[t] ?? (t.startsWith('format') ? 6 : !t.startsWith('delete') ? 0 : /Backward|^deleteByCut$|^deleteContent$/.test(t) ? 13 : 14);
 const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a'], [64, 'md-m']];
@@ -52,8 +53,10 @@ function put(s) {
 }
 const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text(), n));
 
-/** A line's class, attributes and segments, from its `mde_view` record. */
-function describe(v, at, line) {
+/** A line's class, attributes and segments, from its `mde_view` record and
+ * its atoms' faces (`atoms`, in line order: each segment of an atom's hidden
+ * source is drawn after its island, LLP 1045.000 §4). */
+function describe(v, at, line, atoms = []) {
   const [heading, quote, depth, flags, deco, da, db, count] = v.subarray(at + 2, at + 10);
   const cls = ['md-line'], attrs = [], segs = [];
   if (heading) cls.push('md-h' + heading);
@@ -68,19 +71,41 @@ function describe(v, at, line) {
   if (deco === 3) attrs.push(['data-done', String(da)]);
   let empty = true;
   for (let k = 0, o = at + 10; k < count; k++, o += 3) {
-    const style = v[o + 2], hidden = style & 128;
-    if (!hidden) empty = false;
-    segs.push([line.slice(v[o], v[o + 1]), hidden ? 'md-hide' : STYLES.filter(([bit]) => style & bit).map(([, c]) => c).join(' ')]);
+    const style = v[o + 2], hidden = style & 128, atom = atoms.find(a => a.at === v[o]);
+    if (!hidden || atom) empty = false;
+    segs.push([line.slice(v[o], v[o + 1]), hidden ? 'md-hide' : STYLES.filter(([bit]) => style & bit).map(([, c]) => c).join(' '), atom]);
   }
-  return { cls: cls.join(' '), attrs, segs, empty };
+  // A line that ends with an atom keeps a break after it, where a caret can stand.
+  return { cls: cls.join(' '), attrs, segs, empty: empty || segs.at(-1)?.[2] !== undefined };
 }
+/** A line's atoms from its `mde_view` record: where each starts in the line, and its face. */
+function lineAtoms(v, at, faces, styles) {
+  const count = v[at + 9], o = at + 10 + count * 3, n = v[o], out = [];
+  for (let k = 0; k < n; k++) {
+    const [s, e, , style] = v.subarray(o + 1 + k * 4, o + 5 + k * 4), face = faces.shift() ?? {};
+    out.push({ ...face, at: s, len: e - s, style, css: styles[face.kind] ?? '', key: JSON.stringify([face, style, styles[face.kind] ?? '']) });
+  }
+  return out;
+}
+/** An island: the atom's pill, in the formats around it, contributing no source. */
+function island(a) {
+  const box = atomBox(a, a.css, true);
+  box.dataset.atomAt = a.at; box.dataset.atomKey = a.key;
+  if (a.style & 1) box.style.fontWeight = '700'; if (a.style & 2) box.style.fontStyle = 'italic'; if (a.style & 8) box.style.textDecoration = 'line-through';
+  return box;
+}
+const isIsland = n => n?.nodeType === 1 && n.classList.contains('exact-atom');
+/** An atom's hidden source whose island an edit removed: its atom goes with it. */
+const orphanSource = n => n?.nodeType === 1 && n.exactIsland !== undefined && n.previousSibling !== n.exactIsland;
 function build(d) {
   const line = document.createElement('div');
   line.className = d.cls;
   for (const [k, value] of d.attrs) line.setAttribute(k, value);
-  for (const [t, c] of d.segs) {
+  for (const [t, c, atom] of d.segs) {
     if (!c) { line.append(t); continue; }
-    const span = document.createElement('span'); span.className = c; span.textContent = t; line.append(span);
+    const span = document.createElement('span'); span.className = c; span.textContent = t;
+    if (atom) { const box = island(atom); line.append(box); span.exactIsland = box; }
+    line.append(span);
   }
   if (d.empty) line.append(document.createElement('br'));
   return line;
@@ -88,10 +113,12 @@ function build(d) {
 /** Whether a line's DOM already is `d` — as it is after most native keystrokes. */
 function matches(line, d) {
   if (line.className !== d.cls || line.attributes.length !== 1 + d.attrs.length || d.attrs.some(([k, value]) => line.getAttribute(k) !== value)) return false;
-  const kids = line.childNodes;
-  if (kids.length !== d.segs.length + (d.empty ? 1 : 0)) return false;
-  for (let i = 0; i < d.segs.length; i++) {
-    const [t, c] = d.segs[i], k = kids[i];
+  const kids = line.childNodes, boxes = d.segs.filter(s => s[2]).length;
+  if (kids.length !== d.segs.length + boxes + (d.empty ? 1 : 0)) return false;
+  for (let i = 0, j = 0; i < d.segs.length; i++, j++) {
+    const [t, c, atom] = d.segs[i];
+    if (atom && !(isIsland(kids[j]) && kids[j].dataset.atomKey === atom.key && kids[j + 1]?.exactIsland === kids[j++])) return false;
+    const k = kids[j];
     if (c ? !(k.nodeName === 'SPAN' && k.className === c && k.attributes.length === 1 && k.childNodes.length === 1 && k.firstChild.nodeType === 3 && k.firstChild.data === t)
       : !(k.nodeType === 3 && k.data === t)) return false;
   }
@@ -107,7 +134,7 @@ function installMarkupEditor(textarea, host) {
   const h = wasm.mde_new(), defaults = new Set(), ours = ['contenteditable', 'role', 'aria-multiline', 'aria-readonly', 'aria-disabled', 'aria-placeholder'];
   let source = '', lines = [], records = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
-  let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false;
+  let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomed = null;
   let tabIndex = el.getAttribute('tabindex');
   const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !inertAncestor(el);
   const now = () => performance.now();
@@ -125,19 +152,20 @@ function installMarkupEditor(textarea, host) {
       records = []; lines = []; el.replaceChildren();
     }
     const n = wasm.mde_view(h), v = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), n).slice();
-    const next = [], found = [];
+    const next = [], found = [], faces = atomFaces();
     starts = [];
     for (let i = 0, at = 1; i < v[0]; i++) {
-      const line = source.slice(v[at], v[at + 1]), end = at + 10 + v[at + 9] * 3;
-      next.push({ line, view: v.subarray(at + 2, end) });
-      found.push([at, line]); starts.push(v[at]); at = end;
+      const line = source.slice(v[at], v[at + 1]), segments = at + 10 + v[at + 9] * 3, end = segments + 1 + v[segments] * 4;
+      const atoms = v[segments] ? lineAtoms(v, at, faces, atomStyles) : [];
+      next.push({ line, view: v.subarray(at + 2, end), atoms: atoms.map(a => a.key).join('\n') });
+      found.push([at, line, atoms]); starts.push(v[at]); at = end;
     }
-    const same = (a, b) => a.line === b.line && a.view.length === b.view.length && a.view.every((value, i) => value === b.view[i]);
+    const same = (a, b) => a.line === b.line && a.atoms === b.atoms && a.view.length === b.view.length && a.view.every((value, i) => value === b.view[i]);
     let head = 0, tail = 0;
     while (head < records.length && head < next.length && same(records[head], next[head])) head++;
     while (tail < records.length - head && tail < next.length - head && same(records[records.length - 1 - tail], next[next.length - 1 - tail])) tail++;
     const removed = lines.splice(head, records.length - head - tail);
-    const fresh = found.slice(head, next.length - tail).map(([at, line]) => describe(v, at, line));
+    const fresh = found.slice(head, next.length - tail).map(([at, line, atoms]) => describe(v, at, line, atoms));
     // A native keystroke usually leaves the DOM exactly as it would be drawn:
     // keep those nodes, so the input method's autocorrect state survives.
     const kept = removed.length === fresh.length && removed.every((line, i) => matches(line, fresh[i]));
@@ -152,15 +180,42 @@ function installMarkupEditor(textarea, host) {
     el.classList.toggle('md-empty', source === '');
   }
   function read() { source = utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_source(h), wasm.mde_source_len(h))); }
+  /** Each atom's kind, label, icon, title, role, destination and source, in source order (`mde_atom_faces`). */
+  function atomFaces() {
+    const out = [], lines = text(wasm.mde_atom_faces(h)).split('\n');
+    for (let k = 0; k + 7 < lines.length; k += 8) { const [kind, label, icon, title, role, href, src] = lines.slice(k, k + 7); out.push({ kind, label, icon, title, role, href, source: src }); }
+    return out;
+  }
+  /** The field's `atoms` and `atomFaces` into the editor (LLP 1045.000 D2), and its kinds' paint; a change redraws. */
+  function atoms() {
+    const kinds = el.getAttribute('data-atoms') ?? '', faces = el.getAttribute('data-atom-faces') ?? '', styles = el.getAttribute('data-atom-styles') ?? '';
+    if (atomed?.[0] === kinds && atomed[1] === faces && atomed[2] === styles) return 0;
+    atomed = [kinds, faces, styles];
+    try { atomStyles = JSON.parse(styles || '{}'); } catch { atomStyles = {}; }
+    put(kinds + faces);
+    return wasm.mde_atoms(h, kinds.length, faces.length) | SOURCE;
+  }
 
-  /** The source offset of a DOM point inside the editor. */
+  /** The source offset of a DOM point inside the editor. An island adds no
+   * source: the point before it is its atom's start; one after it, or in its
+   * hidden source, the atom's end (LLP 1045.000 §4). */
   function toSource(node, offset) {
     if (node === el) return offset >= lines.length ? source.length : starts[offset] ?? 0;
     const line = (node.nodeType === 3 ? node.parentElement : node)?.closest('.md-line');
     if (!line || !index.has(line)) return sel()[0];
-    const r = document.createRange();
-    r.setStart(line, 0); r.setEnd(node, offset);
-    return starts[index.get(line)] + r.toString().length;
+    let at = 0;
+    for (const [i, kid] of [...line.childNodes].entries()) {
+      const len = isIsland(kid) || kid.nodeName === 'BR' ? 0 : kid.textContent.length;
+      if (node === line && offset === i) return starts[index.get(line)] + at + (isIsland(line.childNodes[i - 1]) ? len : 0);
+      if (kid === node || kid.contains(node)) {
+        if (isIsland(kid)) return starts[index.get(line)] + at + (kid.nextSibling?.textContent.length ?? 0);
+        if (kid.exactIsland) return starts[index.get(line)] + at + len;
+        const r = document.createRange(); r.setStart(kid, 0); r.setEnd(node, offset);
+        return starts[index.get(line)] + at + r.toString().length;
+      }
+      at += len;
+    }
+    return starts[index.get(line)] + at;
   }
   /** A DOM point for a source offset, on visible text left or right of hidden syntax. */
   function toDom(p, right) {
@@ -168,11 +223,17 @@ function installMarkupEditor(textarea, host) {
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= p) lo = mid; else hi = mid - 1; }
     const line = lines[lo];
     if (!line) return { node: el, offset: 0 };
-    const local = p - starts[lo], walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), found = [];
-    for (let t = walker.nextNode(), acc = 0; t; acc += t.data.length, t = walker.nextNode()) {
-      if (!t.parentElement.classList.contains('md-hide') && acc <= local && local <= acc + t.data.length) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + t.data.length });
+    const local = p - starts[lo], found = [], edges = [];
+    let acc = 0;
+    for (const [i, kid] of [...line.childNodes].entries()) {
+      if (isIsland(kid)) { if (acc === local) edges.push({ node: line, offset: i }); continue; }
+      const t = kid.nodeType === 3 ? kid : kid.firstChild?.nodeType === 3 ? kid.firstChild : null, len = kid.nodeName === 'BR' ? 0 : kid.textContent.length;
+      if (kid.exactIsland && acc + len === local) edges.push({ node: line, offset: i + 1 });
+      else if (t && !kid.classList?.contains('md-hide') && acc <= local && local <= acc + len) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + len });
+      acc += len;
     }
     if (found.length) return right ? found.find(c => !c.end) ?? found.at(-1) : found.find(c => !c.start) ?? found[0];
+    if (edges.length) return edges[0];
     const br = line.querySelector(':scope > br');
     return { node: line, offset: br ? [...line.childNodes].indexOf(br) : line.childNodes.length };
   }
@@ -185,7 +246,7 @@ function installMarkupEditor(textarea, host) {
     // text. A selection spanning that whole document owns hidden syntax too.
     if (from !== to) {
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-      const visible = t => t.data.length && !t.parentElement.closest('.md-hide, .md-collapsed');
+      const visible = t => t.data.length && !t.parentElement.closest('.md-hide, .md-collapsed, .exact-atom');
       let first = walker.nextNode();
       while (first && !visible(first)) first = walker.nextNode();
       walker.currentNode = el;
@@ -256,7 +317,7 @@ function installMarkupEditor(textarea, host) {
     let value = '';
     function walk(node) {
       if (node.nodeType === 3) { points.set(node, value.length); value += node.data; return; }
-      const offsets = [value.length], kids = [...node.childNodes].filter(child => !skip?.(child));
+      const offsets = [value.length], kids = [...node.childNodes].filter(child => !skip?.(child) && !isIsland(child) && !orphanSource(child));
       for (let i = 0; i < kids.length; i++) {
         const child = kids[i], block = n => n?.nodeType === 1 && /^(DIV|P)$/.test(n.nodeName);
         if (i && (block(child) || block(kids[i - 1]))) value += '\n';
@@ -294,10 +355,11 @@ function installMarkupEditor(textarea, host) {
     for (const change of changes) {
       const node = change.target.nodeType === 3 ? change.target.parentElement : change.target;
       const line = node?.closest('.md-line'), i = index.get(line);
-      if (i === undefined || line.parentNode !== el || line.querySelector('div, p, br:not(:last-child)')) { structural = true; break; }
+      if (i === undefined || line.parentNode !== el || line.querySelector('div, p, br:not(:last-child)') || node.closest?.('.exact-atom')) { structural = true; break; }
       first = Math.min(first, i); last = Math.max(last, i);
     }
-    if (structural || last < 0 || hidden) {
+    if (structural || last < 0 || hidden || reread) {
+      reread = false;
       // Read what survived, including hidden syntax, not detached cached nodes.
       // Native editors may create nested blocks and BRs during composition.
       let { value, a, b } = readDom();
@@ -312,7 +374,9 @@ function installMarkupEditor(textarea, host) {
       return after(bits, edit);
     }
     const from = starts[first], to = last + 1 < starts.length ? starts[last + 1] - 1 : source.length;
-    const n = put(lines.slice(first, last + 1).map(line => line.textContent).join('\n'));
+    // A line's text is its source: no island's label, and no hidden source an island left with.
+    const lineText = line => [...line.childNodes].map(k => isIsland(k) || orphanSource(k) || k.nodeName === 'BR' ? '' : k.textContent).join('');
+    const n = put(lines.slice(first, last + 1).map(lineText).join('\n'));
     return after(wasm.mde_reconcile_range(h, from, to, n, s ? s[0] : NONE, s ? s[1] : NONE, now()), edit);
   }
   function rememberNativeSelection() {
@@ -360,7 +424,7 @@ function installMarkupEditor(textarea, host) {
   const copyPlain = () => {
     const markdown = copied();
     if (markdown === null) return;
-    navigator.clipboard?.writeText(text(wasm.mde_plain(put(markdown)))).catch(error => console.warn('exact: plain copy failed', error));
+    navigator.clipboard?.writeText(text(wasm.mde_plain(h, put(markdown)))).catch(error => console.warn('exact: plain copy failed', error));
   };
   function configure() {
     const disabled = el.hasAttribute('disabled'), readonly = el.hasAttribute('readonly');
@@ -379,7 +443,7 @@ function installMarkupEditor(textarea, host) {
   function sync() {
     if (destroyed) return;
     if (composing || notifying) { pendingSync = true; return; }
-    if (el.getAttribute('markup') === 'markdown') { configure(); return; }
+    if (el.getAttribute('markup') === 'markdown') { configure(); const bits = atoms(); if (bits & SOURCE) { render(); if (bits & PLACE) place(false); emit(); } return; }
     // Markdown off: the same source in a plain textarea, the explicit source mode.
     const native = document.createElement('textarea'), [from, to] = sel(), focused = document.activeElement === el;
     for (const attr of el.attributes) if (!ours.includes(attr.name) && !defaults.has(attr.name)) native.setAttribute(attr.name, attr.value);
@@ -428,7 +492,8 @@ function installMarkupEditor(textarea, host) {
     if (!e.isComposing) reconcile(edit);
     else if (composing) { told = el.value; notify({ ...edit, isComposing: true }); }
   });
-  el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); composing = true; });
+  // Over a range that holds an atom, the range goes first, its own undo step; the platform composes over it (LLP 1045.000 D5).
+  el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); if (wasm.mde_compose(h, now()) & SOURCE) { read(); reread = true; } composing = true; });
   // A composition the app heard and that left the source as it was (cancelled) is heard too: its text went.
   el.addEventListener('compositionend', e => {
     composing = false;
@@ -471,7 +536,11 @@ function installMarkupEditor(textarea, host) {
   };
   el.addEventListener('copy', clip(false));
   el.addEventListener('cut', clip(true));
+  // A press on an island selects its atom, then is the field's `atompress` (LLP 1045.000 D5, D7).
+  const pressed = e => { const box = e.target.closest?.('.exact-atom'); return box && el.contains(box) && index.has(box.parentNode) ? islands().find(i => i.box === box) : null; };
   el.addEventListener('pointerdown', e => {
+    const atom = e.button === 0 && pressed(e);
+    if (atom) { e.preventDefault(); if (document.activeElement !== el) HTMLElement.prototype.focus.call(el, { preventScroll: true }); direction = 'none'; after(wasm.mde_set_selection(h, atom.s, atom.e)); return; }
     const line = e.target.closest?.('.md-task');
     if (line && el.contains(line) && writable() && e.clientX - line.getBoundingClientRect().left <= parseFloat(getComputedStyle(line).paddingLeft)) {
       e.preventDefault();
@@ -484,11 +553,13 @@ function installMarkupEditor(textarea, host) {
   window.addEventListener('pointerup', release);
   window.addEventListener('pointercancel', release);
   el.addEventListener('focus', () => queueMicrotask(emit));
+  el.addEventListener('click', e => { const atom = pressed(e); if (!atom || destroyed) return; const d = atom.box.dataset; el.dispatchEvent(new CustomEvent('atompress', { detail: [d.exactAtom, d.atomSource, d.atomHref ?? '', atom.s, atom.e, e.shiftKey, e.ctrlKey, e.altKey, e.metaKey] })); });
+  el.addEventListener('dblclick', e => { if (pressed(e)) e.preventDefault(); });
   document.addEventListener('selectionchange', selectionChanged);
 
   const raw = textarea.exactSourceValue;
   wasm.mde_load(h, put(raw?.replace(/\r\n?/g, '\n') === textarea.value ? raw : textarea.value));
-  read(); render();
+  atoms(); read(); render();
   wasm.mde_select(h, textarea.selectionStart, textarea.selectionEnd, NONE, NONE);
   Object.defineProperties(el, {
     value: { get: () => composing ? readDom().value : source, set: setValue },
@@ -533,13 +604,17 @@ function installMarkupEditor(textarea, host) {
   // box at the visible text nearest the offset (an offset in hidden syntax
   // sits at its edge). Wider, the union of the visible text it covers and of
   // the caret either side of each line break in it; hidden syntax adds none.
-  const visible = t => t.data.length && !t.parentElement.closest('.md-hide, .md-collapsed');
+  const visible = t => t.data.length && !t.parentElement.closest('.md-hide, .md-collapsed, .exact-atom');
+  /** Each island with its atom's source range. */
+  const islands = () => [...el.querySelectorAll('.md-line > .exact-atom')].map(box => { const s = starts[index.get(box.parentNode)] + Number(box.dataset.atomAt); return { box, s, e: s + (box.nextSibling?.textContent.length ?? 0) }; });
   function caret(p) {
     let lo = 0, hi = starts.length - 1;
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= p) lo = mid; else hi = mid - 1; }
     const line = lines[lo];
     // A line not drawn (a collapsed fence's) has no caret.
     if (!line || !line.getClientRects().length) return null;
+    // At an atom's edge, its island's (LLP 1045.000 D7).
+    for (const { box, s, e } of islands()) if (box.parentNode === line && (p === s || p === e)) { const b = box.getBoundingClientRect(); return new DOMRect(p === s ? b.left : b.right, b.top, 0, b.height); }
     const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), r = document.createRange();
     // The visible text holding `p`, else the nearer of the text either side.
     let at = null, before = null, after = null;
@@ -571,9 +646,12 @@ function installMarkupEditor(textarea, host) {
       for (const b of r.getClientRects()) add(b);
     }
     for (const at of starts) if (at > from && at <= to) { add(caret(at - 1)); add(caret(at)); }
+    for (const { box, s, e } of islands()) if (s < to && from < e) add(box.getBoundingClientRect());
     return left === Infinity ? null : new DOMRect(left, top, right - left, bottom - top);
   }
-  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy, rangeFrame };
+  /** The atoms as drawn, for the agent's `state.atoms` (LLP 1045.000 D9). */
+  const atomList = () => destroyed ? [] : islands().map(({ box, s, e }) => ({ kind: box.dataset.exactAtom, source: box.dataset.atomSource, start: s, end: e, label: box.getAttribute('aria-label') ?? '', box }));
+  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy, rangeFrame, atoms: atomList };
   configure();
   const initialFocus = document.activeElement === textarea;
   textarea.replaceWith(el);

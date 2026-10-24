@@ -1183,6 +1183,17 @@ impl Em<'_> {
                 );
                 continue;
             }
+            // A Markdown node's faces, as the runner's bridge names them (LLP 1045.000 D2).
+            if b.kind == BindingKind::Prop && b.id == PropId::AtomFaces as u16 {
+                let value = self.f(b.expr, scope)?;
+                let p = self.uses.rt("P");
+                let record = self.uses.rt("atomFacesRecord");
+                let _ = write!(
+                    self.out,
+                    "{p}({e},\"data-atom-faces\",()=>{record}(({value})()));"
+                );
+                continue;
+            }
             // tvOS's focus guide has no DOM property, whether literal or bound.
             if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
                 continue;
@@ -1298,6 +1309,8 @@ impl Em<'_> {
                 | EventKind::Drop
                 | EventKind::Dragenter
                 | EventKind::Dragleave
+                // LLP 1045.000 D7: the Markdown editor's and reader's.
+                | EventKind::Atompress
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause

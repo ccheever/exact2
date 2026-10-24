@@ -112,20 +112,20 @@ impl Lowerer<'_> {
                         };
                         row.insert(attr.name.clone(), json!(value));
                     }
-                    "role" => {
-                        match text {
-                            Some(role @ ("button" | "link")) => {
-                                row.insert("role".into(), json!(role));
-                            }
-                            _ => return err(
+                    "role" => match text {
+                        Some(role @ ("button" | "link")) => {
+                            row.insert("role".into(), json!(role));
+                        }
+                        _ => {
+                            return err(
                                 "lower-atom-style",
                                 format!(
                                     "`atom {name}`'s `role` is `button` (the default) or `link`"
                                 ),
                                 attr.span,
-                            ),
+                            )
                         }
-                    }
+                    },
                     "color" | "background-color" => {
                         let Some(tags::AttrTarget::Styles(ids)) = tags::attr(&attr.name) else {
                             return style_err(name, attr);

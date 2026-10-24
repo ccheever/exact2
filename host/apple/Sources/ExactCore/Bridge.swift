@@ -562,7 +562,9 @@ package final class Runtime {
                   let mixed = state["mixed"] as? Bool,
                   let link = state["link"] as? String,
                   let unavailable = state["unavailable"] as? String else { return nil }
-            let n = write(formats + "\n" + (mixed ? "1" : "0") + "\n" + unavailable + "\n" + link)
+            // The selected atom's source (LLP 1045.000 D3) before the link, which may hold a line break.
+            let atom = state["atom"] as? String ?? ""
+            let n = write(formats + "\n" + (mixed ? "1" : "0") + "\n" + unavailable + "\n" + atom + "\n" + link)
             return read(exact_dispatch(rt, view, 21, n, now))
         }
     }
