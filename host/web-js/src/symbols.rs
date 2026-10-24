@@ -51,9 +51,7 @@ pub(crate) fn table(plan: &Plan, bound: bool) -> String {
     for i in &plan.icons {
         // The row through its one reader, which strips an even-odd icon's
         // marker into its rule (stage 14 C2); a row it can't read is no entry.
-        let Some(icon) =
-            exact_kernel::Icon::of_row(s(i.sf.0), s(i.view_box.0), s(i.path.0), s(i.svg.0))
-        else {
+        let Some(icon) = exact_runner::icon_of(plan, i) else {
             continue;
         };
         let (path, file) = match icon.path {

@@ -76,9 +76,10 @@ test('symbols.js iconForm and draw read a form as Icon::parse does', async () =>
       globalThis.draw(e, name);
       return [globalThis.iconForm(name), e.getAttribute('data-symbol-path'), e.getAttribute('data-symbol-viewbox'), e.hasAttribute('data-symbol-evenodd'), e.hasAttribute('data-symbol-nonzero')];
     }), cases.map(([name]) => name));
+    // A file icon is shown as written: nothing of a drawn path stays.
     const want = cases.map(([, icon]) => icon === null
       ? [null, '', null, false, false]
-      : [[icon.path, 1, icon.view_box, icon.path ? '' : icon.svg, icon.even_odd ? 1 : 0], icon.path ? icon.path : null, icon.path ? icon.view_box : 'stale', icon.path ? icon.even_odd : true, icon.path ? !icon.even_odd : true]);
+      : [[icon.path, 1, icon.view_box, icon.path ? '' : icon.svg, icon.even_odd ? 1 : 0], icon.path ? icon.path : null, icon.path ? icon.view_box : null, icon.path ? icon.even_odd : false, icon.path ? !icon.even_odd : false]);
     expect(read).toEqual(want);
   } finally { await suite.close(); }
 }, 10000);
@@ -90,12 +91,19 @@ test('symbols.js iconForm and draw read a form as Icon::parse does', async () =>
 for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: an icon whose rule changes is drawn by its new rule (${file})`, async () => {
   const source = readFileSync(resolve(ROOT, file), 'utf8'), style = source.match(/'(@property --exact-tint[^']*)'/)[1];
   const js = file.endsWith('symbols.js');
-  const declarations = glueDeclarations(source, js ? [...names, 'iconForm', 'draw'] : names);
+  const declarations = glueDeclarations(source, js ? [...names, 'iconForm', 'draw'] : [...names, 'applyProps']);
+  // The web host's side: element.rs's attributes for each rule (tests/it/icon_rule.rs holds them), and
+  // the props op host.rs sends between two of them: `set` what is new or changed, `clear` what the new
+  // map omits. glue.js's own applyProps applies it, its module's other parts stood in for.
+  const host = `const syncMedia = () => {}, syncMarkup = () => {}, navigates = () => false, inputReady = true;
+    const props = (rule) => ({ 'data-symbol-source': 'symbol:icon||0 0 24 24|' + (rule === 'evenodd' ? 'evenodd:' : '') + '${ring}|icons/flip.svg', 'data-symbol-path': '${ring}', 'data-symbol-fill': '', ['data-symbol-' + rule]: '', 'data-symbol-viewbox': '0 0 24 24', alt: '' });
+    const diff = (was, now) => [Object.fromEntries(Object.entries(now).filter(([k, v]) => was[k] !== v)), Object.keys(was).filter((k) => !(k in now))];`;
   const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
     .replace('<div id="exact-root"></div>', `<style>${style} #exact-root img { --exact-tint: rgb(255, 0, 0) !important; }</style><div id="exact-root"><div style="padding:16px">${img('flip', 'nonzero')}</div></div>`)
-    .replace('<script type="module" src="./glue.js"></script>', `<script>const Table = {}; ${stand} ${declarations} globalThis.paint = () => { ${run} }; globalThis.to = (rule) => { const e = document.getElementById('flip');
+    .replace('<script type="module" src="./glue.js"></script>', `<script>const Table = {}; ${stand} ${js ? '' : host} ${declarations} globalThis.paint = () => { ${run} }; globalThis.to = (rule) => { const e = document.getElementById('flip');
       if (${js}) { const form = 'icon||0 0 24 24|' + (rule === 'evenodd' ? 'evenodd:' : '') + '${ring}|icons/flip.svg'; e.setAttribute('data-symbol-source', 'symbol:' + form); draw(e, form); }
-      else { e.removeAttribute(rule === 'evenodd' ? 'data-symbol-nonzero' : 'data-symbol-evenodd'); e.toggleAttribute('data-symbol-' + rule, true); } };</script>`);
+      else { const [set, clear] = diff(props(globalThis.rule ?? 'nonzero'), props(rule)); applyProps(e, set, clear); }
+      globalThis.rule = rule; };</script>`);
   const suite = await suiteBrowser(engine, { timeout: 10000 });
   try {
     const page = await suite.newPage({ viewport: { width: 200, height: 100 }, deviceScaleFactor: 1 });

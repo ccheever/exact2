@@ -128,6 +128,25 @@ pub enum BridgeError {
     },
 }
 
+/// @ref LLP 1121 stage 14 C2 — the icon a plan `icons` row is: the ONE
+/// place a row's path leaves its `IconPathId` (its `raw_for_icon`), handed
+/// straight to `exact_kernel::Icon::of_row`, which strips an even-odd
+/// icon's `evenodd:` marker into its rule. Every reader of the table calls
+/// this (a guard test holds that nothing else calls `raw_for_icon`); `None`
+/// for a row no reader reads (a rule it doesn't know).
+pub fn icon_of<'a>(
+    plan: &'a exact_plan::Plan,
+    row: &exact_plan::IconsRow,
+) -> Option<exact_kernel::Icon<'a>> {
+    let s = |id: exact_plan::StrId| plan.strings.get(id.0 as usize).unwrap_or("");
+    exact_kernel::Icon::of_row(
+        s(row.sf),
+        s(row.view_box),
+        s(row.path.raw_for_icon()),
+        s(row.svg),
+    )
+}
+
 /// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
 /// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
 /// host reads, as the compiler writes a literal one; any other value as it is.
@@ -151,9 +170,7 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
     };
     // The row read through the one reader of it, which keeps an even-odd
     // icon's rule (stage 14 C2); a row it doesn't read leaves the value.
-    match icon.and_then(|i| {
-        exact_kernel::Icon::of_row(s(i.sf.0), s(i.view_box.0), s(i.path.0), s(i.svg.0))
-    }) {
+    match icon.and_then(|i| icon_of(plan, i)) {
         Some(icon) => PropValue::Str(format!("symbol:{}", icon.form()).into()),
         None => value,
     }

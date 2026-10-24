@@ -76,6 +76,64 @@ pub use value::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StrId(pub u32);
 
+/// An `icons` row's `path` (LLP 1121 stage 14 C2, round 2): an interned
+/// string on the wire, as any `str` field (format.json and its digest are
+/// unchanged), but no [`StrId`], so `plan.str()` and the string pool don't
+/// take it. An even-odd icon's path starts `evenodd:`, which only
+/// `exact_kernel::Icon` strips; [`IconPathId::raw_for_icon`] is the one way
+/// out, called by `exact_runner::icon_of` alone (a guard test holds that).
+///
+/// Every way a row's path could be read as a string fails to compile (C2
+/// round 2's bypasses). A sibling field reads as written:
+///
+/// ```
+/// fn read(plan: &exact_plan::Plan) {
+///     let rows = &plan.icons;
+///     for glyph in rows {
+///         let _ = plan.str(glyph.sf);
+///     }
+/// }
+/// ```
+///
+/// Through a binding the table hands out:
+///
+/// ```compile_fail
+/// fn read(plan: &exact_plan::Plan) {
+///     let rows = &plan.icons;
+///     for glyph in rows {
+///         let _ = plan.str(glyph.path);
+///     }
+/// }
+/// ```
+///
+/// Parenthesised:
+///
+/// ```compile_fail
+/// fn read(plan: &exact_plan::Plan, row: &exact_plan::IconsRow) {
+///     let _ = plan.str((row).path);
+/// }
+/// ```
+///
+/// Destructured, its id taken out:
+///
+/// ```compile_fail
+/// fn read(plan: &exact_plan::Plan, row: &exact_plan::IconsRow) {
+///     let exact_plan::IconsRow { path, .. } = row.clone();
+///     let _ = plan.strings.get(path.0 as usize);
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IconPathId(pub(crate) u32);
+
+impl IconPathId {
+    /// The path's string id, for `exact_runner::icon_of` to hand
+    /// `exact_kernel::Icon::of_row`, the one reader of the marker. Call it
+    /// nowhere else.
+    pub fn raw_for_icon(self) -> StrId {
+        StrId(self.0)
+    }
+}
+
 /// A bytecode range in the code pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Code {

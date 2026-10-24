@@ -73,12 +73,7 @@ pub(crate) fn icon_name<'a>(plan: &'a exact_plan::Plan, source: &str) -> Option<
     let s = |id| plan.strings.get(id as usize).unwrap_or("");
     plan.icons
         .iter()
-        .find(|i| {
-            s(i.sf.0) == icon.sf
-                && s(i.view_box.0) == icon.view_box
-                && s(i.path.0) == icon.path
-                && s(i.svg.0) == icon.svg
-        })
+        .find(|i| exact_runner::icon_of(plan, i) == Some(icon))
         .map(|i| s(i.name.0))
 }
 
