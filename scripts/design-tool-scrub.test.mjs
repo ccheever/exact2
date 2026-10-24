@@ -23,8 +23,9 @@ function framed(looked) {
   return polling;
 }
 /** The drive's wait for the frame's build (4 s at most, as before): once listed, the tool's next read has it (`clock
- * +1` runs the follow task that asks it, as it opens the stream, whose first ask is answered at once). */
-const ready = looked => [looked.pause(4000, 0), 'clock +1', 'clock data', 'clock +1', 'clock data'];
+ * +1` runs the follow task that asks it, as it opens the stream, whose first ask is answered at once), or, the stream
+ * open already, its push (`clock held`: the next reply, the push or, landed already, a 3 s heartbeat). */
+const ready = looked => [looked.pause(4000, 0), 'clock +1', 'clock data', 'clock +1', 'clock data', 'clock held changes 10s'];
 
 test('T2: a scrub chosen on a token previews on the frame\'s build with no reload and no file written, Keep writes one line, Cancel restores, and an edit that rebuilds has no scrub', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-'));
@@ -35,7 +36,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-dist-'));
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed({ POLL: 6_000 }), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed({ POLL: 3_000 }), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
@@ -52,15 +53,15 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     // waiting there until the frame reports the design the loop serves.
     const seen = [];
     const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
-    const look = async () => {
+    const look = async (first) => {
       const end = Date.now() + 5000;
       for (;;) {
         const design = await fetch(`${base}/__dev/design`);
         const snapshot = design.status === 200 ? await design.json() : null;
         const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
         const frame = builds.find(b => b.host === 'web-js');
-        // Before any edit the loop has no snapshot to give (204): the frame runs the build's own design (as kinds' look).
-        if ((snapshot ? frame?.design === snapshot.design : design.status === 204 && !!frame?.design) || Date.now() > end) {
+        // Before any scrub the loop has no snapshot to give (204): the first look's frame runs the build's own design.
+        if ((snapshot ? frame?.design === snapshot.design : first && design.status === 204 && !!frame?.design) || Date.now() > end) {
           seen.push({ connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
           return;
         }
@@ -100,7 +101,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     // each look done, the drive goes on.
     for (const n of [1, 2, 3, 4, 5]) {
       await out.until(() => out.seen.filter(l => l.startsWith('{"nodes"')).length >= n, 600_000).catch(e => { throw new Error(`${e.message}\n${driveSaid}`); });
-      await look();
+      await look(n === 1);
       looked.fire(n);
     }
     await new Promise(ok => drive.once('exit', ok));

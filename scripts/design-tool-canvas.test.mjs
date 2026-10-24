@@ -12,8 +12,10 @@ import { ROOT, SLOW, TOOL_DIST, TOOL_ORIGIN, drive, lines, signals, stop, timed,
 toolTurns();
 
 // T2's server clocks (tamber-timing.mjs's test knobs; the real ones in the slow lane, EXACT_SLOW_TESTS=1): the long
-// poll's wait, a POST client's presence, a GET long poll's (the lease a closed tool's pin is held for), the sweep.
-const CLOCKS = SLOW ? { POLL: 25_000, PRESENT: 35_000, LONG_PRESENT: 90_000, SWEEP: 5_000 } : { POLL: 4_000, PRESENT: 5_000, LONG_PRESENT: 10_000, SWEEP: 1_000 };
+// poll's wait, a POST client's presence, a GET long poll's (the lease a closed tool's pin is held for), the sweep. As
+// the real ones are, chosen so the lease's window below (from a GET long poll's lease, less a wait and a sweep) lies
+// past a POST client's lease and a sweep: a pin handed back on the POST lease fails it.
+const CLOCKS = SLOW ? { POLL: 25_000, PRESENT: 35_000, LONG_PRESENT: 90_000, SWEEP: 5_000 } : { POLL: 3_000, PRESENT: 4_000, LONG_PRESENT: 12_000, SWEEP: 1_000 };
 
 /** A build that holds no stream, as Linux's does, on the dev loop at
  * `base`: it registers as `id`, polls its commands, and reports each pin's
@@ -84,8 +86,9 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout',
       // The framed page's first registration, on a loaded machine (another run beside this one) later than a pin's:
       // once the server lists it, the tool's next read has it (`clock +1` runs the follow task that asks it, as it
-      // opens the stream, whose first ask is answered at once).
-      registered.pause(18000, 1), 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+      // opens the stream, whose first ask is answered at once), or, the stream open already, its push (`clock held`:
+      // the next reply, the push or, landed already, a heartbeat).
+      registered.pause(18000, 1), 'clock +1', 'clock data', 'clock +1', 'clock data', 'clock held changes 10s', 'state',
       // Dark and Black pinned on the other build only.
       'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
       // Open past one presence lease (35 s, the slow lane's; a real-clock
@@ -145,6 +148,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const held = other.frames.at(-1).at - closed;
     // The lease, 90 s after a long poll by cursor's last answer (at most a 25 s wait before the close), so past the
     // POST form's 35 s; and the server's sweep (5 s), with a little room: 60 s to 100 s at the real clocks.
+    expect(CLOCKS.LONG_PRESENT - CLOCKS.POLL - CLOCKS.SWEEP).toBeGreaterThan(CLOCKS.PRESENT + CLOCKS.SWEEP);
     expect(held).toBeGreaterThan(CLOCKS.LONG_PRESENT - CLOCKS.POLL - CLOCKS.SWEEP);
     expect(held).toBeLessThan(CLOCKS.LONG_PRESENT + 2 * CLOCKS.SWEEP);
     // While the tool was open, more than a lease went by with no hand-back.
