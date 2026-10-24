@@ -123,7 +123,7 @@ impl<D: DataSource> Presenter<D> {
     /// dp), as Apple TV's safe area keeps it in (LLP 1115.001.003 D7). The
     /// margin is the safe area's on a TV, and nothing elsewhere; top, right,
     /// bottom, left.
-    fn tv_margin(&self, (width, height): (f32, f32)) -> [f32; 4] {
+    pub(super) fn tv_margin(&self, (width, height): (f32, f32)) -> [f32; 4] {
         const MARGIN: f32 = 0.05;
         match self.device.as_ref().is_some_and(|d| d.tv) {
             true => [
