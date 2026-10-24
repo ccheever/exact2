@@ -1,16 +1,33 @@
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
-test.each(['tap', 'pan', 'reveal', 'pointer', 'hover', 'wheel', 'check', 'contextpopover', 'autofocus', 'drop'])('a modal escapes an inert ancestor for agent %s input', async input => {
+const fixtures = new Map();
+afterAll(async () => {
+  for (const result of await Promise.allSettled(fixtures.values())) {
+    if (result.status !== 'fulfilled') continue;
+    const { server, dir } = result.value;
+    server.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Only the reveal case needs content below the scrollport. Build each immutable
+// fixture once; every case still opens and closes its own browser session.
+function fixture(reveal) {
+  if (!fixtures.has(reveal)) fixtures.set(reveal, buildFixture(reveal));
+  return fixtures.get(reveal);
+}
+
+async function buildFixture(reveal) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..');
   mkdirSync(resolve(root, 'target'), { recursive: true });
   const dir = mkdtempSync(resolve(root, 'target/modal-agent-test-'));
-  let browser, server;
+  let server;
   try {
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Modal Agent Test', app: { id: 'test.modal-agent', name: 'Modal Agent Test' }, host: { web: {} }, file_handlers: [{ action: '/', accept: { 'text/plain': ['.txt'] } }] }));
     writeFileSync(resolve(dir, 'app.contract'), `component ModalAgent
@@ -57,7 +74,7 @@ test.each(['tap', 'pan', 'reveal', 'pointer', 'hover', 'wheel', 'check', 'contex
         column inert=true
           button "Inert child" press=pick testId="inert-child"
         button "Open menu" popovertarget="menu" testId="open-menu"
-${input === 'reveal' ? `        box height=1200
+${reveal ? `        box height=1200
         column inert=true
           button "Inert below" press=pick testId="inert-below"
         button "Below scrollport" press=pick testId="below"
@@ -76,6 +93,18 @@ ${input === 'reveal' ? `        box height=1200
       const file = resolve(dist, path === '/' ? 'index.html' : path.slice(1));
       return existsSync(file) ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
+    return { dir, server };
+  } catch (error) {
+    server?.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+test.each(['tap', 'pan', 'reveal', 'pointer', 'hover', 'wheel', 'check', 'contextpopover', 'autofocus', 'drop'])('a modal escapes an inert ancestor for agent %s input', async input => {
+  const { server } = await fixture(input === 'reveal');
+  let browser;
+  try {
     browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
     await browser.tap('open-modal');
     if (input === 'tap') await browser.tap('open-menu');
@@ -170,7 +199,7 @@ ${input === 'reveal' ? `        box height=1200
       expect((await browser.state()).slots.presses).toBe(2);
     }
   } finally {
-    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+    await browser?.close();
   }
 }, 30000);
 

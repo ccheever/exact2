@@ -1,17 +1,10 @@
-// Build exact-web-js once before running this test (docs/testing.md).
-// LLP 1121 stage 11 B2, review round 1 (Astra 4): a real live edit on a
-// page. A design that sets `space.md` and aliases it (`card.pad: length =
-// space.md`) is built for development and shown in Chrome; the edit
-// `space.md = 40px` to `48px` is compiled as the dev loop compiles it, sent
-// as its batch through the page's own `exact.design`, and both the row that
-// names `space.md` and the one that names the alias move from 40px to 48px,
-// with no reload.
+// Build exact-web-js before running these tests (docs/testing.md).
+// Live token edits must update both direct rows and aliases without reloading.
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 const VIEW = `component App
   view
@@ -29,7 +22,7 @@ test('a live edit of a base name the app sets moves its row and its alias on the
   const dir = mkdtempSync(resolve(target, 'base-live-out-'));
   const sheet = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
   const bin = resolve(target, 'debug/exact-web-js');
-  let server, browser;
+  let server, context;
   try {
     writeFileSync(resolve(app, 'app.contract'), VIEW);
     writeFileSync(resolve(app, 'app.tamber'), design('40px'));
@@ -58,8 +51,8 @@ test('a live edit of a base name the app sets moves its row and its alias on the
         .map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
-    const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+    context = await (await suiteBrowser()).newContext({ viewport: { width: 400, height: 300 } });
+    const page = await context.newPage();
     await page.goto(server.url.href);
     const direct = page.getByTestId('direct'), alias = page.getByTestId('alias');
     await alias.waitFor({ state: 'attached' });
@@ -72,20 +65,15 @@ test('a live edit of a base name the app sets moves its row and its alias on the
     // The same page: no reload.
     expect(await page.evaluate(() => window.__kept)).toBe(marker);
   } finally {
-    await browser?.close();
+    await context?.close();
     server?.stop(true);
     rmSync(app, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 }, 60000);
 
-// Round 2 (theme2's all-nine-or-none): the sheet declares every base name
-// once the plan may read one, so an alias switched live between two
-// (`card.pad: length = space.md` to `space.lg`) keeps the structure and goes
-// as a batch: the page's row moves to space.lg's length with no reload. A
-// scrub's patch (`design-serve`) says the structure too, and it moves only
-// when the plan comes to read a base name (none to nine), which the dev
-// loop's scrub refuses (`scrubShow`).
+// Once a plan uses the base scale, switching aliases keeps its structure.
+// Introducing the scale changes the structure and requires a rebuild.
 test('an alias switched between base names goes live; the first base name moves the structure', async () => {
   const root = resolve(import.meta.dir, '../..');
   const target = resolve(root, 'target');
@@ -93,7 +81,7 @@ test('an alias switched between base names goes live; the first base name moves 
   const dir = mkdtempSync(resolve(target, 'base-switch-out-'));
   const bin = resolve(target, 'debug/exact-web-js');
   const alias = base => `tamber t\n\ntheme\n  card.pad: length = ${base}\n`;
-  let server, browser, serve;
+  let server, context;
   try {
     writeFileSync(resolve(app, 'app.contract'), `component App\n  view\n    column testId="alias" padding="card.pad"\n      text "a"\n`);
     const build = (design) => {
@@ -135,8 +123,8 @@ test('an alias switched between base names goes live; the first base name moves 
         .map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
-    const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+    context = await (await suiteBrowser()).newContext({ viewport: { width: 400, height: 300 } });
+    const page = await context.newPage();
     await page.goto(server.url.href);
     const row = page.getByTestId('alias');
     await row.waitFor({ state: 'attached' });
@@ -148,27 +136,25 @@ test('an alias switched between base names goes live; the first base name moves 
     expect(await padding()).toBe('24px');
     expect(await page.evaluate(() => window.__kept)).toBe(1);
   } finally {
-    await browser?.close();
+    await context?.close();
     server?.stop(true);
     rmSync(app, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 }, 60000);
 
-// Round 3 (Astra): a bound grid track naming a base name, directly or
-// through an alias, keeps its length (grid.js's check admits the scale's
-// properties), in a release build and a development one.
+// Bound grid tracks resolve the scale in release and development builds.
 test('a bound grid track naming a base name or an alias keeps its length', async () => {
   const root = resolve(import.meta.dir, '../..');
   const target = resolve(root, 'target');
   const app = mkdtempSync(resolve(target, 'base-grid-app-'));
   const bin = resolve(target, 'debug/exact-web-js');
-  let server, browser;
+  let server, context;
   const dirs = [];
   try {
     writeFileSync(resolve(app, 'app.tamber'), 'tamber t\n\ntheme\n  card.pad: length = space.lg\n');
     writeFileSync(resolve(app, 'app.contract'), `component App\n  state direct = "space.md"\n  state alias = "card.pad"\n  view\n    column\n      column display="grid" grid-template-columns=direct testId="direct"\n        text "a"\n      column display="grid" grid-template-columns=alias testId="alias"\n        text "b"\n`);
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    context = await (await suiteBrowser()).newContext({ viewport: { width: 400, height: 300 } });
     for (const dev of [false, true]) {
       const dir = mkdtempSync(resolve(target, 'base-grid-out-'));
       dirs.push(dir);
@@ -183,7 +169,7 @@ test('a bound grid track naming a base name or an alias keeps its length', async
           .map(base => resolve(base, path)).find(existsSync);
         return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
       } });
-      const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+      const page = await context.newPage();
       await page.goto(server.url.href);
       await page.getByTestId('alias').waitFor({ state: 'attached' });
       const tracks = id => page.getByTestId(id).evaluate(n => [n.style.gridTemplateColumns, getComputedStyle(n).gridTemplateColumns]);
@@ -193,7 +179,7 @@ test('a bound grid track naming a base name or an alias keeps its length', async
       await page.close();
     }
   } finally {
-    await browser?.close();
+    await context?.close();
     server?.stop(true);
     rmSync(app, { recursive: true, force: true });
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
