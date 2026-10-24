@@ -134,7 +134,7 @@ impl<D: DataSource> Presenter<D> {
             self.scroll_end_input(id, off, Completion::Instant);
         }
         self.dirty = true;
-        self.collection_scrolled_or_deferred(id);
+        self.collection_scrolled_or_deferred(id, off);
         if let Some(error) = self.refresh_transform_geometry() {
             self.host.log(error);
         }
