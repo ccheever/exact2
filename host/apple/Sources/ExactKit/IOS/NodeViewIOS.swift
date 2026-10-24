@@ -535,7 +535,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
-        let key = "\(source):\(name):\(points):\(weight):\(props["symbolFillRule"] ?? ""):\(symbolLookKey)"
+        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)" + (props["symbolFillRule"].map { ":\($0)" } ?? "")
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
@@ -1118,7 +1118,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
         if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
-        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
+            || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }
         if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
         if set["inert"] != nil || clear.contains("inert") {
             let ownInert = props["inert"] == "true"

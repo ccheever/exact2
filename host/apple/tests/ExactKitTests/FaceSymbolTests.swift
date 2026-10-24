@@ -121,6 +121,23 @@ final class FaceSymbolTests: XCTestCase {
         XCTAssertNotNil(add.image, "an SF Symbol as before")
     }
 
+    /// Stage 14 C2, mounted: a toolbar button's even-odd icon (its image
+    /// node's `symbolFillRule`) is installed with its hole clear; the rule
+    /// cleared through the batch, the item's image is filled again.
+    @MainActor func testAToolbarItemsEvenOddPathKeepsItsHole() throws {
+        var even = Self.svgProps
+        even["symbolPath"] = IconPathTests.frame; even["symbolFillRule"] = "evenodd"
+        let p = presenter(view(1, "view", ["accessibilityRole": "toolbar", "toolbarPlacement": "window"], w: 300)
+                          + view(2, "button", ["accessibilityLabel": "Gallery"], handlers: ["press"]) + view(3, "image", even)
+                          + [["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let w = try XCTUnwrap(window)
+        defer { p.toolbar.detach() }
+        XCTAssertTrue(p.toolbar.attach(to: w))
+        XCTAssertEqual(try middle(try XCTUnwrap(p.toolbar.items[2]).image)[3], 0, accuracy: 0.01, "the hole clear")
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["symbolFillRule"]]]))
+        XCTAssertEqual(try middle(try XCTUnwrap(p.toolbar.items[2]).image)[3], 1, accuracy: 0.01, "nonzero: filled")
+    }
+
     /// The inked box (dark pixels: a glyph in the label colour on a light ground) of a bitmap, in points.
     private func inked(_ rep: NSBitmapImageRep, in region: CGRect? = nil, scale: CGFloat) throws -> CGRect {
         let area = region ?? CGRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh)
