@@ -61,7 +61,12 @@ package enum TextMetricKey {
         }
         // A Markdown request hashes apart from the plain request of its one
         // source run; a plain request hashes as its Spec does.
-        if request.markup != 0 { h.combine(Int(request.markup)) }
+        if request.markup != 0 {
+            h.combine(Int(request.markup))
+            // A label's width is its face's (LLP 1045.000 D2).
+            if request.atoms_len > 0, let a = request.atoms { h.combine(bytes: UnsafeRawBufferPointer(start: a, count: request.atoms_len)) }
+            if request.faces_len > 0, let f = request.faces { h.combine(bytes: UnsafeRawBufferPointer(start: f, count: request.faces_len)) }
+        }
         h.combine(Int(request.text_box_trim)); h.combine(Int(request.text_box_over)); h.combine(Int(request.text_box_under))
         h.combine(Int(request.text_wrap_style))
         return h.finalize()

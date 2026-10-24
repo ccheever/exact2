@@ -7,13 +7,15 @@ extension NodeView {
     /// Restyle a Markdown editor's storage for its text and selection.
     func markdownRestyle() {
         guard props["markup"] == "markdown", let f = textArea as? TextArea, let t = text, let editor = f.markup as? MarkupEditor, f.markedTextRange == nil else { return }
-        let look = MarkupEditor.Look(
+        var look = MarkupEditor.Look(
             font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
             size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
+        look.atoms = markdownAtoms
         if let content = f.textLayoutManager?.textContentManager as? NSTextContentStorage, content.delegate !== editor { content.delegate = editor }
         editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
         f.typingAttributes = editor.baseAttributes(look)
+        DispatchQueue.main.async { [weak f] in f?.atomsChanged() }
     }
 
     @discardableResult func markdownFormat(_ command: String, argument: String = "", selection override: NSRange? = nil) -> Bool {
@@ -52,7 +54,7 @@ extension NodeView {
     func markdownPublishSelection(force: Bool = false) {
         guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor,
               !editor.applying, !editor.styling, f.markedTextRange == nil,
-              let state = MarkupCommands.selection(f.text ?? "", range: f.selectedRange), force || editor.lastSelectionState != state else { return }
+              let state = MarkupCommands.selection(f.text ?? "", range: f.selectedRange, atoms: AtomHandle.of(markdownAtoms)), force || editor.lastSelectionState != state else { return }
         editor.lastSelectionState = state
         presenter?.session?.selection(node: id, json: state)
     }

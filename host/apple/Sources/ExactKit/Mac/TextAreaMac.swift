@@ -33,11 +33,19 @@ package final class TextArea: NSTextView {
     /// The source's length at the last selection change: a change that
     /// comes with a new length is an edit's.
     var markupLength = 0
+    /// Its inline atoms' accessibility children (FieldAtoms.swift, LLP 1045.000 D8).
+    var atomElements: [AtomElement] = []
+    package override func accessibilityChildren() -> [Any]? { atomElements.isEmpty ? super.accessibilityChildren() : (super.accessibilityChildren() ?? []) + atomElements }
+    // A press on a pill is the atom's (D7); the arrow over one, as over a token.
+    package override func mouseDown(with event: NSEvent) { if !pressAtom(with: event) { super.mouseDown(with: event) } }
+    package override func resetCursorRects() { super.resetCursorRects(); addAtomCursorRects() }
+    // A pill is a picture drawn for one appearance: drawn again for another.
+    package override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); if markup != nil { owner?.restyleMarkup() } }
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
-        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; super.typingAttributes = shown }
+        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; shown[.markupAtom] = nil; super.typingAttributes = shown }
     }
     // AppKit asks the first responder for the mask: the native bezel's
     // scroll view, or the bare node's whole authored box.
@@ -264,7 +272,7 @@ package final class TextArea: NSTextView {
 
     @objc package func copyPlainText(_ sender: Any?) {
         guard markup != nil, selectedRange().length > 0,
-              let plain = MarkdownLink.installed?.plain((string as NSString).substring(with: selectedRange())) else { return }
+              let plain = MarkdownLink.installed?.plain((string as NSString).substring(with: selectedRange()), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(plain, forType: .string)
     }

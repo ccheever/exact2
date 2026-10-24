@@ -13,11 +13,13 @@ public enum ExactMarkdown {
 }
 
 final class MarkdownHost: MarkdownCapability {
-    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool) -> [Run] {
-        MarkupRuns.expand(source, base: base, color: color, boldText: boldText)
+    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run] {
+        MarkupRuns.expand(source, base: base, color: color, boldText: boldText, atoms: atoms)
     }
     func editor() -> MarkdownEditing { MarkupEditor() }
-    func plain(_ source: String) -> String? { MarkupCommands.plain(source) }
+    func plain(_ source: String, atoms: String, faces: String) -> String? {
+        MarkupCommands.plain(source, atoms: AtomHandle.of(MarkdownAtoms(kinds: atoms, faces: faces)))
+    }
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool {
         #if os(macOS)
         node.markdownFormat(command, argument: argument)
