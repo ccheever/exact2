@@ -1,0 +1,29 @@
+test "the message reader has a named Back button"
+  tap "conversation-demo"
+  tap "message-actions-demo-1" contextmenu
+  tap "read-message"
+  expect tree has "reader"
+  tap "Back"
+  expect tree missing "reader"
+  expect tree has "composer"
+
+test "tapbacks have names for their meanings"
+  tap "conversation-demo"
+  tap "message-actions-demo-1" contextmenu
+  tap "Heart"
+  expect state selected == ""
+  tap "message-actions-demo-1" contextmenu
+  tap "Like"
+  expect state selected == ""
+  tap "message-actions-demo-1" contextmenu
+  tap "Dislike"
+  expect state selected == ""
+  tap "message-actions-demo-1" contextmenu
+  tap "Laugh"
+  expect state selected == ""
+  tap "message-actions-demo-1" contextmenu
+  tap "Emphasize"
+  expect state selected == ""
+  tap "message-actions-demo-1" contextmenu
+  tap "Question"
+  expect state selected == ""
