@@ -1,0 +1,111 @@
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.012 §10): every name of
+// @exact/speech-recognition, sent and read as an app would, on a track from
+// @exact/media-capture, on the microphone, or on a file, each answer shown by
+// testId for the suites.
+use getUserMedia, stopTrack, MediaStream, MediaStreamTrack from "@exact/media-capture"
+use startSpeechRecognition, stopSpeechRecognition, abortSpeechRecognition, speechRecognitionState, speechRecognitionStatus, speechRecognitionAvailability, installSpeechRecognition, SpeechRecognitionInfo, SpeechRecognitionState, SpeechRecognitionStatus, SpeechRecognitionAvailability, SpeechRecognitionInstall from "@exact/speech-recognition"
+
+component Fixture
+  state trackId = ""
+  state recognitionId = ""
+  state local = true
+  resource status = speechRecognitionStatus(processLocally=local) as shape SpeechRecognitionStatus else empty()
+  resource availability = speechRecognitionAvailability(langs=["en-US"], processLocally=local) as shape SpeechRecognitionAvailability else empty()
+  resource heard = speechRecognitionState(recognition=recognitionId, interval=50) as shape SpeechRecognitionState else empty()
+  mutation opened as shape MediaStream then arm
+  mutation started as shape SpeechRecognitionInfo then begun
+  mutation held as shape SpeechRecognitionInfo then heldBegun
+  mutation ended as shape SpeechRecognitionInfo
+  mutation installed as shape SpeechRecognitionInstall
+  mutation stopped as shape MediaStreamTrack
+  derive finals = heard.results.map(r => r.alternatives.slice(0, 1).map(a => a.transcript).join("")).join(" ")
+  derive interim = match heard.interim { case some(i) => i.alternatives.slice(0, 1).map(a => a.transcript).join(""), case none => "" }
+  action open
+    send opened = getUserMedia(audio=true)
+  action arm
+    match opened
+      case some(s)
+        trackId = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+      case none
+        trackId = ""
+  action begun
+    match started
+      case some(r)
+        recognitionId = r.id
+      case none
+        recognitionId = ""
+  action heldBegun
+    match held
+      case some(r)
+        recognitionId = r.id
+      case none
+        recognitionId = recognitionId
+  action onTrack
+    send started = startSpeechRecognition(track=trackId, lang="en-US", continuous=true, interimResults=true, processLocally=local, transcript="app:/data/heard.transcript")
+  action onMicrophone
+    send held = startSpeechRecognition(microphone=true, lang="en-US", interimResults=true, processLocally=local)
+  action onFile(path: string)
+    send started = startSpeechRecognition(path=path, lang="en-US", processLocally=local)
+  action onNothing
+    send started = startSpeechRecognition(lang="en-US")
+  action stop
+    send ended = stopSpeechRecognition(recognition=recognitionId)
+  action abort
+    send ended = abortSpeechRecognition(recognition=recognitionId)
+  action endTrack
+    send stopped = stopTrack(track=trackId)
+  action install
+    send installed = installSpeechRecognition(langs=["en-US"], processLocally=true)
+  action anywhere
+    local = not local
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state} ${status.inputs.length > 0 ? status.inputs.join(",") : "-"} ${status.local}` testId="status"
+      text availability.availability testId="availability"
+      text trackId testId="track"
+      text (match failure(opened) { case some(e) => e.code, case none => "" }) testId="open-error"
+      text `${heard.id} ${heard.state} ${heard.audio} ${heard.speech} ${heard.finalCount} ${heard.leavesDevice} ${match heard.error { case some(e) => e, case none => "-" }}` testId="heard"
+      text finals testId="finals"
+      text interim testId="interim"
+      match started
+        case some(r)
+          text `${r.id} ${r.leavesDevice} ${match r.error { case some(e) => e, case none => "-" }}` testId="started"
+        case none
+          text "none" testId="started"
+      text (match failure(started) { case some(e) => e.code, case none => "" }) testId="started-error"
+      match held
+        case some(r)
+          text `${r.id} ${r.leavesDevice}` testId="held"
+        case none
+          text "none" testId="held"
+      text (match failure(held) { case some(e) => e.code, case none => "" }) testId="held-error"
+      match ended
+        case some(r)
+          text `${r.finalCount} ${r.files} ${match r.error { case some(e) => e, case none => "-" }}` testId="ended"
+        case none
+          text "none" testId="ended"
+      match installed
+        case some(i)
+          text `${i.installed}` testId="installed"
+        case none
+          text "none" testId="installed"
+      button press=open testId="open"
+        text "Open the microphone"
+      button press=onTrack testId="on-track"
+        text "Recognise the track"
+      button press=onMicrophone testId="on-microphone"
+        text "Recognise the microphone"
+      button press=onFile("app:/data/spoken.wav") testId="on-file"
+        text "Recognise the file"
+      button press=onNothing testId="on-nothing"
+        text "Recognise nothing"
+      button press=stop testId="stop"
+        text "Stop"
+      button press=abort testId="abort"
+        text "Abort"
+      button press=endTrack testId="end-track"
+        text "End the track"
+      button press=install testId="install"
+        text "Install"
+      button press=anywhere testId="anywhere"
+        text (local ? "On the device" : "Anywhere")
