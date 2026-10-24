@@ -109,6 +109,11 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   `min-width: 0`). A percentage-wide range shrinks below its 129 there too, which is
 >   CSS's own rule for a form control (Sizing 3 §5.2.2) and no deviation (LLP 1115.000
 >   D10.2);
+> - `font-weight` on a platform face draws the platform's named weight at each hundred
+>   (Charlie, 2026-10-24; LLP 1019 §13 D11): on Apple `600` is UIKit's and AppKit's
+>   semibold, San Francisco's `wght` 590, where Chrome and WebKit set the axis to 600,
+>   so its text is about 0.2% narrower than the browser's; a declared face keeps the
+>   number;
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS;

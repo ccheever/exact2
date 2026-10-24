@@ -948,3 +948,37 @@ twelve paragraphs of body text hold the rate with more late frames (QUEUE).
   of the settings naming different axes each move theirs, where CSS's later
   one replaces the whole list.
 
+### D11 — A platform face's weights are the platform's (2026-10-24)
+
+Charlie: "i'm less concerned with the 300kb of heap and more concerned with
+trying to look like UIKit by default." `font-weight` on a platform generic
+(`system-ui`, `ui-serif`, `ui-monospace`, `ui-rounded` and the generics Apple
+draws with them) draws the platform's named weight at each hundred: 100 is
+UIKit's (AppKit's) ultra light, 600 its semibold, 900 its black
+(`TextEngine.cssWeight`, `PlatformWeights.swift`). Chrome and WebKit set the
+`wght` axis to the number instead, so San Francisco text at `600` is about
+0.2% narrower than the browser's, a deviation declared in LLP 1001.
+
+The named instances' `wght`, the same on iOS 27 and macOS 27:
+
+| CSS | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 |
+|---|---|---|---|---|---|---|---|---|---|
+| San Francisco | 30.9 | 110.7 | 274.3 | 400 | 510 | 590 | 700 | 860 | 1000 |
+| SF italic, SF Rounded | 28.9 | 112.7 | 276.3 | 400 | 508 | 590.8 | 700 | 858.4 | 1000 |
+| New York | 400 | 400 | 400 | 400 | 496 | 568 | 674 | 810 | 934 |
+| SF Mono | 294.7 | 294.7 | 294.7 | 400 | 483.5 | 571.3 | 683.3 | 900 | 900 |
+
+- **Between two hundreds each axis runs linearly** from one named
+  instance's value to the next (650 is San Francisco's `wght` 645; SF Mono's
+  `YAXS` moves with its `wght`), and below 100 `wght` runs from the axis
+  minimum at 1, above 900 to the maximum at 1000. A transition is continuous
+  and comes to rest on a named instance. SF Mono has no weight lighter than
+  its light, the axis minimum, so 100 to 300 all draw it.
+- **Each hundred is the platform's own font object**, so CoreText shares
+  what it keeps per named instance (the QUEUE entry this closes measured the
+  exact-`wght` copies at about 300 KB of heap in euxy on iOS). A weight
+  between two makes one font, a copy of the lower instance.
+- **A reported weight is the inverse.** `controlWeight` reads a control's
+  font back through San Francisco's table, so UIKit's semibold reports 600.
+- **A declared face keeps the number**: its `wght` is the CSS weight, as the
+  browser draws an `@font-face` range (D2).
