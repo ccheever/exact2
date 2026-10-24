@@ -390,6 +390,178 @@ fn stretched_height_proof_survives_cache_hits_and_changed_parent_constraints() {
     }
 }
 
+fn ratio_leaf_flow(display: &str, absolute: bool, nested_exclusion: bool) {
+    use exact_textflow::{FlowOptions, Fragment, Options, Prepared};
+
+    let measurer = MonospaceMeasurer {
+        advance_em: 1.,
+        line_height_em: 2.,
+        ..MonospaceMeasurer::default()
+    };
+    let mut k = Kernel::new(Box::new(measurer));
+    k.apply(
+        0,
+        0,
+        &[
+            create(1, NodeType::View),
+            sized(1, 300., 200.),
+            create(2, NodeType::Text),
+            Op::SetProp {
+                id: 2,
+                prop: PropId::Text,
+                value: PropValue::Str("aaaaaaaaaaaa".into()),
+            },
+            patch(
+                2,
+                &[
+                    (StyleId::FontSize, n(10.)),
+                    (StyleId::Height, n(80.)),
+                    (StyleId::AspectRatio, n(1.)),
+                    (StyleId::MaxHeight, n(60.)),
+                    (
+                        StyleId::PositionType,
+                        t(if absolute { "absolute" } else { "static" }),
+                    ),
+                    (StyleId::Left, n(0.)),
+                    (StyleId::Top, n(0.)),
+                ],
+            ),
+            create(3, NodeType::View),
+            exclusion(3, 0., 0.),
+            patch(
+                3,
+                &[
+                    (StyleId::Width, n(40.)),
+                    (StyleId::Height, n(40.)),
+                    (StyleId::ShapeOutside, t("inset(0)")),
+                ],
+            ),
+            create(4, NodeType::View),
+            patch(
+                4,
+                &[
+                    (StyleId::Display, t(display)),
+                    (StyleId::PositionType, t("relative")),
+                    (StyleId::Width, n(50.)),
+                ],
+            ),
+            children(4, if nested_exclusion { &[2, 3] } else { &[2] }),
+            children(1, if nested_exclusion { &[4] } else { &[3, 4] }),
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+
+    let check = |k: &mut Kernel, definite: bool| {
+        let receipt = layout(k);
+        let node = k.node(2).unwrap();
+        if !definite {
+            assert_eq!(receipt.flow_skipped, vec![node.key]);
+            assert_eq!(
+                node.flow_refusal(),
+                Some(if nested_exclusion {
+                    FlowRefusal::Context
+                } else {
+                    FlowRefusal::Chain
+                })
+            );
+            assert!(node.flow_shapes().is_empty());
+            return;
+        }
+        assert_eq!((node.frame.width, node.frame.height), (120., 60.));
+        assert!(receipt.flow_skipped.is_empty(), "{receipt:?}");
+        assert_eq!(node.flow_refusal(), None);
+        assert_eq!(
+            node.flow_shapes(),
+            &[FlowShape::RoundRect {
+                x: 0.,
+                y: 0.,
+                width: 40.,
+                height: 40.,
+                radius: 0.
+            }]
+        );
+
+        let words: String = node.text_runs().iter().map(|r| r.text.as_ref()).collect();
+        let prepared = Prepared::new(&words, Options::default(), &mut |r: std::ops::Range<
+            usize,
+        >| {
+            words[r].chars().map(|_| 10.).sum()
+        });
+        let mut fragments = Vec::new();
+        let result = exact_textflow::flow(
+            &prepared,
+            node.flow_shapes(),
+            &FlowOptions {
+                width: node.frame.width,
+                line_height: 20.,
+                min_fragment: 10. * exact_textflow::MIN_FRAGMENT_EM,
+                max_lines: 0,
+                direction: exact_textflow::Direction::Ltr,
+            },
+            &mut fragments,
+        );
+        assert!(result.complete);
+        assert_eq!(result.height, 60.);
+        // The unbreakable word fits below the exclusion, within the fixed height.
+        assert_eq!(
+            fragments,
+            vec![Fragment {
+                start: 0,
+                end: words.len(),
+                x: 0.,
+                y: 40.,
+                width: 120.,
+                hyphenated: false,
+                line: 2,
+            }]
+        );
+    };
+    for height in [Some(80.), None, Some(100.), Some(80.)] {
+        let op = height.map_or(
+            Op::ClearStyle {
+                id: 2,
+                mask: StyleMask::of(StyleId::Height),
+                written: false,
+            },
+            |h| patch(2, &[(StyleId::Height, n(h))]),
+        );
+        k.apply(0, 0, &[op]).unwrap();
+        check(&mut k, height.is_some());
+        let frame = k.node(2).unwrap().frame;
+        check(&mut k, height.is_some());
+        let mut fresh = k.rehydrate(Box::new(measurer));
+        check(&mut fresh, height.is_some());
+        assert_eq!(k.node(2).unwrap().frame, frame);
+        assert_eq!(fresh.node(2).unwrap().frame, frame);
+    }
+}
+
+#[test]
+fn definite_ratio_leaf_flows_through_flex_chain() {
+    ratio_leaf_flow("flex", false, false);
+}
+
+#[test]
+fn definite_ratio_leaf_flows_through_grid_chain() {
+    ratio_leaf_flow("grid", false, false);
+}
+
+#[test]
+fn definite_ratio_leaf_flows_through_absolute_chain() {
+    ratio_leaf_flow("block", true, false);
+}
+
+#[test]
+fn definite_ratio_leaf_flows_in_flex_context() {
+    ratio_leaf_flow("flex", false, true);
+}
+
+#[test]
+fn definite_ratio_leaf_flows_in_grid_context() {
+    ratio_leaf_flow("grid", false, true);
+}
+
 #[test]
 fn nested_exclusion_affects_only_its_parent_context() {
     let mut k = base();
