@@ -174,7 +174,8 @@ on macOS and Linux.
   is read only with no `after`, so a host's re-asks, which set `after`, leave it unread; one this run can't serve,
   another run's or past what is kept, is answered `missed`, as the POST answers a gap). The POST read's answer
   carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route
-  sends no `Retry-After` longer than 30 s. A client polling so stays present 90 s after an answer (LLP 1122 D4).
+  sends no `Retry-After` longer than 30 s. A client polling so stays present 90 s after an answer (LLP 1122 D4). The
+  Figma plugin keeps the POST form: its door's CORS preflight allows POST only.
 
 ## Where it runs
 
