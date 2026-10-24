@@ -180,6 +180,38 @@ fn pinned_weights_of_one_variable_file_are_one_face() {
     );
 }
 
+/// LLP 1019 §13: `font-optical-sizing` is CSS's, inherited, and reaches
+/// the run style a host draws with.
+#[test]
+fn font_optical_sizing_reaches_the_run_style() {
+    let app = AppDir::new(
+        "component App\n  view\n    column\n      column font-optical-sizing=\"none\"\n        text \"hello\" testId=\"label\"\n      text \"auto\" testId=\"auto\"\n",
+    );
+    let runner = Runner::boot(
+        app.compile().unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let sizing = |id: &str| {
+        let key = kernel.find_by_test_id(id)[0];
+        kernel
+            .node_by_key(key)
+            .unwrap()
+            .text_style()
+            .font_optical_sizing
+    };
+    assert_eq!(sizing("label"), exact_kernel::FontOpticalSizing::None);
+    assert_eq!(sizing("auto"), exact_kernel::FontOpticalSizing::Auto);
+    refusal(
+        "component App\n  view\n    text \"hello\" font-optical-sizing=\"off\"\n",
+        "lower-attr-value",
+    );
+}
+
 /// LLP 1019 D9: `font-variation-settings` reaches the kernel's row as CSS
 /// writes it, and a value CSS refuses is refused at compile.
 #[test]

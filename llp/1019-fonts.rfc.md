@@ -832,7 +832,15 @@ range grows with `opsz` (at weight 944 and 168 px, `wdth` 50–150 spans 1047 to
 itself; Apple in `RegisteredFace.drawn`, since CoreText stops choosing `opsz`
 once a descriptor carries a variation; Linux as a Parley style variation after
 fontique's synthesis (`text::shaping::push_style`), which Android's
-`FONT_AXES` carries to the reader.
+`FONT_AXES` carries to the reader; Android's fields in the `'opsz'` of the
+face's settings.
+
+`font-optical-sizing: none` is authorable (kernel row bit 218, inherited): no
+host sets `opsz`, and the face keeps its own. Apple also sets CoreText's
+`kCTFontOpticalSizeAttribute` to `"none"`, as WebKit does, which turns off
+the optical sizes CoreText picks for San Francisco by itself: at 96 px
+`system-ui` under `none` draws San Francisco's text cut, wider than its
+display cut. Chrome leaves `system-ui` as it is under `none`.
 
 ### How each host draws it
 
@@ -866,8 +874,9 @@ A repeated tag keeps its last value; a tag the face lacks does nothing.
 - **Fields and Canvas 2D take the width.** Apple's native fields draw the
   field's stretch and settings through the same font call as text. Android's
   fields set `Typeface.Builder.setFontVariationSettings` from the weight,
-  width and settings for a declared family; the device's default family is
-  `Typeface.create`, which takes no axes. Canvas 2D's `font` shorthand and
+  width, optical size and settings. The device's default family is
+  `Typeface.create`, which takes no axes, so a field on it that sets a width
+  or a setting is built from the file its text is drawn from instead. Canvas 2D's `font` shorthand and
   `fontStretch` were parsed already; Apple now draws them, as Linux and the
   browser did. A canvas takes no `font-variation-settings`: the HTML canvas
   has none.
@@ -882,7 +891,6 @@ A repeated tag keeps its last value; a tag the face lacks does nothing.
 
 ### Not here
 
-`font-optical-sizing` stays `auto` and is not authorable.
 `font-variation-settings` takes no transition (D10 is the weight and the
 width alone); its eight pairs would interpolate axis by axis.
 
