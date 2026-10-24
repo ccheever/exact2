@@ -1,0 +1,35 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/passkeys@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidPasskeyStatus": {
+      "providerConfigured": "bool"
+    }
+  },
+  "options": {
+    "get": {
+      "isAutoSelectAllowed": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "createRequest",
+    "getRequest"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "androidx.credentials:credentials:1.6.0",
+    "androidx.credentials:credentials-play-services-auth:1.6.0"
+  ],
+  "artifacts": [],
+  "class": "exact.passkeys.PasskeysModule"
+}

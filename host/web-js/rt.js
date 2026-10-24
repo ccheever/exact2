@@ -442,6 +442,7 @@ function ask(source, args, name, mutation = false) {
  * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
 function reply(t, name, source, held, f, next, gone) {
   t.held = held;
+  if (t.call) t.call.held = held; // what the answer's module calls read (ts-data.js `__exact_module`)
   return o => {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);

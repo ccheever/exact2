@@ -1153,6 +1153,16 @@ impl Loader<'_> {
                 if found.is_empty() {
                     return Err(unknown(u, n, from));
                 }
+                if let Some(m) = self.data_only(unique, &found) {
+                    return Err(name_error(
+                        "module-name-data-only",
+                        format!(
+                            "`{}` of `{}` is called from data code alone (LLP 1133.011 D12): its answer would become a mutation's value in `state`; call it in `app.ts`, and send what the server answers",
+                            m.declared, m.package
+                        ),
+                        n.span,
+                    ));
+                }
                 for (kind, to) in found {
                     let key = (kind, n.local().to_owned());
                     match names.get(&key) {

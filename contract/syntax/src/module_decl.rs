@@ -43,6 +43,10 @@ pub struct ModuleDecl {
     pub request: String,
     /// Its synchronous form's name, where it has one (LLP 1133 D6 rule 4).
     pub sync: Option<String>,
+    /// Callable from data code alone (`"contract": false`, LLP 1133.011
+    /// D10 item 1): a Contract `use` of it is refused, so its answer never
+    /// becomes a mutation's value in `state`.
+    pub data_only: bool,
     /// The agent's substitute as the package declares it, a JSON object
     /// (LLP 1133.002 §6): `default`, `from`, `ticket`, `short`, `fill`,
     /// `cancel`, `timeout`, and the interface's `permission`.

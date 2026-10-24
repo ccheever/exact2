@@ -41,3 +41,22 @@ test('finds a macOS profile for the id that grants its keychain group', () => {
   expect(macPresenceProfile(app, { installed: [at({ keychain: ['T.*'], appId: 'T.*' })], named })?.name).toBe('p');
   expect(macPresenceProfile(app, { installed: [at({})], distribution: true, named })).toBeNull();
 });
+
+test('a Mac build with a passkey line says it has none, and a release build is refused', async () => {
+  const { macPasskeys, passkeyLines } = await import('./presence.mjs');
+  const grants = 'auth.passkey app.example\nauth.passkey localhost';
+  expect(passkeyLines(grants)).toEqual(['app.example']);
+  const said = [];
+  macPasskeys(app, grants, { log: (l) => said.push(l) });
+  expect(said[0]).toContain('available is false');
+  expect(() => macPasskeys(app, grants, { release: true })).toThrow(/^grant-needs-profile: auth.passkey app.example: /);
+  expect(() => macPasskeys(app, 'auth.passkey localhost', { release: true })).not.toThrow();
+});
+
+test('a development build asks for a passkey domain in developer mode, a release build never', async () => {
+  const { associatedDomains } = await import('./presence.mjs');
+  const auth = { passkeys: ['app.example'], associatedDomains: ['webcredentials:app.example', 'webcredentials:auth.example'] };
+  expect(associatedDomains(auth, true)).toEqual(['webcredentials:app.example?mode=developer', 'webcredentials:auth.example']);
+  expect(associatedDomains(auth, false)).toEqual(auth.associatedDomains);
+  expect(associatedDomains(undefined, true)).toEqual([]);
+});
