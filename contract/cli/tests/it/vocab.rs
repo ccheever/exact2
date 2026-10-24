@@ -1044,6 +1044,9 @@ fn wakelock_says_its_two_words_and_where_it_holds() {
         "\"none\"",
         "display: none",
         "state.wakelock",
+        "expect wakelock held",
+        "expect wakelock released",
+        "not whether the OS or browser granted it",
     ] {
         assert!(text.contains(want), "{want}: {text}");
     }

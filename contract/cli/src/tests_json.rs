@@ -285,6 +285,9 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(",\"value\":");
                     q(value, &mut s);
                 }
+                Step::ExpectWakelock { held, .. } => {
+                    s.push_str(&format!("{{\"op\":\"expect-wakelock\",\"held\":{held}"));
+                }
                 Step::ExpectSound {
                     src,
                     present,
