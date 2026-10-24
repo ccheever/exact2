@@ -195,3 +195,21 @@ fn a_moving_parent_hands_its_children_each_frame() {
     assert_eq!(rows(&r, "eased").0, 700);
     assert!(!own_weight(&r, "eased"));
 }
+
+/// A keyed jump builds the rows it lands on in a commit of its own
+/// (`scrollIntoView`): their keyframes start there, as a row any other
+/// commit builds does.
+#[test]
+fn a_row_a_jump_builds_starts_its_keyframes() {
+    let mut r = boot(
+        "keyframes breathe\n  from font-weight=200\n  to font-weight=800\n",
+        r#"    list virtualized=true estimated-item-height=40 height=400
+      for i in range(500) key=i
+        text `row ${i}` testId=`row-${i}` font-weight=400 animation="breathe 1s linear infinite alternate""#,
+    );
+    assert_eq!(rows(&r, "row-0").0, 200);
+    let list = r.collections()[0].view;
+    r.scroll_into_view_at(list, "300", "start", "nearest")
+        .unwrap();
+    assert_eq!(rows(&r, "row-300").0, 200, "the first keyframe's");
+}
