@@ -37,8 +37,8 @@ component Symbols
         button "Raster" press=raster testId="raster"
         button "Size" press=resize testId="resize"
       // A symbol's `-exact-tint-color` is no paint of it on the web either (lowering answers it with `currentcolor`,
-      // symbols/ink.rs; `lower-symbol-tint` warns), a raster's is: both targets draw these alike. A native button's
-      // face keeps its tint.
+      // symbols/ink.rs; `lower-symbol-tint` warns), a raster's is: `source` is either by turns (Portable, Raster), and
+      // both targets draw it alike. A native button's face keeps its tint.
       row gap=8 align-items="flex-start"
         image source testId="natural" -exact-tint-color="#0066cc"
         image source width=40 testId="width-only" -exact-tint-color="#0066cc"
