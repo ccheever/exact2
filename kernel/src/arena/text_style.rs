@@ -270,6 +270,16 @@ impl NodeArena {
 }
 
 impl crate::NodeRef<'_> {
+    /// Apply this node's Bold Text rule to a weight the host assigns after
+    /// resolving its style. Do not pass a weight already stepped by the kernel.
+    pub fn emboldened_weight(&self, weight: u16) -> u16 {
+        let family = self
+            .arena
+            .computed_source(self.slot, StyleId::FontFamily)
+            .font_family;
+        self.arena.emboldened(self.slot, weight, family)
+    }
+
     /// Whether this node names a text style through the `font` shorthand
     /// (or a heading): its weight and leading reset there.
     pub fn names_text_style_through_font(&self) -> bool {
