@@ -235,6 +235,7 @@ impl RegionTextRequest {
             })
             .collect();
         f(&TextMeasureRequest {
+            atoms: Default::default(),
             exclusions: &[],
             runs: &runs,
             paragraph: self.0.source.paragraph,

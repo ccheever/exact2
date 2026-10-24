@@ -70,6 +70,7 @@ fn request<'a>(
     height: AxisOffer,
 ) -> TextMeasureRequest<'a> {
     TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs,
         paragraph: exact_kernel::text::Paragraph::from_style(&StyleProps::default()),

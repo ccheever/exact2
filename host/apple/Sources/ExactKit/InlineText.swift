@@ -200,6 +200,7 @@ extension NodeView {
         return url
     }
     func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
+        if pressReaderAtom(url) { return true }
         guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
         if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true

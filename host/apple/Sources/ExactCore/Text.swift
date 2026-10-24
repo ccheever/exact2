@@ -1400,7 +1400,8 @@ package final class TextEngine {
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {
-            if let expanded = presentation?.markdown(self, source: source) { runs = expanded }
+            let utf8 = { (p: UnsafePointer<UInt8>?, n: Int) in p.map { String(decoding: UnsafeBufferPointer(start: $0, count: n), as: UTF8.self) } ?? "" }
+            if let expanded = presentation?.markdown(self, source: source, atoms: utf8(request.atoms, request.atoms_len), faces: utf8(request.faces, request.faces_len)) { runs = expanded }
             else if requiresMarkdownExpansion { refusedMarkdown = request.view; runs = [] }
         }
         // Metric-only keys match the geometry used by the colored presenter.

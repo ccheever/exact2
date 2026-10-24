@@ -60,6 +60,7 @@ fn measure(m: &mut CallbackMeasurer, k: &Kernel, w: AxisOffer, h: AxisOffer) -> 
     let node = k.node(1).unwrap();
     let runs = node.text_runs();
     let req = TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(node.style),
@@ -429,6 +430,8 @@ mod storage {
             && actual.text_indent.to_bits() == expected.text_indent.to_bits()
             && actual.hyphens == expected.hyphens
             && actual.text_wrap_style == expected.text_wrap_style
+            && actual.atoms_len == expected.atoms_len
+            && actual.faces_len == expected.faces_len
             && same_run(&actual.strut, &expected.strut)
             && !actual.runs.is_null();
         if probe.exact {
@@ -563,6 +566,7 @@ mod storage {
             paragraph.text_wrap_style = exact_kernel::TextWrapStyle::Balance;
         }
         let request = TextMeasureRequest {
+            atoms: Default::default(),
             exclusions: &[],
             runs: &runs[..count],
             paragraph,
@@ -596,6 +600,10 @@ mod storage {
                 text_box_over: 0,
                 text_box_under: 0,
                 text_wrap_style: (variant % 2) as u8,
+                atoms: "".as_ptr(),
+                atoms_len: 0,
+                faces: "".as_ptr(),
+                faces_len: 0,
             },
             calls: 0,
             exact: true,

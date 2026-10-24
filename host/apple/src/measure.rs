@@ -120,6 +120,15 @@ pub struct CRequest {
     pub text_box_under: u8,
     /// CSS `text-wrap-style`: 0 auto, 1 balance (LLP 1001 §6).
     pub text_wrap_style: u8,
+    /// A Markdown paragraph's `atoms` JSON (UTF-8, LLP 1045.000 D2), borrowed
+    /// for this callback; empty for none.
+    pub atoms: *const u8,
+    /// Its length in bytes.
+    pub atoms_len: usize,
+    /// Its `atomFaces` JSON, likewise.
+    pub faces: *const u8,
+    /// Its length in bytes.
+    pub faces_len: usize,
 }
 
 /// What the callback returns.
@@ -486,6 +495,10 @@ impl CallbackMeasurer {
             text_box_over: request.paragraph.text_box_edge.over() as u8,
             text_box_under: request.paragraph.text_box_edge.under() as u8,
             text_wrap_style: request.paragraph.text_wrap_style as u8,
+            atoms: request.atoms.kinds.as_ptr(),
+            atoms_len: request.atoms.kinds.len(),
+            faces: request.atoms.faces.as_ptr(),
+            faces_len: request.atoms.faces.len(),
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
