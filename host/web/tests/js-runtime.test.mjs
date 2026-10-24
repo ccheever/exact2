@@ -765,6 +765,18 @@ test('a key handler stops and prevents its event while a view transition holds t
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });
 
+test('a key handler hears isComposing last in its KeyboardEvent record', async () => {
+  const { on, onKey } = await import(resolve(dir, 'rt.js'));
+  const listeners = [];
+  const el = { addEventListener: (type, f) => listeners.push([type, f]) };
+  const heard = [];
+  on(el, 'key', (_, record) => heard.push(record), onKey);
+  // Chrome's keydown for the Enter that commits a candidate: keyCode 229, isComposing.
+  for (const ev of [{ key: 'Enter', code: 'Enter', repeat: false, isComposing: true }, { key: 'Enter', code: 'Enter', repeat: false, isComposing: false }, { key: 'a' }])
+    for (const [type, f] of listeners) if (type === 'keydown') f({ shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...ev });
+  expect(heard.map(r => [r[0], r[7]])).toEqual([['Enter', true], ['Enter', false], ['a', false]]);
+});
+
 test('capture stop ends Exact key handlers but leaves Enter submission and the browser default available', async () => {
   const { on, onKey, onSubmit, Hosts } = await import(resolve(dir, 'rt.js'));
   const saved = globalThis.addEventListener, windowListeners = [];

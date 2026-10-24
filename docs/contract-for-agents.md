@@ -2471,7 +2471,9 @@ target's `key` handler when called there. `preventDefault()` keeps the field
 from editing. The container gains no Tab stop from `keycapture` alone.
 
 `key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
-a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
+a `KeyboardEvent` (`metaKey`, `code`, `repeat`, `isComposing`, …). An Enter or
+Escape handler at a field skips `e.isComposing`, as web code does: on the web
+the Enter that picks an input method's candidate arrives composing. Track a held modifier as a
 page does: set it from the event on every keydown and keyup, and forget it when
 the window loses the focus, since a key let go in another app sends no keyup
 (the page's `window` `blur`). `exactPage().hasFocus` turning false gates the task
