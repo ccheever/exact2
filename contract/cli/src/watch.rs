@@ -108,9 +108,18 @@ fn calculated(e: &Expr) -> bool {
     }
 }
 
-fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
+fn attrs<'a>(tag: &str, attrs: impl IntoIterator<Item = &'a Attr>, errors: &mut Vec<CompileError>) {
     for a in attrs {
         let fail = |id, edit: &str| refusal(id, format!("`{}` on `{tag}`: {edit}", a.name), a.span);
+        // A named style's state block (`:active`, `:hover`…) paints a host state the
+        // driver does not draw, as `-exact-press-background-color` would.
+        if a.name.starts_with(':') {
+            errors.push(fail(
+                "watch-state",
+                "the watch draws no pressed or hovered paint; remove this state from the watch entry's style",
+            ));
+            continue;
+        }
         if a.name == "hatch" {
             errors.push(fail(
                 "watch-hatch",
@@ -150,43 +159,57 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
     }
 }
 
-/// An image the driver cannot draw: its leaf reads the bundle and the app
-/// group, never the network. A source computed at run time is the runtime's.
+/// An image the driver cannot draw, in any branch: its leaf reads the bundle and
+/// the app group, never the network. A source computed at run time is the runtime's.
 fn remote_image(src: &Expr) -> bool {
     match src {
         Expr::Template(parts, _) => {
             matches!(parts.first(), Some(TemplatePart::Text(t)) if t.contains("://"))
         }
-        e => crate::snapshot::values::literal(e) && !crate::snapshot::local_image(e),
+        Expr::Str(..) => !crate::snapshot::local_image(src),
+        Expr::Ternary(_, a, b, _)
+        | Expr::Match {
+            some: a, none: b, ..
+        } => remote_image(a) || remote_image(b),
+        Expr::Let { body, .. } => remote_image(body),
+        _ => false,
     }
 }
 
-/// The named styles the file's elements apply (`class=Name`, or
-/// `class=(cond ? A : B)`), checked as the elements' own attributes are.
-fn classes(file: &File, errors: &mut Vec<CompileError>) -> HashSet<String> {
-    let mut names = HashSet::new();
-    for c in &file.components {
-        visit(&c.view, &mut |n| {
-            let Node::Element { attrs, .. } = n else {
-                return;
-            };
-            for a in attrs.iter().filter(|a| a.name == "class") {
-                match &a.value {
-                    Expr::Ident(name, _) => {
-                        names.insert(name.clone());
-                    }
-                    Expr::Ternary(_, yes, no, _) => match (&**yes, &**no) {
-                        (Expr::Ident(x, _), Expr::Ident(y, _)) => {
-                            names.extend([x.clone(), y.clone()]);
-                        }
-                        _ => errors.push(refusal("watch-class", "choose named styles with `class=(condition ? A : B)`, so the bake can check each".into(), a.span)),
-                    },
-                    _ => errors.push(refusal("watch-class", "write a style name or `class=(condition ? A : B)`, so the bake can check each".into(), a.span)),
+/// The rows a named style gives an element (`class=Name`, or `class=(cond ? A
+/// : B)`), checked as its own are: each alternative's, less the attributes the
+/// element writes itself, which win in lowering (`contract/lower/src/class.rs`).
+fn classes(file: &File, own: &[Attr], errors: &mut Vec<CompileError>) {
+    for a in own.iter().filter(|a| a.name == "class") {
+        let names = match &a.value {
+            Expr::Ident(name, _) => vec![name],
+            Expr::Ternary(_, yes, no, _) => match (&**yes, &**no) {
+                (Expr::Ident(x, _), Expr::Ident(y, _)) => vec![x, y],
+                _ => {
+                    errors.push(refusal("watch-class", "choose named styles with `class=(condition ? A : B)`, so the bake can check each".into(), a.span));
+                    continue;
                 }
+            },
+            _ => {
+                errors.push(refusal(
+                    "watch-class",
+                    "write a style name or `class=(condition ? A : B)`, so the bake can check each"
+                        .into(),
+                    a.span,
+                ));
+                continue;
             }
-        });
+        };
+        for name in names {
+            for style in file.styles.iter().filter(|s| &s.name == name) {
+                let rows = style
+                    .attrs
+                    .iter()
+                    .filter(|r| !own.iter().any(|o| o.name == r.name));
+                attrs(&format!("style {name}"), rows, errors);
+            }
+        }
     }
-    names
 }
 
 /// Every refusal in a watch entry's file, each with the edit that admits it.
@@ -202,10 +225,6 @@ pub fn check(file: &File) -> Result<(), Vec<CompileError>> {
                 routes.span,
             ));
         }
-    }
-    let styles = classes(file, &mut errors);
-    for s in file.styles.iter().filter(|s| styles.contains(&s.name)) {
-        attrs(&format!("style {}", s.name), &s.attrs, &mut errors);
     }
     for c in &file.components {
         visit(&c.view, &mut |n| {
@@ -239,9 +258,13 @@ pub fn check(file: &File) -> Result<(), Vec<CompileError>> {
                     ));
                 }
                 attrs(tag, a, &mut errors);
+                classes(file, a, &mut errors);
             }
         });
     }
+    // A style several elements apply is refused once.
+    let mut seen = HashSet::new();
+    errors.retain(|e| seen.insert((e.id.clone(), e.span.line, e.span.col, e.message.clone())));
     if errors.is_empty() {
         Ok(())
     } else {
@@ -295,8 +318,14 @@ mod tests {
         assert_eq!(ids(classed), ["watch-row", "watch-scroll-x"]);
         let painted = "component A\n  view\n    column border-left=\"4px solid red\"\n      image \"https://example.com/a.png\" width=10 height=10\n      image \"assets/a.png\" width=10 height=10\n";
         assert_eq!(ids(painted), ["snapshot-border", "watch-image"]);
-        let computed = "component A\n  state tint = \"#ff0000\"\n  state src = \"assets/a.png\"\n  view\n    column color=tint background-color=tint overflow-y=\"auto\"\n      image src width=10 height=10\n";
+        let computed = "component A\n  state tint = \"#ff0000\"\n  state src = \"assets/a.png\"\n  view\n    column color=tint background-color=\"accent.fill\" overflow-y=\"auto\"\n      image src width=10 height=10\n";
         assert_eq!(ids(computed), Vec::<String>::new());
+        // The element's own row wins over its style's, as lowering has it; a
+        // style's state block is a host state the watch does not paint.
+        let overridden = "style Shared\n  overflow-x=\"auto\"\nstyle Pressy\n  :active\n    background-color=\"red\"\ncomponent A\n  view\n    column class=Shared overflow-x=\"hidden\"\n      column class=Pressy\n        text \"hi\"\n      column class=Pressy\n        text \"again\"\n";
+        assert_eq!(ids(overridden), ["watch-state"]);
+        let branched = "component A\n  state id = \"a\"\n  state on = false\n  view\n    image (on ? `https://example.com/${id}.png` : \"assets/b.png\") width=10 height=10\n";
+        assert_eq!(ids(branched), ["watch-image"]);
     }
 
     /// An app directory holding `files`, removed on drop.
