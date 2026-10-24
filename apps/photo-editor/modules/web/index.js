@@ -43,6 +43,22 @@ function summary(e, stage) {
   return `scale ${f(e.scale)}× · rotation ${d.toFixed(1)}° · pan x ${f(stage.w ? e.x / stage.w : 0)} y ${f(stage.h ? e.y / stage.h : 0)} · crop x ${f(e.crop.l)} y ${f(e.crop.t)} w ${f(e.crop.r - e.crop.l)} h ${f(e.crop.b - e.crop.t)}`;
 }
 
+// The edit in the photo's terms, as `storage.fs.transformImage` takes it
+// (LLP 1133.019 §11; `PhotoEdit.inPhoto` in PhotoEditor.swift): the clockwise
+// angle in degrees, and the crop in the turned photo's pixels.
+function inPhoto(e, stage, fit, w, h) {
+  let d = ((angle(e) * 180 / Math.PI) % 360 + 360) % 360;
+  d = Math.round(d * 10) / 10 % 360;
+  if (!w || !h || !fit.w || !stage.w || !stage.h) return '{}';
+  const m = fit.w / w * e.scale, c = Math.abs(Math.cos(angle(e))), s = Math.abs(Math.sin(angle(e)));
+  const tw = w * c + h * s, th = w * s + h * c;
+  const l = Math.max(0, ((e.crop.l - 0.5) * stage.w - e.x) / m + tw / 2), t = Math.max(0, ((e.crop.t - 0.5) * stage.h - e.y) / m + th / 2);
+  const r = Math.min(tw, ((e.crop.r - 0.5) * stage.w - e.x) / m + tw / 2), b = Math.min(th, ((e.crop.b - 0.5) * stage.h - e.y) / m + th / 2);
+  if (r - l < 1 || b - t < 1) return JSON.stringify({ rotate: d });
+  const x = Math.round(l), y = Math.round(t);
+  return JSON.stringify({ rotate: d, crop: { x, y, width: Math.max(1, Math.min(Math.round(tw) - x, Math.round(r - l))), height: Math.max(1, Math.min(Math.round(th) - y, Math.round(b - t))) } });
+}
+
 class Editor {
   constructor(element, props, event) {
     this.event = event;
@@ -62,7 +78,7 @@ class Editor {
     this.margin = { x: 0, y: 0 };
     this.resize.observe(this.canvas);
     this.listen();
-    this.img.onload = () => { this.apply(); this.event(7); this.event(1, summary(this.edit, this.size)); const e = this.edit; this.reported = JSON.stringify([e.scale, e.rotation, e.turns, e.x, e.y, e.crop]); };
+    this.img.onload = () => { this.apply(); this.event(7); this.event(1, summary(this.edit, this.size)); this.event(8, `edit ${this.inPhoto(this.edit)}`); const e = this.edit; this.reported = JSON.stringify([e.scale, e.rotation, e.turns, e.x, e.y, e.crop]); };
     this.img.onerror = () => this.event(8, `no photo at ${this.photo}`);
     this.setPhoto(props.photo);
   }
@@ -99,7 +115,15 @@ class Editor {
     const key = JSON.stringify([e.scale, e.rotation, e.turns, e.x, e.y, e.crop]);
     if (this.dead || key === this.reported) return;
     this.reported = key;
-    this.event(1, summary(e, this.size)); this.event(8, 'edited');
+    this.event(1, summary(e, this.size)); this.event(8, `edit ${this.inPhoto(e)}`); this.event(8, 'edited');
+  }
+
+  inPhoto(e) {
+    const saved = this.edit;
+    this.edit = e;
+    const fit = this.fit;
+    this.edit = saved;
+    return inPhoto(e, this.size, fit, this.img.naturalWidth, this.img.naturalHeight);
   }
 
   /// Where an edit comes to rest is known when the gesture ends: reported
