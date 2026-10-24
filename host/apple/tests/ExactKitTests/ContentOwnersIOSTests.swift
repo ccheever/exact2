@@ -166,7 +166,7 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// both point reads and the intersection observer agree with the card's
     /// view.
     func testANativeOwnerPublishesItsIntermediatePlacement() throws {
-        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else { throw missing("scene", "native owner motion requires a scene") }
+        guard hostedWindowScene() != nil else { throw missing("scene", "native owner motion requires a scene") }
         let s = try fixture("owner-animation", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
         let p = s.presenter, route = try node(s, "route-first")
         let view = try XCTUnwrap(p.navigation.controllers[route.id]?.viewIfLoaded)
@@ -469,6 +469,9 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// slice in flight, as the blocks do, and so scrolls in the geometry the
     /// field is shown in, never in one about to change.
     func testASheetsEditorIsRevealedAfterItsBlocksLand() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture("owner-reveal", CGSize(width: 402, height: 874))
         let p = session.presenter
         p.press(try node(session, "sheet").id)
@@ -480,10 +483,12 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(field.field).becomeFirstResponder())
         p.collections.onFill?(try node(session, "route-sheet").id, Data())
         XCTAssertTrue(session.fillInFlight)
-        p.applyKeyboard(top: 600, duration: 0, curve: 0)
+        setKeyboard(p, top: 600)
         NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
         if session.fillInFlight { XCTAssertEqual(scroller.contentOffset.y, 0, "the reveal waits for the slice") }
-        until("the slice lands and the field is revealed") { !session.fillInFlight && scroller.contentOffset.y > 0 }
+        until("the slice lands and the field is revealed") {
+            !session.fillInFlight && scroller.contentOffset.y > 0 && scroller.bounds.contains(field.convert(field.bounds, to: scroller))
+        }
         let shown = field.convert(field.bounds, to: scroller)
         XCTAssertTrue(scroller.bounds.contains(shown), "the field is in its scroller's view: \(shown) in \(scroller.bounds)")
     }
