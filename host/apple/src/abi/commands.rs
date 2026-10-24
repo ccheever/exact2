@@ -235,6 +235,29 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 
+    /// How a presence check the host made ended (`exact_presence`, LLP
+    /// 1133.010 D13): the value goes to the waiting call alone.
+    pub fn presence(&mut self, len: usize) -> u32 {
+        use exact_runner::presence::PresenceAnswer;
+        let json: serde_json::Value =
+            serde_json::from_slice(&self.input[..len.min(self.input.len())]).unwrap_or_default();
+        let text = |k: &str| json[k].as_str().unwrap_or_default().to_owned();
+        let answer = match json["status"].as_str() {
+            Some("passed") => PresenceAnswer::Passed,
+            Some("read") => {
+                PresenceAnswer::Read(json["value"].as_str().map(|v| v.as_bytes().to_vec()))
+            }
+            _ => PresenceAnswer::Failed(text("code"), text("message")),
+        };
+        if let (Some(h), Some(id)) = (self.host.as_mut(), json["call"].as_u64()) {
+            h.runner_mut().presence_answer(id, answer);
+        }
+        if let Some(x) = self.executor.as_deref() {
+            x.notify();
+        }
+        0
+    }
+
     /// A button's face (`exact_press_face`, LLP 1069.011.000 D1; LLP 1069.011
     /// D2, D5), custom or native, as JSON in the output buffer:
     /// `{"button","title","symbol","raster","leading","label","fits","style",

@@ -17,7 +17,7 @@
     "allow": {}
   },
   "authenticator": {
-    "apple": "evaluate(accessControl: SecAccessControl, reason: String, origin: Origin) async throws -> LAContext",
+    "apple": "evaluate(accessControl: SecAccessControl, reason: String, policy: String, origin: String, reply: @escaping (AnyObject?, [String: Any]?) -> Void)",
     "android": "authenticate(crypto: BiometricPrompt.CryptoObject, authenticators: Int, reason: String, origin: Origin): CryptoObject",
     "android-key": "configure(builder: KeyGenParameterSpec.Builder)",
     "substitute": {
@@ -73,6 +73,14 @@
         "fill": {
           "timestamp": "now"
         },
+        "strings": [
+          "reason",
+          "apple.localizedFallbackTitle",
+          "apple.localizedCancelTitle",
+          "android.subtitle",
+          "android.description",
+          "android.negativeButtonText"
+        ],
         "unsupported": [
           "web"
         ]
