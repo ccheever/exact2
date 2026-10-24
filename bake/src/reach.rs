@@ -41,7 +41,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 .join("\n"));
         }
     };
-    let strings = if devices.is_empty() {
+    let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
     } else {
         contract::strings_tables(app_dir)?
@@ -50,7 +50,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // Key → locale → text, a translation lacking a key falling back to the
     // base as `t` does.
     let mut purposes: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
-    for grant in &devices {
+    for grant in devices.iter().filter(|g| g.device.purpose) {
         let base = strings
             .as_ref()
             .and_then(|s| s.base_table().get(grant.purpose));
