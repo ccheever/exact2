@@ -447,10 +447,13 @@ impl Batch {
     /// `{"op":"presence","call":N,"name":…,"account":…,"service":…,"policy":…,
     /// "reason":…,"origin":…}`: the platform's check for a presence call
     /// (LLP 1133.010 D13), and, with a `service`, the item the host reads
-    /// after it. Nothing secret: the value comes back by `exact_presence`.
-    pub fn presence(&mut self, ask: &exact_runner::presence::PresenceAsk) {
-        self.ops
-            .push(format!("{{\"op\":\"presence\",{}", &ask.json()[1..]));
+    /// after it, one op per ask. Nothing secret: the value comes back by
+    /// `exact_presence`.
+    pub fn presences(&mut self, asks: Vec<exact_runner::presence::PresenceAsk>) {
+        for ask in asks {
+            self.ops
+                .push(format!("{{\"op\":\"presence\",{}", &ask.json()[1..]));
+        }
     }
 
     /// A reserved activity send, dispatched to the demand-loaded arm.
