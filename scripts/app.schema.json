@@ -493,6 +493,10 @@
               "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
             },
+            "pushNotifications": {
+              "type": "boolean",
+              "description": "iOS APNs callbacks for the app's native module. Signs aps-environment from the profile; the app owns permission, registration, payload interpretation and its sender."
+            },
             "launchImage": {
               "description": "A picture the launch screen centres on `background_color` (UILaunchScreen's UIImageName), drawn `width` points wide: the app's first frame drawn ahead of it, so the launch shows what the first frame shows (Expo's splash `image` and `imageWidth`). A PNG in the app's directory; light and dark alike.",
               "type": "object",

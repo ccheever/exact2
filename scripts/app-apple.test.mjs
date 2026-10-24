@@ -11,6 +11,31 @@ import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './ex
 import { iosAssets, entitlements, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
+import { pushSigningEnvironment } from '../host/apple/bundle.mjs';
+
+test('remote push signing binds APNs to the profile without changing simulator identity', () => {
+  const app = { id:'com.example.push', displayName:'Push', manifest:{host:{ios:{pushNotifications:true}}} };
+  assert.match(infoPlist(app), /<key>ExactPushNotifications<\/key><true\/>/);
+  assert.doesNotMatch(infoPlist(app, false, {tv:true}), /ExactPushNotifications/);
+  assert.doesNotMatch(infoPlist(app, false, {clip:true}), /ExactPushNotifications/);
+  const simulator = entitlements(app, null, true, null, {simulator:true});
+  assert.match(simulator, /SIMULATORX.com.example.push/);
+  assert.match(simulator, /<key>aps-environment<\/key><string>development<\/string>/);
+  assert.match(entitlements(app, 'TEAM', false), /<key>aps-environment<\/key><string>production<\/string>/);
+  for (const extra of [{widgetTV:true},{widgetAppId:app.id},{widgetHost:true},{clipParent:app.id}])
+    assert.doesNotMatch(entitlements({...app,...extra}, 'TEAM', true), /aps-environment/);
+  assert.equal(pushSigningEnvironment(app), 'sandbox');
+  assert.equal(pushSigningEnvironment(app, {device:true, profile:{name:'Development',dev:true,aps:'development'}}), 'sandbox');
+  assert.equal(pushSigningEnvironment(app, {device:true, profile:{name:'Distribution',dev:false,aps:'production'}}), 'production');
+  assert.throws(() => pushSigningEnvironment(app, {device:true}), /unsigned archive/);
+  assert.throws(() => pushSigningEnvironment(app, {device:true,profile:{name:'Wildcard',dev:true,aps:null}}), /lacks aps-environment=development/);
+  assert.throws(() => pushSigningEnvironment(app, {device:true,profile:{name:'Wrong environment',dev:true,aps:'production'}}), /lacks aps-environment=development/);
+  assert.equal(pushSigningEnvironment(app, {device:true,tv:true}), null);
+  assert.equal(pushSigningEnvironment(app, {device:true,kind:'clip'}), null);
+  const plain = {...app,manifest:{host:{ios:{}}}};
+  assert.doesNotMatch(entitlements(plain), /aps-environment/);
+  assert.doesNotMatch(infoPlist(plain), /ExactPushNotifications/);
+});
 
 test('the Apple build rejects --phone before selecting a simulator or resolving an app', () => {
   const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--ios', '--phone', 'other-lane', 'no-such-app'], { encoding: 'utf8' });
