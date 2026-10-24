@@ -322,3 +322,136 @@ fn modal_inside_closed_popover_accepts_input_and_blocks_page() {
         assert_eq!(host.runner.slot("count"), Some(&Value::Number(2.)));
     }
 }
+
+#[test]
+fn modal_boundary_survives_popovers_above_it() {
+    let source = r#"component App
+  state text = ""
+  state focused = 0
+  state pagePresses = 0
+  state allowedPresses = 0
+  action escape
+    focus("page-field")
+  action focusedPage
+    focused = focused + 1
+  action edit(value)
+    text = value
+  action pagePress
+    pagePresses = pagePresses + 1
+  action allowedPress
+    allowedPresses = allowedPresses + 1
+  view
+    column
+      input id="page-field" testId="page-field" value=text input=edit focus=focusedPage
+      button "Page" testId="page-button" press=pagePress
+      column popover="auto" testId="earlier"
+        button "Earlier" testId="earlier-button" press=pagePress
+      dialog testId="modal"
+        button "Dialog" testId="dialog-button" press=allowedPress
+        column popover="auto" testId="nested"
+          button "Escape" testId="nested-escape" press=escape
+          button "Nested" testId="nested-button" press=allowedPress
+      column popover="auto" testId="sibling"
+        button "Escape" testId="sibling-escape" press=escape
+        button "Sibling" testId="sibling-button" press=allowedPress
+"#;
+    let mut failures = Vec::new();
+    for popover in ["nested", "sibling"] {
+        let mut host = Host::boot(
+            contract::compile(source).unwrap(),
+            (),
+            Mode::Fullscreen,
+            80,
+            40,
+        )
+        .unwrap();
+        host.arm = false;
+        host.frame();
+        host.open_layer(host.by_test_id("earlier").unwrap(), false);
+        host.open_layer(host.by_test_id("modal").unwrap(), true);
+        host.open_layer(host.by_test_id(popover).unwrap(), false);
+        host.press(host.by_test_id(&format!("{popover}-escape")).unwrap());
+        host.key(Key::Char('x'));
+        for name in ["page-field", "page-button", "earlier-button"] {
+            let node = host.by_test_id(name).unwrap();
+            host.focus(Some(node));
+            host.press(node);
+        }
+        host.key(Key::Char('y'));
+        if host.runner.slot("text") != Some(&Value::str(""))
+            || host.runner.slot("focused") != Some(&Value::Number(0.))
+            || host.runner.slot("pagePresses") != Some(&Value::Number(0.))
+        {
+            failures.push(format!("{popover}: page focus/input/press escaped modal"));
+        }
+        for name in ["dialog-button".to_string(), format!("{popover}-button")] {
+            let node = host.by_test_id(&name).unwrap();
+            host.focus(Some(node));
+            assert_eq!(host.focus, Some(node), "{name}");
+            host.press(node);
+        }
+        assert_eq!(
+            host.runner.slot("allowedPresses"),
+            Some(&Value::Number(2.)),
+            "{popover}"
+        );
+    }
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn a_commit_clears_noncontrol_focus_before_key_defaults() {
+    let source = r#"component App
+  state expired = false
+  state presses = 0
+  action expire
+    expired = true
+  action press
+    presses = presses + 1
+  action park
+    focus("plain")
+  task expiry mount
+    after(150, expire)
+  view
+    column
+      column press=press
+        column id="plain" testId="plain"
+          text "Plain"
+      button "Focus plain column" testId="park" press=park
+      text `${expired}`
+"#;
+    let mut failures = Vec::new();
+    for arm in [true, false] {
+        for key in [
+            Key::Named("ArrowUp"),
+            Key::Named("ArrowDown"),
+            Key::Char(' '),
+            Key::Named("Enter"),
+        ] {
+            let mut host = Host::boot(
+                contract::compile(source).unwrap(),
+                (),
+                Mode::Fullscreen,
+                80,
+                40,
+            )
+            .unwrap();
+            host.arm = arm;
+            host.frame();
+            host.press(host.by_test_id("park").unwrap());
+            assert_eq!(host.focus, host.by_test_id("plain"));
+            host.tick(100.);
+            host.live_from(Instant::now() - Duration::from_millis(200));
+            let description = format!("arm={arm}, key={key:?}");
+            host.key(key);
+            assert_eq!(host.runner.slot("expired"), Some(&Value::Bool(true)));
+            if host.focus.is_some() || host.runner.slot("presses") != Some(&Value::Number(0.)) {
+                failures.push(description);
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "noncontrol focus changed key defaults: {failures:?}"
+    );
+}
