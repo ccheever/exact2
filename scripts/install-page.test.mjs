@@ -271,11 +271,13 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
 printf x >> spawns
 test -e die && exit 42
 read line
+test -e mute && exit 0
 printf '%s\\n' '{"value":"aGk="}'
 `);
     const program=`
       import assert from 'node:assert/strict';
-      import {existsSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+      import {readFileSync,writeFileSync,rmSync} from 'node:fs';
+      import {ChildProcess} from 'node:child_process';
       import {filesystemRead,closeFilesystemReader} from './scripts/filesystem.mjs';
       const get=()=>filesystemRead({op:'get',root:'/',path:'value'});
       assert.deepEqual(await Promise.all([get(),get()]),['aGk=','aGk='],'the read the exited helper left unanswered is answered by the next');
@@ -284,12 +286,16 @@ printf '%s\\n' '{"value":"aGk="}'
       rmSync('spawns');writeFileSync('die','');
       await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'}); // by its exit or its broken input pipe
       assert.equal(readFileSync('spawns','utf8'),'xx','asked once more, not again');
-      rmSync('die');rmSync('spawns');
-      const pending=get();closeFilesystemReader();
-      await assert.rejects(pending,/filesystem reader closed/);
-      await new Promise(resolve=>setTimeout(resolve,200));
-      // (Killed at once, it may not have run far enough to count itself.)
-      assert.ok(!existsSync('spawns') || readFileSync('spawns','utf8')==='x','a closed reader is not asked again');
+      rmSync('die');rmSync('spawns');writeFileSync('mute','');
+      // A close that comes after the exit was seen but before the read is asked again (the reply to one read and the
+      // exit under another seen in one turn, the first's caller closing): nothing starts after the close. Here the
+      // close runs in the exit's own turn, after the reader's handler.
+      const on=ChildProcess.prototype.on;
+      ChildProcess.prototype.on=function(event,listener){return on.call(this,event,event==='close' ? (...a)=>{listener(...a);closeFilesystemReader();} : listener);};
+      await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'});
+      ChildProcess.prototype.on=on;
+      await new Promise(resolve=>setTimeout(resolve,300));
+      assert.equal(readFileSync('spawns','utf8'),'x','a closed reader is not asked again');
     `;
     const child=spawnSync(process.execPath,['--input-type=module','-e',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH}});
     assert.equal(child.status,0,child.stderr);
