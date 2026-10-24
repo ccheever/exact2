@@ -47,9 +47,12 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) { wanted[node.id] = .whole }
-            // A held stack's route (HeldStackIOS) as a navigation controller's that hides its bar.
+            // Include the departing route until UIKit finishes its transition
             let nav = c.navigationController
-            guard nav?.viewControllers.contains(c) ?? (c.parent is HeldStack) else { continue }
+            let held = nav.map {
+                $0.viewControllers.contains(c) || $0.transitionCoordinator?.viewController(forKey: .from) === c
+            } ?? (c.parent is HeldStack)
+            guard held else { continue }
             // A presented route's controller takes its sheet's whole view, and
             // the document's insets (`env()`) are not the sheet's: its route is
             // covered for its own safe area whatever the document's fit (LLP
