@@ -153,11 +153,13 @@ fn tinted(name: &str) -> bool {
     name == "-exact-tint-color" || (name.starts_with(':') && name.ends_with(" -exact-tint-color"))
 }
 
-/// Whether an element has an authored `color`, its own or its literal class's.
-fn coloured(attrs: &[Attr], styles: &[StyleDecl]) -> bool {
-    attrs.iter().any(|a| a.name == "color")
+/// Whether an element has an authored `color` in `state` (`""`, or a state row's prefix such as
+/// `":disabled "`), its own or its literal class's.
+fn coloured(attrs: &[Attr], styles: &[StyleDecl], state: &str) -> bool {
+    let name = format!("{state}color");
+    attrs.iter().any(|a| a.name == name)
         || attrs.iter().filter(|a| a.name == "class").any(|class| {
-            matches!(&class.value, Expr::Ident(name, _) if styles.iter().any(|s| &s.name == name && s.attrs.iter().any(|a| a.name == "color")))
+            matches!(&class.value, Expr::Ident(class, _) if styles.iter().any(|s| &s.name == class && s.attrs.iter().any(|a| a.name == name)))
         })
 }
 
@@ -173,7 +175,7 @@ fn symbol_tint(source: &Expr, attrs: &[Attr], styles: &[StyleDecl]) -> Option<Lo
         .name
         .strip_suffix("-exact-tint-color")
         .unwrap_or_default();
-    let repair = if state.is_empty() && coloured(attrs, styles) {
+    let repair = if coloured(attrs, styles, state) {
         "drop it: its `color` is what draws it".to_string()
     } else {
         format!("write `{state}color={}` instead", shown(tint))

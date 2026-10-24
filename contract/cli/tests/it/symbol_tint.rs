@@ -169,6 +169,16 @@ fn a_class_colour_a_state_tint_and_a_row_a_face_shares_get_their_own_repairs() {
         "{:?}",
         message(state)
     );
+    // One with that state's `color` already: dropped, not a second `:disabled color`.
+    let both = state.replace(
+        "        :disabled\n",
+        "        :disabled\n          color=\"-exact-secondary-label\"\n",
+    );
+    assert!(
+        message(&both).is_some_and(|m| m.contains("drop it")),
+        "{:?}",
+        message(&both)
+    );
     // A class a native face also takes: the free use gets its own colour, the shared row is kept.
     let shared = "style Tint\n  -exact-tint-color=\"-exact-secondary-label\"\n\ncomponent App\n  action go\n  view\n    column\n      button press=go\n        image \"symbol:lock\" class=Tint\n        text \"Lock\"\n      image \"symbol:heart\" class=Tint\n";
     assert!(
