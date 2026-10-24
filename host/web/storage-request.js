@@ -35,6 +35,20 @@ const edit = args => Object.fromEntries(['rotate','flip','crop'].filter(k=>args[
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
   const services = new Map(), key = storageKey(appId); let disposed = false;
+  // Each database's requests take turns. The worker opens a database under
+  // its file's exclusive lock, in one queue per page: a second open waiting
+  // for the lock there holds back the first's queries and close, and both
+  // stall until the lock's 10 s bound refuses the second.
+  const turns = new Map();
+  const inTurn = async (path, work) => {
+    const before = turns.get(path) ?? Promise.resolve();
+    let done;
+    const mine = before.then(() => new Promise(resolve => { done = resolve; }));
+    turns.set(path, mine);
+    await before;
+    try { return await work(); }
+    finally { done(); if (turns.get(path) === mine) turns.delete(path); }
+  };
   const check = () => { if(disposed)throw new Error('storage source unloaded'); };
   return {
     async run(payload, scope = null) {
@@ -69,17 +83,18 @@ export function createStorageRequests(appId, admitted) {
             return {...c,params:c.params.map(sqlValue)};
           });
           if(op==='sqlite.transaction' && commands.some(c=>c.kind!=='execute'))throw new Error('SQLite write transaction requires execute commands');
-          const db=await sqlite.open(args.path);
-          try {
-            check();
-            if(op==='sqlite.transaction') value=(await db.transaction(commands.map(({sql,params})=>({sql,params})))).map(result);
-            else {
-              value=[];
+          value=await inTurn(args.path, async () => {
+            const db=await sqlite.open(args.path);
+            try {
+              check();
+              if(op==='sqlite.transaction') return (await db.transaction(commands.map(({sql,params})=>({sql,params})))).map(result);
+              const out=[];
               for(const c of commands){check();if(c.kind==='query'){
-                const r=await db.query(c.sql,c.params);value.push({columns:r.columns,rows:r.rows.map(row=>row.map(wire))});
-              }else value.push(result(await db.execute(c.sql,c.params)));}
-            }
-          } finally { await db.close(); }
+                const r=await db.query(c.sql,c.params);out.push({columns:r.columns,rows:r.rows.map(row=>row.map(wire))});
+              }else out.push(result(await db.execute(c.sql,c.params)));}
+              return out;
+            } finally { await db.close(); }
+          });
         } else {
           check();
           switch(op) {
