@@ -438,6 +438,64 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertGreaterThan(ink, 100, "native value draws; checking text alone misses a misplaced UIKit editor")
     }
 
+    /// A textarea whose authored padding leaves its content box shorter
+    /// than a line draws its placeholder at the content box's first line,
+    /// clipped by the view, as the web clips it; it drew a sliver. The box is
+    /// the kernel's for `rows=1 padding-top=13` in a 34 pt row: UIKit's 8 pt
+    /// inset and the padding above it, 5 pt of content. Its text starts where
+    /// an unpadded textarea's does in its content box; the field's
+    /// placeholder, beside it, shows too.
+    func testAPaddedTextareasPlaceholderShowsAtItsFirstLineEvenInAShortBox() throws {
+        let session = ExactApp.shared.makeSession(label: "padded-placeholder")
+        defer { session.destroy() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
+        window.overrideUserInterfaceStyle = .light
+        window.backgroundColor = .white
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        /// The placeholder's ink in a node's content: the rows and columns it covers, in points.
+        func ink(_ kind: String, id: UInt32, height: CGFloat, rect: [Double]) throws -> (top: CGFloat, left: CGFloat, count: Int) {
+            let node = NodeView(id: id, kind: kind, presenter: session.presenter)
+            node.frame = CGRect(x: 10, y: 10, width: 240, height: height)
+            window.addSubview(node)
+            defer { node.removeFromSuperview() }
+            node.applyProps(set: ["value": "", "placeholder": "Comment"], clear: [])
+            node.applyStyle(["font_size": .number(17)])
+            node.applyFieldContent(["rect": rect])
+            window.layoutIfNeeded()
+            CATransaction.flush()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            let image = UIGraphicsImageRenderer(bounds: node.bounds, format: format).image { ctx in
+                UIColor.white.setFill(); ctx.fill(node.bounds)
+                node.layer.render(in: ctx.cgContext)
+            }
+            let cg = try XCTUnwrap(image.cgImage)
+            let bytes = try XCTUnwrap(cg.dataProvider?.data) as Data
+            var top = CGFloat.infinity, left = CGFloat.infinity, count = 0
+            // Inside the bezel's hairline and rounded corners.
+            for y in 4..<(cg.height - 2) {
+                for x in 12..<(cg.width - 12) {
+                    let at = y * cg.bytesPerRow + x * 4
+                    guard bytes[at] < 225, bytes[at + 1] < 225, bytes[at + 2] < 225 else { continue }
+                    count += 1; top = min(top, CGFloat(y) / 2); left = min(left, CGFloat(x) / 2)
+                }
+            }
+            return (top, left, count)
+        }
+        let short = try ink("textarea", id: 1, height: 34, rect: [5, 21, 230, 5])
+        let plain = try ink("textarea", id: 2, height: 38, rect: [5, 8, 230, 22])
+        let field = try ink("input", id: 3, height: 34, rect: [7, 13, 226, 21])
+        XCTAssertGreaterThan(plain.count, 40, "an unpadded textarea's shows")
+        XCTAssertGreaterThan(short.count, plain.count / 3, "the short box's shows, clipped (13 of its 20 pt line)")
+        XCTAssertGreaterThan(field.count, 40, "the field's shows")
+        XCTAssertGreaterThanOrEqual(short.top, 21, "below the authored padding")
+        XCTAssertGreaterThanOrEqual(plain.top, 8, "below UIKit's inset")
+        XCTAssertEqual(short.top - 21, plain.top - 8, accuracy: 1, "at the first line's place in each content box")
+        XCTAssertEqual(short.left, plain.left, accuracy: 0.5, "at the same inline start")
+    }
+
     /// LLP 1104 D3: an authored `::placeholder` colour is the placeholder's
     /// ink, its own alpha kept, on a field and a textarea; without the row
     /// each keeps UIKit's `placeholderText`.
