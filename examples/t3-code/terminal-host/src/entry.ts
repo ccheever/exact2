@@ -384,7 +384,7 @@ class TerminalPage {
   private starting = false;
   private transcriptFlow = "";
   private transcriptWritten = 0;
-  private readonly sockets = new SocketRequests(() => this.send({ type: "ticket" }));
+  private readonly sockets = new SocketRequests((serial) => this.send({ type: "ticket", serial }));
   /** UTF-16 units of output written, and the bulk output since the last report. */
   private received = 0;
   private burst = { units: 0, startedAt: 0, lastAt: 0 };
@@ -502,8 +502,8 @@ class TerminalPage {
 
   private wantSocket(): void { if (!this.disposed) this.sockets.want(); }
 
-  private socketReady(url: string): void {
-    if (this.sockets.answered(url)) this.socket?.start(url);
+  private socketReady(url: string, serial: number): void {
+    if (this.sockets.answered(url, serial)) this.socket?.start(url);
   }
 
   private typed(data: string): void {
@@ -594,7 +594,7 @@ class TerminalPage {
   receive(message: Message): void {
     if (this.disposed) return;
     if (message.type === "config") { this.configure(message); return; }
-    if (message.type === "socket") { this.socketReady(typeof message.url === "string" ? message.url : ""); return; }
+    if (message.type === "socket") { this.socketReady(typeof message.url === "string" ? message.url : "", Number(message.serial)); return; }
     const surface = this.surface;
     if (!surface) { this.pending.push(message); return; }
     switch (message.type) {

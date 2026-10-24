@@ -352,16 +352,19 @@ const SOCKET_RETRY_MS = [500, 1000, 2000, 5000, 10000];
 
 /**
  * The page's requests for a socket URL: the first at once, each failure (no URL, a lost socket) after a growing
- * delay, an unanswered request again after TICKET_TIMEOUT_MS. A stream that answers starts the delays over.
+ * delay, an unanswered request again after TICKET_TIMEOUT_MS. A stream that answers starts the delays over. Each
+ * request carries a serial its answer names, so a late answer to an earlier request (its ticket may have lapsed)
+ * is not taken for a later one.
  */
 export class SocketRequests {
   private attempts = 0;
   private wanted = false;
+  private serial = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private deadline: ReturnType<typeof setTimeout> | null = null;
 
   // Wrapped: a browser's setTimeout called as another object's method throws "Illegal invocation".
-  constructor(private readonly ask: () => void, private readonly timers: { set: typeof setTimeout; clear: typeof clearTimeout } =
+  constructor(private readonly ask: (serial: number) => void, private readonly timers: { set: typeof setTimeout; clear: typeof clearTimeout } =
     { set: ((run: () => void, ms?: number) => setTimeout(run, ms)) as typeof setTimeout, clear: ((id?: ReturnType<typeof setTimeout>) => clearTimeout(id)) as typeof clearTimeout }) {}
 
   /** A socket is wanted: ask, unless a request is already waiting. */
@@ -372,15 +375,16 @@ export class SocketRequests {
     this.attempts += 1;
     this.timer = this.timers.set(() => {
       this.timer = null;
-      this.ask();
+      this.serial += 1;
+      this.ask(this.serial);
       this.deadline = this.timers.set(() => { this.deadline = null; this.wanted = false; this.want(); }, TICKET_TIMEOUT_MS);
     }, delay);
   }
 
-  /** The app answered: true when it sent a URL to open. */
-  answered(url: string): boolean {
-    if (!this.wanted) return false;
-    // A re-ask may be waiting its delay: the answer to the earlier request stands for it.
+  /** The app answered request `serial`: true when it sent a URL to open. Only the latest request's answer counts. */
+  answered(url: string, serial: number): boolean {
+    if (!this.wanted || serial !== this.serial) return false;
+    // A re-ask may be waiting its delay: the answer to the request it would replace stands for it.
     if (this.timer) { this.timers.clear(this.timer); this.timer = null; }
     if (this.deadline) { this.timers.clear(this.deadline); this.deadline = null; }
     this.wanted = false;

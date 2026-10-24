@@ -132,14 +132,14 @@ describe("the page's socket requests", () => {
 
   test("asks at once, backs off after failures, and starts over once a stream answers", () => {
     const timers = fakeTimers(), asked: number[] = [];
-    let t = 0;
-    const requests = new SocketRequests(() => asked.push(t), timers);
+    let t = 0, last = 0;
+    const requests = new SocketRequests((serial) => { asked.push(t); last = serial; }, timers);
     const step = (ms: number) => { t += ms; timers.advance(ms); };
     requests.want(); step(0);
     expect(asked).toEqual([0]);
-    for (let loss = 0; loss < 6; loss++) { expect(requests.answered("")).toBe(false); step(10_000); }
+    for (let loss = 0; loss < 6; loss++) { expect(requests.answered("", last)).toBe(false); step(10_000); }
     // The fifth and later losses wait 10 s; an answered stream makes the next ask immediate again.
-    expect(requests.answered("ws://x")).toBe(true);
+    expect(requests.answered("ws://x", last)).toBe(true);
     requests.reset();
     requests.want(); step(0);
     expect(asked.at(-1)).toBe(t);
@@ -155,7 +155,9 @@ describe("the page's socket requests", () => {
     expect(asked).toBe(1);
     timers.advance(1 + 500);
     expect(asked).toBe(2);
-    expect(requests.answered("ws://x")).toBe(true);
+    // The first request's late answer is not the second's.
+    expect(requests.answered("ws://late", 1)).toBe(false);
+    expect(requests.answered("ws://x", 2)).toBe(true);
     timers.advance(60_000);
     expect(asked).toBe(2);
   });
@@ -167,7 +169,7 @@ describe("the page's socket requests", () => {
     requests.want(); timers.advance(0);
     timers.advance(TICKET_TIMEOUT_MS + 100);
     expect(asked).toBe(1);
-    expect(requests.answered("ws://x")).toBe(true);
+    expect(requests.answered("ws://x", 1)).toBe(true);
     timers.advance(60_000);
     expect(asked).toBe(1);
   });

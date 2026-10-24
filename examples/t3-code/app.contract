@@ -2399,8 +2399,10 @@ component T3Code
       let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
       wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
-    if op == "setup:auth-ticket" or op == "setup:auth-event" // the sign-in terminal page's messages: the terminals' mutations
+    if op == "setup:auth-ticket" // the sign-in terminal page's socket ticket, then its other messages: the terminals' mutations
       send terminalTicketChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if op == "setup:auth-event"
+      send terminalChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if op.startsWith("upkeep:update") and apply
       send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply

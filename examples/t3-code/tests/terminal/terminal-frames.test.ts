@@ -15,9 +15,9 @@ describe('terminal frames', () => {
     expect(texts(owner, id)).toEqual([]);
     await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });
     expect(texts(owner, id)).toEqual([]);
-    await terminalFrameMessage(owner, id, { type: 'ticket' }, { mint });
+    await terminalFrameMessage(owner, id, { type: 'ticket', serial: 3 }, { mint });
     postToTerminalFrame(owner, id, { type: 'focus' });
-    expect(texts(owner, id)).toEqual([{ type: 'socket', url: 'ws://host/ws?wsTicket=t' }]);
+    expect(texts(owner, id)).toEqual([{ type: 'socket', url: 'ws://host/ws?wsTicket=t', serial: 3 }]);
     const [first] = terminalFrameView(owner, id, {}).posts;
     await terminalFrameMessage(owner, id, { type: 'posted', key: first!.key }, { mint });
     expect(texts(owner, id)).toEqual([{ type: 'focus' }]);
@@ -30,7 +30,7 @@ describe('terminal frames', () => {
     await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });
     const letGo = Object.assign(new Error('let go'), { name: 'FetchError', kind: 'Aborted' });
     await expect(terminalFrameMessage(owner, id, { type: 'ticket' }, { mint: async () => { throw letGo; } })).rejects.toBe(letGo);
-    expect(texts(owner, id)).toEqual([{ type: 'socket', url: '' }]);
+    expect(texts(owner, id)).toEqual([{ type: 'socket', url: '', serial: 0 }]);
   });
 
   test('the frames are kept by use: a frame in view outlives 64 newer ones', async () => {

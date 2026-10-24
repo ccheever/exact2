@@ -240,7 +240,7 @@ describe('terminal drawer resource', () => {
     await run(client, 'message', frame.id, JSON.stringify({ type: 'ticket', ...identity }));
     expect(native.filter(request => request.op === 'terminalSocket')).toEqual([{ op: 'terminalSocket', environmentId: 'env-a' }]);
     let posts = (await terminalDrawerView(client, null, 840, 1)).panes[0]!.frame.posts;
-    expect(posts.map(post => JSON.parse(post.text))).toEqual([{ type: 'socket', url: 'ws://env-a/ws?wsTicket=t' }]);
+    expect(posts.map(post => JSON.parse(post.text))).toEqual([{ type: 'socket', url: 'ws://env-a/ws?wsTicket=t', serial: 0 }]);
     await run(client, 'posted', frame.id, posts[0]!.key);
     expect((await terminalDrawerView(client, null, 840, 2)).panes[0]!.frame.posts).toEqual([]);
     // The selection popup, then Copy: the raw selection goes to the clipboard and the terminal takes the focus back.

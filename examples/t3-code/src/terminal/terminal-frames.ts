@@ -121,7 +121,7 @@ export async function terminalFrameMessage(owner: object, id: string, message: O
       // The page waits for an answer: a mint let go (the app moved on) still answers, with no URL, so it asks again.
       let url = '';
       try { url = await options.mint(); }
-      finally { postToTerminalFrame(owner, id, { type: 'socket', url }); }
+      finally { postToTerminalFrame(owner, id, { type: 'socket', url, serial: Number(message.serial) || 0 }); }
       return true;
     }
     case 'posted':
