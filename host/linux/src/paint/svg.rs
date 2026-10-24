@@ -155,7 +155,10 @@ impl Painter {
                     .resolve(self.dark),
             )
         });
-        self.symbol_face(role, style, rect, colour, ts);
+        let face = node.computed_style(exact_kernel::StyleMask::of(
+            exact_kernel::StyleId::FontWeight,
+        ));
+        self.symbol_face(role, &face, rect, colour, ts);
     }
 
     /// A semantic button's symbol shares the portable image painter.
