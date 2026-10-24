@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { cargoBakeInputs } from './cargo-dep-info.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
@@ -115,13 +115,19 @@ async function withContractBake(use, {binding=false}={}) {
     const bake=()=>buildBake(app,'linux',target,{profile:'dev',output,env:{EXACT_UPDATE_TRUST:'development',EXACT_RUST_BUNDLE:undefined,EXACT_UPDATE_RECEIPT:undefined}});
     const plan=()=>readFileSync(resolve(output,`linux-${target}.plan`));
     const run=()=>{const r=spawnSync(resolve(app.target,target,'debug',name+'-linux'),[],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout;};
-    await use({dir,write,source,bake,plan,run,app,target,old});
+    const scriptDir=()=>{
+      const builds=resolve(app.target,target,'debug/build');
+      const unit=readdirSync(builds).find(name=>name.startsWith(app.crate('linux')+'-') && existsSync(resolve(builds,name,'out/ran')));
+      assert.ok(unit, 'the bake must leave its build-script marker');
+      return resolve(builds,unit);
+    };
+    await use({dir,write,source,bake,plan,run,scriptDir,old});
   } finally {rmSync(dir,{recursive:true,force:true});}
 }
 
 // Real Cargo and the TypeScript baker must agree even when a restore keeps an old mtime.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('restored and equal-mtime Contract sources rebake and then stay quiet', async () => {
-  await withContractBake(({dir, write, source, bake, plan, app, target, old}) => {
+  await withContractBake(({dir, write, source, bake, plan, scriptDir, old}) => {
     const path = resolve(dir, 'app.contract'), original = resolve(dir, 'app.contract.orig');
     copyFileSync(path, original); utimesSync(original, old, old);
     bake();
@@ -134,12 +140,7 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('restored and equal-mtime Contra
     assert.equal(statSync(path).mtimeMs, old.getTime(), 'the builder must not touch the source');
     write('app.contract', source('EQUALNEW')); utimesSync(path, old, old);
     bake(); assert.ok(plan().includes(Buffer.from('EQUALNEW')), 'changed bytes at the same mtime and size must rebake');
-    const builds = resolve(app.target, target, 'debug/build');
-    const unit = readdirSync(builds).find(name => name.startsWith(app.crate('linux') + '-') && (() => {
-      try { return readFileSync(resolve(builds, name, 'output'), 'utf8').includes(dir); } catch { return false; }
-    })());
-    assert.ok(unit);
-    const ran = resolve(builds, unit, 'out/ran'), stamp = statSync(ran, {bigint:true}).mtimeNs;
+    const ran = resolve(scriptDir(), 'out/ran'), stamp = statSync(ran, {bigint:true}).mtimeNs;
     const expected = plan();
     bake();
     assert.deepEqual(plan(), expected);
@@ -159,21 +160,54 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('restored and equal-mtime Contra
   });
 }, 300000);
 
-test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST || process.platform === 'win32')('an unused socket in an imported package permits a bake', async()=>{
-  await withContractBake(async({dir,write,bake,plan})=>{
-    write('node_modules/@fixture/ui/package.json',JSON.stringify({name:'@fixture/ui',exports:'./child.contract'}));
-    write('node_modules/@fixture/ui/child.contract','component Child\n  view\n    text "SOCKET_OK"\n');
-    write('app.contract','use Child from "@fixture/ui"\ncomponent App\n  view\n    Child()\n');
-    const pkg=resolve(dir,'node_modules/@fixture/ui'), cwd=process.cwd(), server=createServer();
-    mkdirSync(resolve(pkg,'.cache'));
-    process.chdir(pkg);
-    try {
-      await new Promise((ok,fail)=>{server.once('error',fail);server.listen('.cache/worker.sock',ok);});
-      bake(); assert.ok(plan().includes(Buffer.from('SOCKET_OK')));
-      bake(); assert.ok(plan().includes(Buffer.from('SOCKET_OK')));
-    } finally {await new Promise(ok=>server.close(ok));process.chdir(cwd);}
-  });
-},300000);
+for (const entry of ['socket', 'unreadable file', 'unreadable directory', 'linked unreadable directory']) {
+  test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST || process.platform === 'win32' || (entry !== 'socket' && process.getuid?.() === 0))(`an unused ${entry} in a watched package permits quiet bakes`, async()=>{
+    await withContractBake(async({dir,write,bake,plan,scriptDir,old})=>{
+      write('node_modules/@fixture/ui/package.json',JSON.stringify({name:'@fixture/ui',exports:'./child.contract'}));
+      write('node_modules/@fixture/ui/child.contract','component Child\n  view\n    text "PACKAGE_OK"\n');
+      write('app.contract','use Child from "@fixture/ui"\ncomponent App\n  view\n    Child()\n');
+      const pkg=resolve(dir,'node_modules/@fixture/ui'), cwd=process.cwd();
+      mkdirSync(resolve(pkg,'.cache'));
+      let server, blocked, payload;
+      process.chdir(pkg);
+      try {
+        if(entry === 'socket') {
+          server=createServer();
+          await new Promise((ok,fail)=>{server.once('error',fail);server.listen('.cache/worker.sock',ok);});
+        } else {
+          const file=entry === 'unreadable file';
+          blocked=entry === 'linked unreadable directory' ? resolve(dir,'.private') : resolve(pkg,'.cache/private');
+          if(!file)mkdirSync(blocked);
+          payload=file ? blocked : resolve(blocked,'payload');
+          writeFileSync(payload,'before');utimesSync(payload,old,old);
+          if(entry === 'linked unreadable directory')symlinkSync(blocked,resolve(pkg,'.cache/link'),'dir');
+          chmodSync(blocked,0);
+          assert.throws(()=>file ? readFileSync(blocked) : readdirSync(blocked), error=>['EACCES','EPERM'].includes(error.code));
+        }
+        bake(); assert.ok(plan().includes(Buffer.from('PACKAGE_OK')));
+        // Without the optional .tamber file, Contract watches the installed directory.
+        const watches=readFileSync(resolve(scriptDir(),'output'),'utf8').split('\n');
+        assert.ok(watches.includes(`cargo:rerun-if-changed=${pkg}`),'the package directory must actually be watched');
+        const stamp=()=>statSync(resolve(scriptDir(),'out/ran'),{bigint:true}).mtimeNs;
+        const first=stamp(), expected=plan();
+        bake(); assert.deepEqual(plan(),expected);
+        assert.equal(stamp(),first,'an unchanged package must not rerun the bake');
+        if(blocked) {
+          chmodSync(blocked,entry === 'unreadable file' ? 0o600 : 0o700);
+          writeFileSync(payload,'after!');utimesSync(payload,old,old);
+          bake(); assert.deepEqual(plan(),expected);
+          const readable=stamp();
+          assert.notEqual(readable,first,'a now-readable input must change the revision even at an old mtime');
+          bake(); assert.equal(stamp(),readable,'a readable unchanged package must stay quiet');
+        }
+      } finally {
+        if(blocked)chmodSync(blocked,0o700);
+        if(server)await new Promise(ok=>server.close(ok));
+        process.chdir(cwd);
+      }
+    });
+  },300000);
+}
 
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('a dependency regenerates Rust when the contract is restored',async()=>{
   await withContractBake(({dir,write,source,bake,plan,run,old})=>{
@@ -230,16 +264,28 @@ test.skipIf(process.platform === 'win32')('a watched directory follows inner dir
   prepare();assert.equal(env.EXACT_BAKE_INPUTS,changed,'output aliases must not change the next revision');
 }));
 
-test('disappearance after metadata is a missing input',()=>watchFixture(({watched,env,messages,prepare,pkg})=>{
-  const path=resolve(watched,'vanish');writeFileSync(path,'content');prepare()(messages);
+test('disappearance after metadata records a missing input and a stable revision',()=>watchFixture(({out,watched,env,messages,prepare,pkg})=>{
+  const path=resolve(watched,'vanish');
+  // A directly watched missing path must contribute a row, even without a parent watch.
+  writeFileSync(resolve(out,'../output'),`cargo:rerun-if-changed=${path}\n`);
+  writeFileSync(path,'content');prepare()(messages);
   const script=`import {mock} from 'bun:test'; import * as fs from 'node:fs';
     const read=fs.readFileSync, remove=fs.rmSync;
     mock.module('node:fs',()=>({...fs,readFileSync:(path,...args)=>{if(path===${JSON.stringify(path)})remove(path);return read(path,...args);}}));
     const {cargoBakeInputs}=await import(${JSON.stringify(resolve(import.meta.dir,'cargo-dep-info.mjs'))});
-    cargoBakeInputs(${JSON.stringify(pkg)},'target','dev',${JSON.stringify(env)});
+    const env=${JSON.stringify(env)};
+    cargoBakeInputs(${JSON.stringify(pkg)},'target','dev',env)(${JSON.stringify(messages)});
+    console.log(env.EXACT_BAKE_INPUTS);
   `;
   const result=spawnSync(process.execPath,['-e',script],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);
+  assert.equal(existsSync(path),false,'the read must have raced with removal');
+  const records=resolve(env.CARGO_TARGET_DIR,'bake-inputs');
+  const record=JSON.parse(readFileSync(resolve(records,readdirSync(records)[0]),'utf8'));
+  assert.deepEqual(record.paths,[path]);
+  assert.notEqual(record.digest,createHash('sha256').digest('hex'),'a missing watch must not be silently omitted');
+  prepare();
+  assert.equal(env.EXACT_BAKE_INPUTS,result.stdout.trim(),'a second scan with the file gone must keep the recorded revision');
 }));
 
 // Real Cargo units include named game logic for the lint and absent-art receipt.
