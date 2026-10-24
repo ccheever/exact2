@@ -9,7 +9,10 @@ export function reloadOnGone(win = globalThis) {
     try { if (win.sessionStorage.getItem(KEY)) return; win.sessionStorage.setItem(KEY, '1'); } catch { return; }
     win.location.reload();
   };
-  win.addEventListener('unhandledrejection', (e) => { const m = String(e.reason?.message ?? e.reason ?? ''); if (/dynamically imported module|module script failed/i.test(m) && gone(m)) again(); });
+  // A failed import, unhandled or a source's (rt.js `ask` hands those here: the runtime catches them).
+  const failed = (reason) => { const m = String(reason?.message ?? reason ?? ''); if (/dynamically imported module|module script failed/i.test(m) && gone(m)) again(); };
+  win.addEventListener('unhandledrejection', (e) => failed(e.reason));
+  (win.exact ??= {}).generationGone = failed;
   win.addEventListener('error', (e) => { const t = e.target; if (t && t !== win && gone(t.src ?? t.href)) again(); }, true);
   win.setTimeout?.(() => { try { win.sessionStorage.removeItem(KEY); } catch { /* none */ } }, 10_000);
   return true;

@@ -19,7 +19,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
-import { generationOf, generationPath, servedFile } from '../web/generations.mjs';
+import { generationFile, generationPath, servedFile } from '../web/generations.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
@@ -896,8 +896,15 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     const inspectAt = generationPath(url.pathname);
     if ((url.pathname === '/dev-inspect.json' || (inspectAt && inspectAt !== 'bad' && inspectAt.path === '/dev-inspect.json')) && req.method === 'GET') {
       let digest = null, plan = resolve(dist, 'app.plan');
-      if (inspectAt) plan = generationOf(dist) === inspectAt.id ? plan : resolve(`${dist}.gen`, inspectAt.id, 'app.plan');
-      try { digest = createHash('sha256').update(readFileSync(plan)).digest('hex'); } catch { /* no build */ }
+      if (inspectAt) {
+        // That build's plan, read whole from it (generationFile: its own rules, no link out), into a file of this
+        // loop's for the table's compiler.
+        const kept = await generationFile(dist, inspectAt.id, '/app.plan');
+        if (kept === 'gone' || !kept) { res.writeHead(kept ? 410 : 404, { 'cache-control': 'no-store' }); return res.end(); }
+        digest = createHash('sha256').update(kept.body).digest('hex');
+        plan = resolve(app.target, `inspect-plan-${digest}-${process.pid}.plan`);
+        if (!existsSync(plan)) writeFileSync(plan, kept.body);
+      } else try { digest = createHash('sha256').update(readFileSync(plan)).digest('hex'); } catch { /* no build */ }
       const bytes = digest && await inspectTable(digest, plan);
       if (!bytes) { res.writeHead(503, { 'cache-control': 'no-store' }); return res.end(); }
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
