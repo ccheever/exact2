@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code.
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows).
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -1208,8 +1208,9 @@ destinations, so changing the display language does not change placement. §5.3.
 more removal ids.
 
 Declared platform deviation: CSS/HTML have no application menu. Web (both
-targets), UIKit (including iPadOS), Linux, Windows, Android and the terminal
+targets), UIKit (including iPadOS), Linux, Android and the terminal
 ignore this presentation hint and keep the ordinary button and shortcuts.
+Windows presents it as a menu row (§5.3.2).
 No layout, visibility, keyboard or accessibility defaults change there.
 The web emits no DOM attributes for either menu hint.
 
@@ -1324,3 +1325,31 @@ the host's. A held ⌘Q: a root `key` handler that prevents ⌘Q's default hears
 its press, auto-repeats and `keyup` before the menu does, and `close()` ends a
 one-window app, so the hold is the app's, as Chrome's Warn Before Quitting is
 Chrome's; Quit chosen with the pointer stays immediate.
+
+### 5.3.2 The menu bar on Windows (2026-10-23)
+
+Charlie admitted it with Windows at full speed (`rules/DEFERRED.md`, 2026-10-23);
+LLP 1115.004 D10.6 is the Windows side and its stage after S1 builds it.
+Implementer: Claude (Opus 5.5). Not built yet.
+
+An app that declares at least one `-exact-menu` item gets a menu row under the
+title bar, painted as WinUI's `MenuBar`, as Windows 11's Notepad and Paint show
+File, Edit and View ([menus and menu bars](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/menus)).
+Its menus are LLP 1115.004 D10.1's flyouts. Alt and F10 move focus into the row,
+Alt shows the access keys, the arrows move among menus and items, and Escape
+returns focus where it was; UI Automation sees a MenuBar. An app that declares
+none gets no row: Windows apps commonly have none, so nothing is synthesized.
+
+| `-exact-menu` | On Windows |
+|---|---|
+| `file`, `edit`, `view`, `go`, `help` | the menu of that name, in declaration order, with `disabled` and the removal ids where Windows has the item |
+| `app` | File, above Exit; Windows has no application menu |
+| `about` | Help, last |
+| `window` | Window, with the authored items only, and no menu when there are none: the caption buttons, Snap and the system menu (Alt+Space) carry the rest |
+| `none` | no item; the chord stays |
+
+File ends with Exit, which ends the app as Quit does on the Mac. The menus show
+the chords that work on Windows: an item's declared `Control` chord, never a
+`Meta` one, which on Windows is the Windows key (LLP 1115.004 D9.6). §5.3.1's
+app-wide items hold, except under a modal dialog, which disables the row as a
+Windows owner window's modality does.
