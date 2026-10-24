@@ -10,7 +10,10 @@ import { providerSettingsWritable } from './provider-permissions';
 import { migrateModelPreferences } from './model-preferences';
 import type { T3Client } from '../client/client';
 import type { ProvidersRoute } from '../client/client-ops';
-import { obj, str } from '../client/domain';
+import { obj, str, type Obj } from '../client/domain';
+import { openExternal } from '../client/external-open';
+import { mintTerminalSocket, terminalFrameMessage } from '../terminal/terminal-frames';
+import { AUTH_TERMINALS, authFrameId } from './provider-auth-terminal';
 import { ClientError, type Native } from '../client/protocol';
 import { EnvironmentFleet, fleet as appFleet, type FleetEntry } from '../connections/settings-b-fleet';
 import { FleetSetupHost, fleetSetupHost } from './codex-fleet-host';
@@ -118,6 +121,24 @@ export async function scopedUpkeepOp(client: T3Client, native: Native, args: unk
 
 /** The page's sign-in and install commands (`setup:`), on its environment (args[4]). */
 export async function scopedSetupOp(client: T3Client, native: Native, args: unknown[]): Promise<void> {
+  if (args[0] === 'setup:auth-ticket') args = ['setup:auth-event', ...args.slice(1)];
+  if (args[0] === 'setup:auth-event' && await authTerminalMessage(client, native, args)) return;
   const host = providersHost(client, String(args[4] ?? ''));
   await providerSetupOp(host, routedNative(host, native), String(args[0] || ''), String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? ''));
+}
+
+/**
+ * The sign-in terminal page's messages (terminal-frames.ts): its boot, socket ticket and posts taken here; a link opens
+ * in the system browser (http and https only, ProviderAuthTerminal's onLinkActivate). True when consumed; the rest
+ * (its failures, a link that did not open) are the Account row's (`setup:auth-event`).
+ */
+async function authTerminalMessage(client: T3Client, native: Native, args: unknown[]): Promise<boolean> {
+  let event: Obj; try { event = obj(JSON.parse(String(args[3] || '{}'))); } catch { return true; }
+  const environmentId = String(args[4] ?? '') || client.environmentId;
+  if (await terminalFrameMessage(AUTH_TERMINALS, authFrameId(String(args[1] || '')), event, { mint: () => mintTerminalSocket(client, native, environmentId) })) return true;
+  if (event.type !== 'link') return false;
+  const text = str(event.text);
+  if (!/^https?:\/\//i.test(text) || openExternal(text)) return true;
+  args[3] = JSON.stringify({ ...event, type: 'link-error' });
+  return false;
 }

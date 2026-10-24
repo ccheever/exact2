@@ -281,7 +281,7 @@ export function domKeyExpression(input: PressInput): string {
 }
 
 const CHORD_KEYS = new Set(['Enter', 'Tab', 'Escape', 'Backspace', 'Space', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
-/** What the module needs for one key: T3TerminalKeys' chord ("Shift+Meta+z", "Enter"), the typed text, the editing
+/** What the module needs for one key: T3Keys' chord ("Shift+Meta+z", "Enter"), the typed text, the editing
  *  commands and their expression, and the DOM fallback. */
 export function pressPlan(input: PressInput): { chord: string; text: string; commands: string[]; editing: string; dom: string } {
   const sequence = makePreviewAutomationKeySequence(input, { isMac: true });

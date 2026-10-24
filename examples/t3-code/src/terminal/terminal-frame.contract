@@ -1,0 +1,125 @@
+// One terminal: T3 Code's Ghostty page (terminal-host/src/entry.ts, built into assets/terminal/) as an LLP 1020.001
+// bundled page in an `iframe`. The page holds the session and opens its own server socket; the app tells it what it
+// shows by `postMessage` and hears it by `message` (terminal-frames.ts). The theme, font, visibility, keybindings and
+// close guard go as one `config`, posted again whenever one of them changes and whenever the page boots (a new
+// document, a reloaded one included); TypeScript's posts (a socket URL, system lines, the menu's actions) go one at a
+// time once it has booted. The selection popup and context menu (ThreadTerminalDrawer.tsx, a native context menu in
+// T3 Code's Electron window) are a menu-shaped popover at the point the page names: an NSMenu on macOS.
+
+shape TerminalFramePost
+  key: string
+  text: string
+shape TerminalMenuRow
+  id: string
+  label: string
+  disabled: bool
+shape TerminalFrameMenu
+  serial: number
+  x: number
+  y: number
+  rows: TerminalMenuRow[]
+// terminal-frames.ts TerminalFrameView: `session` is the page's session config (JSON), `stats` its last report.
+shape TerminalFrameView
+  id: string
+  src: string
+  session: string
+  posts: TerminalFramePost[]
+  menu: TerminalFrameMenu
+  stats: string
+
+component TerminalFrame
+  props
+    frame: TerminalFrameView
+    theme: string // terminalTheme JSON (settings-appearance-look.ts)
+    font: string // {family, size} JSON
+    visible: bool
+    keybindings: string // JSON winning chord/command pairs for terminalFocus
+    closePending: bool
+    focusRequest: number // focuses the terminal on mount and whenever it changes (0: never)
+    message: action // (payload) every message the page posts but a ticket request
+    ticket: action // (payload) the page asks for a socket URL: its own queue, so a slow mint holds no other message
+    posted: action // (key) the page took a post
+    pick: action // (`<serial>|<row>`) a menu row was chosen
+    label: string
+    testId: string
+  state boots = 0
+  derive config = `{"type":"config","theme":${theme},"font":${font},"visible":${visible},"keybindings":${keybindings},"closePending":${closePending},"session":${frame.session}}`
+  derive menuId = `${frame.id}-menu`
+  derive anchorId = `${frame.id}-anchor`
+  action received(payload: string)
+    if payload == "{\"type\":\"boot\"}"
+      boots = boots + 1
+    if payload.startsWith("{\"type\":\"ticket\"")
+      ticket(payload)
+    else
+      message(payload)
+  view
+    box flex=1 min-width=0 min-height=0 position="relative" overflow="hidden"
+      iframe id=frame.id src=frame.src message=received aria-label=label testId=testId position="absolute" left=0 top=0 width="100%" height="100%" border-width=0
+      if boots > 0
+        for key in [`${boots}|${config}`] key=key
+          TerminalFramePostOnce(text=config, target=frame.id)
+        for post in frame.posts key=post.key
+          TerminalFramePostAck(post=post, target=frame.id, posted=posted)
+      for request in (focusRequest > 0 ? [focusRequest] : []) key=request
+        TerminalFrameFocus(target=frame.id)
+      box id=anchorId position="absolute" left=frame.menu.x top=frame.menu.y width=1 height=1 pointer-events="none" aria-hidden=true
+      column id=menuId popover="auto" position-try-fallbacks="none" role="menu" aria-label="Terminal" min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" testId=`${testId}-menu`
+        for row in frame.menu.rows key=row.id
+          button press=pick(`${frame.menu.serial}|${row.id}`) popovertarget=menuId popovertargetaction="hide" role="menuitem" disabled=row.disabled testId=`${testId}-menu-${row.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text row.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem"
+      for serial in (frame.menu.rows.length > 0 ? [frame.menu.serial] : []) key=serial
+        TerminalFrameMenuOpen(menuId=menuId, anchorId=anchorId)
+
+// Posts `text` to the frame once, as it mounts (keyed by what it posts).
+component TerminalFramePostOnce
+  props
+    text: string
+    target: string
+  state sent = false
+  action laidOut(width: number, height: number)
+    if not sent
+      sent = true
+      postMessage(text, target)
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut
+
+// One of TypeScript's posts, posted once and acknowledged, so the next one can follow.
+component TerminalFramePostAck
+  props
+    post: TerminalFramePost
+    target: string
+    posted: action
+  state sent = false
+  action laidOut(width: number, height: number)
+    if not sent
+      sent = true
+      postMessage(post.text, target)
+      posted(post.key)
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut
+
+// A focus request: the frame's web view takes the keys, and the page gives them to its surface (its window focus).
+component TerminalFrameFocus
+  props
+    target: string
+  state sent = false
+  action laidOut(width: number, height: number)
+    if not sent
+      sent = true
+      focus(target)
+      postMessage("{\"type\":\"focus\"}", target)
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut
+
+component TerminalFrameMenuOpen
+  props
+    menuId: string
+    anchorId: string
+  state sent = false
+  action laidOut(width: number, height: number)
+    if not sent
+      sent = true
+      showPopover(menuId, source=anchorId)
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut

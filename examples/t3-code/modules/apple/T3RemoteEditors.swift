@@ -41,7 +41,7 @@ enum T3RemoteEditors {
     private static var agentHintSeen = false
     private static var cachedLoginPath: String?
 
-    /// ElectronShell.openExternal for module code off the main thread (T3CodexAuth.swift, T3TerminalActions.swift): an agent
+    /// ElectronShell.openExternal for module code off the main thread (T3CodexAuth.swift): an agent
     /// run appends the URL to T3_REMOTE_OPEN_LOG; otherwise NSWorkspace opens it.
     static func openOrRecord(_ value: String, agent: Bool) -> Bool {
         guard let url = safeExternalUrl(value) else { return false }

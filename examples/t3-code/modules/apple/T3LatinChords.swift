@@ -14,8 +14,7 @@ import AppKit
 ///   (`aria-keyshortcuts`, the launcher's letters among them) and the host's command menu items
 ///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`), and AppKit
 ///   matches the menu's own items by the key's Latin letter too (the event's characters with ⌘,
-///   measured under Korean 2-Set, LLP 1021 §5.3.1). Neither reaches the terminal's web view or this
-///   module's own key readers that read the event's characters (the composer's queued-edit chords,
+///   measured under Korean 2-Set, LLP 1021 §5.3.1). Neither reaches this module's own key readers that read the event's characters (the composer's queued-edit chords,
 ///   the SnapShot shortcut). So the event is still re-issued with that letter, and each of them
 ///   matches it anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
 ///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
@@ -73,14 +72,8 @@ final class T3LatinChords {
                                 isARepeat: event.isARepeat, keyCode: event.keyCode)
     }
     /// Internal so tests can drive it: what the local monitor returns for `event`.
-    /// A ⌃ chord that begins while the terminal composes goes on as it was typed. The Korean input
-    /// method then commits the syllable itself, and T3 Code's drawer reads its clear shortcut from
-    /// `KeyboardEvent.key` on that "Process" key (keybindings.ts isTerminalClearShortcut), so ⌃L
-    /// ("ㅣ") ends the composition without clearing the screen.
     func route(_ event: NSEvent) -> NSEvent {
-        let responder = event.window?.firstResponder
-        let composing = (responder as? NSTextInputClient)?.hasMarkedText() == true
-            || (responder as? T3TerminalView.WebView)?.composesKey?(event) == true
+        let composing = (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
         return Self.latinChord(event, composing: composing) ?? event
     }
     private func installMonitor() {

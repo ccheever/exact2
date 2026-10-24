@@ -1,19 +1,17 @@
-// The terminal page a `t3-terminal` view loads (T3TerminalView.swift). It runs T3 Code's own
-// Ghostty surface (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts,
-// copied unchanged apart from imports under ../vendor/ghostty) and joins it to the native view
-// with a JSON bridge:
+// The terminal page (LLP 1020.001: a bundled page under `assets/terminal/` in an `iframe`). It runs T3 Code's own
+// Ghostty surface (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts, copied unchanged
+// apart from imports under ../vendor/ghostty) and opens its own server socket for the session (session.ts), as the
+// reference's renderer holds the attach stream. It talks to the app by `postMessage` only, in JSON strings:
 //
-// - page → native (`webkit.messageHandlers.t3terminal`): ready, data, resize, selection, link, composition,
-//   commitComposition, contextmenu, chord, focus, error.
-// - native → page (`t3Terminal.receive(message)`): write, resetAndWrite, theme, font, visible,
-//   focus, chords, compositionKey, clearSelection, readSelection, selectAll, scrollToBottom, paste,
-//   pointerRelease, dispose; `t3Terminal.debug()` answers the agent's status (ready, grid, visible
-//   text, selection, last error).
+// - page → app: boot, ticket, focus, link, command, selection-ready, contextmenu, selection-dismiss, exited,
+//   error, auth-error, auth-recovered, stats; each carries the identity the config named.
+// - app → page: config (theme, font, visible, keybindings, closePending and the session), socket (a URL with a
+//   fresh ticket, or none), transcript, system, focus, clearSelection, selectAll, scrollToBottom, paste,
+//   pasteClipboard, stats.
 //
 // Mounting, the setup failure text and the theme fallbacks follow ThreadTerminalDrawer.tsx
 // (:176-215 terminalThemeFromApp, :895-915 the failure text; the ANSI palette is 9c161462c9's,
-// :159-203 and :307). Which chords the app keeps is the
-// app's decision (ThreadTerminalDrawer.tsx:745-782 beforeKey); the native view sends the list.
+// :159-203 and :307), and its beforeKey (:745-782) decides which keys the page keeps.
 import type { GhosttyColor, GhosttyTheme } from "../vendor/ghostty/core";
 import {
   GhosttyTerminalSurface,
@@ -21,13 +19,11 @@ import {
 } from "../vendor/ghostty/surface";
 import { observeSelectionActions, resolveSelectionActionPosition } from "../vendor/lib/selectionActions";
 import { holdInlineHangul } from "./inlineHangul";
+import { SocketRequests, TerminalSocket, crlf, type AttachTarget, type AuthTarget, type SocketFactory } from "./session";
+import { terminalTranscriptUpdate } from "../../src/providers/provider-auth-terminal";
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
 type Outbound = Record<string, unknown> & { readonly type: string };
-
-interface Bridge {
-  postMessage(message: Outbound): void;
-}
 
 /** Chords (`Meta+K`, `Control+Shift+Backquote`) the page must leave to the app. */
 interface Chord {
@@ -53,7 +49,7 @@ export function parseCommandBindings(value: unknown): CommandBinding[] {
 type CloseShortcutEvent = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "repeat" | "preventDefault">;
 
 /** terminalCloseShortcut.ts preventTerminalCloseShortcut: `bindings` are the app's winners for
- * `terminalFocus: true, terminalOpen: true` (the native view sends them), so a match is a deliberate close. */
+ * `terminalFocus: true, terminalOpen: true` (the config sends them), so a match is a deliberate close. */
 export function preventTerminalCloseShortcut(event: CloseShortcutEvent, bindings: readonly CommandBinding[]): boolean {
   if (bindings.find(({ keys }) => matchesChord(event, keys))?.command !== "terminal.close") return false;
   event.preventDefault();
@@ -94,11 +90,9 @@ export function terminalKeyShortcutData(
     altKey: event.altKey, shiftKey: event.shiftKey } : event);
 }
 
-/** The composing state of the terminal's input, for the native view (`composition` messages): its key
- * path runs before the input method and must leave a composing key to it.
- * WebKit's own marked-text answer (`hasMarkedText`) waits on an editor state the page sends late, or,
- * in a window that is not key, never. Updates in between change nothing: the input method's text stays
- * in the input until it commits, and the surface sends what it commits (surface.ts onCompositionEnd). */
+/** The composing state of the terminal's input: from its first composition event to the commit, once each.
+ * Updates in between change nothing: the input method's text stays in the input until it commits, and the
+ * surface sends what it commits (surface.ts onCompositionEnd). */
 export function observeComposition(input: EventTarget, send: (composing: boolean) => void): () => void {
   let composing = false;
   const set = (value: boolean) => () => {
@@ -115,50 +109,6 @@ export function observeComposition(input: EventTarget, send: (composing: boolean
     input.removeEventListener("compositionend", end);
     input.removeEventListener("blur", end);
   };
-}
-
-type KeyModifiers = Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
-type MarkedKey = KeyModifiers & { readonly code: string };
-
-/** How long a mark waits for its keydown; WebKit sends it as soon as the input method answers. */
-const COMPOSITION_KEY_LIFETIME_MS = 1000;
-
-/** Keys that began while an input method composed text, which the native view marks on their way to
- * WebKit's keyDown (a ⌃ chord, ⌥Return). Chromium sends a keydown that begins while text is marked
- * as "Process" (keyCode 229), so the reference's surface never encodes it (surface.ts
- * isTerminalCompositionKey) while its shortcuts (ThreadTerminalDrawer.handleBeforeKey) still run.
- * WebKit sends the key's own code when the input method declines it, after any text the input method
- * committed for it, so the composition can be over by then: unmarked, ⌃C while ㅎ composes would
- * reach the shell as ^C.
- * A mark is taken by the next keydown with its modifiers and physical key (`code`; WebKit's "Process"
- * keydown, keyCode 229, matches any key); marks before it, and a mark whose keydown never came (a menu
- * took the key), lapse, so a second ⌃C is never mistaken for the first. */
-export class CompositionKeys {
-  private marks: { readonly key: MarkedKey; readonly at: number }[] = [];
-
-  constructor(private readonly now: () => number = () => performance.now()) {}
-
-  /** `code` is the key's `KeyboardEvent.code`, or "" when the native view has no name for it. */
-  mark(key: MarkedKey): void {
-    this.marks.push({ key, at: this.now() });
-  }
-
-  take(event: MarkedKey & Pick<KeyboardEvent, "keyCode">): boolean {
-    const now = this.now();
-    this.marks = this.marks.filter(({ at }) => now - at < COMPOSITION_KEY_LIFETIME_MS);
-    const index = this.marks.findIndex(({ key }) => key.metaKey === event.metaKey && key.ctrlKey === event.ctrlKey &&
-      key.altKey === event.altKey && key.shiftKey === event.shiftKey && (key.code === "" || key.code === event.code || event.keyCode === 229));
-    if (index < 0) return false;
-    this.marks.splice(0, index + 1);
-    return true;
-  }
-
-  /** Whether a mark still waiting for its keydown is ⌥Return's, the Korean input method's Hanja key. */
-  awaitsOptionReturn(): boolean {
-    const now = this.now();
-    return this.marks.some(({ key, at }) => now - at < COMPOSITION_KEY_LIFETIME_MS && key.altKey && !key.metaKey &&
-      !key.ctrlKey && (key.code === "Enter" || key.code === "NumpadEnter"));
-  }
 }
 
 type ConversionInput = EventTarget & { value: string };
@@ -254,16 +204,6 @@ const DARK: GhosttyTheme = {
   cursor: { r: 180, g: 203, b: 255 },
 };
 
-const bridge: Bridge | undefined = (
-  globalThis as { webkit?: { messageHandlers?: { t3terminal?: Bridge } } }
-).webkit?.messageHandlers?.t3terminal;
-const sent: Outbound[] = [];
-
-function post(message: Outbound): void {
-  if (bridge) bridge.postMessage(message);
-  else sent.push(message);
-}
-
 function color(value: unknown, fallback: GhosttyColor): GhosttyColor {
   if (typeof value !== "object" || value === null) return fallback;
   const { r, g, b } = value as Record<string, unknown>;
@@ -349,125 +289,288 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 #terminal.failed { box-sizing: border-box; padding: 8px; font: 12px -apple-system, BlinkMacSystemFont, sans-serif; color: rgb(113 113 122); }
 `;
 
+const OPTION_RETURN_LIFETIME_MS = 1000;
+const DECLINED_KEY_WINDOW_MS = 50;
+
+/** Whether a keydown is the input method's. WebKit sends a key the input method takes as "Process"
+ * (keyCode 229), as Chromium does, and the reference's surface never encodes it (surface.ts
+ * isTerminalCompositionKey) while its shortcuts (ThreadTerminalDrawer.handleBeforeKey) still run. A key the
+ * input method declines (a ⌃ chord, ⌥Return) WebKit sends with its own code right after the commit it caused,
+ * where Chromium still sends "Process": such a key counts as the input method's too, so ⌃C typed over ㅎ
+ * never reaches the shell as ^C. */
+export class CompositionTracker {
+  private active = false;
+  private endedAt = -Infinity;
+  private optionReturnAt = -Infinity;
+
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  set(composing: boolean): void {
+    if (this.active && !composing) this.endedAt = this.now();
+    this.active = composing;
+  }
+
+  composed(event: Pick<KeyboardEvent, "keyCode" | "code" | "metaKey" | "ctrlKey" | "altKey">): boolean {
+    const optionReturn = event.altKey && !event.metaKey && !event.ctrlKey && (event.code === "Enter" || event.code === "NumpadEnter");
+    if (event.keyCode === 229) {
+      if (optionReturn) this.optionReturnAt = this.now();
+      return true;
+    }
+    if (this.active) return true;
+    return ((event.ctrlKey && !event.metaKey) || optionReturn) && this.now() - this.endedAt < DECLINED_KEY_WINDOW_MS;
+  }
+
+  /** ⌥Return went to the input method a moment ago: its Hanja conversion reads the committed text back. */
+  converting(): boolean { return this.now() - this.optionReturnAt < OPTION_RETURN_LIFETIME_MS; }
+}
+
+/** What the app tells a page about its session (terminal-frames.ts): the terminal it shows, or a sign-in transcript. */
+interface SessionConfig {
+  readonly mode: "session" | "transcript";
+  readonly identity: Record<string, string>;
+  readonly attach?: AttachTarget;
+  readonly auth?: AuthTarget;
+  readonly readOnly: boolean;
+  readonly canAddToChat: boolean;
+}
+
+function sessionFrom(value: unknown): SessionConfig {
+  const record = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  const identity = Object.fromEntries(Object.entries((typeof record.identity === "object" && record.identity) || {})
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  return {
+    mode: record.mode === "transcript" ? "transcript" : "session",
+    identity,
+    ...(typeof record.attach === "object" && record.attach ? { attach: record.attach as AttachTarget } : {}),
+    ...(typeof record.auth === "object" && record.auth ? { auth: record.auth as AuthTarget } : {}),
+    readOnly: record.readOnly === true,
+    canAddToChat: record.canAddToChat === true,
+  };
+}
+
+/** Bulk output since the last report that makes the page report again (a flood, a long listing; not an echo). */
+const REPORT_BYTES = 64 * 1024;
+const REPORT_IDLE_MS = 500;
+
+/** The framed page's app, reached by `postMessage` only (LLP 1020.001 D5): its parent on the web; on Apple a
+ * bundled page is its web view's own top document, and the host forwards what it posts to its own window. Either
+ * way the receiver is the page's own origin (`/`). */
+function post(message: Outbound): void {
+  if (typeof window !== "undefined") window.parent.postMessage(JSON.stringify(message), "/");
+}
+
+/** A message the page takes: from its app (the parent, or on Apple the host through the page's own window), and on
+ * the web only from the app's origin, which a bundled page shares. */
+export function fromApp(event: Pick<MessageEvent, "source" | "origin" | "data">, view: { parent: unknown; location: { origin: string } }, self: unknown): boolean {
+  return typeof event.data === "string" && event.source === view.parent && (view.parent === self || event.origin === view.location.origin);
+}
+
 class TerminalPage {
   private surface: GhosttyTerminalSurface | null = null;
+  private session: SessionConfig | null = null;
+  private socket: TerminalSocket | null = null;
   private readonly pending: Message[] = [];
-  private chords: Chord[] = [];
   private bindings: CommandBinding[] = [];
-  private readonly compositionKeys = new CompositionKeys();
-  private auth = false;
+  private readonly composition = new CompositionTracker();
   private readOnly = false;
   private closePending = false;
   private selectionActions: ReturnType<typeof observeSelectionActions> | null = null;
   private stopInlineHangul: (() => void) | null = null;
   private visible = true;
+  private theme = "";
+  private font = "";
   private lastError = "";
   private disposed = false;
-  /** UTF-16 units of output received from the native view (write and resetAndWrite). */
+  private starting = false;
+  private transcriptFlow = "";
+  private transcriptWritten = 0;
+  private readonly sockets = new SocketRequests((serial) => this.send({ type: "ticket", serial }));
+  /** UTF-16 units of output written, and the bulk output since the last report. */
   private received = 0;
+  private burst = { units: 0, startedAt: 0, lastAt: 0 };
+  private reportTimer: ReturnType<typeof setTimeout> | null = null;
+  private typedAt = 0;
+  private readonly echoes: number[] = [];
 
-  constructor(private readonly mount: HTMLElement) {}
+  constructor(private readonly mount: HTMLElement, private readonly connect: SocketFactory) {}
 
-  async start(init: Record<string, unknown>): Promise<void> {
-    this.chords = parseChords(init.chords);
-    this.bindings = parseCommandBindings(init.keybindings);
-    this.auth = init.auth === true;
-    this.readOnly = init.readOnly === true;
-    this.closePending = init.closePending === true;
-    this.visible = init.visible !== false;
-    const { theme, dark } = themeFrom(init.theme);
+  /** `type` leads each message, so the frame can route a ticket request by its prefix (terminal-frame.contract). */
+  private send(message: Outbound): void {
+    const { type, ...rest } = message;
+    post({ type, ...(this.session?.identity ?? {}), ...rest });
+  }
+
+  /** The app's `config`: the first starts the surface and the session; later ones change what changed. */
+  private configure(message: Message): void {
+    this.bindings = parseCommandBindings(message.keybindings);
+    this.closePending = message.closePending === true;
+    const session = sessionFrom(message.session);
+    this.readOnly = session.readOnly;
+    if (this.surface) this.surface.input.readOnly = this.readOnly;
+    const theme = JSON.stringify(message.theme ?? null), font = JSON.stringify(message.font ?? null);
+    const visible = message.visible !== false;
+    if (!this.session) {
+      this.session = session;
+      this.theme = theme; this.font = font; this.visible = visible;
+      void this.start(message);
+      return;
+    }
+    this.session = { ...this.session, readOnly: session.readOnly, canAddToChat: session.canAddToChat };
+    const surface = this.surface;
+    if (!surface) return;
+    if (theme !== this.theme) { this.theme = theme; this.applyTheme(message.theme); }
+    if (font !== this.font) { this.font = font; void surface.setFont(fontFrom(message.font)); }
+    if (visible !== this.visible) { this.visible = visible; surface.setVisible(visible); }
+  }
+
+  private applyTheme(value: unknown): GhosttyTheme {
+    const { theme, dark } = themeFrom(value);
     document.documentElement.classList.toggle("dark", dark);
     document.body.style.background = `rgb(${theme.background.r}, ${theme.background.g}, ${theme.background.b})`;
+    this.surface?.setTheme(theme);
+    return theme;
+  }
+
+  private async start(config: Message): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    const theme = this.applyTheme(config.theme);
+    const transcript = this.session?.mode === "transcript";
     try {
       const surface = await GhosttyTerminalSurface.create(this.mount, {
         theme,
-        font: fontFrom(init.font),
+        font: fontFrom(config.font),
         visible: this.visible,
-        onData: (data) => { if (!this.readOnly) post({ type: "data", data }); },
-        onResize: (cols, rows) => post({ type: "resize", cols, rows }),
-        onSelectionChange: () => this.postSelection(),
+        onData: (data) => this.typed(data),
+        onResize: (cols, rows) => this.resized(cols, rows),
+        onSelectionChange: () => this.selectionChanged(),
         beforeKey: (event) => this.beforeKey(event),
         onLinkActivate: (text, event) =>
-          post({ type: "link", text, metaKey: event.metaKey, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, altKey: event.altKey }),
+          this.send({ type: "link", text, metaKey: event.metaKey, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, altKey: event.altKey }),
         onContextMenu: (event) => {
           event.preventDefault();
-          if (this.auth) return;
+          if (transcript) return;
           this.selectionActions?.cancel();
-          post({ type: "contextmenu", x: event.clientX, y: event.clientY, ...this.selection() });
+          this.send({ type: "contextmenu", x: event.clientX, y: event.clientY, readOnly: this.readOnly, ...this.selection() });
         },
       });
-      if (this.disposed) {
-        surface.dispose();
-        return;
-      }
+      if (this.disposed) { surface.dispose(); return; }
       this.surface = surface;
-      if (!this.auth) this.selectionActions = observeSelectionActions({
+      surface.input.readOnly = this.readOnly;
+      if (!transcript) this.selectionActions = observeSelectionActions({
         element: this.mount,
         onSelection: (pointer) => {
           const selection = this.selection();
           if (!selection.text || !selection.position) return;
           const point = resolveSelectionActionPosition({ bounds: this.mount.getBoundingClientRect(),
             selectionRect: selection.end, pointer, viewport: { width: innerWidth, height: innerHeight } });
-          post({ type: "selection-ready", x: point.x, y: point.y, ...selection });
+          this.send({ type: "selection-ready", x: point.x, y: point.y, ...selection });
         },
-        onDismiss: (reason) => post({ type: "selection-dismiss", reason }),
+        onDismiss: (reason) => this.send({ type: "selection-dismiss", reason }),
       });
-      surface.input.addEventListener("focus", () => post({ type: "focus", focused: true }));
-      surface.input.addEventListener("blur", () => post({ type: "focus", focused: false }));
+      surface.input.addEventListener("focus", () => this.send({ type: "focus", focused: true }));
+      surface.input.addEventListener("blur", () => this.send({ type: "focus", focused: false }));
       // After the surface's own listeners, so a commit's data goes out before the state ends.
-      observeComposition(surface.input, (composing) => post({ type: "composition", composing }));
-      this.stopInlineHangul = holdInlineHangul(document, surface.input, (data) => { if (!this.readOnly) post({ type: "data", data }); },
-        (composing) => post({ type: "composition", composing }));
-      keepConversionContext(surface.input, () => this.compositionKeys.awaitsOptionReturn());
+      observeComposition(surface.input, (composing) => this.composition.set(composing));
+      this.stopInlineHangul = holdInlineHangul(document, surface.input, (data) => this.typed(data), () => undefined);
+      keepConversionContext(surface.input, () => this.composition.converting());
       for (const message of this.pending.splice(0)) this.receive(message);
-      post({ type: "ready", cols: surface.cols, rows: surface.rows });
+      if (transcript) this.socket = this.openSocket();
+      else if (this.session?.attach) this.socket = this.openSocket();
+      if (this.socket) this.wantSocket();
+      if (transcript) this.socket?.authInput("", { cols: surface.cols, rows: surface.rows });
+      // A focus that reached the web view while the WASM loaded (TerminalSessionViewport's mount check).
+      if (document.hasFocus() && this.visible) surface.focus();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to initialize libghostty-vt";
-      this.fail(message);
+      this.fail(error instanceof Error ? error.message : "Unable to initialize libghostty-vt");
     }
   }
+
+  private openSocket(): TerminalSocket {
+    const session = this.session!;
+    return new TerminalSocket({
+      write: (data) => this.surface?.write(data),
+      resetAndWrite: (data) => { this.surface?.resetAndWrite(data); this.selectionActions?.cancel(); },
+      system: (message) => this.system(message),
+      exited: () => this.send({ type: "exited" }),
+      wantSocket: () => this.wantSocket(),
+      authFailed: (failed) => this.send({ type: failed ? "auth-error" : "auth-recovered" }),
+      received: (units) => this.output(units),
+      answered: () => this.sockets.reset(),
+    }, this.connect, { ...(session.attach ? { attach: session.attach } : {}), ...(session.auth ? { auth: session.auth } : {}), readOnly: session.readOnly });
+  }
+
+  private wantSocket(): void { if (!this.disposed) this.sockets.want(); }
+
+  private socketReady(url: string, serial: number): void {
+    if (this.sockets.answered(url, serial)) this.socket?.start(url);
+  }
+
+  private typed(data: string): void {
+    if (this.readOnly || !data) return;
+    this.typedAt = performance.now();
+    if (this.session?.mode === "transcript") this.socket?.authInput(data);
+    else this.socket?.write(data);
+  }
+
+  private resized(cols: number, rows: number): void {
+    if (this.session?.mode === "transcript") this.socket?.authInput("", { cols, rows });
+    else this.socket?.resize(cols, rows);
+  }
+
+  /** Output reached the surface: the echo latency of the last typed key, and a report after bulk output. */
+  private output(units: number): void {
+    const now = performance.now();
+    this.received += units;
+    if (this.typedAt > 0) { this.echoes.push(Math.round((now - this.typedAt) * 10) / 10); this.typedAt = 0; if (this.echoes.length > 50) this.echoes.shift(); }
+    if (this.burst.units === 0 || now - this.burst.lastAt > REPORT_IDLE_MS) this.burst = { units: 0, startedAt: now, lastAt: now };
+    this.burst.units += units; this.burst.lastAt = now;
+    if (this.burst.units < REPORT_BYTES) return;
+    if (this.reportTimer) clearTimeout(this.reportTimer);
+    this.reportTimer = setTimeout(() => { this.reportTimer = null; this.report(); }, REPORT_IDLE_MS);
+  }
+
+  /** The page's own view of itself, for the agent (the app keeps the latest as the pane's `stats`). */
+  private report(): void {
+    const surface = this.surface;
+    const painted = (surface as unknown as { snapshot?: { rowData: ReadonlyArray<{ text: string }> } | null } | null)?.snapshot;
+    this.send({ type: "stats", ready: surface !== null, cols: surface?.cols ?? 0, rows: surface?.rows ?? 0, received: this.received,
+      chunks: this.socket?.chunks ?? 0, busy: Math.round(this.socket?.busy ?? 0), largest: this.socket?.largest ?? 0, fullWindows: this.socket?.fullWindows ?? 0, attached: this.socket?.attached ?? false, status: this.socket?.status ?? "",
+      burst: { units: this.burst.units, ms: Math.round(this.burst.lastAt - this.burst.startedAt) }, echoes: this.echoes.slice(-20),
+      text: painted ? painted.rowData.map((row) => row.text.replace(/\s+$/, "")).slice(-12) : [], error: this.lastError });
+  }
+
+  private system(message: string): void { this.surface?.write(`\r\n[terminal] ${crlf(message)}\r\n`); }
 
   private fail(message: string): void {
     this.lastError = message;
     this.mount.classList.add("failed");
     this.mount.textContent = `${message} — close and reopen the terminal to retry.`;
-    post({ type: "error", message });
+    this.send({ type: "error", message });
   }
 
   private beforeKey(event: KeyboardEvent): boolean {
-    // The input method's key: its shortcuts below still run, as on the reference's "Process" key, and
-    // the surface never encodes it. One the input method declined does nothing else: no keyboard
-    // layout command (⌥Return's line break) and no resend to the app. Chromium's input method ends a
-    // composition on a key it declines; when one keeps composing, the native view commits it as it
-    // stands.
-    const composed = this.compositionKeys.take(event);
-    if (composed && event.keyCode !== 229) {
-      event.preventDefault();
-      post({ type: "commitComposition" });
-    }
-    if (this.auth) return !composed && event.key !== "Tab";
+    const composed = this.composition.composed(event);
+    if (this.session?.mode === "transcript") return !composed && event.key !== "Tab";
     // A held ⌘W, or one while the close dialog is pending, is swallowed without another close.
     if (preventRepeatedTerminalCloseShortcut(event, this.bindings) || (this.closePending && preventTerminalCloseShortcut(event, this.bindings))) {
       event.stopPropagation();
       return false;
     }
+    // The app's own shortcuts take their chords before the page sees them; a binding that reaches the page
+    // still runs its command (terminal-drawer-view.ts terminalCommandAction).
     const binding = this.bindings.find(({ keys }) => matchesChord(event, keys));
     if (binding) {
       event.preventDefault();
       event.stopPropagation();
-      post({ type: "command", command: binding.command, chord: binding.chord, repeat: event.repeat });
-      return false;
-    }
-    // The old `chords` prop is the surface harness's passthrough seam, not a command dispatch.
-    if (matchesChord(event, this.chords)) {
-      post({ type: "chord", key: event.key, code: event.code, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey });
+      this.send({ type: "command", command: binding.command, chord: binding.chord, repeat: event.repeat });
       return false;
     }
     const data = terminalKeyShortcutData(event, composed);
     if (data !== null) {
       event.preventDefault();
       event.stopPropagation();
-      if (!this.readOnly) post({ type: "data", data });
+      this.typed(data);
       return false;
     }
     return !composed;
@@ -478,138 +581,89 @@ class TerminalPage {
       end: this.surface?.getSelectionEndClientRect() ?? null };
   }
 
-  private postSelection(): void {
+  private selectionChanged(): void {
     const surface = this.surface;
-    if (!surface || this.auth) return;
-    post({ type: "selection", ...this.selection() });
+    if (!surface || this.session?.mode === "transcript") return;
     if (!surface.hasSelection() && this.selectionActions?.pending) {
       this.selectionActions.cancel();
-      post({ type: "selection-dismiss", reason: "interaction" });
+      this.send({ type: "selection-dismiss", reason: "interaction" });
     }
   }
 
-  /** Native → page. Returns a value for the requests that read (readSelection, debug). */
-  receive(message: Message): unknown {
-    if (this.disposed) return null;
+  /** App → page. */
+  receive(message: Message): void {
+    if (this.disposed) return;
+    if (message.type === "config") { this.configure(message); return; }
+    if (message.type === "socket") { this.socketReady(typeof message.url === "string" ? message.url : "", Number(message.serial)); return; }
     const surface = this.surface;
-    if (message.type === "chords") {
-      this.chords = parseChords(message.chords);
-      return null;
-    }
-    if (message.type === "compositionKey") {
-      this.compositionKeys.mark({ metaKey: message.metaKey === true, ctrlKey: message.ctrlKey === true,
-        altKey: message.altKey === true, shiftKey: message.shiftKey === true, code: typeof message.code === "string" ? message.code : "" });
-      return null;
-    }
-    if (message.type === "keyPolicy") {
-      this.bindings = parseCommandBindings(message.keybindings);
-      this.readOnly = message.readOnly === true;
-      this.closePending = message.closePending === true;
-      return null;
-    }
-    if (message.type === "dispose") {
-      this.disposed = true;
-      this.selectionActions?.dispose();
-      this.stopInlineHangul?.();
-      surface?.dispose();
-      this.surface = null;
-      return null;
-    }
-    if (message.type === "write" || message.type === "resetAndWrite") this.received += String(message.data ?? "").length;
-    if (!surface) {
-      if (message.type !== "readSelection") this.pending.push(message);
-      return message.type === "readSelection" ? "" : null;
-    }
+    if (!surface) { this.pending.push(message); return; }
     switch (message.type) {
-      case "write":
-        surface.write(String(message.data ?? ""));
-        return null;
-      case "resetAndWrite":
-        surface.resetAndWrite(String(message.data ?? ""));
-        return null;
-      case "theme": {
-        const { theme, dark } = themeFrom(message.theme);
-        document.documentElement.classList.toggle("dark", dark);
-        document.body.style.background = `rgb(${theme.background.r}, ${theme.background.g}, ${theme.background.b})`;
-        surface.setTheme(theme);
-        return null;
+      case "transcript": {
+        const flow = String(message.flow ?? ""), output = String(message.output ?? "");
+        const offset = typeof message.offset === "number" ? message.offset : output.length;
+        if (flow !== this.transcriptFlow) { this.transcriptFlow = flow; this.transcriptWritten = offset; surface.resetAndWrite(output); return; }
+        const update = terminalTranscriptUpdate(this.transcriptWritten, output, offset);
+        if (update.reset) surface.resetAndWrite(update.data);
+        else if (update.data) surface.write(update.data);
+        this.transcriptWritten = update.written;
+        return;
       }
-      case "font":
-        void surface.setFont(fontFrom(message.font));
-        return null;
-      case "visible":
-        this.visible = message.visible !== false;
-        surface.setVisible(this.visible);
-        return null;
-      case "focus":
-        surface.focus();
-        return null;
-      case "clearSelection":
-        surface.clearSelection();
-        return null;
-      case "readSelection":
-        return surface.getSelection();
-      case "selectAll":
-        surface.selectAll();
-        return null;
-      case "scrollToBottom":
-        surface.scrollToBottom();
-        return null;
-      // A press that ended outside the page: the reference's dividers are in the same document, so
-      // their release reaches the surface's window listener (surface.ts onWindowPointerRelease).
-      case "pointerRelease":
-        window.dispatchEvent(new Event("pointerup"));
-        return null;
+      case "system": this.system(String(message.message ?? "")); return;
+      case "focus": surface.focus(); return;
+      case "clearSelection": surface.clearSelection(); return;
+      case "selectAll": surface.selectAll(); surface.focus(); return;
+      case "scrollToBottom": surface.scrollToBottom(); surface.focus(); return;
       case "paste": {
         const text = String(message.text ?? "");
-        void surface.pasteFromClipboard(() => Promise.resolve(text));
-        return null;
+        if (!this.readOnly) void surface.pasteFromClipboard(() => Promise.resolve(text));
+        surface.focus();
+        return;
       }
-      default:
-        return null;
+      // The context menu's Paste: the page reads the clipboard itself, as the reference's renderer does.
+      case "pasteClipboard":
+        if (!this.readOnly) void surface.pasteFromClipboard(() => navigator.clipboard.readText())
+          .then(() => surface.focus(), (error: unknown) => this.system(error instanceof Error ? error.message : "Unable to read the clipboard"));
+        return;
+      case "stats": this.report(); return;
+      default: return;
     }
   }
 
-  /** The agent's view of this terminal: what the canvas last painted, as text. */
-  debug(): Record<string, unknown> {
-    const surface = this.surface;
-    const painted = (surface as unknown as { snapshot?: { rowData: ReadonlyArray<{ text: string }> } | null } | null)
-      ?.snapshot;
-    return {
-      ready: surface !== null,
-      cols: surface?.cols ?? 0,
-      rows: surface?.rows ?? 0,
-      visible: this.visible,
-      focused: document.activeElement === surface?.input,
-      text: painted ? painted.rowData.map((row) => row.text.replace(/\s+$/, "")) : [],
-      selection: surface?.getSelection() ?? "",
-      atBottom: surface?.isAtBottom() ?? true,
-      error: this.lastError,
-      received: this.received,
-      unsent: sent.length,
-      visibility: document.visibilityState,
-    };
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.sockets.dispose();
+    if (this.reportTimer) clearTimeout(this.reportTimer);
+    this.socket?.dispose();
+    this.selectionActions?.dispose();
+    this.stopInlineHangul?.();
+    this.surface?.dispose();
+    this.surface = null;
   }
 }
 
+/** The framed page: every app message is `receive`'s; it asks for its config once it listens. */
 function boot(): void {
   const style = document.createElement("style");
   style.textContent = STYLE;
   document.head.append(style);
   const mount = document.getElementById("terminal") ?? document.body.appendChild(document.createElement("div"));
   mount.id = "terminal";
-  const page = new TerminalPage(mount);
-  const api = {
-    receive: (message: Message) => page.receive(message),
-    debug: () => page.debug(),
-  };
-  (globalThis as { t3Terminal?: typeof api }).t3Terminal = api;
+  const page = new TerminalPage(mount, (url) => new WebSocket(url));
+  window.addEventListener("message", (event) => {
+    if (!fromApp(event, window, window)) return;
+    let message: Message;
+    try { message = JSON.parse(event.data) as Message; } catch { return; }
+    if (message && typeof message.type === "string") page.receive(message);
+  });
+  // The web view became the window's first responder (a click, the app's `focus`): the surface takes the keys.
+  window.addEventListener("focus", () => page.receive({ type: "focus" }));
+  window.addEventListener("pagehide", () => page.dispose());
   window.addEventListener("error", (event) => post({ type: "error", message: event.message }));
   window.addEventListener("unhandledrejection", (event) =>
     post({ type: "error", message: event.reason instanceof Error ? event.reason.message : String(event.reason) }),
   );
-  const init = (globalThis as { t3TerminalInit?: Record<string, unknown> }).t3TerminalInit ?? {};
-  void page.start(init);
+  post({ type: "boot" });
 }
 
-if (typeof document !== "undefined" && typeof window !== "undefined" && "webkit" in window) boot();
+if (typeof document !== "undefined" && typeof window !== "undefined") boot();
