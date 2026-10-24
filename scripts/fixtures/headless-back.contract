@@ -1,0 +1,37 @@
+// The platform's Back in a headless session (LLP 1126.002 D5, LLP 1115 D5):
+// each route may hold its own `id="back"`; Back from a route presses only its
+// own (HeadlessLiveTests). Compiled by build.mjs --test.
+routes nav
+  tab home "/"
+    detail "/detail"
+
+component HeadlessBack
+  state own = true
+  state pressed = "none"
+  action open
+    nav = push(nav, "/detail")
+  action openPlain
+    own = false
+    nav = push(nav, "/detail")
+  action baseBack
+    pressed = "base"
+  action detailBack
+    pressed = "detail"
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="root"
+      text pressed testId="pressed"
+      for t in nav.tabs key=t.name
+        for e in t.stack key=e.id
+          column navigationKey=`${e.id}` testId=`page-${e.name}`
+            if e.name == "home"
+              button id="back" press=baseBack testId="base-back"
+                text "Base"
+              button press=open testId="open"
+                text "Open"
+              button press=openPlain testId="open-plain"
+                text "Open plain"
+            if e.name == "detail"
+              if own
+                button id="back" press=detailBack testId="detail-back"
+                  text "Detail"
