@@ -172,16 +172,54 @@ final class IconPathTests: XCTestCase {
         let even = try XCTUnwrap(p.views[2]), plain = try XCTUnwrap(p.views[3])
         XCTAssertEqual(try Self.inked(try XCTUnwrap(even.iconPathImage(side: 24)), at: [4, 12]), [true, false])
         XCTAssertEqual(try Self.inked(try XCTUnwrap(plain.iconPathImage(side: 24)), at: [4, 12]), [true, true])
-        #if os(iOS)
-        XCTAssertEqual(try Self.inked(try XCTUnwrap(even.image), at: [4, 12]), [true, false], "the leaf's image")
-        #else
+        // As drawn on the screen, at a fractional origin: the hole clear, the band inked.
+        XCTAssertEqual(try drawn(p, even, at: CGPoint(x: 40.5, y: 60.25)), [true, false], "even-odd, drawn")
+        XCTAssertEqual(try drawn(p, plain, at: CGPoint(x: 100.33, y: 60.67)), [true, true], "nonzero, drawn")
+        #if os(macOS)
         XCTAssertEqual(even.symbolShape?.shapes.map(\.fillRule), [.evenOdd], "C1's shape layer fills even-odd")
         XCTAssertEqual(plain.symbolShape?.shapes.map(\.fillRule), [.nonZero])
-        // The rule changes in place: the same source, its rule said again.
-        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["symbolFillRule"]]]))
-        even.updateSymbol()
-        XCTAssertEqual(even.symbolShape?.shapes.map(\.fillRule), [.nonZero], "back to nonzero")
         #endif
+        // The rule alone changes, each way, through the batch: drawn again.
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["symbolFillRule"]]]))
+        XCTAssertEqual(try drawn(p, even, at: CGPoint(x: 40.5, y: 60.25)), [true, true], "cleared: nonzero")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["symbolFillRule": "evenodd"]]]))
+        XCTAssertEqual(try drawn(p, even, at: CGPoint(x: 40.5, y: 60.25)), [true, false], "said again: even-odd")
+    }
+
+    /// `node` (a 24-point icon) moved to `origin` and drawn as the screen
+    /// shows it, 2 pixels a point: whether the middle column is inked 4 and
+    /// 12 points down.
+    @MainActor private func drawn(_ p: Presenter, _ node: NodeView, at origin: CGPoint) throws -> [Bool] {
+        p.apply(wireBatch([["op": "frame", "id": Int(node.id), "x": Double(origin.x), "y": Double(origin.y), "w": 24.0, "h": 24.0]]))
+        node.layoutSymbol()
+        let scale: CGFloat = 2, side = 200
+        let w = side * Int(scale)
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: w, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        #if os(iOS)
+        ctx.translateBy(x: 0, y: CGFloat(w)); ctx.scaleBy(x: scale, y: -scale)
+        p.viewport.layoutIfNeeded()
+        p.viewport.layer.render(in: ctx)
+        #else
+        p.viewport.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: w, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                 isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32))
+        rep.size = p.viewport.bounds.size
+        Capture.draw(p.viewport, to: rep) // as IconShapeMacTests captures C1's layers
+        let cg = try XCTUnwrap(rep.cgImage)
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: w))
+        #endif
+        let pixels = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+        // (Its buffer holds its top row first; the viewport is flipped on both.)
+        // Inked: far from the page's ground, read at the page's corner (the
+        // ground may be opaque, so not by alpha).
+        func rgba(_ x: Int, _ y: Int) -> [Int] { (0..<4).map { Int(pixels[(y * w + x) * 4 + $0]) } }
+        let ground = rgba(2, 2)
+        let x = Int(((origin.x + 12) * scale).rounded(.down))
+        return [4, 12].map { row in
+            let y = Int(((origin.y + CGFloat(row)) * scale).rounded(.down))
+            return zip(rgba(x, y), ground).map { abs($0 - $1) }.reduce(0, +) > 96
+        }
     }
 
     /// Whether the image at 24 points inks the middle column at each row.

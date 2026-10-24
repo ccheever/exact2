@@ -19,7 +19,7 @@ extension NodeView {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         updateRoleAccessibility()
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
-        let key = "\(source):\(name):\(points):\(weight):\(props["symbolFillRule"] ?? ""):\(symbolLookKey)"
+        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)" + (props["symbolFillRule"].map { ":\($0)" } ?? "")
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
