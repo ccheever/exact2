@@ -538,10 +538,16 @@ fn run(
                     })
                     .count();
                 if run >= 2 {
-                    if let Some(next) = batch::stepped(&text, &ops[k..k + run], vocab) {
-                        inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
-                        (text, k) = (next, k + run);
-                        continue;
+                    // Those with a target in one parse, and the first without
+                    // one stepped for its words.
+                    let found = batch::present(&text, &ops[k..k + run], vocab);
+                    let take = found.min(run);
+                    if take >= 2 {
+                        if let Some(next) = batch::stepped(&text, &ops[k..k + take], vocab) {
+                            inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                            (text, k) = (next, k + take);
+                            continue;
+                        }
                     }
                 }
                 let (next, undo) = step(&text, &ops[k], vocab, params)?;

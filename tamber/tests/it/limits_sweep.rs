@@ -439,3 +439,33 @@ fn many_dtcg_theme_groups_group_in_moments() {
     });
     assert_eq!(imported.ok(), Some(1));
 }
+
+/// A held import's values applied on a design that has since lost one of
+/// their tokens take the rest in one parse and refuse at that one, not a
+/// parse for each before it (Astra's re-check after round 3).
+#[test]
+fn values_on_a_token_gone_are_refused_after_one_parse() {
+    let n = 20_000;
+    let src = theme((0..n).map(|k| format!("  t{k} = #111111")));
+    let mut ops: Vec<Op> = (0..6000)
+        .map(|k| Op::SetToken {
+            name: format!("t{k}"),
+            when: Vec::new(),
+            value: "#333333".into(),
+            at: None,
+            comment: None,
+        })
+        .collect();
+    ops.push(Op::SetToken {
+        name: "gone".into(),
+        when: Vec::new(),
+        value: "#333333".into(),
+        at: None,
+        comment: None,
+    });
+    let refused = within(10, "a token gone", || {
+        exact_tamber::apply_all(&src, &ops, &vocab())
+    });
+    let d = refused.unwrap_err();
+    assert!(d[0].message.contains("gone"), "{d:?}");
+}

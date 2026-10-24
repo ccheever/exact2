@@ -109,6 +109,30 @@ pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<(String, usi
     Some((doc.text(), taken))
 }
 
+/// How many of `ops` (values and dials) lead with a target `src` has: the
+/// first that names none is the one stepping refuses (round 3's re-check: a
+/// held import recomputed on a design that lost a token stepped every op
+/// before it, a parse each).
+pub(super) fn present(src: &str, ops: &[Op], vocab: &Vocab) -> usize {
+    let Ok(design) = crate::parse(src) else {
+        return 0;
+    };
+    let roles: Vec<(String, bool)> = vocab
+        .roles
+        .iter()
+        .map(|r| (r.name.clone(), r.system))
+        .collect();
+    let index = Index::new(&design, &roles);
+    let dials: HashSet<&str> = design.dials.iter().map(|d| d.name.value.as_str()).collect();
+    ops.iter()
+        .take_while(|op| match op {
+            Op::SetToken { name, .. } => index.token(&roles, name).is_ok(),
+            Op::SetDial { name, .. } => dials.contains(name.as_str()),
+            _ => false,
+        })
+        .count()
+}
+
 /// An import's values and new tokens interleaved (`set-token`s on the
 /// tokens it has, `add-token`s with no `before` for those it lacks, in its
 /// tokens' order): the new tokens with one parse ([`added`]), then the values
@@ -142,6 +166,17 @@ pub(super) fn mixed(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
         .iter()
         .any(|op| matches!(op, Op::SetToken { name, .. } if new.contains(&key(name))));
     if names_new {
+        return None;
+    }
+    // A value giving a token its first `when` line can set the indent the
+    // new tokens' `when` lines take (Astra's re-check): stepped as written.
+    let add_whens = adds
+        .iter()
+        .any(|op| matches!(op, Op::AddToken { whens, .. } if !whens.is_empty()));
+    let set_whens = sets
+        .iter()
+        .any(|op| matches!(op, Op::SetToken { when, .. } if !when.is_empty()));
+    if add_whens && set_whens {
         return None;
     }
     let (text, taken) = added(src, &adds, vocab)?;
@@ -520,6 +555,9 @@ mod tests {
             "tamber t\n\ndials\n  d: number = 0.1  in 0..1\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n    when tone=b: #222222\n  t2 = calc(d * 2)\n",
             "tamber t\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n  t2 = #111111\n  // closing\n",
             "tamber t\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n  t2 = #111111",
+            // (Astra's re-check: `t1`'s six-space `when`, which a new token's
+            // follows until `t0` gains one of four)
+            "tamber t\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n      when tone=b: #222222\n  t2 = #111111\n",
         ];
         let mut seed = 0x1234_5678_9abc_def1_u64;
         let mut next = |n: u64| {
@@ -530,7 +568,7 @@ mod tests {
         };
         let mut batched = 0;
         for design in designs {
-            for _ in 0..60 {
+            for _ in 0..200 {
                 let mut ops = Vec::new();
                 for k in 0..(4 + next(8)) {
                     ops.push(match next(3) {
@@ -539,7 +577,14 @@ mod tests {
                             kind: None,
                             value: format!("#{:06x}", next(0xffffff)),
                             meta: Vec::new(),
-                            whens: Vec::new(),
+                            whens: match next(2) {
+                                0 => vec![(
+                                    vec![("tone".into(), "b".into())],
+                                    "#000000".into(),
+                                    None,
+                                )],
+                                _ => Vec::new(),
+                            },
                             comment: None,
                             before: None,
                         },
@@ -566,6 +611,6 @@ mod tests {
                 }
             }
         }
-        assert!(batched >= 40, "{batched}");
+        assert!(batched >= 30, "{batched}");
     }
 }
