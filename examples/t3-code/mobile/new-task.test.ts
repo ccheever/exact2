@@ -20,6 +20,7 @@ import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftLookup, mobileNewTas
 import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileVoiceAction, mobileVoiceBlocksSubmission, mobileVoiceSnapshot } from './voice-data';
 import { resetVoiceInputGlobalsForTests } from './voice-controller';
+import { contractFns } from '../tests/support/contract-action-fixture';
 
 async function fixture() {
   const client = new MobileDraftClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [];
@@ -79,6 +80,111 @@ test('Choose project never adopts the prior thread or even a sole project automa
   expect(chooser).toMatchObject({ chooser: true, title: 'Choose project', ready: false, needsPrepare: false });
   expect(f.client.threadId).toBe('old-thread'); expect(f.client.local.drafts['env:new:a']).toBe('A original');
   expect(f.calls).toHaveLength(0);
+});
+
+for (const source of ['fresh', 'explicit', 'saved']) {
+  test(`Change Project returns to the ${source} Draft with its identity and unsent text`, async () => {
+    const f = await fixture();
+    const independent = mobileNewTaskDraftCreate(f.client, { id: 'independent', environmentId: 'env', projectId: 'b',
+      origin: f.client.origin, createdAt: '2026-10-08T00:00:00Z' });
+    f.client.local.drafts[independent.key] = 'Another unsent task for B';
+    const initial = f.snapshot('/new', 'chooser');
+    expect(await f.action(initial.owner, 'project', '["env","a"]', '', 'chooser'))
+      .toMatchObject({ message: '', nextLocation: '/new/draft' });
+    const key = f.client.draftKey;
+    const location = source === 'explicit' ? '/new/draft?environmentId=env&projectId=a'
+      : source === 'saved' ? `/new/draft?draftId=${encodeURIComponent(key)}` : '/new/draft';
+    let draft = f.snapshot(location, 'draft');
+    if (draft.needsPrepare) {
+      expect(await f.action(draft.owner, 'prepare', '', '', 'draft')).toMatchObject({ message: '' });
+      draft = f.snapshot(location, 'draft');
+    }
+    expect(draft.ready).toBe(true);
+    expect(await f.action(draft.owner, 'draft', draft.draftOwner, 'Unsent task for A', 'draft'))
+      .toMatchObject({ message: '' });
+    const picker = '/new?draftRoute=draft';
+    let calls = f.calls.length;
+    const choose = f.snapshot(picker, 'change');
+    expect(choose).toMatchObject({ chooser: true, ready: false });
+    expect(owns(draft.owner, 'draft', f.client)).toBe(false);
+    expect(f.snapshot(location, 'draft')).toMatchObject({ ready: true, needsPrepare: false });
+    expect(f.calls).toHaveLength(calls);
+    expect(f.client.draft).toBe('Unsent task for A');
+    expect(f.client.projectId).toBe('a');
+
+    f.snapshot(picker, 'change-2');
+    expect(await f.action(draft.owner, 'project', '["env","b"]', '', 'change-2'))
+      .toMatchObject({ message: '', nextLocation: '@back', requestRoute: 'change-2' });
+    expect(f.client.draftKey).toBe(key);
+    expect(mobileNewTaskDraftLookup(f.client, key)).toMatchObject({ environmentId: 'env', projectId: 'b' });
+    expect(f.snapshot(location, 'draft')).toMatchObject({ ready: true, needsPrepare: false });
+    expect(f.client.projectId).toBe('b');
+    expect(f.client.draft).toBe('Unsent task for A');
+    expect(f.client.local.drafts['env:new:a']).toBe('A original');
+    expect(f.client.local.drafts['env:new:b']).toBe('B original');
+    expect(f.client.local.drafts[independent.key]).toBe('Another unsent task for B');
+    expect(mobileNewTaskDraftLookup(f.client, independent.key)?.projectId).toBe('b');
+    expect(f.calls.filter(call => call.op === 'ids')).toHaveLength(1);
+    expect(f.calls.some(call => call.method === 'orchestration.launchThread')).toBe(false);
+    calls = f.calls.length;
+    expect((await f.action(draft.owner, 'project', '["env","a"]', '', 'change-2')).message)
+      .toContain('route changed');
+    expect(f.calls).toHaveLength(calls);
+  });
+}
+
+test('a project chooser cannot return to an unrelated or replaced Draft request', async () => {
+  for (const replaced of [false, true]) {
+    const f = await fixture(), chooser = f.snapshot('/new', 'chooser');
+    await f.action(chooser.owner, 'project', '["env","a"]', '', 'chooser');
+    f.snapshot('/new/draft', 'draft');
+    const key = f.client.draftKey;
+    if (replaced) f.snapshot('/new/draft?environmentId=env&projectId=b', 'draft');
+    const changed = f.snapshot(`/new?draftRoute=${replaced ? 'draft' : 'other'}`, 'change');
+    const calls = f.calls.length;
+    expect((await f.action(changed.owner, 'project', '["env","b"]', '', 'change')).message)
+      .toContain('original draft');
+    expect(f.client.projectId).toBe('a');
+    expect(f.client.draftKey).toBe(key);
+    expect(f.calls).toHaveLength(calls);
+  }
+});
+
+test('only the original New Task entry presents a sheet; Change Project stays in its stack', () => {
+  const fns = contractFns('mobile/mobile-root-state.contract') as Record<string, (...args: unknown[]) => unknown>;
+  const presentation = (name: string, route: string, session = 'original', split = false) => {
+    const read = (fn: string) => fns[fn]!(name, route, session, split);
+    return [read('mobileRouteFormSheet'), read('mobileRoutePresentation'), read('mobileRouteDetent')];
+  };
+  expect(presentation('newTask', 'original')).toEqual(['new-task', 'modal', 'large']);
+  expect(presentation('newTask', 'change-project')).toEqual(['', '', '']);
+  expect(presentation('newTaskDraft', 'draft')).toEqual(['', '', '']);
+  expect(presentation('newTask', 'original', 'original', true)).toEqual(['', '', '']);
+  expect(presentation('newTask', 'change-project', 'original', true)).toEqual(['', '', '']);
+  expect(presentation('settings', 'settings')).toEqual(['settings', 'modal', '']);
+  expect(presentation('settings', 'settings', 'original', true)).toEqual(['', '', '']);
+  for (const name of ['threadModel', 'newTaskModel']) expect(presentation(name, name)).toEqual(['composer', 'modal', 'large']);
+  expect(presentation('threadQueue', 'queue')).toEqual(['', 'modal', 'medium large']);
+  for (const name of ['connect', 'connections']) expect(presentation(name, name)).toEqual(['true', 'modal', '']);
+  for (const name of ['gitOverview', 'threadTerminalCapture']) expect(presentation(name, name)).toEqual(['', 'modal', '']);
+  for (const name of ['homeArrange', 'threadBrowser', 'threadDevices', 'settingsLegal']) expect(presentation(name, name)).toEqual(['', 'fullscreen', '']);
+});
+
+test('New Task replies pop a retained chooser and preserve other navigation outcomes', () => {
+  const fns = contractFns('mobile/mobile-root-state.contract') as Record<string, (...args: unknown[]) => unknown>;
+  const navigation = (operation: string, nextLocation = '', message = '', submitted = false) =>
+    fns.taskReplyNavigation!({ revision: 1, requestRoute: 'chooser', environmentId: 'env', projectId: 'a', threadId: '',
+      alertTitle: '', nextLocation, message, submitted }, operation);
+  expect(navigation('project', '@back')).toBe('back');
+  expect(navigation('scratch', '@back')).toBe('back');
+  expect(navigation('project', '/new/draft')).toBe('push');
+  expect(navigation('project', '@back', 'Choose an available project')).toBe('');
+  expect(navigation('environment')).toBe('back');
+  expect(navigation('branch')).toBe('back');
+  expect(navigation('send', '', '', true)).toBe('thread');
+  expect(navigation('pending-close', '@close')).toBe('close');
+  expect(navigation('clone-remove', '/')).toBe('home');
+  expect(navigation('draft')).toBe('');
 });
 
 test('bare draft selects the sole project through a fresh independent identity', async () => {

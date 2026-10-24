@@ -49,6 +49,7 @@ interface Flow {
   catalogReady: boolean; groupingMode: string; environmentOrder?: readonly string[];
   draftKey: string; busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
   recovery?: MobileNewTaskTransferRecoveryView; share?: NewTaskShare;
+  draftRoute?: { visit: string; location: string; key: string; createdAt: string };
   recoveredRoute?: string;
   pendingRoute?: MobileNewTaskPendingRoute; pendingEditor?: MobilePendingTaskEditorResult;
 }
@@ -95,13 +96,14 @@ export function mobileNewTaskRoute(location: string) {
       : /^\/new\/draft\/attachments\/[^/]+$/.test(path) ? 'attachment'
       : /^\/new\/draft\/files\/.+$/.test(path) ? 'file'
         : /^\/new\/draft\/settings\/(?:runtime|providers|options\/[^/]+)$/.test(path) ? 'settings-child' : '');
-  const unsupported = query.has('incomingShareId') && !incomingShareID(query.get('incomingShareId')) ? 'incomingShareId'
+  const unsupported = query.has('draftRoute') && !chooser ? 'draftRoute'
+    : query.has('incomingShareId') && !incomingShareID(query.get('incomingShareId')) ? 'incomingShareId'
     : (query.get('cloning') && query.get('cloning') !== '1' ? 'cloning' : '');
   const param = (key: string) => { const value = query.get(key); return value?.trim() ? value : ''; };
   const environmentId = param('environmentId'), projectId = param('projectId'), cwd = param('cwd'), pendingTaskId = param('pendingTaskId');
   const pendingConflict = !!pendingTaskId && (context !== 'draft' || !environmentId || !projectId || ['draftId', 'branch', 'worktreePath', 'cloning', 'incomingShareId'].some(key => query.has(key)));
   const standaloneFile = context === 'file' && !!environmentId && !!cwd && !projectId && !param('draftId') && !unsupported;
-  return { chooser, bareDraft: path === '/new/draft' && query.size === 0, context, environmentId, projectId, cwd, pendingTaskId, standaloneFile, incomingShareId: param('incomingShareId'), draftId: param('draftId'),
+  return { chooser, bareDraft: path === '/new/draft' && query.size === 0, context, environmentId, projectId, cwd, pendingTaskId, standaloneFile, incomingShareId: param('incomingShareId'), draftId: param('draftId'), draftRoute: param('draftRoute'),
     branch: query.get('branch') ?? '', worktreePath: query.get('worktreePath') ?? '', unsupported: mobileNewTaskDraftIsPendingKey(param('draftId')) ? 'draftId' : pendingConflict ? 'pendingTaskId' : unsupported };
 }
 
@@ -200,6 +202,8 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   if (newTaskSharePending(flow.share)) return { ...base, status: 'preparing', needsPrepare: route.context === 'draft' && newTaskShareReady(flow.share!, client),
     message: flow.share?.phase === 'cancel' ? 'Cancelling import…' : 'Importing shared content…' };
   flow.readyVisit = visit;
+  if (route.context === 'draft') flow.draftRoute = { visit, location, key: flow.draftKey,
+    createdAt: mobileNewTaskDraftCurrent(client)!.createdAt };
   return { ...base, status: 'ready', ready: true, fileReady: route.context === 'file', title: ({ draft: 'New task', environment: 'Environment', branch: 'Branch', settings: 'Model' })[route.context] ?? 'New task' };
 }
 
@@ -291,6 +295,14 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   } };
   const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   const route = mobileNewTaskRoute(flow.location);
+  const returning = route.chooser && !!route.draftRoute && (kind === 'project' || kind === 'scratch');
+  const capturedDraft = flow.draftRoute, boundDraft = mobileNewTaskDraftCurrent(client);
+  // Only the captured mounted Draft may receive the picker result.
+  if (returning && (!capturedDraft || capturedDraft.visit !== route.draftRoute || capturedDraft.key !== flow.draftKey
+    || flow.requests.get(route.draftRoute) !== capturedDraft.location || !sameSelection(flow.selected, client)
+    || !boundDraft || boundDraft.key !== capturedDraft.key || boundDraft.createdAt !== capturedDraft.createdAt))
+    return result('Return to the original draft before changing its project.');
+  const draftLocation = () => returning ? '@back' : `/new/draft${flow.share ? `?incomingShareId=${encodeURIComponent(flow.share.id)}` : ''}`;
   const refreshRecovery = async () => {
     if (!flow.draftKey) { flow.recovery = undefined; return; }
     if (transferLease) { mobileNewTaskTransferGuardRelease(client, transferLease); transferLease = undefined; transferChecked = false; }
@@ -319,7 +331,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   if (kind === 'project' && reservation) {
     const saved = mobileNewTaskDraftLookup(client, reservation.destination.draftKey);
     if (!saved || saved.origin !== reservation.destination.origin) return result('The reserved share draft is unavailable.');
-    return result('', `${homeDraftLocation(saved)}&incomingShareId=${encodeURIComponent(flow.share!.id)}`);
+    return result('', returning ? '@back' : `${homeDraftLocation(saved)}&incomingShareId=${encodeURIComponent(flow.share!.id)}`);
   }
   if (kind === 'scratch' && (!route.chooser || route.unsupported)) return result('Choose a project before starting this task.');
   const hadError = !!flow.error;
@@ -506,7 +518,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     }
     flow.selected = selection(client); flow.applied.add(visit);
     if (kind === 'project' || kind === 'scratch' || kind === 'environment') await refreshRecovery();
-    return result('', kind === 'project' || kind === 'scratch' ? `/new/draft${flow.share ? `?incomingShareId=${encodeURIComponent(flow.share.id)}` : ''}` : '');
+    return result('', kind === 'project' || kind === 'scratch' ? draftLocation() : '');
   } catch (error) {
     if (letGo(error)) throw error;
     if (current()) flow.error = error instanceof Error ? error.message : 'Could not open this task.';
