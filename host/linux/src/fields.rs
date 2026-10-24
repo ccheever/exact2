@@ -142,15 +142,22 @@ pub(crate) fn face(
     }
 }
 
-/// [`FieldFace::axes`]: `wght`, `wdth` from `font-stretch`, then each axis
-/// of `font-variation-settings`, the last setting of a tag winning.
+/// [`FieldFace::axes`]: `wght`, `wdth` from `font-stretch`, `opsz` from
+/// the size under `font-optical-sizing: auto` (as text sets it,
+/// `text::shaping::push_style`), then each axis of
+/// `font-variation-settings`, the last setting of a tag winning. Empty for
+/// the device's default family when nothing moves an axis, which the shell
+/// then sets in its own default typeface.
 fn axes(style: &exact_kernel::TextStyle) -> String {
-    if style.font_stretch == 100.0 && style.font_variations.is_empty() {
+    if style.font_family == 0 && style.font_stretch == 100.0 && style.font_variations.is_empty() {
         return String::new();
     }
     let mut axes = vec![(*b"wght", f32::from(style.font_weight))];
     if style.font_stretch != 100.0 {
         axes.push((*b"wdth", style.font_stretch));
+    }
+    if style.font_optical_sizing == exact_kernel::FontOpticalSizing::Auto {
+        axes.push((*b"opsz", style.font_size));
     }
     for (tag, value) in style.font_variations.axes() {
         let tag = tag.to_be_bytes();
@@ -166,10 +173,12 @@ fn axes(style: &exact_kernel::TextStyle) -> String {
 }
 
 /// The file `style`'s family resolves to here, with its collection index
-/// (`path#index`); empty for the system's default family (stack 0), which
-/// is the device's own on the shell, and for a face that has no file.
+/// (`path#index`); empty for a face that has no file, and for the system's
+/// default family (stack 0) unless the field moves an axis: the shell's
+/// default typeface takes none, so a width or a setting needs the file text
+/// is drawn from.
 fn family(engine: &mut TextEngine, style: &exact_kernel::TextStyle, italic: bool) -> String {
-    if style.font_family == 0 {
+    if style.font_family == 0 && axes(style).is_empty() {
         return String::new();
     }
     let key = (style.font_family, style.font_weight, italic);
@@ -250,16 +259,30 @@ pub(crate) fn measure(
 
 #[cfg(test)]
 mod axes_tests {
-    /// An Android field's face takes the weight, the stretch and the
-    /// settings as one `font-variation-settings` string, the last winning.
+    /// An Android field's face takes the weight, the stretch, the optical
+    /// size and the settings as one `font-variation-settings` string, the
+    /// last winning.
     #[test]
-    fn a_fields_axes_are_its_weight_width_and_settings() {
+    fn a_fields_axes_are_its_weight_width_size_and_settings() {
         let mut style = exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default());
         assert_eq!(super::axes(&style), "");
+        style.font_size = 17.0;
         style.font_weight = 600;
         style.font_stretch = 87.5;
         style.font_variations =
             exact_kernel::style::FontVariations::parse(r#""GRAD" 150, "wght" 650"#).unwrap();
+        assert_eq!(
+            super::axes(&style),
+            "'wght' 650, 'wdth' 87.5, 'opsz' 17, 'GRAD' 150"
+        );
+        style.font_optical_sizing = exact_kernel::FontOpticalSizing::None;
         assert_eq!(super::axes(&style), "'wght' 650, 'wdth' 87.5, 'GRAD' 150");
+        // A declared family's file takes its weight and optical size even
+        // when nothing else is set.
+        let mut declared =
+            exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default());
+        declared.font_family = 8;
+        declared.font_size = 17.0;
+        assert_eq!(super::axes(&declared), "'wght' 400, 'opsz' 17");
     }
 }

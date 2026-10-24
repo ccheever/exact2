@@ -566,6 +566,7 @@ mod owned_spec {
             italic: false,
             stretch: 100.,
             variations: Default::default(),
+            optical_sizing: true,
             line_height: None,
             letter_spacing: 0.,
             font_variant_numeric: 0,

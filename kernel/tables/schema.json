@@ -1982,6 +1982,13 @@
       ],
       "default": "normal"
     },
+    "FontOpticalSizing": {
+      "values": [
+        "auto",
+        "none"
+      ],
+      "default": "auto"
+    },
     "TextDecorationLine": {
       "values": [
         "none",
@@ -4334,6 +4341,16 @@
       "text": true,
       "layout": true,
       "_comment": "@ref LLP 1019 D9: CSS `font-variation-settings`, `normal` or up to eight `\"tag\" <number>` axes, applied after font-weight, font-stretch and optical sizing and winning for the same axis (CSS Fonts 4 §7.2). Inherited, as in CSS."
+    },
+    {
+      "bit": 218,
+      "field": "font_optical_sizing",
+      "snapshot": "admit",
+      "codec": "enum:FontOpticalSizing",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1019 §13: CSS `font-optical-sizing` (CSS Fonts 4 §2.7). `auto` sets a face's `opsz` axis to the font size in px; `none` leaves the face's own optical size. Inherited, as in CSS."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch — LLP 1019 §13 D10; 27 is CSS's `border-color` shorthand; 28 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

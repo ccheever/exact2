@@ -57,6 +57,7 @@ pub fn expand(source: &Run) -> Vec<Run> {
                 italic: source.italic || p.italic,
                 stretch: source.stretch,
                 variations: source.variations,
+                optical_sizing: source.optical_sizing,
                 line_height: source.line_height.filter(|_| !gap),
                 letter_spacing: source.letter_spacing,
                 font_variant_numeric: source.font_variant_numeric,
