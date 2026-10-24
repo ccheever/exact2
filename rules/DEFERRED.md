@@ -842,6 +842,63 @@ reading. Nothing that isn't HTML is added by it.
   conversions as names; `deviceOrientation` and the sensor sources on
   macOS; and the Windows, visionOS and watchOS cells, and Linux through
   IIO.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.014 §13 question 8):** signing in with an identity provider by
+  FedCM's names: an `identity` member on `@exact/passkeys`'
+  `credentials.get`, with `getIdentityCapabilities`, `preventSilentAccess`
+  and the provider's button (`exact-sign-in-button`) from
+  `@exact/sign-in`, for Sign in with Apple and Sign in with Google on the
+  web, iOS, macOS and Android, Apple on Android `later`. The provider's ID
+  token reaches data code alone, and the app's server verifies it; on the
+  web each provider's page opens in a popup through the host's auth
+  session and answers the app's server, and no provider's script runs in
+  the page. Consumer: the auth fixture, with Snapback's identity as the
+  product consumer. Unblocks signing in with Apple or Google without app
+  Swift, beside a passkey in one sheet. Take: none named. Still out, each
+  until a consumer asks (LLP 1133.014 §6, §8): One Tap, Google's button
+  and FedCM in a web page, and Sign in with Apple JS; a guaranteed silent
+  sign-in; Google API scopes and server auth codes; linked-account
+  sign-in; other identity providers and FedCM's identity-provider side; a
+  token verifier for apps' servers; Apple on Android; arbitrating sheets
+  across ExactKit sessions that share a window; and the Windows, Linux,
+  tvOS, watchOS and visionOS cells.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.015 §13 question 8):** selling digital goods through the platform's
+  store by the Digital Goods API's names (`getDetails`, `listPurchases`,
+  `consume`, with `purchase`, `acknowledge` and `unfinishedPurchases`, the
+  store's queue, from `@exact/purchases`), over StoreKit 2 on iOS and
+  macOS and Play Billing on Android, the web `absent`; and the store's
+  rating prompt (`requestReview` from `@exact/store-review`). Consumer:
+  Weatherlight+. Unblocks a subscription or a purchase in an app without
+  app Swift. Take: none named. The App Store, Mac App Store and Play
+  distribution lanes stay deferred, so selling in production still waits
+  for a store lane; development builds and the stores' test environments
+  need none. Still out, each until a consumer asks (LLP 1133.015 §11):
+  StoreKit's merchandising views as package views; External Purchase, the
+  link-out entitlements and Play's alternative billing as tier 1; payments
+  for physical goods; the web cell inside a TWA or a Microsoft Store PWA;
+  a receipt-validation or entitlement server of exact2's, and relaying the
+  stores' server notifications; and the Windows, tvOS, visionOS and
+  watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.016 §14 question 9):** the device's own language model by the
+  Prompt API's names (`languageModelAvailability`, `createLanguageModel`,
+  `prompt`, `promptStreaming` and the rest, from
+  `@exact/language-model`), over Foundation Models on iOS and macOS, ML
+  Kit's GenAI Prompt API on Android and the browser's Prompt API on the
+  web: structured output by a JSON Schema subset, tools that are the app's
+  data code the model calls back at the prompt's origin narrowed to
+  `tool`, and a download only as a person's act. Consumer: Agents'
+  on-device conversation, its titles and its tool. Unblocks prompting the
+  device's model without app Swift or a server. Take: none named. Still
+  out, each until a consumer asks (LLP 1133.016 §12): image and audio
+  input; partially generated structured values while streaming; tools and
+  enforced structured output on Android; the summarizer, writer,
+  rewriter and proofreader; Apple's dynamic profiles, session properties
+  and transcript error policy; a transcript that outlives the app's
+  session; `temperature` and `topK` as tier 1, and the web's
+  `samplingMode`; LLP 1111's `tool` lines as the model's tools; and the
+  visionOS, watchOS and Windows cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
