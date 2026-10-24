@@ -25,15 +25,27 @@ function schedule() {
 }
 // A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
 // `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file. An
-// even-odd icon's path starts `evenodd:` (stage 14 C2): the page's one reading of a source form,
-// exact_kernel::Icon::parse's rule in JavaScript (a rule it doesn't know draws nothing).
+// even-odd icon's path starts `evenodd:` (stage 14 C2). `iconForm` is the page's one reading of a
+// source form, exact_kernel::Icon::parse in JavaScript, held to the same cases
+// (kernel/tests/fixtures/icon-forms.json): the first three `|`s part sf, viewBox and path, the
+// rest is the svg; no `:` is nonzero; `evenodd:` and a path with no other `:` is even-odd; any
+// other `:` (or too few parts) is no icon, `null`, which draws nothing.
 const iconForm = name => {
-  const f = name.split("|"), p = f[3] ?? "", [rule, d] = p.includes(":") ? p.split(/:(.*)/s) : ["", p];
-  const known = rule === "" || (rule === "evenodd" && d !== "");
-  return [known ? d : "", 1, f[2], p ? "" : f[4], rule === "evenodd" && known ? 1 : 0];
+  const f = []; let rest = name.slice(5);
+  for (let i = 0; i < 3; i++) { const at = rest.indexOf("|"); if (at < 0) return null; f.push(rest.slice(0, at)); rest = rest.slice(at + 1); }
+  const [, box, raw] = f, colon = raw.indexOf(":");
+  let path = raw, evenOdd = 0;
+  if (colon >= 0) {
+    const rule = raw.slice(0, colon), d = raw.slice(colon + 1);
+    if (rule !== "evenodd" || !d.trim() || d.includes(":")) return null;
+    path = d; evenOdd = 1;
+  }
+  return [path, 1, box, path ? "" : rest, evenOdd];
 };
 const draw = (e, name) => {
-  const [path, filled, box, file, evenOdd] = name.startsWith("icon|") ? iconForm(name) : Table[name] ?? [""];
+  // A form that is no icon draws nothing: no path, viewBox or rule.
+  const form = name.startsWith("icon|") ? iconForm(name) : undefined;
+  const [path, filled, box, file, evenOdd] = form === undefined ? Table[name] ?? [""] : form ?? ["", 0, "", "", 0];
   e.toggleAttribute("data-symbol-file", !!file);
   if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);

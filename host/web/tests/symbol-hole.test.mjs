@@ -60,19 +60,76 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
   }
 }, 20000);
 
-// The JS target's `draw` reads a computed source's form: the `evenodd:`
-// marker is the icon's rule, stripped from its path; a nonzero form is as
-// before; a rule it doesn't know draws nothing.
-test('symbols.js draw reads an icon form\'s fill rule', async () => {
+// The JS target's `iconForm` reads a source form as exact_kernel::Icon::parse does: each shared case
+// (kernel/tests/fixtures/icon-forms.json, which contract/cli/tests/it/icon_forms.rs holds Icon::parse to). And `draw` puts
+// it on the element: an even-odd form marked so, a nonzero one as before, one that is no icon drawing
+// nothing (no path, viewBox or rule).
+test('symbols.js iconForm and draw read a form as Icon::parse does', async () => {
   const source = readFileSync(resolve(ROOT, 'host/web-js/symbols.js'), 'utf8'), suite = await suiteBrowser('chromium', { timeout: 10000 });
+  const { cases } = JSON.parse(readFileSync(resolve(ROOT, 'kernel/tests/fixtures/icon-forms.json'), 'utf8'));
   try {
     const page = await suite.newPage();
-    await page.setContent(`<script>const Table = {}; ${glueDeclarations(source, ['iconForm', 'draw'])} globalThis.draw = draw;</script>`);
-    const drawn = await page.evaluate(() => ['icon||0 0 24 24|evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z|icons/r.svg', 'icon|heart|0 0 24 24|M0 0h4v4H0Z|icons/h.svg', 'icon||0 0 24 24|winding:M0 0h4|icons/w.svg'].map((name) => {
+    await page.setContent(`<script>const Table = {}; ${glueDeclarations(source, ['iconForm', 'draw'])} globalThis.iconForm = iconForm; globalThis.draw = draw;</script>`);
+    const read = await page.evaluate((names) => names.map((name) => {
       const e = document.createElement('img');
+      e.setAttribute('data-symbol-viewbox', 'stale'); e.toggleAttribute('data-symbol-nonzero', true); e.toggleAttribute('data-symbol-evenodd', true);
       globalThis.draw(e, name);
-      return [e.getAttribute('data-symbol-path'), e.hasAttribute('data-symbol-evenodd'), e.hasAttribute('data-symbol-nonzero')];
-    }));
-    expect(drawn).toEqual([['M0 0h4v4H0Z;M1 1h2v2H1Z', true, false], ['M0 0h4v4H0Z', false, true], ['', false, true]]);
+      return [globalThis.iconForm(name), e.getAttribute('data-symbol-path'), e.getAttribute('data-symbol-viewbox'), e.hasAttribute('data-symbol-evenodd'), e.hasAttribute('data-symbol-nonzero')];
+    }), cases.map(([name]) => name));
+    const want = cases.map(([, icon]) => icon === null
+      ? [null, '', null, false, false]
+      : [[icon.path, 1, icon.view_box, icon.path ? '' : icon.svg, icon.even_odd ? 1 : 0], icon.path ? icon.path : null, icon.path ? icon.view_box : 'stale', icon.path ? icon.even_odd : true, icon.path ? !icon.even_odd : true]);
+    expect(read).toEqual(want);
   } finally { await suite.close(); }
 }, 10000);
+
+// A rule that changes: one image driven from a nonzero form to an even-odd one and back, by each
+// runtime as its host changes it (the JS target's `draw`; the web host's element.rs attributes, swapped
+// as a props batch swaps them), its painter run after each. The ring and its middle are sampled each
+// time: the mask is rebuilt with the new `fill-rule`, and the previous rule's attribute is gone.
+for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: an icon whose rule changes is drawn by its new rule (${file})`, async () => {
+  const source = readFileSync(resolve(ROOT, file), 'utf8'), style = source.match(/'(@property --exact-tint[^']*)'/)[1];
+  const js = file.endsWith('symbols.js');
+  const declarations = glueDeclarations(source, js ? [...names, 'iconForm', 'draw'] : names);
+  const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<style>${style} #exact-root img { --exact-tint: rgb(255, 0, 0) !important; }</style><div id="exact-root"><div style="padding:16px">${img('flip', 'nonzero')}</div></div>`)
+    .replace('<script type="module" src="./glue.js"></script>', `<script>const Table = {}; ${stand} ${declarations} globalThis.paint = () => { ${run} }; globalThis.to = (rule) => { const e = document.getElementById('flip');
+      if (${js}) { const form = 'icon||0 0 24 24|' + (rule === 'evenodd' ? 'evenodd:' : '') + '${ring}|icons/flip.svg'; e.setAttribute('data-symbol-source', 'symbol:' + form); draw(e, form); }
+      else { e.removeAttribute(rule === 'evenodd' ? 'data-symbol-nonzero' : 'data-symbol-evenodd'); e.toggleAttribute('data-symbol-' + rule, true); } };</script>`);
+  const suite = await suiteBrowser(engine, { timeout: 10000 });
+  try {
+    const page = await suite.newPage({ viewport: { width: 200, height: 100 }, deviceScaleFactor: 1 });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(String(error)));
+    await page.setContent(html);
+    const red = async (x, y) => {
+      const box = await page.locator('#flip').boundingBox();
+      const png = await page.screenshot({ clip: { x: box.x + x, y: box.y + y, width: 1, height: 1 } });
+      return page.evaluate(async (data) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }), context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+        return r > 200 && g < 80 && b < 80;
+      }, png.toString('base64'));
+    };
+    const seen = [];
+    for (const rule of ['nonzero', 'evenodd', 'nonzero']) {
+      await page.evaluate((r) => { globalThis.to(r); globalThis.paint(); }, rule);
+      await page.waitForFunction(() => [...document.images].every((e) => e.complete));
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const marks = await page.evaluate(() => { const e = document.getElementById('flip'); return [e.hasAttribute('data-symbol-nonzero'), e.hasAttribute('data-symbol-evenodd'), decodeURIComponent(e.symbolMask).match(/fill-rule="([a-z]+)"/)[1]]; });
+      seen.push([rule, ...marks, await red(8, 8), await red(24, 24)]);
+    }
+    expect(seen).toEqual([
+      ['nonzero', true, false, 'nonzero', true, true],
+      ['evenodd', false, true, 'evenodd', true, false],
+      ['nonzero', true, false, 'nonzero', true, true],
+    ]);
+    expect(errors).toEqual([]);
+  } finally {
+    await suite.close();
+  }
+}, 20000);

@@ -852,5 +852,5 @@ fn an_app_vendored_packages_missing_svg_is_still_watched() {
 fn icon_path<'a>(plan: &'a exact_plan::Plan, row: &exact_plan::IconsRow) -> &'a str {
     let s = |id| plan.strings.get(id as usize).unwrap_or("");
     exact_kernel::Icon::of_row(s(row.sf.0), s(row.view_box.0), s(row.path.0), s(row.svg.0))
-        .map_or("", |i| i.path)
+        .map_or("", |icon| icon.path)
 }

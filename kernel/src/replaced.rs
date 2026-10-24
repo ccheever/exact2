@@ -248,12 +248,14 @@ impl<'a> Icon<'a> {
     /// The icon a plan `icons` row is, from its fields as stored (its path
     /// with its rule's marker, as in the source form): what every reader of
     /// the table builds. `None` for a rule it doesn't know (the build never
-    /// writes one: drawing nothing beats drawing wrong) or a marker with no
-    /// path. Path data holds no `:`, so a `:` is a rule's.
+    /// writes one: drawing nothing beats drawing wrong), a marker with no
+    /// path (or only whitespace), or a second `:` after the marker
+    /// (`evenodd:evenodd:M…`, C2 round 1). Path data holds no `:`, so a `:`
+    /// is a rule's, and one rule is all a path has.
     pub fn of_row(sf: &'a str, view_box: &'a str, path: &'a str, svg: &'a str) -> Option<Icon<'a>> {
         let (path, even_odd) = match path.split_once(':') {
             None => (path, false),
-            Some(("evenodd", d)) if !d.is_empty() => (d, true),
+            Some(("evenodd", d)) if !d.trim().is_empty() && !d.contains(':') => (d, true),
             Some(_) => return None,
         };
         Some(Icon {
@@ -386,6 +388,10 @@ mod tests {
             "icon||0 0 24 24|nonzero:M0 0h1Z|x.svg",
             "icon||0 0 24 24|winding:M0 0h1Z|x.svg",
             "icon||0 0 24 24|evenodd:|x.svg",
+            "icon||0 0 24 24|evenodd:   |x.svg",
+            "icon||0 0 24 24|evenodd:evenodd:M0 0h1Z|x.svg",
+            "icon||0 0 24 24|:M0 0h1Z|x.svg",
+            "icon||0 0 24 24|EvenOdd:M0 0h1Z|x.svg",
         ] {
             assert_eq!(Icon::parse(bad), None, "{bad}");
             assert_eq!(symbol_path(bad), None, "{bad}");
