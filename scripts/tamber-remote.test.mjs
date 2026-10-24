@@ -280,6 +280,9 @@ test('edit-held through the TLS door: a paired propose client edits its own held
     expect([mine.status, mine.ok?.client, mine.ok?.replaces]).toEqual([200, proposer.client, own]);
     const theirs = await edit(proposer, agents);
     expect([theirs.status, theirs.error?.needs]).toEqual([403, 'write']);
+    // (rt1's ask) A forged body client, the owner's name, is pinned to the paired one: still another's, still 403.
+    const forged = await remote(proposer, { method: 'edit-held', client: 'agent:codex', proposal: agents, index: 0, value: '#0b0b0b' });
+    expect([forged.status, forged.error?.needs]).toEqual([403, 'write']);
     const written = await edit(writer, agents);
     expect([written.status, written.ok?.client]).toEqual([200, 'agent:codex']);
   } finally { await doors.close(); await wire.close(); }
