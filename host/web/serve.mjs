@@ -18,6 +18,7 @@ import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
+import { keepGeneration, reapGenerations, servedFile } from './generations.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
@@ -721,11 +722,12 @@ export function replaceBuild(stage, dist) {
     // instant to the next, never absent, and the old tree is left at the
     // stage's path. Else two renames, between which a reader falls back to
     // `.previous`.
-    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { rmSync(stage, { recursive: true, force: true }); return; }
+    // The build replaced is kept by its generation while its pages may still ask for its files (generations.mjs).
+    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { keepGeneration(stage, dist); reapGenerations(dist); return; }
     renameSync(dist, `${dist}.previous`);
     try { renameSync(stage, dist); }
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
-    rmSync(`${dist}.previous`, { recursive: true, force: true });
+    keepGeneration(`${dist}.previous`, dist); reapGenerations(dist);
   } finally { rmSync(lock, { force: true }); }
 }
 
@@ -807,13 +809,17 @@ function* treeFile(dist, pathname, accept) {
   }
   return null;
 }
-export async function serveBuildTree(dist, req, res) {
+/** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
+ * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
+ * generation kept no more is 410, which the page's glue answers by loading the page again. */
+export async function serveBuildTree(dist, req, res, { pinned = null } = {}) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
-  const found = target && await buildTreeFileAsync(dist, target.pathname, req.headers.accept);
-  if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-  sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
+  const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
+  if (r.status !== 200) { res.writeHead(r.status, { 'cache-control': 'no-store' }); res.end(); return; }
+  sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' });
 }
 
 const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
