@@ -1,8 +1,8 @@
-//! How far an SVG path may reach before tiny-skia is given it. tiny-skia
+//! How far a CPU path may reach before tiny-skia is given it. tiny-skia
 //! 0.12 panics filling, stroking or masking a path whose device bounds
 //! pass about ±2³¹ pixels (a coordinate overflows an `i32` past its own
-//! `is_too_big_for_math` check), and an SVG's coordinates, `viewBox` and
-//! `stroke-width` are the file's to choose. Such a path is not drawn.
+//! `is_too_big_for_math` check). SVG geometry and raw border or shadow
+//! paths can reach that range. Such a path is not drawn.
 
 use tiny_skia::{Path, Rect, Transform};
 
