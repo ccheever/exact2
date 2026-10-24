@@ -4,10 +4,9 @@
 //! them: a warning fails no build and no test, and names its repair as a
 //! refusal does.
 //!
-//! Each is read from the checked file's expanded root, as lowering reads
-//! it, and gives what it cannot see through the benefit of the doubt, as
-//! `routes.rs`'s `check_scroll` does: an `if`, `for` or `match`, a use
-//! or a slot, a computed role or type.
+//! Each is read from the checked file's expanded root, as lowering reads it, and gives what
+//! it cannot see the benefit of the doubt, as `routes.rs`'s `check_scroll` does: an `if`,
+//! `for` or `match`, a use or a slot, a computed role or type.
 
 use crate::tags::AttrTarget;
 use crate::LowerError;
@@ -71,6 +70,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // encloses it, and the id that root's `navigationBack` names, when it is a literal:
     // an element with a `navigationKey` inside a root is a route.
     crate::menu_rows::notes(&root.view, &mut out);
+    crate::symbols::tints(&root.view, &mut out); // `lower-symbol-tint`
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
     let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());

@@ -104,7 +104,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A `symbol:` image's `-exact-tint-color` does nothing.** A symbol is drawn in its
   computed `color` on every host (LLP 1081 stage 2); `-exact-tint-color` colours a
   raster image only, and a native button's face symbol. Write
-  `image "symbol:forward-chevron" color="-exact-tertiary-label"`.
+  `image "symbol:forward-chevron" color="-exact-tertiary-label"`. The build warns
+  (`lower-symbol-tint`).
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
   Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
   it follows its text (in a button, tab or bar item, its title's font; give it a
