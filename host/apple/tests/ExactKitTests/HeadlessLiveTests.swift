@@ -56,6 +56,63 @@ final class HeadlessLiveTests: XCTestCase {
         XCTAssertTrue(controls.contains { !($0.controlTitle ?? "").isEmpty })
     }
 
+    /// A native button's text is the control's, which no op carries: its title
+    /// follows the text when the button's box stays the same.
+    func testANativeControlsTitleFollowsItsText() throws {
+        let s = try session("HEADLESS_LIVE", live: false)
+        defer { s.close() }
+        let flip = try node("flip", in: s.snapshot())
+        XCTAssertEqual(flip.controlTitle, "Play")
+        let pressed = try s.press(flip.id, at: 0)
+        XCTAssertEqual(try node("flip", in: pressed).frame, flip.frame)
+        XCTAssertEqual(try node("flip", in: pressed).controlTitle, "Stop")
+    }
+
+    /// A link to one of the app's routes goes there when no root hears `navigate`.
+    func testALinkToARouteGoesThereWithNoNavigateHandler() throws {
+        let s = try session("HEADLESS_BACK", live: false)
+        defer { s.close() }
+        let home = try XCTUnwrap(node("root", in: s.snapshot()).props["navigationKey"])
+        XCTAssertNil(try s.follow("https://example.com/", at: 0), "not a route: the host's to open")
+        let followed = try XCTUnwrap(s.follow("/detail", at: 0))
+        XCTAssertNotEqual(try node("root", in: followed).props["navigationKey"], home)
+        XCTAssertNoThrow(try node("detail-back", in: followed))
+    }
+
+    /// The keys of the stack, base first, after pressing each of `opens`.
+    private func stack(_ s: HeadlessSession, _ opens: [String]) throws -> [String] {
+        var keys = [try XCTUnwrap(node("root", in: s.snapshot()).props["navigationKey"])]
+        for open in opens {
+            try s.press(node(open, in: s.snapshot()).id, at: 0)
+            keys.append(try XCTUnwrap(node("root", in: s.snapshot()).props["navigationKey"]))
+        }
+        return keys
+    }
+
+    /// A pop to the base stops at a route whose own Back keeps it there: the
+    /// route beneath's Back is not pressed.
+    func testAPopOfSeveralLevelsStopsWhereARouteStays() throws {
+        let s = try session("HEADLESS_BACK", live: false)
+        defer { s.close() }
+        let keys = try stack(s, ["open", "open-more"])
+        let root = try node("root", in: s.snapshot()).id
+        let popped = try XCTUnwrap(s.back(root: root, routes: [keys[2], keys[1]], at: 0))
+        XCTAssertEqual(try text("pressed", in: popped), "more")
+        XCTAssertEqual(popped.nodes[root]?.props["navigationKey"], keys[2])
+    }
+
+    /// A pop to the base takes each level: the top by the router's own back, the
+    /// next by its own control.
+    func testAPopOfSeveralLevelsTakesEachLevel() throws {
+        let s = try session("HEADLESS_BACK", live: false)
+        defer { s.close() }
+        let keys = try stack(s, ["open", "open-more-going"])
+        let root = try node("root", in: s.snapshot()).id
+        let popped = try XCTUnwrap(s.back(root: root, routes: [keys[2], keys[1]], at: 0))
+        XCTAssertEqual(try text("pressed", in: popped), "detail")
+        XCTAssertEqual(popped.nodes[root]?.props["navigationKey"], keys[0])
+    }
+
     /// Two routes each hold an `id="back"`: Back from the pushed one presses its
     /// own, not the base route's, whose view id is lower.
     func testBackPressesTheActiveRoutesOwnControl() throws {

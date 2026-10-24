@@ -141,10 +141,52 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
                 if calculated(&a.value) {
                     errors.push(fail("watch-calc", "the watch driver draws boxes at plain lengths; write points or a percentage, not calc() or env()"));
                 }
+                // The driver paints with the snapshot driver's leaves, so their
+                // value limits are its own (one border for four sides, sRGB…).
+                crate::snapshot::values::attribute(a, errors, true);
             }
             _ => {}
         }
     }
+}
+
+/// An image the driver cannot draw: its leaf reads the bundle and the app
+/// group, never the network. A source computed at run time is the runtime's.
+fn remote_image(src: &Expr) -> bool {
+    match src {
+        Expr::Template(parts, _) => {
+            matches!(parts.first(), Some(TemplatePart::Text(t)) if t.contains("://"))
+        }
+        e => crate::snapshot::values::literal(e) && !crate::snapshot::local_image(e),
+    }
+}
+
+/// The named styles the file's elements apply (`class=Name`, or
+/// `class=(cond ? A : B)`), checked as the elements' own attributes are.
+fn classes(file: &File, errors: &mut Vec<CompileError>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for c in &file.components {
+        visit(&c.view, &mut |n| {
+            let Node::Element { attrs, .. } = n else {
+                return;
+            };
+            for a in attrs.iter().filter(|a| a.name == "class") {
+                match &a.value {
+                    Expr::Ident(name, _) => {
+                        names.insert(name.clone());
+                    }
+                    Expr::Ternary(_, yes, no, _) => match (&**yes, &**no) {
+                        (Expr::Ident(x, _), Expr::Ident(y, _)) => {
+                            names.extend([x.clone(), y.clone()]);
+                        }
+                        _ => errors.push(refusal("watch-class", "choose named styles with `class=(condition ? A : B)`, so the bake can check each".into(), a.span)),
+                    },
+                    _ => errors.push(refusal("watch-class", "write a style name or `class=(condition ? A : B)`, so the bake can check each".into(), a.span)),
+                }
+            }
+        });
+    }
+    names
 }
 
 /// Every refusal in a watch entry's file, each with the edit that admits it.
@@ -161,15 +203,34 @@ pub fn check(file: &File) -> Result<(), Vec<CompileError>> {
             ));
         }
     }
+    let styles = classes(file, &mut errors);
+    for s in file.styles.iter().filter(|s| styles.contains(&s.name)) {
+        attrs(&format!("style {}", s.name), &s.attrs, &mut errors);
+    }
     for c in &file.components {
         visit(&c.view, &mut |n| {
             if let Node::Element {
                 tag,
                 attrs: a,
+                positional,
                 span,
                 ..
             } = n
             {
+                if tag == "image" {
+                    let src = a
+                        .iter()
+                        .find(|a| a.name == "src")
+                        .map(|a| &a.value)
+                        .or(positional.first());
+                    if let Some(src) = src.filter(|src| remote_image(src)) {
+                        errors.push(refusal(
+                            "watch-image",
+                            "the watch draws an image from the app: an `app:/` path, a bundle-relative path, or a `symbol:` source".into(),
+                            src.span(),
+                        ));
+                    }
+                }
                 if !TAGS.contains(&tag.as_str()) {
                     errors.push(refusal(
                         "watch-tag",
@@ -223,6 +284,19 @@ mod tests {
         assert_eq!(ids(clipped), Vec::<String>::new());
         let tabs = "routes nav\n  tab home \"/\"\n  tab more \"/more\"\ncomponent A\n  view\n    text \"hi\"\n";
         assert_eq!(ids(tabs), ["watch-tabs"]);
+    }
+
+    /// A named style is checked as an element's own rows are, and the leaves'
+    /// paint limits are the watch's: one border for four sides, a local image.
+    /// A computed value is the runtime's.
+    #[test]
+    fn named_styles_and_the_leaves_paint_limits_are_the_watchs() {
+        let classed = "style Card\n  box-shadow=\"0 1px #000\"\nstyle Wide\n  overflow-x=\"scroll\"\ncomponent A\n  state on = false\n  view\n    column class=Card\n      column class=(on ? Wide : Card)\n        text \"hi\"\n";
+        assert_eq!(ids(classed), ["watch-row", "watch-scroll-x"]);
+        let painted = "component A\n  view\n    column border-left=\"4px solid red\"\n      image \"https://example.com/a.png\" width=10 height=10\n      image \"assets/a.png\" width=10 height=10\n";
+        assert_eq!(ids(painted), ["snapshot-border", "watch-image"]);
+        let computed = "component A\n  state tint = \"#ff0000\"\n  state src = \"assets/a.png\"\n  view\n    column color=tint background-color=tint overflow-y=\"auto\"\n      image src width=10 height=10\n";
+        assert_eq!(ids(computed), Vec::<String>::new());
     }
 
     /// An app directory holding `files`, removed on drop.
