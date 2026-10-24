@@ -60,7 +60,7 @@ impl Session {
             .map_err(|e| e.to_string())?;
         // Only where there is a codec: elsewhere ibex2 refuses the call as
         // unsupported before reading the source (LLP 1069.002 A1.3).
-        if cfg!(target_vendor = "apple") {
+        if exact_data::image::available() {
             context
                 .set_image_codec(Arc::new(ImageCodec), image_limits())
                 .map_err(|e| e.to_string())?;

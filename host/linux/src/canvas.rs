@@ -152,6 +152,9 @@ pub mod agent;
 #[path = "canvas/clip.rs"]
 mod clip;
 #[cfg(target_os = "android")]
+#[path = "canvas/codec.rs"]
+mod codec;
+#[cfg(target_os = "android")]
 #[path = "canvas/colors.rs"]
 mod colors;
 #[cfg(target_os = "android")]

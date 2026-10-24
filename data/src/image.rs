@@ -9,14 +9,21 @@
 //! A1.2 and kept as a pure function over an encoder ([`search`]) so every
 //! host's trials can be checked against one recorded sequence; a PNG has no
 //! quality, so it only shrinks ([`search_lossless`]). The codec is the
-//! platform's: ImageIO on Apple ([`compress`]); elsewhere there is no encoder
-//! in the tree and the call is refused (`unsupported`, A1.3).
+//! platform's: ImageIO on Apple ([`compress`]), else one a host installs
+//! ([`platform`]: Android's, LLP 1133.019 D16); with neither the call is
+//! refused (`unsupported`, A1.3).
 use std::time::Instant;
 
 #[cfg(target_vendor = "apple")]
 mod apple;
 pub mod edit;
+pub mod platform;
 pub use edit::{Edit, Metadata, Transform};
+
+/// Whether this process has an image codec: Apple's, or one a host installed.
+pub fn available() -> bool {
+    cfg!(target_vendor = "apple") || platform::installed().is_some()
+}
 
 /// The largest `maxDimension` (A1.1).
 pub const MAX_DIMENSION: u32 = 8192;
@@ -288,14 +295,23 @@ fn platform(
 
 #[cfg(not(target_vendor = "apple"))]
 fn platform(
-    _: &[u8],
-    _: Format,
-    _: u32,
-    _: u64,
-    _: &Edit,
-    _: Deadline<'_>,
+    source: &[u8],
+    format: Format,
+    max_dimension: u32,
+    max_bytes: u64,
+    edit: &Edit,
+    deadline: Deadline<'_>,
 ) -> Result<Compressed, String> {
-    Err(unsupported())
+    let codec = platform::installed().ok_or_else(unsupported)?;
+    platform::compress(
+        codec,
+        source,
+        format,
+        max_dimension,
+        max_bytes,
+        edit,
+        deadline,
+    )
 }
 
 /// What `transformImage` wrote, and what of the source it kept: D14's
@@ -355,16 +371,19 @@ fn transform_platform(
 
 #[cfg(not(target_vendor = "apple"))]
 fn transform_platform(
-    _: &[u8],
-    _: &Transform,
-    _: u64,
-    _: Deadline<'_>,
+    source: &[u8],
+    options: &Transform,
+    max_bytes: u64,
+    deadline: Deadline<'_>,
 ) -> Result<Transformed, String> {
-    Err(edit::failure_named(
-        "transformImage",
-        "unsupported",
-        "no image encoder on this host",
-    ))
+    let codec = platform::installed().ok_or_else(|| {
+        edit::failure_named(
+            "transformImage",
+            "unsupported",
+            "no image encoder on this host",
+        )
+    })?;
+    platform::transform(codec, source, options, max_bytes, deadline)
 }
 
 /// What an embedder's codec returns for either call: the bytes and their
