@@ -99,6 +99,10 @@ export async function gate({ say = console.log, deployed = null } = {}) {
       let doors = null;
       const logged = [];
       const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: l => logged.push(l), remote: () => doors?.list() ?? [] });
+      // The events requests the server holds now (a poll waiting): what revocation must cut is seen to be there.
+      let polling = 0;
+      const handle = w.handle;
+      w.handle = async (req, res, url, access) => { const poll = url.pathname === '/__tamber/events'; if (poll) polling++; try { return await handle(req, res, url, access); } finally { if (poll) polling--; } };
       const how = deployed?.certs ? deployed.certs[label] : { acme: deployed ? deployed.acme : acme.directory, hook: null, dir: join(work, label) };
       doors = await openRemote(w, { relay: { host: DOMAIN, port, account: label, token: tokens[label], names: null, ...how } }, { connect: toRelay, say: () => {}, warn: () => {}, ...(deployed ? {} : { acme: { fetch: acme.fetch, wait: async () => {} } }) });
       cleanup.push(async () => { await doors.close(); await w.close(); });
@@ -115,11 +119,14 @@ export async function gate({ say = console.log, deployed = null } = {}) {
       };
       let canvas = null;
       doors.onRelay(n => { canvas = n.canvas; });
-      return { w, doors, logged, local, tool: new URL(doors.relay().origin).hostname, canvas };
+      return { w, doors, logged, local, tool: new URL(doors.relay().origin).hostname, canvas, polling: () => polling };
     };
     /** A client's HTTPS request through the relay (by the capture) to `to`. */
+    // The certificate each client's TLS ended on, by name: the design server's own (its fingerprint, as pair-code gives
+    // it) if the relay passed the TLS through, anything else if the relay ended it.
+    const saw = new Map();
     const call = (to, path, body, headers = '', method = 'POST') => new Promise((ok, fail) => {
-      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: clientCa }, () => s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`));
+      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: clientCa }, () => { saw.set(to, s.getPeerCertificate().fingerprint256); s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`); });
       let out = ''; s.on('data', d => { out += d; }); s.on('end', () => ok(out)); s.on('close', () => ok(out)); s.on('error', e => (out ? ok(out) : fail(e)));
     });
     const status = out => Number(out.split(' ')[1]);
@@ -132,8 +139,9 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     const pt = json(paired).ok?.token;
     const hello = await call(a.tool, '/__tamber', '{"method":"hello"}', `x-exact-tamber-token: ${pt}\r\n`);
     const write = await call(a.tool, '/__tamber', JSON.stringify({ method: 'transaction', client: 'laptop', files: {}, ops: [{ op: 'set-token', name: 'x', value: '1px' }] }), `x-exact-tamber-token: ${pt}\r\n`);
-    verdict('a paired propose client through the relay reads, and cannot write (its scope named)', status(paired) === 200 && status(hello) === 200 && status(write) === 403 && /propose/.test(JSON.stringify(json(write))),
-      [`pair-code's relay entry: ${JSON.stringify(minted.remote?.find(r => r.relay))}`, `pair ${status(paired)}, hello ${status(hello)}, a set-token transaction ${status(write)}: ${JSON.stringify(json(write).error ?? {}).slice(0, 140)}`]);
+    const own = minted.remote?.find(r => r.relay)?.fingerprint;
+    verdict('a paired propose client through the relay reads, and cannot write (its scope named); its TLS ends at the design server, not the relay', status(paired) === 200 && status(hello) === 200 && status(write) === 403 && /propose/.test(JSON.stringify(json(write))) && !!own && saw.get(a.tool) === own,
+      [`pair-code's relay entry: ${JSON.stringify(minted.remote?.find(r => r.relay))}`, `the certificate the client's TLS ended on: ${saw.get(a.tool)} (${saw.get(a.tool) === own ? 'the design server\'s own' : 'NOT the design server\'s'})`, `pair ${status(paired)}, hello ${status(hello)}, a set-token transaction ${status(write)}: ${JSON.stringify(json(write).error ?? {}).slice(0, 140)}`]);
     // Line 2 (stage 10): revocation cuts the client's pending long poll through the relay, and its next request.
     const first = await call(a.tool, '/__tamber/events', '{"wait":false}', `x-exact-tamber-token: ${pt}\r\n`);
     const { seq, epoch } = json(first);
@@ -141,8 +149,9 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     const s = connectTLS({ host: '127.0.0.1', port: pub, servername: a.tool, ca: clientCa }, () => { const body = JSON.stringify({ after: seq, epoch, wait: true }); s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${pt}\r\n\r\n${body}`); });
     s.on('data', d => { poll.text += d; });
     s.on('error', () => {});
-    await new Promise(ok => setTimeout(ok, 300));
-    const pending = poll.text === '';
+    // Held at the server before the revoke (over a real network, a quiet 300 ms could be a request not yet there).
+    await until(() => a.polling() > 0, 15_000).catch(() => {});
+    const pending = poll.text === '' && a.polling() > 0;
     await a.local({ method: 'revoke', client: json(paired).ok.client });
     await until(() => poll.text.startsWith('HTTP/1.1 401'), 5000).catch(() => {});
     const after = await call(a.tool, '/__tamber', '{"method":"hello"}', `x-exact-tamber-token: ${pt}\r\n`);

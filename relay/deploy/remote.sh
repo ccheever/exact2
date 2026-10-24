@@ -71,12 +71,17 @@ KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 EOF
   if [ $CHANGED = 1 ]; then
-    sshd -t || die "sshd rejects its config: not reloaded"
+    # (A drop-in sshd refuses is taken out again, so no later restart of sshd meets it.)
+    sshd -t || { rm -f /etc/ssh/sshd_config.d/10-$APP.conf; die "sshd rejects its config: the drop-in removed, nothing reloaded"; }
     systemctl reload ssh 2>/dev/null || systemctl reload sshd
   fi
 
   # Firewall: in, only 22 and 443 (TCP, v4 and v6); out, anything (ACME, apt, the DNS provider's API).
   # Rebuilt only when the rules differ, so a rerun never opens a window. 22 is allowed before enabling.
+  # sshd must listen on 22, the port the firewall keeps: one on another port would be shut out.
+  local ports
+  ports=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' || true)
+  printf '%s\n' "$ports" | grep -qx 22 || die "sshd does not listen on port 22 (sshd -T: port ${ports:-none}): the firewall would shut it out; nothing changed"
   local want got
   want=$'22/tcp ALLOW IN Anywhere\n443/tcp ALLOW IN Anywhere\n22/tcp (v6) ALLOW IN Anywhere (v6)\n443/tcp (v6) ALLOW IN Anywhere (v6)'
   got=$(ufw status verbose 2>/dev/null | awk '/^--/{on=1;next} on && NF' | sed -E 's/ +/ /g; s/ $//' | sort)
@@ -177,36 +182,60 @@ ReadWritePaths=$VAR
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable $APP >/dev/null 2>&1
+  # (Enabled once a release exists: with none, a reboot would only crash-loop it.)
   if [ ! -e $OPT/current ]; then say "provisioned; no release yet (deploy.sh release)"
-  elif [ $CHANGED = 1 ]; then systemctl restart $APP; health || exit 1
-  else systemctl start $APP; health || exit 1; fi
+  elif [ $CHANGED = 1 ]; then systemctl enable $APP >/dev/null 2>&1; systemctl restart $APP || true; health || exit 1
+  else systemctl enable $APP >/dev/null 2>&1; systemctl start $APP || true; health || exit 1; fi
 }
 
 install_cert() {
-  local cert=${1:?install-cert <cert> <key>} key=${2:?install-cert <cert> <key>} domain san
+  local cert=${1:?install-cert <cert> <key>} key=${2:?install-cert <cert> <key>} domain san from
+  # The uploads go whatever happens (deploy.sh puts them in a private directory of their own).
+  trap "unload $(printf '%q ' "$cert" "$key")" EXIT
   domain=$(sed -nE 's/.*"domain": *"([^"]+)".*/\1/p' $ETC/relay.json)
-  san=$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | tail -1 | tr -d ' ')
+  san=$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | tail -1 | tr -d ' ' || true)
   [ "$san" = "DNS:$domain" ] || die "install-cert: the certificate names '${san:-nothing}', not $domain alone"
   openssl x509 -in "$cert" -noout -checkend 0 >/dev/null || die "install-cert: the certificate has expired"
+  from=$(openssl x509 -in "$cert" -noout -startdate | cut -d= -f2)
+  [ "$(date -d "$from" +%s)" -le "$(date +%s)" ] || die "install-cert: the certificate is not valid until $from"
   [ "$(openssl x509 -in "$cert" -noout -pubkey | sha256sum)" = "$(openssl pkey -in "$key" -pubout | sha256sum)" ] || die "install-cert: the key is not the certificate's"
-  install -m 0640 -o root -g $APP "$cert" $ETC/tls/cert.pem.new && install -m 0640 -o root -g $APP "$key" $ETC/tls/key.pem.new
-  mv -f $ETC/tls/cert.pem.new $ETC/tls/cert.pem && mv -f $ETC/tls/key.pem.new $ETC/tls/key.pem
-  rm -f "$cert" "$key" $ETC/tls/PLACEHOLDER
-  say "certificate installed for $domain (until $(openssl x509 -in $ETC/tls/cert.pem -noout -enddate | cut -d= -f2))"
-  if [ -e $OPT/current ]; then systemctl restart $APP; health || exit 1; fi
+  # The pair in place together, the old one kept beside it, and put back if the relay won't run on the new one.
+  install -m 0640 -o root -g $APP "$cert" $ETC/tls/cert.pem.new
+  install -m 0640 -o root -g $APP "$key" $ETC/tls/key.pem.new
+  cp -p $ETC/tls/cert.pem $ETC/tls/cert.pem.old; cp -p $ETC/tls/key.pem $ETC/tls/key.pem.old
+  [ -f $ETC/tls/PLACEHOLDER ] && mv -f $ETC/tls/PLACEHOLDER $ETC/tls/PLACEHOLDER.old
+  mv -f $ETC/tls/key.pem.new $ETC/tls/key.pem && mv -f $ETC/tls/cert.pem.new $ETC/tls/cert.pem
+  unload "$cert" "$key"
+  say "certificate installed for $domain (from $from until $(openssl x509 -in $ETC/tls/cert.pem -noout -enddate | cut -d= -f2))"
+  if [ -e $OPT/current ]; then
+    systemctl restart $APP || true
+    if ! health; then
+      say "the relay did not run on the new certificate: the old one put back"
+      mv -f $ETC/tls/key.pem.old $ETC/tls/key.pem; mv -f $ETC/tls/cert.pem.old $ETC/tls/cert.pem
+      [ -f $ETC/tls/PLACEHOLDER.old ] && mv -f $ETC/tls/PLACEHOLDER.old $ETC/tls/PLACEHOLDER
+      systemctl restart $APP || true; health || true
+      exit 1
+    fi
+  fi
+  rm -f $ETC/tls/cert.pem.old $ETC/tls/key.pem.old $ETC/tls/PLACEHOLDER.old
 }
+
+# An upload's private directory removed (deploy.sh makes one per upload, /tmp/tamber-relay-upload.*); a path
+# anywhere else, only the file itself.
+unload() { local f d; for f in "$@"; do d=$(dirname "$f"); case "$d" in /tmp/tamber-relay-upload.?*) rm -rf "$d";; *) rm -f "$f";; esac; done; }
 
 current() { readlink $OPT/current 2>/dev/null | xargs -r basename; }
 
-# Switches `current` to release $1 atomically, then restarts.
+# Switches `current` to release $1 atomically, then restarts. A failed restart is the health check's to find,
+# never an exit here, so a release or a rollback always reaches its switch back.
 switch() {
   ln -sfn "$OPT/releases/$1" $OPT/current.new && mv -T $OPT/current.new $OPT/current
-  systemctl restart $APP
+  systemctl restart $APP || say "restart failed (the health check says why)"
 }
 
 release() {
   local sha=${1:?release <sha256> <path>} path=${2:?release <sha256> <path>} id was before
+  trap "unload $(printf '%q' "$path")" EXIT
   [ -f $UNIT ] || die "not provisioned (deploy.sh provision first)"
   [ "$(sha256sum "$path" | cut -d' ' -f1)" = "$sha" ] || die "the upload's digest is not $sha"
   id=${sha:0:16}
@@ -215,7 +244,6 @@ release() {
   "$path" --help >/dev/null || die "the new binary doesn't run on this host (architecture or libc): nothing switched"
   install -d -m 0755 $OPT/releases/$id
   install -m 0755 -o root -g root "$path" $OPT/releases/$id/$APP
-  rm -f "$path"
   was=$(current || true); before=$(cat $OPT/previous 2>/dev/null || true)
   if [ "$was" = "$id" ] && systemctl is-active -q $APP; then say "release $id is already current and running"; health || exit 1; return; fi
   [ -n "$was" ] && [ "$was" != "$id" ] && printf '%s' "$was" > $OPT/previous
@@ -243,9 +271,13 @@ rollback() {
   [ -x "$OPT/releases/$to/$APP" ] || die "the previous release $to is gone"
   was=$(current)
   say "rolling back $was -> $to"
-  printf '%s' "$was" > $OPT/previous
   switch "$to"
-  health || exit 1
+  if health; then printf '%s' "$was" > $OPT/previous
+  else
+    say "release $to failed its health check: back to $was"
+    switch "$was"; health || true
+    exit 1
+  fi
 }
 
 # The service runs and stays up, holds 443, answers its own name with its certificate, and closes an unknown
@@ -263,11 +295,14 @@ health() {
   sleep 2
   systemctl is-active -q $APP && [ "$pid" != 0 ] && [ "$(systemctl show -p MainPID --value $APP)" = "$pid" ] || { bad "the service is not running steadily"; return 1; }
   ss -Hltn 'sport = :443' | grep -q . || { bad "nothing listens on 443"; return 1; }
-  subject=$(openssl s_client -connect 127.0.0.1:443 -servername "$domain" </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName 2>/dev/null | tail -1 | tr -d ' ' || true)
+  # Each probe bounded (a release that holds a handshake open fails, not hangs), and read from its output, never
+  # its exit status.
+  local own unknown
+  own=$(timeout 10 openssl s_client -connect 127.0.0.1:443 -servername "$domain" </dev/null 2>/dev/null || true)
+  subject=$(printf '%s' "$own" | openssl x509 -noout -ext subjectAltName 2>/dev/null | tail -1 | tr -d ' ' || true)
   [ "$subject" = "DNS:$domain" ] || { bad "443 did not answer $domain with its certificate (got '${subject:-nothing}')"; return 1; }
-  if openssl s_client -connect 127.0.0.1:443 -servername "unknown.$domain.invalid" </dev/null 2>/dev/null | grep -q 'BEGIN CERTIFICATE'; then
-    bad "an unknown name was answered with a certificate"; return 1
-  fi
+  unknown=$(timeout 10 openssl s_client -connect 127.0.0.1:443 -servername "unknown.$domain.invalid" </dev/null 2>/dev/null || true)
+  case "$unknown" in *'BEGIN CERTIFICATE'*) bad "an unknown name was answered with a certificate"; return 1;; esac
   say "health: OK (running $(current), 443 answers $domain, an unknown name is closed)"
   [ -f $ETC/tls/PLACEHOLDER ] && say "health: the certificate is a PLACEHOLDER (self-signed): connectors refuse it until the ACME step"
   return 0
