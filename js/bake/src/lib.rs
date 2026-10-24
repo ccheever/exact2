@@ -462,6 +462,12 @@ fn build_sources(
             .as_str()
             .is_some_and(|module| !module.is_empty());
     let mut metadata = module_constants(&meta, rust_updates, platform, outside)?;
+    if platform == "windows" {
+        metadata.push_str(&format!(
+            "/// The window the app opens in (`host.windows.window`).\npub fn window() -> exact_windows::Window {{ {} }}\n",
+            manifest.windows_window()?
+        ));
+    }
     // The module's Canvas 2D roster (LLP 1056 D1), known before it loads.
     metadata.push_str("#[allow(dead_code)]\npub const CANVAS_SURFACES: &[(&str, usize)] = &[");
     for (name, arity) in meta["surfaces"].as_object().into_iter().flatten() {
