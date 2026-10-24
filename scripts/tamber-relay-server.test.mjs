@@ -319,6 +319,21 @@ test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', a
   expect(results.length).toBe(7);
 }, 120_000);
 
+test('the gate against a deployed relay (R4) reads it from the environment: the tokens from their files, two labels', async () => {
+  const { deployedRelay } = await import('./tamber-relay-gate.mjs');
+  expect(deployedRelay({})).toBe(null);
+  const home = mkdtempSync(join(tmpdir(), 'exact-gate-home-'));
+  try {
+    const { mkdirSync } = await import('node:fs');
+    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), `${l}-token\n`); }
+    const d = deployedRelay({ RELAY_GATE_DOMAIN: 'Relay.Example', RELAY_GATE_RELAY: '127.0.0.1:18443', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home);
+    expect([d.domain, d.host, d.port, d.labels, d.tokens, d.certs, d.ca]).toEqual(['relay.example', '127.0.0.1', 18443, ['alpha', 'beta'], { alpha: 'alpha-token', beta: 'beta-token' }, null, undefined]);
+    expect(deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home).port).toBe(443);
+    expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,alpha' }, home)).toThrow('two labels');
+    expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example' }, home)).toThrow(/acct/);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 test('round 1: a hostile hello, cut and flipped anywhere, is never read past its record and never throws', async () => {
   const named = await helloTo('s1-tool.acct.relay.test');
   let seed = 7;
