@@ -1003,6 +1003,7 @@ impl NodeInst {
             }
             if u.discard {
                 if binding.kind == BindingKind::Style
+                    && !fresh
                     && !matches!(value, Value::Option(None))
                     && exact_kernel::StyleId::from_bit(binding.id as u32)
                         .is_some_and(|style| exact_kernel::StyleMask::TEXT.has(style))
@@ -1334,6 +1335,8 @@ impl Tree {
     /// Bring every site whose reads changed since the last update up to date
     /// (every site, under [`Update::full`]).
     pub fn update(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        // New views cannot change the typography of already measured rows.
+        let last_existing_view = u.ids.next;
         u.changed = Some(u.sites.deps.changed(&self.seen, &u.env));
         let roots = update_all(u, &mut self.children, &[]);
         u.changed = None;
@@ -1341,7 +1344,7 @@ impl Tree {
             self.emit_roots(u);
         }
         self.open_tabs(u)?;
-        if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
+        if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { id, patch } if *id <= last_existing_view && patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
             if let Some(lists) = u.env.lists {
                 (lists.typography)(&mut self.children, u, &[])?;
             }

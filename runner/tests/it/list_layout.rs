@@ -94,7 +94,11 @@ const WIDTH: f32 = 402.0;
 const HEIGHT: f32 = 874.0;
 
 fn boot() -> Runner<Messages> {
-    let plan = contract::compile(SOURCE).unwrap();
+    boot_source(SOURCE)
+}
+
+fn boot_source(source: &str) -> Runner<Messages> {
+    let plan = contract::compile(source).unwrap();
     let mut r = Runner::boot(
         plan,
         Messages::default(),
@@ -212,6 +216,68 @@ fn mounted(r: &Runner<Messages>) -> Vec<usize> {
         .iter()
         .map(|row| row.index)
         .collect()
+}
+
+#[test]
+fn mounting_styled_text_keeps_list_measurements_but_inherited_font_changes_do_not() {
+    let mut r = boot_source(
+        r#"shape Message
+  id: string
+  title: string
+  body: string
+  attachment: bool
+component App
+  state panel = false
+  state font = 16
+  resource rows = rows() as shape Message[]
+  action open
+    panel = true
+  action enlarge
+    font = 24
+  view
+    column width="100%" height="100%" font-size=font
+      list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%"
+        for m in rows key=m.id
+          text m.body
+      if panel
+        column position="absolute" top=0 left=0
+          text "Panel" testId="panel" font-size=12
+"#,
+    );
+    let mut sequence = 0;
+    settle(&mut r, &mut sequence, 0.0, true);
+    let before = r.collections().pop().unwrap();
+    assert!(!before.rows.is_empty());
+    assert!(before.rows.iter().all(|row| row.measured));
+    let height = r.kernel().node(before.rows[0].view).unwrap().frame.height;
+
+    r.act("open", vec![]).unwrap();
+    layout(&mut r);
+    assert!(r.kernel().find_first_by_test_id("panel").is_some());
+    assert_eq!(
+        r.collections()[0],
+        before,
+        "new text outside the list preserves heights, measurement epochs and revision"
+    );
+    equal_fresh(&r);
+
+    r.act("enlarge", vec![]).unwrap();
+    layout(&mut r);
+    let after = r.collections().pop().unwrap();
+    assert!(after.revision > before.revision);
+    assert_eq!(after.rows.len(), before.rows.len());
+    for (old, new) in before.rows.iter().zip(&after.rows) {
+        assert_eq!(
+            (old.index, old.view, old.root, old.size),
+            (new.index, new.view, new.root, new.size),
+            "existing heights remain provisional estimates"
+        );
+        assert!(!new.measured);
+        assert_ne!(new.epoch, old.epoch);
+    }
+    assert!(r.kernel().node(after.rows[0].view).unwrap().frame.height > height);
+    settle(&mut r, &mut sequence, 0.0, true);
+    assert!(r.collections()[0].rows.iter().all(|row| row.measured));
 }
 
 #[test]
