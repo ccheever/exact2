@@ -200,7 +200,7 @@ on macOS and Linux.
   is a step; past the last copy, the root. A plan past the copies limit (2^20 sites, 512 KiB encoded) gets none, and
   a `select` there is `unsupported` (`what: "inspect"`), not stale; a site past the copies held, within a map, is stale.
   Then the sweep's: `tamber-axes` (32 axes) and `tamber-whens` (64 `when` lines a token), design limits alike everywhere,
-  and `tamber-ops-size` (1024 operations in a client's request, with a held proposal's re-hold within it).
+  and `tamber-ops-size` (1024 operations in a client's request).
   The local token's body may be 16 MiB, every other client's 1 MiB.
 
 ## Where it runs
@@ -249,10 +249,7 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 - **A client's `ops`** (*1.17*) are at most 1024 in one request (`transaction`, `propose`, a
   scrub): more is refused with 400 and `id: "tamber-ops-size"` before any is read. Operations the
   server applies itself (accepting a held proposal, a revert's, an import it plans) are no
-  client's request. A `propose` with `hold` that names the held proposal it replaces
-  (`review.from`) may carry more only if it has at most that proposal's operations, each on a
-  target (its kind and its token's or param's name) that proposal has, and its client may replace
-  that proposal (its own, or write scope); every value is still checked as any write's is.
+  client's request; a value edited in a held proposal is `edit-held`'s, which sends none.
 - **A field of the wrong type** is an error. An optional field given as `null` reads as absent.
 
 **Replies.** A reply is `{"ok": …}` with 200, or `{"error": {"message": …, …}}` with one of these
