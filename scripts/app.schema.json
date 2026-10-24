@@ -712,8 +712,21 @@
           "additionalProperties": false
         },
         "windows": {
-          "description": "The Windows host has no settings yet; an empty object.",
+          "description": "Windows: the `window` it opens in.",
           "type": "object",
+          "properties": {
+            "window": {
+              "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
+              "type": "object",
+              "properties": {
+                "width": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "height": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 }
+              },
+              "additionalProperties": false
+            }
+          },
           "additionalProperties": false
         },
         "web": {

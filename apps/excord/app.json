@@ -26,6 +26,14 @@
         "minHeight": 500
       }
     },
+    "windows": {
+      "window": {
+        "width": 1100,
+        "height": 760,
+        "minWidth": 360,
+        "minHeight": 500
+      }
+    },
     "web": {}
   },
   "commands": {
