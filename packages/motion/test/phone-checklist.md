@@ -2,8 +2,9 @@
 
 What the agent cannot drive: real sensors. The iOS simulator reports no
 motion hardware, the Android emulator's are virtual, and under the agent
-the runner's substitute answers every name, so these checks need a person
-and a device (LLP 1133.013 §10 drive 7, §13). Each item says what to see;
+the runner's substitute answers every name unless the drive binds the
+implementation (`--bind motion`), so these checks need a person and a
+device (LLP 1133.013 §10 drive 7, §13). Each item says what to see;
 note the device, the OS version and what you saw where it differs.
 
 ## The module (`test/fixture`)
@@ -34,32 +35,50 @@ fixture's files, this package by `file:`), then build it for each target:
    which shows one prompt; allow it and `asked` reads `granted`. In the
    apps and Chrome, `status` reads `granted` and **Ask** shows nothing.
 
-## Beacons (iPhone)
+## Beacons (iPhone, Android phone)
 
-Build and install: `bun game/prove.mjs beacons --hosts ios --device`, or
-`bun host/apple/build.mjs --ios beacons-apple --device --run`. Tap
-**Play**, then **Pause**.
+Build and install on an iPhone: `bun game/prove.mjs beacons --hosts ios
+--device`, or `bun host/apple/build.mjs --ios beacons-apple --device --run`.
+On an Android phone: `bun scripts/agent-android.mjs build beacons --apk`
+(an NDK of clang 18 or newer in `ANDROID_NDK_HOME`, a JDK 17 or newer in
+`JAVA_HOME`), then `adb install -r` the APK it names. Tap **Play**, then
+**Pause**.
+
+On Android, `adb logcat -s exact` shows what the module does: a canvas
+input logs `motion: input gravity on world at 60.0 Hz` when it starts,
+and the gravity sensor's rate follows it (`motion: sensor 9 at 60.0 Hz`
+while the world reads, `30.0 Hz` when only the level does).
 
 7. **The toggle.** Turn on **Tilt to move**: the app asks nothing.
 8. **Level.** Hold the phone at a comfortable angle: the dot glides to the
    tilt and the readout gives the two angles. Tap **Set level**: it reads
    `0° · 0°` and the dot centres.
 
-Items 9 to 11 wait on the context's `surfaces.input`, which no host gives
-an implementation yet: on a phone `startSensorInput` answers
-`NotSupportedError`, so the player does not walk by tilt (LLP 1133.013
-§13, stage 2). Run them once it lands.
+Items 9 to 11 hold the phone at the angle **Set level** made level, then
+tilt from there. Within 2° of it the stick reads zero (D6's dead zone);
+20° gives the full stick, which walks at 4 m/s.
 
-9. **Walk.** Tap **Resume** and tilt: tilting the right edge down walks the
-   player right, tilting the top edge away walks it forward. If either is
+9. **Walk.** Tap **Resume**, then tilt: tilting the right edge down walks
+   the player right, tilting the top edge away walks it forward, and
+   holding the level angle stands it still. If either direction is
    reversed, the sign of D6's map against the platform's gravity is wrong:
-   say which.
-10. **Pause and tilt off.** Pause, turn tilt off, resume: the player stops,
-    and the on-screen stick moves it.
-11. **Background.** With tilt on, leave the app and come back: tilting
-    still walks, and the player does not jump.
+   say which and on which phone. Expect the roll reversed: the platforms
+   and the W3C read a positive x when the left edge is down, D6's map
+   walks right on a positive x, and so walks left when the right edge
+   goes down, while its pitch is negated and walks forward as the top
+   edge goes away. If the player does not move at all on
+   Android, look for the `motion: input` line: without it the start was
+   refused; with it, the samples did not reach the world.
+10. **Pause and tilt off.** Tap **Pause**: the player stops where it is
+    and tilting moves nothing. Turn tilt off and tap **Resume**: the
+    player stays still however the phone is held, and the on-screen stick
+    moves it.
+11. **Background.** With tilt on and the game running, leave the app for a
+    few seconds and come back: tilting walks again within a frame or two,
+    and the player does not jump to where the time away would have taken
+    it. Rotate the phone to landscape and back, where the app allows it:
+    tilting the screen's right edge down still walks right.
 12. **Smoothness.** The dot moves smoothly between readings, not in steps.
 
-Beacons on the web and on Android has no tilt yet: the web's wasm host,
-which games run on, has no extension modules, and an Android game binds
-none (QUEUE.md).
+Beacons on the web has no tilt yet: the web's wasm host, which games run
+on, has no extension modules (QUEUE.md).
