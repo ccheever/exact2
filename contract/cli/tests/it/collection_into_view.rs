@@ -403,3 +403,108 @@ component App
         assert!(state(&r).contains("\"status\":\"done\""), "{}", state(&r));
     }
 }
+
+/// Rows of 100.25: row 18 starts at 1804.5. Edges are drawn on device
+/// pixels, each rounded to the nearest with a half up, so a port starting
+/// less than half a device pixel above a row's start, or up to half one
+/// below it, shows that row from its start (the event names it, at 0) and
+/// none of the row before it; a port half a device pixel above shows a
+/// pixel of the row before it.
+#[test]
+fn a_scroll_event_names_the_first_row_drawn_in_the_port() {
+    let source = r#"component App
+  resource posts = posts() as shape Post[]
+  state saved = none
+  state within = 0
+  action moved(x: number, y: number, e: ScrollEvent)
+    saved = e.firstVisibleKey
+    within = e.firstVisibleOffset
+  view
+    list id="feed" virtualized=true height=600 width=400 estimated-item-height=100.25 scroll=moved
+      for p in posts key=p.id
+        text `${p.id}` height=100.25
+shape Post
+  id: number
+  cards: number[]
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        Data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let feed = list(&r, false).unwrap().view;
+    host(&mut r, feed, 1804.0, 600.0, |_| 100.25);
+    let heard = |r: &mut Runner<Data>, top: &str| {
+        let payload = format!("0,{top},400,100300,400,600");
+        r.dispatch(feed, exact_runner::Event::scroll_payload(&payload).unwrap())
+            .unwrap();
+        let Some(Value::Option(Some(key))) = r.slot("saved").cloned() else {
+            panic!("no key at {top}")
+        };
+        let Some(Value::Number(within)) = r.slot("within").cloned() else {
+            panic!()
+        };
+        (
+            key.as_str().unwrap().to_string(),
+            (within * 1000.0).round() / 1000.0,
+        )
+    };
+    // One device pixel a point: half of one is 0.5.
+    assert_eq!(heard(&mut r, "1804"), ("17".into(), 99.75));
+    assert_eq!(heard(&mut r, "1804.1"), ("18".into(), 0.0));
+    assert_eq!(heard(&mut r, "1805"), ("18".into(), 0.0));
+    assert_eq!(heard(&mut r, "1805.1"), ("18".into(), 0.6));
+    // Two a point, at once: half of one is a quarter.
+    r.set_display_scale(2.0).unwrap();
+    assert_eq!(heard(&mut r, "1804.25"), ("17".into(), 100.0));
+    assert_eq!(heard(&mut r, "1804.5"), ("18".into(), 0.0));
+    assert_eq!(heard(&mut r, "1804.75"), ("18".into(), 0.0));
+    assert_eq!(heard(&mut r, "1805"), ("18".into(), 0.5));
+}
+
+/// Edges are taken to a layout unit (1/64) before they round: at three
+/// device pixels a point, row 0 ends at 100.834, drawn at 100.828125's
+/// pixel, 100⅔, where a jump puts the port. The next row drawn is row 2:
+/// row 1 has no height. Then rows 0 to 2 of 100.7, 0 and 0.05 all end at
+/// that pixel, and the next row drawn is row 3.
+#[test]
+fn a_scroll_event_rounds_edges_as_they_are_drawn() {
+    let source = r#"component App
+  resource posts = posts() as shape Post[]
+  state saved = none
+  state within = 0
+  action moved(x: number, y: number, e: ScrollEvent)
+    saved = e.firstVisibleKey
+    within = e.firstVisibleOffset
+  view
+    list id="feed" virtualized=true height=600 width=400 estimated-item-height=100 scroll=moved
+      for p in posts key=p.id
+        text `${p.id}`
+shape Post
+  id: number
+  cards: number[]
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        Data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.set_display_scale(3.0).unwrap();
+    let feed = list(&r, false).unwrap().view;
+    for (sizes, first) in [([100.834, 0.0, 100.0], "2"), ([100.7, 0.0, 0.05], "3")] {
+        host(&mut r, feed, 100.0, 600.0, |i| {
+            sizes.get(i).copied().unwrap_or(100.0)
+        });
+        let payload = "0,100.66666666666667,400,100000,400,600";
+        r.dispatch(feed, exact_runner::Event::scroll_payload(payload).unwrap())
+            .unwrap();
+        assert_eq!(r.slot("saved"), Some(&Value::some(Value::str(first))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
+    }
+}
