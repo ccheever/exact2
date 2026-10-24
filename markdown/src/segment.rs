@@ -345,9 +345,73 @@ pub fn segments<'a>(source: &'a str, limit: usize) -> Vec<Segment<'a>> {
 
 /// The text a reader sees: markers gone, bullets and boxes as glyphs.
 pub fn plain(source: &str) -> String {
-    let analysis = analyze(source, None);
+    plain_with(source, &crate::Atoms::default())
+}
+
+/// The plain text of `range` (UTF-16) of `source`, each atom the whole
+/// source recognizes inside it as its label (⌘⇧C of a selection, LLP
+/// 1045.000 D5): the atoms are found in the whole source, where a token's
+/// surroundings decide it, not in the fragment alone.
+pub fn plain_range(source: &str, range: crate::Range, atoms: &crate::Atoms) -> String {
+    let units: Vec<u16> = source.encode_utf16().collect();
+    let (a, b) = (
+        range.start.min(range.end) as usize,
+        range.end.min(units.len() as u32) as usize,
+    );
+    let a = a.min(b);
+    // Each atom inside the range stands in as one private-use character
+    // while the rest is made plain, then becomes its label.
+    let found: Vec<crate::Atom> = crate::style_with(source, None, atoms)
+        .atoms
+        .into_iter()
+        .filter(|x| a <= x.range.start as usize && x.range.end as usize <= b)
+        .take(0x1900)
+        .collect();
+    let mut fragment: Vec<u16> = Vec::with_capacity(b - a);
+    let mut at = a;
+    for (i, x) in found.iter().enumerate() {
+        fragment.extend_from_slice(&units[at..x.range.start as usize]);
+        fragment.push(0xE000 + i as u16);
+        at = x.range.end as usize;
+    }
+    fragment.extend_from_slice(&units[at..b]);
+    let mut out = String::new();
+    for c in plain(&String::from_utf16_lossy(&fragment)).chars() {
+        match (c as u32)
+            .checked_sub(0xE000)
+            .and_then(|i| found.get(i as usize))
+        {
+            Some(x) => out.push_str(&x.label),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
+/// The plain text with each atom as its label (⌘⇧C, LLP 1045.000 D5).
+pub fn plain_with(source: &str, atoms: &crate::Atoms) -> String {
+    let analysis = crate::style::analyze_with(source, None, atoms);
+    let labels: Vec<String> = analysis
+        .atoms
+        .iter()
+        .map(|a| {
+            atoms
+                .face(&source[a.range.clone()])
+                .map(|f| f.label.as_str())
+                .filter(|l| !l.is_empty())
+                .unwrap_or(&a.default)
+                .to_string()
+        })
+        .collect();
     let mut skips: Vec<(std::ops::Range<usize>, &str)> =
         analysis.hidden.iter().map(|r| (r.clone(), "")).collect();
+    skips.extend(
+        analysis
+            .atoms
+            .iter()
+            .zip(&labels)
+            .map(|(a, l)| (a.range.clone(), l.as_str())),
+    );
     skips.extend(analysis.replaced.iter().map(|(r, with)| {
         (
             r.clone(),

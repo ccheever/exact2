@@ -230,6 +230,8 @@ pub enum Event {
         link: String,
         /// Space-separated unavailable command names.
         unavailable: String,
+        /// The selected atom's source, or empty (LLP 1045.000 D3).
+        atom: String,
     },
     /// The pointer came over the view (`true`) or left it (`false`) —
     /// `pointerenter`/`pointerleave`, not a bubbling `mouseover`.
@@ -295,6 +297,8 @@ pub enum Event {
     /// That drag left the view's box or was cancelled (DOM's `dragleave`,
     /// likewise); a drop sends none, as the DOM's does.
     Dragleave(super::DropEvent),
+    /// A press on an inline atom (LLP 1045.000 D7).
+    Atompress(super::AtomEvent),
     /// A double click, or the platform’s double tap.
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
@@ -582,6 +586,7 @@ impl Event {
             Event::MidiMessage(m) => Some(m.value()),
             Event::Drop(d) | Event::Dragenter(d) | Event::Dragleave(d) => Some(d.value()),
             Event::FrameNavigation(_, n) => Some(n.value()),
+            Event::Atompress(a) => Some(a.value()),
             Event::Resize(r) => Some(r.value()),
             Event::Intersect {
                 is_intersecting,
@@ -1109,6 +1114,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Dragenter(_) => "dragenter",
                 Event::Dragleave(_) => "dragleave",
                 Event::FrameNavigation(kind, _) => frame_navigation::name(*kind),
+                Event::Atompress(_) => "atompress",
                 Event::Dblclick => "dblclick",
                 Event::Pointerdown(_) => "pointerdown",
                 Event::Pointerup(_) => "pointerup",
@@ -1252,6 +1258,7 @@ impl<D: DataSource> Runner<D> {
                 mixed,
                 link,
                 unavailable,
+                atom,
             } => (
                 EventKind::Select,
                 Some(Value::record(vec![
@@ -1259,6 +1266,7 @@ impl<D: DataSource> Runner<D> {
                     Value::Bool(*mixed),
                     Value::str(link),
                     Value::str(unavailable),
+                    Value::str(atom),
                 ])),
                 "select",
             ),
@@ -1287,6 +1295,7 @@ impl<D: DataSource> Runner<D> {
             Event::Dragenter(_) => (EventKind::Dragenter, None, "dragenter"),
             Event::Dragleave(_) => (EventKind::Dragleave, None, "dragleave"),
             Event::FrameNavigation(kind, _) => (*kind, None, frame_navigation::name(*kind)),
+            Event::Atompress(_) => (EventKind::Atompress, None, "atompress"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),

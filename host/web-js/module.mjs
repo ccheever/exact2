@@ -221,12 +221,17 @@ export function buildMarkdown({ out = resolve(MODULES, 'markdown'), keepFresh = 
 static mut OUT: Vec<u8> = Vec::new();
 #[no_mangle]
 pub extern "C" fn alloc(len: usize) -> *mut u8 { let mut v = Vec::<u8>::with_capacity(len); let p = v.as_mut_ptr(); std::mem::forget(v); p }
-/// # Safety: \`ptr\` holds \`len\` UTF-8 bytes from \`alloc\`.
+/// # Safety: \`ptr\` holds \`len\` UTF-8 bytes from \`alloc\`: the source, then
+/// \`atoms\` bytes of its \`atoms\` JSON and \`faces\` of its \`atomFaces\`.
 #[no_mangle]
-pub unsafe extern "C" fn pieces(ptr: *mut u8, len: usize) -> usize {
-    let source = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
+pub unsafe extern "C" fn pieces(ptr: *mut u8, len: usize, atoms: usize, faces: usize) -> usize {
+    let all = std::slice::from_raw_parts(ptr, len);
+    let (source, rest) = all.split_at(len - atoms - faces);
+    let (atoms, faces) = rest.split_at(atoms);
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let (source, atoms, faces) = (text(source), text(atoms), text(faces));
     drop(Vec::from_raw_parts(ptr, len, len));
-    OUT = exact_web_capabilities::markdown::pieces(&source).into_bytes();
+    OUT = exact_web_capabilities::markdown::pieces(&source, &atoms, &faces).into_bytes();
     #[allow(static_mut_refs)]
     OUT.len()
 }

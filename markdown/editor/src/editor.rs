@@ -39,10 +39,14 @@ pub enum Input {
     Backward,
     /// `deleteContentForward`.
     Forward,
-    /// Any other backward deletion: a word, a line, a cut.
+    /// Any other backward deletion: a line, a cut.
     OtherBackward,
     /// Any other forward deletion.
     OtherForward,
+    /// `deleteWordBackward`: ⌥⌫.
+    WordBackward,
+    /// `deleteWordForward`: ⌥⌦.
+    WordForward,
 }
 
 /// What a call did, for the host to show.
@@ -99,6 +103,9 @@ pub struct Facts {
     pub link: String,
     /// Space-separated commands that do nothing here.
     pub unavailable: String,
+    /// The atom's source when the selection is exactly one atom, else empty
+    /// (`MarkdownSelection.atom`, LLP 1045.000 D3).
+    pub atom: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,6 +192,8 @@ pub struct Editor {
     utf8: String,
     pub(crate) styled: Styled,
     pub(crate) proj: Projection,
+    /// The field's atom kinds and the app's faces (LLP 1045.000 D2).
+    atoms: md::Atoms,
     sel: (u32, u32),
     /// A caret deliberately after an inline closer.
     sticky: Option<u32>,
@@ -212,6 +221,7 @@ impl Editor {
             utf8: String::new(),
             styled: Styled::default(),
             proj: Projection::default(),
+            atoms: md::Atoms::default(),
             sel: (0, 0),
             sticky: None,
             pending: [None; 4],
@@ -245,9 +255,92 @@ impl Editor {
         self.sel
     }
 
-    /// The source with every hidden code unit removed: what a person reads.
+    /// The source with every hidden code unit removed and each atom as its
+    /// label: what a person reads.
     pub fn visible_text(&self) -> String {
-        utf8(&self.proj.visible_text(&self.source))
+        // Hidden clusters drop out; each atom is its label. Neither overlaps
+        // the other, and both are sorted.
+        let mut skips: Vec<(u32, u32, Option<&str>)> = self
+            .proj
+            .clusters
+            .iter()
+            .map(|&(a, b)| (a, b, None))
+            .collect();
+        skips.extend(
+            self.styled
+                .atoms
+                .iter()
+                .map(|a| (a.range.start, a.range.end, Some(a.label.as_str()))),
+        );
+        skips.sort_by_key(|k| k.0);
+        let mut out = String::new();
+        let mut at = 0;
+        for (a, b, label) in skips {
+            out.push_str(&utf8(&self.source[at as usize..a as usize]));
+            out.push_str(label.unwrap_or(""));
+            at = b;
+        }
+        out.push_str(&utf8(&self.source[at as usize..]));
+        out
+    }
+
+    /// The atoms the styler recognized, in source order.
+    pub fn atoms(&self) -> &[md::Atom] {
+        &self.styled.atoms
+    }
+
+    /// The declared kinds, by index.
+    pub fn atom_kinds(&self) -> &[md::AtomKind] {
+        &self.atoms.kinds
+    }
+
+    /// The face the app supplied for an atom's source.
+    pub fn atom_face(&self, source: &str) -> Option<&md::AtomFace> {
+        self.atoms.face(source)
+    }
+
+    /// A field's declared kinds and the app's faces changed (`atoms`,
+    /// `atomFaces`, LLP 1045.000 D2): restyle. The source and its history
+    /// stay; a selection now inside an atom moves by the caret and range rules.
+    pub fn set_atoms(&mut self, atoms: md::Atoms) -> Change {
+        if atoms == self.atoms {
+            return Change::default();
+        }
+        self.atoms = atoms;
+        self.restyle();
+        let (s, e) = self.sel;
+        let sel = if s == e {
+            (self.snap(s), self.snap(s))
+        } else {
+            self.proj.outward((s, e))
+        };
+        let place = sel != self.sel;
+        self.sel = sel;
+        Change {
+            source: false,
+            place,
+        }
+    }
+
+    /// The plain text of the source's `from..to`, each atom its label (⌘⇧C).
+    pub fn plain(&self, from: u32, to: u32) -> String {
+        md::plain_range(&self.utf8, Range::new(from, to), &self.atoms)
+    }
+
+    /// An input method begins composing (LLP 1045.000 D5): over a range that
+    /// holds an atom, the range is deleted first, as an undo step of its
+    /// own. The platform's text is left as it is, composing over the range.
+    pub fn compose(&mut self, now: f64) -> Change {
+        self.now = now;
+        let (from, to) = self.sel;
+        if from == to || !self.proj.atoms.iter().any(|a| from <= a.0 && a.1 <= to) {
+            return Change::default();
+        }
+        let change = self.remove(from, to, true, None);
+        Change {
+            place: false,
+            ..change
+        }
     }
 
     /// Which side of hidden syntax a caret at `p` is drawn on: true for after.
@@ -282,7 +375,7 @@ impl Editor {
 
     fn restyle(&mut self) {
         self.utf8 = utf8(&self.source);
-        self.styled = md::style(&self.utf8, None);
+        self.styled = md::style_with(&self.utf8, None, &self.atoms);
         self.proj = Projection::new(&self.source, &self.styled);
     }
 
@@ -347,7 +440,8 @@ impl Editor {
 
     /// The app's `setSelectionRange`, in source code units. A caret in hidden
     /// syntax moves to the visible edge the platform can draw it at
-    /// (LLP 1045 D6); a range is kept as given.
+    /// (LLP 1045 D6); a range is kept as given, but for an end inside an
+    /// atom, which goes to the atom's outer edge (LLP 1045.000 D5).
     pub fn set_selection(&mut self, from: u32, to: u32) -> Change {
         let (from, to) = self.clamp((from, to));
         self.pending = [None; 4];
@@ -355,7 +449,7 @@ impl Editor {
         self.sel = if from == to {
             (self.snap(from), self.snap(from))
         } else {
-            (from, to)
+            self.proj.outward((from, to))
         };
         Change {
             source: false,
@@ -450,10 +544,11 @@ impl Editor {
             }
         } else {
             let inside = |p: u32| Some(proj.cluster(p)).filter(|c| c.0 < p && p < c.1);
-            self.sel = (
-                inside(from).map_or(from, |c| c.0),
-                inside(to).map_or(to, |c| c.1),
-            );
+            let (a, b) = proj.outward((from, to));
+            self.sel = (inside(a).map_or(a, |c| c.0), inside(b).map_or(b, |c| c.1));
+            if self.sel != (from, to) && (a, b) != (from, to) {
+                return Selected::Place;
+            }
         }
         Selected::Emit
     }
@@ -482,12 +577,25 @@ impl Editor {
         let (mut from, mut to) = self.sel;
         let deleting = matches!(
             input,
-            Input::Backward | Input::Forward | Input::OtherBackward | Input::OtherForward
+            Input::Backward
+                | Input::Forward
+                | Input::OtherBackward
+                | Input::OtherForward
+                | Input::WordBackward
+                | Input::WordForward
         );
         let collapsed = matches!(input, Input::Backward | Input::Forward) && from == to;
+        if matches!(input, Input::WordBackward | Input::WordForward) && from == to {
+            if let Some(range) = self.word_atom(from, input == Input::WordBackward) {
+                let parts = self.proj.visible_parts(range.0, range.1);
+                let reps = parts.into_iter().map(|(a, b)| (a, b, Vec::new())).collect();
+                return handled(self.commit_reps(reps, range.0, true, Kind::Delete));
+            }
+        }
         if let Some(t) = target.filter(|_| !collapsed && (deleting || input == Input::Replacement))
         {
-            (from, to) = self.clamp(t);
+            // A platform range ending inside an atom takes it whole.
+            (from, to) = self.proj.outward(self.clamp(t));
         }
         match input {
             Input::Paragraph => handled(self.newline(from, to)),
@@ -495,10 +603,13 @@ impl Editor {
                 let data = clean(data);
                 let p = self.sticky.unwrap_or(from);
                 let c = self.proj.cluster(p);
+                // Beside an atom the editor types, so no text lands in it.
                 let quiet = self.pending().next().is_none()
                     && from == to
                     && c.0 == c.1
-                    && !data.contains(&10);
+                    && !data.contains(&10)
+                    && self.proj.atom_ending(p).is_none()
+                    && self.proj.atom_starting(p).is_none();
                 if quiet && input == Input::Text {
                     return Outcome::Native;
                 }
@@ -506,9 +617,31 @@ impl Editor {
                 handled(self.insert(&data, a, b))
             }
             _ => {
-                let backward = matches!(input, Input::Backward | Input::OtherBackward);
+                let backward = matches!(
+                    input,
+                    Input::Backward | Input::OtherBackward | Input::WordBackward
+                );
                 handled(self.remove(from, to, backward, target.map(|t| self.clamp(t))))
             }
+        }
+    }
+
+    /// ⌥⌫ or ⌥⌦ at `p` (LLP 1045.000 D5): an atom and the spaces between it
+    /// and the caret, stopping at a line break; `None` when no atom is there.
+    fn word_atom(&self, p: u32, backward: bool) -> Option<(u32, u32)> {
+        let space = |i: u32| matches!(self.source.get(i as usize), Some(32 | 9));
+        if backward {
+            let mut at = self.proj.cluster(p).0;
+            while at > 0 && space(at - 1) {
+                at = self.proj.cluster(at - 1).0;
+            }
+            self.proj.atom_ending(at).map(|a| (a.0, p))
+        } else {
+            let mut at = self.proj.cluster(p).1;
+            while space(at) {
+                at = self.proj.cluster(at + 1).1;
+            }
+            self.proj.atom_starting(at).map(|a| (p, a.1))
         }
     }
 
@@ -642,12 +775,32 @@ impl Editor {
                 formats.push(format.name());
             }
         }
-        Facts {
+        let mut facts = Facts {
             formats: formats.join(" "),
             mixed: s.mixed,
             link: s.link,
             unavailable: s.unavailable,
+            atom: String::new(),
+        };
+        // Exactly one atom: its source, its destination as a link's, and no
+        // `link` command over it (LLP 1045.000 D3, D5).
+        if let Some(atom) = self
+            .proj
+            .one_atom(self.sel.0, self.sel.1)
+            .and_then(|(a, _)| self.styled.atoms.iter().find(|x| x.range.start == a))
+        {
+            facts.atom.clone_from(&atom.source);
+            if !atom.href.is_empty() {
+                facts.link.clone_from(&atom.href);
+            }
+            if !facts.unavailable.split(' ').any(|c| c == "link") {
+                if !facts.unavailable.is_empty() {
+                    facts.unavailable.push(' ');
+                }
+                facts.unavailable.push_str("link");
+            }
         }
+        facts
     }
 
     /// Undo one step.
@@ -758,7 +911,7 @@ impl Editor {
             if survivors.is_empty() {
                 break;
             }
-            let styled = md::style(&utf8(&text), None);
+            let styled = md::style_with(&utf8(&text), None, &self.atoms);
             let proj = Projection::new(&text, &styled);
             let orphans: Vec<u32> = survivors
                 .iter()
@@ -944,6 +1097,16 @@ impl Editor {
             let whole = |(a, b): (u32, u32)| a < b && proj.visible_parts(a, b) == [(a, b)];
             let c = proj.cluster(from);
             let src = &self.source;
+            // Backspace at an atom's end or Delete at its start removes its
+            // whole source in one edit (LLP 1045.000 D5).
+            let atom = if backward {
+                proj.atom_ending(c.0)
+            } else {
+                proj.atom_starting(c.1)
+            };
+            if let Some((a, b)) = atom {
+                return self.commit_reps(vec![(a, b, Vec::new())], a, true, Kind::Delete);
+            }
             if backward {
                 let at = c.0;
                 if at == 0 {
