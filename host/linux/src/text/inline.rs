@@ -29,17 +29,12 @@ impl Ownership {
                 (start..offset, i)
             })
             .collect();
-        let mut offset = 0;
         let hard = p
             .source
             .data
             .lines
             .iter()
-            .map(|line| {
-                let start = offset + text[offset..].find(&line.text).expect("source hard line");
-                offset = start + line.text.len();
-                start..offset
-            })
+            .map(|line| line.start..line.start + line.text.len())
             .collect();
         Self { text, runs, hard }
     }
@@ -199,5 +194,47 @@ impl Paragraph {
             return insertion.or(previous).into_iter().collect();
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::text::{catalog, Run, TextEngine};
+    use exact_kernel::{StyleProps, TextStyle, WhiteSpace};
+
+    #[test]
+    fn inline_frame_ownership_keeps_separator_offsets_and_empty_lines() {
+        let mut engine = TextEngine::with_catalog(catalog::Catalog::from_bytes(
+            &[
+                include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf")
+                    .as_slice(),
+            ],
+            "DejaVu Sans",
+        ));
+        let style = StyleProps {
+            white_space: WhiteSpace::Pre,
+            ..Default::default()
+        };
+        for sep in [
+            "\n", "\r\n", "\r", "\u{1c}", "\u{1d}", "\u{1e}", "\u{85}", "\u{2029}",
+        ] {
+            let text = format!("a{sep}{sep}b");
+            let mut spec = crate::paint::text_spec(&style, "");
+            // Separate runs also exercise CRLF split between runs.
+            spec.runs = text
+                .chars()
+                .map(|c| Run::from_style(&c.to_string(), TextStyle::from_style(&style)))
+                .collect();
+            let p = engine.paragraph(&spec, Some(300.));
+            let ownership = Ownership::new(&p);
+            let blank = 1 + sep.len();
+            let last = blank + sep.len();
+            assert_eq!(
+                ownership.hard,
+                [0..1, blank..blank, last..last + 1],
+                "{sep:?}"
+            );
+        }
     }
 }
