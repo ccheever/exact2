@@ -783,6 +783,14 @@ package final class Runtime {
             _ = exact_auth(rt, write(String(decoding: json, as: UTF8.self)))
         }
     }
+    /// How a presence check ended (LLP 1133.010 D13): on the store's
+    /// completion path, which carries an unlocked value to its call alone.
+    package func presence(_ answer: [String: Any]) {
+        on {
+            guard let json = try? JSONSerialization.data(withJSONObject: answer) else { return }
+            _ = exact_presence(rt, write(String(decoding: json, as: UTF8.self)))
+        }
+    }
     /// A line for the runner's journal (LLP 1012 §3): what this host refused, and why.
     /// An app module's topic changed (LLP 1024): a notification (T5).
     package func appChanged(_ topic: Data) {

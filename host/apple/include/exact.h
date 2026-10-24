@@ -868,6 +868,24 @@ uint8_t exact_svg_islands(ExactRuntime rt);
  * executor wakes and the next pump delivers the answer. */
 uint32_t exact_auth(ExactRuntime rt, size_t len);
 
+/* How a presence check ended (LLP 1133.010 D13), JSON in the input buffer:
+ * {"call":N,"status":"passed"} (the backend reads the item),
+ * {"call":N,"status":"read","value":"…"}, {"call":N,"status":"read"} for an
+ * item the platform dropped, or {"call":N,"status":"failed","code":…,
+ * "message":…}. Returns 0; the next pump settles the call. Never journaled. */
+uint32_t exact_presence(ExactRuntime rt, size_t len);
+
+/* The keychain the presence backend keeps locked items in (D6). Called on
+ * the runtime's thread, synchronously; answered with done(reply, status,
+ * bytes, len) before it returns: status 0 done, 1 not found or not capable,
+ * below 0 failed with a message. op 1 add {"service","account","policy"}
+ * with the value; 2 delete {"service","account"}; 3 the accounts under
+ * {"service"}, a JSON array; 4 delete every item under {"service"}; 5
+ * whether this build keeps locked items. Never shows the person anything. */
+typedef void (*ExactPresenceReplyFn)(void *reply, int32_t status, const uint8_t *bytes, size_t len);
+typedef void (*ExactPresenceKeychainFn)(uint32_t op, const uint8_t *json, size_t len, const uint8_t *value, size_t value_len, void *reply, ExactPresenceReplyFn done);
+void exact_on_presence_keychain(ExactPresenceKeychainFn keychain);
+
 /* Optional delivery composition (LLP 1030 D4). L=0 returns NULL: no store,
  * keys, selection, check or networking implementation is linked. The higher
  * update adapter supplies these calls only when the app chooses L=A. */

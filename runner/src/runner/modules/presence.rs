@@ -42,6 +42,54 @@ pub(in crate::runner) struct Presence {
     /// The agent's tickets for checks: hold, call, and whether it is the
     /// permission's.
     holds: Vec<(u64, u64, bool)>,
+    /// Checks the host's platform makes, for the host to take.
+    asks: Vec<PresenceAsk>,
+    /// Where the platform's keystore keeps the items (Apple: the keychain
+    /// service), when the vault is it rather than the agent's store: the
+    /// host reads an item itself after its check.
+    keystore: Option<String>,
+    /// Whether a device credential is set, as the bound implementation's
+    /// status last said; `None` before it said.
+    credential: Option<bool>,
+    /// Checks that wait for the implementation to be bound: outside the
+    /// agent no ticket answers for the person, and the module loads after
+    /// first pixel (D8).
+    waiting: Vec<u64>,
+}
+
+/// A presence check the host's platform makes (LLP 1133.010 D13): the bound
+/// implementation's authenticator shows the sheet, and the host's backend
+/// reads the item under the context it evaluated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PresenceAsk {
+    /// The call, which [`Runner::presence_answer`] names.
+    pub id: u64,
+    /// The name.
+    pub name: String,
+    /// The newest locked item's generation, which the read names.
+    pub generation: u64,
+    /// The policy, as the line writes it (`user-presence optional apple.orWatch`).
+    pub policy: String,
+    /// The reason's text, translated: what the sheet shows.
+    pub reason: String,
+    /// Who made the call.
+    pub origin: CallOrigin,
+    /// Where the host reads the item after the check (Apple: the keychain
+    /// service). `None` under the agent, whose own store holds the value:
+    /// the host only checks (`--bind`).
+    pub keystore: Option<String>,
+}
+
+/// How a check the host made ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PresenceAnswer {
+    /// Passed; the backend reads the item (the agent's store).
+    Passed,
+    /// Passed, and the host read the item: its value, or `None` when the
+    /// platform has dropped it.
+    Read(Option<Vec<u8>>),
+    /// Failed: D1's code and the platform's message.
+    Failed(String, String),
 }
 
 struct Call {
@@ -67,8 +115,11 @@ impl<D: DataSource> Runner<D> {
     /// The host's presence backend for this session, reconciled before boot
     /// (its occupancy is in the boot snapshot). The runner runs it from now
     /// on: its queue, the checks, and every committed write of its names.
-    pub fn install_presence(&mut self, backend: Backend) {
+    /// `keystore`: where the platform's keystore keeps the items, when the
+    /// vault is it, so a check the host makes reads the item itself.
+    pub fn install_presence(&mut self, backend: Backend, keystore: Option<String>) {
         let p = &mut self.extensions.presence;
+        p.keystore = keystore;
         p.capable = self.store.presence_capable();
         p.moves = self.data.ready();
         p.backend = Some(backend);
@@ -103,7 +154,77 @@ impl<D: DataSource> Runner<D> {
     /// A locked item can be kept now: the host keeps them, and a device
     /// credential is set (D5).
     fn can_lock(&self) -> bool {
-        self.presence_secrets() && self.local_auth_status()["deviceCredential"] != false
+        let credential = match self.presence_bound() {
+            true => self.extensions.presence.credential.unwrap_or(true),
+            false => self.local_auth_status()["deviceCredential"] != false,
+        };
+        self.presence_secrets() && credential
+    }
+
+    /// The local-auth implementation answers for the person: the platform's
+    /// sheet, not a ticket.
+    fn presence_bound(&self) -> bool {
+        self.local_auth()
+            .is_some_and(|row| self.extensions.bound.contains(self.plan.str(row.extension)))
+    }
+
+    /// The bound implementation's status answered: whether a device
+    /// credential is set, which a locked write needs, and its facts are the
+    /// runner's, as the substitute's are.
+    pub(in crate::runner) fn presence_status(
+        &mut self,
+        row: &ModulesRow,
+        mut answer: Json,
+    ) -> Json {
+        if !self.local_auth().is_some_and(|r| r.source == row.source) {
+            return answer;
+        }
+        if let Some(set) = answer["deviceCredential"].as_bool() {
+            self.extensions.presence.credential = Some(set);
+        }
+        if let Some(object) = answer.as_object_mut().filter(|o| !o.contains_key("error")) {
+            object.insert("presenceSecrets".into(), json!(self.presence_secrets()));
+        }
+        answer
+    }
+
+    /// The local-auth implementation was bound: the checks that waited for
+    /// it are made now.
+    pub(in crate::runner) fn presence_rebound(&mut self) {
+        if !self.presence_bound() {
+            return;
+        }
+        for id in std::mem::take(&mut self.extensions.presence.waiting) {
+            let Some(call) = self.extensions.presence.calls.get(&id) else {
+                continue;
+            };
+            let (name, op) = (call.name.clone(), call.op);
+            if let Some(presence) = self.store.presence_of(&name).cloned() {
+                self.presence_check(id, &name, &presence, op);
+            }
+        }
+    }
+
+    /// The checks the host's platform makes, since the last take.
+    pub fn take_presence_asks(&mut self) -> Vec<PresenceAsk> {
+        std::mem::take(&mut self.extensions.presence.asks)
+    }
+
+    /// How a check the host made ended. A call let go meanwhile is dropped.
+    pub fn presence_answer(&mut self, id: u64, answer: PresenceAnswer) {
+        let checked = match answer {
+            PresenceAnswer::Passed => Checked::Passed,
+            PresenceAnswer::Read(value) => Checked::Read(value),
+            PresenceAnswer::Failed(code, message) => Checked::Failed(code, message),
+        };
+        self.presence_checked(id, checked);
+    }
+
+    /// `key`'s text in the strings table the app shows now, or the key.
+    pub(in crate::runner) fn strings_text(&self, key: &str) -> String {
+        (self.plan.localized(self.resolved_locale(), key))
+            .unwrap_or(key)
+            .to_owned()
     }
 
     /// A request goes out: a presence call's ticket is kept for its dispatch.
@@ -284,6 +405,31 @@ impl<D: DataSource> Runner<D> {
         if origin != CallOrigin::App {
             let checked = Checked::Failed("PERMISSION_DENIED".into(), "person-required".into());
             return self.presence_checked(id, checked);
+        }
+        if self.extensions.presence.keystore.is_some() && !self.presence_bound() {
+            self.log(format!(
+                "store {op} {name}: waits for the local-auth module"
+            ));
+            self.extensions.presence.waiting.push(id);
+            return;
+        }
+        // The platform's own sheet: its permission and its refusals are the
+        // platform's, and the host reads the item (D6, D13).
+        if self.presence_bound() {
+            let p = &self.extensions.presence;
+            let generation = p.backend.as_ref().map_or(0, |b| b.generation(name));
+            let ask = PresenceAsk {
+                id,
+                name: name.to_owned(),
+                generation,
+                policy: presence.line_words(),
+                reason: self.strings_text(&reason),
+                origin,
+                keystore: p.keystore.clone(),
+            };
+            self.log(format!("store {op} {name}: the platform's check"));
+            self.extensions.presence.asks.push(ask);
+            return;
         }
         let status = self.local_auth_status();
         if status["available"] == false {
