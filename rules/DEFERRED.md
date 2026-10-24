@@ -919,6 +919,74 @@ reading. Nothing that isn't HTML is added by it.
   session; `temperature` and `topK` as tier 1, and the web's
   `samplingMode`; LLP 1111's `tool` lines as the model's tools; and the
   visionOS, watchOS and Windows cells.
+- Background tasks were never on the doing list (LLP 1069 §5's "Not now").
+  **Expanded (Charlie, 2026-10-23, "Admit all three, no take", waived; LLP
+  1133.017 §15 question 11):** the app's code run by a wake the platform
+  schedules (Background Sync's `sync` and Periodic Background Sync's
+  `periodicsync`, from `@exact/background`), and uploads and downloads the
+  platform finishes after the app has gone (Background Fetch's names, from
+  `@exact/background-transfer`), on iOS, macOS and Android, with WorkManager
+  on Android; `sync` on the web while the page is open. A wake boots the
+  session with no view and draws nothing (`rules/RULES.md`'s boot row
+  exempts it); the host keeps the platform's entry points and the transfer
+  carrier, with the seam additions of LLP 1133.017 §8. The list's generic
+  job scheduler is not this: the platform's scheduler runs it, with no
+  queue or pool of exact2's. Consumer: Harmony's outbox, mention
+  notifications and photos. Unblocks a message written offline sent at the
+  next chance, and a photo that finishes uploading after the person has
+  left the app. Take: none named. Still refused (LLP 1133.017 §13): a
+  runner in a service worker on the web, and with it periodic sync and
+  background fetch there; push and a data-only push's wake; wakes for an
+  app that is not running on macOS, Linux and Windows; Android's
+  long-running workers and foreground services beyond a person-started
+  transfer's; resuming an interrupted upload on Android; an app's own
+  `beginBackgroundTask`; background location, geofencing, Bluetooth
+  restoration and HealthKit delivery, each its own module over this seam;
+  Background Fetch's `icons` and `updateUI`; and continued processing's
+  GPU resource.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.018 §15 question 9):** contacts and calendars (`@exact/contacts`,
+  `@exact/calendar`) on the web, iOS, macOS and Android. Choosing contacts
+  by the Contact Picker API's `select` is a copy and needs no grant; reading
+  the address book is a grant, in the picker's shape. Adding an event
+  through the system's editor (`showEventEditor`; an `.ics` file on the web
+  and the Mac) needs no grant; reading and writing the person's calendars
+  is a grant, in JSCalendar's shape of iCalendar's model. Limited contacts
+  and write-only calendars are `access` beside `state`; an app granted
+  either store keeps no answers, as one granted Health keeps none; a tool
+  may read the stores and may not write the calendar. With the seam
+  additions of LLP 1133.018 D13. Consumer: the Calendar example, Android
+  driven on `apps/module-fixture`. Unblocks the person's own events, guests
+  picked from contacts and Add to Calendar without app Swift. Take: none
+  named. Still out, each until a consumer asks (LLP 1133.018 §13): writing
+  contacts, groups and containers, and the system's contact card and
+  new-contact editor; recurrence written or edited by span, alarms,
+  attendees and reminders (reachable through the `EKEventStore` hatch); a
+  change history or batch protocol for a sync engine; delivery while the
+  app is closed; an app's own calendar account as a sync adapter, and
+  subscribed calendars; JSCalendar 2.0's changes; and the tvOS, visionOS,
+  watchOS, Windows and Linux cells.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.019 §13 question 7):** the photo library, read and added to, both
+  halves now (`photoLibraryStatus`, `photoAssets`, `copyPhotoAsset`,
+  `addToPhotoLibrary` and `managePhotoSelection` from `@exact/photos`), on
+  iOS, macOS and Android, the web a visible absence. A library item
+  crosses by reference: an id, a picture the host draws through the
+  package's `img` scheme, or a copy in `app:/tmp`. Adding and reading are
+  two grants, limited access is a fact beside the state, and an app granted
+  the read keeps no answers. And image transforms (`transformImage`, and
+  `rotate`, `flip` and `crop` on `compressImage`) over each host's codec,
+  on the web, Apple and Android, with a new Android codec. With the seam
+  additions of LLP 1133.019 D11. Consumer: the photo editor, which saves
+  its edit to Photos and opens a recent photo from a strip under limited
+  access. Unblocks saving an edit and opening a library photo without app
+  Swift. Take: none named. Still out, each until a consumer asks (LLP
+  1133.019 §9): videos in the library and a Live Photo's movie; albums as
+  shared words; editing a photo in place, reverting it and deleting;
+  download progress for an iCloud photo; a change-details protocol for a
+  large grid; the picker's Android arm (LLP 1069.002's); filters and
+  adjustments, metadata read as values, and RAW; and the tvOS, visionOS,
+  Windows and Linux cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
