@@ -643,6 +643,15 @@ impl<D: DataSource> Runner<D> {
                                         &self.resource_values[i],
                                         Some(old) if Held::same(old, &shown)
                                     );
+                                    // The failed ask watched what it read, as an
+                                    // answer does, so a change there (a permission
+                                    // granted) asks it again; the shown value's
+                                    // topics stay with it.
+                                    for topic in self.store.take_topics() {
+                                        if !self.watching[i].contains(&topic) {
+                                            self.watching[i].push(topic);
+                                        }
+                                    }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
                                     progress = true;

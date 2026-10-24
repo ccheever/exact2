@@ -64,6 +64,8 @@ package protocol Canvases: AnyObject {
     func surfaceName(_ view: UInt32) -> String?
     func surfaceNames() -> [String]
     func waiting(_ name: String) -> Bool
+    /// A sensor input's event for the live canvas of surface `name` (LLP 1133.013 D6); false when none is live.
+    @discardableResult func sensor(_ name: String, _ event: [String: Any]) -> Bool
     func period(_ ms: Double)
     func tick(now: Double) -> Bool
     func settle(now: Double)
@@ -188,6 +190,7 @@ final class NoCanvases: Canvases {
     func surfaceName(_ view: UInt32) -> String? { nil }
     func surfaceNames() -> [String] { [] }
     func waiting(_ name: String) -> Bool { false }
+    func sensor(_ name: String, _ event: [String: Any]) -> Bool { false }
     func period(_ ms: Double) {}
     func tick(now: Double) -> Bool { false }
     func settle(now: Double) {}
