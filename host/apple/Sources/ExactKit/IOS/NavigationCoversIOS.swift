@@ -183,10 +183,7 @@ extension NavigationHost {
 
     /// Whether this build checks what Exact owns: every build but a
     /// production bake.
-    static let checksOwnership: Bool = {
-        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
-        return trust != "production"
-    }()
+    static let checksOwnership = !ExactEnv.productionBake
 
     /// Record the controllers Exact set on a stack.
     func recordOwned(_ nav: UINavigationController) {
