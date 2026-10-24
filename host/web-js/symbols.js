@@ -27,9 +27,9 @@ function schedule() {
 // `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file. An
 // even-odd icon's path starts `evenodd:` (stage 14 C2). `iconForm` is the page's one reading of a
 // source form, exact_kernel::Icon::parse in JavaScript, held to the same cases
-// (kernel/tests/fixtures/icon-forms.json): the first three `|`s part sf, viewBox and path, the
-// rest is the svg; no `:` is nonzero; `evenodd:` and a path with no other `:` is even-odd; any
-// other `:` (or too few parts) is no icon, `null`, which draws nothing.
+// (kernel/tests/fixtures/icon-forms.json): the first three bars part sf, viewBox and path, the
+// rest is the svg; a path with no colon is nonzero; the even-odd marker and a path with no other
+// colon is even-odd; any other colon (or too few parts) is no icon, null, which draws nothing.
 const iconForm = name => {
   const f = []; let rest = name.slice(5);
   for (let i = 0; i < 3; i++) { const at = rest.indexOf("|"); if (at < 0) return null; f.push(rest.slice(0, at)); rest = rest.slice(at + 1); }

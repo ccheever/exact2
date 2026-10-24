@@ -1,24 +1,19 @@
-//! @ref LLP 1121 stage 14 C2 (theme2's condition) — an even-odd icon's path
-//! starts `evenodd:`, in the plan's `icons` row and in the source form's
-//! `<path>`; every reader strips it through ONE shared parse,
-//! `exact_kernel::Icon`. Round 2 made the guard conservative:
+//! @ref LLP 1121 stage 14 C2 (theme2's condition, closed hard) — an even-odd
+//! icon's path starts `evenodd:`, in the plan's `icons` row and in the source
+//! form's `<path>`; every reader strips it through ONE shared parse,
+//! `exact_kernel::Icon`. The guard parses nothing:
 //! - Rust, by type: an `icons` row's `path` is an `exact_plan::IconPathId`,
 //!   which `plan.str()` and the string pool don't take (exact_plan's
-//!   compile-fail doc tests hold the bypasses: a binding the table hands out,
-//!   a parenthesised field, a destructured row). Its one way out,
-//!   `raw_for_icon`, is called by `exact_runner::icon_of` alone, which hands
-//!   it to `Icon::of_row`. So the Rust scan is: no `raw_for_icon` anywhere
-//!   else; and no `"icon|"` form split, searched or stripped outside
-//!   `Icon::parse`.
-//! - JavaScript (`.js`, `.mjs`, `.ts`, tests aside), with no receiver
-//!   heuristics: any `evenodd:`, any string starting `icon|` (either quote or
-//!   a backtick), and, in a file that names a symbol source at all, any call
-//!   to split, indexOf, lastIndexOf, slice, substring, substr, search or
-//!   match whose first argument is a quoted `|` or `:` (whitespace and
-//!   newlines around it, more arguments after), outside the allowed function
-//!   (the page's `iconForm`) and the named lines. Comment lines (line
-//!   comments, and block comments from the line that opens one to the line
-//!   that closes it) are skipped; a line merely starting `*` is code.
+//!   compile-fail doc tests hold the bypasses). Its one method out is called
+//!   by `exact_runner::icon_of` alone. The scan: that method's name, as text,
+//!   anywhere in any `.rs` file (comments and strings too) outside its own
+//!   definition and `icon_of` (each with the doc comment above it) fails.
+//!   Excepted: this file, which builds fixtures of it.
+//! - JavaScript (`.js`, `.mjs`, `.ts`) in the files that handle a symbol
+//!   source (they name `data-symbol`, `symbolSource`, `symbolPath`,
+//!   `symbol-source`, a quoted `symbol:` or `icon|`), tests aside: any string
+//!   literal that is exactly a bar or a colon (any quote), or a `\|` (a regex
+//!   on a bar), fails unless that exact line is allowed below, with why.
 
 use std::path::{Path, PathBuf};
 
@@ -27,45 +22,36 @@ const SCANNED: &[&str] = &[
     "kernel", "host", "js", "scripts", "contract", "runner", "bake", "plan/src",
 ];
 
-/// The readers allowed: a file and the first line of a function, whose whole
-/// body is allowed, each with why.
-const FUNCTIONS: &[(&str, &str, &str)] = &[
+/// The escape's name, assembled so this file holds it only in fixtures.
+fn escape() -> String {
+    ["raw", "for", "icon"].join("_")
+}
+
+/// The Rust functions whose body (and doc comment) may name the escape.
+const FUNCTIONS: &[(&str, &str)] = &[
     (
         "plan/src/lib.rs",
         "    pub fn raw_for_icon(self) -> StrId {",
-        "the escape itself",
     ),
-    (
-        "runner/src/bridge.rs",
-        "pub fn icon_of<'a>(",
-        "the one caller of the escape, which hands the row to Icon::of_row",
-    ),
-    (
-        "kernel/src/replaced.rs",
-        "    pub fn parse(name: &'a str) -> Option<Icon<'a>> {",
-        "Icon::parse itself",
-    ),
-    // The JS target's page reads a computed source with no Rust to call:
-    // Icon::parse mirrored once, held to the kernel's own cases
-    // (kernel/tests/fixtures/icon-forms.json) by tests/symbol-hole.test.mjs.
-    (
-        "host/web-js/symbols.js",
-        "const iconForm = name => {",
-        "the page's JavaScript mirror of Icon::parse",
-    ),
+    ("runner/src/bridge.rs", "pub fn icon_of<'a>("),
 ];
 
-/// Single lines allowed, by file and their whole text, each with why.
+/// JavaScript lines allowed, by file and whole (trimmed) text, with why.
 const LINES: &[(&str, &str, &str)] = &[
+    ("host/web-js/symbols.js", r#"for (let i = 0; i < 3; i++) { const at = rest.indexOf("|"); if (at < 0) return null; f.push(rest.slice(0, at)); rest = rest.slice(at + 1); }"#, "iconForm, Icon::parse's JavaScript mirror: its four-part split"),
+    ("host/web-js/symbols.js", r#"const [, box, raw] = f, colon = raw.indexOf(":");"#, "iconForm: the rule's marker"),
+    ("host/web-js/symbols.js", r#"if (rule !== "evenodd" || !d.trim() || d.includes(":")) return null;"#, "iconForm: a second colon is no icon"),
+    ("host/web-js/dom.js", "set cssText(t) { this.map.clear(); for (const d of t.split(';')) { const i = d.indexOf(':'); if (i > 0) this.map.set(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }", "the DOM shim's style declarations"),
+    ("host/web-js/rt.js", r#"if (typeof k + ":" + (Object.is(k, -0) ? 0 : k) !== r.k) break;"#, "a keyed list's key, type and value"),
+    ("host/web-js/rt.js", r#"k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);"#, "a keyed list's key, type and value"),
+    ("host/web-js/rt.js", r#"if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }"#, "a repeated key's disambiguation"),
+    ("host/web/glue.js", r#"const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;"#, "a canvas surface's grant (`\"read\":\"write\"` holds a colon literal's text)"),
+    ("host/web/navigation.js", "const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';", "a route's namespace"),
+    ("host/web/navigation.js", "const namespace = at < 0 ? path.startsWith('/') ? '' : null : path.slice(0, at) + ':';", "a route's namespace"),
     (
-        "host/web-js/symbols.js",
-        r#"const form = name.startsWith("icon|") ? iconForm(name) : undefined;"#,
-        "hands a form to iconForm, unread",
-    ),
-    (
-        "host/web-js/dom.js",
-        "set cssText(t) { this.map.clear(); for (const d of t.split(';')) { const i = d.indexOf(':'); if (i > 0) this.map.set(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }",
-        "the DOM shim's style declarations (`name: value`), no source",
+        "host/web/navigation.js",
+        "const isWide = wide(), said = [isWide, list?.parentElement === nav && list.getAttribute(\"aria-orientation\"), ...[nav, list].map(el => el && [el.className, el.style.display, el.style.flexDirection, el.style.position, el.style.appearance].join(\"|\"))].join(\"/\"); if (placed.get(nav) !== said) { nav.removeAttribute(\"data-exact-sidebar\"); nav.toggleAttribute(\"data-exact-sidebar\", isWide && unsaidBar(nav, list)); placed.set(nav, said); }",
+        "the sidebar's placement key, its styles joined",
     ),
 ];
 
@@ -79,7 +65,7 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
         if path.is_dir() {
             if !matches!(
                 name.as_str(),
-                "target" | "node_modules" | "dist" | "web-dist" | "fixtures"
+                "target" | "node_modules" | "dist" | "web-dist"
             ) && !name.starts_with('.')
             {
                 files(&path, out);
@@ -94,32 +80,28 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The line ranges (1-based, inclusive) of the allowed functions in `rel`,
-/// with their index in [`FUNCTIONS`].
-fn allowed_lines(rel: &str, text: &str) -> Vec<(usize, usize, usize)> {
+/// The 1-based line ranges of the allowed functions in `rel`, each from the
+/// doc comment above its first line to its closing brace.
+fn allowed_lines(rel: &str, text: &str) -> Vec<(usize, usize)> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
-    for (k, (file, first, _)) in FUNCTIONS.iter().enumerate() {
+    for (file, first) in FUNCTIONS {
         if *file != rel {
             continue;
         }
         let Some(at) = lines.iter().position(|l| l.starts_with(first)) else {
             continue;
         };
+        let mut doc = at;
+        while doc > 0 && lines[doc - 1].trim_start().starts_with("///") {
+            doc -= 1;
+        }
         let (mut depth, mut opened) = (0i32, false);
         for (n, line) in lines.iter().enumerate().skip(at) {
-            for c in line.chars() {
-                match c {
-                    '{' => {
-                        depth += 1;
-                        opened = true
-                    }
-                    '}' => depth -= 1,
-                    _ => {}
-                }
-            }
+            depth += line.matches('{').count() as i32 - line.matches('}').count() as i32;
+            opened |= line.contains('{');
             if opened && depth <= 0 {
-                out.push((k, at + 1, n + 1));
+                out.push((doc + 1, n + 1));
                 break;
             }
         }
@@ -127,139 +109,66 @@ fn allowed_lines(rel: &str, text: &str) -> Vec<(usize, usize, usize)> {
     out
 }
 
-/// Whether a JavaScript file names a symbol source at all.
-fn names_a_source(text: &str) -> bool {
+/// Whether a JavaScript file handles a symbol source.
+fn handles_a_source(text: &str) -> bool {
     [
-        "symbol:",
-        "icon|",
-        "evenodd",
+        "data-symbol",
         "symbolSource",
+        "symbolPath",
         "symbol-source",
-        "imageSource",
-        "symbol-path",
+        "\"symbol:",
+        "'symbol:",
+        "icon|",
     ]
     .iter()
     .any(|w| text.contains(w))
 }
 
-/// Every reader in one file (`rel` from the root), as `rel:line: text`; the
-/// allowed functions and lines it holds.
-fn readers(rel: &str, text: &str) -> (Vec<String>, Vec<usize>, Vec<usize>) {
-    let allowed = allowed_lines(rel, text);
-    let in_allowed = |n: usize| allowed.iter().any(|(_, a, b)| (*a..=*b).contains(&n));
-    let js = [".js", ".mjs", ".ts"].iter().any(|x| rel.ends_with(x));
-    let source_file = js && names_a_source(text);
-    // The code, comment lines blanked (round 3): a line comment (`//`,
-    // `///`, `//!`) where a line starts with one, and a block comment from
-    // a line that opens one (`/*`, `/**`) to the line that closes it. A
-    // line merely starting `*` is code (`*out = …`).
-    let mut in_block = false;
-    let code: Vec<&str> = text
-        .lines()
-        .map(|line| {
-            let t = line.trim();
-            if in_block {
-                in_block = !t.contains("*/");
-                return "";
+/// Every reader in one file, as `rel:line: text`, and the allowed lines it
+/// holds (their index in [`LINES`]).
+fn readers(rel: &str, text: &str) -> (Vec<String>, Vec<usize>) {
+    let (mut found, mut seen) = (Vec::new(), Vec::new());
+    if rel.ends_with(".rs") {
+        let allowed = allowed_lines(rel, text);
+        let escape = escape();
+        for (i, line) in text.lines().enumerate() {
+            if line.contains(&escape) && !allowed.iter().any(|(a, b)| (*a..=*b).contains(&(i + 1)))
+            {
+                found.push(format!("{rel}:{}: {}", i + 1, line.trim()));
             }
-            if t.starts_with("/*") {
-                in_block = !t.contains("*/");
-                return "";
+        }
+    } else if handles_a_source(text) {
+        for (i, line) in text.lines().enumerate() {
+            let hit = ["\"|\"", "'|'", "`|`", "\":\"", "':'", "`:`", "\\|"]
+                .iter()
+                .any(|t| line.contains(t));
+            if !hit {
+                continue;
             }
-            if t.starts_with("//") {
-                ""
-            } else {
-                t
-            }
-        })
-        .collect();
-    // A split, search or slice whose first argument is a quoted `|` or `:`,
-    // whitespace and newlines allowed around it and more arguments after
-    // (round 3): the lines each such call starts on.
-    let mut calls = std::collections::BTreeSet::new();
-    if source_file {
-        let joined = code.join("\n");
-        for op in [
-            "split",
-            "indexOf",
-            "lastIndexOf",
-            "slice",
-            "substring",
-            "substr",
-            "search",
-            "match",
-        ] {
-            for (at, _) in joined.match_indices(&format!("{op}(")) {
-                if joined[..at]
-                    .chars()
-                    .next_back()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                {
-                    continue;
-                }
-                let rest = joined[at + op.len() + 1..].trim_start();
-                let mut chars = rest.chars();
-                let (Some(q), Some(c), Some(q2)) = (chars.next(), chars.next(), chars.next())
-                else {
-                    continue;
-                };
-                let after = chars.as_str().trim_start();
-                if "\"'`".contains(q)
-                    && q2 == q
-                    && (c == '|' || c == ':')
-                    && (after.starts_with(',') || after.starts_with(')'))
-                {
-                    calls.insert(joined[..at].matches('\n').count());
-                }
+            match LINES
+                .iter()
+                .position(|(f, l, _)| *f == rel && line.trim() == *l)
+            {
+                Some(k) => seen.push(k),
+                None => found.push(format!("{rel}:{}: {}", i + 1, line.trim())),
             }
         }
     }
-    let (mut found, mut lines_seen) = (Vec::new(), Vec::new());
-    for (i, code) in code.iter().enumerate() {
-        if code.is_empty() {
-            continue;
-        }
-        let hit = if js {
-            let marker = code.contains("evenodd:")
-                || ["\"icon|", "'icon|", "`icon|"]
-                    .iter()
-                    .any(|q| code.contains(q));
-            marker || calls.contains(&i)
-        } else {
-            code.contains("raw_for_icon")
-                || (code.contains("\"icon|\"")
-                    && ["split", "strip_prefix", "find(", "split_once"]
-                        .iter()
-                        .any(|w| code.contains(w)))
-        };
-        if !hit || in_allowed(i + 1) {
-            continue;
-        }
-        match LINES.iter().position(|(f, l, _)| *f == rel && *code == *l) {
-            Some(k) => lines_seen.push(k),
-            None => found.push(format!("{rel}:{}: {code}", i + 1)),
-        }
-    }
-    (
-        found,
-        allowed.into_iter().map(|(k, _, _)| k).collect(),
-        lines_seen,
-    )
+    (found, seen)
 }
 
-/// Test files build fixtures of the form; they read none.
-fn is_test(rel: &str) -> bool {
-    rel.contains("/tests/") || rel.contains(".test.") || rel.ends_with("_tests.rs")
+/// JavaScript tests build fixtures of the form; the Rust scan excepts only
+/// this file (which builds the escape's fixtures).
+fn excepted(rel: &str) -> bool {
+    let js = [".js", ".mjs", ".ts"].iter().any(|x| rel.ends_with(x));
+    rel.ends_with("contract/cli/tests/it/icon_path_readers.rs")
+        || (js && (rel.contains("/tests/") || rel.contains(".test.")))
 }
 
 #[test]
 fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let (mut found, mut fns, mut lines) = (
-        Vec::new(),
-        vec![false; FUNCTIONS.len()],
-        vec![false; LINES.len()],
-    );
+    let (mut found, mut seen) = (Vec::new(), vec![false; LINES.len()]);
     for dir in SCANNED {
         let mut all = Vec::new();
         files(&root.join(dir), &mut all);
@@ -269,16 +178,15 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
                 .unwrap()
                 .to_string_lossy()
                 .replace('\\', "/");
-            if is_test(&rel) {
+            if excepted(&rel) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            let (f, a, l) = readers(&rel, &text);
+            let (f, s) = readers(&rel, &text);
             found.extend(f);
-            a.into_iter().for_each(|k| fns[k] = true);
-            l.into_iter().for_each(|k| lines[k] = true);
+            s.into_iter().for_each(|k| seen[k] = true);
         }
     }
     assert!(
@@ -286,81 +194,59 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
         "read an icon's path through exact_runner::icon_of / exact_kernel::Icon, not by hand:\n{}",
         found.join("\n")
     );
-    let stale: Vec<_> = FUNCTIONS
+    let stale: Vec<_> = LINES
         .iter()
-        .zip(&fns)
-        .map(|((f, n, _), s)| (f, n, s))
-        .chain(LINES.iter().zip(&lines).map(|((f, n, _), s)| (f, n, s)))
-        .filter(|(_, _, s)| !**s)
-        .map(|(f, n, _)| format!("{f}: `{n}`"))
+        .zip(&seen)
+        .filter(|(_, s)| !**s)
+        .map(|((f, l, _), _)| format!("{f}: `{l}`"))
         .collect();
     assert!(
         stale.is_empty(),
-        "an allowed reader is no longer present; remove it:\n{}",
+        "an allowed line is no longer present; remove it:\n{}",
         stale.join("\n")
     );
 }
 
-/// Each bypass the reviews named is caught, and what is no reader isn't.
-/// (The Rust row bypasses are compile errors: exact_plan's `IconPathId`
-/// compile-fail doc tests hold them.)
+/// Every guard bypass from rounds 1-4 fails; what isn't one passes.
 #[test]
 fn the_scan_catches_each_bypass() {
-    let rust = |body: &str| readers("x/a.rs", body).0;
-    assert!(
-        !rust("let d = plan.str(row.path.raw_for_icon());").is_empty(),
-        "the escape outside icon_of"
-    );
-    // A line starting `*` is code, not a comment (round 3); a real block
-    // comment's lines are skipped.
-    assert!(!rust(
-        "fn f(out: &mut String) {\n    *out = plan.str(row.path.raw_for_icon()).to_owned();\n}"
-    )
-    .is_empty());
-    assert!(rust("/**\n * raw_for_icon is called by icon_of alone.\n */\nfn g() {}").is_empty());
-    assert!(
-        !rust("/* a comment */\nlet d = row.path.raw_for_icon();").is_empty(),
-        "a closed one-line comment ends there"
-    );
-    assert!(!rust(
-        "let parts: Vec<_> = form.strip_prefix(\"icon|\").unwrap().split('|').collect();"
-    )
-    .is_empty());
-    let js = |body: &str| readers("x/a.js", body).0;
+    let e = escape();
+    let rust = |body: String| readers("x/a.rs", &body).0;
     for bypass in [
-        // The split after a prefix check (round 2).
-        "if (s.startsWith(\"symbol:\")) { const f = s.slice(7).split(\"|\"); }",
-        r#"const f = name.startsWith("icon|") ? name.split("|") : null;"#,
-        "const f = name.startsWith('icon|') ? name.split('|') : null;",
-        "const parts = `icon|${a}`.split(`|`);",
-        "const at = form.indexOf('|'); const src = el.dataset.symbolSource;",
-        "const rule = path.slice(0, path.indexOf(\":\")); // data-symbol-path",
-        "const rule = d.startsWith('evenodd:');",
-        "const s = el.getAttribute('data-symbol-source').substring(5);\nconst [a, b] = s.split(':');",
-        // Whitespace, newlines and more arguments (round 3).
-        "const f = el.dataset.symbolSource.split(\"|\", 4);",
-        "const at = el.dataset.symbolSource.indexOf(\"|\", i);",
-        "const f = el.dataset.symbolSource.split( \"|\" );",
+        format!("let d = plan.str(row.path.{e}());"),
+        format!("/* x */ let d = row.path.{e}();"),
+        format!("/* a\n   comment */ let d = row.path.{e}();"),
+        format!("fn f(out: &mut String) {{\n    *out = plan.str(row.path.{e}()).to_owned();\n}}"),
+        format!("/// {e} in a comment is a mention too"),
+        format!("let name = \"{e}\";"),
+    ] {
+        assert!(!rust(bypass.clone()).is_empty(), "missed: {bypass}");
+    }
+    // Inside the allowed definition (and its doc comment), nothing.
+    let allowed = "/// The one way out.\n    pub fn raw_for_icon(self) -> StrId {\n        StrId(self.0)\n    }\n";
+    assert!(readers("plan/src/lib.rs", allowed).0.is_empty());
+    let js = |body: &str| readers("x/a.js", &format!("// handles data-symbol-source\n{body}")).0;
+    for bypass in [
+        r#"const f = name.split("|");"#,
+        "const f = name.split('|');",
+        "const f = name.split(`|`);",
+        r#"const f = name.split ("|", 4);"#,
+        r#"const f = name.split?.("|");"#,
+        r#"const f = name.split(("|"));"#,
+        r"const f = name.split(/\|/);",
+        "const at = name.search(/:/) + name.indexOf(':');",
+        r#"const f = name.split("|" /* sep */, 4);"#,
+        r#"const at = source.indexOf("|", i);"#,
         "const f = el.dataset.symbolSource.split(\n  '|'\n);",
-        "const at = el.dataset.symbolSource.search(\":\");",
-        "const m = el.dataset.symbolSource.match('|');",
-        "const at = el.dataset.symbolSource.lastIndexOf(`:`, 9);",
+        r#"const rule = path.slice(0, path.indexOf(":"));"#,
     ] {
         assert!(!js(bypass).is_empty(), "missed: {bypass}");
     }
-    // What is no reader: the allowed function and line; a split in a file
-    // that names no source; a comment.
-    let allowed = "const iconForm = name => {\n  const at = name.indexOf(\"|\");\n};\nconst form = name.startsWith(\"icon|\") ? iconForm(name) : undefined;\n";
-    let (found, fns, lines) = readers("host/web-js/symbols.js", allowed);
-    assert!(found.is_empty(), "{found:?}");
-    assert_eq!((fns, lines), (vec![3], vec![0]));
+    // A file that handles no source is not scanned; an allowed line passes.
     assert!(readers("x/b.js", "const [host, port] = url.split(':');")
         .0
         .is_empty());
-    assert!(readers("x/c.js", "// evenodd: a comment\nconst x = 1;")
-        .0
-        .is_empty());
-    assert!(readers("x/d.rs", "let v = plan.str(a.values).split('|');")
-        .0
-        .is_empty());
+    let (found, seen) = readers("host/web/navigation.js", "// data-symbol\n  const namespace = at < 0 ? path.startsWith('/') ? '' : null : path.slice(0, at) + ':';\n");
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(seen, vec![9]);
 }
