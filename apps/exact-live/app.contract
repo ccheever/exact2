@@ -522,12 +522,12 @@ component ExactLive
         text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=(11 * k) color=theme.muted
         if waveId > 0
           row gap=8 align-items="center" flex-wrap="wrap"
-            text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} events`) testId="job-events" font-size=(11 * k) color=theme.muted
+            text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} ${jobLog.seq == 1 ? "event" : "events"}`) testId="job-events" font-size=(11 * k) color=theme.muted
             button press=reconnectEvents disabled=(jobLog.status == "live") testId="reconnect-events" padding=4 border-width=0 border-radius=6
               text "Reconnect" font-size=(11 * k)
-          text `${jobLog.messages} messages · ${jobLog.coalesced} coalesced · ${jobLog.gaps} gaps · ${jobLog.reasks} re-asks · ${jobLog.last}` testId="job-stream" font-size=(10 * k) color=theme.muted
+          text `${jobLog.messages} ${jobLog.messages == 1 ? "message" : "messages"} · ${jobLog.coalesced} coalesced · ${jobLog.gaps} ${jobLog.gaps == 1 ? "gap" : "gaps"} · ${jobLog.reasks} ${jobLog.reasks == 1 ? "re-ask" : "re-asks"} · ${jobLog.last}` testId="job-stream" font-size=(10 * k) color=theme.muted
           row gap=8 align-items="center" flex-wrap="wrap"
-            text (pending(jobFeed) ? "Socket · opening…" : `Socket · ${jobFeed.status} · ${jobFeed.entries}/${jobFeed.seq} frames · ${jobFeed.messages} messages · ${jobFeed.coalesced} coalesced · ${jobFeed.reasks} re-asks`) testId="job-frames" font-size=(10 * k) color=theme.muted
+            text (pending(jobFeed) ? "Socket · opening…" : `Socket · ${jobFeed.status} · ${jobFeed.entries}/${jobFeed.seq} ${jobFeed.seq == 1 ? "frame" : "frames"} · ${jobFeed.messages} ${jobFeed.messages == 1 ? "message" : "messages"} · ${jobFeed.coalesced} coalesced · ${jobFeed.reasks} ${jobFeed.reasks == 1 ? "re-ask" : "re-asks"}`) testId="job-frames" font-size=(10 * k) color=theme.muted
             button press=reconnectFrames disabled=(jobFeed.status == "live") testId="reconnect-frames" padding=4 border-width=0 border-radius=6
               text "Reconnect" font-size=(11 * k)
         if fixtureMessage != ""
