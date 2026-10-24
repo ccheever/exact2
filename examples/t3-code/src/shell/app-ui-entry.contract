@@ -1,0 +1,1383 @@
+use UiDecision, beginUiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+use HoverTip from "./hover-layer.contract"
+use stepAnswerRevert, stepCancelKeybinding from "./app-ui-dispatch-transitions.contract"
+use stepCaptureKeybinding, stepCloseModels from "./app-ui-dispatch-transitions.contract"
+use stepCloseOptions, stepCommand, stepCopyDiagnostic from "./app-ui-dispatch-transitions.contract"
+use stepDeviceSetting, stepEditKeybinding from "./app-ui-dispatch-transitions.contract"
+use stepEditKeybindingKey, stepNewKeybinding from "./app-ui-dispatch-transitions.contract"
+use stepRemoveSnapshot, stepSend from "./app-ui-dispatch-transitions.contract"
+use stepCanvasGesture, stepCoreScope from "./app-ui-surfaces-transitions.contract"
+use stepCoreSearchKey, stepCoreThemeChange from "./app-ui-surfaces-transitions.contract"
+use stepCoreThemeDialog, stepEditSettingsQuery from "./app-ui-surfaces-transitions.contract"
+use stepPanelUi, stepSettingsCommand, stepSidebarHover from "./app-ui-surfaces-transitions.contract"
+use stepSidebarLocal from "./app-ui-surfaces-transitions.contract"
+use stepChatLocal, stepClearModalError from "./app-ui-composer-edit-transitions.contract"
+use stepCloseConnection, stepCloseModal from "./app-ui-composer-edit-transitions.contract"
+use stepComposerBlur, stepComposerChipPress from "./app-ui-composer-edit-transitions.contract"
+use stepComposerDrop, stepComposerFocus from "./app-ui-composer-edit-transitions.contract"
+use stepComposerKey, stepConnectionOp from "./app-ui-composer-edit-transitions.contract"
+use stepConnectionToggleMenu, stepEditCredential from "./app-ui-composer-edit-transitions.contract"
+use stepEditOrigin, stepOpenConnection from "./app-ui-composer-edit-transitions.contract"
+use stepSshAnswer from "./app-ui-composer-edit-transitions.contract"
+use stepChooseKeybindingCommand from "./app-ui-composer-edit-transitions-2.contract"
+use stepComposerMoved, stepKeybindingRest from "./app-ui-composer-edit-transitions-2.contract"
+use stepOpenConnectionsPage, stepSidebarRun from "./app-ui-composer-edit-transitions-2.contract"
+use stepTitleSend, stepWelcomeEditLink from "./app-ui-composer-edit-transitions-2.contract"
+use stepWelcomeFinish, stepWelcomeGo from "./app-ui-composer-edit-transitions-2.contract"
+use stepWelcomeImport, stepWelcomePair from "./app-ui-composer-edit-transitions-2.contract"
+use stepWelcomeSetup, stepWelcomeTogglePair from "./app-ui-composer-edit-transitions-2.contract"
+use stepComposerBeforeInput from "./app-ui-composer-keyboard-transitions.contract"
+use stepComposerKeyEvent from "./app-ui-composer-keyboard-transitions.contract"
+use stepComposerLanguage from "./app-ui-composer-keyboard-transitions.contract"
+use stepInlineDocumentShortcut, stepWrite from "./app-ui-composer-keyboard-transitions.contract"
+use stepComposerKeyReleased, stepModifierEditableFocus from "./app-ui-modifiers.contract"
+use stepModifierKey from "./app-ui-modifiers.contract"
+use stepConfirmUi, stepHoverTipAt from "./app-ui-navigation-transitions-2.contract"
+use stepManageProject, stepNewThread, stepOpenPage from "./app-ui-navigation-transitions-2.contract"
+use stepPaletteClose, stepPaletteEdit from "./app-ui-navigation-transitions-2.contract"
+use stepPaletteKey, stepPickModel from "./app-ui-navigation-transitions-2.contract"
+use stepRecordKeybinding, stepSelectModel from "./app-ui-navigation-transitions-2.contract"
+use stepCoreChange, stepOpenProviderSettings from "./app-ui-palette-transitions-2.contract"
+use stepPaletteRun, stepPaletteShow from "./app-ui-palette-transitions-2.contract"
+use stepPrClose from "./app-ui-palette-transitions-2.contract"
+use stepCoreClearSearch, stepCoreMenu from "./app-ui-providers-transitions.contract"
+use stepCoreNavigate, stepCorePick, stepPrControl from "./app-ui-providers-transitions.contract"
+use stepPrCopy, stepPrTogglePanel from "./app-ui-providers-transitions.contract"
+use stepPrType, stepPreviewSnapshotSound from "./app-ui-providers-transitions.contract"
+use stepPromptLinkAct, stepProviderUi, stepRestClose from "./app-ui-providers-transitions.contract"
+use stepRestLocal, stepRestOpen, stepRestRaw from "./app-ui-providers-transitions.contract"
+use stepRestTaskBase from "./app-ui-providers-transitions.contract"
+use stepDetailsAct, stepSidebarNewThread from "./app-ui-surfaces-transitions-2.contract"
+use stepTitleMenuPick from "./app-ui-surfaces-transitions-2.contract"
+use stepEarlier, stepImportWizardFocusMoved from "./app-ui-navigation-transitions.contract"
+use stepNoticeDismiss, stepOpenModels from "./app-ui-navigation-transitions.contract"
+use stepOpenOptions, stepOpenProjects from "./app-ui-navigation-transitions.contract"
+use stepOpenSettings, stepOpenThread, stepPageBack from "./app-ui-navigation-transitions.contract"
+use stepRefreshSettings, stepReleaseFold from "./app-ui-navigation-transitions.contract"
+use stepResetSidebarWidth, stepResizeSidebar from "./app-ui-navigation-transitions.contract"
+use stepRouteKeyboardInput, stepSbSet from "./app-ui-navigation-transitions.contract"
+use stepPaletteFlag, stepPaletteHover from "./app-ui-palette-transitions.contract"
+use stepProviderAccent, stepProviderAdd, stepProviderOp from "./app-ui-palette-transitions.contract"
+use stepScrollToEnd, stepSearchBranches from "./app-ui-palette-transitions.contract"
+use stepSearchModels, stepSelectProject from "./app-ui-palette-transitions.contract"
+use stepSelectProvider, stepSelectThread from "./app-ui-palette-transitions.contract"
+use stepStreamMeasured, stepThemeRevealRequest from "./app-ui-palette-transitions.contract"
+use stepUsageMetricSet, stepUsageWindowSet from "./app-ui-palette-transitions.contract"
+use stepPromptPreviewWrite from "./app-ui-preview.contract"
+use stepRestGesture, stepRestScrolled from "./app-ui-rest.contract"
+use stepToastAct from "./app-ui-navigation-transitions-3.contract"
+
+fn uiAnswerRevert(
+  s: UiStart,
+  choice: string
+): UiDecision = stepAnswerRevert(
+  beginUiDecision(s),
+  s,
+  choice
+)
+
+fn uiCancelKeybinding(
+  s: UiStart
+): UiDecision = stepCancelKeybinding(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCanvasGesture(
+  s: UiStart,
+  value: string
+): UiDecision = stepCanvasGesture(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiCaptureKeybinding(
+  s: UiStart,
+  original: string,
+  value: string
+): UiDecision = stepCaptureKeybinding(
+  beginUiDecision(s),
+  s,
+  original,
+  value
+)
+
+fn uiChatLocal(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepChatLocal(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiChooseKeybindingCommand(
+  s: UiStart,
+  value: string
+): UiDecision = stepChooseKeybindingCommand(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiClearModalError(
+  s: UiStart
+): UiDecision = stepClearModalError(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCloseConnection(
+  s: UiStart
+): UiDecision = stepCloseConnection(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCloseModal(
+  s: UiStart
+): UiDecision = stepCloseModal(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCloseModels(
+  s: UiStart
+): UiDecision = stepCloseModels(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCloseOptions(
+  s: UiStart
+): UiDecision = stepCloseOptions(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCommand(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = stepCommand(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value,
+  n
+)
+
+fn uiComposerBeforeInput(
+  s: UiStart,
+  e: InputEvent
+): UiDecision = stepComposerBeforeInput(
+  beginUiDecision(s),
+  s,
+  e
+)
+
+fn uiComposerBlur(
+  s: UiStart
+): UiDecision = stepComposerBlur(
+  beginUiDecision(s),
+  s
+)
+
+fn uiComposerChipPress(
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  comment: bool,
+  anchorId: string
+): UiDecision = stepComposerChipPress(
+  beginUiDecision(s),
+  s,
+  surface,
+  owner,
+  value,
+  serial,
+  start,
+  end,
+  source,
+  comment,
+  anchorId
+)
+
+fn uiComposerDrop(
+  s: UiStart,
+  op: string,
+  id: string,
+  vx: number,
+  vy: number
+): UiDecision = stepComposerDrop(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  vx,
+  vy
+)
+
+fn uiComposerFocus(
+  s: UiStart
+): UiDecision = stepComposerFocus(
+  beginUiDecision(s),
+  s
+)
+
+fn uiComposerKey(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepComposerKey(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiComposerKeyEvent(
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = stepComposerKeyEvent(
+  beginUiDecision(s),
+  s,
+  k,
+  e
+)
+
+fn uiComposerKeyReleased(
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = stepComposerKeyReleased(
+  beginUiDecision(s),
+  s,
+  k,
+  e
+)
+
+fn uiComposerLanguage(
+  s: UiStart,
+  start: number,
+  end: number,
+  language: string
+): UiDecision = stepComposerLanguage(
+  beginUiDecision(s),
+  s,
+  start,
+  end,
+  language
+)
+
+fn uiComposerMoved(
+  s: UiStart,
+  e: InputEvent
+): UiDecision = stepComposerMoved(
+  beginUiDecision(s),
+  s,
+  e
+)
+
+fn uiConfirmUi(
+  s: UiStart,
+  accept: bool
+): UiDecision = stepConfirmUi(
+  beginUiDecision(s),
+  s,
+  accept
+)
+
+fn uiConnectionOp(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepConnectionOp(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiConnectionToggleMenu(
+  s: UiStart,
+  target: string
+): UiDecision = stepConnectionToggleMenu(
+  beginUiDecision(s),
+  s,
+  target
+)
+
+fn uiCopyDiagnostic(
+  s: UiStart,
+  value: string
+): UiDecision = stepCopyDiagnostic(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiCoreChange(
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = stepCoreChange(
+  beginUiDecision(s),
+  s,
+  row,
+  part,
+  value
+)
+
+fn uiCoreClearSearch(
+  s: UiStart
+): UiDecision = stepCoreClearSearch(
+  beginUiDecision(s),
+  s
+)
+
+fn uiCoreMenu(
+  s: UiStart,
+  section: string,
+  id: string
+): UiDecision = stepCoreMenu(
+  beginUiDecision(s),
+  s,
+  section,
+  id
+)
+
+fn uiCoreNavigate(
+  s: UiStart,
+  route: string
+): UiDecision = stepCoreNavigate(
+  beginUiDecision(s),
+  s,
+  route
+)
+
+fn uiCorePick(
+  s: UiStart,
+  route: string,
+  target: string,
+  scope: string,
+  id: string
+): UiDecision = stepCorePick(
+  beginUiDecision(s),
+  s,
+  route,
+  target,
+  scope,
+  id
+)
+
+fn uiCoreScope(
+  s: UiStart,
+  project: bool,
+  id: string,
+  member: string
+): UiDecision = stepCoreScope(
+  beginUiDecision(s),
+  s,
+  project,
+  id,
+  member
+)
+
+fn uiCoreSearchKey(
+  s: UiStart,
+  k: string
+): UiDecision = stepCoreSearchKey(
+  beginUiDecision(s),
+  s,
+  k
+)
+
+fn uiCoreThemeChange(
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = stepCoreThemeChange(
+  beginUiDecision(s),
+  s,
+  row,
+  part,
+  value
+)
+
+fn uiCoreThemeDialog(
+  s: UiStart,
+  kind: string,
+  theme: string
+): UiDecision = stepCoreThemeDialog(
+  beginUiDecision(s),
+  s,
+  kind,
+  theme
+)
+
+fn uiDetailsAct(
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = stepDetailsAct(
+  beginUiDecision(s),
+  s,
+  op,
+  target,
+  value
+)
+
+fn uiDeviceSetting(
+  s: UiStart,
+  id: string,
+  value: string
+): UiDecision = stepDeviceSetting(
+  beginUiDecision(s),
+  s,
+  id,
+  value
+)
+
+fn uiEarlier(
+  s: UiStart
+): UiDecision = stepEarlier(
+  beginUiDecision(s),
+  s
+)
+
+fn uiEditCredential(
+  s: UiStart
+): UiDecision = stepEditCredential(
+  beginUiDecision(s),
+  s
+)
+
+fn uiEditKeybinding(
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = stepEditKeybinding(
+  beginUiDecision(s),
+  s,
+  previous,
+  commandName,
+  shortcut,
+  condition
+)
+
+fn uiEditKeybindingKey(
+  s: UiStart,
+  value: string
+): UiDecision = stepEditKeybindingKey(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiEditOrigin(
+  s: UiStart,
+  value: string
+): UiDecision = stepEditOrigin(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiEditSettingsQuery(
+  s: UiStart,
+  value: string
+): UiDecision = stepEditSettingsQuery(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiHoverTipAt(
+  s: UiStart,
+  tip: HoverTip,
+  part: string,
+  inside: bool
+): UiDecision = stepHoverTipAt(
+  beginUiDecision(s),
+  s,
+  tip,
+  part,
+  inside
+)
+
+fn uiImportWizardFocusMoved(
+  s: UiStart,
+  id: string,
+  on: bool
+): UiDecision = stepImportWizardFocusMoved(
+  beginUiDecision(s),
+  s,
+  id,
+  on
+)
+
+fn uiInlineDocumentShortcut(
+  s: UiStart,
+  name: string
+): UiDecision = stepInlineDocumentShortcut(
+  beginUiDecision(s),
+  s,
+  name
+)
+
+fn uiKeybindingRest(
+  s: UiStart,
+  row: string,
+  value: string
+): UiDecision = stepKeybindingRest(
+  beginUiDecision(s),
+  s,
+  row,
+  value
+)
+
+fn uiManageProject(
+  s: UiStart,
+  id: string,
+  name: string,
+  path: string
+): UiDecision = stepManageProject(
+  beginUiDecision(s),
+  s,
+  id,
+  name,
+  path
+)
+
+fn uiModifierEditableFocus(
+  s: UiStart
+): UiDecision = stepModifierEditableFocus(
+  beginUiDecision(s),
+  s
+)
+
+fn uiModifierKey(
+  s: UiStart,
+  down: bool,
+  e: KeyboardEvent,
+  editable: bool
+): UiDecision = stepModifierKey(
+  beginUiDecision(s),
+  s,
+  down,
+  e,
+  editable
+)
+
+fn uiNewKeybinding(
+  s: UiStart
+): UiDecision = stepNewKeybinding(
+  beginUiDecision(s),
+  s
+)
+
+fn uiNewThread(
+  s: UiStart
+): UiDecision = stepNewThread(
+  beginUiDecision(s),
+  s
+)
+
+fn uiNoticeDismiss(
+  s: UiStart,
+  notice: string,
+  op: string,
+  target: string
+): UiDecision = stepNoticeDismiss(
+  beginUiDecision(s),
+  s,
+  notice,
+  op,
+  target
+)
+
+fn uiOpenConnection(
+  s: UiStart
+): UiDecision = stepOpenConnection(
+  beginUiDecision(s),
+  s
+)
+
+fn uiOpenConnectionsPage(
+  s: UiStart
+): UiDecision = stepOpenConnectionsPage(
+  beginUiDecision(s),
+  s
+)
+
+fn uiOpenModels(
+  s: UiStart
+): UiDecision = stepOpenModels(
+  beginUiDecision(s),
+  s
+)
+
+fn uiOpenOptions(
+  s: UiStart,
+  name: string
+): UiDecision = stepOpenOptions(
+  beginUiDecision(s),
+  s,
+  name
+)
+
+fn uiOpenPage(
+  s: UiStart,
+  name: string
+): UiDecision = stepOpenPage(
+  beginUiDecision(s),
+  s,
+  name
+)
+
+fn uiOpenProjects(
+  s: UiStart
+): UiDecision = stepOpenProjects(
+  beginUiDecision(s),
+  s
+)
+
+fn uiOpenProviderSettings(
+  s: UiStart,
+  id: string
+): UiDecision = stepOpenProviderSettings(
+  beginUiDecision(s),
+  s,
+  id
+)
+
+fn uiOpenSettings(
+  s: UiStart
+): UiDecision = stepOpenSettings(
+  beginUiDecision(s),
+  s
+)
+
+fn uiOpenThread(
+  s: UiStart,
+  id: string,
+  how: string
+): UiDecision = stepOpenThread(
+  beginUiDecision(s),
+  s,
+  id,
+  how
+)
+
+fn uiPageBack(
+  s: UiStart
+): UiDecision = stepPageBack(
+  beginUiDecision(s),
+  s
+)
+
+fn uiPaletteClose(
+  s: UiStart
+): UiDecision = stepPaletteClose(
+  beginUiDecision(s),
+  s
+)
+
+fn uiPaletteEdit(
+  s: UiStart,
+  value: string
+): UiDecision = stepPaletteEdit(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiPaletteFlag(
+  s: UiStart,
+  name: string
+): UiDecision = stepPaletteFlag(
+  beginUiDecision(s),
+  s,
+  name
+)
+
+fn uiPaletteHover(
+  s: UiStart,
+  index: number,
+  over: bool
+): UiDecision = stepPaletteHover(
+  beginUiDecision(s),
+  s,
+  index,
+  over
+)
+
+fn uiPaletteKey(
+  s: UiStart,
+  name: string
+): UiDecision = stepPaletteKey(
+  beginUiDecision(s),
+  s,
+  name
+)
+
+fn uiPaletteRun(
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): UiDecision = stepPaletteRun(
+  beginUiDecision(s),
+  s,
+  op,
+  arg,
+  arg2
+)
+
+fn uiPaletteShow(
+  s: UiStart,
+  mode: string,
+  page: string
+): UiDecision = stepPaletteShow(
+  beginUiDecision(s),
+  s,
+  mode,
+  page
+)
+
+fn uiPanelUi(
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = stepPanelUi(
+  beginUiDecision(s),
+  s,
+  what,
+  id
+)
+
+fn uiPickModel(
+  s: UiStart,
+  row: string,
+  context: string
+): UiDecision = stepPickModel(
+  beginUiDecision(s),
+  s,
+  row,
+  context
+)
+
+fn uiPrClose(
+  s: UiStart
+): UiDecision = stepPrClose(
+  beginUiDecision(s),
+  s
+)
+
+fn uiPrControl(
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = stepPrControl(
+  beginUiDecision(s),
+  s,
+  op,
+  value
+)
+
+fn uiPrCopy(
+  s: UiStart,
+  label: string,
+  text: string
+): UiDecision = stepPrCopy(
+  beginUiDecision(s),
+  s,
+  label,
+  text
+)
+
+fn uiPrTogglePanel(
+  s: UiStart
+): UiDecision = stepPrTogglePanel(
+  beginUiDecision(s),
+  s
+)
+
+fn uiPrType(
+  s: UiStart,
+  value: string
+): UiDecision = stepPrType(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiPreviewSnapshotSound(
+  s: UiStart,
+  sound: string
+): UiDecision = stepPreviewSnapshotSound(
+  beginUiDecision(s),
+  s,
+  sound
+)
+
+fn uiPromptLinkAct(
+  s: UiStart,
+  which: string
+): UiDecision = stepPromptLinkAct(
+  beginUiDecision(s),
+  s,
+  which
+)
+
+fn uiPromptPreviewWrite(
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = stepPromptPreviewWrite(
+  beginUiDecision(s),
+  s,
+  value,
+  e
+)
+
+fn uiProviderAccent(
+  s: UiStart,
+  id: string,
+  hex: string,
+  vx: number,
+  vy: number
+): UiDecision = stepProviderAccent(
+  beginUiDecision(s),
+  s,
+  id,
+  hex,
+  vx,
+  vy
+)
+
+fn uiProviderAdd(
+  s: UiStart,
+  driver: string,
+  label: string,
+  id: string,
+  accent: string,
+  fields: string[],
+  commandArgs: string[]
+): UiDecision = stepProviderAdd(
+  beginUiDecision(s),
+  s,
+  driver,
+  label,
+  id,
+  accent,
+  fields,
+  commandArgs
+)
+
+fn uiProviderOp(
+  s: UiStart,
+  op: string,
+  id: string,
+  field: string,
+  value: string,
+  apply: bool
+): UiDecision = stepProviderOp(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  field,
+  value,
+  apply
+)
+
+fn uiProviderUi(
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = stepProviderUi(
+  beginUiDecision(s),
+  s,
+  what,
+  value
+)
+
+fn uiRecordKeybinding(
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = stepRecordKeybinding(
+  beginUiDecision(s),
+  s,
+  previous,
+  commandName,
+  shortcut,
+  condition
+)
+
+fn uiRefreshSettings(
+  s: UiStart
+): UiDecision = stepRefreshSettings(
+  beginUiDecision(s),
+  s
+)
+
+fn uiReleaseFold(
+  s: UiStart
+): UiDecision = stepReleaseFold(
+  beginUiDecision(s),
+  s
+)
+
+fn uiRemoveSnapshot(
+  s: UiStart,
+  imageId: string
+): UiDecision = stepRemoveSnapshot(
+  beginUiDecision(s),
+  s,
+  imageId
+)
+
+fn uiResetSidebarWidth(
+  s: UiStart
+): UiDecision = stepResetSidebarWidth(
+  beginUiDecision(s),
+  s
+)
+
+fn uiResizeSidebar(
+  s: UiStart,
+  dx: number,
+  dy: number
+): UiDecision = stepResizeSidebar(
+  beginUiDecision(s),
+  s,
+  dx,
+  dy
+)
+
+fn uiRestClose(
+  s: UiStart
+): UiDecision = stepRestClose(
+  beginUiDecision(s),
+  s
+)
+
+fn uiRestGesture(
+  s: UiStart,
+  towardEnd: bool
+): UiDecision = stepRestGesture(
+  beginUiDecision(s),
+  s,
+  towardEnd
+)
+
+fn uiRestLocal(
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = stepRestLocal(
+  beginUiDecision(s),
+  s,
+  op,
+  value
+)
+
+fn uiRestOpen(
+  s: UiStart,
+  editor: string,
+  subject: string
+): UiDecision = stepRestOpen(
+  beginUiDecision(s),
+  s,
+  editor,
+  subject
+)
+
+fn uiRestRaw(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepRestRaw(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiRestScrolled(
+  s: UiStart,
+  owner: string,
+  e: ScrollEvent
+): UiDecision = stepRestScrolled(
+  beginUiDecision(s),
+  s,
+  owner,
+  e
+)
+
+fn uiRestTaskBase(
+  s: UiStart,
+  value: string
+): UiDecision = stepRestTaskBase(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiRouteKeyboardInput(
+  s: UiStart,
+  environmentId: string,
+  rowKey: string,
+  routeId: string,
+  k: string,
+  repeat: bool
+): UiDecision = stepRouteKeyboardInput(
+  beginUiDecision(s),
+  s,
+  environmentId,
+  rowKey,
+  routeId,
+  k,
+  repeat
+)
+
+fn uiSbSet(
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = stepSbSet(
+  beginUiDecision(s),
+  s,
+  which,
+  value
+)
+
+fn uiScrollToEnd(
+  s: UiStart
+): UiDecision = stepScrollToEnd(
+  beginUiDecision(s),
+  s
+)
+
+fn uiSearchBranches(
+  s: UiStart,
+  value: string
+): UiDecision = stepSearchBranches(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiSearchModels(
+  s: UiStart,
+  value: string
+): UiDecision = stepSearchModels(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiSelectModel(
+  s: UiStart,
+  id: string,
+  provider: string,
+  additive: bool
+): UiDecision = stepSelectModel(
+  beginUiDecision(s),
+  s,
+  id,
+  provider,
+  additive
+)
+
+fn uiSelectProject(
+  s: UiStart,
+  id: string
+): UiDecision = stepSelectProject(
+  beginUiDecision(s),
+  s,
+  id
+)
+
+fn uiSelectProvider(
+  s: UiStart,
+  id: string
+): UiDecision = stepSelectProvider(
+  beginUiDecision(s),
+  s,
+  id
+)
+
+fn uiSelectThread(
+  s: UiStart,
+  id: string
+): UiDecision = stepSelectThread(
+  beginUiDecision(s),
+  s,
+  id
+)
+
+fn uiSend(
+  s: UiStart,
+  held: string
+): UiDecision = stepSend(
+  beginUiDecision(s),
+  s,
+  held
+)
+
+fn uiSettingsCommand(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepSettingsCommand(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiSidebarHover(
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = stepSidebarHover(
+  beginUiDecision(s),
+  s,
+  id,
+  over
+)
+
+fn uiSidebarLocal(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepSidebarLocal(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiSidebarNewThread(
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = stepSidebarNewThread(
+  beginUiDecision(s),
+  s,
+  e
+)
+
+fn uiSidebarRun(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepSidebarRun(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiSshAnswer(
+  s: UiStart,
+  kind: string
+): UiDecision = stepSshAnswer(
+  beginUiDecision(s),
+  s,
+  kind
+)
+
+fn uiStreamMeasured(
+  s: UiStart,
+  id: string,
+  width: number,
+  height: number,
+  follow: bool
+): UiDecision = stepStreamMeasured(
+  beginUiDecision(s),
+  s,
+  id,
+  width,
+  height,
+  follow
+)
+
+fn uiThemeRevealRequest(
+  s: UiStart,
+  role: string
+): UiDecision = stepThemeRevealRequest(
+  beginUiDecision(s),
+  s,
+  role
+)
+
+fn uiTitleMenuPick(
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = stepTitleMenuPick(
+  beginUiDecision(s),
+  s,
+  op,
+  target,
+  value,
+  askTitle,
+  askBody,
+  destructive
+)
+
+fn uiTitleSend(
+  s: UiStart,
+  what: string,
+  text: string
+): UiDecision = stepTitleSend(
+  beginUiDecision(s),
+  s,
+  what,
+  text
+)
+
+fn uiToastAct(
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = stepToastAct(
+  beginUiDecision(s),
+  s,
+  id,
+  op,
+  target,
+  value
+)
+
+fn uiUsageMetricSet(
+  s: UiStart,
+  value: string
+): UiDecision = stepUsageMetricSet(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiUsageWindowSet(
+  s: UiStart,
+  days: number
+): UiDecision = stepUsageWindowSet(
+  beginUiDecision(s),
+  s,
+  days
+)
+
+fn uiWelcomeEditLink(
+  s: UiStart,
+  value: string
+): UiDecision = stepWelcomeEditLink(
+  beginUiDecision(s),
+  s,
+  value
+)
+
+fn uiWelcomeFinish(
+  s: UiStart
+): UiDecision = stepWelcomeFinish(
+  beginUiDecision(s),
+  s
+)
+
+fn uiWelcomeGo(
+  s: UiStart,
+  step: string
+): UiDecision = stepWelcomeGo(
+  beginUiDecision(s),
+  s,
+  step
+)
+
+fn uiWelcomeImport(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = stepWelcomeImport(
+  beginUiDecision(s),
+  s,
+  op,
+  id,
+  value
+)
+
+fn uiWelcomePair(
+  s: UiStart
+): UiDecision = stepWelcomePair(
+  beginUiDecision(s),
+  s
+)
+
+fn uiWelcomeSetup(
+  s: UiStart
+): UiDecision = stepWelcomeSetup(
+  beginUiDecision(s),
+  s
+)
+
+fn uiWelcomeTogglePair(
+  s: UiStart
+): UiDecision = stepWelcomeTogglePair(
+  beginUiDecision(s),
+  s
+)
+
+fn uiWrite(
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = stepWrite(
+  beginUiDecision(s),
+  s,
+  value,
+  e
+)

@@ -1,0 +1,1071 @@
+use PickerTarget from "../composer/composer-shapes.contract"
+use routeKeyboardNext, routeKeyboardValue from "../connections/connections-routes.contract"
+use routeKeyboardSource from "../connections/connections.contract"
+use pageTrailNext from "../pages/pages-hero.contract"
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerMenuState, ConfirmationState from "./app-protocols.contract"
+use HoverState, NoticeExitState, SettingsPageState from "./app-protocols.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+
+// a terminal close asked while it was open is dropped, as the reference refuses it
+// the title menu's confirms give the focus back to its trigger (Base UI's finalFocus)
+fn stepConfirmClose(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = transitionConfirmCloseGuard6(
+  transitionConfirmCloseGuard4(
+    transitionConfirmCloseGuard2(
+      transitionConfirmCloseWrites1(
+        d,
+        s,
+        accept
+      ),
+      s,
+      accept
+    ),
+    s,
+    accept
+  ),
+  s,
+  accept
+)
+
+fn transitionConfirmCloseWrites1(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeConfirmationState=true,
+    confirmationState=ConfirmationState(
+      d.root.confirmationState,
+      op=""
+    )
+  )
+)
+
+fn transitionConfirmCloseWrites3(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeTerminalCloseHandled=true,
+    terminalCloseHandled=s.shell.panel.terminalClose.serial
+  )
+)
+
+fn transitionConfirmCloseGuard2(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = (
+  s.confirmationState.op == "terminallocal:close"
+    or s.confirmationState.op == "terminalpanellocal:close"
+    or s.confirmationState.op == "shelllocal:surface-close-confirmed"
+  ? transitionConfirmCloseWrites3(
+    d,
+    s,
+    accept
+  )
+  : d
+)
+
+fn transitionConfirmCloseWrites5(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="thread-title"
+    )
+  )
+)
+
+fn transitionConfirmCloseGuard4(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = (
+  s.confirmationState.op.startsWith("shell:")
+  ? transitionConfirmCloseWrites5(
+    d,
+    s,
+    accept
+  )
+  : d
+)
+
+fn transitionConfirmCloseWrites7(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTerminalChanged=true,
+    terminal=CommandArgs(
+      p0=s.confirmationState.op,
+      p1=s.confirmationState.target,
+      p2=s.confirmationState.value,
+      p3=0
+    )
+  )
+)
+
+fn transitionConfirmCloseWrites8(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=s.confirmationState.op,
+      p1=s.confirmationState.target,
+      p2=s.confirmationState.value,
+      p3=0
+    )
+  )
+)
+
+fn transitionConfirmCloseWrites9(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=s.confirmationState.returnTo
+    )
+  )
+)
+
+fn transitionConfirmCloseWrites10(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTerminalChanged=true,
+    terminal=CommandArgs(
+      p0=s.confirmationState.op == "terminallocal:close" ? "terminallocal:focus"
+        : "terminalpanellocal:focus",
+      p1=s.confirmationState.target,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionConfirmCloseWrites11(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTerminalChanged=true,
+    terminal=CommandArgs(
+      p0="terminalpanellocal:focus",
+      p1=`${s.shell.panel.terminal.threadKey}|${s.shell.panel.terminal.terminalId}`,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionConfirmCloseGuard6(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = (
+  accept and (s.confirmationState.op == "terminallocal:close"
+    or s.confirmationState.op == "terminalpanellocal:close")
+  ? transitionConfirmCloseWrites7(
+    d,
+    s,
+    accept
+  )
+  : accept and not s.commandPending
+  ? transitionConfirmCloseWrites8(
+    d,
+    s,
+    accept
+  )
+  : not accept and (s.confirmationState.op == "terminallocal:close"
+    or s.confirmationState.op == "terminalpanellocal:close") and s.confirmationState.returnTo != ""
+  ? transitionConfirmCloseWrites9(
+    d,
+    s,
+    accept
+  )
+  : not accept and (s.confirmationState.op == "terminallocal:close"
+    or s.confirmationState.op == "terminalpanellocal:close")
+  ? transitionConfirmCloseWrites10(
+    d,
+    s,
+    accept
+  )
+  : not accept and s.confirmationState.op == "shelllocal:surface-close-confirmed"
+    and s.shell.panel.terminal.open
+  ? transitionConfirmCloseWrites11(
+    d,
+    s,
+    accept
+  )
+  : d
+)
+
+// The fresh draft may send while the launch's own send is still answering.
+// The new-thread shortcut while the draft's launch (its worktree setup among it) is in flight: a fresh draft in the
+// same project, beside the launch (ChatView onSend markPromotedDraftThreadByRef).
+fn stepDraftBeside(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionDraftBesideWrites1(
+  d,
+  s
+)
+
+fn transitionDraftBesideWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=false,
+    sendDraftLeft=true,
+    draftLeave=CommandArgs(
+      p0="new-thread",
+      p1="",
+      p2="",
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    ),
+    writeUtilityPage=true,
+    utilityPage="",
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn stepEarlier(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionEarlierGuard1(
+  d,
+  s
+)
+
+fn transitionEarlierWrites3(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="chatlocal:history",
+      p1="",
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionEarlierGuard2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  s.data.hasMore and not s.data.historyLoading
+  ? transitionEarlierWrites3(
+    d,
+    s
+  )
+  : d
+)
+
+fn transitionEarlierGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  not s.commandPending
+  ? transitionEarlierGuard2(
+    d,
+    s
+  )
+  : d
+)
+
+fn stepHoverHold(
+  d: UiDecision,
+  s: UiStart,
+  end: number
+): UiDecision = transitionHoverHoldWrites1(
+  d,
+  s,
+  end
+)
+
+fn transitionHoverHoldWrites1(
+  d: UiDecision,
+  s: UiStart,
+  end: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeHoverState=true,
+    hoverState=HoverState(
+      d.root.hoverState,
+      end=end
+    )
+  )
+)
+
+fn stepImportWizardFocusMoved(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  on: bool
+): UiDecision = transitionImportWizardFocusMovedGuard1(
+  d,
+  s,
+  id,
+  on
+)
+
+fn transitionImportWizardFocusMovedWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  on: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeImportWizardFocused=true,
+    importWizardFocused=id
+  )
+)
+
+fn transitionImportWizardFocusMovedWrites3(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  on: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeImportWizardFocused=true,
+    importWizardFocused=""
+  )
+)
+
+fn transitionImportWizardFocusMovedGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  on: bool
+): UiDecision = (
+  on
+  ? transitionImportWizardFocusMovedWrites2(
+    d,
+    s,
+    id,
+    on
+  )
+  : s.importWizardFocused == id
+  ? transitionImportWizardFocusMovedWrites3(
+    d,
+    s,
+    id,
+    on
+  )
+  : d
+)
+
+fn stepNoticeDismiss(
+  d: UiDecision,
+  s: UiStart,
+  notice: string,
+  op: string,
+  target: string
+): UiDecision = transitionNoticeDismissGuard1(
+  d,
+  s,
+  notice,
+  op,
+  target
+)
+
+fn transitionNoticeDismissWrites2(
+  d: UiDecision,
+  s: UiStart,
+  notice: string,
+  op: string,
+  target: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeNoticeExitState=true,
+    noticeExitState=NoticeExitState(
+      d.root.noticeExitState,
+      notice=notice,
+      op=op,
+      target=target,
+      serial=s.noticeExitState.serial + 1
+    )
+  )
+)
+
+fn transitionNoticeDismissGuard1(
+  d: UiDecision,
+  s: UiStart,
+  notice: string,
+  op: string,
+  target: string
+): UiDecision = (
+  s.noticeExitState.op == "" and not s.commandPending
+  ? transitionNoticeDismissWrites2(
+    d,
+    s,
+    notice,
+    op,
+    target
+  )
+  : d
+)
+
+fn stepOpenModels(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionOpenModelsWrites1(
+  d,
+  s
+)
+
+fn transitionOpenModelsWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=s.composerMenu.modelsOpen ? "composer" : "model-search"
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelsOpen=not s.composerMenu.modelsOpen,
+      popoverSession=s.composerMenu.popoverSession + 1,
+      browseProvider="",
+      modelQuery="",
+      optionsOpen="",
+      modelTarget=PickerTarget(id="", top=0, bottom=0, left=0)
+    )
+  )
+)
+
+fn stepOpenOptions(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = transitionOpenOptionsWrites1(
+  d,
+  s,
+  name
+)
+
+fn transitionOpenOptionsWrites1(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=s.composerMenu.optionsOpen == name ? "composer" : name == "effort" ? "composer-menu"
+        : name == "runtime" ? `composer-menu-item-${s.data.composer.runtimeSelected}`
+        : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu"
+        : "composer-menu-item-0"
+    ),
+    writeBranchQuery=true,
+    branchQuery="",
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      optionsOpen=s.composerMenu.optionsOpen == name ? "" : name,
+      modelsOpen=false,
+      popoverSession=s.composerMenu.popoverSession + 1
+    )
+  )
+)
+
+fn stepOpenProjects(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionOpenProjectsWrites1(
+  d,
+  s
+)
+
+fn transitionOpenProjectsWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProjectsOpen=true,
+    projectsOpen=true
+  )
+)
+
+// the Settings button's tooltip closes on its press
+fn stepOpenSettings(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionOpenSettingsWrites1(
+  d,
+  s
+)
+
+fn transitionOpenSettingsWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSidebarHoverId=true,
+    sidebarHoverId="",
+    writeSettingsEnvironmentId=true,
+    settingsEnvironmentId=s.settings.environmentId,
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeSettingsMachine=true,
+    settingsMachine="",
+    writeSettingsWorkspace=true,
+    settingsProjectKey="",
+    settingsCheckout="",
+    writeSettingsProjectId=true,
+    settingsProjectId="",
+    writeModalError=true,
+    modalError="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      open=true,
+      route="general"
+    )
+  )
+)
+
+// Sidebar (sidebar-commands.ts): a row press says how it opened ("click", "click:meta" and "click:shift" multi-select, "search" clears it).
+fn stepOpenThread(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  how: string
+): UiDecision = transitionOpenThreadGuard1(
+  d,
+  s,
+  id,
+  how
+)
+
+fn transitionOpenThreadWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  how: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="select-thread",
+      p1=id,
+      p2=how,
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeUtilityPage=true,
+    utilityPage="",
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionOpenThreadGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  how: string
+): UiDecision = (
+  not s.commandPending and id != ""
+  ? transitionOpenThreadWrites2(
+    d,
+    s,
+    id,
+    how
+  )
+  : d
+)
+
+fn stepPageBack(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionPageBackWrites1(
+  d,
+  s
+)
+
+fn transitionPageBackWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeUtilityPage=true,
+    utilityPage=match s.pageTrail.at(-1) { case some(page) => page, case none => "" },
+    writePageTrail=true,
+    pageTrail=s.pageTrail.slice(0, -1),
+    writeSidebarHoverId=true,
+    sidebarHoverId=""
+  )
+)
+
+fn stepPageTrailNote(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = transitionPageTrailNoteWrites1(
+  d,
+  s,
+  name
+)
+
+fn transitionPageTrailNoteWrites1(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePageTrail=true,
+    pageTrail=pageTrailNext(s.pageTrail, s.utilityPage, name)
+  )
+)
+
+fn stepRefreshSettings(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionRefreshSettingsWrites1(
+  d,
+  s
+)
+
+fn transitionRefreshSettingsWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      refresh=s.settingsPageState.refresh + 1
+    )
+  )
+)
+
+fn stepReleaseFold(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionReleaseFoldGuard1(
+  d,
+  s
+)
+
+fn transitionReleaseFoldWrites2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeFoldHold=true,
+    foldHold=false
+  )
+)
+
+fn transitionReleaseFoldGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  s.foldHold
+  ? transitionReleaseFoldWrites2(
+    d,
+    s
+  )
+  : d
+)
+
+fn stepResetSidebarWidth(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionResetSidebarWidthWrites1(
+  d,
+  s
+)
+
+fn transitionResetSidebarWidthWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeDraggedWidth=true,
+    draggedWidth=0,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="sidebarlocal:width-reset",
+      p1="",
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn stepResizeSidebar(
+  d: UiDecision,
+  s: UiStart,
+  dx: number,
+  dy: number
+): UiDecision = transitionResizeSidebarWrites1(
+  d,
+  s,
+  dx,
+  dy
+)
+
+fn transitionResizeSidebarWrites1(
+  d: UiDecision,
+  s: UiStart,
+  dx: number,
+  dy: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeDraggedWidth=true,
+    draggedWidth=min(max(max(208, s.data.sidebarMinWidth), s.viewport.width - 640), max(max(208,
+      s.data.sidebarMinWidth), s.sidebarWidth + dx))
+  )
+)
+
+fn stepRouteKeyboardInput(
+  d: UiDecision,
+  s: UiStart,
+  environmentId: string,
+  rowKey: string,
+  routeId: string,
+  k: string,
+  repeat: bool
+): UiDecision = transitionRouteKeyboardInputWrites3(
+  transitionRouteKeyboardInputGuard1(
+    d,
+    s,
+    environmentId,
+    rowKey,
+    routeId,
+    k,
+    repeat
+  ),
+  s,
+  environmentId,
+  rowKey,
+  routeId,
+  k,
+  repeat
+)
+
+fn transitionRouteKeyboardInputWrites2(
+  d: UiDecision,
+  s: UiStart,
+  environmentId: string,
+  rowKey: string,
+  routeId: string,
+  k: string,
+  repeat: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="connection",
+    writeModalError=true,
+    modalError="",
+    changedKind="command",
+    command=CommandArgs(
+      p0="environment-route-move",
+      p1=(routeKeyboardNext(s.routeKeyboard, environmentId, rowKey, routeId, k, repeat,
+        routeKeyboardSource(s.connectionsPage, environmentId, rowKey), s.routeKeyboardReady,
+        s.commandPending)).rowKey,
+      p2=routeKeyboardValue((routeKeyboardNext(s.routeKeyboard, environmentId, rowKey, routeId, k,
+        repeat, routeKeyboardSource(s.connectionsPage, environmentId, rowKey),
+        s.routeKeyboardReady, s.commandPending))),
+      p3=(routeKeyboardNext(s.routeKeyboard, environmentId, rowKey, routeId, k, repeat,
+        routeKeyboardSource(s.connectionsPage, environmentId, rowKey), s.routeKeyboardReady,
+        s.commandPending)).serial
+    )
+  )
+)
+
+fn transitionRouteKeyboardInputGuard1(
+  d: UiDecision,
+  s: UiStart,
+  environmentId: string,
+  rowKey: string,
+  routeId: string,
+  k: string,
+  repeat: bool
+): UiDecision = (
+  s.routeKeyboard.phase == "lifted" and (routeKeyboardNext(s.routeKeyboard, environmentId, rowKey,
+    routeId, k, repeat, routeKeyboardSource(s.connectionsPage, environmentId, rowKey),
+    s.routeKeyboardReady, s.commandPending)).phase == "saving" and not s.commandPending
+  ? transitionRouteKeyboardInputWrites2(
+    d,
+    s,
+    environmentId,
+    rowKey,
+    routeId,
+    k,
+    repeat
+  )
+  : d
+)
+
+fn transitionRouteKeyboardInputWrites3(
+  d: UiDecision,
+  s: UiStart,
+  environmentId: string,
+  rowKey: string,
+  routeId: string,
+  k: string,
+  repeat: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeRouteKeyboard=true,
+    routeKeyboard=(routeKeyboardNext(s.routeKeyboard, environmentId, rowKey, routeId, k, repeat,
+      routeKeyboardSource(s.connectionsPage, environmentId, rowKey), s.routeKeyboardReady,
+      s.commandPending))
+  )
+)
+
+fn stepSbSet(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = transitionSbSetGuard7(
+  transitionSbSetGuard5(
+    transitionSbSetGuard3(
+      transitionSbSetGuard1(
+        d,
+        s,
+        which,
+        value
+      ),
+      s,
+      which,
+      value
+    ),
+    s,
+    which,
+    value
+  ),
+  s,
+  which,
+  value
+)
+
+fn transitionSbSetWrites2(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSbQuery=true,
+    sbQuery=value
+  )
+)
+
+fn transitionSbSetGuard1(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = (
+  which == "query"
+  ? transitionSbSetWrites2(
+    d,
+    s,
+    which,
+    value
+  )
+  : d
+)
+
+fn transitionSbSetWrites4(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSbLetters=true,
+    sbLetters=value,
+    writeSbLettersEdited=true,
+    sbLettersEdited=true
+  )
+)
+
+fn transitionSbSetGuard3(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = (
+  which == "letters"
+  ? transitionSbSetWrites4(
+    d,
+    s,
+    which,
+    value
+  )
+  : d
+)
+
+fn transitionSbSetWrites6(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSbEmoji=true,
+    sbEmoji=value
+  )
+)
+
+fn transitionSbSetGuard5(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = (
+  which == "emoji"
+  ? transitionSbSetWrites6(
+    d,
+    s,
+    which,
+    value
+  )
+  : d
+)
+
+fn transitionSbSetWrites8(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSbSshHost=true,
+    sbSshHost=value
+  )
+)
+
+fn transitionSbSetGuard7(
+  d: UiDecision,
+  s: UiStart,
+  which: string,
+  value: string
+): UiDecision = (
+  which == "ssh-host"
+  ? transitionSbSetWrites8(
+    d,
+    s,
+    which,
+    value
+  )
+  : d
+)

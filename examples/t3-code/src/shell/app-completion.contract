@@ -1,0 +1,804 @@
+use AppDecision, initialAppDecision from "./app-decisions.contract"
+use ChipPopover from "../composer/composer-chip-popover.contract"
+use ComposerEditorView from "../composer/composer-editor.contract"
+use ComposerFieldAcknowledgement, ComposerFieldObservation from "../composer/composer-rich.contract"
+use ComposerIntentReply, ComposerRichView from "../composer/composer-rich.contract"
+use RouteKeyboard from "../connections/connections-routes.contract"
+use ConnectionsPage from "../connections/connections.contract"
+use SshPromptView from "../connections/ssh-prompt.contract"
+use HighlightStep from "../highlight/highlight.contract"
+use WelcomeView from "../pages/pages-welcome.contract"
+use PaletteResult from "../palette/palette.contract"
+use ProviderWizard from "../providers/providers-wizard.contract"
+use ProviderPage from "../providers/providers.contract"
+use PrDetailView from "../pull-requests/pages-pr-detail.contract"
+use KeybindingPage from "../settings/settings-keybindings.contract"
+use IntegrationsPage from "../settings/settings-source-control.contract"
+use Change, Settings, Snapshot, Viewport from "../shared/shapes.contract"
+use CitationPlacementState, ComposerFieldProtocol from "./app-protocols.contract"
+use ComposerIntentState, ComposerSelectionState, ConfirmationState from "./app-protocols.contract"
+use FindPlacementState, HoverState, ModifierOwnershipState from "./app-protocols.contract"
+use NoticeExitState, PaletteSessionState, ProviderWizardState from "./app-protocols.contract"
+use SshResponseState, TranscriptViewportState, WorkspaceRetryState from "./app-protocols.contract"
+use KeybindingEditorState, ComposerMenuState, ComposerDraftState from "./app-protocols.contract"
+use SettingsPageState from "./app-protocols.contract"
+use Page, Time, WorkspaceDiscovery, WorkspaceRefresh from "./app-shapes.contract"
+use ShellView from "./shell-shapes.contract"
+use ThreadFindView from "../timeline/thread-find.contract"
+use TransportTable from "../transport/transport.contract"
+use completeCommandCompleted from "./app-completion-command.contract"
+use completeComposerEditDone, completeComposerFieldAckDone from "./app-completion-composer.contract"
+use completeComposerIntentCancelStale from "./app-completion-composer.contract"
+use completeComposerIntentConfirmed from "./app-completion-composer.contract"
+use completeComposerIntentFormatSettled from "./app-completion-composer.contract"
+use completeComposerIntentOwnerChanged from "./app-completion-composer.contract"
+use completeComposerIntentPump from "./app-completion-composer.contract"
+use completePaletteDone from "./app-completion-palette.contract"
+use completeHoverTicked, completeImportWizardFlip from "./app-completion-settings.contract"
+use completeImportWizardStep, completeModifiersForget from "./app-completion-settings.contract"
+use completeNoticeExited, completeProviderTick from "./app-completion-settings.contract"
+use completeRemovalFlip from "./app-completion-settings.contract"
+use completeAutomationRecordingNow, completeChipActRun from "./app-completion-shell.contract"
+use completeCodeRevealOpen, completeConfirmHanded from "./app-completion-shell.contract"
+use completeDispatchTimelineReads, completeFilesAddedDone from "./app-completion-shell.contract"
+use completeFocusSidebarDialog, completeFragmentOpened from "./app-completion-shell.contract"
+use completeGuideFinishOpen, completeHighlightStep from "./app-completion-shell.contract"
+use completeHighlightStepped, completeLiveTick from "./app-completion-shell.contract"
+use completePrSettle, completeReturnTitleFocus from "./app-completion-shell.contract"
+use completeSaveNow, completeShellGuideOpen from "./app-completion-shell.contract"
+use completeShellOpenThread, completeShellTick from "./app-completion-shell.contract"
+use completeTerminalCloseConfirm, completeTerminalCompleted from "./app-completion-shell.contract"
+use completeThemeRevealed, completeWindowReopened from "./app-completion-shell.contract"
+use completeWindowReturned, completeWorkspaceRefreshFinished from "./app-completion-shell.contract"
+use completeAnnotationSendNow, completeCiteBegin from "./app-completion-timeline.contract"
+use completeDiffFindFocusField, completeFindBegin from "./app-completion-timeline.contract"
+use completeMaintainThreadFindTick from "./app-completion-timeline.contract"
+use completePrFindFocusField, completeThreadFindFocusField from "./app-completion-timeline.contract"
+use completeSshTick, completeStreamMaintain from "./app-completion-transport.contract"
+use completeTransportNetworkChanged from "./app-completion-transport.contract"
+use completeTransportPump, completeTransportPumpDone from "./app-completion-transport.contract"
+
+fn decideAnnotationSendNow(
+  commandPending: bool,
+  composerDraft: ComposerDraftState,
+  composerText: string,
+  data: Snapshot,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string,
+  shell: ShellView
+): AppDecision =
+  completeAnnotationSendNow(
+    AppDecision(initialAppDecision(),
+      composerDraft=composerDraft
+    ),
+    commandPending,
+    composerDraft.composing,
+    composerText,
+    data,
+    jumpRequest,
+    richComposer,
+    richComposerOwner,
+    shell
+  )
+
+fn decideAutomationRecordingNow(
+  shell: ShellView
+): AppDecision =
+  completeAutomationRecordingNow(
+    initialAppDecision(),
+    shell
+  )
+
+fn decideChipActRun(
+  chip: ChipPopover,
+  wallTime: Time
+): AppDecision =
+  completeChipActRun(
+    initialAppDecision(),
+    chip,
+    wallTime
+  )
+
+fn decideCiteBegin(
+  citationPlacement: CitationPlacementState,
+  data: Snapshot
+): AppDecision =
+  completeCiteBegin(
+    AppDecision(initialAppDecision(),
+      citationPlacement=citationPlacement
+    ),
+    data
+  )
+
+fn decideCodeRevealOpen(
+  prDetail: PrDetailView,
+  utilityPage: string
+): AppDecision =
+  completeCodeRevealOpen(
+    initialAppDecision(),
+    prDetail,
+    utilityPage
+  )
+
+fn decideCommandCompleted(
+  bindings: KeybindingPage,
+  changed: option<Change>,
+  confirmationState: ConfirmationState,
+  data: Snapshot,
+  jumpRequest: number,
+  noticeExitState: NoticeExitState,
+  pageTrail: string[],
+  paletteSession: PaletteSessionState,
+  pendingModal: string,
+  providerWizardState: ProviderWizardState,
+  renameAfterId: string,
+  renameAfterOp: string,
+  restEditor: string,
+  restSubject: string,
+  routeKeyboard: RouteKeyboard,
+  routeKeyboardOwned: bool,
+  settings: Settings,
+  settingsPageState: SettingsPageState,
+  utilityPage: string,
+  welcomePaired: number,
+  keybindingEditor: KeybindingEditorState,
+  composerMenu: ComposerMenuState,
+  composerDraft: ComposerDraftState
+): AppDecision =
+  completeCommandCompleted(
+    AppDecision(initialAppDecision(),
+      confirmationState=confirmationState,
+      noticeExitState=noticeExitState,
+      paletteSession=paletteSession,
+      providerWizardState=providerWizardState,
+      keybindingEditor=keybindingEditor,
+      composerMenu=composerMenu,
+      composerDraft=composerDraft,
+      settingsPageState=settingsPageState
+    ),
+    bindings,
+    changed,
+    data,
+    jumpRequest,
+    keybindingEditor.drafts,
+    keybindingEditor.open,
+    keybindingEditor.previous,
+    keybindingEditor.recording,
+    keybindingEditor.saving,
+    pageTrail,
+    pendingModal,
+    providerWizardState,
+    renameAfterId,
+    renameAfterOp,
+    restEditor,
+    restSubject,
+    routeKeyboard,
+    routeKeyboardOwned,
+    settings,
+    settingsPageState.refresh,
+    utilityPage,
+    welcomePaired
+  )
+
+fn decideComposerEditDone(
+  commandPending: bool,
+  composerEdited: option<ComposerIntentReply>,
+  composerIntentBaseCurrent: bool,
+  composerRichCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  intentState: ComposerIntentState,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string,
+  composerDraft: ComposerDraftState
+): AppDecision =
+  completeComposerEditDone(
+    AppDecision(initialAppDecision(),
+      intentState=intentState,
+      composerDraft=composerDraft
+    ),
+    commandPending,
+    composerEdited,
+    composerIntentBaseCurrent,
+    composerRichCurrent,
+    composerText,
+    data,
+    editor,
+    intentState,
+    jumpRequest,
+    richComposer,
+    richComposerOwner
+  )
+
+fn decideComposerFieldAckDone(
+  commandPending: bool,
+  composerDraft: ComposerDraftState,
+  composerFieldAck: option<ComposerFieldAcknowledgement>,
+  composerSelection: ComposerSelectionState,
+  composerSelectionCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  fieldProtocol: ComposerFieldProtocol,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string,
+  composerMenu: ComposerMenuState
+): AppDecision =
+  completeComposerFieldAckDone(
+    AppDecision(initialAppDecision(),
+      fieldProtocol=fieldProtocol,
+      composerMenu=composerMenu,
+      composerDraft=composerDraft
+    ),
+    commandPending,
+    composerDraft.composing,
+    composerFieldAck,
+    composerSelection,
+    composerSelectionCurrent,
+    composerText,
+    data,
+    editor,
+    fieldProtocol,
+    jumpRequest,
+    composerMenu.modelsOpen,
+    composerMenu.popoverSession,
+    richComposer,
+    richComposerOwner
+  )
+
+fn decideComposerIntentCancelStale(
+  composerIntentContextCurrent: bool,
+  intentState: ComposerIntentState
+): AppDecision =
+  completeComposerIntentCancelStale(
+    AppDecision(initialAppDecision(),
+      intentState=intentState
+    ),
+    composerIntentContextCurrent,
+    intentState
+  )
+
+fn decideComposerIntentConfirmed(
+  composerFieldSnapshot: ComposerFieldObservation,
+  composerIntentReceiptCurrent: bool,
+  composerRichCurrent: bool,
+  intentState: ComposerIntentState
+): AppDecision =
+  completeComposerIntentConfirmed(
+    AppDecision(initialAppDecision(),
+      intentState=intentState
+    ),
+    composerFieldSnapshot,
+    composerIntentReceiptCurrent,
+    composerRichCurrent,
+    intentState
+  )
+
+fn decideComposerIntentFormatSettled(
+  composerIntentBaseCurrent: bool,
+  intentState: ComposerIntentState
+): AppDecision =
+  completeComposerIntentFormatSettled(
+    AppDecision(initialAppDecision(),
+      intentState=intentState
+    ),
+    composerIntentBaseCurrent,
+    intentState
+  )
+
+fn decideComposerIntentOwnerChanged(
+  data: Snapshot,
+  intentState: ComposerIntentState,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision =
+  completeComposerIntentOwnerChanged(
+    AppDecision(initialAppDecision(),
+      intentState=intentState
+    ),
+    data,
+    intentState,
+    richComposer,
+    richComposerOwner
+  )
+
+fn decideComposerIntentPump(
+  composerIntentBaseCurrent: bool,
+  composerRichCurrent: bool,
+  composerSelection: ComposerSelectionState,
+  composerText: string,
+  data: Snapshot,
+  fieldProtocol: ComposerFieldProtocol,
+  intentState: ComposerIntentState,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision =
+  completeComposerIntentPump(
+    AppDecision(initialAppDecision(),
+      intentState=intentState
+    ),
+    composerIntentBaseCurrent,
+    composerRichCurrent,
+    composerSelection,
+    composerText,
+    data,
+    fieldProtocol,
+    intentState,
+    richComposer,
+    richComposerOwner
+  )
+
+fn decideConfirmHanded(
+  commandPending: bool,
+  confirmationState: ConfirmationState,
+  shell: ShellView
+): AppDecision =
+  completeConfirmHanded(
+    AppDecision(initialAppDecision(),
+      confirmationState=confirmationState
+    ),
+    commandPending,
+    confirmationState,
+    shell
+  )
+
+fn decideDiffFindFocusField(): AppDecision =
+  completeDiffFindFocusField(
+    initialAppDecision()
+  )
+
+fn decideDispatchTimelineReads(
+  pendingTimelineReadsRefreshed: bool,
+  pendingTimelineReadsRefreshedNext: bool,
+  wallTime: Time
+): AppDecision =
+  completeDispatchTimelineReads(
+    initialAppDecision(),
+    pendingTimelineReadsRefreshed,
+    pendingTimelineReadsRefreshedNext,
+    wallTime
+  )
+
+fn decideFilesAddedDone(
+  commandPending: bool,
+  filesAdded: option<Change>,
+  jumpRequest: number,
+  composerDraft: ComposerDraftState
+): AppDecision =
+  completeFilesAddedDone(
+    AppDecision(initialAppDecision(),
+      composerDraft=composerDraft
+    ),
+    commandPending,
+    filesAdded,
+    jumpRequest
+  )
+
+fn decideFindBegin(
+  citationPlacement: CitationPlacementState,
+  findPlacement: FindPlacementState,
+  threadFind: ThreadFindView
+): AppDecision =
+  completeFindBegin(
+    AppDecision(initialAppDecision(),
+      citationPlacement=citationPlacement,
+      findPlacement=findPlacement
+    ),
+    citationPlacement,
+    threadFind
+  )
+
+fn decideFocusSidebarDialog(
+  data: Snapshot
+): AppDecision =
+  completeFocusSidebarDialog(
+    initialAppDecision(),
+    data
+  )
+
+fn decideFragmentOpened(
+  fragmentChanged: option<Change>,
+  jumpRequest: number,
+  pageTrail: string[],
+  utilityPage: string,
+  composerDraft: ComposerDraftState
+): AppDecision =
+  completeFragmentOpened(
+    AppDecision(initialAppDecision(),
+      composerDraft=composerDraft
+    ),
+    fragmentChanged,
+    jumpRequest,
+    pageTrail,
+    utilityPage
+  )
+
+fn decideGuideFinishOpen(
+  prDetail: PrDetailView,
+  utilityPage: string
+): AppDecision =
+  completeGuideFinishOpen(
+    initialAppDecision(),
+    prDetail,
+    utilityPage
+  )
+
+fn decideHighlightStep(
+  pendingHighlightSliced: bool,
+  wallTime: Time
+): AppDecision =
+  completeHighlightStep(
+    initialAppDecision(),
+    pendingHighlightSliced,
+    wallTime
+  )
+
+fn decideHighlightStepped(
+  data: Snapshot,
+  highlightSliced: option<HighlightStep>,
+  pendingData: bool,
+  pendingShell: bool,
+  shell: ShellView
+): AppDecision =
+  completeHighlightStepped(
+    initialAppDecision(),
+    data,
+    highlightSliced,
+    pendingData,
+    pendingShell,
+    shell
+  )
+
+fn decideHoverTicked(
+  hoverOwnerValid: bool,
+  hoverShown: bool,
+  hoverState: HoverState
+): AppDecision =
+  completeHoverTicked(
+    AppDecision(initialAppDecision(),
+      hoverState=hoverState
+    ),
+    hoverOwnerValid,
+    hoverShown,
+    hoverState
+  )
+
+fn decideImportWizardFlip(
+  importWizardShown: bool,
+  integrations: IntegrationsPage
+): AppDecision =
+  completeImportWizardFlip(
+    initialAppDecision(),
+    importWizardShown,
+    integrations
+  )
+
+fn decideImportWizardStep(
+  importWizardAt: number,
+  importWizardFocused: string,
+  integrations: IntegrationsPage
+): AppDecision =
+  completeImportWizardStep(
+    initialAppDecision(),
+    importWizardAt,
+    importWizardFocused,
+    integrations
+  )
+
+fn decideLiveTick(
+  data: Snapshot,
+  liveNow: number,
+  pageCover: bool,
+  pendingData: bool,
+  pendingTimelineReadsRefreshed: bool,
+  pendingTimelineReadsRefreshedNext: bool,
+  pendingWorkspaceRefreshed: bool,
+  prDetail: PrDetailView,
+  settingsOpen: bool,
+  wallTime: Time,
+  welcome: WelcomeView,
+  workspaceDiscovery: WorkspaceDiscovery,
+  workspaceRetry: WorkspaceRetryState
+): AppDecision =
+  completeLiveTick(
+    AppDecision(initialAppDecision(),
+      workspaceRetry=workspaceRetry
+    ),
+    data,
+    liveNow,
+    pageCover,
+    pendingData,
+    pendingTimelineReadsRefreshed,
+    pendingTimelineReadsRefreshedNext,
+    pendingWorkspaceRefreshed,
+    prDetail,
+    settingsOpen,
+    wallTime,
+    welcome,
+    workspaceDiscovery,
+    workspaceRetry
+  )
+
+fn decideMaintainThreadFindTick(
+  data: Snapshot,
+  pendingThreadFindMaintained: bool,
+  transcriptViewport: TranscriptViewportState,
+  wallTime: Time
+): AppDecision =
+  completeMaintainThreadFindTick(
+    initialAppDecision(),
+    data,
+    pendingThreadFindMaintained,
+    transcriptViewport,
+    wallTime
+  )
+
+fn decideModifiersForget(
+  modifierOwnership: ModifierOwnershipState
+): AppDecision =
+  completeModifiersForget(
+    AppDecision(initialAppDecision(),
+      modifierOwnership=modifierOwnership
+    ),
+    modifierOwnership
+  )
+
+fn decideNoticeExited(
+  commandPending: bool,
+  noticeExitState: NoticeExitState
+): AppDecision =
+  completeNoticeExited(
+    AppDecision(initialAppDecision(),
+      noticeExitState=noticeExitState
+    ),
+    commandPending,
+    noticeExitState
+  )
+
+fn decidePaletteDone(
+  commandPending: bool,
+  jumpRequest: number,
+  paletteChanged: option<PaletteResult>,
+  paletteSession: PaletteSessionState,
+  composerDraft: ComposerDraftState
+): AppDecision =
+  completePaletteDone(
+    AppDecision(initialAppDecision(),
+      paletteSession=paletteSession,
+      composerDraft=composerDraft
+    ),
+    commandPending,
+    jumpRequest,
+    paletteChanged,
+    paletteSession
+  )
+
+fn decidePrFindFocusField(): AppDecision =
+  completePrFindFocusField(
+    initialAppDecision()
+  )
+
+fn decidePrSettle(
+  prQuery: string
+): AppDecision =
+  completePrSettle(
+    initialAppDecision(),
+    prQuery
+  )
+
+fn decideProviderTick(
+  connectionsPage: ConnectionsPage,
+  providerPage: ProviderPage,
+  providerWizard: ProviderWizard,
+  providerWizardState: ProviderWizardState,
+  settingsOpen: bool,
+  settingsRoute: string
+): AppDecision =
+  completeProviderTick(
+    AppDecision(initialAppDecision(),
+      providerWizardState=providerWizardState
+    ),
+    connectionsPage,
+    providerPage,
+    providerWizard,
+    providerWizardState,
+    settingsOpen,
+    settingsRoute
+  )
+
+fn decideRemovalFlip(
+  integrations: IntegrationsPage,
+  removalAt: string
+): AppDecision =
+  completeRemovalFlip(
+    initialAppDecision(),
+    integrations,
+    removalAt
+  )
+
+fn decideReturnTitleFocus(): AppDecision =
+  completeReturnTitleFocus(
+    initialAppDecision()
+  )
+
+fn decideSaveNow(
+  data: Snapshot
+): AppDecision =
+  completeSaveNow(
+    initialAppDecision(),
+    data
+  )
+
+fn decideShellGuideOpen(
+  pageTrail: string[],
+  shell: ShellView,
+  utilityPage: string,
+  settingsPageState: SettingsPageState
+): AppDecision =
+  completeShellGuideOpen(
+    AppDecision(initialAppDecision(),
+      settingsPageState=settingsPageState
+    ),
+    pageTrail,
+    shell,
+    utilityPage
+  )
+
+fn decideShellOpenThread(
+  jumpRequest: number,
+  settingsPageState: SettingsPageState,
+  shell: ShellView,
+  utilityPage: string,
+  composerDraft: ComposerDraftState
+): AppDecision =
+  completeShellOpenThread(
+    AppDecision(initialAppDecision(),
+      composerDraft=composerDraft,
+      settingsPageState=settingsPageState
+    ),
+    jumpRequest,
+    settingsPageState.open,
+    shell,
+    utilityPage
+  )
+
+fn decideShellTick(
+  commandPending: bool,
+  shell: ShellView
+): AppDecision =
+  completeShellTick(
+    initialAppDecision(),
+    commandPending,
+    shell
+  )
+
+fn decideSshTick(
+  commandPending: bool,
+  connecting: bool,
+  sshPrompt: SshPromptView,
+  sshResponse: SshResponseState
+): AppDecision =
+  completeSshTick(
+    AppDecision(initialAppDecision(),
+      sshResponse=sshResponse
+    ),
+    commandPending,
+    connecting,
+    sshPrompt,
+    sshResponse
+  )
+
+fn decideStreamMaintain(
+  shell: ShellView,
+  wallTime: Time
+): AppDecision =
+  completeStreamMaintain(
+    initialAppDecision(),
+    shell,
+    wallTime
+  )
+
+fn decideTerminalCloseConfirm(
+  confirmationState: ConfirmationState,
+  shell: ShellView
+): AppDecision =
+  completeTerminalCloseConfirm(
+    AppDecision(initialAppDecision(),
+      confirmationState=confirmationState
+    ),
+    confirmationState,
+    shell
+  )
+
+fn decideTerminalCompleted(
+  terminalChanged: option<Change>
+): AppDecision =
+  completeTerminalCompleted(
+    initialAppDecision(),
+    terminalChanged
+  )
+
+fn decideThemeRevealed(
+  themeReveal: string,
+  viewport: Viewport
+): AppDecision =
+  completeThemeRevealed(
+    initialAppDecision(),
+    themeReveal,
+    viewport
+  )
+
+fn decideThreadFindFocusField(): AppDecision =
+  completeThreadFindFocusField(
+    initialAppDecision()
+  )
+
+fn decideTransportNetworkChanged(
+  page: Page,
+  transportOnline: bool,
+  wallTime: Time
+): AppDecision =
+  completeTransportNetworkChanged(
+    initialAppDecision(),
+    page,
+    transportOnline,
+    wallTime
+  )
+
+fn decideTransportPump(
+  pendingTransportPumped: bool,
+  wallTime: Time
+): AppDecision =
+  completeTransportPump(
+    initialAppDecision(),
+    pendingTransportPumped,
+    wallTime
+  )
+
+fn decideTransportPumpDone(
+  transportPumped: option<TransportTable>,
+  transportTable: TransportTable
+): AppDecision =
+  completeTransportPumpDone(
+    initialAppDecision(),
+    transportPumped,
+    transportTable
+  )
+
+fn decideWindowReopened(
+  paletteSession: PaletteSessionState,
+  settingsPageState: SettingsPageState
+): AppDecision =
+  completeWindowReopened(
+    AppDecision(initialAppDecision(),
+      paletteSession=paletteSession,
+      settingsPageState=settingsPageState
+    ),
+    paletteSession
+  )
+
+fn decideWindowReturned(
+  wallTime: Time,
+  windowReturns: number
+): AppDecision =
+  completeWindowReturned(
+    initialAppDecision(),
+    wallTime,
+    windowReturns
+  )
+
+fn decideWorkspaceRefreshFinished(
+  workspaceRefreshed: option<WorkspaceRefresh>,
+  workspaceRetry: WorkspaceRetryState
+): AppDecision =
+  completeWorkspaceRefreshFinished(
+    AppDecision(initialAppDecision(),
+      workspaceRetry=workspaceRetry
+    ),
+    workspaceRefreshed,
+    workspaceRetry
+  )

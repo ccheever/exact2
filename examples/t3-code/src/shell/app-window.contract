@@ -1,11 +1,11 @@
+use WindowInputs from "./app-window-inputs.contract"
 use ThemeRoleUsage from "../appearance/settings-appearance-editor-shapes.contract"
-// The window's view: app.contract's `provide` and `view`, moved here unchanged so
-// the root keeps its lines for state, resources and actions (#108). Each root name the view reads is a
-// prop of the same name; `pending(providerAuthChanged)` is `providerAuthPending`. A feature that shows
-// a new root value adds its prop here and `name=name` to app.contract's `T3Window(...)`. The use lines
-// keep app.contract's order: the plan orders shapes by first use. The window also owns the view-only
-// state no resource, task or mutation reads (#108): an action that
-// writes both sets the window's half, then calls the root's half, passed as `<name>Root`.
+// The window owns view interaction state for the session. UI transition functions consume
+// the event's initial inputs and return sparse decisions. The window applies its local
+// fields before invoking T3Code's state, command or UI application action.
+// T3Code retains resources, tasks, mutations and their callbacks. WindowInputs carries the
+// window's current read-only inputs; action props apply its decisions in T3Code. The use lines
+// retain the view-file order: the plan orders shapes by first use.
 use Time from "./app-shapes.contract"
 use Snapshot, Viewport, LicenseSettings, SnapshotSettings, Settings, Canvas from "../shared/shapes.contract"
 use PairFields from "../connections/pairing-shapes.contract"
@@ -56,313 +56,225 @@ use CiteAction, CiteOffer, citeLineFrame, citeLineShown, citeRestored from "../t
 use AppConfirm from "./shell-panels.contract"
 use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "../shared/dialog-trap.contract"
 use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
+use uiAnswerRevert, uiCancelKeybinding, uiCanvasGesture from "./app-ui-entry.contract"
+use uiCaptureKeybinding, uiChatLocal, uiChooseKeybindingCommand from "./app-ui-entry.contract"
+use uiClearModalError, uiCloseConnection, uiCloseModal, uiCloseModels from "./app-ui-entry.contract"
+use uiCloseOptions, uiCommand, uiComposerBeforeInput, uiComposerBlur from "./app-ui-entry.contract"
+use uiComposerChipPress, uiComposerDrop, uiComposerFocus from "./app-ui-entry.contract"
+use uiComposerKey, uiComposerKeyEvent, uiComposerKeyReleased from "./app-ui-entry.contract"
+use uiComposerLanguage, uiComposerMoved, uiConfirmUi, uiConnectionOp from "./app-ui-entry.contract"
+use uiConnectionToggleMenu, uiCopyDiagnostic, uiCoreChange from "./app-ui-entry.contract"
+use uiCoreClearSearch, uiCoreMenu, uiCoreNavigate, uiCorePick from "./app-ui-entry.contract"
+use uiCoreScope, uiCoreSearchKey, uiCoreThemeChange from "./app-ui-entry.contract"
+use uiCoreThemeDialog, uiDetailsAct, uiDeviceSetting, uiEarlier from "./app-ui-entry.contract"
+use uiEditCredential, uiEditKeybinding, uiEditKeybindingKey from "./app-ui-entry.contract"
+use uiEditOrigin, uiEditSettingsQuery, uiHoverTipAt from "./app-ui-entry.contract"
+use uiImportWizardFocusMoved, uiInlineDocumentShortcut from "./app-ui-entry.contract"
+use uiKeybindingRest, uiManageProject, uiModifierEditableFocus from "./app-ui-entry.contract"
+use uiModifierKey, uiNewKeybinding, uiNewThread, uiNoticeDismiss from "./app-ui-entry.contract"
+use uiOpenConnection, uiOpenConnectionsPage, uiOpenModels from "./app-ui-entry.contract"
+use uiOpenOptions, uiOpenPage, uiOpenProjects, uiOpenProviderSettings from "./app-ui-entry.contract"
+use uiOpenSettings, uiOpenThread, uiPageBack, uiPaletteClose from "./app-ui-entry.contract"
+use uiPaletteEdit, uiPaletteFlag, uiPaletteHover, uiPaletteKey from "./app-ui-entry.contract"
+use uiPaletteRun, uiPaletteShow, uiPanelUi, uiPickModel from "./app-ui-entry.contract"
+use uiPrClose, uiPrControl, uiPrCopy, uiPrTogglePanel from "./app-ui-entry.contract"
+use uiPrType, uiPreviewSnapshotSound, uiPromptLinkAct from "./app-ui-entry.contract"
+use uiPromptPreviewWrite, uiProviderAccent, uiProviderAdd from "./app-ui-entry.contract"
+use uiProviderOp, uiProviderUi, uiRecordKeybinding, uiRefreshSettings from "./app-ui-entry.contract"
+use uiReleaseFold, uiRemoveSnapshot, uiResetSidebarWidth from "./app-ui-entry.contract"
+use uiResizeSidebar, uiRestClose, uiRestGesture, uiRestLocal from "./app-ui-entry.contract"
+use uiRestOpen, uiRestRaw, uiRestScrolled, uiRestTaskBase from "./app-ui-entry.contract"
+use uiRouteKeyboardInput, uiSbSet, uiScrollToEnd, uiSearchBranches from "./app-ui-entry.contract"
+use uiSearchModels, uiSelectModel, uiSelectProject, uiSelectProvider from "./app-ui-entry.contract"
+use uiSelectThread, uiSend, uiSettingsCommand, uiSidebarHover from "./app-ui-entry.contract"
+use uiSidebarLocal, uiSidebarNewThread, uiSidebarRun, uiSshAnswer from "./app-ui-entry.contract"
+use uiStreamMeasured, uiThemeRevealRequest, uiTitleMenuPick from "./app-ui-entry.contract"
+use uiTitleSend, uiToastAct, uiUsageMetricSet, uiUsageWindowSet from "./app-ui-entry.contract"
+use uiWelcomeEditLink, uiWelcomeFinish, uiWelcomeGo, uiWelcomeImport from "./app-ui-entry.contract"
+use uiWelcomePair, uiWelcomeSetup, uiWelcomeTogglePair, uiWrite from "./app-ui-entry.contract"
+use UiStart from "./app-ui-start.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiRootInputs from "./app-protocols.contract"
+use PickerAnchor from "./app-ui-query-inputs.contract"
+use ComposerRichView from "../composer/composer-rich.contract"
+use RouteKeyboard from "../connections/connections-routes.contract"
+use needsComposerChipFrame, needsComposerHistoryFrames from "./app-ui-queries.contract"
+use needsPaletteCloseFrame, needsPaletteShowFrame from "./app-ui-queries.contract"
+use needsInlinePaletteFrame from "./app-ui-queries.contract"
+use speedModifiers from "./shortcut-modifiers.contract"
 component T3Window
   props
+    windowInputs: WindowInputs
+    applyRoot: action
+    applyStateRoot: action
+    applyCommandRoot: action
+    applyChatRoot: action
+    applyPanelRoot: action
+    applyHoverRoot: action
     releaseUndoClaim: action // ⌘B and the sidebar search release the undo notice's claim (app.contract)
-    promptLinkPage: PromptLinkView
     promptLinkNavigate: action
-    promptLinkAct: action
-    // The root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
-    // and its count of dismissals on focus loss or a changed transcript context.
-    citeWaitDone: number
     citeWaitAsk: action
-    // The root's 50 ms after a scroll's end before a parked Cite shows again (done to `citeSettleDone`).
-    citeSettleDone: number
     citeSettleAsk: action
-    citeDismissals: number
-    themeInspecting: bool
     setThemeInspecting: action
-    themeUsage: ThemeRoleUsage[]
-    themeRevealRequest: action
-    data: Snapshot
-    viewport: Viewport
-    scheme: string
-    settingsCore: SettingsCore
-    sshPrompt: SshPromptView
-    modal: bool
-    shell: ShellView
-    wallTime: Time
-    liveNow: number
-    elapsed: number
-    sidebarWidth: number
-    commandPending: bool
-    lineageStopping: string
-    settings: Settings
-    utilityPage: string
-    home: PagesHome
-    paletteShow: action
-    openThread: action
-    sidebarLocal: action
-    sidebarRun: action
-    openSettings: action
-    openPage: action
-    // A utility page's Back (Escape), to the page before it (app.contract pageBack).
-    pageBack: action
-    openProviderSettings: action
-    sidebarHoverRoot: action
-    sidebarHoverId: string
-    openProjects: action
-    sidebarNewThread: action
-    selectThread: action
-    openConnectionRoot: action
-    command: action
-    resizeSidebar: action
-    resetSidebarWidth: action
-    noticeExit: string
-    noticeDismiss: action
-    pageCover: bool
-    canvas: ChatCanvasView
-    canvasGesture: action
-    rightPanel: bool
-    narrowDiff: bool
-    detailsOpen: bool
-    details: ShellDetails
-    panelUiRoot: action
-    detailsActRoot: action
-    foldHold: bool
-    releaseFold: action
-    jumpRequest: number
-    composerOwner: string
     prConfirmDisarm: action
-    chatLocal: action
-    markdown: TranscriptMarkdown
-    earlier: action
-    attachmentUrls: TimelineAttachmentUrls
-    conversationWidth: number
-    scrollToEnd: action
-    editor: ComposerEditorView
-    chip: ChipPopover
     chipFocusChanged: action
-    // Settings or a page covers the composer's chip (app.contract chipCover closes it).
-    chipCovered: bool
-    composerKey: action
-    composerDrop: action
     editorOp: action
-    openModels: action
-    composerText: string
-    modelsOpen: bool
-    optionsOpen: string
-    write: action
-    send: action
-    composerFocus: action
-    composerBlur: action
-    openOptions: action
-    removeSnapshot: action
-    titleMenuPickRoot: action
     menuPick: action
-    branches: ComposerBranches
-    terminalDrawer: TerminalDrawerView
-    confirmOp: string
-    diffWidth: number
     resizeDiff: action
     finishDiffResize: action
-    prDetail: PrDetailView
-    prMarkdown: TranscriptMarkdown
-    filesMarkdown: TranscriptMarkdown
-    prTab: string
     prSetTab: action
     prReload: action
     prAct: action
-    prCopy: action
-    usage: UsageView
-    usageShortcuts: UsageKey[]
-    usageMetricSet: action
-    usageWindowSet: action
     usageBreakdownSet: action
     usageRefreshNow: action
-    prList: PrListView
-    prTyped: bool
-    prQuery: string
-    prSelected: string
-    prPanelOpen: bool
-    prTogglePanel: action
-    prType: action
-    prControl: action
     prSelect: action
-    prClose: action
-    openConnectionsPage: action
-    welcomeImport: action
-    popoverSession: number
-    closeOptions: action
     menuCommand: action
-    branchQuery: string
-    searchBranches: action
-    projectsOpen: bool
-    closeModalRoot: action
-    manageProject: action
-    selectProject: action
-    settingsOpen: bool
-    connecting: bool
-    settingsThemeDialog: string
-    settingsNavigation: CoreNav
-    settingsRoute: string
-    settingsQuery: string
-    settingsMenu: string
-    editSettingsQuery: action
-    coreSearchKey: action
-    corePick: action
-    coreClearSearch: action
-    settingsScrollTop: number
-    settingsPage: string
     coreMenuClose: action
-    coreMenu: action
-    coreChange: action
-    coreNavigate: action
-    coreScope: action
     coreNoticeScope: action
-    coreThemeDialog: action
-    sourceControl: SourceControlPage
-    modalError: string
-    restLocal: action
-    importWizardFocusMoved: action
-    integrations: IntegrationsPage
-    snapshotSettings: SnapshotSettings
-    settingsCommand: action
-    previewSnapshotSound: action
-    bindings: KeybindingPage
-    keybindingQuery: string
-    keybindingOpen: bool
-    keybindingPrevious: string
-    keybindingCommand: string
-    keybindingKey: string
-    keybindingWhen: string
-    keybindingRecording: bool
     editKeybindingQuery: action
-    newKeybinding: action
-    cancelKeybinding: action
-    chooseKeybindingCommand: action
-    editKeybinding: action
-    editKeybindingKey: action
     editKeybindingWhen: action
-    recordKeybinding: action
-    captureKeybinding: action
-    keybindingDrafts: KeybindingDraft[]
-    keybindingRest: action
-    scheduled: ScheduledPage
-    restEditor: string
-    restOpenRoot: action
-    storageSettings: StoragePage
-    archives: ArchivePage
-    restRawRoot: action
-    restCloseRoot: action
-    taskBaseRoot: action
-    licenses: LicenseSettings
-    licenseQuery: string
     editLicenseQuery: action
     toggleLicense: action
     retryLicenses: action
-    diagnostics: DiagnosticsPage
     selectDiagnosticPeriod: action
-    refreshSettings: action
-    copyDiagnostic: action
-    connectionsPage: ConnectionsPage
-    pendingModal: string
-    connectionOp: action
-    connectionRemove: string
-    connectionMenu: string
     connectionAskRemove: action
-    connectionToggleMenu: action
-    providerPage: ProviderPage
-    providerDialog: string
-    providerUiRoot: action
-    providerOp: action
-    providerAccent: action
-    projectsSettings: ProjectsPage
-    settingsThemeSubject: string
-    coreThemeChange: action
     coreThemeLive: action
-    welcome: WelcomeView
-    welcomeStep: string
-    welcomeLink: string
-    welcomePairOpen: bool
-    welcomeGo: action
-    welcomeEditLink: action
-    welcomePair: action
-    welcomeTogglePair: action
-    welcomeSetup: action
-    welcomeFinish: action
-    shortcuts: KeyDispatch[]
-    newThread: action
-    deviceSetting: action
-    selectProvider: action
-    selectModel: action
-    // The Settings pickers outside General (Scheduled Tasks' Model, Source Control's writer model).
-    pickModel: action
-    taskModelPick: string
-    paletteRun: action
-    restSubject: string
-    sbPicker: SbPicker
-    sbQuery: string
-    sbLettersEdited: bool
-    sbLetters: string
-    sbEmoji: string
-    sbSet: action
-    origin: string
-    pairFields: PairFields
-    sbSshHosts: SbSshHosts
-    sbSshHost: string
-    editOriginRoot: action
-    editCredentialRoot: action
-    closeConnectionRoot: action
-    providerWizard: ProviderWizard
-    acpAgents: AcpRegistry
-    wizardStep: number
-    wizardLabelSet: bool
-    wizardLabel: string
-    wizardIdSet: bool
-    wizardId: string
-    acpQuery: string
-    wizardManual: bool
-    providerAddRoot: action
-    providerTarget: string
-    providerVisit: number // app.contract openProviderSettings
-    catalog: PickerCatalog
-    modelQuery: string
-    modelTarget: PickerTarget
-    closeModels: action
-    searchModels: action
-    paletteOpen: bool
-    palette: PaletteView
-    paletteQuery: string
-    paletteHighlight: number
-    paletteScroll: number
-    paletteBusy: bool
-    paletteEdit: action
-    paletteKey: action
-    paletteHover: action
-    paletteClose: action
-    paletteFlag: action
-    paletteRestore: bool
-    answerRevert: action
-    confirmTitle: string
-    confirmBody: string
-    confirmDestructive: bool
-    confirmUi: action
-    toastHover: bool
     toastHovering: action
-    toastAct: action
-    sshResponding: bool
-    sshAnswer: action
-    providerAuthPending: bool
-    // The root owns the hover state and clock; the window provides them to its triggers and draws the layer.
-    hoverTip: HoverTip
-    hoverShown: bool
-    hoverTipAt: action
-    composerFocused: bool
-    // The held modifiers (app.contract modifierKey): Shift's speed mode on pull request rows, ⌘'s thread-jump hints.
-    modifierKey: action
-    modifierEditableFocus: action
     modifiersPasted: action
-    speedModeHeld: bool
-    threadJumpHints: bool
-    // Whether the composer may rest while the reader scrolls the transcript (app.contract canRest).
-    canRest: bool
-    settingsEnvironmentId: string
-    settingsProjectId: string
-    clearModalError: action
-    titleSend: action
+  inject
+    richComposer: ComposerRichView
+    richComposerOwner: string
+    richPromptPreview: ComposerRichView
+    routeKeyboard: RouteKeyboard
+    promptPreviewOwner: string
+  derive rootUi = windowInputs.rootUi
+  derive threadJumpHintsShown = windowInputs.threadJumpHintsShown
+  derive promptLinkPage = windowInputs.promptLinkPage
+  // The root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
+  // and its count of dismissals on focus loss or a changed transcript context.
+  derive citeWaitDone = windowInputs.citeWaitDone
+  // The root's 50 ms after a scroll's end before a parked Cite shows again (done to `citeSettleDone`).
+  derive citeSettleDone = windowInputs.citeSettleDone
+  derive citeDismissals = windowInputs.citeDismissals
+  derive themeInspecting = windowInputs.themeInspecting
+  derive themeUsage = windowInputs.themeUsage
+  derive data = windowInputs.data
+  derive viewport = windowInputs.viewport
+  derive scheme = windowInputs.scheme
+  derive settingsCore = windowInputs.settingsCore
+  derive sshPrompt = windowInputs.sshPrompt
+  derive modal = windowInputs.modal
+  derive shell = windowInputs.shell
+  derive wallTime = windowInputs.wallTime
+  derive liveNow = windowInputs.liveNow
+  derive elapsed = windowInputs.elapsed
+  derive sidebarWidth = windowInputs.sidebarWidth
+  derive commandPending = windowInputs.commandPending
+  derive lineageStopping = windowInputs.lineageStopping
+  derive settings = windowInputs.settings
+  derive utilityPage = windowInputs.utilityPage
+  derive home = windowInputs.home
+  derive sidebarHoverId = windowInputs.sidebarHoverId
+  derive pageCover = windowInputs.pageCover
+  derive canvas = windowInputs.canvas
+  derive rightPanel = windowInputs.rightPanel
+  derive narrowDiff = windowInputs.narrowDiff
+  derive detailsOpen = windowInputs.detailsOpen
+  derive details = windowInputs.details
+  derive foldHold = windowInputs.foldHold
+  derive jumpRequest = windowInputs.jumpRequest
+  derive composerOwner = windowInputs.composerOwner
+  derive markdown = windowInputs.markdown
+  derive attachmentUrls = windowInputs.attachmentUrls
+  derive conversationWidth = windowInputs.conversationWidth
+  derive editor = windowInputs.editor
+  derive chip = windowInputs.chip
+  // Settings or a page covers the composer's chip (app.contract chipCover closes it).
+  derive chipCovered = windowInputs.chipCovered
+  derive composerText = windowInputs.composerText
+  derive branches = windowInputs.branches
+  derive terminalDrawer = windowInputs.terminalDrawer
+  derive diffWidth = windowInputs.diffWidth
+  derive prDetail = windowInputs.prDetail
+  derive prMarkdown = windowInputs.prMarkdown
+  derive filesMarkdown = windowInputs.filesMarkdown
+  derive prTab = windowInputs.prTab
+  derive usage = windowInputs.usage
+  derive usageShortcuts = windowInputs.usageShortcuts
+  derive prList = windowInputs.prList
+  derive prTyped = windowInputs.prTyped
+  derive prQuery = windowInputs.prQuery
+  derive prSelected = windowInputs.prSelected
+  derive prPanelOpen = windowInputs.prPanelOpen
+  derive branchQuery = windowInputs.branchQuery
+  derive projectsOpen = windowInputs.projectsOpen
+  derive connecting = windowInputs.connecting
+  derive settingsThemeDialog = windowInputs.settingsThemeDialog
+  derive settingsNavigation = windowInputs.settingsNavigation
+  derive settingsMenu = windowInputs.settingsMenu
+  derive settingsScrollTop = windowInputs.settingsScrollTop
+  derive settingsPage = windowInputs.settingsPage
+  derive sourceControl = windowInputs.sourceControl
+  derive modalError = windowInputs.modalError
+  derive integrations = windowInputs.integrations
+  derive snapshotSettings = windowInputs.snapshotSettings
+  derive bindings = windowInputs.bindings
+  derive keybindingQuery = windowInputs.keybindingQuery
+  derive keybindingWhen = windowInputs.keybindingWhen
+  derive scheduled = windowInputs.scheduled
+  derive restEditor = windowInputs.restEditor
+  derive storageSettings = windowInputs.storageSettings
+  derive archives = windowInputs.archives
+  derive licenses = windowInputs.licenses
+  derive licenseQuery = windowInputs.licenseQuery
+  derive diagnostics = windowInputs.diagnostics
+  derive connectionsPage = windowInputs.connectionsPage
+  derive pendingModal = windowInputs.pendingModal
+  derive connectionRemove = windowInputs.connectionRemove
+  derive connectionMenu = windowInputs.connectionMenu
+  derive providerPage = windowInputs.providerPage
+  derive projectsSettings = windowInputs.projectsSettings
+  derive settingsThemeSubject = windowInputs.settingsThemeSubject
+  derive welcome = windowInputs.welcome
+  derive welcomeStep = windowInputs.welcomeStep
+  derive welcomeLink = windowInputs.welcomeLink
+  derive welcomePairOpen = windowInputs.welcomePairOpen
+  derive shortcuts = windowInputs.shortcuts
+  derive restSubject = windowInputs.restSubject
+  derive sbPicker = windowInputs.sbPicker
+  derive sbQuery = windowInputs.sbQuery
+  derive sbLettersEdited = windowInputs.sbLettersEdited
+  derive sbLetters = windowInputs.sbLetters
+  derive sbEmoji = windowInputs.sbEmoji
+  derive origin = windowInputs.origin
+  derive pairFields = windowInputs.pairFields
+  derive sbSshHosts = windowInputs.sbSshHosts
+  derive sbSshHost = windowInputs.sbSshHost
+  derive providerWizard = windowInputs.providerWizard
+  derive acpAgents = windowInputs.acpAgents
+  derive catalog = windowInputs.catalog
+  derive palette = windowInputs.palette
+  derive toastHover = windowInputs.toastHover
+  derive providerAuthPending = windowInputs.providerAuthPending
+  derive hoverShown = windowInputs.hoverShown
+  // Whether the composer may rest while the reader scrolls the transcript (app.contract canRest).
+  derive canRest = windowInputs.canRest
+  derive settingsEnvironmentId = windowInputs.settingsEnvironmentId
+  derive settingsProjectId = windowInputs.settingsProjectId
   provide
-    guideKeysBlocked = paletteOpen or modal or settingsOpen
+    inlineDocumentShortcut = actInlineDocumentShortcut
+    promptPreviewWrite = actPromptPreviewWrite
+    composerChipPress = actComposerChipPress
+    composerMoved = actComposerMoved
+    composerBeforeInput = actComposerBeforeInput
+    composerLanguage = actComposerLanguage
+    composerKeyEvent = actComposerKeyEvent
+    composerKeyReleased = actComposerKeyReleased
+    streamMeasured = actStreamMeasured
+    routeKeyboardInput = actRouteKeyboardInput
+    restScrolled = actRestScrolled
+    restGesture = actRestGesture
+    guideKeysBlocked = rootUi.paletteSession.open or modal or rootUi.settingsPageState.open
     dialogFocusId
     dialogMenuEntered
     dialogOpened
@@ -375,14 +287,15 @@ component T3Window
     wizardPanel = data.look.wizardPanel
     still = viewport.prefersReducedMotion
     corePal = settingsCore.palette // Settings' palette, for rows drawn outside the General route (the writer model's TraitsPicker)
-    hoverTipAt
-    hoverTip
+    // T3Code owns the hover state and clock; the window provides them and draws the layer.
+    hoverTipAt = actHoverTipAt
+    hoverTip = rootUi.hoverState.tip
     hoverShown
     linkOpen
     linkMenu
     refScrollEnd
     scheme // the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
-    pickModel
+    pickModel = actPickModel
     taskModelPick
     // The answer whose quote an open citation comment highlights (markdown.contract AnswerMarkdown).
     citeMessage = (citeShown ? chip.message : "")
@@ -402,6 +315,515 @@ component T3Window
     dialogSeated
     prSpeedMode = speedModeHeld
     threadJumpHints
+  state composerCommand = false
+  state composerShift = false
+  state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
+  state providerVisit = 0 // the provider links that changed the Providers page's target
+  state settingsThemeRequest = 0
+  state restGestureUntil = -1
+  state restLastPull = -1000000
+  state restTop = -1
+  state restHeight = -1
+  state restContent = -1
+  state restWidth = -1
+  state restMovement = 0
+  derive paletteHighlight = palette.count == 0 ? -1 : (rootUi.paletteSession.cursor >= 0 ? min(rootUi.paletteSession.cursor, palette.count - 1) : (palette.autoHighlight and (rootUi.paletteSession.cursor == -1 or palette.panel == "picker") ? 0 : -1))
+  derive paletteListHeight = min(330, min(448, viewport.height * 0.7))
+  derive composerInCode = rootUi.composerRichCurrent and richComposer.blocks.filter((b) => b.kind == "code" and rootUi.composerSelection.start >= b.bodyStart and rootUi.composerSelection.end <= b.bodyEnd).length > 0
+  derive composerInList = rootUi.composerRichCurrent and rootUi.composerSelection.start == rootUi.composerSelection.end and richComposer.blocks.filter((b) => b.kind == "list" and rootUi.composerSelection.start >= b.contentStart and rootUi.composerSelection.end <= b.end).length > 0
+  derive composerCodeStart = rootUi.composerRichCurrent and rootUi.composerSelection.start == rootUi.composerSelection.end and richComposer.blocks.filter((b) => b.kind == "code" and rootUi.composerSelection.start == b.bodyStart).length > 0
+  derive composerRequiresModifier = settings.sendShortcut == "mod-enter" or (settings.sendShortcut == "mod-enter-multiline" and (composerText.includes("\n") or composerText.includes("\u{d}")))
+  derive speedModeHeld = speedModifiers(rootUi.modifierOwnership.speed)
+  derive threadJumpsHeld = (data.legacy.enabled ? data.legacy.jumpModifiers : data.sidebar.jumpModifiers).includes(heldModifiers(rootUi.modifierOwnership.shortcut.metaKey, rootUi.modifierOwnership.shortcut.ctrlKey, rootUi.modifierOwnership.shortcut.altKey, rootUi.modifierOwnership.shortcut.shiftKey))
+  derive threadJumpHints = threadJumpHintsShown and threadJumpsHeld
+  derive inlineDocumentKeysBlocked = sshPrompt.open or rootUi.confirmationState.op != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0 or data.messages.map(message => message.inlineDocuments).flat().filter(document => document.permission != "").length > 0
+  derive uiStart = UiStart(
+    bindings=bindings,
+    canRest=canRest,
+    canvas=canvas,
+    catalog=catalog,
+    chip=chip,
+    chipFrame=none,
+    commandPending=commandPending,
+    composerCodeStart=composerCodeStart,
+    composerCommand=composerCommand,
+    composerDraft=rootUi.composerDraft,
+    composerFieldLive=rootUi.composerFieldLive,
+    composerInCode=composerInCode,
+    composerInList=composerInList,
+    composerIntentBaseCurrent=rootUi.composerIntentBaseCurrent,
+    composerIntentContextCurrent=rootUi.composerIntentContextCurrent,
+    composerIntentReceiptCurrent=rootUi.composerIntentReceiptCurrent,
+    composerMenu=rootUi.composerMenu,
+    composerOwner=composerOwner,
+    composerRequiresModifier=composerRequiresModifier,
+    composerRichCurrent=rootUi.composerRichCurrent,
+    composerSelection=rootUi.composerSelection,
+    composerSelectionCurrent=rootUi.composerSelectionCurrent,
+    composerShift=composerShift,
+    composerText=composerText,
+    confirmationState=rootUi.confirmationState,
+    connectionMenu=connectionMenu,
+    connectionsPage=connectionsPage,
+    data=data,
+    details=details,
+    detailsEpoch=rootUi.detailsEpoch,
+    detailsOpen=rootUi.detailsOpen,
+    detailsPopover=rootUi.detailsPopover,
+    detailsShown=detailsOpen,
+    editor=editor,
+    fieldProtocol=rootUi.fieldProtocol,
+    foldHold=foldHold,
+    historyCaret=none,
+    historyEdge=none,
+    hoverShown=hoverShown,
+    hoverState=rootUi.hoverState,
+    importWizardFocused=rootUi.importWizardFocused,
+    inlineDocumentKeysBlocked=inlineDocumentKeysBlocked,
+    intentState=rootUi.intentState,
+    jumpRequest=jumpRequest,
+    keybindingEditor=rootUi.keybindingEditor,
+    keybindingWhen=keybindingWhen,
+    lineagePhasesClosed=rootUi.lineagePhasesClosed,
+    lineagePhasesOpen=rootUi.lineagePhasesOpen,
+    lineageWorkflows=rootUi.lineageWorkflows,
+    modal=modal,
+    modifierOwnership=rootUi.modifierOwnership,
+    noticeExitState=rootUi.noticeExitState,
+    origin=origin,
+    pageCover=pageCover,
+    pageTrail=rootUi.pageTrail,
+    pairFields=pairFields,
+    palette=palette,
+    paletteFrame=none,
+    paletteHighlight=paletteHighlight,
+    paletteListHeight=paletteListHeight,
+    paletteSession=rootUi.paletteSession,
+    pickerAnchor=none,
+    prDetail=prDetail,
+    prPanelOpen=prPanelOpen,
+    prSelected=prSelected,
+    previewFrame=none,
+    previewState=rootUi.previewState,
+    promptLinkPage=promptLinkPage,
+    promptPreviewOwner=promptPreviewOwner,
+    promptPreviewVisible=rootUi.promptPreviewVisible,
+    providerLinkTarget=rootUi.providerLinkTarget,
+    providerPage=providerPage,
+    providerSelected=rootUi.providerSelected,
+    providerVisit=providerVisit,
+    providerWizard=providerWizard,
+    providerWizardState=rootUi.providerWizardState,
+    restContent=restContent,
+    restGestureUntil=restGestureUntil,
+    restHeight=restHeight,
+    restLastPull=restLastPull,
+    restMovement=restMovement,
+    restTop=restTop,
+    restWidth=restWidth,
+    richComposer=richComposer,
+    richComposerOwner=richComposerOwner,
+    richPromptPreview=richPromptPreview,
+    rightPanel=rightPanel,
+    rightPanelAt=rootUi.rightPanelAt,
+    routeKeyboard=routeKeyboard,
+    routeKeyboardReady=rootUi.routeKeyboardReady,
+    scheduled=scheduled,
+    settings=settings,
+    settingsCheckout=rootUi.settingsCheckout,
+    settingsCore=settingsCore,
+    settingsEnvironmentId=settingsEnvironmentId,
+    settingsMachine=rootUi.settingsMachine,
+    settingsMenu=settingsMenu,
+    settingsNavigation=settingsNavigation,
+    settingsPageState=rootUi.settingsPageState,
+    settingsProjectId=settingsProjectId,
+    settingsProjectKey=rootUi.settingsProjectKey,
+    settingsThemeDialog=settingsThemeDialog,
+    settingsThemeRequest=settingsThemeRequest,
+    settingsThemeSubject=settingsThemeSubject,
+    shell=shell,
+    shortcuts=shortcuts,
+    sidebarHoverId=sidebarHoverId,
+    sidebarWidth=sidebarWidth,
+    sshPrompt=sshPrompt,
+    sshResponse=rootUi.sshResponse,
+    streamGeometry=rootUi.streamGeometry,
+    toastDismissed=rootUi.toastDismissed,
+    transcriptViewport=rootUi.transcriptViewport,
+    usage=usage,
+    utilityPage=utilityPage,
+    viewport=viewport,
+    wallTime=wallTime,
+    welcome=welcome,
+    welcomeLink=welcomeLink,
+    welcomePairOpen=welcomePairOpen
+  )
+  action applyPrivateDecision(d: UiDecision)
+    if d.writeComposerModifiers
+      composerCommand = d.composerCommand
+      composerShift = d.composerShift
+    if d.writeTaskModelPick
+      taskModelPick = d.taskModelPick
+    if d.writeProviderVisit
+      providerVisit = d.providerVisit
+    if d.writeSettingsThemeRequest
+      settingsThemeRequest = d.settingsThemeRequest
+    if d.writeRestContent
+      restContent = d.restContent
+    if d.writeRestGestureUntil
+      restGestureUntil = d.restGestureUntil
+    if d.writeRestHeight
+      restHeight = d.restHeight
+    if d.writeRestLastPull
+      restLastPull = d.restLastPull
+    if d.writeRestMovement
+      restMovement = d.restMovement
+    if d.writeRestTop
+      restTop = d.restTop
+    if d.writeRestWidth
+      restWidth = d.restWidth
+  action actAnswerRevert(choice: string)
+    applyRoot(uiAnswerRevert(uiStart, choice).root)
+  action actCancelKeybinding
+    applyStateRoot(uiCancelKeybinding(uiStart).root)
+  action actCanvasGesture(value: string)
+    applyStateRoot(uiCanvasGesture(uiStart, value).root)
+  action actCaptureKeybinding(original: string, value: string)
+    applyStateRoot(uiCaptureKeybinding(uiStart, original, value).root)
+  action actChatLocal(op: string, id: string, value: string)
+    let before = uiStart
+    let tableX = op == "table-menu" ? frame(`table-copy-${id}`).x : 0
+    let tableY = op == "table-menu" ? frame(`table-copy-${id}`).y : 0
+    let tableWidth = op == "table-menu" ? frame(`table-copy-${id}`).width : 0
+    let tableHeight = op == "table-menu" ? frame(`table-copy-${id}`).height : 0
+    let sentValue = (
+      op == "table-menu"
+        ? `${tableX}|${tableY}|${tableWidth}|${tableHeight}|${before.viewport.width}|${before.viewport.height}|${value}`
+        : value
+    )
+    applyChatRoot(uiChatLocal(before, op, id, sentValue).root)
+  action actChooseKeybindingCommand(value: string)
+    applyStateRoot(uiChooseKeybindingCommand(uiStart, value).root)
+  action actClearModalError
+    applyStateRoot(uiClearModalError(uiStart).root)
+  action actCloseConnection
+    applyStateRoot(uiCloseConnection(uiStart).root)
+  action actCloseModal
+    applyStateRoot(uiCloseModal(uiStart).root)
+  action actCloseModels
+    applyRoot(uiCloseModels(uiStart).root)
+  action actCloseOptions
+    applyRoot(uiCloseOptions(uiStart).root)
+  action actCommand(op: string, id: string, value: string, n: number)
+    applyCommandRoot(uiCommand(uiStart, op, id, value, n).root)
+  action actComposerBeforeInput(e: InputEvent)
+    applyRoot(uiComposerBeforeInput(uiStart, e).root)
+  action actComposerBlur
+    let result = uiComposerBlur(uiStart)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actComposerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool, anchorId: string)
+    let before = uiStart
+    let needed = (
+      needsComposerChipFrame(before, surface, owner, value, serial, start, end, source)
+    )
+    let bounds = needed ? some(frame(anchorId)) : none
+    applyRoot(uiComposerChipPress(
+      UiStart(before, chipFrame=bounds), surface, owner, value, serial, start, end, source,
+      comment, anchorId
+    ).root)
+  action actComposerDrop(op: string, id: string, vx: number, vy: number)
+    applyCommandRoot(uiComposerDrop(uiStart, op, id, vx, vy).root)
+  action actComposerFocus
+    applyStateRoot(uiComposerFocus(uiStart).root)
+  action actComposerKey(op: string, id: string, value: string)
+    applyCommandRoot(uiComposerKey(uiStart, op, id, value).root)
+  action actComposerKeyEvent(k: string, e: KeyboardEvent)
+    let before = uiStart
+    let needed = needsComposerHistoryFrames(before, k, e)
+    let caret = (
+      needed
+        ? some(rangeFrame("composer", before.composerSelection.start, before.composerSelection.start))
+        : none
+    )
+    let edge = (
+      needed
+        ? some(rangeFrame(
+          "composer", k == "ArrowUp" ? 0 : before.composerText.length,
+          k == "ArrowUp" ? 0 : before.composerText.length
+        ))
+        : none
+    )
+    let result = uiComposerKeyEvent(
+      UiStart(before, historyCaret=caret, historyEdge=edge), k, e
+    )
+    applyPrivateDecision(result)
+    applyRoot(result.root)
+  action actComposerKeyReleased(k: string, e: KeyboardEvent)
+    let result = uiComposerKeyReleased(uiStart, k, e)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actComposerLanguage(start: number, end: number, language: string)
+    applyRoot(uiComposerLanguage(uiStart, start, end, language).root)
+  action actComposerMoved(e: InputEvent)
+    applyRoot(uiComposerMoved(uiStart, e).root)
+  action actConfirmUi(accept: bool)
+    applyRoot(uiConfirmUi(uiStart, accept).root)
+  action actConnectionOp(op: string, id: string, value: string)
+    applyRoot(uiConnectionOp(uiStart, op, id, value).root)
+  action actConnectionToggleMenu(target: string)
+    applyStateRoot(uiConnectionToggleMenu(uiStart, target).root)
+  action actCopyDiagnostic(value: string)
+    applyCommandRoot(uiCopyDiagnostic(uiStart, value).root)
+  action actCoreChange(row: string, part: string, value: string)
+    let before = uiStart
+    let top = part == "picker" ? frame(`setting-${row}`).y : 0
+    let bottom = part == "picker" ? frame(`setting-${row}`).y + frame(`setting-${row}`).height : 0
+    let left = part == "picker" ? frame(`setting-${row}`).x : 0
+    let bounds = (
+      part == "picker" ? some(PickerAnchor(top=top, bottom=bottom, left=left)) : none
+    )
+    applyRoot(uiCoreChange(UiStart(before, pickerAnchor=bounds), row, part, value).root)
+  action actCoreClearSearch
+    applyRoot(uiCoreClearSearch(uiStart).root)
+  action actCoreMenu(section: string, id: string)
+    applyStateRoot(uiCoreMenu(uiStart, section, id).root)
+  action actCoreNavigate(route: string)
+    applyStateRoot(uiCoreNavigate(uiStart, route).root)
+  action actCorePick(route: string, target: string, scope: string, id: string)
+    applyStateRoot(uiCorePick(uiStart, route, target, scope, id).root)
+  action actCoreScope(project: bool, id: string, member: string)
+    applyStateRoot(uiCoreScope(uiStart, project, id, member).root)
+  action actCoreSearchKey(k: string)
+    applyRoot(uiCoreSearchKey(uiStart, k).root)
+  action actCoreThemeChange(row: string, part: string, value: string)
+    applyRoot(uiCoreThemeChange(uiStart, row, part, value).root)
+  action actCoreThemeDialog(kind: string, theme: string)
+    let result = uiCoreThemeDialog(uiStart, kind, theme)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actDetailsAct(op: string, target: string, value: string)
+    let result = uiDetailsAct(uiStart, op, target, value)
+    applyPrivateDecision(result)
+    applyRoot(result.root)
+  action actDeviceSetting(id: string, value: string)
+    applyCommandRoot(uiDeviceSetting(uiStart, id, value).root)
+  action actEarlier
+    applyCommandRoot(uiEarlier(uiStart).root)
+  action actEditCredential
+    applyStateRoot(uiEditCredential(uiStart).root)
+  action actEditKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    applyStateRoot(uiEditKeybinding(uiStart, previous, commandName, shortcut, condition).root)
+  action actEditKeybindingKey(value: string)
+    applyStateRoot(uiEditKeybindingKey(uiStart, value).root)
+  action actEditOrigin(value: string)
+    applyStateRoot(uiEditOrigin(uiStart, value).root)
+  action actEditSettingsQuery(value: string)
+    applyStateRoot(uiEditSettingsQuery(uiStart, value).root)
+  action actHoverTipAt(tip: HoverTip, part: string, inside: bool)
+    applyHoverRoot(uiHoverTipAt(uiStart, tip, part, inside).root)
+  action actImportWizardFocusMoved(id: string, on: bool)
+    applyStateRoot(uiImportWizardFocusMoved(uiStart, id, on).root)
+  action actInlineDocumentShortcut(name: string)
+    let before = uiStart
+    let bounds = needsInlinePaletteFrame(before, name) ? some(frame("composer")) : none
+    let result = uiInlineDocumentShortcut(UiStart(before, paletteFrame=bounds), name)
+    applyPrivateDecision(result)
+    applyRoot(result.root)
+  action actKeybindingRest(row: string, value: string)
+    applyRoot(uiKeybindingRest(uiStart, row, value).root)
+  action actManageProject(id: string, name: string, path: string)
+    applyStateRoot(uiManageProject(uiStart, id, name, path).root)
+  action actModifierEditableFocus
+    applyStateRoot(uiModifierEditableFocus(uiStart).root)
+  // Held modifiers drive Shift's speed mode on pull request rows and ⌘'s thread-jump hints.
+  action actModifierKey(down: bool, e: KeyboardEvent, editable: bool)
+    applyRoot(uiModifierKey(uiStart, down, e, editable).root)
+  action actNewKeybinding
+    applyStateRoot(uiNewKeybinding(uiStart).root)
+  action actNewThread
+    applyRoot(uiNewThread(uiStart).root)
+  action actNoticeDismiss(notice: string, op: string, target: string)
+    applyStateRoot(uiNoticeDismiss(uiStart, notice, op, target).root)
+  action actOpenConnection
+    applyStateRoot(uiOpenConnection(uiStart).root)
+  action actOpenConnectionsPage
+    applyStateRoot(uiOpenConnectionsPage(uiStart).root)
+  action actOpenModels
+    applyRoot(uiOpenModels(uiStart).root)
+  action actOpenOptions(name: string)
+    applyRoot(uiOpenOptions(uiStart, name).root)
+  action actOpenPage(name: string)
+    applyStateRoot(uiOpenPage(uiStart, name).root)
+  action actOpenProjects
+    applyStateRoot(uiOpenProjects(uiStart).root)
+  action actOpenProviderSettings(id: string)
+    let result = uiOpenProviderSettings(uiStart, id)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actOpenSettings
+    applyStateRoot(uiOpenSettings(uiStart).root)
+  action actOpenThread(id: string, how: string)
+    applyRoot(uiOpenThread(uiStart, id, how).root)
+  // A utility page's Back (Escape) returns to the previous page.
+  action actPageBack
+    applyStateRoot(uiPageBack(uiStart).root)
+  action actPaletteClose
+    let before = uiStart
+    let bounds = needsPaletteCloseFrame(before) ? some(frame("composer")) : none
+    applyRoot(uiPaletteClose(UiStart(before, paletteFrame=bounds)).root)
+  action actPaletteEdit(value: string)
+    applyStateRoot(uiPaletteEdit(uiStart, value).root)
+  action actPaletteFlag(name: string)
+    applyStateRoot(uiPaletteFlag(uiStart, name).root)
+  action actPaletteHover(index: number, over: bool)
+    applyStateRoot(uiPaletteHover(uiStart, index, over).root)
+  action actPaletteKey(name: string)
+    applyRoot(uiPaletteKey(uiStart, name).root)
+  action actPaletteRun(op: string, arg: string, arg2: string)
+    applyRoot(uiPaletteRun(uiStart, op, arg, arg2).root)
+  action actPaletteShow(mode: string, page: string)
+    let before = uiStart
+    let bounds = needsPaletteShowFrame(before, mode, page) ? some(frame("composer")) : none
+    applyRoot(uiPaletteShow(UiStart(before, paletteFrame=bounds), mode, page).root)
+  action actPanelUi(what: string, id: string)
+    applyPanelRoot(uiPanelUi(uiStart, what, id).root)
+  // The Settings pickers outside General (Scheduled Tasks' Model, Source Control's writer model).
+  action actPickModel(row: string, context: string)
+    let before = uiStart
+    let top = frame(`setting-${row}`).y
+    let bottom = frame(`setting-${row}`).y + frame(`setting-${row}`).height
+    let left = frame(`setting-${row}`).x
+    let bounds = some(PickerAnchor(top=top, bottom=bottom, left=left))
+    applyRoot(uiPickModel(UiStart(before, pickerAnchor=bounds), row, context).root)
+  action actPrClose
+    applyRoot(uiPrClose(uiStart).root)
+  action actPrControl(op: string, value: string)
+    applyRoot(uiPrControl(uiStart, op, value).root)
+  action actPrCopy(label: string, text: string)
+    applyCommandRoot(uiPrCopy(uiStart, label, text).root)
+  action actPrTogglePanel
+    applyStateRoot(uiPrTogglePanel(uiStart).root)
+  action actPrType(value: string)
+    applyStateRoot(uiPrType(uiStart, value).root)
+  action actPreviewSnapshotSound(sound: string)
+    applyRoot(uiPreviewSnapshotSound(uiStart, sound).root)
+  action actPromptLinkAct(which: string)
+    applyRoot(uiPromptLinkAct(uiStart, which).root)
+  action actPromptPreviewWrite(value: string, e: InputEvent)
+    let before = uiStart
+    let bounds = before.promptPreviewVisible ? some(frame("prompt-font-preview")) : none
+    applyRoot(uiPromptPreviewWrite(UiStart(before, previewFrame=bounds), value, e).root)
+  action actProviderAccent(id: string, hex: string, vx: number, vy: number)
+    applyRoot(uiProviderAccent(uiStart, id, hex, vx, vy).root)
+  action actProviderAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[])
+    applyRoot(uiProviderAdd(uiStart, driver, label, id, accent, fields, commandArgs).root)
+  action actProviderOp(op: string, id: string, field: string, value: string, apply: bool)
+    applyRoot(uiProviderOp(uiStart, op, id, field, value, apply).root)
+  action actProviderUi(what: string, value: string)
+    applyStateRoot(uiProviderUi(uiStart, what, value).root)
+  action actRecordKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    applyStateRoot(uiRecordKeybinding(uiStart, previous, commandName, shortcut, condition).root)
+  action actRefreshSettings
+    applyStateRoot(uiRefreshSettings(uiStart).root)
+  action actReleaseFold
+    applyStateRoot(uiReleaseFold(uiStart).root)
+  action actRemoveSnapshot(imageId: string)
+    applyCommandRoot(uiRemoveSnapshot(uiStart, imageId).root)
+  action actResetSidebarWidth
+    applyRoot(uiResetSidebarWidth(uiStart).root)
+  action actResizeSidebar(dx: number, dy: number)
+    applyStateRoot(uiResizeSidebar(uiStart, dx, dy).root)
+  action actRestClose
+    let result = uiRestClose(uiStart)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actRestGesture(towardEnd: bool)
+    let result = uiRestGesture(uiStart, towardEnd)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actRestLocal(op: string, value: string)
+    applyCommandRoot(uiRestLocal(uiStart, op, value).root)
+  action actRestOpen(editor: string, subject: string)
+    let result = uiRestOpen(uiStart, editor, subject)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actRestRaw(op: string, id: string, value: string)
+    applyRoot(uiRestRaw(uiStart, op, id, value).root)
+  action actRestScrolled(owner: string, e: ScrollEvent)
+    let result = uiRestScrolled(uiStart, owner, e)
+    applyPrivateDecision(result)
+    applyStateRoot(result.root)
+  action actRestTaskBase(value: string)
+    applyStateRoot(uiRestTaskBase(uiStart, value).root)
+  action actRouteKeyboardInput(environmentId: string, rowKey: string, routeId: string, k: string, repeat: bool)
+    applyRoot(uiRouteKeyboardInput(uiStart, environmentId, rowKey, routeId, k, repeat).root)
+  action actSbSet(which: string, value: string)
+    applyStateRoot(uiSbSet(uiStart, which, value).root)
+  action actScrollToEnd
+    applyStateRoot(uiScrollToEnd(uiStart).root)
+  action actSearchBranches(value: string)
+    applyStateRoot(uiSearchBranches(uiStart, value).root)
+  action actSearchModels(value: string)
+    applyStateRoot(uiSearchModels(uiStart, value).root)
+  action actSelectModel(id: string, provider: string, additive: bool)
+    let result = uiSelectModel(uiStart, id, provider, additive)
+    applyPrivateDecision(result)
+    applyRoot(result.root)
+  action actSelectProject(id: string)
+    applyRoot(uiSelectProject(uiStart, id).root)
+  action actSelectProvider(id: string)
+    applyRoot(uiSelectProvider(uiStart, id).root)
+  action actSelectThread(id: string)
+    applyRoot(uiSelectThread(uiStart, id).root)
+  action actSend(held: string)
+    applyRoot(uiSend(uiStart, held).root)
+  action actSettingsCommand(op: string, id: string, value: string)
+    applyRoot(uiSettingsCommand(uiStart, op, id, value).root)
+  action actSidebarHover(id: string, over: bool)
+    applyRoot(uiSidebarHover(uiStart, id, over).root)
+  action actSidebarLocal(op: string, id: string, value: string)
+    applyRoot(uiSidebarLocal(uiStart, op, id, value).root)
+  action actSidebarNewThread(e: MouseEvent)
+    applyRoot(uiSidebarNewThread(uiStart, e).root)
+  action actSidebarRun(op: string, id: string, value: string)
+    let before = uiStart
+    if before.composerDraft.focused and (op == "menu-choice" or op == "draft-choice" or op == "legacy-thread-menu")
+      blur()
+    applyCommandRoot(uiSidebarRun(before, op, id, value).root)
+  action actSshAnswer(kind: string)
+    applyRoot(uiSshAnswer(uiStart, kind).root)
+  action actStreamMeasured(id: string, width: number, height: number, follow: bool)
+    applyStateRoot(uiStreamMeasured(uiStart, id, width, height, follow).root)
+  action actThemeRevealRequest(role: string)
+    applyStateRoot(uiThemeRevealRequest(uiStart, role).root)
+  action actTitleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
+    applyRoot(uiTitleMenuPick(uiStart, op, target, value, askTitle, askBody, destructive).root)
+  action actTitleSend(what: string, text: string)
+    applyRoot(uiTitleSend(uiStart, what, text).root)
+  action actToastAct(id: number, op: string, target: string, value: string)
+    applyRoot(uiToastAct(uiStart, id, op, target, value).root)
+  action actUsageMetricSet(value: string)
+    applyRoot(uiUsageMetricSet(uiStart, value).root)
+  action actUsageWindowSet(days: number)
+    applyRoot(uiUsageWindowSet(uiStart, days).root)
+  action actWelcomeEditLink(value: string)
+    applyStateRoot(uiWelcomeEditLink(uiStart, value).root)
+  action actWelcomeFinish
+    applyCommandRoot(uiWelcomeFinish(uiStart).root)
+  action actWelcomeGo(step: string)
+    applyStateRoot(uiWelcomeGo(uiStart, step).root)
+  action actWelcomeImport(op: string, id: string, value: string)
+    applyCommandRoot(uiWelcomeImport(uiStart, op, id, value).root)
+  action actWelcomePair
+    applyRoot(uiWelcomePair(uiStart).root)
+  action actWelcomeSetup
+    applyRoot(uiWelcomeSetup(uiStart).root)
+  action actWelcomeTogglePair
+    applyStateRoot(uiWelcomeTogglePair(uiStart).root)
+  action actWrite(value: string, e: InputEvent)
+    applyRoot(uiWrite(uiStart, value, e).root)
   // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
   // The frames outlive popup subtrees; a nested confirm returns into its parent, and a replacement inherits its return.
   state dialogFocusId = ""
@@ -409,7 +831,7 @@ component T3Window
   state dialogFocusPopup = ""
   state dialogFocusInvoker = ""
   derive documentPermissions = sortBy(data.messages.map(message => message.inlineDocuments).flat().filter(document => document.permission != ""), document => document.permissionSerial)
-  derive activeDocumentPermissions = (sshPrompt.open or confirmOp != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm) ? documentPermissions.slice(0, 0) : documentPermissions.slice(0, 1)
+  derive activeDocumentPermissions = (sshPrompt.open or rootUi.confirmationState.op != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm) ? documentPermissions.slice(0, 0) : documentPermissions.slice(0, 1)
   derive documentPermissionOwner = activeDocumentPermissions.map(document => `inline-permission-${document.key}-${document.permissionSerial}`).join("")
   state documentPermissionFocusOwner = ""
   state documentPermissionReturnKey = ""
@@ -446,14 +868,14 @@ component T3Window
   // is `data-editable`. A focus entering one empties the Pull Requests route's state (shortcutModifierState onFocus).
   state focusEditable = false
   action modifierDown(k: string, e: KeyboardEvent)
-    modifierKey(true, e, focusEditable)
+    actModifierKey(true, e, focusEditable)
   action modifierUp(k: string, e: KeyboardEvent)
-    modifierKey(false, e, focusEditable)
+    actModifierKey(false, e, focusEditable)
   action windowFocused(e: FocusEvent)
     let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
     focusEditable = editable
     if editable
-      modifierEditableFocus()
+      actModifierEditableFocus()
     chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = ""
@@ -466,7 +888,7 @@ component T3Window
     let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
     focusEditable = editable
     if editable
-      modifierEditableFocus()
+      actModifierEditableFocus()
     chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner
@@ -490,7 +912,7 @@ component T3Window
     let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
     focusEditable = editable
     if editable
-      modifierEditableFocus()
+      actModifierEditableFocus()
     chipFocusChanged(e.target)
     if dialogFrames.filter(item => item.owner == owner).length == 0
       let previous = dialogLineage(dialogFrames, dialogFocusOwner)
@@ -545,18 +967,18 @@ component T3Window
   // click's modifiers are its press's own (`kind|meta+shift`; no native gesture read).
   // Complete this Save request before presenting the next file in an app download.
   action saveChosen(name: string)
-    chatLocal("save-complete", `${data.saveRequest.nonce}`, name)
+    actChatLocal("save-complete", `${data.saveRequest.nonce}`, name)
   action saveDismissed
-    chatLocal("save-complete", `${data.saveRequest.nonce}`, "")
+    actChatLocal("save-complete", `${data.saveRequest.nonce}`, "")
   // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
   action refScrollEnd(name: string)
-    chatLocal("ref-scroll-end", name, "")
+    actChatLocal("ref-scroll-end", name, "")
   action linkOpen(kind: string, href: string, e: MouseEvent)
-    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)
+    actChatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)
   // A Markdown web link's own menu (ChatMarkdown's anchor onContextMenu, external-link-menu.ts). A page
   // over the thread (the pull request page's detail) has no thread: its ChatMarkdown gets threadRef null ("page").
   action linkMenu(href: string)
-    chatLocal("link-menu", pageCover ? "page" : "", href)
+    actChatLocal("link-menu", pageCover ? "page" : "", href)
   // Primary presses anywhere in the window outside the Usage page (which takes its
   // own, pages-usage.contract pressDown), counted as they end; a pinned usage popover closes on one, as
   // Base UI's outside press does (the sidebar, the theme editor, a toast all count).
@@ -594,7 +1016,8 @@ component T3Window
     // the floating player its own (detailsPlayerPointer); a press beside the column (the sidebar, the right panel) closes
     // it here. Over a right panel sheet the popover is the window's, whose backdrop takes every press.
     if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)
-      detailsAct("dismiss", "", "")
+      titleMenuOpen = false
+      applyStateRoot(uiDetailsAct(uiStart, "dismiss", "", "").root)
   // The floating player lies above the popover's backdrop: a primary press on it (its pill buttons, its screen, its resize
   // edges) is outside the popover and closes it (ChatColumn's players' pointerdown and pointerup). It closes as the press
   // ends, so the press lands where it went down: a popover leaving between the button's down and up lost a pill button's
@@ -605,7 +1028,8 @@ component T3Window
       detailsPlayerArmed = true
     else
       if detailsPlayerArmed and detailsOpen
-        detailsAct("dismiss", "", "")
+        titleMenuOpen = false
+        applyStateRoot(uiDetailsAct(uiStart, "dismiss", "", "").root)
       detailsPlayerArmed = false
   // Over a right panel sheet (a narrow window) the thread details popover is the window's, above the sheet (WindowOverlays).
   derive detailsSheet = detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)
@@ -628,7 +1052,7 @@ component T3Window
   // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the dismissal count at the offer.
   state citeWaits = 0
   state citeDismissedAt = 0
-  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal and citeSettles <= citeSettleDone
+  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not rootUi.settingsPageState.open and not modal and citeSettles <= citeSettleDone
   action citeOfferSet(offer: CiteOffer)
     citeOffer = offer
     citeFor = offer.source
@@ -662,7 +1086,7 @@ component T3Window
     citeParked = ""
   action citePress
     let end = frame(citeOffer.end)
-    command("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeOffer, end)}|${citeOffer.stream}`, 0)
+    actCommand("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeOffer, end)}|${citeOffer.stream}`, 0)
     removeAllRanges()
     citeFor = ""
     citeParked = ""
@@ -693,10 +1117,10 @@ component T3Window
     citeDraftSeq = chip.seq
     editorOp("chip-cite-draft", `${chip.seq}`, value)
   // Save, Enter, and Command/Ctrl+Enter (`send`: then Send, submitCitationAndSend); the editor takes the focus after the chip.
-  action citeSave(send: bool)
+  action citeSave(actSend: bool)
     if citeText.length <= 8000
       chipClosed = chip.seq
-      editorOp(send ? "chip-cite-send" : "chip-cite-save", `${chip.seq}`, citeText)
+      editorOp(actSend ? "chip-cite-send" : "chip-cite-save", `${chip.seq}`, citeText)
   // Cancel and Escape: closes, and after Cite takes the chip away again (`removeOnCancel`).
   action citeCancel
     chipClosed = chip.seq
@@ -767,18 +1191,18 @@ component T3Window
     settingsNavFocused = inside
   action toggleSidebar
     releaseUndoClaim() // ⌘B is another key: ⌘Z goes back to the fields (ThreadUndoShortcut)
-    if data.sidebarOpen and settingsOpen and settingsNavFocused
+    if data.sidebarOpen and rootUi.settingsPageState.open and settingsNavFocused
       settingsNavFocused = false
       focus("settings-sidebar-trigger")
-    else if data.sidebarOpen and not settingsOpen and sidebarFocused
+    else if data.sidebarOpen and not rootUi.settingsPageState.open and sidebarFocused
       sidebarFocused = false
       focus("sidebar-trigger")
-    command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+    actCommand("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
   action finishResize(vx: number, vy: number)
-    command("sidebar", "", "open", sidebarWidth)
+    actCommand("sidebar", "", "open", sidebarWidth)
   action search(value: string)
     releaseUndoClaim() // the sidebar search's edit hands ⌘Z back to the fields (ThreadUndoShortcut's input listener)
-    command("search", "", value, 0)
+    actCommand("search", "", value, 0)
   // The root rewrite: the composer's resting state and left edge, which only the view reads (moved from app.contract).
   derive resting = data.composerResting and canRest
   derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
@@ -786,15 +1210,15 @@ component T3Window
   // moved from app.contract. The wizard's fields stay in the root: providerWizard reads them.
   state wizardAttempted = false
   action providerUi(what: string, value: string)
-    let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+    let target = value == "back" ? max(0, rootUi.providerWizardState.step - 1) : min(rootUi.providerWizardState.manual ? 1 : 2, value == "next" ? rootUi.providerWizardState.step + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
     if what == "open" or what == "driver" or what == "manual"
       wizardAttempted = false
-    if what == "step" and wizardStep <= 1 and target > 1 and providerWizard.idError != ""
+    if what == "step" and rootUi.providerWizardState.step <= 1 and target > 1 and providerWizard.idError != ""
       wizardAttempted = true
-    providerUiRoot(what, value)
+    actProviderUi(what, value)
   action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[])
     wizardAttempted = true
-    providerAddRoot(driver, label, id, accent, fields, commandArgs)
+    actProviderAdd(driver, label, id, accent, fields, commandArgs)
   // The root rewrite: the settings editors' row menu and dialog label (Settings' panels and ProjectDialogs), moved
   // from app.contract. A settings editor's command is the root's restRaw; rest and restInput name its op and scope.
   state restLabel = ""
@@ -802,19 +1226,19 @@ component T3Window
   action restOpen(editor: string, subject: string, label: string)
     restLabel = label
     restMenu = ""
-    restOpenRoot(editor, subject)
+    actRestOpen(editor, subject)
   action restMenuOpen(id: string)
     restMenu = id
   action restClose
     restMenu = ""
-    restCloseRoot()
+    actRestClose()
   action restRaw(op: string, id: string, value: string)
     restMenu = ""
-    restRawRoot(op, id, value)
+    actRestRaw(op, id, value)
   action rest(op: string, value: string)
     restRaw(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value)
   action restInput(op: string, value: string, input: string)
-    restRawRoot(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, `${value}${encodeURIComponent(input)}`)
+    actRestRaw(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, `${value}${encodeURIComponent(input)}`)
   // The root rewrite: SnapShot's setup dialog (Settings' SnapShot panel and SettingsModals), moved from app.contract.
   state snapshotSetupOpen = false
   state snapshotSetupWasEnabled = false
@@ -822,17 +1246,17 @@ component T3Window
   action toggleSnapshots
     if snapshotSettings.enabled and not commandPending
       snapshotSetupOpen = false
-      settingsCommand("setting-snapshot", "snapShotEnabled", "false")
+      actSettingsCommand("setting-snapshot", "snapShotEnabled", "false")
     else
       snapshotSetupOpen = true
       snapshotSetupWasEnabled = false
       snapshotSetupFrom = snapshotSetupOpen ? snapshotSetupFrom : "snapshot-enabled"
-      clearModalError()
+      actClearModalError()
   action showSnapshotSetup(open: bool)
     snapshotSetupOpen = open
     snapshotSetupFrom = open and not snapshotSetupOpen ? "snapshot-setup" : snapshotSetupFrom
     snapshotSetupWasEnabled = snapshotSettings.enabled
-    clearModalError()
+    actClearModalError()
   // The root rewrite: Add environment's credential and route target (SettingsModals draws the dialog; Settings ›
   // Connections and the sidebar open it), moved from app.contract. Each wrapper sets the window's half, then calls
   // the root's (`…Root`). The connections' row menu and remove confirm stay in the root: as a window action,
@@ -844,27 +1268,27 @@ component T3Window
   action openConnection
     credential = ""
     routeTarget = ""
-    openConnectionRoot()
+    actOpenConnection()
   action openRoute(target: string, label: string)
     credential = ""
     routeTarget = target
     routeLabel = label
-    openConnectionRoot()
+    actOpenConnection()
   action closeConnection
     routeTarget = ""
     credential = ""
-    closeConnectionRoot()
+    actCloseConnection()
   action editOrigin(value: string)
     credential = pairFields.host != "" and pairFields.source == origin and credential == "" ? pairFields.code : credential
-    editOriginRoot(value)
+    actEditOrigin(value)
   action editCredential(value: string)
     credential = value
-    editCredentialRoot()
+    actEditCredential()
   action closeModal
     snapshotSetupOpen = false
     routeTarget = ""
     credential = ""
-    closeModalRoot()
+    actCloseModal()
   // The root rewrite: the thread title's menu and rename field, the right panel's maximize and the details card's
   // editors list, moved from app.contract. Each wrapper sets the window's half, then calls the root's (`…Root`),
   // which keeps what resources read and the sends. The fold hold stays in the root: chatLocal is called inside the
@@ -900,21 +1324,21 @@ component T3Window
       renaming = false
     if (what == "commit" and renaming) or (what == "new-thread" and data.projectId != "")
       renaming = false
-      titleSend(what, typed)
+      actTitleSend(what, typed)
   action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
     titleMenuOpen = op == "ui:submenu" and titleMenuOpen
     if op == "ui:rename"
       renaming = true
       renameText = data.threadTitle
       focus("header-rename")
-    titleMenuPickRoot(op, target, value, askTitle, askBody, destructive)
+    actTitleMenuPick(op, target, value, askTitle, askBody, destructive)
   action panelUi(what: string, id: string)
     let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     titleMenuOpen = false
-    panelUiRoot(what, id)
+    actPanelUi(what, id)
   action detailsAct(op: string, target: string, value: string)
     titleMenuOpen = false
-    detailsActRoot(op, target, value)
+    actDetailsAct(op, target, value)
   action sidebarScrolled(x: number, y: number)
     sidebarScrollY = y
   action sidebarHover(id: string, over: bool)
@@ -935,7 +1359,7 @@ component T3Window
       sidebarHoverHeld = id
     else if not over and id == sidebarHoverHeld
       sidebarHoverHeld = ""
-    sidebarHoverRoot(back ? row : id, over or back)
+    actSidebarHover(back ? row : id, over or back)
   action sidebarPressDown
     sidebarHoverSeq = sidebarHoverSeq + 1
     sidebarHoverY = -10000
@@ -946,7 +1370,7 @@ component T3Window
         dragSection = section
         dragDx = 0
         dragDy = 0
-        sidebarHoverRoot(sidebarHoverId, false) // the root's half closes the hovered row's card
+        actSidebarHover(sidebarHoverId, false) // the root's half closes the hovered row's card
         dragX0 = frame(`row-${id}`).x
         dragY0 = frame(`row-${id}`).y
         dragW = frame(`row-${id}`).width
@@ -961,9 +1385,9 @@ component T3Window
   action sidebarDragEnd(id: string, vx: number, vy: number) // a row-action sweep's release (`sweep|…`, sidebar.contract ThreadSection) is a drop too; sidebarRun sends `sidebar:drop` while no command is pending
     if dragId == id or id.startsWith("sweep|")
       if dragTarget == "context"
-        sidebarRun("drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`)
+        actSidebarRun("drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`)
       else if dragTarget != "" or id.startsWith("sweep|")
-        sidebarRun("drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`)
+        actSidebarRun("drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`)
       dragId = ""
       dragSection = ""
       dragDx = 0
@@ -975,7 +1399,7 @@ component T3Window
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.
-      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or activeDocumentPermissions.length > 0 or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
+      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or activeDocumentPermissions.length > 0 or rootUi.paletteSession.open or rootUi.composerMenu.modelsOpen or rootUi.composerMenu.optionsOpen != "" or projectsOpen or rootUi.confirmationState.op != "")), dismiss=chipEscape)
       // View › Reload and Force Reload, outside the inert background: the reference's work under any dialog.
       ViewReload(items=shortcuts)
       row width="100%" height="100%" min-width=0 position="relative" inert=(sshPrompt.open or activeDocumentPermissions.length > 0) testId="ssh-background"
@@ -984,31 +1408,31 @@ component T3Window
         row width="100%" height="100%" min-width=0 inert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0)
           if data.sidebarOpen
             if data.legacy.enabled
-              LegacySidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, page=utilityPage, pullRequests=home.pullRequests, toggle=toggleSidebar, addProject=paletteShow("command", "add-project"), openPalette=paletteShow("command", ""), open=openThread, local=sidebarLocal, run=sidebarRun, openSettings=openSettings, navigate=openPage, openProviders=openProviderSettings, hoverCard=sidebarHover, hoverId=sidebarHoverId, focusWithin=sidebarFocusWithin)
+              LegacySidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, page=utilityPage, pullRequests=home.pullRequests, toggle=toggleSidebar, addProject=actPaletteShow("command", "add-project"), openPalette=actPaletteShow("command", ""), open=actOpenThread, local=actSidebarLocal, run=actSidebarRun, openSettings=actOpenSettings, navigate=actOpenPage, openProviders=actOpenProviderSettings, hoverCard=sidebarHover, hoverId=sidebarHoverId, focusWithin=sidebarFocusWithin)
             else
-              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=shelfDragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY, focusWithin=sidebarFocusWithin)
+              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=actOpenProjects, addProject=actPaletteShow("command", "add-project"), newThread=actSidebarNewThread, select=actSelectThread, openSettings=actOpenSettings, openConnection=openConnection, reconnect=actCommand("reconnect", "", "", 0), resize=actResizeSidebar, finishResize=finishResize, command=actCommand, page=utilityPage, pullRequests=home.pullRequests, navigate=actOpenPage, local=actSidebarLocal, run=actSidebarRun, open=actOpenThread, resetWidth=actResetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=actOpenProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=shelfDragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY, focusWithin=sidebarFocusWithin)
           column flex=1 min-width=0 height="100%" // the drawer sits below the chat column, the composer above it
-            ChatColumn(noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=(pageCover or promptLinkPage.show), sidebarWidth=sidebarWidth, canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, viewport=viewport, scheme=scheme, data=data, shell=shell, settings=settings, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, home=home, commandPending=commandPending, lineageStopping=lineageStopping, command=command, paletteShow=paletteShow, foldHold=foldHold, releaseFold=releaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, canRest=canRest, chatLocal=chatLocal, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, settingsCore=settingsCore, conversationWidth=conversationWidth, resting=resting, scrollToEnd=scrollToEnd, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, selectThread=selectThread, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=command("stop", "", "", 0), composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=titleMenuPick, interaction=menuPick("interaction", ""), openProviderSettings=openProviderSettings, branches=branches, timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed)), contextOver=(dragTarget == "context" and editor.drawer.cardWidth > 0 and dragCX >= editor.drawer.cardX and dragCX <= editor.drawer.cardX + editor.drawer.cardWidth and dragCY >= editor.drawer.cardY and dragCY <= editor.drawer.cardY + editor.drawer.cardHeight))
-            TerminalDrawer(view=terminalDrawer, look=data.look, dark=(scheme == "dark"), viewportHeight=viewport.height, composerHeight=data.composerReserved, reduced=viewport.prefersReducedMotion, closePending=(confirmOp != ""), command=command, confirm=titleMenuPick)
-          RightPanels(data=data, narrowDiff=narrowDiff, rightMaximized=rightMaximized, viewport=viewport, scheme=scheme, sidebarWidth=sidebarWidth, diffWidth=diffWidth, shell=shell, command=command, panelUi=panelUi, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
-        PagesCover(pageCover=pageCover, outside=outsidePresses, data=data, sidebarWidth=sidebarWidth, modal=modal, utilityPage=utilityPage, viewport=viewport, scheme=scheme, usage=usage, usageShortcuts=usageShortcuts, settings=settings, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, pageBack=pageBack, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prReload=prReload, paletteShow=paletteShow, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prClose=prClose, prAct=prAct, prCopy=prCopy, chatLocal=chatLocal, home=home, commandPending=commandPending, command=command, openConnectionsPage=openConnectionsPage, pagesOp=welcomeImport, toggleInert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0), toggleSidebar=toggleSidebar)
-        if not settingsOpen and utilityPage == "" and not welcome.show
-          PromptLinkPage(link=promptLinkPage, left=(data.sidebarOpen ? sidebarWidth : 0), canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas), run=promptLinkAct)
-        RightSheets(data=data, narrowDiff=narrowDiff, modal=(modal or promptLinkPage.show), panelUi=panelUi, viewport=viewport, scheme=scheme, diffWidth=diffWidth, shell=shell, command=command, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
-        if optionsOpen != ""
-          ComposerMenus(data=data, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
-        ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
+            ChatColumn(noticeExit=rootUi.noticeExitState.notice, noticeDismiss=actNoticeDismiss, pageCover=(pageCover or promptLinkPage.show), sidebarWidth=sidebarWidth, canvas=canvas, canvasGesture=actCanvasGesture, detailsOutside=detailsPlayerPointer, viewport=viewport, scheme=scheme, data=data, shell=shell, settings=settings, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, home=home, commandPending=commandPending, lineageStopping=lineageStopping, command=actCommand, paletteShow=actPaletteShow, foldHold=foldHold, releaseFold=actReleaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, canRest=canRest, chatLocal=actChatLocal, markdown=markdown, earlier=actEarlier, attachmentUrls=attachmentUrls, settingsCore=settingsCore, conversationWidth=conversationWidth, resting=resting, scrollToEnd=actScrollToEnd, editor=editor, composerKey=actComposerKey, composerDrop=actComposerDrop, editorOp=editorOp, selectThread=actSelectThread, openModels=actOpenModels, composerText=composerText, modelsOpen=rootUi.composerMenu.modelsOpen, optionsOpen=rootUi.composerMenu.optionsOpen, write=actWrite, send=actSend, stop=actCommand("stop", "", "", 0), composerFocus=actComposerFocus, composerBlur=actComposerBlur, openOptions=actOpenOptions, removeSnapshot=actRemoveSnapshot, askRemove=titleMenuPick, interaction=menuPick("interaction", ""), openProviderSettings=actOpenProviderSettings, branches=branches, timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed)), contextOver=(dragTarget == "context" and editor.drawer.cardWidth > 0 and dragCX >= editor.drawer.cardX and dragCX <= editor.drawer.cardX + editor.drawer.cardWidth and dragCY >= editor.drawer.cardY and dragCY <= editor.drawer.cardY + editor.drawer.cardHeight))
+            TerminalDrawer(view=terminalDrawer, look=data.look, dark=(scheme == "dark"), viewportHeight=viewport.height, composerHeight=data.composerReserved, reduced=viewport.prefersReducedMotion, closePending=(rootUi.confirmationState.op != ""), command=actCommand, confirm=titleMenuPick)
+          RightPanels(data=data, narrowDiff=narrowDiff, rightMaximized=rightMaximized, viewport=viewport, scheme=scheme, sidebarWidth=sidebarWidth, diffWidth=diffWidth, shell=shell, command=actCommand, panelUi=panelUi, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=actChatLocal, paletteShow=actPaletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=actPrCopy, confirm=titleMenuPick, closePending=(rootUi.confirmationState.op != ""))
+        PagesCover(pageCover=pageCover, outside=outsidePresses, data=data, sidebarWidth=sidebarWidth, modal=modal, utilityPage=utilityPage, viewport=viewport, scheme=scheme, usage=usage, usageShortcuts=usageShortcuts, settings=settings, usageMetricSet=actUsageMetricSet, usageWindowSet=actUsageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, pageBack=actPageBack, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=actPrTogglePanel, prType=actPrType, prControl=actPrControl, prSelect=prSelect, prReload=prReload, paletteShow=actPaletteShow, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prClose=actPrClose, prAct=prAct, prCopy=actPrCopy, chatLocal=actChatLocal, home=home, commandPending=commandPending, command=actCommand, openConnectionsPage=actOpenConnectionsPage, pagesOp=actWelcomeImport, toggleInert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0), toggleSidebar=toggleSidebar)
+        if not rootUi.settingsPageState.open and utilityPage == "" and not welcome.show
+          PromptLinkPage(link=promptLinkPage, left=(data.sidebarOpen ? sidebarWidth : 0), canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas), run=actPromptLinkAct)
+        RightSheets(data=data, narrowDiff=narrowDiff, modal=(modal or promptLinkPage.show), panelUi=panelUi, viewport=viewport, scheme=scheme, diffWidth=diffWidth, shell=shell, command=actCommand, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=actChatLocal, paletteShow=actPaletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=actPrCopy, confirm=titleMenuPick, closePending=(rootUi.confirmationState.op != ""))
+        if rootUi.composerMenu.optionsOpen != ""
+          ComposerMenus(data=data, session=rootUi.composerMenu.popoverSession, which=rootUi.composerMenu.optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=actCloseOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=actSearchBranches, local=actChatLocal)
+        ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=actPaletteShow, data=data, closeModal=closeModal, manageProject=actManageProject, commandPending=commandPending, selectProject=actSelectProject)
         // Settings' view and its view-only state are there only while Settings is open, as the
         // reference's settings route: leaving it forgets an open search, an "Add custom model" field, the legacy rows.
-        if settingsOpen
-          SettingsWindow(settingsOpen=settingsOpen, themeInspecting=(themeInspecting and settingsCore.editor.open), settingsCore=settingsCore, connecting=connecting, connectionRemove=connectionRemove, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, scheme=scheme, settingsMenu=settingsMenu, modelsOpen=modelsOpen, providerVisit=providerVisit, paletteOpen=paletteOpen, chipOpen=chipShown, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, navFocusWithin=settingsNavFocusWithin, keySidebar=settings.keySidebar, commandPending=commandPending, settingsScrollTop=settingsScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, keybindingDrafts=keybindingDrafts, keybindingRest=keybindingRest, keybindingHeld=holdKeybindingField, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, editSettingsQueryRoot=editSettingsQuery, coreSearchKeyRoot=coreSearchKey, coreNavigateRoot=coreNavigate, corePickRoot=corePick, settingsCommand=settingsCommand, resizeSidebar=resizeSidebar, finishResize=finishResize, resetSidebarWidth=resetSidebarWidth)
-        ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=themeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""), outsideFocus=outsideFocus)
-        WelcomeLayer(welcome=welcome, viewport=viewport, scheme=scheme, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish, providerOp=providerOp, setupBusy=providerAuthPending)
-        ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), details=detailsAct, openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=command, settings=openSettings, copy=prCopy, confirm=titleMenuPick)
-        ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, restOpen=restOpen, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, scheme=scheme, sbSet=sbSet, taskBase=taskBaseRoot, cardScripts=(details.scripts.length > 0))
-        SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=overlayDragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, covered=paletteOpen)
-        SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, snapshotSetupFrom=snapshotSetupFrom, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, scheme=scheme, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, setupBusy=providerAuthPending, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel, localCommand=settingsCommand)
-        WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=modelQuery, modelTarget=modelTarget, composerLeft=composerLeft, resting=resting, commandPending=commandPending, lineageStopping=lineageStopping, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, openProviderSettings=openProviderSettings, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, paletteRestore=paletteRestore, details=details, detailsSheet=detailsSheet, detailsDensity=canvas.density, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, prDetail=prDetail, prAct=prAct, filesDocuments=filesMarkdown.documents)
+        if rootUi.settingsPageState.open
+          SettingsWindow(settingsOpen=rootUi.settingsPageState.open, themeInspecting=(themeInspecting and settingsCore.editor.open), settingsCore=settingsCore, connecting=connecting, connectionRemove=connectionRemove, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=rootUi.settingsPageState.route, settingsQuery=rootUi.settingsPageState.query, sidebarWidth=sidebarWidth, viewport=viewport, scheme=scheme, settingsMenu=settingsMenu, modelsOpen=rootUi.composerMenu.modelsOpen, providerVisit=providerVisit, paletteOpen=rootUi.paletteSession.open, chipOpen=chipShown, coreClearSearch=actCoreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, navFocusWithin=settingsNavFocusWithin, keySidebar=settings.keySidebar, commandPending=commandPending, settingsScrollTop=settingsScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=actCoreMenu, coreChange=actCoreChange, coreScope=actCoreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=actCoreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=actRestLocal, importWizardFocusMoved=actImportWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=actSettingsCommand("setting-snapshot"), previewSnapshotSound=actPreviewSnapshotSound, recordSnapshotShortcut=actSettingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=actSettingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=rootUi.keybindingEditor.open, keybindingPrevious=rootUi.keybindingEditor.previous, keybindingCommand=rootUi.keybindingEditor.command, keybindingKey=rootUi.keybindingEditor.key, keybindingWhen=keybindingWhen, keybindingRecording=rootUi.keybindingEditor.recording, editKeybindingQuery=editKeybindingQuery, newKeybinding=actNewKeybinding, cancelKeybinding=actCancelKeybinding, chooseKeybindingCommand=actChooseKeybindingCommand, editKeybinding=actEditKeybinding, editKeybindingKey=actEditKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=actRecordKeybinding, captureKeybinding=actCaptureKeybinding, keybindingDrafts=rootUi.keybindingEditor.drafts, keybindingRest=actKeybindingRest, keybindingHeld=holdKeybindingField, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=actRefreshSettings, copyDiagnostic=actCopyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=actConnectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=actConnectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=rootUi.providerWizardState.dialog, providerUi=providerUi, providerOp=actProviderOp, providerAccent=actProviderAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=actCoreThemeChange, editSettingsQueryRoot=actEditSettingsQuery, coreSearchKeyRoot=actCoreSearchKey, coreNavigateRoot=actCoreNavigate, corePickRoot=actCorePick, settingsCommand=actSettingsCommand, resizeSidebar=actResizeSidebar, finishResize=finishResize, resetSidebarWidth=actResetSidebarWidth)
+        ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=actThemeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=actCoreThemeDialog("", ""), commit=actCoreChange, live=coreThemeLive, save=actCoreThemeChange("theme-editor-save", ""), outsideFocus=outsideFocus)
+        WelcomeLayer(welcome=welcome, viewport=viewport, scheme=scheme, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=actWelcomeGo, welcomeImport=actWelcomeImport, welcomeEditLink=actWelcomeEditLink, welcomePair=actWelcomePair, welcomeTogglePair=actWelcomeTogglePair, prCopy=actPrCopy, welcomeSetup=actWelcomeSetup, providerUi=providerUi, welcomeFinish=actWelcomeFinish, providerOp=actProviderOp, setupBusy=providerAuthPending)
+        ShortcutDispatch(items=shortcuts, selectThread=actSelectThread, newThread=actNewThread, chatNew=actSidebarNewThread, deviceSetting=actDeviceSetting, toggleDiff=panelUi("toggle", ""), details=detailsAct, openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=actPrClose, stop=actCommand("stop", "", "", 0), openOptions=actOpenOptions, selectProvider=actSelectProvider, selectModel=actSelectModel, back=closeModal, copyThread=actRestLocal, palette=actPaletteShow, run=actPaletteRun, command=actCommand, settings=actOpenSettings, copy=actPrCopy, confirm=titleMenuPick)
+        ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, restOpen=restOpen, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, scheme=scheme, sbSet=actSbSet, taskBase=actRestTaskBase, cardScripts=(details.scripts.length > 0))
+        SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=actSidebarLocal, run=actSidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=overlayDragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=actResizeSidebar, finishResize=finishResize, resetWidth=actResetSidebarWidth, hoverCard=sidebarHover, covered=rootUi.paletteSession.open)
+        SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, snapshotSetupFrom=snapshotSetupFrom, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=actSettingsCommand("setting-snapshot"), recordSnapshotShortcut=actSettingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=actSettingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, scheme=scheme, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=actConnectionOp, sbSet=actSbSet, closeConnection=closeConnection, providerDialog=rootUi.providerWizardState.dialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=rootUi.providerWizardState.step, wizardAttempted=wizardAttempted, wizardLabelSet=rootUi.providerWizardState.labelSet, wizardLabel=rootUi.providerWizardState.label, wizardIdSet=rootUi.providerWizardState.idSet, wizardId=rootUi.providerWizardState.id, acpQuery=rootUi.providerWizardState.acpQuery, wizardManual=rootUi.providerWizardState.manual, providerUi=providerUi, providerAdd=providerAdd, providerOp=actProviderOp, providerPage=providerPage, providerTarget=rootUi.providerWizardState.target, setupBusy=providerAuthPending, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel, localCommand=actSettingsCommand)
+        WindowOverlays(modelsOpen=rootUi.composerMenu.modelsOpen, data=data, popoverSession=rootUi.composerMenu.popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=rootUi.composerMenu.modelQuery, modelTarget=rootUi.composerMenu.modelTarget, composerLeft=composerLeft, resting=resting, commandPending=commandPending, lineageStopping=lineageStopping, closeModels=actCloseModels, selectModel=actSelectModel, searchModels=actSearchModels, selectProvider=actSelectProvider, openProviderSettings=actOpenProviderSettings, command=actCommand, paletteOpen=rootUi.paletteSession.open, palette=palette, paletteQuery=rootUi.paletteSession.query, paletteHighlight=paletteHighlight, paletteScroll=rootUi.paletteSession.scroll, paletteBusy=rootUi.paletteSession.busy, paletteEdit=actPaletteEdit, paletteKey=actPaletteKey, paletteRun=actPaletteRun, paletteHover=actPaletteHover, paletteClose=actPaletteClose, paletteFlag=actPaletteFlag, paletteRestore=rootUi.paletteSession.restore, details=details, detailsSheet=detailsSheet, detailsDensity=canvas.density, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=actAnswerRevert, attachmentUrls=attachmentUrls, chatLocal=actChatLocal, confirmOp=rootUi.confirmationState.op, confirmTitle=rootUi.confirmationState.title, confirmBody=rootUi.confirmationState.body, confirmDestructive=rootUi.confirmationState.destructive, confirmUi=actConfirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=actToastAct, prDetail=prDetail, prAct=prAct, filesDocuments=filesMarkdown.documents)
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
         if chipShown and chip.kind != "citation"
           ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
@@ -1020,25 +1444,25 @@ component T3Window
           CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)
         // The window's hover layer (hover-layer.contract), above every page and panel, below the SSH prompt.
         // The Usage page draws its own segment card in its scroll content (pages-usage.contract).
-        if hoverShown and hoverTip.kind != "usage"
-          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)
-            if hoverTip.kind == "freshness"
-              PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
-            else if hoverTip.kind == "pr-preview"
-              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
-            else if hoverTip.kind == "pr-badge"
+        if hoverShown and rootUi.hoverState.tip.kind != "usage"
+          HoverLayer(tip=rootUi.hoverState.tip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=actHoverTipAt)
+            if rootUi.hoverState.tip.kind == "freshness"
+              PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=actHoverTipAt(rootUi.hoverState.tip, "card"), testId=rootUi.hoverState.tip.testId)
+            else if rootUi.hoverState.tip.kind == "pr-preview"
+              PrLinkPreviewCard(preview=prDetail.preview, href=rootUi.hoverState.tip.text)
+            else if rootUi.hoverState.tip.kind == "pr-badge"
               // Held to the larger room the layer can flip into, less its 4 pt offset.
-              StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)
-            else if hoverTip.kind == "workflow-member"
-              WorkflowMemberCard(tip=hoverTip)
-            else if hoverTip.kind == "scopes"
-              HoverScopes(tip=hoverTip)
-            else if hoverTip.kind == "code"
-              HoverCode(tip=hoverTip)
+              StripPrTipCard(tips=branches.prTips, maxHeight=(max(rootUi.hoverState.tip.y - 61, viewport.height - rootUi.hoverState.tip.y - rootUi.hoverState.tip.height - 9) - 4), testId=rootUi.hoverState.tip.testId, command=actCommand)
+            else if rootUi.hoverState.tip.kind == "workflow-member"
+              WorkflowMemberCard(tip=rootUi.hoverState.tip)
+            else if rootUi.hoverState.tip.kind == "scopes"
+              HoverScopes(tip=rootUi.hoverState.tip)
+            else if rootUi.hoverState.tip.kind == "code"
+              HoverCode(tip=rootUi.hoverState.tip)
             else
-              HoverText(tip=hoverTip)
+              HoverText(tip=rootUi.hoverState.tip)
       // Separate close/open layouts preserve replacement focus lineage without a child-owned timer.
       box aria-hidden=true resize=syncDocumentPermissionFocus position="absolute" left=0 top=0 width=documentPermissionFocusWidth height=1 opacity=0 pointer-events="none"
-      SshPasswordPrompt(prompt=sshPrompt, responding=sshResponding, answer=sshAnswer)
+      SshPasswordPrompt(prompt=sshPrompt, responding=rootUi.sshResponse.responding, answer=actSshAnswer)
       for document in activeDocumentPermissions key=`${document.key}:${document.permissionSerial}`
-        AppConfirm(title=document.permission.split("\n").slice(0, 1).join(""), body=document.permission.split("\n").slice(1).join("\n"), destructive=false, busy=false, confirmId=documentPermissionOwner, confirmLabel="Confirm", cancel=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:deny`), confirm=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:allow`))
+        AppConfirm(title=document.permission.split("\n").slice(0, 1).join(""), body=document.permission.split("\n").slice(1).join("\n"), destructive=false, busy=false, confirmId=documentPermissionOwner, confirmLabel="Confirm", cancel=actChatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:deny`), confirm=actChatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:allow`))

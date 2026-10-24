@@ -1,0 +1,900 @@
+use PickerTarget from "../composer/composer-shapes.contract"
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerMenuState, ConfirmationState from "./app-protocols.contract"
+use HoverState, KeybindingEditorState, PaletteSessionState from "./app-protocols.contract"
+use SettingsPageState from "./app-protocols.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use stepEditKeybinding from "./app-ui-dispatch-transitions.contract"
+use stepConfirmClose, stepDraftBeside, stepHoverHold from "./app-ui-navigation-transitions.contract"
+use stepOpenModels, stepOpenSettings from "./app-ui-navigation-transitions.contract"
+use stepPageTrailNote from "./app-ui-navigation-transitions.contract"
+use stepPaletteFocusBack, stepPaletteGo from "./app-ui-palette-transitions.contract"
+use stepRestRaw from "./app-ui-providers-transitions.contract"
+use PickerAnchor from "./app-ui-query-inputs.contract"
+use UiStart from "./app-ui-start.contract"
+use HoverTip, hoverDelay, hoverOpenDelay from "./hover-layer.contract"
+
+fn stepRecordKeybinding(
+  d: UiDecision,
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = transitionRecordKeybindingWrites1(
+  stepEditKeybinding(
+    d,
+    s,
+    previous,
+    commandName,
+    shortcut,
+    condition
+  ),
+  s,
+  previous,
+  commandName,
+  shortcut,
+  condition
+)
+
+fn transitionRecordKeybindingWrites1(
+  d: UiDecision,
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      recording=true
+    )
+  )
+)
+
+fn stepConfirmUi(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = transitionConfirmUiGuard1(
+  d,
+  s,
+  accept
+)
+
+fn transitionConfirmUiWrites3(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=accept ? s.confirmationState.value : `remove-snapshot-${s.confirmationState.target}`
+    ),
+    writeConfirmationState=true,
+    confirmationState=ConfirmationState(
+      d.root.confirmationState,
+      handing=accept ? "accept" : "cancel"
+    )
+  )
+)
+
+fn transitionConfirmUiGuard2(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = (
+  s.confirmationState.handing == ""
+  ? transitionConfirmUiWrites3(
+    d,
+    s,
+    accept
+  )
+  : d
+)
+
+fn transitionConfirmUiGuard1(
+  d: UiDecision,
+  s: UiStart,
+  accept: bool
+): UiDecision = (
+  s.confirmationState.op == "remove-snapshot" and s.confirmationState.value != ""
+  ? transitionConfirmUiGuard2(
+    d,
+    s,
+    accept
+  )
+  : stepConfirmClose(
+  d,
+  s,
+  accept
+)
+)
+
+fn stepHoverTipAt(
+  d: UiDecision,
+  s: UiStart,
+  tip: HoverTip,
+  part: string,
+  inside: bool
+): UiDecision = transitionHoverTipAtGuard1(
+  d,
+  s,
+  tip,
+  part,
+  inside
+)
+
+fn transitionHoverTipAtWrites2(
+  d: UiDecision,
+  s: UiStart,
+  tip: HoverTip,
+  part: string,
+  inside: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeHoverState=true,
+    hoverState=HoverState(
+      d.root.hoverState,
+      tip=tip,
+      on=part,
+      open=(tip.key == s.hoverState.tip.key and s.hoverShown ? s.hoverState.wait
+        : s.hoverState.wait + hoverOpenDelay(tip.kind))
+    )
+  )
+)
+
+fn transitionHoverTipAtWrites3(
+  d: UiDecision,
+  s: UiStart,
+  tip: HoverTip,
+  part: string,
+  inside: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeHoverState=true,
+    hoverState=HoverState(
+      d.root.hoverState,
+      on="",
+      until=(s.hoverShown ? s.hoverState.wait + hoverDelay(tip.kind) : s.hoverState.wait)
+    )
+  )
+)
+
+fn transitionHoverTipAtGuard1(
+  d: UiDecision,
+  s: UiStart,
+  tip: HoverTip,
+  part: string,
+  inside: bool
+): UiDecision = (
+  inside
+  ? stepHoverHold(
+    transitionHoverTipAtWrites2(
+      d,
+      s,
+      tip,
+      part,
+      inside
+    ),
+    s,
+    (tip.key == s.hoverState.tip.key and s.hoverShown ? s.hoverState.wait
+      : s.hoverState.wait + hoverOpenDelay(tip.kind))
+  )
+  : tip.key == s.hoverState.tip.key and s.hoverState.on == part
+  ? stepHoverHold(
+    transitionHoverTipAtWrites3(
+      d,
+      s,
+      tip,
+      part,
+      inside
+    ),
+    s,
+    (s.hoverShown ? s.hoverState.wait + hoverDelay(tip.kind) : s.hoverState.wait)
+  )
+  : d
+)
+
+// a project link replaces the whole scope (retainSettingsScope)
+fn stepManageProject(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  name: string,
+  path: string
+): UiDecision = transitionManageProjectWrites2(
+  stepOpenSettings(
+    transitionManageProjectWrites1(
+      d,
+      s,
+      id,
+      name,
+      path
+    ),
+    s
+  ),
+  s,
+  id,
+  name,
+  path
+)
+
+fn transitionManageProjectWrites1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  name: string,
+  path: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProjectsOpen=true,
+    projectsOpen=false
+  )
+)
+
+fn transitionManageProjectWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  name: string,
+  path: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsProjectId=true,
+    settingsProjectId=id,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route="projects"
+    )
+  )
+)
+
+fn stepNewThread(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionNewThreadGuard1(
+  d,
+  s
+)
+
+fn transitionNewThreadWrites3(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="new-thread",
+      p1="",
+      p2="",
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    ),
+    writeUtilityPage=true,
+    utilityPage="",
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionNewThreadWrites4(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProjectsOpen=true,
+    projectsOpen=true
+  )
+)
+
+fn transitionNewThreadGuard2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  s.data.projectId != ""
+  ? transitionNewThreadWrites3(
+    d,
+    s
+  )
+  : transitionNewThreadWrites4(
+  d,
+  s
+)
+)
+
+fn transitionNewThreadGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  s.commandPending and s.data.draftLaunching
+  ? stepDraftBeside(
+    d,
+    s
+  )
+  : not s.commandPending
+  ? transitionNewThreadGuard2(
+    d,
+    s
+  )
+  : d
+)
+
+// a press closes its tooltip (Base UI); the pressed footer button unmounts without a hover-out
+fn stepOpenPage(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = transitionOpenPageWrites1(
+  stepPageTrailNote(
+    d,
+    s,
+    name
+  ),
+  s,
+  name
+)
+
+fn transitionOpenPageWrites1(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeUtilityPage=true,
+    utilityPage=name,
+    writeSidebarHoverId=true,
+    sidebarHoverId=""
+  )
+)
+
+fn stepPickModel(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  context: string
+): UiDecision = transitionPickModelMatch1(
+  stepOpenModels(
+    d,
+    s
+  ),
+  s,
+  row,
+  context
+)
+
+fn transitionPickModelWrites2(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  context: string,
+  anchor: PickerAnchor
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelTarget=PickerTarget(id=`${row}:|${context}`, top=anchor.top, bottom=anchor.bottom,
+        left=anchor.left)
+    )
+  )
+)
+
+fn transitionPickModelMatch1(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  context: string
+): UiDecision = match s.pickerAnchor {
+  case some(anchor) => transitionPickModelWrites2(
+    d,
+    s,
+    row,
+    context,
+    anchor
+  ),
+  case none => d
+}
+
+// a General row's pick is that setting's write, never the thread's model
+fn stepSelectModel(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  provider: string,
+  additive: bool
+): UiDecision = transitionSelectModelGuard1(
+  d,
+  s,
+  id,
+  provider,
+  additive
+)
+
+fn transitionSelectModelWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  provider: string,
+  additive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="setting-task-model"
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelsOpen=false
+    )
+  ),
+  writeTaskModelPick=true,
+  taskModelPick=`${provider}:${id}`
+)
+
+fn transitionSelectModelWrites3(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  provider: string,
+  additive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=s.composerMenu.modelTarget.id.startsWith("review-guide-model:")
+        ? "setting-review-guide-model" : "setting-source-control-writer-model"
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelsOpen=false
+    )
+  )
+)
+
+fn transitionSelectModelWrites4(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  provider: string,
+  additive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal=s.composerMenu.modelTarget.id == "" ? "" : "settings",
+    changedKind="command",
+    command=CommandArgs(
+      p0=s.composerMenu.modelTarget.id == "" ? "model" : "settings-core",
+      p1=s.composerMenu.modelTarget.id == "" ? id : s.composerMenu.modelTarget.id,
+      p2=s.composerMenu.modelTarget.id == "" ? provider : `${provider}|${id}`,
+      p3=additive and s.composerMenu.modelTarget.id == "" ? 1 : 0
+    ),
+    hostFocus=true,
+    focus=TextArgs(
+      p0=additive and s.composerMenu.modelTarget.id == "" and s.catalog.multiple ? "model-search"
+        : (s.composerMenu.modelTarget.id == "" ? "composer"
+        : `setting-${s.composerMenu.modelTarget.id.slice(0, s.composerMenu.modelTarget.id.indexOf(":"))}`)
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelsOpen=additive and s.composerMenu.modelTarget.id == "" and s.catalog.multiple
+    )
+  )
+)
+
+fn transitionSelectModelGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  provider: string,
+  additive: bool
+): UiDecision = (
+  id != "" and s.composerMenu.modelTarget.id.startsWith("task-model:")
+  ? transitionSelectModelWrites2(
+    d,
+    s,
+    id,
+    provider,
+    additive
+  )
+  : id != "" and (s.composerMenu.modelTarget.id.startsWith("source-control-writer-model:")
+    or s.composerMenu.modelTarget.id.startsWith("review-guide-model:"))
+  ? stepRestRaw(
+    transitionSelectModelWrites3(
+      d,
+      s,
+      id,
+      provider,
+      additive
+    ),
+    s,
+    "rest:scoped",
+    s.composerMenu.modelTarget.id.slice(s.composerMenu.modelTarget.id.indexOf(":|") + 2,
+      s.composerMenu.modelTarget.id.length),
+    `key=${s.composerMenu.modelTarget.id.startsWith("review-guide-model:") ? "reviewGuideModelSelection" : "sourceControlWriterModelSelection"}&value=${encodeURIComponent(`${provider}:${id}`)}`
+  )
+  : not s.commandPending and id != ""
+  ? transitionSelectModelWrites4(
+    d,
+    s,
+    id,
+    provider,
+    additive
+  )
+  : d
+)
+
+fn stepPaletteClose(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionPaletteCloseGuard1(
+  d,
+  s
+)
+
+fn transitionPaletteCloseWrites2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="palette-input"
+    ),
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      mode="command",
+      page="",
+      query=s.paletteSession.returnQuery,
+      returnQuery="",
+      trailPages=[],
+      trailQueries=[],
+      cursor=-1,
+      scroll=0
+    )
+  )
+)
+
+fn transitionPaletteCloseWrites3(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      open=false
+    )
+  )
+)
+
+fn transitionPaletteCloseGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  s.paletteSession.mode != "command"
+  ? transitionPaletteCloseWrites2(
+    d,
+    s
+  )
+  : stepPaletteFocusBack(
+  transitionPaletteCloseWrites3(
+    d,
+    s
+  ),
+  s,
+  s.paletteSession.page
+)
+)
+
+fn stepPaletteEdit(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionPaletteEditGuard2(
+  transitionPaletteEditWrites1(
+    d,
+    s,
+    value
+  ),
+  s,
+  value
+)
+
+fn transitionPaletteEditWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      cursor=s.paletteSession.mode == "content" ? -1 : -2,
+      scroll=0
+    )
+  )
+)
+
+fn transitionPaletteEditWrites3(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      query=value
+    )
+  )
+)
+
+fn transitionPaletteEditGuard2(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = (
+  value == "" and s.palette.popOnEmpty
+  ? stepPaletteGo(
+    d,
+    s,
+    s.palette.parent,
+    "",
+    true
+  )
+  : transitionPaletteEditWrites3(
+  d,
+  s,
+  value
+)
+)
+
+fn stepPaletteKey(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = transitionPaletteKeyGuard9(
+  transitionPaletteKeyGuard5(
+    transitionPaletteKeyGuard1(
+      d,
+      s,
+      name
+    ),
+    s,
+    name
+  ),
+  s,
+  name
+)
+
+fn transitionPaletteKeyWrites2(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      cursor=((s.paletteHighlight < 0 or s.paletteHighlight + 1 >= s.palette.count) ? 0
+        : s.paletteHighlight + 1)
+    )
+  )
+)
+
+fn transitionPaletteKeyWrites4(
+  d: UiDecision,
+  s: UiStart,
+  name: string,
+  r: PaletteRow
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      scroll=((s.paletteHighlight < 0 or s.paletteHighlight + 1 >= s.palette.count) ? 0
+        : s.paletteHighlight + 1) == 0 ? 0 : max(s.paletteSession.scroll,
+        r.top + r.height + 24 - s.paletteListHeight)
+    )
+  )
+)
+
+fn transitionPaletteKeyMatch3(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = match first(s.palette.rows.filter((r) => r.index == ((s.paletteHighlight < 0
+  or s.paletteHighlight + 1 >= s.palette.count) ? 0 : s.paletteHighlight + 1))) {
+  case some(r) => transitionPaletteKeyWrites4(
+    d,
+    s,
+    name,
+    r
+  ),
+  case none => d
+}
+
+fn transitionPaletteKeyGuard1(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = (
+  name == "ArrowDown" and s.palette.count > 0
+  ? transitionPaletteKeyMatch3(
+    transitionPaletteKeyWrites2(
+      d,
+      s,
+      name
+    ),
+    s,
+    name
+  )
+  : d
+)
+
+fn transitionPaletteKeyWrites6(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      cursor=(s.paletteHighlight <= 0 ? s.palette.count - 1 : s.paletteHighlight - 1)
+    )
+  )
+)
+
+fn transitionPaletteKeyWrites8(
+  d: UiDecision,
+  s: UiStart,
+  name: string,
+  r: PaletteRow
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      scroll=s.paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - s.paletteListHeight)
+        : min(s.paletteSession.scroll, max(0, r.top - 24))
+    )
+  )
+)
+
+fn transitionPaletteKeyMatch7(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = match first(s.palette.rows.filter((r) => r.index == (s.paletteHighlight <= 0
+  ? s.palette.count - 1 : s.paletteHighlight - 1))) {
+  case some(r) => transitionPaletteKeyWrites8(
+    d,
+    s,
+    name,
+    r
+  ),
+  case none => d
+}
+
+fn transitionPaletteKeyGuard5(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = (
+  name == "ArrowUp" and s.palette.count > 0
+  ? transitionPaletteKeyMatch7(
+    transitionPaletteKeyWrites6(
+      d,
+      s,
+      name
+    ),
+    s,
+    name
+  )
+  : d
+)
+
+fn transitionPaletteKeyWrites10(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="palette-input"
+    ),
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      cursor=s.paletteSession.cursor >= 0 ? -1 : -2,
+      scroll=0
+    )
+  )
+)
+
+fn transitionPaletteKeyGuard9(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = (
+  (name == "Back" or (name == "Backspace" and s.paletteSession.query == "")) and s.palette.back
+  ? transitionPaletteKeyWrites10(
+    stepPaletteGo(
+      d,
+      s,
+      s.palette.parent,
+      "",
+      true
+    ),
+    s,
+    name
+  )
+  : d
+)

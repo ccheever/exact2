@@ -1,0 +1,486 @@
+use ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldAcknowledgement, ComposerFieldCommand from "../composer/composer-rich.contract"
+use HoverTip, noHoverTip from "./hover-layer.contract"
+use promptPreviewSample from "../appearance/settings-prompt-preview.contract"
+use ShortcutModifierState from "./shortcut-modifiers.contract"
+use KeybindingDraft from "../settings/settings-keybindings.contract"
+use PickerTarget from "../composer/composer-shapes.contract"
+
+shape ComposerIntentState
+  serial: number
+  queue: ComposerIntentMetadata[]
+  active: number
+  phase: string
+  mode: string
+  notice: string
+  observed: ComposerFieldObservation
+  expected: string
+  start: number
+  end: number
+  inputStart: number
+  inputEnd: number
+  preserves: bool
+  caretSeen: bool
+
+fn initialComposerIntentState(): ComposerIntentState = ComposerIntentState(
+  serial=0,
+  queue=[],
+  active=0,
+  phase="",
+  mode="",
+  notice="",
+  observed=ComposerFieldObservation(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, composing=false, live=false, focused=false, inputSerial=0),
+  expected="",
+  start=0,
+  end=0,
+  inputStart=0,
+  inputEnd=0,
+  preserves=false,
+  caretSeen=false
+)
+
+shape ComposerFieldProtocol
+  inputSerial: number
+  after: number
+  acked: number
+  effects: number
+  focusDone: number
+  focus: ComposerFieldAcknowledgement
+  admitted: bool
+  target: ComposerFieldCommand
+
+fn initialComposerFieldProtocol(): ComposerFieldProtocol = ComposerFieldProtocol(
+  inputSerial=0,
+  after=0,
+  acked=0,
+  effects=0,
+  focusDone=0,
+  focus=ComposerFieldAcknowledgement(applied=false, reason="", value="", start=0, end=0, generation=-1, snapshotOwner="", owner="", seq=0, then="", send=false, focus="", removedImage="", inputSerial=-1),
+  admitted=false,
+  target=ComposerFieldCommand(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, text="", selectionStart=0, selectionEnd=0, focus=false, then="", seq=0, ready=false, history=0, citation=0, completion=0)
+)
+
+shape ComposerSelectionState
+  owner: string
+  value: string
+  start: number
+  end: number
+
+fn initialComposerSelectionState(): ComposerSelectionState = ComposerSelectionState(
+  owner="",
+  value="",
+  start=0,
+  end=0
+)
+
+shape PromptPreviewState
+  text: string
+  inputType: string
+  serial: number
+  composing: bool
+  start: number
+  end: number
+
+fn initialPromptPreviewState(): PromptPreviewState = PromptPreviewState(
+  text=promptPreviewSample(),
+  inputType="",
+  serial=0,
+  composing=false,
+  start=0,
+  end=0
+)
+
+// The pages left for a deeper one, outermost first, with the query each had: going back restores it
+// (CommandPalette.logic.ts reduceCommandPaletteSearchState). The file picker and content search opened from the
+// command list keep its query for Escape (OpenChildSearch, BackToCommand).
+// The closing palette returns the focus it took (PaletteFinalFocus): no composer is shown to take it.
+shape PaletteSessionState
+  open: bool
+  mode: string
+  page: string
+  query: string
+  cursor: number
+  scroll: number
+  caseSensitive: bool
+  wholeWord: bool
+  regex: bool
+  busy: bool
+  trailPages: string[]
+  trailQueries: string[]
+  returnQuery: string
+  restore: bool
+
+fn initialPaletteSessionState(): PaletteSessionState = PaletteSessionState(
+  open=false,
+  mode="command",
+  page="",
+  query="",
+  cursor=-1,
+  scroll=0,
+  caseSensitive=false,
+  wholeWord=false,
+  regex=false,
+  busy=false,
+  trailPages=[],
+  trailQueries=[],
+  returnQuery="",
+  restore=false
+)
+
+shape ProviderWizardState
+  dialog: string
+  serial: number
+  created: string
+  target: string
+  driver: string
+  label: string
+  labelSet: bool
+  id: string
+  idSet: bool
+  step: number
+  manual: bool
+  acpQuery: string
+
+fn initialProviderWizardState(): ProviderWizardState = ProviderWizardState(
+  dialog="",
+  serial=0,
+  created="",
+  target="",
+  driver="codex",
+  label="",
+  labelSet=false,
+  id="",
+  idSet=false,
+  step=0,
+  manual=false,
+  acpQuery=""
+)
+
+// A removal asked from a focused Remove gives the focus away first, to that Remove on Cancel or to where the
+// removal leaves it on Confirm, and the dialog goes after the 200 ms its popup takes to leave (Base UI's finalFocus
+// runs as the dialog closes; dialog-styles.ts' duration-200 exit keeps it mounted meanwhile). VoiceOver, after a
+// VO-Space destroyed the button its cursor was on with the focus still there, took the cursor and the focus to the
+// window's first element instead of following the focus given back after the dialog had gone.
+shape ConfirmationState
+  title: string
+  body: string
+  destructive: bool
+  op: string
+  target: string
+  returnTo: string // the element a terminal close confirm opened from gives the focus back on Cancel (Base UI's finalFocus)
+  value: string
+  handing: string
+
+fn initialConfirmationState(): ConfirmationState = ConfirmationState(
+  title="",
+  body="",
+  destructive=false,
+  op="",
+  target="",
+  returnTo="",
+  value="",
+  handing=""
+)
+
+// AssistantCitationSource: View source brings the cited answer's text to min(120pt, a third of the transcript) under
+// its top (the answer's column, `cite-<row>`, has 2pt of padding above it). A row the list has not built is approached
+// by its key first; each later pass places the built answer again until it holds (rows measured as they mount move
+// it), the scroll cannot take it further, or 40 passes have run. The first placement is smooth unless reduced motion
+// asks otherwise, and the next pass waits for it. The reader's wheel or a minimap jump ends it.
+shape CitationPlacementState
+  key: string
+  nonce: number
+  done: number
+  tries: number
+  smooth: bool
+  miss: number
+
+fn initialCitationPlacementState(): CitationPlacementState = CitationPlacementState(
+  key="",
+  nonce=0,
+  done=0,
+  tries=0,
+  smooth=false,
+  miss=0
+)
+
+shape FindPlacementState
+  tries: number
+  placing: bool
+  miss: number
+
+fn initialFindPlacementState(): FindPlacementState = FindPlacementState(
+  tries=0,
+  placing=false,
+  miss=1000000
+)
+
+shape HoverState
+  wait: number // the hover clock (hover-layer.contract): +10 each 10 ms while a hover card's close delay runs (to hoverEnd), and on a surface change, which ends a tooltip or card whose trigger went with no leave
+  end: number
+  tip: HoverTip // Root ownership avoids T3Window captures; surface changes and removed owners dismiss.
+  on: string
+  open: number
+  until: number
+
+fn initialHoverState(): HoverState = HoverState(
+  wait=0,
+  end=0,
+  tip=noHoverTip(),
+  on="",
+  open=0,
+  until=0
+)
+
+shape WorkspaceRetryState
+  key: string
+  at: number
+  wake: number // ChatComposer: without a pending snapshot, only a change after the cooldown retries.
+
+fn initialWorkspaceRetryState(): WorkspaceRetryState = WorkspaceRetryState(
+  key="",
+  at=0,
+  wake=0
+)
+
+shape StreamGeometryState
+  width: number
+  height: number
+  followSize: bool
+
+fn initialStreamGeometryState(): StreamGeometryState = StreamGeometryState(
+  width=0,
+  height=0,
+  followSize=false
+)
+
+// useShortcutModifierState(): the modifiers held, for the sidebar's thread-jump hints; and
+// useShortcutModifierState(true): the Pull Requests route's, which a key or a focus at a field empties
+// (shortcut-modifiers.contract). T3Window's
+// `keycapture` and `keyup` hear every key. Losing the window's focus forgets both, since a key let go while
+// another app has the focus sends no keyup.
+// showThreadUndoNotice's claim: each new notice owns the undo chord even in the composer, until another key or an
+// edit releases it (modifierKey, write); a collapsed sidebar shows no notice, so the composer keeps its own undo.
+shape ModifierOwnershipState
+  shortcut: ShortcutModifierState
+  speed: ShortcutModifierState
+  undoReleasedUntil: number
+  undoHeldKey: string
+
+fn initialModifierOwnershipState(): ModifierOwnershipState = ModifierOwnershipState(
+  shortcut=ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false),
+  speed=ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false),
+  undoReleasedUntil=0,
+  undoHeldKey=""
+)
+
+shape SshResponseState
+  now: number
+  responding: bool
+  returnToConnect: bool
+
+fn initialSshResponseState(): SshResponseState = SshResponseState(
+  now=0,
+  responding=false,
+  returnToConnect=false
+)
+
+shape NoticeExitState
+  notice: string
+  op: string
+  target: string
+  serial: number
+
+fn initialNoticeExitState(): NoticeExitState = NoticeExitState(
+  notice="",
+  op="",
+  target="",
+  serial=0
+)
+
+// The transcript's viewport, read from its own scroll, wheel and keys, never estimated from message lengths: whether
+// it is at its end, whether the composer rests (Settings' "Collapse composer on scroll": only a reader's movement of
+// 24pt away from the end within 0.8 s of their wheel or key, with the geometry still, rests it; layout changes,
+// history arriving and the follow of the end do not), and the pulls toward the end made while already there, which
+// let a grown composer's reservation through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts).
+shape TranscriptViewportState
+  owner: string
+  resting: bool
+  atEnd: bool
+  pulls: number
+  findViewport: string
+
+fn initialTranscriptViewportState(): TranscriptViewportState = TranscriptViewportState(
+  owner="",
+  resting=false,
+  atEnd=true,
+  pulls=0,
+  findViewport=""
+)
+
+
+// The unsaved drafts of the rows not being edited, and the row a keybinding write is for ("" for none).
+// Editing another row holds this row's draft (KeybindingsSettings.tsx: one editor per row) and takes up that row's,
+// which its caller passes as the row shows it.
+// The New keybinding row's command picker: that row's draft, taken up first when another row is being edited.
+shape KeybindingEditorState
+  command: string
+  drafts: KeybindingDraft[]
+  previous: string
+  key: string
+  open: bool
+  recording: bool
+  saving: string
+
+fn initialKeybindingEditorState(): KeybindingEditorState = KeybindingEditorState(
+  command="",
+  drafts=[],
+  previous="",
+  key="",
+  open=false,
+  recording=false,
+  saving=""
+)
+
+shape ComposerMenuState
+  browseProvider: string
+  modelQuery: string
+  modelTarget: PickerTarget // a General model row's picker
+  modelsOpen: bool
+  optionsOpen: string
+  popoverSession: number
+
+fn initialComposerMenuState(): ComposerMenuState = ComposerMenuState(
+  browseProvider="",
+  modelQuery="",
+  modelTarget=PickerTarget(id="", top=0, bottom=0, left=0),
+  modelsOpen=false,
+  optionsOpen="",
+  popoverSession=0
+)
+
+
+shape ComposerDraftState
+  value: string
+  owner: string
+  inputType: string
+  composing: bool
+  focused: bool
+  typing: bool
+  typingSerial: number
+
+fn initialComposerDraftState(): ComposerDraftState = ComposerDraftState(
+  value="",
+  owner="__unset__",
+  inputType="",
+  composing=false,
+  focused=false,
+  typing=false,
+  typingSerial=0
+)
+
+shape SettingsPageState
+  open: bool
+  route: string
+  query: string
+  resultIndex: number
+  refresh: number
+  restores: number
+  scrollPage: string
+  scrollTop: number // settings search jump: the reveal offset (settings-a)
+  focusTarget: string
+
+fn initialSettingsPageState(): SettingsPageState = SettingsPageState(
+  open=false,
+  route="general",
+  query="",
+  resultIndex=0,
+  refresh=0,
+  restores=0,
+  scrollPage="",
+  scrollTop=0,
+  focusTarget=""
+)
+
+shape UiRootInputs
+  composerDraft: ComposerDraftState
+  composerFieldLive: bool
+  composerMenu: ComposerMenuState
+  composerIntentBaseCurrent: bool
+  composerIntentContextCurrent: bool
+  composerIntentReceiptCurrent: bool
+  composerRichCurrent: bool
+  composerSelection: ComposerSelectionState
+  composerSelectionCurrent: bool
+  confirmationState: ConfirmationState
+  detailsEpoch: number
+  detailsOpen: bool
+  detailsPopover: bool
+  fieldProtocol: ComposerFieldProtocol
+  hoverState: HoverState
+  importWizardFocused: string
+  intentState: ComposerIntentState
+  keybindingEditor: KeybindingEditorState
+  lineagePhasesClosed: string[]
+  lineagePhasesOpen: string[]
+  lineageWorkflows: string[]
+  modifierOwnership: ModifierOwnershipState
+  noticeExitState: NoticeExitState
+  pageTrail: string[]
+  paletteSession: PaletteSessionState
+  previewState: PromptPreviewState
+  promptPreviewVisible: bool
+  providerLinkTarget: string
+  providerSelected: string
+  providerWizardState: ProviderWizardState
+  rightPanelAt: string
+  routeKeyboardReady: bool
+  settingsCheckout: string
+  settingsMachine: string
+  settingsProjectKey: string
+  settingsPageState: SettingsPageState
+  sshResponse: SshResponseState
+  streamGeometry: StreamGeometryState
+  toastDismissed: string
+  transcriptViewport: TranscriptViewportState
+
+fn resetPromptPreviewState(before: PromptPreviewState, text: string): PromptPreviewState = (
+  PromptPreviewState(
+    before,
+    text=text,
+    inputType="",
+    composing=false,
+    start=0,
+    end=0,
+    serial=before.serial + 1
+  )
+)
+
+fn recordComposerFieldAdmission(
+  before: ComposerFieldProtocol,
+  item: ComposerFieldCommand,
+  admitted: bool
+): ComposerFieldProtocol = ComposerFieldProtocol(
+  before,
+  after=item.seq,
+  target=item,
+  admitted=admitted
+)
+
+fn advanceCitationPlacement(
+  before: CitationPlacementState,
+  miss: number,
+  smooth: bool
+): CitationPlacementState = CitationPlacementState(
+  smooth ? CitationPlacementState(before, smooth=true) : before,
+  miss=miss,
+  tries=before.tries + 1
+)
+
+fn advanceFindPlacement(
+  before: FindPlacementState,
+  miss: number
+): FindPlacementState = FindPlacementState(
+  before,
+  miss=miss,
+  tries=before.tries + 1
+)

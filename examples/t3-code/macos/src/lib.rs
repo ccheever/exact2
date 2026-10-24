@@ -33,3 +33,21 @@ mod timeline_hooks_tests;
 
 #[cfg(test)]
 mod contract_keys_tests;
+
+#[cfg(test)]
+mod app_extraction_tests;
+
+#[cfg(test)]
+mod app_extraction_composer_tests;
+
+#[cfg(test)]
+mod app_extraction_composer_intent_tests;
+
+#[cfg(test)]
+mod app_extraction_composer_identity_tests;
+
+#[cfg(test)]
+mod app_extraction_composer_range_tests;
+
+#[cfg(test)]
+mod app_extraction_document_tests;

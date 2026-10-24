@@ -1,0 +1,147 @@
+use AppDecision, CommandArgs, TextArgs, ThreadFindArgs from "./app-decisions.contract"
+use CitationPlacementState, FindPlacementState from "./app-protocols.contract"
+use TranscriptViewportState, ComposerDraftState from "./app-protocols.contract"
+use Time from "./app-shapes.contract"
+use ShellView from "./shell-shapes.contract"
+use Snapshot from "../shared/shapes.contract"
+use ThreadFindView from "../timeline/thread-find.contract"
+use ComposerRichView from "../composer/composer-rich.contract"
+
+fn completeAnnotationSendNow(
+  d: AppDecision,
+  commandPending: bool,
+  composerComposing: bool,
+  composerText: string,
+  data: Snapshot,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string,
+  shell: ShellView
+): AppDecision = annotationSendResult(
+  AppDecision(
+    d,
+    writeAnnotationSendHandled=true,
+    annotationSendHandled=shell.panel.annotationSend
+  ),
+  commandPending,
+  composerComposing,
+  composerText,
+  data,
+  jumpRequest,
+  richComposer,
+  richComposerOwner,
+  shell
+)
+
+fn annotationSendResult(
+  d: AppDecision,
+  commandPending: bool,
+  composerComposing: bool,
+  composerText: string,
+  data: Snapshot,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string,
+  shell: ShellView
+): AppDecision = (
+  commandPending or not data.canSend or data.requestMode == "question"
+    ? AppDecision(
+      d,
+      sendLocalChanged=true,
+      local=CommandArgs(p0="chatlocal:surface-browser-annotation-held", p1="", p2="", p3=0)
+    )
+    : shell.panel.annotationOwner == richComposerOwner and
+        shell.panel.annotationSnapshot == data.snapshotOwner and
+        shell.panel.annotationGeneration == richComposer.generation and
+        shell.panel.annotationValue == composerText and not composerComposing
+        ? AppDecision(
+          d,
+          writeCommandPending=true,
+          commandPending=true,
+          changedKind="command",
+          command=CommandArgs(
+            p0="send-annotation",
+            p1=`${shell.panel.annotationSend}`,
+            p2="",
+            p3=0
+          ),
+          writeComposerDraft=true,
+          composerDraft=ComposerDraftState(d.composerDraft, typing=false, owner="__unset__"),
+          writeJumpRequest=true,
+          jumpRequest=jumpRequest + 1
+        )
+        : d
+)
+
+fn completeCiteBegin(d: AppDecision, data: Snapshot): AppDecision = AppDecision(
+  d,
+  writeCitationPlacement=true,
+  citationPlacement=CitationPlacementState(
+    d.citationPlacement,
+    key=data.citeJump.key,
+    nonce=data.citeJump.nonce,
+    tries=0,
+    smooth=false,
+    miss=1000000
+  )
+)
+
+fn completeFindBegin(
+  d: AppDecision,
+  citationPlacement: CitationPlacementState,
+  threadFind: ThreadFindView
+): AppDecision = AppDecision(
+  d,
+  writeCitationPlacement=true,
+  citationPlacement=CitationPlacementState(d.citationPlacement, done=citationPlacement.nonce),
+  writeFindPlacement=true,
+  findPlacement=FindPlacementState(d.findPlacement, tries=0, miss=1000000, placing=true),
+  scrollKind="transcript",
+  scrollRow=threadFind.entry,
+  scrollOffset=-96
+)
+
+fn completeMaintainThreadFindTick(
+  d: AppDecision,
+  data: Snapshot,
+  pendingThreadFindMaintained: bool,
+  transcriptViewport: TranscriptViewportState,
+  wallTime: Time
+): AppDecision = (
+  not pendingThreadFindMaintained
+    ? AppDecision(
+      d,
+      sendThreadFindMaintained=true,
+      find=ThreadFindArgs(
+        p0=data.revision,
+        p1=wallTime.epochAtZero + performanceNow(),
+        p2=data.markdownSkills,
+        p3=transcriptViewport.findViewport
+      )
+    )
+    : d
+)
+
+fn completeDiffFindFocusField(d: AppDecision): AppDecision = AppDecision(
+  d,
+  hostFocus=true,
+  focus=TextArgs(p0="diff-find-query"),
+  hostSelectText=true,
+  selectText=TextArgs(p0="diff-find-query")
+)
+
+fn completePrFindFocusField(d: AppDecision): AppDecision = AppDecision(
+  d,
+  hostFocus=true,
+  focus=TextArgs(p0="pr-code-find-query"),
+  hostSelectText=true,
+  selectText=TextArgs(p0="pr-code-find-query")
+)
+
+fn completeThreadFindFocusField(d: AppDecision): AppDecision = AppDecision(
+  d,
+  hostFocus=true,
+  focus=TextArgs(p0="thread-find-query"),
+  hostSelectText=true,
+  selectText=TextArgs(p0="thread-find-query")
+)

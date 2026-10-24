@@ -14,7 +14,54 @@ use exact_runner::{Event, Runner, Value};
 
 const EPOCH: f64 = 1_791_446_400_000.0;
 
-fn empty(plan: &Plan, ty: TypesId) -> Value {
+/// Ordinary runs exercise the baked plan. Differential runs require both complete artifacts.
+pub(super) fn extraction_plans() -> impl Iterator<Item = (&'static [u8], bool)> {
+    static PLANS: std::sync::OnceLock<(Option<Vec<u8>>, Vec<u8>)> = std::sync::OnceLock::new();
+    let (original, selected) = PLANS.get_or_init(|| {
+        let pair = (
+            std::env::var_os("EXACT_T3_EXTRACTION_ORIGINAL_PLAN"),
+            std::env::var_os("EXACT_T3_EXTRACTION_SELECTED_PLAN"),
+        );
+        let read = |path: std::ffi::OsString| {
+            let bytes = std::fs::read(&path).expect("read the supplied extraction plan");
+            Plan::decode(&bytes).expect("a valid complete extraction plan");
+            bytes
+        };
+        match pair {
+            (None, None) => (None, PLAN.to_vec()),
+            (Some(original), Some(selected)) => (Some(read(original)), read(selected)),
+            _ => panic!("differential extraction tests require both plan paths"),
+        }
+    });
+    original
+        .as_deref()
+        .map(|bytes| (bytes, true))
+        .into_iter()
+        .chain(std::iter::once((selected.as_slice(), false)))
+}
+
+pub(super) fn slot_field<'a, D: exact_runner::DataSource>(
+    runner: &'a Runner<D>,
+    slot: &str,
+    name: &str,
+) -> Option<&'a Value> {
+    let plan = runner.plan();
+    let row = plan
+        .slots
+        .iter()
+        .find(|row| row.owner.is_none() && plan.str(row.name) == slot)?;
+    let index = plan.field_index(row.ty, name)?;
+    let Value::Record(fields) = runner.slot(slot)? else {
+        panic!("record slot {slot}")
+    };
+    fields.get(index)
+}
+
+pub(super) fn grip(environment: &str, route: &str) -> String {
+    format!("environment-route-grip-{environment}-{route}")
+}
+
+pub(super) fn empty(plan: &Plan, ty: TypesId) -> Value {
     match plan.type_(ty).kind {
         TypeKind::Number => Value::Number(0.0),
         TypeKind::Bool => Value::Bool(false),
@@ -333,17 +380,20 @@ fn the_keybinding_recorder_captures_the_layout_character_and_escape_restores() {
             .collect::<Vec<_>>()
     };
     assert_eq!(names(runner), ["preventDefault", "stopPropagation"]);
-    assert_eq!(runner.slot("keybindingRecording"), Some(&Value::Bool(true)));
+    assert_eq!(
+        slot_field(runner, "keybindingEditor", "recording"),
+        Some(&Value::Bool(true))
+    );
     // Settings records the layout's character: Korean 2-Set's ㅠ at KeyB with ⌘⇧ stays ㅠ.
     runner
         .dispatch(recorder, keydown("ㅠ", "KeyB", "Meta+Shift+"))
         .unwrap();
     assert_eq!(
-        runner.slot("keybindingKey"),
+        slot_field(runner, "keybindingEditor", "key"),
         Some(&Value::str("mod+shift+ㅠ"))
     );
     assert_eq!(
-        runner.slot("keybindingRecording"),
+        slot_field(runner, "keybindingEditor", "recording"),
         Some(&Value::Bool(false))
     );
     names(runner);
@@ -363,12 +413,18 @@ fn the_keybinding_recorder_captures_the_layout_character_and_escape_restores() {
         ["preventDefault", "stopPropagation"],
         "no ancestor hears that Escape"
     );
-    assert_eq!(runner.slot("keybindingKey"), Some(&Value::str("")));
     assert_eq!(
-        runner.slot("keybindingRecording"),
+        slot_field(runner, "keybindingEditor", "key"),
+        Some(&Value::str(""))
+    );
+    assert_eq!(
+        slot_field(runner, "keybindingEditor", "recording"),
         Some(&Value::Bool(false))
     );
-    assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
+    assert_eq!(
+        slot_field(runner, "settingsPageState", "open"),
+        Some(&Value::Bool(true))
+    );
     // The new row's field (NewKeybindingKeyInput) stays a text field, "Unassigned", once the focus leaves it.
     let recorder = node(runner, "keybinding-recorder-new")
         .expect("the unassigned row's field still has the focus");
@@ -437,14 +493,20 @@ fn the_new_keybinding_row_is_a_text_field_that_records_once_it_has_the_focus() {
         Some("Unassigned")
     );
     assert_eq!(
-        runner.slot("keybindingRecording"),
+        slot_field(runner, "keybindingEditor", "recording"),
         Some(&Value::Bool(false))
     );
     assert!(!modal(runner, "keybinding-capture-new"));
     // Its onFocus starts recording (a click or Tab): the recorder takes its place, focused (autofocus) and modal.
     focusin(runner, "keybinding-capture-new", "keybinding-field-new");
-    assert_eq!(runner.slot("keybindingRecording"), Some(&Value::Bool(true)));
-    assert_eq!(runner.slot("keybindingPrevious"), Some(&Value::str("new")));
+    assert_eq!(
+        slot_field(runner, "keybindingEditor", "recording"),
+        Some(&Value::Bool(true))
+    );
+    assert_eq!(
+        slot_field(runner, "keybindingEditor", "previous"),
+        Some(&Value::str("new"))
+    );
     assert_eq!(
         prop(runner, "keybinding-recorder-new", "placeholder").as_deref(),
         Some("Press shortcut")
@@ -498,14 +560,299 @@ fn an_existing_bindings_field_mounts_recording_and_escape_gives_the_pill_back() 
         .props
         .iter()
         .any(|(prop, value)| prop.name() == "autofocus" && format!("{value:?}").contains("true")));
-    assert_eq!(runner.slot("keybindingRecording"), Some(&Value::Bool(true)));
+    assert_eq!(
+        slot_field(runner, "keybindingEditor", "recording"),
+        Some(&Value::Bool(true))
+    );
     // Escape restores ⌘N; the row is no longer dirty, so the pill comes back in the field's place, as the
     // reference's KeybindingKeyControl renders it (showPill), and Settings stays.
     runner
         .dispatch(field, keydown("Escape", "Escape", ""))
         .unwrap();
-    assert_eq!(runner.slot("keybindingKey"), Some(&Value::str("mod+n")));
+    assert_eq!(
+        slot_field(runner, "keybindingEditor", "key"),
+        Some(&Value::str("mod+n"))
+    );
     assert!(node(runner, "keybinding-recorder-chat-new").is_none());
     assert!(node(runner, "edit-keybinding-chat-new").is_some());
-    assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
+    assert_eq!(
+        slot_field(runner, "settingsPageState", "open"),
+        Some(&Value::Bool(true))
+    );
+}
+
+pub(super) mod extraction {
+    use super::empty;
+    use crate::composer_accessibility_tests::set;
+    use exact_plan::{Plan, TypesId, Value};
+    use exact_runner::Runner;
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub(crate) struct Call {
+        pub(crate) method: &'static str,
+        pub(crate) source: String,
+        pub(crate) args: Vec<Value>,
+    }
+
+    pub(crate) fn call(method: &'static str, source: &str, args: &[Value]) -> Call {
+        Call {
+            method,
+            source: source.to_owned(),
+            args: args.to_vec(),
+        }
+    }
+
+    pub(crate) fn resource(plan: &Plan, name: &str) -> (TypesId, String) {
+        let row = plan
+            .resources
+            .iter()
+            .find(|row| plan.str(row.name) == name)
+            .unwrap();
+        (row.ty, plan.str(row.source).to_owned())
+    }
+
+    pub(crate) fn mutation(plan: &Plan, name: &str) -> TypesId {
+        plan.mutations
+            .iter()
+            .find(|row| plan.str(row.name) == name)
+            .unwrap()
+            .ty
+    }
+
+    pub(crate) fn field(plan: &Plan, ty: TypesId, value: &Value, name: &str) -> Value {
+        let Value::Record(values) = value else {
+            panic!("record field {name}")
+        };
+        values[plan.field_index(ty, name).unwrap()].clone()
+    }
+
+    pub(crate) fn fields(plan: &Plan, ty: TypesId, entries: &[(&str, Value)]) -> Value {
+        let mut value = empty(plan, ty);
+        for (name, next) in entries {
+            set(plan, ty, &mut value, &[*name], next.clone());
+        }
+        assert!(value.conforms(plan, ty));
+        value
+    }
+
+    pub(crate) fn element(plan: &Plan, ty: TypesId, name: &str) -> TypesId {
+        let index = plan.field_index(ty, name).unwrap();
+        let member = plan.type_(ty).fields.iter().nth(index).unwrap();
+        plan.type_(plan.field(member).ty).elem.unwrap()
+    }
+
+    pub(crate) fn observation_type(plan: &Plan) -> TypesId {
+        plan.derives
+            .iter()
+            .find(|row| plan.str(row.name) == "composerFieldSnapshot")
+            .unwrap()
+            .ty
+    }
+
+    pub(crate) fn identity_observation(
+        plan: &Plan,
+        owner: &str,
+        generation: f64,
+        value: &str,
+        serial: f64,
+    ) -> Value {
+        let caret = 3.0 + serial;
+        fields(
+            plan,
+            observation_type(plan),
+            &[
+                ("generation", Value::Number(generation)),
+                ("snapshotOwner", Value::str(owner)),
+                ("owner", Value::str("draft")),
+                ("value", Value::str(value)),
+                ("start", Value::Number(caret)),
+                ("end", Value::Number(caret)),
+                ("composing", Value::Bool(false)),
+                ("live", Value::Bool(true)),
+                ("focused", Value::Bool(true)),
+                ("inputSerial", Value::Number(serial)),
+            ],
+        )
+    }
+
+    pub(crate) fn identity_snapshot(plan: &Plan, owner: &str) -> Value {
+        fields(
+            plan,
+            resource(plan, "data").0,
+            &[
+                ("revision", Value::Number(1.0)),
+                ("connected", Value::Bool(true)),
+                ("sidebarOpen", Value::Bool(true)),
+                ("snapshotOwner", Value::str(owner)),
+                ("composerOwner", Value::str("draft")),
+                ("draft", Value::str("word")),
+            ],
+        )
+    }
+
+    pub(crate) fn identity_next_command(plan: &Plan, args: &[Value], enabled: bool) -> Value {
+        assert_eq!(args.len(), 3);
+        let ty = observation_type(plan);
+        let read = |name| field(plan, ty, &args[0], name);
+        let after = args[1].as_number().unwrap();
+        let ready = enabled && after == 0.0 && read("inputSerial") == Value::Number(1.0);
+        fields(
+            plan,
+            resource(plan, "composerFieldNext").0,
+            &[
+                ("generation", read("generation")),
+                ("snapshotOwner", read("snapshotOwner")),
+                ("owner", read("owner")),
+                ("value", if ready { read("value") } else { Value::str("") }),
+                ("seq", Value::Number(if ready { 1.0 } else { after })),
+                ("ready", Value::Bool(ready)),
+                ("start", Value::Number(if ready { 4.0 } else { 0.0 })),
+                ("end", Value::Number(if ready { 4.0 } else { 0.0 })),
+                (
+                    "selectionStart",
+                    Value::Number(if ready { 4.0 } else { 0.0 }),
+                ),
+                ("selectionEnd", Value::Number(if ready { 4.0 } else { 0.0 })),
+            ],
+        )
+    }
+
+    pub(crate) fn identity_refusal(plan: &Plan) -> Value {
+        fields(
+            plan,
+            mutation(plan, "composerFieldAck"),
+            &[
+                ("applied", Value::Bool(false)),
+                ("reason", Value::str("field acknowledgement stale")),
+                ("value", Value::str("word")),
+                ("start", Value::Number(4.0)),
+                ("end", Value::Number(4.0)),
+                ("generation", Value::Number(1.0)),
+                ("snapshotOwner", Value::str("snapshot")),
+                ("owner", Value::str("draft")),
+                ("seq", Value::Number(1.0)),
+                ("inputSerial", Value::Number(-1.0)),
+            ],
+        )
+    }
+
+    pub(crate) fn identity_edit_reply(plan: &Plan) -> Value {
+        fields(
+            plan,
+            mutation(plan, "composerEdited"),
+            &[
+                ("owner", Value::str("draft")),
+                ("value", Value::str("word")),
+                ("mode", Value::str("rich")),
+                ("serial", Value::Number(1.0)),
+                ("kind", Value::str("edit")),
+                ("start", Value::Number(4.0)),
+                ("end", Value::Number(4.0)),
+                ("text", Value::str("\n")),
+                ("selectionStart", Value::Number(5.0)),
+                ("selectionEnd", Value::Number(5.0)),
+                ("preserveSelection", Value::Bool(false)),
+            ],
+        )
+    }
+
+    pub(crate) fn logical_member<D: exact_runner::DataSource>(
+        runner: &Runner<D>,
+        original_layout: bool,
+        original: &str,
+        record: &str,
+        name: &str,
+    ) -> (TypesId, Value) {
+        let plan = runner.plan();
+        let slot_name = if original_layout { original } else { record };
+        let row = plan
+            .slots
+            .iter()
+            .find(|row| plan.str(row.name) == slot_name)
+            .unwrap();
+        if original_layout {
+            (row.ty, runner.slot(original).unwrap().clone())
+        } else {
+            let index = plan.field_index(row.ty, name).unwrap();
+            let declared = plan.type_(row.ty).fields.iter().nth(index).unwrap();
+            (
+                plan.field(declared).ty,
+                field(plan, row.ty, runner.slot(record).unwrap(), name),
+            )
+        }
+    }
+
+    pub(crate) fn task<D: exact_runner::DataSource>(runner: &Runner<D>, name: &str) -> Option<f64> {
+        runner
+            .tasks()
+            .into_iter()
+            .find(|(found, _)| found == name)
+            .unwrap()
+            .1
+    }
+
+    pub(crate) fn identity_field_protocol<D: exact_runner::DataSource>(
+        runner: &Runner<D>,
+        original_layout: bool,
+        acked: f64,
+    ) {
+        for (original, name, expected) in [
+            ("composerFieldAfter", "after", 1.0),
+            ("composerFieldAcked", "acked", acked),
+            ("composerFieldEffects", "effects", 0.0),
+            ("composerFieldFocusDone", "focusDone", 0.0),
+        ] {
+            assert_eq!(
+                logical_member(runner, original_layout, original, "fieldProtocol", name).1,
+                Value::Number(expected)
+            );
+        }
+        assert_eq!(
+            logical_member(
+                runner,
+                original_layout,
+                "composerFieldAdmitted",
+                "fieldProtocol",
+                "admitted"
+            )
+            .1,
+            Value::Bool(true)
+        );
+        let args = vec![
+            identity_observation(runner.plan(), "snapshot", 1.0, "word", 1.0),
+            Value::Number(0.0),
+            Value::Number(1.0),
+        ];
+        assert_eq!(
+            logical_member(
+                runner,
+                original_layout,
+                "composerFieldTarget",
+                "fieldProtocol",
+                "target"
+            )
+            .1,
+            identity_next_command(runner.plan(), &args, true)
+        );
+        assert_eq!(
+            logical_member(
+                runner,
+                original_layout,
+                "composerFieldFocus",
+                "fieldProtocol",
+                "focus"
+            )
+            .1,
+            fields(
+                runner.plan(),
+                mutation(runner.plan(), "composerFieldAck"),
+                &[
+                    ("generation", Value::Number(-1.0)),
+                    ("inputSerial", Value::Number(-1.0)),
+                ]
+            )
+        );
+        assert_eq!(task(runner, "composerFieldDeliver"), None);
+        assert_eq!(task(runner, "composerFieldRestoreFocus"), None);
+    }
 }

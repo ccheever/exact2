@@ -3,6 +3,7 @@
 //! announcements and process replacement have separate attended qualifications.
 
 use super::composer_accessibility_tests::{first_frame, measure, set, Replies};
+use super::contract_keys_tests::{grip, slot_field};
 use super::PLAN;
 use exact_apple::measure::CallbackMeasurer;
 use exact_plan::{Plan, TypesId};
@@ -148,10 +149,6 @@ fn state(runner: &Runner<Replies>, index: usize) -> &Value {
         panic!("route transaction")
     };
     &fields[index]
-}
-
-fn grip(environment: &str, route: &str) -> String {
-    format!("environment-route-grip-{environment}-{route}")
 }
 
 fn key(runner: &mut Runner<Replies>, environment: &str, route: &str, key: &str, repeat: bool) {
@@ -353,7 +350,10 @@ fn route_cancel_blur_and_unchanged_drop_never_send_a_write() {
             key(runner, "a", "a2", ending, false);
         }
         assert_eq!(state(runner, 0), &Value::str(""), "{ending}");
-        assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
+        assert_eq!(
+            slot_field(runner, "settingsPageState", "open"),
+            Some(&Value::Bool(true))
+        );
         assert_eq!(
             prop(runner, back, "accessibilityKeyShortcuts"),
             Value::str("Escape")
@@ -420,7 +420,10 @@ fn route_remove_dialog_owns_its_shortcut_and_cancel_keeps_settings_and_routes() 
     assert!(!inside_dialog(test_node(runner, "close-settings")));
     runner.dispatch(cancel, Event::Press).unwrap();
     assert_eq!(runner.slot("connectionRemove"), Some(&Value::str("")));
-    assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
+    assert_eq!(
+        slot_field(runner, "settingsPageState", "open"),
+        Some(&Value::Bool(true))
+    );
     assert!(runner
         .kernel()
         .find_by_test_id("route-remove-dialog")
@@ -703,5 +706,794 @@ fn settings_reply_emits_public_relaunch_only_after_confirmed_persistence() {
                 .any(|command| command.name == "relaunch"),
             "a handled reply cannot relaunch twice"
         );
+    }
+}
+
+mod extraction_settings_jump {
+    use super::super::composer_accessibility_tests::set;
+    use exact_kernel::{Kernel, PropId, ViewId};
+    use exact_plan::{Plan, TypeKind, TypesId};
+    use exact_runner::geometry::{GeometryAnswer, GeometryLinks, Scrolled};
+    use exact_runner::{
+        Answer, DataError, DataSource, Delivery, DeviceLinks, Event, Outcome, Request, Response,
+        Runner, RunnerLinks, Store, Value, Viewport,
+    };
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    const TARGET: &str = "setting-fixture-target";
+    const CORE: &str = "settingsCore";
+
+    // Construct replies from this run's plan, without baked-plan fixture helpers.
+    fn empty(plan: &Plan, ty: TypesId) -> Value {
+        match plan.type_(ty).kind {
+            TypeKind::Number => Value::Number(0.0),
+            TypeKind::Bool => Value::Bool(false),
+            TypeKind::String => Value::str(""),
+            TypeKind::Unit => Value::Unit,
+            TypeKind::Option => Value::NONE,
+            TypeKind::List => Value::list(vec![]),
+            TypeKind::Record => Value::record(
+                plan.type_(ty)
+                    .fields
+                    .iter()
+                    .map(|field| empty(plan, plan.field(field).ty))
+                    .collect(),
+            ),
+        }
+    }
+
+    fn field_type(plan: &Plan, mut ty: TypesId, path: &[&str]) -> TypesId {
+        for name in path {
+            let index = plan.field_index(ty, name).expect("fixture field");
+            let field = plan.type_(ty).fields.iter().nth(index).unwrap();
+            ty = plan.field(field).ty;
+        }
+        ty
+    }
+
+    fn resource_type(plan: &Plan, name: &str) -> TypesId {
+        plan.resources
+            .iter()
+            .find(|row| plan.str(row.name) == name)
+            .expect("fixture resource")
+            .ty
+    }
+
+    fn resource_source(plan: &Plan, name: &str) -> String {
+        let row = plan
+            .resources
+            .iter()
+            .find(|row| plan.str(row.name) == name)
+            .expect("fixture resource");
+        plan.str(row.source).to_owned()
+    }
+
+    fn record_field(plan: &Plan, ty: TypesId, value: &Value, name: &str) -> Value {
+        let index = plan.field_index(ty, name).expect("projected field");
+        let Value::Record(fields) = value else {
+            panic!("projected record")
+        };
+        fields[index].clone()
+    }
+
+    fn core_value(plan: &Plan, route: &str, ready: bool) -> Value {
+        let ty = resource_type(plan, CORE);
+        let mut core = empty(plan, ty);
+        for (name, value) in [
+            ("route", Value::str(route)),
+            ("ready", Value::Bool(ready)),
+            ("kind", Value::str("environment")),
+        ] {
+            set(plan, ty, &mut core, &[name], value);
+        }
+        if ready {
+            let section_ty = plan
+                .type_(field_type(plan, ty, &["sections"]))
+                .elem
+                .unwrap();
+            let row_ty = plan
+                .type_(field_type(plan, section_ty, &["rows"]))
+                .elem
+                .unwrap();
+            let mut row = empty(plan, row_ty);
+            for (name, value) in [
+                ("id", Value::str("fixture-target")),
+                ("title", Value::str("Fixture setting")),
+                ("label", Value::str("Fixture action")),
+                ("kind", Value::str("action")),
+            ] {
+                set(plan, row_ty, &mut row, &[name], value);
+            }
+            let mut section = empty(plan, section_ty);
+            set(
+                plan,
+                section_ty,
+                &mut section,
+                &["id"],
+                Value::str("fixture-section"),
+            );
+            set(
+                plan,
+                section_ty,
+                &mut section,
+                &["rows"],
+                Value::list(vec![row]),
+            );
+            set(
+                plan,
+                ty,
+                &mut core,
+                &["sections"],
+                Value::list(vec![section]),
+            );
+        }
+        core
+    }
+
+    fn navigation(plan: &Plan) -> Value {
+        let ty = resource_type(plan, "settingsNavigation");
+        let item_ty = plan.type_(field_type(plan, ty, &["items"])).elem.unwrap();
+        let mut items = Vec::new();
+        for (id, route, target) in [
+            ("appearance", "appearance", ""),
+            ("fixture-jump", "general", TARGET),
+            ("general", "general", ""),
+        ] {
+            let mut item = empty(plan, item_ty);
+            for (name, value) in [
+                ("id", Value::str(id)),
+                ("route", Value::str(route)),
+                ("target", Value::str(target)),
+                ("title", Value::str(id)),
+                ("section", Value::str("Fixture")),
+            ] {
+                set(plan, item_ty, &mut item, &[name], value);
+            }
+            items.push(item);
+        }
+        let mut nav = empty(plan, ty);
+        set(plan, ty, &mut nav, &["items"], Value::list(items));
+        set(plan, ty, &mut nav, &["searching"], Value::Bool(true));
+        set(plan, ty, &mut nav, &["count"], Value::Number(3.0));
+        nav
+    }
+
+    #[derive(Default)]
+    struct SettingsData {
+        ready: bool,
+        general_ready: bool,
+        values: BTreeMap<String, Value>,
+        core_source: String,
+        general_waiting: Value,
+        general_landed: Value,
+        appearance: Value,
+        calls: Vec<(String, Vec<Value>)>,
+        parses: Vec<(String, Vec<Value>)>,
+    }
+
+    impl SettingsData {
+        fn new(plan: &Plan) -> Self {
+            let mut values = BTreeMap::new();
+            let mut types = BTreeMap::new();
+            for row in &plan.resources {
+                let source = plan.str(row.source);
+                if exact_plan::runner_owned_source(source) {
+                    continue;
+                }
+                let value = empty(plan, row.ty);
+                if let Some(prior) = values.get(source) {
+                    assert_eq!(types.get(source), Some(&row.ty), "source type: {source}");
+                    assert_eq!(prior, &value, "source default: {source}");
+                } else {
+                    types.insert(source.to_owned(), row.ty);
+                    values.insert(source.to_owned(), value);
+                }
+            }
+            for (name, fields) in [
+                (
+                    "data",
+                    vec![
+                        (vec!["revision"], Value::Number(1.0)),
+                        (vec!["connected"], Value::Bool(true)),
+                        (vec!["sidebarOpen"], Value::Bool(true)),
+                        (vec!["look", "mode"], Value::str("light")),
+                    ],
+                ),
+                ("welcome", vec![(vec!["show"], Value::Bool(false))]),
+                (
+                    "settings",
+                    vec![
+                        (vec!["environmentId"], Value::str("fixture-environment")),
+                        (vec!["available"], Value::Bool(true)),
+                    ],
+                ),
+            ] {
+                let ty = resource_type(plan, name);
+                let source = resource_source(plan, name);
+                let value = values.get_mut(&source).expect("seeded source");
+                for (path, next) in fields {
+                    set(plan, ty, value, &path, next);
+                }
+            }
+            values.insert(
+                resource_source(plan, "settingsNavigation"),
+                navigation(plan),
+            );
+            Self {
+                core_source: resource_source(plan, CORE),
+                general_waiting: core_value(plan, "general", false),
+                general_landed: core_value(plan, "general", true),
+                appearance: core_value(plan, "appearance", false),
+                values,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl DataSource for SettingsData {
+        fn ready(&self) -> bool {
+            self.ready
+        }
+
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            if source == self.core_source {
+                assert_eq!(args.len(), 14, "complete SettingsCore source ABI");
+                return Ok(match args[4].as_str().expect("route") {
+                    "general" if self.general_ready => self.general_landed.clone(),
+                    "general" => self.general_waiting.clone(),
+                    "appearance" => self.appearance.clone(),
+                    route => panic!("unexpected Settings route: {route}"),
+                });
+            }
+            self.values
+                .get(source)
+                .cloned()
+                .ok_or_else(|| DataError::UnknownSource(source.to_owned()))
+        }
+
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            args: &[Value],
+        ) -> Result<Answer, DataError> {
+            self.calls.push((source.to_owned(), args.to_vec()));
+            if source == self.core_source
+                && !self.general_ready
+                && args.get(4).and_then(Value::as_str) == Some("general")
+                && args.get(5).and_then(Value::as_str) == Some(TARGET)
+            {
+                assert_eq!(args.get(6), Some(&Value::Bool(true)));
+                return Ok(Answer::Later(Request::get(
+                    "https://fixture.invalid/settings",
+                )));
+            }
+            self.query(source, args).map(Answer::Now)
+        }
+
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            args: &[Value],
+            outcome: Outcome,
+        ) -> Result<Answer, DataError> {
+            assert_eq!(source, self.core_source);
+            assert_eq!(args.get(5).and_then(Value::as_str), Some(TARGET));
+            let Outcome::Response(response) = outcome else {
+                panic!("fixture response")
+            };
+            assert_eq!(response.status, 200);
+            assert_eq!(response.body, b"ready");
+            self.parses.push((source.to_owned(), args.to_vec()));
+            self.general_ready = true;
+            self.query(source, args).map(Answer::Now)
+        }
+    }
+
+    #[derive(Default)]
+    struct Boxes {
+        strict: bool,
+        reads: Vec<String>,
+    }
+
+    thread_local! {
+        static BOXES: RefCell<Boxes> = RefCell::new(Boxes::default());
+    }
+
+    fn frame(kernel: &Kernel, _: &Scrolled, view: ViewId) -> GeometryAnswer {
+        let arena = kernel.arena();
+        let id = arena
+            .key_of(view)
+            .and_then(|key| arena.props(key.index).str(PropId::Id))
+            .expect("mounted named frame");
+        BOXES.with(|cell| {
+            let mut boxes = cell.borrow_mut();
+            boxes.reads.push(id.to_owned());
+            match id {
+                TARGET => GeometryAnswer {
+                    x: 0.0,
+                    y: 900.0,
+                    width: 600.0,
+                    height: 40.0,
+                    ..Default::default()
+                },
+                "settings-content-column" => GeometryAnswer {
+                    x: 0.0,
+                    y: 100.0,
+                    width: 600.0,
+                    height: 2000.0,
+                    ..Default::default()
+                },
+                "settings-content-scroll" => GeometryAnswer {
+                    x: 0.0,
+                    y: 60.0,
+                    width: 600.0,
+                    height: 600.0,
+                    ..Default::default()
+                },
+                _ if !boxes.strict => GeometryAnswer::UNAVAILABLE,
+                _ => panic!("unexpected frame in measured jump: {id}"),
+            }
+        })
+    }
+
+    fn other_read(kind: &str) {
+        BOXES.with(|cell| {
+            let mut boxes = cell.borrow_mut();
+            boxes.reads.push(kind.to_owned());
+            assert!(!boxes.strict, "unexpected geometry operation: {kind}");
+        });
+    }
+
+    fn measure(_: &mut Kernel, _: &Scrolled, _: ViewId) -> GeometryAnswer {
+        other_read("measure");
+        GeometryAnswer::UNAVAILABLE
+    }
+
+    fn point(_: &Kernel, _: &Scrolled, _: f64, _: f64) -> Option<ViewId> {
+        other_read("point");
+        None
+    }
+
+    fn points(_: &Kernel, _: &Scrolled, _: f64, _: f64) -> Vec<ViewId> {
+        other_read("points");
+        Vec::new()
+    }
+
+    fn shown(_: &Kernel, _: &Scrolled, _: ViewId, _: bool) -> bool {
+        other_read("shown");
+        false
+    }
+
+    static GEOMETRY: GeometryLinks = GeometryLinks::new(frame, measure, point, points, shown);
+
+    fn unique(runner: &Runner<SettingsData>, id: &str, test_id: bool) -> ViewId {
+        let nodes = if test_id {
+            runner.kernel().find_by_test_id(id)
+        } else {
+            runner.kernel().find_by_id(id)
+        };
+        assert_eq!(nodes.len(), 1, "one mounted {id}");
+        runner.kernel().node_by_key(nodes[0]).unwrap().id
+    }
+
+    fn press(runner: &mut Runner<SettingsData>, test_id: &str) {
+        let view = unique(runner, test_id, true);
+        runner.dispatch(view, Event::Press).unwrap();
+    }
+
+    fn commands(runner: &mut Runner<SettingsData>) -> Vec<(String, Vec<Value>)> {
+        runner
+            .take_commands()
+            .into_iter()
+            .map(|command| (command.name, command.args))
+            .collect()
+    }
+
+    fn visible_top(runner: &Runner<SettingsData>) -> f64 {
+        let view = unique(runner, "settings-content-scroll", false);
+        let node = runner.kernel().node(view).unwrap();
+        let value = &node
+            .props
+            .iter()
+            .find(|(prop, _)| *prop == PropId::ScrollTop)
+            .expect("authored scrollTop binding")
+            .1;
+        value
+            .as_float()
+            .map(f64::from)
+            .or_else(|| value.as_int().map(|n| n as f64))
+            .expect("numeric scrollTop")
+    }
+
+    fn resource_field(runner: &Runner<SettingsData>, name: &str, field: &str) -> Value {
+        record_field(
+            runner.plan(),
+            resource_type(runner.plan(), name),
+            runner.resource(name).expect("activated resource"),
+            field,
+        )
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Logical {
+        open: bool,
+        route: String,
+        target: String,
+        owner: String,
+        raw_top: f64,
+    }
+
+    fn logical(runner: &Runner<SettingsData>) -> Logical {
+        let plan = runner.plan();
+        let read = |member: &str, old: &str| {
+            if let Some(record) = runner.slot("settingsPageState") {
+                let slot = plan
+                    .slots
+                    .iter()
+                    .find(|row| plan.str(row.name) == "settingsPageState")
+                    .unwrap();
+                record_field(plan, slot.ty, record, member)
+            } else {
+                runner.slot(old).expect("original flat slot").clone()
+            }
+        };
+        Logical {
+            open: read("open", "settingsOpen").as_bool().unwrap(),
+            route: read("route", "settingsRoute").as_str().unwrap().to_owned(),
+            target: read("focusTarget", "settingsFocusTarget")
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            owner: read("scrollPage", "settingsScrollPage")
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            raw_top: read("scrollTop", "settingsScrollTop").as_number().unwrap(),
+        }
+    }
+
+    fn expected_core(route: &str, target: &str, open: bool) -> Vec<Value> {
+        vec![
+            Value::str(""),
+            Value::str(""),
+            Value::str(""),
+            Value::str(""),
+            Value::str(route),
+            Value::str(target),
+            Value::Bool(open),
+            Value::Number(0.0),
+            Value::Number(1.0),
+            Value::str(""),
+            Value::str(""),
+            Value::str("embedded"),
+            Value::Bool(false),
+            Value::str("light"),
+        ]
+    }
+
+    fn advance(runner: &mut Runner<SettingsData>, time: f64) {
+        let result = runner.advance_timed(time);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(result.now_ms, time);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Observed {
+        setup_calls: Vec<(String, Vec<Value>)>,
+        setup_commands: Vec<(String, Vec<Value>)>,
+        setup_geometry: Vec<String>,
+        before: Logical,
+        landed: Logical,
+        focused: Logical,
+        same_page: Logical,
+        other_page: Logical,
+        forgotten: Logical,
+        closed: Logical,
+        reads: Vec<String>,
+        due_times: Vec<f64>,
+        calls: Vec<(String, Vec<Value>)>,
+        parsed: Vec<(String, Vec<Value>)>,
+        route_calls: Vec<(String, Vec<Value>)>,
+        close_calls: Vec<(String, Vec<Value>)>,
+    }
+
+    fn run(bytes: &[u8]) -> Observed {
+        BOXES.with(|cell| *cell.borrow_mut() = Boxes::default());
+        let plan = Plan::decode(bytes).expect("complete compiled app plan");
+        let data = SettingsData::new(&plan);
+        let links = RunnerLinks {
+            geometry: Some(&GEOMETRY),
+            ..RunnerLinks::ALL
+        };
+        let mut runner = Runner::boot_with_delivery_linked(
+            links,
+            plan,
+            data,
+            Kernel::with_monospace(),
+            None,
+            vec![],
+            Delivery::default(),
+            Viewport {
+                width: 1280.0,
+                height: 840.0,
+                ..Default::default()
+            },
+            "/",
+        )
+        .unwrap();
+        runner.set_device_links(DeviceLinks::ALL);
+        runner.set_live_clock(None);
+        runner.data().ready = true;
+        runner
+            .data_ready()
+            .unwrap()
+            .expect("activated fixture readers");
+        assert_eq!(
+            resource_field(&runner, "data", "revision"),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            resource_field(&runner, "data", "connected"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            resource_field(&runner, "data", "sidebarOpen"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            resource_field(&runner, "welcome", "show"),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            resource_field(&runner, "settings", "environmentId"),
+            Value::str("fixture-environment"),
+        );
+        assert_eq!(
+            resource_field(&runner, "settings", "available"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            runner.resource(CORE).unwrap(),
+            &runner.data_ref().general_waiting
+        );
+        assert_eq!(
+            runner.resource("settingsNavigation").unwrap(),
+            &navigation(runner.plan())
+        );
+        assert!(runner.take_requests().is_empty());
+        advance(&mut runner, 20.0);
+        press(&mut runner, "connection-settings");
+        assert!(logical(&runner).open);
+        assert_eq!(logical(&runner).route, "general");
+        assert_eq!(
+            runner.slot("settingsEnvironmentId"),
+            Some(&Value::str("fixture-environment")),
+        );
+        unique(&runner, "settings-content-scroll", false);
+        press(&mut runner, "settings-appearance");
+        advance(&mut runner, 22.0);
+        assert_eq!(logical(&runner).route, "appearance");
+        assert_eq!(visible_top(&runner), 0.0);
+        assert_eq!(
+            runner.resource("settingsNavigation").unwrap(),
+            &navigation(runner.plan())
+        );
+        assert_eq!(
+            runner.resource(CORE).unwrap(),
+            &runner.data_ref().appearance
+        );
+        assert!(runner.take_requests().is_empty());
+
+        press(&mut runner, "settings-fixture-jump");
+        let pending = runner.take_requests();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].target, CORE);
+        assert!(!pending[0].forced);
+        let ticket = pending[0].ticket;
+        assert_eq!(logical(&runner).route, "general");
+        assert_eq!(logical(&runner).target, TARGET);
+        assert_eq!(
+            runner.derive("settingsJumpReady"),
+            Some(&Value::Bool(false))
+        );
+        advance(&mut runner, 24.0);
+        assert_eq!(visible_top(&runner), 0.0);
+        assert_eq!(logical(&runner).owner, "");
+        assert_eq!(logical(&runner).target, TARGET);
+        let before = logical(&runner);
+        let core_source = runner.data_ref().core_source.clone();
+        assert_eq!(
+            runner
+                .data_ref()
+                .calls
+                .iter()
+                .filter(|(source, _)| source == &core_source)
+                .last()
+                .unwrap()
+                .1,
+            expected_core("general", TARGET, true),
+        );
+        let setup_calls = std::mem::take(&mut runner.data().calls);
+        let setup_commands = commands(&mut runner);
+        let setup_geometry = BOXES.with(|cell| std::mem::take(&mut cell.borrow_mut().reads));
+
+        runner
+            .fulfill(
+                ticket,
+                Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: b"ready".to_vec(),
+                }),
+            )
+            .unwrap();
+        let armed_at = runner.now_ms();
+        assert_eq!(armed_at, 24.0);
+        assert_eq!(runner.derive("settingsJumpReady"), Some(&Value::Bool(true)));
+        assert_eq!(
+            runner.resource(CORE).unwrap(),
+            &runner.data_ref().general_landed
+        );
+        for id in [TARGET, "settings-content-column", "settings-content-scroll"] {
+            unique(&runner, id, false);
+        }
+        assert_eq!(visible_top(&runner), 0.0);
+        let landed = logical(&runner);
+        assert_eq!(landed.target, TARGET);
+        assert_eq!(landed.raw_top, 0.0);
+        assert_eq!(commands(&mut runner), vec![]);
+        assert!(runner.take_requests().is_empty());
+        assert!(runner.data_ref().calls.is_empty());
+        BOXES.with(|cell| {
+            let mut boxes = cell.borrow_mut();
+            assert!(boxes.reads.is_empty());
+            boxes.strict = true;
+        });
+
+        let early = runner.advance_timed(armed_at + 0.999);
+        assert!(early.error.is_none(), "{:?}", early.error);
+        assert!(early.receipts.is_empty());
+        assert_eq!(early.now_ms, armed_at + 0.999);
+        assert_eq!(commands(&mut runner), vec![]);
+        assert!(runner.take_requests().is_empty());
+        BOXES.with(|cell| assert!(cell.borrow().reads.is_empty()));
+
+        let due = runner.advance_timed(armed_at + 1.0);
+        assert!(due.error.is_none(), "{:?}", due.error);
+        assert_eq!(due.now_ms, armed_at + 1.0);
+        let due_times = due
+            .receipts
+            .iter()
+            .map(|receipt| receipt.at_ms)
+            .collect::<Vec<_>>();
+        assert_eq!(due_times, vec![armed_at + 1.0]);
+        let reads = BOXES.with(|cell| cell.borrow().reads.clone());
+        assert_eq!(
+            reads,
+            vec![
+                TARGET,
+                "settings-content-column",
+                TARGET,
+                "settings-content-scroll",
+            ]
+        );
+        assert_eq!(
+            commands(&mut runner),
+            vec![("focus".to_owned(), vec![Value::str(TARGET)]),]
+        );
+        assert!(runner.take_requests().is_empty());
+        assert_eq!(
+            runner.data_ref().calls,
+            vec![(core_source.clone(), expected_core("general", "", true)),]
+        );
+        assert_eq!(
+            runner.data_ref().parses,
+            vec![(core_source.clone(), expected_core("general", TARGET, true)),]
+        );
+        let calls = std::mem::take(&mut runner.data().calls);
+        let parsed = std::mem::take(&mut runner.data().parses);
+        let focused = logical(&runner);
+        assert_eq!(focused.target, "");
+        assert_eq!(focused.owner, "general||||0");
+        assert_eq!(focused.raw_top, 520.25);
+        assert_eq!(visible_top(&runner), 520.25);
+        assert_eq!(
+            runner.derive("settingsJumpReady"),
+            Some(&Value::Bool(false))
+        );
+
+        BOXES.with(|cell| {
+            let mut boxes = cell.borrow_mut();
+            boxes.reads.clear();
+        });
+        press(&mut runner, "settings-general");
+        // This authored action checks the same-page page-left invariant;
+        // focusSettingsTarget is never called manually in this test.
+        runner.act("settingsPageForget", vec![]).unwrap();
+        let same_page = logical(&runner);
+        assert_eq!(same_page, focused);
+        assert_eq!(visible_top(&runner), 520.25);
+        assert_eq!(commands(&mut runner), vec![]);
+        assert!(runner.take_requests().is_empty());
+        assert!(runner.data_ref().calls.is_empty());
+
+        press(&mut runner, "settings-appearance");
+        let other_page = logical(&runner);
+        assert_eq!(other_page.raw_top, 520.25);
+        assert_eq!(other_page.owner, "general||||0");
+        assert_eq!(visible_top(&runner), 0.0);
+        let route_calls = std::mem::take(&mut runner.data().calls);
+        assert_eq!(
+            route_calls
+                .iter()
+                .filter(|(source, _)| source == &core_source)
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![(core_source.clone(), expected_core("appearance", "", true))],
+        );
+        advance(&mut runner, 26.0);
+        assert!(runner.data_ref().calls.is_empty());
+        let forgotten = logical(&runner);
+        assert_eq!(forgotten.owner, "");
+        assert_eq!(forgotten.raw_top, 520.25);
+        assert_eq!(visible_top(&runner), 0.0);
+        press(&mut runner, "settings-go-to-threads");
+        let close_calls = std::mem::take(&mut runner.data().calls);
+        assert_eq!(
+            close_calls
+                .iter()
+                .filter(|(source, _)| source == &core_source)
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![(core_source.clone(), expected_core("appearance", "", false))],
+        );
+        advance(&mut runner, 27.0);
+        assert!(runner.data_ref().calls.is_empty());
+        let closed = logical(&runner);
+        assert!(!closed.open);
+        assert_eq!(closed.owner, "");
+        assert!(runner
+            .kernel()
+            .find_by_id("settings-content-scroll")
+            .is_empty());
+        assert_eq!(commands(&mut runner), vec![]);
+        assert!(runner.take_requests().is_empty());
+        assert!(runner.data_ref().parses.is_empty());
+        BOXES.with(|cell| assert!(cell.borrow().reads.is_empty()));
+        // All route/close producer calls are compared, including sources
+        // other than SettingsCore; no background-call exception is applied.
+        Observed {
+            setup_calls,
+            setup_commands,
+            setup_geometry,
+            before,
+            landed,
+            focused,
+            same_page,
+            other_page,
+            forgotten,
+            closed,
+            reads,
+            due_times,
+            calls,
+            parsed,
+            route_calls,
+            close_calls,
+        }
+    }
+
+    #[test]
+    fn extraction_settings_jump_waits_for_its_page_and_runs_at_one_millisecond() {
+        let mut prior = None;
+        for (bytes, _) in crate::contract_keys_tests::extraction_plans() {
+            let observed = run(bytes);
+            if let Some(original) = prior {
+                assert_eq!(original, observed);
+            }
+            prior = Some(observed);
+        }
     }
 }

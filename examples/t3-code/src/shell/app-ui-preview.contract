@@ -1,0 +1,68 @@
+use AppDecision from "./app-decisions.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+use PromptPreviewState from "./app-protocols.contract"
+use ComposerFieldObservation from "../composer/composer-rich.contract"
+
+fn stepPromptPreviewWrite(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = stepObservePromptPreview(
+  UiDecision(
+    d,
+    root=AppDecision(
+      d.root,
+      writePreviewState=true,
+      previewState=PromptPreviewState(
+        d.root.previewState,
+        text=value,
+        inputType=e.inputType,
+        serial=s.previewState.serial + 1,
+        composing=e.isComposing,
+        start=e.selectionStart,
+        end=e.selectionEnd
+      )
+    )
+  ),
+  s,
+  value,
+  e.selectionStart,
+  e.selectionEnd,
+  e.isComposing,
+  s.previewState.serial + 1
+)
+
+fn stepObservePromptPreview(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  start: number,
+  end: number,
+  composing: bool,
+  serial: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendChipObserved=true,
+    previewObservation=ComposerFieldObservation(
+      generation=s.richPromptPreview.generation,
+      snapshotOwner=s.data.snapshotOwner,
+      owner=s.promptPreviewOwner,
+      value=value,
+      start=min(value.length, start),
+      end=min(value.length, end),
+      composing=composing,
+      live=s.promptPreviewVisible and previewFrameVisible(s.previewFrame),
+      focused=false,
+      inputSerial=serial
+    )
+  )
+)
+
+fn previewFrameVisible(bounds: option<Geometry>): bool = match bounds {
+  case some(frame) => frame.width > 0,
+  case none => false
+}

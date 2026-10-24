@@ -1,0 +1,74 @@
+use AppDecision, initialAppDecision from "./app-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+
+shape UiDecision
+  root: AppDecision
+  writeComposerModifiers: bool
+  composerCommand: bool
+  composerShift: bool
+  writeTaskModelPick: bool
+  taskModelPick: string
+  writeProviderVisit: bool
+  providerVisit: number
+  writeSettingsThemeRequest: bool
+  settingsThemeRequest: number
+  writeRestContent: bool
+  restContent: number
+  writeRestGestureUntil: bool
+  restGestureUntil: number
+  writeRestHeight: bool
+  restHeight: number
+  writeRestLastPull: bool
+  restLastPull: number
+  writeRestMovement: bool
+  restMovement: number
+  writeRestTop: bool
+  restTop: number
+  writeRestWidth: bool
+  restWidth: number
+
+fn beginUiDecision(s: UiStart): UiDecision = UiDecision(
+  root=AppDecision(
+    initialAppDecision(),
+    composerSelection=s.composerSelection,
+    confirmationState=s.confirmationState,
+    fieldProtocol=s.fieldProtocol,
+    hoverState=s.hoverState,
+    intentState=s.intentState,
+    modifierOwnership=s.modifierOwnership,
+    noticeExitState=s.noticeExitState,
+    paletteSession=s.paletteSession,
+    previewState=s.previewState,
+    providerWizardState=s.providerWizardState,
+    sshResponse=s.sshResponse,
+    streamGeometry=s.streamGeometry,
+    transcriptViewport=s.transcriptViewport,
+    keybindingEditor=s.keybindingEditor,
+    composerMenu=s.composerMenu,
+    composerDraft=s.composerDraft,
+    settingsPageState=s.settingsPageState
+  ),
+  writeComposerModifiers=false,
+  composerCommand=s.composerCommand,
+  composerShift=s.composerShift,
+  writeTaskModelPick=false,
+  taskModelPick="",
+  writeProviderVisit=false,
+  providerVisit=s.providerVisit,
+  writeSettingsThemeRequest=false,
+  settingsThemeRequest=s.settingsThemeRequest,
+  writeRestContent=false,
+  restContent=s.restContent,
+  writeRestGestureUntil=false,
+  restGestureUntil=s.restGestureUntil,
+  writeRestHeight=false,
+  restHeight=s.restHeight,
+  writeRestLastPull=false,
+  restLastPull=s.restLastPull,
+  writeRestMovement=false,
+  restMovement=s.restMovement,
+  writeRestTop=false,
+  restTop=s.restTop,
+  writeRestWidth=false,
+  restWidth=s.restWidth
+)

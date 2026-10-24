@@ -1,0 +1,913 @@
+use ComposerFieldObservation, composerChipDeletes from "../composer/composer-rich.contract"
+use composerChipInside, composerChipOverlaps from "../composer/composer-rich.contract"
+use composerChipWordDeletes from "../composer/composer-rich.contract"
+use KeyDispatch from "../settings/settings-shortcuts.contract"
+use AppDecision, CommandArgs, ComposerFieldArgs, TextArgs from "./app-decisions.contract"
+use TwoTextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerFieldProtocol from "./app-protocols.contract"
+use ComposerSelectionState, SettingsPageState from "./app-protocols.contract"
+use stepComposerIntentInput from "./app-ui-composer-edit-transitions-2.contract"
+use stepComposerIntentRequest from "./app-ui-composer-edit-transitions-2.contract"
+use stepCloseModal, stepComposerIntentClear from "./app-ui-composer-edit-transitions.contract"
+use stepComposerSelectionObserved from "./app-ui-composer-edit-transitions.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use stepCommand, stepMenuPick from "./app-ui-dispatch-transitions.contract"
+use stepReleaseUndoClaim from "./app-ui-modifiers.contract"
+use stepOpenPage, stepSelectModel from "./app-ui-navigation-transitions-2.contract"
+use stepPaletteRun, stepPaletteShow from "./app-ui-palette-transitions-2.contract"
+use stepSelectThread from "./app-ui-palette-transitions.contract"
+use UiStart from "./app-ui-start.contract"
+use stepComposerGrammarKey, stepDetailsAct from "./app-ui-surfaces-transitions-2.contract"
+use stepPanelUi from "./app-ui-surfaces-transitions.contract"
+
+fn stepComposerLanguage(
+  d: UiDecision,
+  s: UiStart,
+  start: number,
+  end: number,
+  language: string
+): UiDecision = transitionComposerLanguageGuard1(
+  d,
+  s,
+  start,
+  end,
+  language
+)
+
+fn transitionComposerLanguageWrites2(
+  d: UiDecision,
+  s: UiStart,
+  start: number,
+  end: number,
+  language: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    )
+  )
+)
+
+fn transitionComposerLanguageGuard1(
+  d: UiDecision,
+  s: UiStart,
+  start: number,
+  end: number,
+  language: string
+): UiDecision = (
+  s.composerRichCurrent and s.richComposer.mode == "rich" and not s.composerDraft.composing
+  ? stepComposerIntentRequest(
+    transitionComposerLanguageWrites2(
+      d,
+      s,
+      start,
+      end,
+      language
+    ),
+    s,
+    "language",
+    language,
+    "",
+    false,
+    false,
+    start,
+    end,
+    s.composerDraft.composing
+  )
+  : d
+)
+
+// ⌃H, ⌃D and word deletion at a reference remove it whole, as ⌫ and ⌦ do (composerGrammarKey).
+// Typed at an empty fence's closing line, text opens the body line (composerCodeInput); typed or dropped
+// inside a reference, it goes after it; put over a selection that holds a reference, it replaces the
+// whole selection, the reference's source included (composer-source-session.ts input).
+fn stepComposerBeforeInput(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = transitionComposerBeforeInputWrites9(
+  stepComposerSelectionObserved(
+    transitionComposerBeforeInputGuard1(
+      d,
+      s,
+      e
+    ),
+    s,
+    e,
+    e.isComposing
+  ),
+  s,
+  e
+)
+
+fn transitionComposerBeforeInputGuard2(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = (
+  s.intentState.queue.length > 0
+  ? stepComposerIntentClear(
+    d,
+    s,
+    "The prompt changed. Please try that edit again."
+  )
+  : d
+)
+
+fn transitionComposerBeforeInputWrites4(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true
+  )
+)
+
+fn transitionComposerBeforeInputWrites5(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true
+  )
+)
+
+fn transitionComposerBeforeInputWrites8(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent,
+  text: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true
+  )
+)
+
+fn transitionComposerBeforeInputGuard7(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent,
+  text: string
+): UiDecision = (
+  e.inputType == "insertFromPaste" or ((e.inputType == "insertText"
+    or e.inputType == "insertReplacementText" or e.inputType == "insertFromDrop")
+    and (composerChipInside(s.richComposer.chips, e.selectionStart, e.selectionEnd)
+    or composerChipOverlaps(s.richComposer.chips, e.selectionStart, e.selectionEnd)))
+    or (e.inputType == "insertText" and s.richComposer.blocks.filter((b) => b.kind == "code"
+    and not b.bodyLine and e.selectionStart == b.bodyStart
+    and e.selectionEnd == b.bodyStart).length > 0)
+  ? stepComposerIntentRequest(
+    transitionComposerBeforeInputWrites8(
+      d,
+      s,
+      e,
+      text
+    ),
+    s,
+    e.inputType == "insertFromPaste" ? "paste" : "input",
+    text,
+    "",
+    false,
+    false,
+    e.selectionStart,
+    e.selectionEnd,
+    e.isComposing
+  )
+  : d
+)
+
+fn transitionComposerBeforeInputMatch6(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = match e.data {
+  case some(text) => transitionComposerBeforeInputGuard7(
+    d,
+    s,
+    e,
+    text
+  ),
+  case none => d
+}
+
+fn transitionComposerBeforeInputGuard3(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = (
+  (e.inputType == "deleteContentBackward" or e.inputType == "deleteContentForward")
+    and composerChipDeletes(s.richComposer.chips, e.selectionStart, e.selectionEnd,
+    (e.inputType == "deleteContentBackward" or e.inputType == "deleteWordBackward"))
+    or (e.inputType == "deleteWordBackward" or e.inputType == "deleteWordForward")
+    and composerChipWordDeletes(s.richComposer.chips, s.composerText, e.selectionStart,
+    e.selectionEnd, (e.inputType == "deleteContentBackward" or e.inputType == "deleteWordBackward"))
+  ? stepComposerIntentRequest(
+    transitionComposerBeforeInputWrites4(
+      d,
+      s,
+      e
+    ),
+    s,
+    "key",
+    "",
+    `${(e.inputType == "deleteWordBackward" or e.inputType == "deleteWordForward") ? "Word" : ""}${(e.inputType == "deleteContentBackward" or e.inputType == "deleteWordBackward") ? "Backspace" : "Delete"}`,
+    false,
+    false,
+    e.selectionStart,
+    e.selectionEnd,
+    e.isComposing
+  )
+  : e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
+  ? stepComposerIntentRequest(
+    transitionComposerBeforeInputWrites5(
+      d,
+      s,
+      e
+    ),
+    s,
+    "key",
+    "",
+    "Enter",
+    e.inputType == "insertLineBreak" or s.composerShift or (s.composerRequiresModifier
+      and not s.composerCommand),
+    s.composerCommand,
+    e.selectionStart,
+    e.selectionEnd,
+    e.isComposing
+  )
+  : transitionComposerBeforeInputMatch6(
+  d,
+  s,
+  e
+)
+)
+
+fn transitionComposerBeforeInputGuard1(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = (
+  e.isComposing
+  ? transitionComposerBeforeInputGuard2(
+    d,
+    s,
+    e
+  )
+  : e.cancelable and e.value == s.composerText and s.composerRichCurrent
+  ? transitionComposerBeforeInputGuard3(
+    d,
+    s,
+    e
+  )
+  : d
+)
+
+fn transitionComposerBeforeInputWrites9(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      composing=e.isComposing
+    )
+  )
+)
+
+// a paste from a menu, dictation or a drop edits without a key
+// Typing the thread draft (not an answer) holds a request that arrives meanwhile (composer-typing-guard.ts).
+fn stepWrite(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = transitionWriteWrites4(
+  transitionWriteGuard2(
+    transitionWriteWrites1(
+      stepReleaseUndoClaim(
+        stepComposerIntentInput(
+          d,
+          s,
+          value,
+          e
+        ),
+        s
+      ),
+      s,
+      value,
+      e
+    ),
+    s,
+    value,
+    e
+  ),
+  s,
+  value,
+  e
+)
+
+fn transitionWriteWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendComposerFieldChanged=true,
+    field=ComposerFieldArgs(
+      p0=ComposerFieldObservation(generation=s.richComposer.generation,
+        snapshotOwner=s.data.snapshotOwner, owner=s.richComposerOwner, value=value,
+        start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing,
+        live=s.composerFieldLive, focused=s.composerDraft.focused,
+        inputSerial=(s.fieldProtocol.inputSerial + 1)),
+      p1=true
+    ),
+    writeFieldProtocol=true,
+    fieldProtocol=ComposerFieldProtocol(
+      d.root.fieldProtocol,
+      inputSerial=(s.fieldProtocol.inputSerial + 1)
+    ),
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      value=value,
+      owner=`${s.composerOwner}${s.data.requestKey}`,
+      inputType=e.inputType,
+      composing=e.isComposing
+    ),
+    writeComposerSelection=true,
+    composerSelection=ComposerSelectionState(
+      d.root.composerSelection,
+      owner=s.richComposerOwner,
+      value=value,
+      start=e.selectionStart,
+      end=e.selectionEnd
+    )
+  )
+)
+
+fn transitionWriteWrites3(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      typing=true,
+      typingSerial=s.composerDraft.typingSerial + 1
+    )
+  )
+)
+
+fn transitionWriteGuard2(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = (
+  s.composerDraft.focused and s.data.requestMode == ""
+  ? transitionWriteWrites3(
+    d,
+    s,
+    value,
+    e
+  )
+  : d
+)
+
+fn transitionWriteWrites4(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="draft",
+      p1="",
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+// A guest can forge keys while its background is inert; retain the current modal context.
+// The sidebar owns its button chord, so keyboardDispatch has no row for it.
+fn stepInlineDocumentShortcut(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = transitionInlineDocumentShortcutGuard1(
+  d,
+  s,
+  name
+)
+
+fn transitionInlineDocumentShortcutGuard3(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = (
+  not s.modal and not s.paletteSession.open and not s.settingsPageState.open
+  ? stepCommand(
+    d,
+    s,
+    "sidebar",
+    "",
+    s.data.sidebarOpen ? "closed" : "open",
+    0
+  )
+  : d
+)
+
+fn transitionInlineDocumentShortcutGuard6(
+  d: UiDecision,
+  s: UiStart,
+  name: string,
+  item: KeyDispatch
+): UiDecision = (
+  item.kind == "diff"
+  ? stepPanelUi(
+    d,
+    s,
+    "toggle",
+    ""
+  )
+  : item.kind == "command"
+  ? stepCommand(
+    d,
+    s,
+    item.target,
+    item.extra,
+    "",
+    0
+  )
+  : item.kind == "panel-close"
+  ? stepPanelUi(
+    d,
+    s,
+    "close",
+    ""
+  )
+  : d
+)
+
+fn transitionInlineDocumentShortcutGuard7(
+  d: UiDecision,
+  s: UiStart,
+  name: string,
+  item: KeyDispatch
+): UiDecision = (
+  item.kind == "thread"
+  ? stepSelectThread(
+    d,
+    s,
+    item.target
+  )
+  : item.kind == "back"
+  ? stepCloseModal(
+    d,
+    s
+  )
+  : item.kind == "palette-run"
+  ? stepPaletteRun(
+    d,
+    s,
+    item.target,
+    item.extra,
+    ""
+  )
+  : item.kind == "new-thread-in"
+  ? stepPaletteRun(
+    d,
+    s,
+    "new-thread",
+    item.target,
+    ""
+  )
+  : d
+)
+
+fn transitionInlineDocumentShortcutGuard5(
+  d: UiDecision,
+  s: UiStart,
+  name: string,
+  item: KeyDispatch
+): UiDecision = (
+  item.command == "commandPalette.toggle" or item.command == "filePicker.toggle"
+    or item.command == "projectSearch.toggle" or item.command == "chat.find"
+  ? stepPaletteShow(
+    d,
+    s,
+    item.target,
+    item.extra
+  )
+  : item.command == "rightPanel.toggle" or item.command == "rightPanel.toggleMaximized"
+    or item.command == "preview.toggle"
+  ? transitionInlineDocumentShortcutGuard6(
+    d,
+    s,
+    name,
+    item
+  )
+  : item.command == "threadPanel.toggle"
+  ? stepDetailsAct(
+    d,
+    s,
+    "toggle",
+    "",
+    ""
+  )
+  : item.command == "terminal.toggle"
+  ? stepCommand(
+    d,
+    s,
+    item.target,
+    item.extra,
+    "",
+    0
+  )
+  : item.command == "thread.previous" or item.command == "thread.next"
+    or item.command.startsWith("thread.jump.")
+  ? stepSelectThread(
+    d,
+    s,
+    item.target
+  )
+  : item.command.startsWith("modelPicker.jump.") and item.kind == "model"
+  ? stepSelectModel(
+    d,
+    s,
+    item.target,
+    item.extra,
+    false
+  )
+  : item.command == "navigation.back" or item.command == "navigation.forward"
+  ? transitionInlineDocumentShortcutGuard7(
+    d,
+    s,
+    name,
+    item
+  )
+  : d
+)
+
+fn transitionInlineDocumentShortcutMatch4(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = match (s.shortcuts.filter((item) => item.command == name)).at(0) {
+  case some(item) => transitionInlineDocumentShortcutGuard5(
+    d,
+    s,
+    name,
+    item
+  ),
+  case none => d
+}
+
+fn transitionInlineDocumentShortcutGuard2(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = (
+  name == "sidebar.toggle"
+  ? transitionInlineDocumentShortcutGuard3(
+    d,
+    s,
+    name
+  )
+  : transitionInlineDocumentShortcutMatch4(
+  d,
+  s,
+  name
+)
+)
+
+fn transitionInlineDocumentShortcutGuard1(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = (
+  not s.inlineDocumentKeysBlocked
+  ? transitionInlineDocumentShortcutGuard2(
+    d,
+    s,
+    name
+  )
+  : d
+)
+
+fn stepPrOpenGuide(
+  d: UiDecision,
+  s: UiStart,
+  ref: string
+): UiDecision = transitionPrOpenGuideWrites1(
+  stepOpenPage(
+    d,
+    s,
+    "pull-requests"
+  ),
+  s,
+  ref
+)
+
+fn transitionPrOpenGuideWrites1(
+  d: UiDecision,
+  s: UiStart,
+  ref: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePrSelected=true,
+    prSelected=ref,
+    writePrPanelOpen=true,
+    prPanelOpen=true,
+    writePrTab=true,
+    prTab="guide",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      open=false
+    )
+  )
+)
+
+// This macOS-only app receives nonmodifier keys after unmarking (contract-grammar.md: Keys).
+// The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
+// ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), in a list or with a menu open too.
+// A code block outdents first (ComposerPromptEditorTiptap); without the toggle the key gives the focus back
+// (TextAreaMac.insertBacktab), in a list too.
+fn stepComposerKeyEvent(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = transitionComposerKeyEventWrites11(
+  transitionComposerKeyEventGuard4(
+    transitionComposerKeyEventGuard2(
+      transitionComposerKeyEventWrites1(
+        d,
+        s,
+        k,
+        e
+      ),
+      s,
+      k,
+      e
+    ),
+    s,
+    k,
+    e
+  ),
+  s,
+  k,
+  e
+)
+
+fn transitionComposerKeyEventWrites1(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  writeComposerModifiers=true,
+  composerShift=e.shiftKey,
+  composerCommand=(e.metaKey or e.ctrlKey)
+)
+
+fn transitionComposerKeyEventWrites3(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendComposerFieldChanged=true,
+    field=ComposerFieldArgs(
+      p0=ComposerFieldObservation(generation=s.richComposer.generation,
+        snapshotOwner=s.data.snapshotOwner, owner=s.richComposerOwner, value=s.composerText,
+        start=s.composerSelection.start, end=s.composerSelection.end,
+        composing=(s.composerDraft.composing and (k == "Shift" or k == "Control" or k == "Alt"
+        or k == "Meta" or k == "CapsLock")), live=s.composerFieldLive,
+        focused=s.composerDraft.focused, inputSerial=s.fieldProtocol.inputSerial),
+      p1=false
+    )
+  )
+)
+
+fn transitionComposerKeyEventGuard2(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = (
+  s.composerDraft.composing and not (s.composerDraft.composing and (k == "Shift" or k == "Control"
+    or k == "Alt" or k == "Meta" or k == "CapsLock")) and s.composerRichCurrent
+    and s.composerSelectionCurrent
+  ? transitionComposerKeyEventWrites3(
+    d,
+    s,
+    k,
+    e
+  )
+  : d
+)
+
+fn transitionComposerKeyEventWrites5(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true,
+    hostStopPropagation=true
+  )
+)
+
+fn transitionComposerKeyEventWrites8(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFormat=true,
+    format=TwoTextArgs(
+      p0="composer",
+      p1=k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic"
+    )
+  )
+)
+
+fn transitionComposerKeyEventGuard7(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = (
+  s.intentState.queue.length > 0
+  ? stepComposerIntentRequest(
+    d,
+    s,
+    "format",
+    k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic",
+    "",
+    false,
+    true,
+    s.composerSelection.start,
+    s.composerSelection.end,
+    (s.composerDraft.composing and (k == "Shift" or k == "Control" or k == "Alt" or k == "Meta"
+      or k == "CapsLock"))
+  )
+  : transitionComposerKeyEventWrites8(
+  d,
+  s,
+  k,
+  e
+)
+)
+
+fn transitionComposerKeyEventGuard6(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = (
+  not e.repeat
+  ? transitionComposerKeyEventGuard7(
+    d,
+    s,
+    k,
+    e
+  )
+  : d
+)
+
+fn transitionComposerKeyEventWrites9(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true,
+    hostStopPropagation=true
+  )
+)
+
+fn transitionComposerKeyEventGuard10(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = (
+  s.data.connected
+  ? stepMenuPick(
+    d,
+    s,
+    "interaction",
+    "",
+    s.data.composer.planActive ? "default" : "plan"
+  )
+  : d
+)
+
+fn transitionComposerKeyEventGuard4(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = (
+  not (s.composerDraft.composing and (k == "Shift" or k == "Control" or k == "Alt" or k == "Meta"
+    or k == "CapsLock")) and s.richComposer.mode == "rich" and e.metaKey and not e.ctrlKey
+    and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i"
+    or k == "I" or e.code == "KeyI")
+  ? transitionComposerKeyEventGuard6(
+    transitionComposerKeyEventWrites5(
+      d,
+      s,
+      k,
+      e
+    ),
+    s,
+    k,
+    e
+  )
+  : not (s.composerDraft.composing and (k == "Shift" or k == "Control" or k == "Alt"
+    or k == "Meta" or k == "CapsLock")) and k == "Tab" and e.shiftKey
+    and s.data.composer.planVisible and not s.composerInCode
+  ? transitionComposerKeyEventGuard10(
+    transitionComposerKeyEventWrites9(
+      d,
+      s,
+      k,
+      e
+    ),
+    s,
+    k,
+    e
+  )
+  : stepComposerGrammarKey(
+  d,
+  s,
+  k,
+  e,
+  (s.composerDraft.composing and (k == "Shift" or k == "Control" or k == "Alt" or k == "Meta"
+    or k == "CapsLock"))
+)
+)
+
+fn transitionComposerKeyEventWrites11(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      composing=(s.composerDraft.composing and (k == "Shift" or k == "Control" or k == "Alt"
+        or k == "Meta" or k == "CapsLock"))
+    )
+  )
+)

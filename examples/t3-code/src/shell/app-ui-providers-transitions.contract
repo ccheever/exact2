@@ -1,0 +1,1036 @@
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use KeybindingEditorState, ProviderWizardState, SettingsPageState from "./app-protocols.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+
+// the window's half: whether the wizard tried to go on
+// the window's half marks the attempt
+fn stepProviderUi(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = transitionProviderUiGuard16(
+  transitionProviderUiGuard14(
+    transitionProviderUiGuard12(
+      transitionProviderUiGuard10(
+        transitionProviderUiGuard8(
+          transitionProviderUiGuard6(
+            transitionProviderUiGuard4(
+              transitionProviderUiGuard2(
+                transitionProviderUiWrites1(
+                  d,
+                  s,
+                  what,
+                  value
+                ),
+                s,
+                what,
+                value
+              ),
+              s,
+              what,
+              value
+            ),
+            s,
+            what,
+            value
+          ),
+          s,
+          what,
+          value
+        ),
+        s,
+        what,
+        value
+      ),
+      s,
+      what,
+      value
+    ),
+    s,
+    what,
+    value
+  ),
+  s,
+  what,
+  value
+)
+
+fn transitionProviderUiWrites1(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModalError=true,
+    modalError="",
+    writeProviderSelected=true,
+    providerSelected=what == "select" ? value : s.providerSelected
+  )
+)
+
+fn transitionProviderUiWrites3(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      dialog=value,
+      serial=s.providerWizardState.serial + 1,
+      driver="codex",
+      label="",
+      labelSet=false,
+      id="",
+      idSet=false,
+      step=0,
+      manual=false,
+      acpQuery=""
+    )
+  )
+)
+
+fn transitionProviderUiGuard2(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "open"
+  ? transitionProviderUiWrites3(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites5(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      dialog=""
+    )
+  )
+)
+
+fn transitionProviderUiGuard4(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "close"
+  ? transitionProviderUiWrites5(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites7(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      dialog=what,
+      target=value
+    )
+  )
+)
+
+fn transitionProviderUiGuard6(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "hub-remove" or what == "setup-logout" or what == "setup-remove"
+    or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
+  ? transitionProviderUiWrites7(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites9(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      driver=what == "driver" ? value : s.providerWizardState.driver,
+      manual=what == "manual" and value == "true",
+      labelSet=false,
+      idSet=false
+    )
+  )
+)
+
+fn transitionProviderUiGuard8(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "driver" or what == "manual"
+  ? transitionProviderUiWrites9(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites11(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      label=value,
+      labelSet=true
+    )
+  )
+)
+
+fn transitionProviderUiGuard10(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "label"
+  ? transitionProviderUiWrites11(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites13(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      id=value,
+      idSet=true
+    )
+  )
+)
+
+fn transitionProviderUiGuard12(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "id"
+  ? transitionProviderUiWrites13(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites15(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      acpQuery=value
+    )
+  )
+)
+
+fn transitionProviderUiGuard14(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "acp"
+  ? transitionProviderUiWrites15(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn transitionProviderUiWrites17(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      step=s.providerWizardState.step <= 1 and (value == "back" ? max(0,
+        s.providerWizardState.step - 1) : min(s.providerWizardState.manual ? 1 : 2,
+        value == "next" ? s.providerWizardState.step + 1 : (value == "2" ? 2 : (value == "1" ? 1
+        : 0)))) > 1 and s.providerWizard.idError != "" ? 1 : (value == "back" ? max(0,
+        s.providerWizardState.step - 1) : min(s.providerWizardState.manual ? 1 : 2,
+        value == "next" ? s.providerWizardState.step + 1 : (value == "2" ? 2 : (value == "1" ? 1
+        : 0))))
+    )
+  )
+)
+
+fn transitionProviderUiGuard16(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  value: string
+): UiDecision = (
+  what == "step"
+  ? transitionProviderUiWrites17(
+    d,
+    s,
+    what,
+    value
+  )
+  : d
+)
+
+fn stepPrControl(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = transitionPrControlWrites3(
+  transitionPrControlGuard1(
+    d,
+    s,
+    op,
+    value
+  ),
+  s,
+  op,
+  value
+)
+
+fn transitionPrControlWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePrSearch=true,
+    prQuery=value,
+    writePrApplied=true,
+    prApplied=value,
+    prTyped=true
+  )
+)
+
+fn transitionPrControlGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = (
+  op == "query"
+  ? transitionPrControlWrites2(
+    d,
+    s,
+    op,
+    value
+  )
+  : d
+)
+
+fn transitionPrControlWrites3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=`pageslocal:pr-${op}`,
+      p1="",
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn stepPrCopy(
+  d: UiDecision,
+  s: UiStart,
+  label: string,
+  text: string
+): UiDecision = transitionPrCopyWrites1(
+  d,
+  s,
+  label,
+  text
+)
+
+fn transitionPrCopyWrites1(
+  d: UiDecision,
+  s: UiStart,
+  label: string,
+  text: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="pageslocal:copy",
+      p1=label,
+      p2=text,
+      p3=0
+    )
+  )
+)
+
+fn stepPreviewSnapshotSound(
+  d: UiDecision,
+  s: UiStart,
+  sound: string
+): UiDecision = transitionPreviewSnapshotSoundGuard1(
+  d,
+  s,
+  sound
+)
+
+fn transitionPreviewSnapshotSoundWrites2(
+  d: UiDecision,
+  s: UiStart,
+  sound: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="",
+    changedKind="command",
+    command=CommandArgs(
+      p0="snapshot-preview-sound",
+      p1="",
+      p2=sound,
+      p3=0
+    )
+  )
+)
+
+fn transitionPreviewSnapshotSoundGuard1(
+  d: UiDecision,
+  s: UiStart,
+  sound: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionPreviewSnapshotSoundWrites2(
+    d,
+    s,
+    sound
+  )
+  : d
+)
+
+fn stepPromptLinkAct(
+  d: UiDecision,
+  s: UiStart,
+  which: string
+): UiDecision = transitionPromptLinkActWrites1(
+  d,
+  s,
+  which
+)
+
+fn transitionPromptLinkActWrites1(
+  d: UiDecision,
+  s: UiStart,
+  which: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendFragmentChanged=true,
+    fragment=CommandArgs(
+      p0="shelllocal:prompt-link-action",
+      p1=which,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn stepPrSelect(
+  d: UiDecision,
+  s: UiStart,
+  ref: string
+): UiDecision = transitionPrSelectWrites1(
+  d,
+  s,
+  ref
+)
+
+fn transitionPrSelectWrites1(
+  d: UiDecision,
+  s: UiStart,
+  ref: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePrSelected=true,
+    prSelected=ref,
+    writePrPanelOpen=true,
+    prPanelOpen=true,
+    writePrTab=true,
+    prTab="summary"
+  )
+)
+
+// A thread's pull request surface remembers its tab (rightPanelStore setPullRequestDetailTab):
+// a choice there is kept with the surface, and showing that surface again, in its thread, shows it.
+fn stepPrSetTab(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionPrSetTabGuard2(
+  transitionPrSetTabWrites1(
+    d,
+    s,
+    value
+  ),
+  s,
+  value
+)
+
+fn transitionPrSetTabWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePrTab=true,
+    prTab=value
+  )
+)
+
+fn transitionPrSetTabWrites3(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendPrTabSaved=true,
+    tabSave=CommandArgs(
+      p0="shelllocal:surface-pr-tab",
+      p1=s.shell.panel.pr.surface,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionPrSetTabGuard2(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = (
+  s.utilityPage == "" and s.shell.panel.kind == "pull-request" and s.shell.panel.pr.surface != ""
+  ? transitionPrSetTabWrites3(
+    d,
+    s,
+    value
+  )
+  : d
+)
+
+fn stepPrTogglePanel(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionPrTogglePanelWrites1(
+  d,
+  s
+)
+
+fn transitionPrTogglePanelWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePrPanelOpen=true,
+    prPanelOpen=not s.prPanelOpen
+  )
+)
+
+fn stepPrType(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionPrTypeWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionPrTypeWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePrSearch=true,
+    prQuery=value,
+    prTyped=true
+  )
+)
+
+fn stepRestClose(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionRestCloseWrites1(
+  d,
+  s
+)
+
+fn transitionRestCloseWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeRestEditor=true,
+    restEditor="",
+    writeModalError=true,
+    modalError="",
+    writeTaskBase=true,
+    taskBase=""
+  ),
+  writeTaskModelPick=true,
+  taskModelPick=""
+)
+
+fn stepRestLocal(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = transitionRestLocalWrites1(
+  d,
+  s,
+  op,
+  value
+)
+
+fn transitionRestLocalWrites1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=`restlocal:${op}`,
+      p1=`${s.settingsEnvironmentId}:${s.settingsProjectId}`,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+// the window's half: the dialog label, the row menu
+fn stepRestOpen(
+  d: UiDecision,
+  s: UiStart,
+  editor: string,
+  subject: string
+): UiDecision = transitionRestOpenWrites1(
+  d,
+  s,
+  editor,
+  subject
+)
+
+fn transitionRestOpenWrites1(
+  d: UiDecision,
+  s: UiStart,
+  editor: string,
+  subject: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSbQuery=true,
+    sbQuery="",
+    writeSbLettersEdited=true,
+    sbLettersEdited=false,
+    writeSbEmoji=true,
+    sbEmoji="",
+    writeRestEditor=true,
+    restEditor=editor,
+    writeRestSubject=true,
+    restSubject=subject,
+    writeModalError=true,
+    modalError="",
+    writeTaskBase=true,
+    taskBase=""
+  ),
+  writeTaskModelPick=true,
+  taskModelPick=""
+)
+
+// a settings editor's command, also as rest and restInput (T3Window)
+fn stepRestRaw(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionRestRawGuard1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionRestRawWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="rest",
+    writeModalError=true,
+    modalError="",
+    changedKind="command",
+    command=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=0
+    ),
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      saving=""
+    )
+  )
+)
+
+fn transitionRestRawGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionRestRawWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+fn stepRestTaskBase(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionRestTaskBaseWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionRestTaskBaseWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeTaskBase=true,
+    taskBase=value
+  )
+)
+
+fn stepCoreClearSearch(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionCoreClearSearchWrites1(
+  d,
+  s
+)
+
+fn transitionCoreClearSearchWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="settings-search"
+    ),
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      query=""
+    )
+  )
+)
+
+fn stepCoreMenu(
+  d: UiDecision,
+  s: UiStart,
+  section: string,
+  id: string
+): UiDecision = transitionCoreMenuWrites1(
+  d,
+  s,
+  section,
+  id
+)
+
+fn transitionCoreMenuWrites1(
+  d: UiDecision,
+  s: UiStart,
+  section: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsMenu=true,
+    settingsMenu=(id == "" or s.settingsMenu == id) ? "" : id
+  )
+)
+
+// a route reached without a provider link names no instance
+fn stepCoreNavigate(
+  d: UiDecision,
+  s: UiStart,
+  route: string
+): UiDecision = transitionCoreNavigateWrites4(
+  transitionCoreNavigateGuard2(
+    transitionCoreNavigateWrites1(
+      d,
+      s,
+      route
+    ),
+    s,
+    route
+  ),
+  s,
+  route
+)
+
+fn transitionCoreNavigateWrites1(
+  d: UiDecision,
+  s: UiStart,
+  route: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderLinkTarget=true,
+    providerLinkTarget="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route=route
+    )
+  )
+)
+
+fn transitionCoreNavigateWrites3(
+  d: UiDecision,
+  s: UiStart,
+  route: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsMachine=true,
+    settingsMachine=s.settings.environmentId,
+    writeSettingsWorkspace=true,
+    settingsProjectKey="",
+    settingsCheckout="",
+    writeSettingsProjectId=true,
+    settingsProjectId=""
+  )
+)
+
+fn transitionCoreNavigateGuard2(
+  d: UiDecision,
+  s: UiStart,
+  route: string
+): UiDecision = (
+  route == "diagnostics" and s.settings.environmentId != ""
+  ? transitionCoreNavigateWrites3(
+    d,
+    s,
+    route
+  )
+  : d
+)
+
+fn transitionCoreNavigateWrites4(
+  d: UiDecision,
+  s: UiStart,
+  route: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeModalError=true,
+    modalError="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      query=""
+    )
+  )
+)
+
+fn stepCorePick(
+  d: UiDecision,
+  s: UiStart,
+  route: string,
+  target: string,
+  scope: string,
+  id: string
+): UiDecision = transitionCorePickWrites1(
+  d,
+  s,
+  route,
+  target,
+  scope,
+  id
+)
+
+fn transitionCorePickWrites1(
+  d: UiDecision,
+  s: UiStart,
+  route: string,
+  target: string,
+  scope: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderLinkTarget=true,
+    providerLinkTarget="",
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeModalError=true,
+    modalError="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route=route,
+      focusTarget=target,
+      query=""
+    )
+  )
+)

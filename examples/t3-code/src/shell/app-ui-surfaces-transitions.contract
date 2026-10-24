@@ -1,0 +1,1041 @@
+use AppDecision, CommandArgs, TextArgs, TwoTextArgs from "./app-decisions.contract"
+use ComposerDraftState, SettingsPageState from "./app-protocols.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+
+// routes/settings.tsx keys the page on its scope: Providers starts over on the new environment's first row
+fn stepCoreScope(
+  d: UiDecision,
+  s: UiStart,
+  project: bool,
+  id: string,
+  member: string
+): UiDecision = transitionCoreScopeWrites1(
+  d,
+  s,
+  project,
+  id,
+  member
+)
+
+fn transitionCoreScopeWrites1(
+  d: UiDecision,
+  s: UiStart,
+  project: bool,
+  id: string,
+  member: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeModalError=true,
+    modalError="",
+    writeProviderSelected=true,
+    providerSelected="",
+    writeProviderLinkTarget=true,
+    providerLinkTarget="",
+    writeSettingsWorkspace=true,
+    settingsProjectKey=project ? id : s.settingsProjectKey,
+    settingsCheckout=project ? "" : s.settingsCheckout,
+    writeSettingsProjectId=true,
+    settingsProjectId=project ? member : s.settingsProjectId,
+    writeSettingsMachine=true,
+    settingsMachine=project ? s.settingsMachine : id
+  )
+)
+
+fn stepCoreSearchKey(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = transitionCoreSearchKeyGuard9(
+  transitionCoreSearchKeyGuard7(
+    transitionCoreSearchKeyGuard5(
+      transitionCoreSearchKeyGuard3(
+        transitionCoreSearchKeyGuard1(
+          d,
+          s,
+          k
+        ),
+        s,
+        k
+      ),
+      s,
+      k
+    ),
+    s,
+    k
+  ),
+  s,
+  k
+)
+
+fn transitionCoreSearchKeyWrites2(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="settings-search"
+    )
+  )
+)
+
+fn transitionCoreSearchKeyGuard1(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = (
+  k == "/"
+  ? transitionCoreSearchKeyWrites2(
+    d,
+    s,
+    k
+  )
+  : d
+)
+
+fn transitionCoreSearchKeyWrites4(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      query="",
+      resultIndex=0
+    )
+  )
+)
+
+fn transitionCoreSearchKeyGuard3(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = (
+  k == "Escape"
+  ? transitionCoreSearchKeyWrites4(
+    d,
+    s,
+    k
+  )
+  : d
+)
+
+fn transitionCoreSearchKeyWrites6(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      resultIndex=s.settingsPageState.resultIndex + 1
+    )
+  )
+)
+
+fn transitionCoreSearchKeyGuard5(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = (
+  k == "ArrowDown"
+  ? transitionCoreSearchKeyWrites6(
+    d,
+    s,
+    k
+  )
+  : d
+)
+
+fn transitionCoreSearchKeyWrites8(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      resultIndex=s.settingsPageState.resultIndex + s.settingsNavigation.count - 1
+    )
+  )
+)
+
+fn transitionCoreSearchKeyGuard7(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = (
+  k == "ArrowUp"
+  ? transitionCoreSearchKeyWrites8(
+    d,
+    s,
+    k
+  )
+  : d
+)
+
+fn transitionCoreSearchKeyWrites10(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderLinkTarget=true,
+    providerLinkTarget="",
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeModalError=true,
+    modalError="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route=s.settingsNavigation.firstRoute,
+      focusTarget=s.settingsNavigation.firstTarget,
+      query=""
+    )
+  )
+)
+
+fn transitionCoreSearchKeyGuard9(
+  d: UiDecision,
+  s: UiStart,
+  k: string
+): UiDecision = (
+  k == "Enter" and s.settingsNavigation.firstRoute != ""
+  ? transitionCoreSearchKeyWrites10(
+    d,
+    s,
+    k
+  )
+  : d
+)
+
+fn stepCoreThemeChange(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = transitionCoreThemeChangeGuard1(
+  d,
+  s,
+  row,
+  part,
+  value
+)
+
+fn transitionCoreThemeChangeWrites2(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="theme-dialog",
+    writeModalError=true,
+    modalError="",
+    changedKind="command",
+    command=CommandArgs(
+      p0="settings-core",
+      p1=`${row}:${part}|${s.settingsCore.scopeKey}`,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionCoreThemeChangeGuard1(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionCoreThemeChangeWrites2(
+    d,
+    s,
+    row,
+    part,
+    value
+  )
+  : d
+)
+
+fn stepCoreThemeDialog(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  theme: string
+): UiDecision = transitionCoreThemeDialogWrites1(
+  d,
+  s,
+  kind,
+  theme
+)
+
+fn transitionCoreThemeDialogWrites1(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  theme: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsThemeDialog=true,
+    settingsThemeDialog=kind,
+    writeSettingsThemeSubject=true,
+    settingsThemeSubject=kind == "create" or kind == "edit" or kind == "duplicate"
+      ? `${theme}#${s.settingsThemeRequest + 1}` : theme,
+    writeModalError=true,
+    modalError=""
+  ),
+  writeSettingsThemeRequest=true,
+  settingsThemeRequest=s.settingsThemeRequest + 1
+)
+
+fn stepEditSettingsQuery(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionEditSettingsQueryWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionEditSettingsQueryWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      focusTarget="",
+      query=value,
+      resultIndex=0
+    )
+  )
+)
+
+fn stepSettingsCommand(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionSettingsCommandGuard1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionSettingsCommandWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="settings",
+    writeModalError=true,
+    modalError="",
+    changedKind="command",
+    command=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=0
+    ),
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      restores=s.settingsPageState.restores + (op == "settings-core"
+        and id == `restore-device-defaults:|${s.settingsCore.scopeKey}` ? 1 : 0)
+    )
+  )
+)
+
+fn transitionSettingsCommandGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionSettingsCommandWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+// a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
+fn stepCanvasGesture(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionCanvasGestureWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionCanvasGestureWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCanvasGestureValue=true,
+    canvasGestureValue=value,
+    writeDetailsOpen=true,
+    detailsOpen=s.detailsOpen and value == ""
+  )
+)
+
+// tabs and surfaces live in the client (panel-surfaces.ts, shell.panel)
+// the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
+fn stepPanelUi(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = transitionPanelUiGuard17(
+  transitionPanelUiGuard15(
+    transitionPanelUiGuard8(
+      transitionPanelUiGuard6(
+        transitionPanelUiGuard2(
+          transitionPanelUiWrites1(
+            d,
+            s,
+            what,
+            id
+          ),
+          s,
+          what,
+          id
+        ),
+        s,
+        what,
+        id
+      ),
+      s,
+      what,
+      id
+    ),
+    s,
+    what,
+    id
+  ),
+  s,
+  what,
+  id
+)
+
+fn transitionPanelUiWrites1(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeRightPanelAt=true,
+    rightPanelAt=(what == "tab-close" and s.shell.panel.tabs.filter((tab) => tab.id == id
+      and tab.closeTitle != "").length > 0) ? s.rightPanelAt : (what == "toggle"
+      or what == "close" or what == "tab-close" ? ((what == "toggle" and not s.data.diffOpen
+      and not s.rightPanel and not s.shell.panel.open) or (what == "tab-close"
+      and s.shell.panel.count > 1)) : (s.rightPanel or what == "choose")) ? s.shell.panel.key : ""
+  )
+)
+
+fn transitionPanelUiWrites3(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=what == "tab-close" ? "shelllocal:surface-close" : (what == "toggle"
+        and not s.data.diffOpen and not s.rightPanel and not s.shell.panel.open
+        ? "shelllocal:surface-show" : "shelllocal:surface-hide"),
+      p1=id,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionPanelUiWrites5(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="surface-chooser"
+    )
+  )
+)
+
+fn transitionPanelUiGuard4(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  what == "toggle" and not s.data.diffOpen and not s.rightPanel and not s.shell.panel.open
+  ? transitionPanelUiWrites5(
+    d,
+    s,
+    what,
+    id
+  )
+  : d
+)
+
+fn transitionPanelUiGuard2(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  what == "toggle" or what == "close" or what == "tab-close"
+  ? transitionPanelUiGuard4(
+    transitionPanelUiWrites3(
+      d,
+      s,
+      what,
+      id
+    ),
+    s,
+    what,
+    id
+  )
+  : d
+)
+
+fn transitionPanelUiWrites7(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="shelllocal:surface-maximize",
+      p1="",
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionPanelUiGuard6(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  what == "maximize"
+  ? transitionPanelUiWrites7(
+    d,
+    s,
+    what,
+    id
+  )
+  : d
+)
+
+fn transitionPanelUiWrites10(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostShowPopoverSource=true,
+    showPopoverSource=TwoTextArgs(
+      p0="add-surface-menu",
+      p1="panel-add-surface"
+    )
+  )
+)
+
+fn transitionPanelUiWrites12(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string,
+  surface: ShellSurface
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=`add-surface-${surface.id}`
+    )
+  )
+)
+
+fn transitionPanelUiWrites13(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="panel-add-surface"
+    )
+  )
+)
+
+fn transitionPanelUiMatch11(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = match (s.shell.surfaces.filter((surface) => surface.available)).at(0) {
+  case some(surface) => transitionPanelUiWrites12(
+    d,
+    s,
+    what,
+    id,
+    surface
+  ),
+  case none => transitionPanelUiWrites13(
+    d,
+    s,
+    what,
+    id
+  )
+}
+
+fn transitionPanelUiWrites14(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeRightPanelAt=true,
+    rightPanelAt=s.shell.panel.key,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="shelllocal:surface-show",
+      p1="",
+      p2="",
+      p3=0
+    ),
+    hostFocus=true,
+    focus=TextArgs(
+      p0="surface-chooser"
+    )
+  )
+)
+
+fn transitionPanelUiGuard9(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  s.data.diffOpen or s.rightPanel or s.shell.panel.open
+  ? transitionPanelUiMatch11(
+    transitionPanelUiWrites10(
+      d,
+      s,
+      what,
+      id
+    ),
+    s,
+    what,
+    id
+  )
+  : transitionPanelUiWrites14(
+  d,
+  s,
+  what,
+  id
+)
+)
+
+fn transitionPanelUiGuard8(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  what == "new"
+  ? transitionPanelUiGuard9(
+    d,
+    s,
+    what,
+    id
+  )
+  : d
+)
+
+fn transitionPanelUiWrites16(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTerminalChanged=true,
+    terminal=CommandArgs(
+      p0="terminallocal:toggle",
+      p1="",
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionPanelUiGuard15(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  what == "terminal"
+  ? transitionPanelUiWrites16(
+    d,
+    s,
+    what,
+    id
+  )
+  : d
+)
+
+fn transitionPanelUiWrites18(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeUtilityPage=true,
+    utilityPage="",
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    changedKind="command",
+    command=CommandArgs(
+      p0="shell:surface-reopen",
+      p1="",
+      p2="",
+      p3=0
+    ),
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      open=false
+    ),
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionPanelUiWrites19(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=(id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open",
+      p1="",
+      p2=id,
+      p3=0
+    )
+  )
+)
+
+fn transitionPanelUiGuard17(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  id: string
+): UiDecision = (
+  what == "reopen"
+  ? transitionPanelUiWrites18(
+    d,
+    s,
+    what,
+    id
+  )
+  : (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D"
+    or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p"
+    or id == "P" or id == "t" or id == "T"))) and (s.data.threadId != "" or id == "browser"
+    or id == "b" or id == "B" or id == "files" or id == "f" or id == "F"
+    or (s.shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T"))
+    or (s.data.projectId != "" and (id == "device" or id == "m" or id == "M")))
+    and not s.commandPending
+  ? transitionPanelUiWrites19(
+    d,
+    s,
+    what,
+    id
+  )
+  : d
+)
+
+// the window's half sets the card's geometry (app-window.contract)
+fn stepSidebarHover(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = transitionSidebarHoverGuard1(
+  d,
+  s,
+  id,
+  over
+)
+
+fn transitionSidebarHoverWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSidebarHoverId=true,
+    sidebarHoverId=id
+  )
+)
+
+fn transitionSidebarHoverWrites4(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="sidebarlocal:search-hover",
+      p1=id,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionSidebarHoverGuard3(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = (
+  s.data.sidebar.searching
+  ? transitionSidebarHoverWrites4(
+    d,
+    s,
+    id,
+    over
+  )
+  : d
+)
+
+fn transitionSidebarHoverWrites5(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSidebarHoverId=true,
+    sidebarHoverId=""
+  )
+)
+
+fn transitionSidebarHoverGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  over: bool
+): UiDecision = (
+  over
+  ? transitionSidebarHoverGuard3(
+    transitionSidebarHoverWrites2(
+      d,
+      s,
+      id,
+      over
+    ),
+    s,
+    id,
+    over
+  )
+  : s.sidebarHoverId == id
+  ? transitionSidebarHoverWrites5(
+    d,
+    s,
+    id,
+    over
+  )
+  : d
+)
+
+fn stepSidebarLocal(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionSidebarLocalGuard1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionSidebarLocalWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeRenameAfterOp=true,
+    renameAfterOp=op,
+    writeRenameAfterId=true,
+    renameAfterId=id
+  )
+)
+
+fn transitionSidebarLocalWrites3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=`sidebarlocal:${op}`,
+      p1=id,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionSidebarLocalGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  (op == "rename-start" or op == "legacy-rename-start") and s.commandPending
+  ? transitionSidebarLocalWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : transitionSidebarLocalWrites3(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+)

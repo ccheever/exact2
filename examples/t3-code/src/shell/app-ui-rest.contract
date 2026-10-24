@@ -1,0 +1,211 @@
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+use AppDecision from "./app-decisions.contract"
+use TranscriptViewportState from "./app-protocols.contract"
+
+fn restScrollVisible(d: UiDecision, e: ScrollEvent): UiDecision = (
+  UiDecision(
+    d,
+    root=AppDecision(
+      d.root,
+      writeTranscriptViewport=true,
+      transcriptViewport=TranscriptViewportState(
+        d.root.transcriptViewport,
+        findViewport=match e.firstVisibleKey {
+          case some(key) => key,
+          case none => ""
+        }
+      )
+    )
+  )
+)
+
+fn restScrollEnd(d: UiDecision): UiDecision = (
+  UiDecision(
+    d,
+    writeRestMovement=true,
+    restMovement=0,
+    root=AppDecision(
+      d.root,
+      writeTranscriptViewport=true,
+      transcriptViewport=TranscriptViewportState(d.root.transcriptViewport, resting=false)
+    )
+  )
+)
+
+fn restScrollResting(d: UiDecision, resting: bool): UiDecision = (
+  UiDecision(
+    d,
+    root=AppDecision(
+      d.root,
+      writeTranscriptViewport=true,
+      transcriptViewport=TranscriptViewportState(d.root.transcriptViewport, resting=resting)
+    )
+  )
+)
+
+fn restScrollMoved(d: UiDecision, moved: number): UiDecision = (
+  moved >= 24 ? restScrollResting(
+    UiDecision(d, writeRestMovement=true, restMovement=moved),
+    true
+  ) : UiDecision(d, writeRestMovement=true, restMovement=moved)
+)
+
+fn restScrollOther(d: UiDecision, fresh: bool): UiDecision = (
+  fresh ? restScrollResting(
+    UiDecision(
+      d,
+      writeRestMovement=true,
+      restMovement=0,
+      writeRestGestureUntil=true,
+      restGestureUntil=-1
+    ),
+    false
+  ) : UiDecision(
+    d,
+    writeRestMovement=true,
+    restMovement=0,
+    writeRestGestureUntil=true,
+    restGestureUntil=-1
+  )
+)
+
+fn restScrollBranch(
+  d: UiDecision,
+  s: UiStart,
+  fresh: bool,
+  end: bool,
+  still: bool,
+  moved: number
+): UiDecision = (
+  end ? restScrollEnd(d) :
+  s.canRest and still and performanceNow() <= s.restGestureUntil ? restScrollMoved(d, moved) :
+  restScrollOther(d, fresh)
+)
+
+fn restScrollMeasured(
+  d: UiDecision,
+  owner: string,
+  e: ScrollEvent,
+  end: bool
+): UiDecision = (
+  UiDecision(
+    d,
+    writeRestTop=true,
+    restTop=e.scrollTop,
+    writeRestHeight=true,
+    restHeight=e.clientHeight,
+    writeRestContent=true,
+    restContent=e.scrollHeight,
+    writeRestWidth=true,
+    restWidth=e.clientWidth,
+    root=AppDecision(
+      d.root,
+      writeTranscriptViewport=true,
+      transcriptViewport=TranscriptViewportState(
+        d.root.transcriptViewport,
+        owner=owner,
+        atEnd=end
+      )
+    )
+  )
+)
+
+fn restScrollFacts(
+  d: UiDecision,
+  s: UiStart,
+  owner: string,
+  e: ScrollEvent,
+  fresh: bool,
+  end: bool,
+  still: bool,
+  moved: number
+): UiDecision = (
+  restScrollMeasured(
+    restScrollBranch(d, s, fresh, end, still, moved),
+    owner,
+    e,
+    end
+  )
+)
+
+fn restScrollOwner(
+  d: UiDecision,
+  s: UiStart,
+  owner: string,
+  e: ScrollEvent,
+  fresh: bool
+): UiDecision = (
+  restScrollFacts(
+    d,
+    s,
+    owner,
+    e,
+    fresh,
+    e.scrollHeight <= e.clientHeight + 2 or e.scrollTop >= e.scrollHeight - e.clientHeight - 2,
+    not fresh and s.restHeight >= 0 and
+      max(s.restHeight - e.clientHeight, e.clientHeight - s.restHeight) < 0.5 and
+      max(s.restContent - e.scrollHeight, e.scrollHeight - s.restContent) < 0.5 and
+      max(s.restWidth - e.clientWidth, e.clientWidth - s.restWidth) < 0.5,
+    s.restMovement + max(e.scrollTop - s.restTop, s.restTop - e.scrollTop)
+  )
+)
+
+fn stepRestScrolled(
+  d: UiDecision,
+  s: UiStart,
+  owner: string,
+  e: ScrollEvent
+): UiDecision = (
+  restScrollOwner(
+    restScrollVisible(d, e),
+    s,
+    owner,
+    e,
+    owner != s.transcriptViewport.owner
+  )
+)
+
+fn restGesturePull(
+  d: UiDecision,
+  s: UiStart,
+  towardEnd: bool,
+  now: number
+): UiDecision = (
+  towardEnd and s.transcriptViewport.atEnd and now - s.restLastPull > 500 ? UiDecision(
+    d,
+    writeRestLastPull=true,
+    restLastPull=now,
+    root=AppDecision(
+      d.root,
+      writeTranscriptViewport=true,
+      transcriptViewport=TranscriptViewportState(
+        d.root.transcriptViewport,
+        pulls=s.transcriptViewport.pulls + 1
+      )
+    )
+  ) : d
+)
+
+fn restGestureWindow(d: UiDecision, s: UiStart, now: number): UiDecision = (
+  s.canRest ? UiDecision(
+    d,
+    writeRestGestureUntil=true,
+    restGestureUntil=now + 800
+  ) : d
+)
+
+fn restGestureAt(d: UiDecision, s: UiStart, towardEnd: bool, now: number): UiDecision = (
+  restGestureWindow(
+    restGesturePull(d, s, towardEnd, now),
+    s,
+    now
+  )
+)
+
+// Both gesture branches use the same sample, including when neither branch writes.
+// A wheel over the transcript or a scroll key inside it: toward the end, while there, is a pull (one each 0.5 s);
+// either way it opens the 0.8 s in which movement may rest the composer.
+fn stepRestGesture(d: UiDecision, s: UiStart, towardEnd: bool): UiDecision = (
+  restGestureAt(d, s, towardEnd, performanceNow())
+)

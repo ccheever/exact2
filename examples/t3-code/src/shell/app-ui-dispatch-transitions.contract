@@ -1,0 +1,947 @@
+use KeybindingDraft from "../settings/settings-keybindings.contract"
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerMenuState, KeybindingEditorState from "./app-protocols.contract"
+use ModifierOwnershipState from "./app-protocols.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+
+// the undo chord's key (keyboard-dispatch.ts chordKey), whose repeats modifierKey cancels
+// A gutter drag sends at its press, on each line and at its release; a click's press and
+// release come within a few ms, so they queue on their own send (a later send on one mutation would replace the
+// press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag.
+fn stepCommand(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = transitionCommandGuard3(
+  transitionCommandGuard1(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  ),
+  s,
+  op,
+  id,
+  value,
+  n
+)
+
+fn transitionCommandWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModifierOwnership=true,
+    modifierOwnership=ModifierOwnershipState(
+      d.root.modifierOwnership,
+      undoHeldKey=id
+    )
+  )
+)
+
+fn transitionCommandGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = (
+  op == "sidebar:undo" and id != ""
+  ? transitionCommandWrites2(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : d
+)
+
+fn transitionCommandWrites4(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendSecretAnswered=true,
+    secret=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=n
+    )
+  )
+)
+
+fn transitionCommandWrites5(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTimelineDisclosureChanged=true,
+    disclosure=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=n
+    )
+  )
+)
+
+fn transitionCommandWrites6(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLineDragChanged=true,
+    lineDrag=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=n
+    )
+  )
+)
+
+fn transitionCommandWrites8(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTerminalFocusChanged=true,
+    terminalFocus=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=n
+    )
+  )
+)
+
+fn transitionCommandWrites9(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendTerminalChanged=true,
+    terminal=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=n
+    )
+  )
+)
+
+fn transitionCommandWrites10(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=n
+    )
+  )
+)
+
+fn transitionCommandWrites12(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=(n == 0 and op.startsWith("chat:")) ? s.wallTime.epochAtZero + performanceNow() : n
+    )
+  )
+)
+
+fn transitionCommandGuard11(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = (
+  not s.commandPending
+  ? transitionCommandWrites12(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : d
+)
+
+fn transitionCommandGuard7(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = (
+  op.endsWith(":focus-in") or op.endsWith(":focus-out")
+  ? transitionCommandWrites8(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : op.startsWith("terminallocal:") or op.startsWith("terminalpanellocal:")
+  ? transitionCommandWrites9(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice"
+    or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
+  ? transitionCommandWrites10(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : transitionCommandGuard11(
+  d,
+  s,
+  op,
+  id,
+  value,
+  n
+)
+)
+
+fn transitionCommandGuard3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): UiDecision = (
+  op.startsWith("secretlocal:")
+  ? transitionCommandWrites4(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : op == "chatlocal:item-detail"
+  ? transitionCommandWrites5(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : op == "diffreview" and (id.startsWith("drag:") or id.startsWith("gutter:")
+    or id.startsWith("comment:") or id == "to" or id == "end")
+  ? transitionCommandWrites6(
+    d,
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+  : transitionCommandGuard7(
+  d,
+  s,
+  op,
+  id,
+  value,
+  n
+)
+)
+
+fn stepCopyDiagnostic(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionCopyDiagnosticWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionCopyDiagnosticWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="copy-diagnostic",
+      p1="",
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn stepDeviceSetting(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  value: string
+): UiDecision = transitionDeviceSettingWrites1(
+  d,
+  s,
+  id,
+  value
+)
+
+fn transitionDeviceSettingWrites1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="device-setting",
+      p1=id,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+// composer-editor.ts: menu picks, the stash
+fn stepEditorOp(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionEditorOpWrites1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionEditorOpWrites1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=`editorlocal:${op}`,
+      p1=id,
+      p2=value,
+      p3=s.wallTime.epochAtZero + performanceNow()
+    )
+  )
+)
+
+fn stepMenuPick(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionMenuPickGuard2(
+  transitionMenuPickWrites1(
+    d,
+    s,
+    op,
+    id,
+    value
+  ),
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionMenuPickWrites1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      optionsOpen=""
+    )
+  )
+)
+
+fn transitionMenuPickWrites3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionMenuPickGuard2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionMenuPickWrites3(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+fn stepRemoveSnapshot(
+  d: UiDecision,
+  s: UiStart,
+  imageId: string
+): UiDecision = transitionRemoveSnapshotWrites1(
+  d,
+  s,
+  imageId
+)
+
+fn transitionRemoveSnapshotWrites1(
+  d: UiDecision,
+  s: UiStart,
+  imageId: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    changedKind="command",
+    command=CommandArgs(
+      p0="remove-snapshot",
+      p1=imageId,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+// held: a pointer press's own modifiers (press-modifiers.contract), "" from a key or a call
+fn stepSend(
+  d: UiDecision,
+  s: UiStart,
+  held: string
+): UiDecision = transitionSendGuard3(
+  transitionSendGuard1(
+    d,
+    s,
+    held
+  ),
+  s,
+  held
+)
+
+fn transitionSendWrites2(
+  d: UiDecision,
+  s: UiStart,
+  held: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="editorlocal:arm-limit",
+      p1="",
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionSendGuard1(
+  d: UiDecision,
+  s: UiStart,
+  held: string
+): UiDecision = (
+  not s.commandPending and s.editor.overLimit and s.data.requestMode != "question"
+  ? transitionSendWrites2(
+    d,
+    s,
+    held
+  )
+  : d
+)
+
+fn transitionSendWrites5(
+  d: UiDecision,
+  s: UiStart,
+  held: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="send",
+      p1=held == "" ? "" : `pointer:${held}`,
+      p2=s.composerText,
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      typing=false,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionSendGuard4(
+  d: UiDecision,
+  s: UiStart,
+  held: string
+): UiDecision = (
+  s.data.requestMode == "question" or (s.data.canSend and (s.composerText != ""
+    or s.data.snapshotDrafts.length > 0))
+  ? transitionSendWrites5(
+    d,
+    s,
+    held
+  )
+  : d
+)
+
+fn transitionSendGuard3(
+  d: UiDecision,
+  s: UiStart,
+  held: string
+): UiDecision = (
+  not s.commandPending and (not s.editor.overLimit or s.data.requestMode == "question")
+  ? transitionSendGuard4(
+    d,
+    s,
+    held
+  )
+  : d
+)
+
+fn stepCancelKeybinding(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionCancelKeybindingWrites1(
+  d,
+  s
+)
+
+fn transitionCancelKeybindingWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModalError=true,
+    modalError="",
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      open=false,
+      drafts=s.keybindingEditor.drafts.filter((d) => d.row != "new"),
+      previous=s.keybindingEditor.previous == "new" ? "" : s.keybindingEditor.previous,
+      recording=s.keybindingEditor.recording and s.keybindingEditor.previous != "new"
+    )
+  )
+)
+
+// the recorder's chord; "escape" restores, "blur" keeps the draft
+fn stepCaptureKeybinding(
+  d: UiDecision,
+  s: UiStart,
+  original: string,
+  value: string
+): UiDecision = transitionCaptureKeybindingWrites1(
+  d,
+  s,
+  original,
+  value
+)
+
+fn transitionCaptureKeybindingWrites1(
+  d: UiDecision,
+  s: UiStart,
+  original: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      key=value == "escape" ? original : (value == "blur" ? s.keybindingEditor.key : value),
+      recording=false
+    )
+  )
+)
+
+fn stepEditKeybinding(
+  d: UiDecision,
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = transitionEditKeybindingGuard1(
+  d,
+  s,
+  previous,
+  commandName,
+  shortcut,
+  condition
+)
+
+fn transitionEditKeybindingWrites2(
+  d: UiDecision,
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingWhen=true,
+    keybindingWhen=condition,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      drafts=s.keybindingEditor.previous == ""
+        ? (s.keybindingEditor.drafts.filter((d) => d.row != previous
+        and d.row != s.keybindingEditor.previous and (d.row == "new"
+        or s.bindings.ids.includes(d.row))))
+        : (s.keybindingEditor.drafts.filter((d) => d.row != previous
+        and d.row != s.keybindingEditor.previous and (d.row == "new"
+        or s.bindings.ids.includes(d.row)))).concat([KeybindingDraft(row=s.keybindingEditor.previous, command=s.keybindingEditor.command, key=s.keybindingEditor.key, when=s.keybindingWhen)]),
+      previous=previous,
+      command=commandName,
+      key=shortcut,
+      recording=false
+    )
+  )
+)
+
+fn transitionEditKeybindingGuard1(
+  d: UiDecision,
+  s: UiStart,
+  previous: string,
+  commandName: string,
+  shortcut: string,
+  condition: string
+): UiDecision = (
+  s.keybindingEditor.previous != previous
+  ? transitionEditKeybindingWrites2(
+    d,
+    s,
+    previous,
+    commandName,
+    shortcut,
+    condition
+  )
+  : d
+)
+
+fn stepEditKeybindingKey(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionEditKeybindingKeyWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionEditKeybindingKeyWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      key=value,
+      recording=false
+    )
+  )
+)
+
+fn stepNewKeybinding(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionNewKeybindingWrites1(
+  d,
+  s
+)
+
+fn transitionNewKeybindingWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingWhen=true,
+    keybindingWhen="",
+    writeModalError=true,
+    modalError="",
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      drafts=s.keybindingEditor.previous == "" or s.keybindingEditor.previous == "new"
+        ? (s.keybindingEditor.drafts.filter((d) => d.row != "new"
+        and d.row != s.keybindingEditor.previous))
+        : (s.keybindingEditor.drafts.filter((d) => d.row != "new"
+        and d.row != s.keybindingEditor.previous)).concat([KeybindingDraft(row=s.keybindingEditor.previous, command=s.keybindingEditor.command, key=s.keybindingEditor.key, when=s.keybindingWhen)]),
+      previous="new",
+      command="",
+      key="",
+      recording=false,
+      open=true
+    )
+  )
+)
+
+fn stepAnswerRevert(
+  d: UiDecision,
+  s: UiStart,
+  choice: string
+): UiDecision = transitionAnswerRevertWrites3(
+  transitionAnswerRevertGuard1(
+    d,
+    s,
+    choice
+  ),
+  s,
+  choice
+)
+
+fn transitionAnswerRevertWrites2(
+  d: UiDecision,
+  s: UiStart,
+  choice: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionAnswerRevertGuard1(
+  d: UiDecision,
+  s: UiStart,
+  choice: string
+): UiDecision = (
+  choice != "cancel"
+  ? transitionAnswerRevertWrites2(
+    d,
+    s,
+    choice
+  )
+  : d
+)
+
+fn transitionAnswerRevertWrites3(
+  d: UiDecision,
+  s: UiStart,
+  choice: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="chatlocal:revert-answer",
+      p1="",
+      p2=choice,
+      p3=0
+    )
+  )
+)
+
+fn stepCloseModels(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionCloseModelsWrites1(
+  d,
+  s
+)
+
+fn transitionCloseModelsWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0=s.composerMenu.modelTarget.id == "" ? "composer"
+        : `setting-${s.composerMenu.modelTarget.id.slice(0, s.composerMenu.modelTarget.id.indexOf(":"))}`
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelsOpen=false
+    )
+  )
+)
+
+fn stepCloseOptions(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionCloseOptionsWrites1(
+  d,
+  s
+)
+
+fn transitionCloseOptionsWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      optionsOpen=""
+    )
+  )
+)

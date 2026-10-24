@@ -1,0 +1,455 @@
+use UiRootInputs, ComposerDraftState, ComposerMenuState from "./app-protocols.contract"
+use ComposerSelectionState, ConfirmationState, ComposerFieldProtocol from "./app-protocols.contract"
+use HoverState, ComposerIntentState, KeybindingEditorState from "./app-protocols.contract"
+use ModifierOwnershipState, NoticeExitState, PaletteSessionState from "./app-protocols.contract"
+use PromptPreviewState, ProviderWizardState, SettingsPageState from "./app-protocols.contract"
+use SshResponseState, StreamGeometryState, TranscriptViewportState from "./app-protocols.contract"
+use PromptLinkView from "../prompt-links/prompt-links.contract"
+use ThemeRoleUsage from "../appearance/settings-appearance-editor-shapes.contract"
+use Snapshot, Viewport, Settings, SnapshotSettings, LicenseSettings from "../shared/shapes.contract"
+use SettingsCore, CoreNav from "../settings/settings-core.contract"
+use SshPromptView from "../connections/ssh-prompt.contract"
+use ShellView, ShellDetails from "./shell-shapes.contract"
+use Time from "./app-shapes.contract"
+use PagesHome from "../pages/pages-hero.contract"
+use ChatCanvasView from "./chat-canvas.contract"
+use TranscriptMarkdown from "../timeline/markdown.contract"
+use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
+use ComposerEditorView from "../composer/composer-editor.contract"
+use ChipPopover from "../composer/composer-chip-popover.contract"
+use ComposerBranches, PickerCatalog from "../composer/composer-shapes.contract"
+use TerminalDrawerView from "../terminal/terminal.contract"
+use PrDetailView from "../pull-requests/pages-pr-detail.contract"
+use UsageView, UsageKey from "../usage/pages-usage.contract"
+use PrListView from "../pull-requests/pages-prs.contract"
+use SourceControlPage, IntegrationsPage from "../settings/settings-source-control.contract"
+use KeybindingPage from "../settings/settings-keybindings.contract"
+use ScheduledPage from "../settings/settings-scheduled.contract"
+use StoragePage from "../settings/settings-storage.contract"
+use ArchivePage from "../settings/settings-archive.contract"
+use DiagnosticsPage from "../settings/settings-diagnostics.contract"
+use ConnectionsPage, SbSshHosts from "../connections/connections.contract"
+use ProviderPage from "../providers/providers.contract"
+use ProjectsPage from "../settings/settings-projects.contract"
+use WelcomeView from "../pages/pages-welcome.contract"
+use KeyDispatch from "../settings/settings-shortcuts.contract"
+use SbPicker from "../settings/settings-b-icons.contract"
+use PairFields from "../connections/pairing-shapes.contract"
+use ProviderWizard, AcpRegistry from "../providers/providers-wizard.contract"
+use PaletteView from "../palette/palette.contract"
+
+shape WindowInputs
+  rootUi: UiRootInputs
+  threadJumpHintsShown: bool
+  promptLinkPage: PromptLinkView
+  citeWaitDone: number
+  citeSettleDone: number
+  citeDismissals: number
+  themeInspecting: bool
+  themeUsage: ThemeRoleUsage[]
+  data: Snapshot
+  viewport: Viewport
+  scheme: string
+  settingsCore: SettingsCore
+  sshPrompt: SshPromptView
+  modal: bool
+  shell: ShellView
+  wallTime: Time
+  liveNow: number
+  elapsed: number
+  sidebarWidth: number
+  commandPending: bool
+  lineageStopping: string
+  settings: Settings
+  utilityPage: string
+  home: PagesHome
+  sidebarHoverId: string
+  pageCover: bool
+  canvas: ChatCanvasView
+  rightPanel: bool
+  narrowDiff: bool
+  detailsOpen: bool
+  details: ShellDetails
+  foldHold: bool
+  jumpRequest: number
+  // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own
+  // (auto-balance-owner.ts)
+  composerOwner: string
+  markdown: TranscriptMarkdown
+  attachmentUrls: TimelineAttachmentUrls
+  conversationWidth: number
+  editor: ComposerEditorView
+  chip: ChipPopover
+  chipCovered: bool
+  composerText: string
+  branches: ComposerBranches
+  terminalDrawer: TerminalDrawerView
+  diffWidth: number
+  prDetail: PrDetailView
+  prMarkdown: TranscriptMarkdown
+  filesMarkdown: TranscriptMarkdown
+  prTab: string
+  usage: UsageView
+  usageShortcuts: UsageKey[]
+  prList: PrListView
+  prTyped: bool
+  prQuery: string
+  prSelected: string
+  prPanelOpen: bool
+  branchQuery: string
+  projectsOpen: bool
+  connecting: bool
+  settingsThemeDialog: string
+  settingsNavigation: CoreNav
+  settingsMenu: string
+  settingsScrollTop: number
+  settingsPage: string
+  sourceControl: SourceControlPage
+  modalError: string
+  integrations: IntegrationsPage
+  snapshotSettings: SnapshotSettings
+  bindings: KeybindingPage
+  keybindingQuery: string
+  keybindingWhen: string
+  scheduled: ScheduledPage
+  restEditor: string
+  storageSettings: StoragePage
+  archives: ArchivePage
+  licenses: LicenseSettings
+  licenseQuery: string
+  diagnostics: DiagnosticsPage
+  connectionsPage: ConnectionsPage
+  pendingModal: string
+  connectionRemove: string
+  connectionMenu: string
+  providerPage: ProviderPage
+  projectsSettings: ProjectsPage
+  settingsThemeSubject: string
+  welcome: WelcomeView
+  welcomeStep: string
+  welcomeLink: string
+  welcomePairOpen: bool
+  shortcuts: KeyDispatch[]
+  restSubject: string
+  sbPicker: SbPicker
+  sbQuery: string
+  sbLettersEdited: bool
+  sbLetters: string
+  sbEmoji: string
+  origin: string
+  pairFields: PairFields
+  sbSshHosts: SbSshHosts
+  sbSshHost: string
+  providerWizard: ProviderWizard
+  acpAgents: AcpRegistry
+  catalog: PickerCatalog
+  palette: PaletteView
+  toastHover: bool
+  providerAuthPending: bool
+  hoverShown: bool
+  canRest: bool
+  settingsEnvironmentId: string
+  settingsProjectId: string
+
+fn assembleWindowInputs(
+  promptLinkPage: PromptLinkView,
+  data: Snapshot,
+  viewport: Viewport,
+  scheme: string,
+  hoverShown: bool,
+  themeInspecting: bool,
+  themeUsage: ThemeRoleUsage[],
+  settingsCore: SettingsCore,
+  sshPrompt: SshPromptView,
+  modal: bool,
+  shell: ShellView,
+  wallTime: Time,
+  liveNow: number,
+  elapsed: number,
+  sidebarWidth: number,
+  commandPending: bool,
+  lineageStopping: string,
+  settings: Settings,
+  utilityPage: string,
+  home: PagesHome,
+  sidebarHoverId: string,
+  pageCover: bool,
+  canvas: ChatCanvasView,
+  rightPanel: bool,
+  narrowDiff: bool,
+  detailsOpen: bool,
+  details: ShellDetails,
+  jumpRequest: number,
+  composerOwner: string,
+  markdown: TranscriptMarkdown,
+  attachmentUrls: TimelineAttachmentUrls,
+  conversationWidth: number,
+  editor: ComposerEditorView,
+  chip: ChipPopover,
+  chipCovered: bool,
+  composerText: string,
+  branches: ComposerBranches,
+  terminalDrawer: TerminalDrawerView,
+  diffWidth: number,
+  prDetail: PrDetailView,
+  prMarkdown: TranscriptMarkdown,
+  filesMarkdown: TranscriptMarkdown,
+  prTab: string,
+  usage: UsageView,
+  usageShortcuts: UsageKey[],
+  prList: PrListView,
+  prTyped: bool,
+  prQuery: string,
+  prSelected: string,
+  prPanelOpen: bool,
+  branchQuery: string,
+  projectsOpen: bool,
+  connecting: bool,
+  settingsThemeDialog: string,
+  settingsNavigation: CoreNav,
+  settingsMenu: string,
+  settingsPage: string,
+  sourceControl: SourceControlPage,
+  modalError: string,
+  integrations: IntegrationsPage,
+  snapshotSettings: SnapshotSettings,
+  bindings: KeybindingPage,
+  keybindingQuery: string,
+  keybindingWhen: string,
+  scheduled: ScheduledPage,
+  restEditor: string,
+  storageSettings: StoragePage,
+  archives: ArchivePage,
+  licenses: LicenseSettings,
+  licenseQuery: string,
+  diagnostics: DiagnosticsPage,
+  connectionsPage: ConnectionsPage,
+  pendingModal: string,
+  providerPage: ProviderPage,
+  projectsSettings: ProjectsPage,
+  settingsThemeSubject: string,
+  welcome: WelcomeView,
+  welcomeStep: string,
+  welcomeLink: string,
+  welcomePairOpen: bool,
+  shortcuts: KeyDispatch[],
+  restSubject: string,
+  sbPicker: SbPicker,
+  sbQuery: string,
+  sbLettersEdited: bool,
+  sbLetters: string,
+  sbEmoji: string,
+  origin: string,
+  pairFields: PairFields,
+  sbSshHosts: SbSshHosts,
+  sbSshHost: string,
+  providerWizard: ProviderWizard,
+  acpAgents: AcpRegistry,
+  catalog: PickerCatalog,
+  palette: PaletteView,
+  toastHover: bool,
+  providerAuthPending: bool,
+  foldHold: bool,
+  connectionRemove: string,
+  connectionMenu: string,
+  settingsEnvironmentId: string,
+  settingsProjectId: string,
+  threadJumpHintsShown: bool,
+  canRest: bool,
+  citeSettleDone: number,
+  citeWaitDone: number,
+  citeDismissals: number,
+  rootComposerDraft: ComposerDraftState,
+  rootComposerFieldLive: bool,
+  rootComposerMenu: ComposerMenuState,
+  rootComposerIntentBaseCurrent: bool,
+  rootComposerIntentContextCurrent: bool,
+  rootComposerIntentReceiptCurrent: bool,
+  rootComposerRichCurrent: bool,
+  rootComposerSelection: ComposerSelectionState,
+  rootComposerSelectionCurrent: bool,
+  rootConfirmationState: ConfirmationState,
+  rootDetailsEpoch: number,
+  rootDetailsOpen: bool,
+  rootDetailsPopover: bool,
+  rootFieldProtocol: ComposerFieldProtocol,
+  rootHoverState: HoverState,
+  rootImportWizardFocused: string,
+  rootIntentState: ComposerIntentState,
+  rootKeybindingEditor: KeybindingEditorState,
+  rootLineagePhasesClosed: string[],
+  rootLineagePhasesOpen: string[],
+  rootLineageWorkflows: string[],
+  rootModifierOwnership: ModifierOwnershipState,
+  rootNoticeExitState: NoticeExitState,
+  rootPageTrail: string[],
+  rootPaletteSession: PaletteSessionState,
+  rootPreviewState: PromptPreviewState,
+  rootPromptPreviewVisible: bool,
+  rootProviderLinkTarget: string,
+  rootProviderSelected: string,
+  rootProviderWizardState: ProviderWizardState,
+  rootRightPanelAt: string,
+  rootRouteKeyboardReady: bool,
+  rootSettingsCheckout: string,
+  rootSettingsMachine: string,
+  rootSettingsProjectKey: string,
+  rootSettingsPageState: SettingsPageState,
+  rootSshResponse: SshResponseState,
+  rootStreamGeometry: StreamGeometryState,
+  rootToastDismissed: string,
+  rootTranscriptViewport: TranscriptViewportState
+): WindowInputs = WindowInputs(
+  rootUi=UiRootInputs(
+    composerDraft=rootComposerDraft,
+    composerFieldLive=rootComposerFieldLive,
+    composerMenu=rootComposerMenu,
+    composerIntentBaseCurrent=rootComposerIntentBaseCurrent,
+    composerIntentContextCurrent=rootComposerIntentContextCurrent,
+    composerIntentReceiptCurrent=rootComposerIntentReceiptCurrent,
+    composerRichCurrent=rootComposerRichCurrent,
+    composerSelection=rootComposerSelection,
+    composerSelectionCurrent=rootComposerSelectionCurrent,
+    confirmationState=rootConfirmationState,
+    detailsEpoch=rootDetailsEpoch,
+    detailsOpen=rootDetailsOpen,
+    detailsPopover=rootDetailsPopover,
+    fieldProtocol=rootFieldProtocol,
+    hoverState=rootHoverState,
+    importWizardFocused=rootImportWizardFocused,
+    intentState=rootIntentState,
+    keybindingEditor=rootKeybindingEditor,
+    lineagePhasesClosed=rootLineagePhasesClosed,
+    lineagePhasesOpen=rootLineagePhasesOpen,
+    lineageWorkflows=rootLineageWorkflows,
+    modifierOwnership=rootModifierOwnership,
+    noticeExitState=rootNoticeExitState,
+    pageTrail=rootPageTrail,
+    paletteSession=rootPaletteSession,
+    previewState=rootPreviewState,
+    promptPreviewVisible=rootPromptPreviewVisible,
+    providerLinkTarget=rootProviderLinkTarget,
+    providerSelected=rootProviderSelected,
+    providerWizardState=rootProviderWizardState,
+    rightPanelAt=rootRightPanelAt,
+    routeKeyboardReady=rootRouteKeyboardReady,
+    settingsCheckout=rootSettingsCheckout,
+    settingsMachine=rootSettingsMachine,
+    settingsProjectKey=rootSettingsProjectKey,
+    settingsPageState=rootSettingsPageState,
+    sshResponse=rootSshResponse,
+    streamGeometry=rootStreamGeometry,
+    toastDismissed=rootToastDismissed,
+    transcriptViewport=rootTranscriptViewport
+  ),
+  threadJumpHintsShown=threadJumpHintsShown,
+  promptLinkPage=promptLinkPage,
+  citeWaitDone=citeWaitDone,
+  citeSettleDone=citeSettleDone,
+  citeDismissals=citeDismissals,
+  themeInspecting=themeInspecting,
+  themeUsage=themeUsage,
+  data=data,
+  viewport=viewport,
+  scheme=scheme,
+  settingsCore=settingsCore,
+  sshPrompt=sshPrompt,
+  modal=modal,
+  shell=shell,
+  wallTime=wallTime,
+  liveNow=liveNow,
+  elapsed=elapsed,
+  sidebarWidth=sidebarWidth,
+  commandPending=commandPending,
+  lineageStopping=lineageStopping,
+  settings=settings,
+  utilityPage=utilityPage,
+  home=home,
+  sidebarHoverId=sidebarHoverId,
+  pageCover=pageCover,
+  canvas=canvas,
+  rightPanel=rightPanel,
+  narrowDiff=narrowDiff,
+  detailsOpen=detailsOpen,
+  details=details,
+  foldHold=foldHold,
+  jumpRequest=jumpRequest,
+  composerOwner=composerOwner,
+  markdown=markdown,
+  attachmentUrls=attachmentUrls,
+  conversationWidth=conversationWidth,
+  editor=editor,
+  chip=chip,
+  chipCovered=chipCovered,
+  composerText=composerText,
+  branches=branches,
+  terminalDrawer=terminalDrawer,
+  diffWidth=diffWidth,
+  prDetail=prDetail,
+  prMarkdown=prMarkdown,
+  filesMarkdown=filesMarkdown,
+  prTab=prTab,
+  usage=usage,
+  usageShortcuts=usageShortcuts,
+  prList=prList,
+  prTyped=prTyped,
+  prQuery=prQuery,
+  prSelected=prSelected,
+  prPanelOpen=prPanelOpen,
+  branchQuery=branchQuery,
+  projectsOpen=projectsOpen,
+  connecting=connecting,
+  settingsThemeDialog=settingsThemeDialog,
+  settingsNavigation=settingsNavigation,
+  settingsMenu=settingsMenu,
+  settingsScrollTop=(
+    rootSettingsPageState.scrollPage == settingsPage ? rootSettingsPageState.scrollTop : 0
+  ),
+  settingsPage=settingsPage,
+  sourceControl=sourceControl,
+  modalError=modalError,
+  integrations=integrations,
+  snapshotSettings=snapshotSettings,
+  bindings=bindings,
+  keybindingQuery=keybindingQuery,
+  keybindingWhen=keybindingWhen,
+  scheduled=scheduled,
+  restEditor=restEditor,
+  storageSettings=storageSettings,
+  archives=archives,
+  licenses=licenses,
+  licenseQuery=licenseQuery,
+  diagnostics=diagnostics,
+  connectionsPage=connectionsPage,
+  pendingModal=pendingModal,
+  connectionRemove=connectionRemove,
+  connectionMenu=connectionMenu,
+  providerPage=providerPage,
+  projectsSettings=projectsSettings,
+  settingsThemeSubject=settingsThemeSubject,
+  welcome=welcome,
+  welcomeStep=welcomeStep,
+  welcomeLink=welcomeLink,
+  welcomePairOpen=welcomePairOpen,
+  shortcuts=shortcuts,
+  restSubject=restSubject,
+  sbPicker=sbPicker,
+  sbQuery=sbQuery,
+  sbLettersEdited=sbLettersEdited,
+  sbLetters=sbLetters,
+  sbEmoji=sbEmoji,
+  origin=origin,
+  pairFields=pairFields,
+  sbSshHosts=sbSshHosts,
+  sbSshHost=sbSshHost,
+  providerWizard=providerWizard,
+  acpAgents=acpAgents,
+  catalog=catalog,
+  palette=palette,
+  toastHover=toastHover,
+  providerAuthPending=providerAuthPending,
+  hoverShown=hoverShown,
+  canRest=canRest,
+  settingsEnvironmentId=settingsEnvironmentId,
+  settingsProjectId=settingsProjectId
+)

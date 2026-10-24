@@ -1,0 +1,568 @@
+use AppDecision, CommandArgs, ComposerIntentArgs from "./app-decisions.contract"
+use TextArgs, TwoTextArgs, RangeTextArgs, SelectionArgs from "./app-decisions.contract"
+use ComposerIntentState, ComposerFieldProtocol from "./app-protocols.contract"
+use ComposerSelectionState, ComposerMenuState, ComposerDraftState from "./app-protocols.contract"
+use Snapshot from "../shared/shapes.contract"
+use ComposerEditorView from "../composer/composer-editor.contract"
+use PickerTarget from "../composer/composer-shapes.contract"
+use ComposerIntentReply, ComposerIntentMetadata from "../composer/composer-rich.contract"
+use ComposerFieldObservation, ComposerFieldAcknowledgement from "../composer/composer-rich.contract"
+use ComposerRichView from "../composer/composer-rich.contract"
+
+fn composerClearIntent(d: AppDecision, message: string): AppDecision = (
+  AppDecision(
+    d,
+    writeIntentState=true,
+    intentState=ComposerIntentState(d.intentState, queue=[], active=0, phase="", notice=message)
+  )
+)
+
+fn composerFinishIntent(d: AppDecision, intentState: ComposerIntentState): AppDecision = (
+  AppDecision(
+    d,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.intentState,
+      queue=intentState.queue.slice(1),
+      active=0,
+      phase=""
+    )
+  )
+)
+
+fn composerArmLimit(d: AppDecision): AppDecision = (
+  AppDecision(
+    d,
+    sendLocalChanged=true,
+    local=CommandArgs(p0="editorlocal:arm-limit", p1="", p2="", p3=0)
+  )
+)
+
+fn composerSendReady(
+  d: AppDecision,
+  commandPending: bool,
+  data: Snapshot,
+  composerText: string,
+  jumpRequest: number
+): AppDecision = (
+  not commandPending and (data.requestMode == "question" or
+    (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0)))
+    ? AppDecision(
+        d,
+        writeCommandPending=true,
+        commandPending=true,
+        changedKind="command",
+        command=CommandArgs(p0="send", p1="", p2=composerText, p3=0),
+        writeComposerDraft=true,
+        composerDraft=ComposerDraftState(d.composerDraft, typing=false, owner="__unset__"),
+        writeJumpRequest=true,
+        jumpRequest=jumpRequest + 1
+      )
+    : d
+)
+
+fn composerSend(
+  d: AppDecision,
+  commandPending: bool,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  composerText: string,
+  jumpRequest: number
+): AppDecision = (
+  commandPending
+    ? d
+    : editor.overLimit and data.requestMode != "question"
+        ? composerArmLimit(d)
+        : composerSendReady(d, commandPending, data, composerText, jumpRequest)
+)
+
+fn composerOpenModels(d: AppDecision, modelsOpen: bool, popoverSession: number): AppDecision = (
+  AppDecision(
+    d,
+    hostFocus=true,
+    focus=TextArgs(p0=(modelsOpen ? "composer" : "model-search")),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.composerMenu,
+      modelsOpen=not modelsOpen,
+      popoverSession=popoverSession + 1,
+      browseProvider="",
+      modelQuery="",
+      optionsOpen="",
+      modelTarget=PickerTarget(id="", top=0, bottom=0, left=0)
+    )
+  )
+)
+
+fn composerCloseOptions(d: AppDecision): AppDecision = (
+  AppDecision(
+    d,
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(d.composerMenu, optionsOpen=""),
+    hostFocus=true,
+    focus=TextArgs(p0="composer")
+  )
+)
+
+fn composerPickInteraction(d: AppDecision, commandPending: bool, value: string): AppDecision = (
+  not commandPending
+    ? AppDecision(
+        d,
+        writeCommandPending=true,
+        commandPending=true,
+        changedKind="command",
+        command=CommandArgs(p0="interaction", p1="", p2=value, p3=0)
+      )
+    : d
+)
+
+fn composerMenuPick(d: AppDecision, commandPending: bool, value: string): AppDecision = (
+  composerPickInteraction(composerCloseOptions(d), commandPending, value)
+)
+
+fn completeComposerIntentCancelStale(
+  d: AppDecision,
+  composerIntentContextCurrent: bool,
+  intentState: ComposerIntentState
+): AppDecision = (
+  composerIntentContextCurrent
+    ? d
+    : composerClearIntent(d, "The prompt changed. Please try that edit again.")
+)
+
+fn completeComposerIntentFormatSettled(
+  d: AppDecision,
+  composerIntentBaseCurrent: bool,
+  intentState: ComposerIntentState
+): AppDecision = (
+  intentState.phase == "format" and composerIntentBaseCurrent
+    ? composerFinishIntent(d, intentState)
+    : d
+)
+
+fn completeComposerIntentOwnerChanged(
+  d: AppDecision,
+  data: Snapshot,
+  intentState: ComposerIntentState,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  intentState.observed.owner != richComposerOwner or
+    intentState.observed.snapshotOwner != data.snapshotOwner or
+    intentState.observed.generation != richComposer.generation
+    ? composerClearIntent(d, "")
+    : d
+)
+
+fn completeComposerIntentConfirmed(
+  d: AppDecision,
+  composerFieldSnapshot: ComposerFieldObservation,
+  composerIntentReceiptCurrent: bool,
+  composerRichCurrent: bool,
+  intentState: ComposerIntentState
+): AppDecision = (
+  intentState.phase == "projection" and composerIntentReceiptCurrent and composerRichCurrent
+    ? AppDecision(
+        d,
+        writeIntentState=true,
+        intentState=ComposerIntentState(
+          d.intentState,
+          queue=intentState.queue.slice(1),
+          active=0,
+          phase="",
+          observed=composerFieldSnapshot
+        )
+      )
+    : d
+)
+
+fn composerExpectedText(value: string, result: ComposerIntentReply): string = (
+  `${value.slice(0, result.start)}${result.text}${value.slice(result.end)}`
+)
+
+fn composerProjectSelection(d: AppDecision, result: ComposerIntentReply): AppDecision = (
+  result.preserveSelection
+    ? d
+    : AppDecision(
+        d,
+        hostSelection=true,
+        selection=SelectionArgs(p0="composer", p1=result.selectionStart, p2=result.selectionEnd)
+      )
+)
+
+fn composerProjectEdit(
+  d: AppDecision,
+  result: ComposerIntentReply,
+  composerText: string
+): AppDecision = (
+  composerProjectSelection(
+    AppDecision(
+      d,
+      writeIntentState=true,
+      intentState=ComposerIntentState(
+        d.intentState,
+        expected=composerExpectedText(composerText, result),
+        start=result.selectionStart,
+        end=result.selectionEnd,
+        preserves=result.preserveSelection,
+        caretSeen=false,
+        phase="input"
+      ),
+      hostRangeText=true,
+      rangeText=RangeTextArgs(
+        p0="composer", p1=result.text, p2=result.start, p3=result.end, p4="preserve"
+      )
+    ),
+    result
+  )
+)
+
+fn composerSendOtherEdit(
+  d: AppDecision,
+  result: ComposerIntentReply,
+  commandPending: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  jumpRequest: number
+): AppDecision = (
+  result.kind == "send"
+    ? composerSend(d, commandPending, data, editor, composerText, jumpRequest)
+    : d
+)
+
+fn composerOtherEdit(
+  d: AppDecision,
+  result: ComposerIntentReply,
+  commandPending: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  intentState: ComposerIntentState,
+  jumpRequest: number
+): AppDecision = (
+  composerSendOtherEdit(
+    composerClearIntent(
+      d,
+      intentState.queue.length > 1 or result.kind != "send"
+        ? "That edit could not be applied. Please try again."
+        : ""
+    ),
+    result, commandPending, composerText, data, editor, jumpRequest
+  )
+)
+
+fn composerEditKind(
+  d: AppDecision,
+  result: ComposerIntentReply,
+  commandPending: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  intentState: ComposerIntentState,
+  jumpRequest: number
+): AppDecision = (
+  result.kind == "edit"
+    ? composerProjectEdit(d, result, composerText)
+    : result.kind == "handled"
+        ? composerFinishIntent(d, intentState)
+        : composerOtherEdit(
+            d, result, commandPending, composerText, data, editor, intentState, jumpRequest
+          )
+)
+
+fn composerEditCurrent(
+  d: AppDecision,
+  result: ComposerIntentReply,
+  commandPending: bool,
+  composerIntentBaseCurrent: bool,
+  composerRichCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  intentState: ComposerIntentState,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  composerIntentBaseCurrent and composerRichCurrent and result.owner == richComposerOwner and
+    result.value == composerText and result.mode == richComposer.mode
+    ? composerEditKind(
+        d, result, commandPending, composerText, data, editor, intentState, jumpRequest
+      )
+    : composerClearIntent(d, "The prompt changed. Please try that edit again.")
+)
+
+fn composerEditResult(
+  d: AppDecision,
+  result: ComposerIntentReply,
+  commandPending: bool,
+  composerIntentBaseCurrent: bool,
+  composerRichCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  intentState: ComposerIntentState,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  intentState.phase == "request" and result.serial == intentState.active
+    ? composerEditCurrent(
+        d, result, commandPending, composerIntentBaseCurrent, composerRichCurrent, composerText,
+        data, editor, intentState, jumpRequest, richComposer, richComposerOwner
+      )
+    : d
+)
+
+fn completeComposerEditDone(
+  d: AppDecision,
+  commandPending: bool,
+  composerEdited: option<ComposerIntentReply>,
+  composerIntentBaseCurrent: bool,
+  composerRichCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  intentState: ComposerIntentState,
+  jumpRequest: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  match composerEdited {
+    case some(result) => composerEditResult(
+      d, result, commandPending, composerIntentBaseCurrent, composerRichCurrent, composerText,
+      data, editor, intentState, jumpRequest, richComposer, richComposerOwner
+    ),
+    case none => d
+  }
+)
+
+fn composerAckFocus(d: AppDecision, result: ComposerFieldAcknowledgement): AppDecision = (
+  result.focus != ""
+    ? AppDecision(
+        d,
+        writeFieldProtocol=true,
+        fieldProtocol=ComposerFieldProtocol(d.fieldProtocol, focus=result)
+      )
+    : d
+)
+
+fn composerAckSequence(d: AppDecision, result: ComposerFieldAcknowledgement): AppDecision = (
+  composerAckFocus(
+    AppDecision(
+      d,
+      writeFieldProtocol=true,
+      fieldProtocol=ComposerFieldProtocol(d.fieldProtocol, effects=result.seq)
+    ),
+    result
+  )
+)
+
+fn composerAckInteraction(d: AppDecision, kind: string, commandPending: bool): AppDecision = (
+  kind == "mode-plan" or kind == "mode-default"
+    ? composerMenuPick(d, commandPending, kind == "mode-plan" ? "plan" : "default")
+    : d
+)
+
+fn composerAckFollowup(
+  d: AppDecision,
+  kind: string,
+  commandPending: bool,
+  modelsOpen: bool,
+  popoverSession: number
+): AppDecision = (
+  kind == "models"
+    ? composerOpenModels(d, modelsOpen, popoverSession)
+    : composerAckInteraction(d, kind, commandPending)
+)
+
+fn composerAckThen(
+  d: AppDecision,
+  result: ComposerFieldAcknowledgement,
+  commandPending: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  jumpRequest: number,
+  modelsOpen: bool,
+  popoverSession: number
+): AppDecision = (
+  result.send
+    ? result.value == composerText
+        ? composerSend(d, commandPending, data, editor, composerText, jumpRequest)
+        : d
+    : composerAckFollowup(d, result.then, commandPending, modelsOpen, popoverSession)
+)
+
+fn composerAckCurrent(
+  d: AppDecision,
+  result: ComposerFieldAcknowledgement,
+  commandPending: bool,
+  composerComposing: bool,
+  composerSelection: ComposerSelectionState,
+  composerSelectionCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  fieldProtocol: ComposerFieldProtocol,
+  jumpRequest: number,
+  modelsOpen: bool,
+  popoverSession: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  result.applied and result.seq > fieldProtocol.effects and
+    result.generation == richComposer.generation and result.snapshotOwner == data.snapshotOwner and
+    result.owner == richComposerOwner and not composerComposing and result.value == composerText and
+    result.inputSerial == fieldProtocol.inputSerial and composerSelectionCurrent and
+    result.start == composerSelection.start and result.end == composerSelection.end
+    ? composerAckThen(
+        composerAckSequence(d, result), result, commandPending, composerText, data, editor,
+        jumpRequest, modelsOpen, popoverSession
+      )
+    : d
+)
+
+fn completeComposerFieldAckDone(
+  d: AppDecision,
+  commandPending: bool,
+  composerComposing: bool,
+  composerFieldAck: option<ComposerFieldAcknowledgement>,
+  composerSelection: ComposerSelectionState,
+  composerSelectionCurrent: bool,
+  composerText: string,
+  data: Snapshot,
+  editor: ComposerEditorView,
+  fieldProtocol: ComposerFieldProtocol,
+  jumpRequest: number,
+  modelsOpen: bool,
+  popoverSession: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  match composerFieldAck {
+    case some(result) => composerAckCurrent(
+      d, result, commandPending, composerComposing, composerSelection, composerSelectionCurrent,
+      composerText, data, editor, fieldProtocol, jumpRequest, modelsOpen, popoverSession,
+      richComposer, richComposerOwner
+    ),
+    case none => d
+  }
+)
+
+fn composerPumpFormat(d: AppDecision, item: ComposerIntentMetadata): AppDecision = (
+  AppDecision(
+    d,
+    writeIntentState=true,
+    intentState=ComposerIntentState(d.intentState, active=item.serial, phase="format"),
+    hostFormat=true,
+    format=TwoTextArgs(p0="composer", p1=item.text)
+  )
+)
+
+fn composerPumpRequest(
+  d: AppDecision,
+  item: ComposerIntentMetadata,
+  composerSelection: ComposerSelectionState,
+  composerText: string,
+  data: Snapshot,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  AppDecision(
+    d,
+    writeIntentState=true,
+    intentState=ComposerIntentState(d.intentState, active=item.serial, phase="request"),
+    sendComposerEdited=true,
+    intent=ComposerIntentArgs(
+      p0=data.snapshotOwner,
+      p1=richComposerOwner,
+      p2=composerText,
+      p3=item.serial,
+      p4=(item.kind == "language" ? item.start : composerSelection.start),
+      p5=(item.kind == "language" ? item.end : composerSelection.end),
+      p6=item.kind,
+      p7=item.text,
+      p8=item.key,
+      p9=item.shift,
+      p10=item.command,
+      p11=false,
+      p12=richComposer.mode
+    )
+  )
+)
+
+fn composerPumpKind(
+  d: AppDecision,
+  item: ComposerIntentMetadata,
+  composerSelection: ComposerSelectionState,
+  composerText: string,
+  data: Snapshot,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  item.kind == "format"
+    ? composerPumpFormat(d, item)
+    : composerPumpRequest(
+        d, item, composerSelection, composerText, data, richComposer, richComposerOwner
+      )
+)
+
+fn composerPumpItem(
+  d: AppDecision,
+  item: ComposerIntentMetadata,
+  composerSelection: ComposerSelectionState,
+  composerText: string,
+  data: Snapshot,
+  fieldProtocol: ComposerFieldProtocol,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  item.kind == "language" and item.inputSerial != fieldProtocol.inputSerial
+    ? composerClearIntent(d, "The prompt changed. Please try that edit again.")
+    : composerPumpKind(
+        d, item, composerSelection, composerText, data, richComposer, richComposerOwner
+      )
+)
+
+fn composerPumpFirst(
+  d: AppDecision,
+  composerSelection: ComposerSelectionState,
+  composerText: string,
+  data: Snapshot,
+  fieldProtocol: ComposerFieldProtocol,
+  intentState: ComposerIntentState,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  match first(intentState.queue) {
+    case some(item) => composerPumpItem(
+      d, item, composerSelection, composerText, data, fieldProtocol, richComposer, richComposerOwner
+    ),
+    case none => d
+  }
+)
+
+fn completeComposerIntentPump(
+  d: AppDecision,
+  composerIntentBaseCurrent: bool,
+  composerRichCurrent: bool,
+  composerSelection: ComposerSelectionState,
+  composerText: string,
+  data: Snapshot,
+  fieldProtocol: ComposerFieldProtocol,
+  intentState: ComposerIntentState,
+  richComposer: ComposerRichView,
+  richComposerOwner: string
+): AppDecision = (
+  intentState.phase == "" and composerIntentBaseCurrent and composerRichCurrent
+    ? composerPumpFirst(
+        d, composerSelection, composerText, data, fieldProtocol, intentState, richComposer,
+        richComposerOwner
+      )
+    : intentState.phase == "" and intentState.queue.length > 0
+        ? composerClearIntent(d, "The prompt changed. Please try that edit again.")
+        : d
+)
+
