@@ -21,6 +21,7 @@ import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, Af
 import { reportTime } from "./navigation.js";
 import { packageViews } from "./views.js";
 import { appGrantSet, coversPath } from "./admission.js";
+import { samples, groupOf } from "./samples.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -29,6 +30,7 @@ import { appGrantSet, coversPath } from "./admission.js";
 export function modules(rows, bound = {}, views = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
   for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
+  const sampled = samples();
   // A request's own timeout, the option its declaration's `timeout` names: from a Contract call's record, or data code's object.
   const timeoutOf = (row, args) => {
     const name = row.sub.timeout, at = name && row.options ? Object.keys(row.options).indexOf(name) : -1;
@@ -138,7 +140,7 @@ export function modules(rows, bound = {}, views = {}) {
   // foreground (`foreground()`; `foreground(shown)` on the implementation is told each change), the journal (`log`),
   // the track table (`tracks`), admitted paths' files (`files`) and the audio session (`audioSession`). The web has
   // no session end an implementation could finish in.
-  const loaded = new Map(), chunks = new Map(), live = new Set();
+  const loaded = new Map(), chunks = new Map(), live = new Set(), ready = new Map();
   // Under the agent the drive's page fact (`prefer visibility-state`, agent.js) is the foreground; the machine's never is.
   let agentShown = true;
   const shown = () => clock.agent ? agentShown : typeof document !== "object" || document.visibilityState !== "hidden";
@@ -223,13 +225,18 @@ export function modules(rows, bound = {}, views = {}) {
       const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
+      ready.set(extension, impl);
       return impl;
     }));
     return loaded.get(extension);
   };
   const implementation = row => route(row) === "substitute" ? null : instance(extensionOf(row));
+  // A send made inside the press (`"gesture": true`, LLP 1133.013 D12 item 5): its implementation is loaded once
+  // the page is up, so the send's handler runs in the input event's dispatch, where a browser's gesture holds.
+  const gestures = new Set([...byKey.values()].filter(r => r.send && r.sub.gesture && route(r) === "real").map(extensionOf));
+  if (gestures.size) setTimeout(() => { for (const extension of gestures) instance(extension); });
   packageViews(views, chunk, instance);
-  const tell = () => { for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); };
+  const tell = () => { sampled.visibility(!shown()); for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); };
   if (typeof addEventListener === "function") addEventListener("visibilitychange", tell);
   (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); } };
   // The agent's preferred values for an extension's names, by name.
@@ -257,9 +264,10 @@ export function modules(rows, bound = {}, views = {}) {
         .finally(() => { asking.delete(row.key); if (!clock.agent) setTimeout(pollCheck, periodOf(row) ?? 0); });
     }
     if (row.live && reader) {
-      const by = readers.get(row.key) ?? new Map(), told = groups.get(row.key) ?? new Map();
-      readers.set(row.key, by.set(reader, JSON.stringify(args ?? {})));
-      groups.set(row.key, told.set(JSON.stringify(args ?? {}), args ?? {}));
+      const by = readers.get(row.key) ?? new Map(), told = groups.get(row.key) ?? new Map(), group = groupOf(args);
+      const { after, ...asked } = args ?? {};
+      readers.set(row.key, by.set(reader, group));
+      groups.set(row.key, told.set(group, asked));
       const current = new Set(by.values());
       for (const [group, was] of [...told]) if (!current.has(group)) { told.delete(group); say(`release ${row.key} ${group}: no reader asks with it`); impl.releaseArgs?.(name, was); }
     }
@@ -283,7 +291,7 @@ export function modules(rows, bound = {}, views = {}) {
     time(); // on the live clock, the wall's time: a page with no timer moves no clock
     const due = [...polls].filter(([key, last]) => {
       const row = byKey.get(key), period = periodOf(row);
-      return period != null && route(row) !== "substitute" && !asking.has(key) && !failed.has(key) && live.has(key) && clock.now - last >= period;
+      return period != null && (route(row) !== "substitute" || sampled.sampled(row)) && !asking.has(key) && !failed.has(key) && live.has(key) && clock.now - last >= period;
     }).map(([key]) => key);
     for (const key of due) { polls.set(key, clock.now); say(`poll ${key}`); }
     if (due.length) reask(due);
@@ -337,6 +345,7 @@ export function modules(rows, bound = {}, views = {}) {
       readers.delete(key);
       groups.delete(key);
       polls.delete(key);
+      sampled.release(key);
       implementation(row)?.then(impl => impl?.release?.(key.slice(key.indexOf(".") + 1)));
     }
   });
@@ -352,14 +361,33 @@ export function modules(rows, bound = {}, views = {}) {
     say(`dispose ${extensionOf(row)} ${ids.join(", ")}: its reply was dropped`);
     implementation(row)?.then(impl => impl?.dispose?.(ids));
   };
+  // A sampled source's reader (LLP 1133.013 D5): the implementation is passed the reader's cursor as `after`; the
+  // substitute answers the reader's grid. Either answer moves the cursor.
+  const sampledAnswer = (row, d, args, reader) => {
+    if (d.forward) { const after = sampled.cursor(row, reader); if (after !== undefined) args.after = after; return d; }
+    if (d.hold || errorCode(d.now) || route(row) !== "substitute") return d;
+    // Polled as an implementation's reader is: each period's ask answers that period's samples.
+    live.add(row.key);
+    readers.set(row.key, (readers.get(row.key) ?? new Map()).set(reader, groupOf(args)));
+    polls.set(row.key, clock.now);
+    const json = sampled.substitute(row, args, reader);
+    sampled.answered(row, reader, json);
+    return { now: json };
+  };
   for (const row of byKey.values()) {
     reserved[row.source] = (_, args, name) => {
       supersede(row, name);
-      const given = args?.[0] !== undefined ? object(args[0], row.options) : {};
-      const timeout = row.send ? timeoutOf(row, args) : null, d = admitted(row, given, "app", row.send, timeout);
-      const reader = row.send ? null : name, n = (asked.get(name) ?? 0) + 1;
+      const given = sampled.clamp(row, args?.[0] !== undefined ? object(args[0], row.options) : {}, say);
+      const timeout = row.send ? timeoutOf(row, args) : null, reader = row.send ? null : name;
+      let d = admitted(row, given, "app", row.send, timeout);
+      const n = (asked.get(name) ?? 0) + 1;
       asked.set(name, n);
-      if (d.forward) return viaImplementation(row, given, reader).then(json => { disposeDropped(row, json, name, n); return answer(row, json); });
+      if (reader && sampled.sampled(row)) d = sampledAnswer(row, d, given, reader);
+      if (d.forward && row.send && row.sub.gesture && ready.has(extensionOf(row))) {
+        const impl = ready.get(extensionOf(row)), declared = row.key.slice(row.key.indexOf(".") + 1);
+        if (impl?.[declared]) return Promise.resolve(impl[declared](given)).then(json => answer(row, json));
+      }
+      if (d.forward) return viaImplementation(row, given, reader).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
       if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given, reader) : null, given);
       // A send refused now fails its mutation, as on native, rather than the action that sent it.
       return row.send && errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
@@ -439,15 +467,19 @@ export function modules(rows, bound = {}, views = {}) {
         if (!row.send) e.readers[declared] = [...new Set([...Resources.filter(r => r.source === row.source || r.watches?.includes(row.key)).map(r => r.name), ...(globalThis.exact?.moduleReaders?.(row.key) ?? [])])];
         for (const h of held.filter(h => h.row === row)) e.held.push({ ticket: h.ticket, name: declared, origin: "app", waits: h.waits });
       }
+      for (const [extension, e] of Object.entries(out)) Object.assign(e, sampled.state(extension));
       return out;
     },
     // A call from data code (ts-data.js `__exact_module`): JSON, as the native runtime answers it.
     call(body) {
       const row = byKey.get(`${body.extension}.${body.source ?? body.send}`);
       if (!row || row.send !== !!body.send) return Promise.resolve({ error: "NotSupportedError" });
-      const timeout = row.send ? timeoutOf(row, body.args) : null, d = admitted(row, body.args ?? {}, "app", row.send, timeout);
-      if (d.forward) return viaImplementation(row, body.args).then(json => complete(json, row.type));
-      if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? () => viaImplementation(row, body.args) : null, body.args ?? {});
+      const args = sampled.clamp(row, { ...(body.args ?? {}) }, say);
+      const timeout = row.send ? timeoutOf(row, args) : null, reader = !row.send && sampled.sampled(row) ? `data ${groupOf(args)}` : null;
+      let d = admitted(row, args, "app", row.send, timeout);
+      if (reader) d = sampledAnswer(row, d, args, reader);
+      if (d.forward) return viaImplementation(row, args).then(json => { if (reader) sampled.answered(row, reader, json); return complete(json, row.type); });
+      if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? () => viaImplementation(row, args) : null, args);
       say(`native ${row.key} (${route(row) === "substitute" ? "substituted" : "refused"})`);
       return Promise.resolve(complete(d.now, row.type));
     },
@@ -509,12 +541,17 @@ export function modules(rows, bound = {}, views = {}) {
         if (field && v && typeof v === "object" && field in v) return { error: `prefer extension: \`${key}\`'s \`${field}\` is set by \`prefer permission.${p.name}\`` };
         // An implementation's own substitute takes a partial overlay (LLP 1133.009 D10 item 11); a declared one, a value.
         if (v !== "clear" && !errorCode(v)) {
-          try { if (row.sub.implementation) partial(v, row.type, row.key); else typed(row, JSON.stringify(field ? { ...v, [field]: "prompt" } : v)); } catch (e) { return { error: `prefer extension: ${e.message}` }; }
+          try {
+            if (row.sub.implementation) partial(v, row.type, row.key);
+            else if (sampled.sampled(row)) sampled.check(row, v, (reading, key) => value(filled(row, reading), row.type, key));
+            else typed(row, JSON.stringify(field ? { ...v, [field]: "prompt" } : v));
+          } catch (e) { return { error: `prefer extension: ${e.message}` }; }
         }
       }
       for (const [name, state] of Object.entries(req.permission ?? {})) setPermission(name, state);
       for (const [key, v] of Object.entries(group)) {
         if (v === "clear") preferred.delete(key); else preferred.set(key, v);
+        sampled.prefer(byKey.get(key), v);
         say(`prefer extension ${key}`);
       }
       // An implementation bound under the agent is told its names' preferred values (LLP 1133.008 D8 item 9).
