@@ -816,6 +816,11 @@ modifier's own press and release, and a ⌘ chord (CDP's
   is false, and so are the keys after it, ⌘'s own release included: its
   keydown commits the composition before its handlers run (above), where
   Chrome's chord and the keys after it arrive still composing.
+  On macOS 27.2, Korean 2-Set inserts each syllable into an AppKit text
+  field without marked text, a stock `NSTextField` included, so no key there
+  is composing and the Enter after a syllable reaches handlers, where
+  Chrome's is composing
+  (`issues/closed/20261025-macos-korean-composes-without-marked-text.md`).
 - **Linux, Windows, the terminal and Android:** false. No input method's
   composition reaches their key handlers.
 
