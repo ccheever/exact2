@@ -148,7 +148,7 @@ record_variants! {
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
-        Midi { step, span },
+        Midi { step, span }, ExpectWakelock { held, span },
     }
 }
 // MIDI's test steps carry no spans of their own.
@@ -291,6 +291,7 @@ impl Step {
             | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
+            | Step::ExpectWakelock { span, .. }
             | Step::ExpectSound { span, .. }
             | Step::Midi { span, .. }
             | Step::ExpectMediaSession { span, .. }

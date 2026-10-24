@@ -783,6 +783,10 @@ else a field's value. `expect state name.field` reads a field of a record at any
 depth, and `name.0` a list index (a whole number from 0); a missing field fails
 naming the fields there. The value is a number, including a negative (`== -3`),
 a string, a bool, `none`, or `[]` — not an expression (`-1 + 2` is refused).
+`expect wakelock held` and `expect wakelock released` compare `state.wakelock.held`.
+This is the runner's holder record: displayed elements requesting the lock, not
+whether the OS or browser granted it. A failure names the holding view ids and
+their testIds when present, or says nothing holds it.
 `expect sound has "assets/x.wav"`
 passes when the runner's record of voices (every host's, under the driver's
 clock) holds one of that source matching each clause given: its start (`at`,
