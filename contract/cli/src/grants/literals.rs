@@ -125,7 +125,7 @@ fn joined(s: &[char], j: usize, typescript: bool, parens: &mut [Paren], text: &s
         }
         match (s.get(j), s.get(j + 1)) {
             (Some('/'), Some('/')) => {
-                while j < s.len() && !line_terminator(s[j]) {
+                while j < s.len() && !(line_terminator(s[j]) && (typescript || s[j] == '\n')) {
                     j += 1;
                 }
             }
@@ -574,6 +574,20 @@ mod tests {
             ),
             key("purpose.midi")
         );
+    }
+
+    #[test]
+    fn a_join_after_a_line_comment_uses_the_sources_line_terminators() {
+        for terminator in ['\n', '\r', '\u{2028}', '\u{2029}'] {
+            let source = format!("\"device.midi purpose.midi\" // comment{terminator}+ \"x\"\n;");
+            assert_eq!(read(&source, true), None, "TypeScript: {source:?}");
+            let expected = if terminator == '\n' {
+                None
+            } else {
+                key("purpose.midi")
+            };
+            assert_eq!(read(&source, false), expected, "Rust: {source:?}");
+        }
     }
 
     #[test]
