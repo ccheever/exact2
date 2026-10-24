@@ -269,7 +269,9 @@ impl BlockContext<'_> {
 
 use super::common::alignment::{apply_alignment_fallback, compute_alignment_offset};
 #[cfg(feature = "content_size")]
-use super::common::scrollable_overflow::compute_scrollable_overflow_contribution;
+use super::common::scrollable_overflow::{
+    compute_scrollable_overflow_contribution, margin_box_contribution, with_end_padding,
+};
 use super::common::sizing_keyword::{
     resolve_sizing_keyword, SizingKeywordResolution,
 };
@@ -343,6 +345,9 @@ struct BlockItem {
     /// The computed "static position" of this item. The static position is the position
     /// taking into account padding, border, margins, and scrollbar_gutters but not inset
     static_position: Point<f32>,
+    /// The relative offset in this item's final layout (EXACT PATCH 67: its margin box counts
+    /// toward a scroll container's end padding where it would be without it)
+    relative_offset: Point<f32>,
     /// Whether margins can be collapsed through this item
     can_be_collapsed_through: bool,
 
@@ -809,13 +814,35 @@ fn compute_inner(
 
     #[cfg(feature = "content_size")]
     {
-        // A scroll container's own padding at the end of the content is part of its scrollable
-        // overflow region, so it is included in the in-flow overflow rect. Boxes that are not
-        // scroll containers do not extend their overflow region by their own padding.
+        // A scroll container's own padding at the end of its children is part of its scrollable
+        // overflow region. Boxes that are not scroll containers do not extend their overflow
+        // region by their own padding.
         if is_scroll_container {
-            inflow_overflow_rect.right +=
-                if direction.is_rtl() { resolved_padding.left } else { resolved_padding.right };
-            inflow_overflow_rect.bottom += resolved_padding.bottom;
+            let mut margin_box_rect = Rect::ZERO;
+            for item in items.iter() {
+                if let Some(layout) = item.final_layout.as_ref() {
+                    let x = layout.location.x - item.relative_offset.x;
+                    let location = Point {
+                        x: if direction.is_rtl() {
+                            container_outer_width - (x + layout.size.width) - resolved_border.right
+                        } else {
+                            x - resolved_border.left
+                        },
+                        y: layout.location.y - item.relative_offset.y - resolved_border.top,
+                    };
+                    margin_box_rect = margin_box_rect.union(margin_box_contribution(
+                        location,
+                        layout.size,
+                        layout.margin,
+                        direction.is_rtl(),
+                    ));
+                }
+            }
+            let end_padding = Size {
+                width: if direction.is_rtl() { resolved_padding.left } else { resolved_padding.right },
+                height: resolved_padding.bottom,
+            };
+            inflow_overflow_rect = with_end_padding(inflow_overflow_rect, margin_box_rect, end_padding);
         }
         output.scrollable_overflow_rect = inflow_overflow_rect.union(absolute_overflow_rect);
         // EXACT PATCH 27: the columns' overflow, not the flow thread's.
@@ -934,6 +961,7 @@ fn generate_item_list(
                 // Fields to be computed later (for now we initialise with dummy values)
                 computed_size: Size::zero(),
                 static_position: Point::zero(),
+                relative_offset: Point::zero(),
                 can_be_collapsed_through: false,
                 final_layout: None,
             }
@@ -1663,6 +1691,7 @@ fn perform_final_layout_on_in_flow_children(
 
             // Defer `set_unrounded_layout` to the post-loop pass in `compute_inner` so that
             // `align-content` can shift `location.y` before the layout is committed to the tree.
+            item.relative_offset = inset_offset;
             item.final_layout = Some(Layout {
                 order: item.order,
                 size: item_layout.size,

@@ -60,3 +60,36 @@ pub(crate) fn compute_scrollable_overflow_contribution(
         contribution
     }
 }
+
+/// EXACT PATCH 67: a child's margin box, measured as [`compute_scrollable_overflow_contribution`]'s
+/// `location` is (from the parent's scroll origin, mirrored for RTL). `location` is where the
+/// border box sits before any relative offset: the end padding extends a child where it would be.
+#[cfg(feature = "content_size")]
+pub(crate) fn margin_box_contribution(
+    location: Point<f32>,
+    size: Size<f32>,
+    margin: Rect<f32>,
+    rtl: bool,
+) -> Rect<f32> {
+    let (start, end) = if rtl { (margin.right, margin.left) } else { (margin.left, margin.right) };
+    Rect {
+        left: location.x - start,
+        right: location.x + size.width + end,
+        top: location.y - margin.top,
+        bottom: location.y + size.height + margin.bottom,
+    }
+}
+
+/// EXACT PATCH 67: a scroll container's scrollable overflow. Its end padding extends the union
+/// of its in-flow children's margin boxes (`margin_boxes`, from [`margin_box_contribution`]),
+/// not the overflow of their descendants (`overflow`), which counts as it is
+/// (<https://www.w3.org/TR/css-overflow-3/#scrollable>). `end_padding` is the inline-end and
+/// bottom padding. A container with no children keeps a rectangle of its padding alone.
+#[cfg(feature = "content_size")]
+pub(crate) fn with_end_padding(overflow: Rect<f32>, margin_boxes: Rect<f32>, end_padding: Size<f32>) -> Rect<f32> {
+    overflow.union(Rect {
+        right: margin_boxes.right + end_padding.width,
+        bottom: margin_boxes.bottom + end_padding.height,
+        ..margin_boxes
+    })
+}

@@ -12,6 +12,7 @@ mod browser_paint_order;
 mod browser_position;
 mod browser_ratio;
 mod browser_replaced;
+mod browser_scroll_padding;
 mod browser_sticky;
 mod canvas;
 mod clock_sync;
