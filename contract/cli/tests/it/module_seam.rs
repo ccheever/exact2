@@ -30,7 +30,7 @@ const INTERFACE: &str = r#"{
     { "send": "save", "options": { "track": "handle<track>",
         "path": { "type": "path", "access": "write", "for": "recorder" } }, "answers": "Reading" },
     { "source": "level", "live": true, "poll": "interval",
-      "options": { "track": "string", "interval": "option<number>" }, "answers": "Reading" }
+      "options": { "track": "handle<track>", "interval": "option<number>" }, "answers": "Reading" }
   ]
 }"#;
 
@@ -517,4 +517,11 @@ fn a_polled_source_is_asked_once_after_an_advance_that_crossed_its_period() {
     r.advance(6100.0).unwrap();
     pump(&mut r, &mut parked);
     assert_eq!(levels(&calls), asked + 2, "{}", logs(&r));
+
+    // A reader that names no handle (`track=""`) is asked once and not polled.
+    r.act("move", vec![exact_runner::Value::str("")]).unwrap();
+    pump(&mut r, &mut parked);
+    r.advance(9000.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(levels(&calls), asked + 3, "{}", logs(&r));
 }
