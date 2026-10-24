@@ -69,7 +69,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var svgPressed: UInt32?
     /// Its button went down as a Control-click's context click (X85).
     var contextClicked = false
-    var cachedTextSpec: Spec?
+    var cachedTextSpec: Spec? { didSet { cachedTextHeadroom = nil } }
+    var cachedTextHeadroom: Float?
     var textLayoutValid = false
     /// The node whose `accent-color` this view last read as its tint, nil for the system's (NodeColorMac.swift).
     var tintSource: ObjectIdentifier?
