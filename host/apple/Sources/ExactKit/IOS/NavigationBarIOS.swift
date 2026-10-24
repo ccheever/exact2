@@ -1016,6 +1016,7 @@ extension NavigationHost {
             sv.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
         }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
+        c.safeArea.releaseTop()
         let old = c.collapseScroll, oldView = c.collapseScrollView
         if let old, let sv = oldView { old.retainScrollPosition(from: sv) }
         c.collapseScroll = target
@@ -1102,6 +1103,7 @@ extension NavigationHost {
         let found = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
         let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
+        c.safeArea.releaseBottom()
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
            previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
