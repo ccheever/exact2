@@ -6,6 +6,10 @@
 
 mod backdrop;
 mod canvas;
+mod geometry;
+pub use geometry::rounded_rect;
+#[cfg(test)]
+mod geometry_tests;
 mod mask;
 mod reach;
 #[cfg(target_arch = "x86_64")]
@@ -396,20 +400,6 @@ fn tiny_path(ops: &[PathOp]) -> Option<Path> {
     b.finish()
 }
 
-/// A shape as a path: a rectangle, or rounded corners as cubic arcs.
-pub fn rounded_rect(shape: &Shape) -> Option<Path> {
-    let (x, y, w, h) = shape.rect;
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    if !shape.rounded() {
-        return Some(PathBuilder::from_rect(Rect::from_xywh(x, y, w, h)?));
-    }
-    let mut ops = Vec::new();
-    crate::paint::border::shape_path(&mut ops, shape);
-    tiny_path(&ops)
-}
-
 /// The largest frame side, in device pixels, either painter draws.
 pub(crate) const MAX_FRAME_SIDE: u32 = 16384;
 
@@ -554,6 +544,9 @@ impl Backend for Raster {
             return;
         };
         let mut dev = self.device(ts);
+        if !reach::within(&path, 0.0, dev) {
+            return;
+        }
         #[cfg(target_arch = "x86_64")]
         if self.fill_solid_middle(shape, color, &path, dev) {
             return;
@@ -799,7 +792,8 @@ impl Backend for Raster {
     }
 
     fn fill_gradient(&mut self, shape: &Shape, gradient: &GradientPaint, ts: Transform) {
-        let Some(path) = rounded_rect(shape) else {
+        let dev = self.device(ts);
+        let Some(path) = rounded_rect(shape).filter(|p| reach::within(p, 0.0, dev)) else {
             return;
         };
         // tiny-skia mixes stops unpremultiplied; CSS mixes premultiplied.
@@ -849,7 +843,6 @@ impl Backend for Raster {
             anti_alias: true,
             ..Paint::default()
         };
-        let dev = self.device(ts);
         let mask = self.active_clip().cloned();
         if let Some(t) = self.target.path_pixels(&path, dev) {
             t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
@@ -857,17 +850,17 @@ impl Backend for Raster {
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
-        let Some(region) = tiny_path(&part.region) else {
+        let dev = self.device(ts);
+        let Some(region) = tiny_path(&part.region).filter(|p| reach::within(p, 0.0, dev)) else {
             return;
         };
-        let dev = self.device(ts);
         let parent = self.active_clip().cloned();
         // A clipped part: its quadrilaterals as a mask, under whatever clip
         // is already in force. Only rounded multicolour borders have one.
         let clipped = match &part.clip {
             None => None,
             Some(clip) => {
-                let Some(clip) = tiny_path(clip) else {
+                let Some(clip) = tiny_path(clip).filter(|p| reach::within(p, 0.0, dev)) else {
                     return;
                 };
                 let Some(mut mask) = Mask::new(self.width, self.height) else {
@@ -882,7 +875,7 @@ impl Backend for Raster {
         };
         let mask = clipped.or(parent);
         let mask = if let Some(ring) = &part.ring_clip {
-            let Some(ring) = tiny_path(ring) else {
+            let Some(ring) = tiny_path(ring).filter(|p| reach::within(p, 0.0, dev)) else {
                 return;
             };
             let Some(mut ring_mask) = Mask::new(self.width, self.height) else {
