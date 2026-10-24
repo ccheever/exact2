@@ -1082,13 +1082,16 @@ export function webImplementations(app) {
 function moduleType(t, inList=false) {
   // A path option (LLP 1133.009 D10 item 4) is a string; a handle (item 10) is its id.
   if (t && typeof t==='object' && t.type==='path') t=t.optional ? 'option<string>' : 'string';
+  // An option with bounds or a default (`{"type", "min", "max", "default"}`, LLP 1133.013 D12 item 2) is its `type`.
+  else if (t && typeof t==='object' && typeof t.type==='string') t=t.type;
   t=String(t).trim();
   if (/^handle<[^>]*>$/.test(t)) return 'string';
   if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
   let m, union;
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
   else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string'}[t] ?? t;
+  // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
+  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string'}[t] ?? t;
   return inList ? '('+union+')' : union;
 }
 
