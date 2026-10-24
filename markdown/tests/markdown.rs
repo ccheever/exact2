@@ -185,6 +185,85 @@ fn links_autolinks_and_bare_urls() {
 }
 
 #[test]
+fn angle_destinations_keep_parentheses_spaces_and_escapes() {
+    for (destination, target) in [
+        ("<b)c>", "b)c"),
+        ("<foo(and(bar)>", "foo(and(bar)"),
+        ("<b(c>", "b(c"),
+        ("<a b>", "a b"),
+        ("< a b >", " a b "),
+        ("<>", ""),
+        (r"<a\<b\>c>", "a<b>c"),
+        (r"<a\\>", "a\\"),
+        (" \t<b)c> \t", "b)c"),
+        ("<b)c> \"title\"", "b)c"),
+        ("<b(c> 'title'", "b(c"),
+        ("<b)c> (title)", "b)c"),
+        (r#"<b)c> "title\" with )" "#, "b)c"),
+        ("<日本😀(>", "日本😀("),
+    ] {
+        for (prefix, kind) in [("", LINK), ("!", IMAGE)] {
+            let source = format!("[before](u) {prefix}[日本😀]({destination}) [after](e(f))");
+            let styled = style(&source, None);
+            let targets: Vec<_> = styled
+                .spans
+                .iter()
+                .map(|span| (span.href.as_str(), span.style))
+                .collect();
+            assert_eq!(
+                targets,
+                [("u", LINK), (target, kind), ("e(f)", LINK)],
+                "{source}"
+            );
+            assert_eq!(plain(&source), "before 日本😀 after", "{source}");
+            assert_eq!(
+                hidden(&source, None),
+                [
+                    "[",
+                    "](u)",
+                    &format!("{prefix}["),
+                    &format!("]({destination})"),
+                    "[",
+                    "](e(f))"
+                ],
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn malformed_angle_destinations_do_not_become_bare_destinations() {
+    for destination in [
+        "<foo",
+        r"<foo\>",
+        "<foo<bar>",
+        "<foo\nbar>",
+        "<foo\rbar>",
+        "<foo\\\nbar>",
+        "<foo>bar",
+        "<foo>\"title\"",
+        "<foo> \"unfinished",
+    ] {
+        for prefix in ["", "!"] {
+            let source = format!("{prefix}[a]({destination}) [after](e)");
+            let styled = style(&source, None);
+            assert_eq!(spans(&source, None), [("after".into(), LINK)], "{source}");
+            assert_eq!(styled.spans[0].href, "e", "{source}");
+            assert_eq!(styled.links.len(), 1, "{source}");
+            assert_eq!(utf16(&source, styled.links[0].close), "](e)", "{source}");
+        }
+    }
+    for source in ["[a](<b)c", "[a](<b)c>", "![a](<b)c>"] {
+        assert!(style(source, None).links.is_empty(), "{source}");
+    }
+    for count in [4_000, 16_000] {
+        let source = "[a](<".repeat(count);
+        assert!(style(&source, None).spans.is_empty());
+    }
+}
+
+#[test]
 fn lists_tasks_quotes_and_rules() {
     let source = "- one\n  - nested\n    continued\n1. first\n- [x] done\n- [ ] todo\n> quoted **text**\n> > deeper\n\n---\n";
     let styled = style(source, None);
