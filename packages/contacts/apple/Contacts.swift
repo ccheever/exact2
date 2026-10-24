@@ -2,7 +2,8 @@
 // through the system's picker or read from the store under access. Under the
 // agent it asks the Contacts framework for nothing and answers from the
 // agent's address book (AgentContacts.swift, §10); the runner holds the
-// permission and sheet tickets and answers the status.
+// permission and sheet tickets and answers the status. Otherwise the
+// Contacts framework answers (ContactStore.swift).
 //
 // - A pick is a copy (D4): no `id`, icons written to
 //   `app:/tmp/picked/contacts/` for the app to keep.
@@ -16,12 +17,33 @@
 //   announcement caused are in flight, further changes set a mark, and one
 //   more announcement follows them landing.
 // - `showContactAccessPicker` is iOS's alone; macOS has no limited access.
+// - Tier 3 (D10): the hatches below, called on the main thread, never under
+//   the agent.
+import Contacts
+import ContactsUI
 import ExactPackage
 import Foundation
 
 public final class ContactsModule: ExactPackage {
+    /// The module's one `CNContactStore`, when made: the app may fetch, save,
+    /// and read groups and containers with it, under the same access.
+    public static var contactStore: ((CNContactStore) -> Void)?
+    #if os(macOS)
+    /// Before the picker is shown: the app may set `displayedKeys`. The
+    /// delegate is the module's.
+    public static var contactPicker: ((CNContactPicker) -> Void)?
+    #else
+    /// After the module sets the picker's properties and predicates, before
+    /// it is presented: the app may set any other. The delegate is the module's.
+    public static var contactPicker: ((CNContactPickerViewController) -> Void)?
+    #endif
     let context: ExactPackageContext
     private let book = AgentContacts()
+    /// The Contacts framework, outside the agent.
+    private lazy var real = ContactStore(log: { [weak self] in self?.say($0) }, changed: { [weak self] in self?.changedStore() },
+                                         file: { [weak self] in self?.context.file($0) })
+    /// The access last seen outside the agent, so a narrowing to none empties the store's icons.
+    private var lastAccess: String?
     private var picks = 0, pages = 0
     /// The live names read and not released, which observing follows.
     private var readers: Set<String> = []
@@ -44,7 +66,13 @@ public final class ContactsModule: ExactPackage {
     private func say(_ line: String) { context.log("contacts: \(line)") }
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
-        guard context.agent else { return reply(["error": "NotSupportedError", "message": "the store is read under the agent only in this build"]) }
+        guard context.agent else {
+            if name == "queryContacts" { readers.insert(name) }
+            return real.later(name, args) { [weak self] answer in
+                reply(answer)
+                if name == "queryContacts", self?.awaiting == true { DispatchQueue.main.async { self?.landed() } }
+            }
+        }
         switch name {
         case "getContactProperties": reply(["properties": AgentContacts.properties])
         case "contactsStatus": reply(status())
@@ -64,15 +92,18 @@ public final class ContactsModule: ExactPackage {
     }
 
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
-        name == "contactsStatus" && context.agent ? status() : ["error": "NotSupportedError"]
+        guard name == "contactsStatus" else { return ["error": "NotSupportedError"] }
+        return context.agent ? status() : real.status()
     }
 
     public func release(_ name: String) {
         guard readers.remove(name) != nil, readers.isEmpty else { return }
         say("no reader: observing stops")
+        if !context.agent { real.stopObserving() }
     }
 
     public func release(_ name: String, args: [String: Any]) {
+        if !context.agent { return real.release(args: args) }
         if let dir = iconDirectories.removeValue(forKey: Self.key(args)) { remove(dir) }
     }
 
@@ -104,7 +135,14 @@ public final class ContactsModule: ExactPackage {
     }
 
     public func foreground(_ shown: Bool) {
-        if shown { changedStore() }
+        guard shown else { return }
+        // Access may have changed in Settings meanwhile (D5).
+        if !context.agent {
+            let access = real.access
+            if access != lastAccess, !["full", "limited"].contains(access) { real.emptyIcons() }
+            lastAccess = access
+        }
+        changedStore()
     }
 
     // MARK: announcing (D7)

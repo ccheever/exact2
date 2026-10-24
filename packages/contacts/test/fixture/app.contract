@@ -20,6 +20,7 @@ component Fixture
   resource fields = getContactProperties() as shape ContactProperties
   resource walk = walk(text, 5) as shape Line
   resource page = page(4, after) as shape Page
+  resource found = names(text) as shape Line
   mutation chosen as shape ContactSelection
   mutation shared as shape ContactSelection
   action pick
@@ -39,6 +40,7 @@ component Fixture
       input type="search" value=text input=search testId="search" aria-label="Search"
       text walk.text testId="walk"
       text page.text testId="page"
+      text found.text testId="names"
       text page.next testId="next"
       button press=more testId="more"
         text "More"
