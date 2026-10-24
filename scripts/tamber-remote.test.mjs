@@ -12,6 +12,7 @@ import { connect } from 'node:net';
 import { PassThrough } from 'node:stream';
 import { derInteger, openRemote, remoteArgs, selfSignedCertificate } from './tamber-remote.mjs';
 import { tamberServer } from './tamber-server.mjs';
+import { replaceBuild } from '../host/web/serve.mjs';
 
 /** A wire that records what it was asked and answers its own paths. */
 function recordingWire() {
@@ -177,6 +178,34 @@ test('the remote port serves the design tool\'s own files, static GETs only, and
     expect((await send(true, port, { path: '/__tamber/tool/../../etc/passwd' })).status).toBe(404);
     expect((await send(true, port, { method: 'POST', path: '/__tamber/tool/' })).status).toBe(404);
   } finally { await remote.close(); rmSync(tool, { recursive: true, force: true }); }
+});
+
+test('the TLS door and the tunnel serve a tool page\'s files from the build it booted, under the same rules', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'exact-remote-tool-gen-')), tool = join(root, 'tool');
+  const build = (k) => { const dir = join(root, `stage-${k}`); mkdirSync(dir); writeFileSync(join(dir, 'index.html'), `<base href="/"><p>tool ${k}</p>`);
+    writeFileSync(join(dir, 'app.js'), `tool ${k}`); writeFileSync(join(dir, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', files: [{ name: 'app.js', sha256: String(k) }] })); return dir; };
+  replaceBuild(build(1), tool);
+  const warned = [];
+  const remote = await openRemote(recordingWire(), { remote: { host: '127.0.0.1', port: 0 }, tunnel: 0 }, { say: () => {}, warn: (l) => warned.push(l), toolDir: tool });
+  try {
+    const tls = Number(new URL(remote.info().origin).port), tunnel = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    for (const [secure, port] of [[true, tls], [false, tunnel]]) {
+      const page = await send(secure, port, { path: '/__tamber/tool/' });
+      const base = /<base href="([^"]+)">/.exec(page.text)[1];
+      expect(base).toMatch(/^\/__tamber\/tool\/\.exact\/gen\/[0-9a-f]{32}\/$/);
+      expect(page.headers['set-cookie']).toBeUndefined();
+      expect((await send(secure, port, { path: base + 'app.js' })).text).toContain('tool');
+      // The same rules: no dot segment, no way out, no encoded slash, an id's form only; a document under it is not served.
+      for (const path of [`${base}../../app.js`, `${base}%2e%2e/app.js`, `${base}a%2fb`, '/__tamber/tool/.exact/gen/xyz/app.js', `${base}index.html`, `${base}.exact-build.json`])
+        expect([path, (await send(secure, port, { path })).status]).toEqual([path, 404]);
+    }
+    // Another build put in place: a page booted on the first still gets the first's files; a new page boots the second.
+    const first = /<base href="([^"]+)">/.exec((await send(true, tls, { path: '/__tamber/tool/' })).text)[1];
+    replaceBuild(build(2), tool);
+    expect((await send(true, tls, { path: first + 'app.js' })).text).toBe('tool 1');
+    expect((await send(false, tunnel, { path: first + 'app.js' })).text).toBe('tool 1');
+    expect((await send(true, tls, { path: '/__tamber/tool/' })).text).toContain('tool 2');
+  } finally { await remote.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 /** A stand-in for `contract tamber serve` that answers anything. */
