@@ -22,8 +22,8 @@ export function opsRefusal(request) {
 
 /** Whether `request` re-holds a held proposal (theme2's ruling): a
  * `propose` with `hold` naming the proposal it derives from (`review.from`),
- * with at most that proposal's operations, every one on a target (its kind
- * and its token's or param's name) the proposal has, by a client that may
+ * with at most that proposal's operations, every one on a target (`target`:
+ * the whole operation but the values a re-hold may edit) the proposal has, by a client that may
  * replace it (its own, or one with write scope). Its size is one the server
  * planned; every value is still checked as any write's is. */
 export function reholds(request, scope, proposals) {
