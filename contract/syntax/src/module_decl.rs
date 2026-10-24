@@ -44,11 +44,15 @@ pub struct ModuleDecl {
     /// An event's arguments, in order; its handler takes a prefix of them.
     pub args: Vec<TypeExpr>,
     /// An event's origin rule: `activation`, a person's act on the
-    /// platform's UI that only the host raises, or `emit`, the device's.
+    /// platform's UI that only the host raises; `emit`, the device's; or
+    /// `wake`, raised by the host at the platform's call (LLP 1133.017 D5).
     pub raised: String,
     /// How many of an event's deliveries are held before a handler hears
     /// them; past it the oldest is dropped.
     pub hold: u32,
+    /// A wake event's milliseconds from the wake's first delivery to its
+    /// deadline; 0 for any other event.
+    pub budget: u32,
     /// The action an event is bound to, set once its root attribute is read.
     pub handler: Option<String>,
     /// A live source: the module announces when its answer changes.

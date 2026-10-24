@@ -207,7 +207,47 @@ impl<D: DataSource> Runner<D> {
         self.advance_within(self.now_ms, false, false)
     }
 
+    /// [`Self::advance_steps`] with the wakes (LLP 1133.017 D6): a wake's
+    /// deadline within the advance expires it there, after the work due
+    /// before it, and what the wakes can deliver is delivered after. No
+    /// timer fires while a wake runs unseen.
     fn advance_within(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
+        let unseen = self.wake_stops_timers();
+        let deadline = self
+            .wake_deadline()
+            .filter(|d| now_ms.is_finite() && *d <= now_ms);
+        let Some(deadline) = deadline else {
+            let mut a = self.advance_steps(now_ms, until_request, timers && !unseen);
+            if a.error.is_none() && !a.stopped_on_request {
+                let at_ms = self.now_ms;
+                let (woke, error) = self.step_wakes();
+                a.receipts
+                    .extend(woke.into_iter().map(|receipt| Timed { at_ms, receipt }));
+                a.error = error;
+            }
+            return a;
+        };
+        let mut a = self.advance_steps(deadline.max(self.now_ms), until_request, timers && !unseen);
+        if a.error.is_some() || a.stopped_on_request {
+            return a;
+        }
+        let at_ms = self.now_ms;
+        let (expired, error) = self.expire_wake();
+        a.receipts
+            .extend(expired.into_iter().map(|receipt| Timed { at_ms, receipt }));
+        if error.is_some() {
+            a.error = error;
+            return a;
+        }
+        let rest = self.advance_within(now_ms, until_request, timers);
+        a.receipts.extend(rest.receipts);
+        a.now_ms = rest.now_ms;
+        a.error = rest.error;
+        a.stopped_on_request = rest.stopped_on_request;
+        a
+    }
+
+    fn advance_steps(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
         let live = self.clock.sample.is_some();
         // A host that presents frames fires frame tasks at `frame`; else
         // their virtual frames are timers (LLP 1073 D3).

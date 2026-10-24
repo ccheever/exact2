@@ -60,6 +60,9 @@ pub struct Device {
     /// `geolocation-approximate` is of `geolocation`, LLP 1133.002 D7): an app
     /// grants one or the other, never both (`grant-twice`).
     pub narrows: Option<&'static str>,
+    /// Whether the line names a purpose: false for a row no platform asks
+    /// the person about, written `device.<name>` alone (LLP 1133.017 D14).
+    pub purpose: bool,
 }
 
 /// What a row has unless it says otherwise.
@@ -78,6 +81,7 @@ const ROW: Device = Device {
     tvos: true,
     keeps_no_answers: false,
     narrows: None,
+    purpose: true,
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -305,6 +309,25 @@ pub const DEVICES: &[Device] = &[
         tvos: false,
         ..ROW
     },
+    // Background work (LLP 1133.017 D14): nothing asks the person, so no
+    // line names a purpose. The WICG specifications name the first two
+    // (the Permissions Registry lists none of the three); the platforms'
+    // modes and identifiers join with each host's stage.
+    Device {
+        name: "background-sync",
+        purpose: false,
+        ..ROW
+    },
+    Device {
+        name: "periodic-background-sync",
+        purpose: false,
+        ..ROW
+    },
+    Device {
+        name: "background-fetch",
+        purpose: false,
+        ..ROW
+    },
 ];
 
 /// One `device.<name> <key>` line.
@@ -312,7 +335,8 @@ pub const DEVICES: &[Device] = &[
 pub struct DeviceGrant<'a> {
     /// The table's row.
     pub device: &'static Device,
-    /// The strings key whose text is the purpose.
+    /// The strings key whose text is the purpose; empty for a row that
+    /// names none.
     pub purpose: &'a str,
 }
 
@@ -342,6 +366,19 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
             errors.push(format!(
                 "`{line}`: the purpose is a strings key (LLP 1060), not a literal: `device.{name} purpose.{name}`, with `\"purpose.{name}\": \"…\"` in strings/en.json"
             ));
+            continue;
+        }
+        if !device.purpose {
+            match words.next() {
+                Some(word) => errors.push(format!(
+                    "`{line}`: nothing asks the person for `device.{name}`, so its line names no purpose: write `device.{name}` (not `{word}`)"
+                )),
+                None if grants.iter().any(|g| g.device.name == name) => {}
+                None => grants.push(DeviceGrant {
+                    device,
+                    purpose: "",
+                }),
+            }
             continue;
         }
         let (Some(purpose), None) = (words.next(), words.next()) else {
@@ -451,6 +488,12 @@ mod tests {
         assert!(errors[0].contains("not a device grant"));
         assert!(errors[2].contains("not a literal"));
         assert!(errors[4].contains("two purposes"));
+        // A row nothing asks about names no purpose (LLP 1133.017 D14).
+        let quiet =
+            device_grants("device.background-sync\ndevice.periodic-background-sync").unwrap();
+        assert!(quiet.iter().all(|g| g.purpose.is_empty()));
+        let errors = device_grants("device.background-fetch purpose.x").unwrap_err();
+        assert!(errors[0].contains("names no purpose"), "{errors:?}");
     }
 
     #[test]

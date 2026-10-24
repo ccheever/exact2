@@ -486,6 +486,8 @@ export function parseFlags(argv) {
     // A relaunch whose platform hands it a listed entry (LLP 1133.004 §7): `--notification '<entry>'`, the
     // entry as `state.notifications` printed it, delivered as its tap would be before the first op.
     else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
+    // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
+    else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
@@ -1193,7 +1195,8 @@ export function proofProductChanges(receipt, bin, app, root = ROOT) {
 }
 
 /** Each `--notification '<entry>'` (LLP 1133.004 §7): the entry handed to the relaunched app, as the platform hands a
- * closed app its click, before the drive's first op. */
+ * closed app its click, before the drive's first op; each `--wake '<entry>'` (LLP 1133.017 §10) likewise, raised as a
+ * cold wake. */
 export async function launchEntries(s, flags) {
   for (const entry of flags.launchEntries ?? []) {
     const r = await s.op({ op: 'launchEntry', ...entry });
