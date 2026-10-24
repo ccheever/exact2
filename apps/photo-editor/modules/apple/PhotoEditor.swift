@@ -10,7 +10,9 @@
 //           reset   a counter; each change resets zoom, rotation, position and crop
 //   events  load      once the photo is up (and `change` with the first state)
 //           change    the edit state, when a gesture ends or a prop moves it
-//           message   "edited", beside each change after the first
+//           message   "edited", beside each change after the first; and
+//                     `edit {"rotate", "crop"}` with each change, the edit
+//                     in the photo's own terms (`PhotoEdit.inPhoto`)
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -72,6 +74,26 @@ struct PhotoEdit: Equatable {
         let px = stage.width > 0 ? Double(offset.x / stage.width) : 0, py = stage.height > 0 ? Double(offset.y / stage.height) : 0
         return String(format: "scale %.2f× · rotation %.1f° · pan x %.2f y %.2f · crop x %.2f y %.2f w %.2f h %.2f",
                       Double(scale), degrees, z(px), z(py), Double(crop.minX), Double(crop.minY), Double(crop.width), Double(crop.height))
+    }
+
+    /// The edit in the photo's terms, as `storage.fs.transformImage` takes
+    /// it (LLP 1133.019 §11): the clockwise angle in degrees, and the crop
+    /// in the turned photo's pixels (its bounding box after the turn), the
+    /// canvas's crop mapped back through the fit, scale and pan. JSON.
+    func inPhoto(_ image: CGSize, stage: CGSize) -> String {
+        let f = fit(image, in: stage)
+        guard image.width > 0, image.height > 0, f.width > 0, stage.width > 0, stage.height > 0 else { return "{}" }
+        let m = f.width / image.width * scale, c = abs(cos(angle)), s = abs(sin(angle))
+        let turned = CGSize(width: image.width * c + image.height * s, height: image.width * s + image.height * c)
+        let r = CGRect(x: ((crop.minX - 0.5) * stage.width - offset.x) / m + turned.width / 2,
+                       y: ((crop.minY - 0.5) * stage.height - offset.y) / m + turned.height / 2,
+                       width: crop.width * stage.width / m, height: crop.height * stage.height / m)
+            .intersection(CGRect(origin: .zero, size: turned))
+        guard !r.isNull, r.width >= 1, r.height >= 1 else { return "{\"rotate\":\(degrees)}" }
+        let x = Int(r.minX.rounded()), y = Int(r.minY.rounded())
+        let w = max(1, min(Int(turned.width.rounded()) - x, Int(r.width.rounded())))
+        let h = max(1, min(Int(turned.height.rounded()) - y, Int(r.height.rounded())))
+        return "{\"rotate\":\(degrees),\"crop\":{\"x\":\(x),\"y\":\(y),\"width\":\(w),\"height\":\(h)}}"
     }
 
     /// Scale by `factor` about `point` (relative to the canvas centre): the
@@ -320,6 +342,7 @@ final class PhotoEditor: ExactNativeInstance {
         guard edit != reported else { return }
         reported = edit
         events.change(canvas.summary(edit))
+        events.message("edit " + canvas.inPhoto(edit))
         if edited { events.message("edited") }
     }
 }

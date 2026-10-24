@@ -9,8 +9,24 @@
 // viewfinder in a sheet over the editor, whose shutter's photo becomes the
 // one edited. A sheet dismissed by a swipe hides the viewfinder, which lets
 // the camera go; Take Photo shows the same track again.
+//
+// Save to Photos and Recents are @exact/photos's (LLP 1133.019 §11). The
+// editor reports its edit in the photo's terms (`edit {"rotate", "crop"}`),
+// which app.ts's `savePhoto` applies with `transformImage` and adds to the
+// library. The strip of recent photos is read only once the person shows it
+// or the read is granted; a photo opened from it is a copy in app:/tmp, and
+// its picture stays in the header for as long as the app may read it.
 use getUserMedia, applyConstraints, stopTrack, mediaStreamTrack, enumerateDevices, cameraStatus, MediaStream, MediaStreamTrack, MediaDeviceList, CameraStatus, MediaTrackConstraints from "@exact/media-capture"
 use takePhoto, Photo from "@exact/camera"
+use photoLibraryStatus, copyPhotoAsset, managePhotoSelection, PhotoLibraryStatus, PhotoAssetList, PhotoCopy from "@exact/photos"
+
+shape Saved
+  saved: bool
+  asset: string
+  error: string
+  message: string
+  // What the saved file kept of the photo's metadata (`transformImage`'s report).
+  metadata: string
 
 routes nav
   editor "/"
@@ -25,13 +41,25 @@ component PhotoEditor
   state photo = "assets/sample.jpg"
   state track = ""
   state facing = "environment"
+  // The edit in the photo's terms, as the editor last reported it.
+  state photoEdit = "{}"
+  state showRecents = false
+  // The picture of the photo opened from the strip, and whether it was taken back.
+  state openedPicture = ""
+  state pictureGone = false
+  state saveLine = ""
   resource camera = cameraStatus() as shape CameraStatus else empty()
   resource devices = enumerateDevices() as shape MediaDeviceList else empty()
   resource live = mediaStreamTrack(track=track) as shape MediaStreamTrack else empty()
+  resource library = photoLibraryStatus() as shape PhotoLibraryStatus else empty()
+  resource recent = recents(showRecents or library.state == "granted") as shape PhotoAssetList else empty()
   mutation opened as shape MediaStream then show
   mutation shot as shape Photo then taken
   mutation adjusted as shape MediaStreamTrack
   mutation stopped as shape MediaStreamTrack
+  mutation saved as shape Saved then wasSaved
+  mutation copied as shape PhotoCopy then openCopy
+  mutation managed as shape PhotoLibraryStatus
   // A track the app holds that has not ended: Take Photo shows it again rather than asking for another.
   derive holding = track != "" and live.readyState == "live"
   derive canFlip = devices.devices.map(d => d.facingMode == some("user")).includes(true) and devices.devices.map(d => d.facingMode == some("environment")).includes(true)
@@ -40,6 +68,8 @@ component PhotoEditor
   // The camera that faces `facing`; every other constraint the platform's (LLP 1133.008 D2).
   derive facingOnly = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some(facing), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
   derive shotError = match failure(shot) { case some(f) => f.code, case none => "" }
+  // A photo of the app's own (the camera's or a copy) can be transformed; the bundled sample cannot.
+  derive canSave = library.available and library.addState != "denied" and photo.slice(0, 5) == "app:/"
   action rotate
     turns = turns + 1
   action reset
@@ -50,6 +80,9 @@ component PhotoEditor
   action told(message: string)
     if message == "edited"
       edits = edits + 1
+    if message.slice(0, 5) == "edit "
+      photoEdit = message.slice(5)
+      saveLine = ""
   action loaded
     ready = true
   action takePicture
@@ -75,6 +108,8 @@ component PhotoEditor
         photo = p.path
         turns = 0
         resets = resets + 1
+        openedPicture = ""
+        photoEdit = "{}"
         send stopped = stopTrack(track=track)
         nav = back(nav)
       case none
@@ -88,12 +123,42 @@ component PhotoEditor
     nav = go(nav, url)
   action openSettings
     openURL("app-settings:")
+  action save
+    saveLine = ""
+    send saved = savePhoto(photo, photoEdit)
+  action wasSaved
+    match saved
+      case some(s)
+        saveLine = s.message
+      case none
+        saveLine = match failure(saved) { case some(f) => "Couldn’t save to Photos (" + f.code + ").", case none => "" }
+  action showPhotos
+    showRecents = true
+  action openRecent(id: string, picture: string)
+    openedPicture = picture
+    pictureGone = false
+    send copied = copyPhotoAsset(asset=id)
+  action openCopy
+    match copied
+      case some(c)
+        photo = c.path
+        turns = 0
+        resets = resets + 1
+        photoEdit = "{}"
+      case none
+        photo = photo
+  action lostPicture(message: string)
+    pictureGone = true
+  action manage
+    send managed = managePhotoSelection()
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow color-scheme="dark" accent-color="light-dark(#245b9e, #bed6ff)" width="100%" height="100%"
       for e in stack(nav) key=e.id
         if e.name == "editor"
           column navigationKey=`${e.id}` testId="photo-editor-app" position="absolute" inset=0 display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label" font-family="system-ui"
             row flex-shrink=0 align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              if openedPicture != ""
+                image openedPicture testId="opened-picture" width=32 height=32 object-fit="cover" border-radius=6 alt="The photo being edited" error=lostPicture
               text "Photo Editor" flex=1 font-size=19 font-weight=600
               text (ready ? "Ready" : "Loading…") testId="status" font-size=13 color="-exact-secondary-label"
             photo-editor testId="editor" flex=1 min-height=0 width="100%" photo=photo turns=turns reset=resets aria-label="Photo. Pinch to zoom, turn two fingers to rotate, drag to move, drag the crop corners or edges, double-tap to reset; the buttons below do the same without gestures" load=loaded change=changed message=told
@@ -115,6 +180,37 @@ component PhotoEditor
                 if camera.available and camera.state != "denied"
                   button press=takePicture testId="take-photo" aria-label="Take a photo to edit" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
                     text "Take Photo" font-size=15 font-weight=600
+                if canSave
+                  button press=save testId="save" aria-label="Save the edited photo to Photos" disabled=pending(saved) padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
+                    text "Save to Photos" font-size=15 font-weight=600
+              if saveLine != ""
+                text saveLine testId="save-line" aria-live="polite" font-size=13 color="-exact-secondary-label"
+              if library.available and library.addState == "denied"
+                row align-items="center" gap=12 flex-wrap="wrap" testId="save-denied"
+                  text "Photo Editor can’t add to your photos. Turn it on in Settings." font-size=13 color="-exact-secondary-label" flex=1
+                  button press=openSettings testId="open-photo-settings" aria-label="Open Settings"
+                    text "Open Settings"
+              if library.available
+                column gap=8 testId="recents"
+                  text "Recent photos" role="heading" aria-level=2 font-size=12 font-weight=600 color="-exact-secondary-label"
+                  if library.state == "denied"
+                    row align-items="center" gap=12 flex-wrap="wrap" testId="recents-denied"
+                      text "Photo Editor can’t see your photos. Turn it on in Settings." font-size=13 color="-exact-secondary-label" flex=1
+                      button press=openSettings testId="open-recents-settings" aria-label="Open Settings"
+                        text "Open Settings"
+                  if library.state == "prompt" and not showRecents
+                    button press=showPhotos testId="show-recents" aria-label="Show your recent photos" align-self="flex-start" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
+                      text "Show" font-size=15 font-weight=600
+                  if library.state != "denied" and recent.assets.length > 0
+                    row gap=6 overflow-x="auto" testId="recent-strip"
+                      for a, i in recent.assets key=a.id
+                        button press=openRecent(a.id, a.picture) testId=`recent-${i + 1}` aria-label=`Edit photo ${i + 1}` flex-shrink=0 padding=0 border-radius=6 overflow="hidden"
+                          image a.picture width=64 height=64 object-fit="cover" alt=`Photo ${i + 1}`
+                  if library.access == "limited"
+                    row align-items="center" gap=12 flex-wrap="wrap" testId="limited"
+                      text "The photos you chose" font-size=13 color="-exact-secondary-label" flex=1
+                      button press=manage testId="manage" aria-label="Choose which photos Photo Editor can see"
+                        text "Manage"
         if e.name == "camera"
           column navigationKey=`${e.id}` navigationPresentation="modal" testId="camera" position="absolute" inset=0 display="flex" flex-direction="column" background-color="#000000" color="#ffffff"
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
