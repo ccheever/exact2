@@ -267,7 +267,11 @@ final class FixtureModule: ExactModule {
     /// selected tab's stack, through the seam alone.
     override func tabContainer(_ contents: ExactTabContents) -> UIViewController? {
         if ProcessInfo.processInfo.environment["EXACT_FIXTURE_READ_TABS"] == "1" { tabContents = contents }
-        return ProcessInfo.processInfo.environment["EXACT_FIXTURE_CONTAINER"] == "app" ? FixtureTabs(contents) : nil
+        let mode = ProcessInfo.processInfo.environment["EXACT_FIXTURE_CONTAINER"]
+        guard mode == "app" || mode == "eager" else { return nil }
+        let container = FixtureTabs(contents)
+        if mode == "eager" { container.loadViewIfNeeded() }
+        return container
     }
     #endif
 }

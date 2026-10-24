@@ -141,9 +141,9 @@ extension NavigationHost {
         guard !tabContainerAsked, presenter.modals.routes.isEmpty, !presenter.modals.inTransition, presentedNavigations.isEmpty,
               let root = self.container, let tabs = NavigationTabs.of(root, presenter), let parent = container.parent else { return }
         tabContainerAsked = true
-        // Offer the stacks in place: a container the hook returns takes them from Exact's, as UIKit moves any
-        // child. Emptying Exact's first would lose its bar's selection: a tab bar controller emptied and filled
-        // again keeps its selected index but shows no tab selected (iOS 26 and 27).
+        // Keep the live controller intact when the hook returns nil. Emptying and refilling it loses the bar's
+        // visible selection on iOS 26 and 27 and overlaps the Duo's tab items on iOS 27.1. A custom container
+        // can adopt the stacks eagerly: UIKit's addChild removes each from its previous parent.
         guard let owned = askTabContainer(tabs, selected: routerTab) else {
             let navs = tabPanels.compactMap(tabStack)
             if container.viewControllers?.count != navs.count {
