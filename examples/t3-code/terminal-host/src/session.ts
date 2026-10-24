@@ -380,6 +380,8 @@ export class SocketRequests {
   /** The app answered: true when it sent a URL to open. */
   answered(url: string): boolean {
     if (!this.wanted) return false;
+    // A re-ask may be waiting its delay: the answer to the earlier request stands for it.
+    if (this.timer) { this.timers.clear(this.timer); this.timer = null; }
     if (this.deadline) { this.timers.clear(this.deadline); this.deadline = null; }
     this.wanted = false;
     if (!url) { this.want(); return false; }

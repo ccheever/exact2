@@ -159,6 +159,18 @@ describe("the page's socket requests", () => {
     timers.advance(60_000);
     expect(asked).toBe(2);
   });
+
+  test("an answer that comes while a re-ask waits its delay ends the asking", () => {
+    const timers = fakeTimers();
+    let asked = 0;
+    const requests = new SocketRequests(() => { asked += 1; }, timers);
+    requests.want(); timers.advance(0);
+    timers.advance(TICKET_TIMEOUT_MS + 100);
+    expect(asked).toBe(1);
+    expect(requests.answered("ws://x")).toBe(true);
+    timers.advance(60_000);
+    expect(asked).toBe(1);
+  });
 });
 
 describe("the page's input", () => {
