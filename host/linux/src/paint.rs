@@ -1224,7 +1224,8 @@ impl Painter {
         // LLP 1104 D6: native buttons ring their own chrome; a bare
         // button rings its outer box even without a press handler.
         if paints_self
-            && node.node_type == NodeType::Pressable
+            && (node.node_type == NodeType::Pressable
+                || self.alert.is_some() && node.props.str(PropId::AlertPart) == Some("message"))
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
             && self.ringless != Some(node.id)

@@ -131,7 +131,7 @@ impl<D: DataSource> Presenter<D> {
             return false;
         }
         self.dirty = true;
-        if let Some(e) = self.move_focus(false, now) {
+        if let Some(e) = self.move_focus_filtered(false, now, |p, id| !p.alert_message(id)) {
             self.host.log(e);
         }
         self.back_changed();
@@ -302,6 +302,61 @@ impl<D: DataSource> Presenter<D> {
             scroll: self.alert_scroll(id),
         })
     }
+    pub(crate) fn alert_message(&self, id: ViewId) -> bool {
+        self.alert_root().is_some_and(|root| {
+            self.host.kernel().node(id).is_some_and(|node| {
+                node.parent == Some(root) && node.props.str(PropId::AlertPart) == Some("message")
+            })
+        })
+    }
+
+    pub(crate) fn alert_message_overflows(&self, id: ViewId) -> bool {
+        self.alert_message(id)
+            && self.host.kernel().node(id).is_some_and(|node| {
+                let bounds = self.brush.scroll_bounds(
+                    self.host.kernel(),
+                    self.host.content_region(),
+                    &node,
+                    None,
+                );
+                bounds.max.0 > 0. || bounds.max.1 > 0.
+            })
+    }
+
+    fn alert_message_key(&mut self, name: &str) -> bool {
+        let Some(id) = self.focus.filter(|id| self.alert_message(*id)) else {
+            return false;
+        };
+        self.restore_scroll_anchors();
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return false;
+        };
+        let bounds = self
+            .brush
+            .scroll_bounds(kernel, self.host.content_region(), &node, None);
+        let border = node
+            .computed_style(exact_kernel::StyleMask::EMPTY)
+            .border_widths_in(&kernel.env());
+        // Chrome 151: arrows move 40 CSS px; Page and Space move 87.5% of
+        // clientHeight (200 -> 175, 400 -> 350, 669 -> 585, 800 -> 700).
+        let page = (node.frame.height - border[0] - border[2]).max(0.) * 0.875;
+        let (dx, dy) = match name {
+            "ArrowLeft" => (-40., 0.),
+            "ArrowRight" => (40., 0.),
+            "ArrowUp" => (0., -40.),
+            "ArrowDown" => (0., 40.),
+            "PageUp" => (0., -page),
+            "PageDown" => (0., page),
+            " " => (0., if self.modifiers().shift { -page } else { page }),
+            "Home" => (0., -bounds.max.1),
+            "End" => (0., bounds.max.1),
+            _ => return false,
+        };
+        self.scroll_container_by(id, bounds, dx, dy);
+        true
+    }
+
     pub(super) fn alert_key(&mut self, name: &str, now: f64) -> bool {
         let Some(_) = self.alert_root() else {
             return false;
@@ -324,6 +379,9 @@ impl<D: DataSource> Presenter<D> {
         {
             return true;
         }
+        if self.alert_message_key(name) {
+            return true;
+        }
         match name {
             "Escape" => {
                 self.alert_close_request(now);
@@ -334,7 +392,10 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             "Enter" | " " => {
-                if let Some(id) = self.focus.filter(|id| self.alert_allows(*id)) {
+                if let Some(id) = self
+                    .focus
+                    .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+                {
                     self.invoke(id, now, false);
                 }
             }
