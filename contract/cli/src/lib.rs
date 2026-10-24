@@ -615,8 +615,9 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
 /// shortcut takes that press, the key with exactly the chord's modifiers,
 /// first, so the world does not hear it while the button shows; the key
 /// with other modifiers still reaches the world. With a stale or missing
-/// `.shells/keys.json`, a warning saying so. Empty for an app that declares
-/// no shortcut.
+/// `.shells/keys.json`, a warning saying so. In an app with a Windows host,
+/// the chords that never reach it there (LLP 1115.004 D9.6). Empty for an
+/// app that declares no shortcut.
 pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
     let src = read_source(path).map_err(|e| vec![e])?;
     let app_root = app_root(path)?;
@@ -628,6 +629,32 @@ pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileEr
 }
 
 fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
+    if !contract_analyze::declares_shortcuts(file) {
+        return Vec::new();
+    }
+    let mut out: Vec<CompileError> = match windows_host(app_root) {
+        true => contract_analyze::check_windows_shortcuts(file)
+            .into_iter()
+            .map(|e| CompileError {
+                pass: "warning",
+                ..e.into()
+            })
+            .collect(),
+        false => Vec::new(),
+    };
+    out.extend(game_shortcut_warnings(file, app_root));
+    out
+}
+
+/// Whether the app has a Windows host: `app.json` declares `host.windows`,
+/// or the app has a Windows crate (`windows/Cargo.toml`) to build one.
+fn windows_host(app_root: &Path) -> bool {
+    app_root.join("windows/Cargo.toml").is_file()
+        || Manifest::read(app_root)
+            .is_ok_and(|manifest| manifest.json.pointer("/host/windows").is_some())
+}
+
+fn game_shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
     let keys = app_root.join(".shells/keys.json");
     let stale = |message: String| CompileError {
         pass: "warning",
@@ -637,9 +664,6 @@ fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<Compi
         file: Some(keys.as_path().into()),
         related: Box::new([]),
     };
-    if !contract_analyze::declares_shortcuts(file) {
-        return Vec::new();
-    }
     // A game built before its GPU build wrote the keys: say so, rather
     // than check against none.
     if !keys.is_file() {

@@ -19,7 +19,9 @@ mod rereads;
 mod sends;
 mod shortcuts;
 
-pub use shortcuts::{check_shortcut_keys, chord_codes, declares_shortcuts};
+pub use shortcuts::{
+    check_shortcut_keys, check_windows_shortcuts, chord_codes, declares_shortcuts,
+};
 
 pub use contract_types::handler_arity_message;
 
