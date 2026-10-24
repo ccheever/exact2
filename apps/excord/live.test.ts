@@ -3,7 +3,8 @@ import type { Answer, Args, Result, Source, Storage, Store, StreamEvent, StreamS
 import * as S from './discord/store.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
-import { applyEvent, call, clock, connect, createLive, digest, pastedToken, signIn, signOut } from './live.ts';
+import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, signIn, signOut } from './live.ts';
+import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
 
 const EPOCH = Date.UTC(2026, 9, 22, 12);
@@ -12,12 +13,21 @@ const ids = (rows: { id: string }[]) => rows.map(row => row.id);
 const historyPath = (channel: string) => `/api/v9/channels/${channel}/messages`;
 let moduleNumber = 0;
 
+// The store as data code sees it: a locked name's value is `unlock`'s alone, and `get` throws for it.
 function secretsStore() {
-  const values = new Map<string, string>();
+  const values = new Map<string, string>(), locked = new Set<string>();
   return {
-    get: (key: string) => values.get(key) ?? null,
+    get: (key: string) => {
+      if (locked.has(key)) throw Object.assign(new Error(`InvalidAccessError: secret ${key} is locked`), { name: 'InvalidAccessError' });
+      return values.get(key) ?? null;
+    },
     set: (key: string, value: string) => { values.set(key, value); },
-    forget: (key: string) => { values.delete(key); },
+    forget: (key: string) => { values.delete(key); locked.delete(key); },
+    has: (key: string) => values.has(key),
+    locked: (key: string) => locked.has(key),
+    unlock: async (key: string): Promise<string | null> => values.get(key) ?? null,
+    protect: async (key: string) => { if (values.has(key)) locked.add(key); },
+    unprotect: async (key: string) => { locked.delete(key); },
   };
 }
 
@@ -619,3 +629,23 @@ test('19. a REST reply that lands after a sign-out leaves the next account\'s li
   } finally { fetchSpy.mockRestore(); }
 });
 
+// Lock Excord (LLP 1133.010 §9): no answer carries the token, and a launch that begins locked answers nothing of
+// the account, so the gateway opens nothing, until the person passes the check.
+test('a locked launch answers no token and is not ready until unlocked; a dropped token signs the person out', async () => {
+  const origins = { rest: 'http://127.0.0.1:4790', gateway: 'ws://127.0.0.1:4790', cdn: 'http://127.0.0.1:4790', fixture: true };
+  const secrets = secretsStore(), storage = memoryStorage() as unknown as Storage, live = createLive(origins);
+  secrets.set('fixture-token', 'secret-token-1');
+  await secrets.protect('fixture-token');
+  const locked = await loadSession(live, secrets as unknown as Store, storage);
+  expect(locked).toEqual({ ready: false, signedIn: true, locked: true, lockOn: true });
+  expect(await unlockSession(live, secrets as unknown as Store)).toEqual({ ok: true, error: '' });
+  const unlocked = await loadSession(live, secrets as unknown as Store, storage);
+  expect(unlocked).toEqual({ ready: true, signedIn: true, locked: false, lockOn: true });
+  expect(JSON.stringify([locked, unlocked])).not.toContain('secret-token');
+
+  const gone = { ...secretsStore(), locked: () => true, unlock: async () => null };
+  const dropped = createLive(origins);
+  expect(await unlockSession(dropped, gone as unknown as Store)).toEqual({ ok: false, error: 'Sign in again' });
+  const after = { ...secretsStore(), locked: () => false };
+  expect(await loadSession(dropped, after as unknown as Store, storage)).toEqual({ ready: true, signedIn: false, locked: false, lockOn: false });
+});

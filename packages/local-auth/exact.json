@@ -1,0 +1,110 @@
+{
+  "kind": "interface",
+  "name": "@exact/local-auth",
+  "version": "1.0.0",
+  "grants": [
+    "device.local-auth"
+  ],
+  "permission": {
+    "name": "local-auth",
+    "status": "localAuthStatus",
+    "field": "state",
+    "denied": "PERMISSION_DENIED",
+    "asks": {
+      "biometry": "faceID"
+    },
+    "continues": "biometricOnly",
+    "allow": {}
+  },
+  "authenticator": {
+    "apple": "evaluate(accessControl: SecAccessControl, reason: String, origin: Origin) async throws -> LAContext",
+    "android": "authenticate(crypto: BiometricPrompt.CryptoObject, authenticators: Int, reason: String, origin: Origin): CryptoObject",
+    "android-key": "configure(builder: KeyGenParameterSpec.Builder)",
+    "substitute": {
+      "ticket": "presence",
+      "cancel": "USER_CANCEL",
+      "choices": {
+        "fail": "AUTHENTICATION_FAILED",
+        "lockout": "LOCKOUT",
+        "invalidated": "unlock"
+      }
+    }
+  },
+  "shapes": {
+    "LocalAuthentication": {
+      "timestamp": "number",
+      "android": "option<AndroidAuthentication>"
+    },
+    "LocalAuthStatus": {
+      "available": "bool",
+      "biometry": "enum<faceID|touchID|opticID|other|none>",
+      "deviceCredential": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "presenceSecrets": "bool",
+      "apple": "option<AppleLocalAuthStatus>",
+      "android": "option<AndroidLocalAuthStatus>"
+    }
+  },
+  "names": [
+    {
+      "send": "authenticate",
+      "request": true,
+      "origin": "person",
+      "options": {
+        "reason": "strings-key",
+        "biometricOnly": "option<bool>"
+      },
+      "answers": "LocalAuthentication",
+      "substitute": {
+        "check": {
+          "ticket": "presence",
+          "allow": {},
+          "cancel": "USER_CANCEL",
+          "choices": {
+            "fail": "AUTHENTICATION_FAILED",
+            "lockout": "LOCKOUT"
+          },
+          "unless": {
+            "available": {
+              "false": "NOT_AVAILABLE"
+            }
+          }
+        },
+        "fill": {
+          "timestamp": "now"
+        },
+        "unsupported": [
+          "web"
+        ]
+      }
+    },
+    {
+      "source": "localAuthStatus",
+      "live": true,
+      "answers": "LocalAuthStatus",
+      "sync": {
+        "name": "localAuthStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "biometry": "faceID",
+          "deviceCredential": true,
+          "state": "prompt",
+          "presenceSecrets": true
+        },
+        "facts": {
+          "presenceSecrets": "presence-secrets"
+        },
+        "web": {
+          "available": false,
+          "biometry": "none",
+          "deviceCredential": false,
+          "state": "unknown",
+          "presenceSecrets": false
+        }
+      }
+    }
+  ]
+}

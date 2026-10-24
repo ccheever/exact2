@@ -10,6 +10,9 @@
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
+// POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
+// each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
+// `identify_token` is the token the last IDENTIFY carried.
 import { constants, createDeflate } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ServerWebSocket } from 'bun';
@@ -224,6 +227,7 @@ export function startFixture(options: FixtureOptions = {}) {
   let world: World;
   let origin = '', gatewayUrl = '';
   let connectionCounter = 0, sessionCounter = 0, identifyCount = 0, resumeCount = 0, loginsDone = 0;
+  let rotatedToken: string | null = null, identifyToken: string | null = null;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
   let closed = false;
   let resetVersion = 0;
@@ -455,6 +459,7 @@ export function startFixture(options: FixtureOptions = {}) {
       return;
     }
     if (frame?.op !== 2 && frame?.op !== 6) return;
+    if (frame.op === 2) identifyToken = frame.d?.token ?? null;
     if (frame.d?.token !== world.token) { socket.close(4004, 'Authentication failed'); return; }
     if (socket.data.session) { socket.close(4005, 'Already authenticated'); return; }
     if (frame.op === 2) {
@@ -634,6 +639,7 @@ export function startFixture(options: FixtureOptions = {}) {
 
   function state() {
     return { connections: sockets.size, sessions: sessions.size, identify_count: identifyCount, resume_count: resumeCount,
+      identify_token: identifyToken,
       logins_done: loginsDone,
       connection_details: [...sockets].map(socket => ({ id: socket.data.id,
         session_id: socket.data.session?.id ?? null, compressed: socket.data.compressed })),
@@ -664,6 +670,7 @@ export function startFixture(options: FixtureOptions = {}) {
     connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
     readyBytes = loginBytes = 0; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
     world = buildWorld();
+    if (rotatedToken) world.token = rotatedToken;
     if (keep) {
       keep.data.session = undefined;
       keep.data.id = ++connectionCounter;
@@ -788,6 +795,13 @@ export function startFixture(options: FixtureOptions = {}) {
         break;
       }
       case 'stop-acks': stopAcks = body.on === true; break;
+      case 'rotate-token': {
+        const token = textField(body, 'token');
+        world.token = rotatedToken = token;
+        await Promise.all([...sessions.values()].flatMap(session =>
+          deliver(session, 'READY', { ...readyPayload(world, session.id, gatewayUrl), auth_token: token })));
+        break;
+      }
       case 'ready-size': readyBytes = integer(body.bytes, 3 * 1024 * 1024, 64 * 1024 * 1024); break;
       case 'login-burst': loginBytes = integer(body.bytes, 1024 * 1024 + 4096, 64 * 1024 * 1024); break;
       case 'oversize-frame': {

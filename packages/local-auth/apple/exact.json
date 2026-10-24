@@ -1,0 +1,30 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/local-auth@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleLocalAuthStatus": {
+      "biometryType": "number",
+      "domainState": "option<string>"
+    }
+  },
+  "options": {
+    "authenticate": {
+      "policy": "enum<deviceOwnerAuthentication|deviceOwnerAuthenticationWithBiometrics|deviceOwnerAuthenticationWithWatch|deviceOwnerAuthenticationWithBiometricsOrWatch|deviceOwnerAuthenticationWithCompanion|deviceOwnerAuthenticationWithBiometricsOrCompanion>",
+      "localizedFallbackTitle": "strings-key",
+      "localizedCancelTitle": "strings-key",
+      "touchIDAuthenticationAllowableReuseDuration": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "context"
+  ],
+  "sources": {},
+  "artifacts": []
+}
