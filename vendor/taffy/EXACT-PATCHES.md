@@ -2004,6 +2004,33 @@ at 150px and 650px, `auto-fit`, percentage arithmetic, clamped rows, negative
 results and indefinite percentage bases. The kernel retains floating-point
 coordinates; comparisons allow Chrome's 1/64px layout quantization.
 
+## Patch 64: retain transferred height caps in ratio leaf content probes
+
+A non-replaced ratio leaf's `ContentSize` probe with no known width keeps
+its height bounds and uses `container_sizes_through_ratio`. Its preferred
+sizes and width bounds remain ignored. With no supplied height, the
+transferred maximum caps the intrinsic width, as it does for containers.
+The flex basis then agrees with the hypothetical size instead of exceeding
+it and freezing growth under [Flexbox §9.7](https://www.w3.org/TR/css-flexbox-1/#resolve-flexible-lengths).
+The flexible-length freeze rule is unchanged.
+
+`minimum_ratio_width` now supplies the clamped height to leaves as well as
+containers. The shared helper makes its width transfer a floor and removes
+the transferred width cap, so wider text is still measured independently.
+This replaces Patch 57's leaf-only unknown-height probe. Replaced leaves
+and probes with a known width retain their existing sizing path.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+18 literal `Chrome 151 ratio text growth` cases, measured with Chrome
+151.0.7922.34 on 2026-10-24, with the monospace advance normalized to 10px.
+Ten frames in nine cases failed before the patch: the reported
+leaf changes from 60×60 to 200×60, and content-box padding from 80×80 to
+200×80. Controls cover a zero basis, explicit minima, hidden overflow,
+a width cap, ratio 2, both box-sizing modes, definite heights, stretch,
+a growing sibling, and no ratio or height cap. The existing block
+growth, definite-height inline minima, replaced-element, percentage-height
+and exclusion-height tests remain passing.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
