@@ -933,14 +933,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now() && !p.busy) forget(id, { client: null, reason: 'expired' }); };
   const expiry = setInterval(expire, 30_000);
   expiry.unref?.();
-  /** A proposal held again (an accept that did not apply it), announced,
-   * within the cap. */
+  /** A proposal held again (an accept that did not apply it), announced, within the cap. */
   const restore = (id, p) => {
     if (p.expires <= Date.now()) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'expired' }); return; }
     // Its client ended while it was out being accepted: marked as held ones were.
     if (gone(p.client)) p.shown = { ...p.shown, revoked: true };
     proposals.set(id, p); heldRevision++;
-    for (let o; proposals.size > HELD && (o = [...proposals].find(([, q]) => !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning)
+    for (let o; proposals.size > HELD && (o = [...proposals].find(([k, q]) => k !== id && !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning, nor this one)
     send({ event: 'proposal', seq: ++seq, epoch, ...p.shown });
   };
   /** The proposals held now, as a reconnecting client reads them. */
@@ -998,13 +997,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // (theme2's ruling (a)): at the cap its own oldest goes, and with none
     // of its own its hold is refused, decided here, in the same turn as the
     // insert. A `write` client's makes room by the oldest, as before.
-    if (proposals.size - +proposals.has(replaces) >= HELD && !allows(scope, 'write')) { // (the one it replaces, still held while an edit plans it, counts as gone)
+    const full = proposals.size - +proposals.has(replaces) >= HELD; if (full && ![...proposals].some(([k, q]) => k !== replaces && !q.busy)) return { status: 409, error: { message: `${HELD} proposals are held and each is being edited: try again shortly` } }; // (the one it replaces, held while an edit plans it, counts as gone)
+    if (full && !allows(scope, 'write')) {
       const own = [...proposals].find(([k, p]) => k !== replaces && !p.busy && p.client === client);
-      if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
+      if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none of this client's can go (none, or its own being edited): one must be accepted or dropped first` } };
       forget(own[0], { client, reason: 'too many held' });
     }
     proposals.delete(replaces); proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size, restoring }); heldRevision++;
-    for (let o; proposals.size > HELD && (o = [...proposals].find(([, q]) => !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning)
+    for (let o; proposals.size > HELD && (o = [...proposals].find(([k, q]) => k !== id && !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning, nor this one)
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
   }
