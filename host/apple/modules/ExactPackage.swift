@@ -305,6 +305,12 @@ public final class ExactAudioSession {
     /// ended, the session active again), `reset` (media services were
     /// reset) and `route`. Nil when the host refused it (the session would
     /// not activate). Release it with `cancel()`.
+    ///
+    /// `mode` `speech-transient`, `speech-transient-solo` or
+    /// `speech-playback` is a queue's speech claim instead (LLP 1133.012 D4):
+    /// the owner takes the strongest spoken type held whenever no other I/O
+    /// runs, and gives the session up when the last speech claim goes. It
+    /// hears the same events; `options` are not read.
     public func claim(mode: String?, options: [String], background: Bool, events: @escaping (String) -> Void) -> ExactSubscription? {
         claimFn(mode, options, background, events).map(ExactSubscription.init)
     }
