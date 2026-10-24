@@ -545,6 +545,19 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
     debug_log!("determine_container_cross_size");
     let total_line_cross_size = determine_container_cross_size(&flex_lines, known_dimensions, &mut constants);
 
+    // EXACT PATCH 61: a column learns its intrinsic width during cross sizing.
+    // Regenerate items against that width's ratio height, retaining the input
+    // definiteness and allowing content to exceed the percentage basis.
+    // The known width bounds the repeat even when the height remains automatic.
+    if constants.is_column && known_dimensions.width.is_none() && known_dimensions.height.is_none()
+        && tree.get_flexbox_container_style(node).aspect_ratio().is_some()
+    {
+        let known_dimensions = Size { width: Some(constants.container_size.width), ..known_dimensions };
+        drop(flex_lines);
+        drop(flex_items);
+        return compute_preliminary(tree, node, LayoutInput { known_dimensions, ..inputs });
+    }
+
     // We have the container size.
     // If our caller does not care about performing layout we are done now.
     if run_mode == RunMode::ComputeSize {
