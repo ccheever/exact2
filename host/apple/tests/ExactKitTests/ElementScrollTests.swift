@@ -423,7 +423,9 @@ final class ElementScrollTests: XCTestCase {
         p.scrollElementIntoView(["inner-target", "start", "nearest"])
         _ = run(inner, from: 0, to: 300) { inner.contentOffset.y > 30 }
         p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 450.0, "w": 100.0, "h": 50.0]]))
-        XCTAssertTrue(p.elementScrolls.retarget(inner), "the reveal heads for the moved target")
+        p.elementScrolls.retarget(inner)
+        XCTAssertEqual(p.elementScrolls.revealing(inner)?.y ?? inner.contentOffset.y, 450, accuracy: 0.5,
+                       "the reveal heads for the moved target, including when layout already retargeted it")
         _ = run(inner, from: 0, to: 450) { ended.contains(2) }
         XCTAssertEqual(inner.contentOffset.y, 450, accuracy: 0.5)
         XCTAssertEqual(ended.filter { $0 == 2 }.count, 1, "the retargeted reveal ends once")

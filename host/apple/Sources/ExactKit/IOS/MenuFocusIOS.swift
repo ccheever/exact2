@@ -80,14 +80,11 @@ final class MenuFocus {
     /// menu, and the next touch on the page brings it back (`BarTouch`): one
     /// recognizer per bar, and one on the page the bar is over: the
     /// viewport, or the presentation the bar's navigation is mounted in
-    /// (LLP 1123 D2). The viewport's page is also the mount beside it, where
-    /// the document stands while it does not scroll (`mountDocument`).
+    /// (LLP 1123 D2).
     func watch(_ bar: UINavigationBar) {
         if !(bar.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) { bar.addGestureRecognizer(BarTouch(focus: self, bar: true)) }
-        guard let presenter else { return }
-        let page = presenter.port(of: bar)
-        for view in page === presenter.viewport ? [page, presenter.documentMount] : [page]
-        where !(view.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) {
+        let page = presenter?.port(of: bar)
+        if let view = page, !(view.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) {
             view.addGestureRecognizer(BarTouch(focus: self, bar: false))
         }
     }

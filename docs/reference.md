@@ -2397,6 +2397,10 @@ after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
 is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
 Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
 Percentages use the corresponding root dimension.
+A native route's scrollport can be the root, including at offset zero.
+`overflow: clip` clips descendants without becoming a root. The margin expands
+only the root; clips between the target and root keep their original bounds.
+Ancestors above an explicit root only map its coordinates.
 This can keep T3 sidebar subscriptions active near the viewport and track timeline turns.
 Removal cancels observation without a leave callback. Both web targets use the
 browser's IntersectionObserver after first paint. AppKit, UIKit and Linux use

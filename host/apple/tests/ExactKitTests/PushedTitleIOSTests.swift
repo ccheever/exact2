@@ -111,7 +111,7 @@ final class PushedTitleIOSTests: XCTestCase {
             guard !view.isHidden, !found else { return }
             let a = alpha * view.alpha
             let inside = view.clipsToBounds ? clip.intersection(view.convert(view.bounds, to: window)) : clip
-            if let label = view as? UILabel, label.text == title, label.font.pointSize >= 26, a > 0.5 {
+            if let label = view as? UILabel, label.text == title.capitalized, label.font.pointSize >= 26, a > 0.5 {
                 let frame = label.convert(label.bounds, to: window), shown = frame.intersection(inside)
                 if frame.height > 1, !shown.isNull, shown.height >= frame.height / 2 { found = true }
             }
@@ -226,6 +226,14 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertTrue(long.large)
         XCTAssertEqual(long.scrolled, 0, accuracy: 0.5)
         XCTAssertEqual(long.below, 0, accuracy: 0.5)
+    }
+
+    func testALevelOneRouteWithoutAnAuthoredScrollerArrivesExpanded() throws {
+        let (_, _, nav) = try fixture()
+        let (expanded, _) = try heights(nav)
+        try tap("home-open-edit-visual", in: nav, depth: 2)
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
+        XCTAssertTrue(largeTitleShows("edit"))
     }
 
     func testEveryKindOfLevelOneRouteArrivesExpandedAndALevelTwoRouteIsInline() throws {

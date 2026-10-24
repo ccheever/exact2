@@ -6,9 +6,13 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class RouteController: UIViewController {
+final class RouteController: UIViewController, UIScrollViewDelegate {
     let node: NodeView
     var key: String { node.props["navigationKey"] ?? "" }
+    fileprivate var usesPageViewport = false
+    private(set) var contentViewport: Viewport?
+    var contentMount: UIView { contentViewport ?? view }
+    private var viewportKeyboardDismissal: UIScrollView.KeyboardDismissMode { node.props["keyboardDismissMode"] == nil ? .interactive : node.keyboardDismissal }
     /// What Exact last projected into the navigation item, and that plus
     /// what the route hatch last saw; whether the hatch has run; the header
     /// lifted into the bar; the content scroll view a hatch was handed.
@@ -105,6 +109,7 @@ final class RouteController: UIViewController {
     // Its route is laid out in this view's bounds (LLP 1123 D2).
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        fitContentViewport()
         host?.presenter.owners.publish()
         #if os(iOS)
         search?.labelScopes()
@@ -180,9 +185,68 @@ final class RouteController: UIViewController {
     }
     func mount() {
         loadViewIfNeeded()
-        if node.superview !== view { view.addSubview(node) }
+        if usesPageViewport, contentViewport == nil {
+            let scroll = Viewport(frame: view.bounds)
+            scroll.documentNode = node
+            scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.keyboardDismissMode = viewportKeyboardDismissal
+            #if os(iOS)
+            scroll.scrollsToTop = false
+            #endif
+            scroll.delegate = self
+            view.addSubview(scroll)
+            contentViewport = scroll
+        } else if !usesPageViewport, let scroll = contentViewport {
+            view.addSubview(node)
+            scroll.removeFromSuperview()
+            contentViewport = nil
+        }
+        if node.superview !== contentMount { contentMount.addSubview(node) }
         host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
+    /// Scroll the document inside the native container; the navigation and tab bars stay in their viewport.
+    func fitContentViewport(in block: CGRect? = nil) {
+        guard let scroll = contentViewport, let presenter = host?.presenter else { return }
+        let oldSize = scroll.bounds.size, oldContent = scroll.contentSize, oldInset = scroll.contentInset
+        let allocation = block ?? presenter.owners.block(in: view)
+        if scroll.frame != allocation { scroll.frame = allocation }
+        scroll.keyboardDismissMode = viewportKeyboardDismissal
+        let extent = CGSize(width: max(node.bounds.width, node.style["overflow_x"]?.string == "visible" || node.style["overflow_x"] == nil ? node.content.width : 0),
+                            height: max(node.bounds.height, node.style["overflow_y"]?.string == "visible" || node.style["overflow_y"] == nil ? node.content.height : 0))
+        let size = CGSize(width: max(scroll.bounds.width, node.frame.minX + extent.width), height: max(scroll.bounds.height, node.frame.minY + extent.height))
+        if scroll.contentSize != size { scroll.contentSize = size }
+        var inset = UIEdgeInsets.zero
+        if presenter.keyboardPolicy == "resizes-visual", let top = presenter.keyboardTop, let window = view.window {
+            let keys = view.convert(CGPoint(x: 0, y: top), from: window).y
+            inset.bottom = min(allocation.height, max(0, allocation.maxY - keys))
+        }
+        if scroll.contentInset != inset { scroll.contentInset = inset }
+        if scroll.verticalScrollIndicatorInsets != inset { scroll.verticalScrollIndicatorInsets = inset }
+        if oldSize != scroll.bounds.size || oldContent != size || oldInset != inset {
+            let offset = PixelGrid.offset(scroll.contentOffset, in: scroll)
+            if offset != scroll.contentOffset { scroll.contentOffset = offset }
+        }
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === contentViewport, let presenter = host?.presenter else { return }
+        presenter.owners.publish()
+        presenter.stickies.scrolled(node.id)
+        presenter.transformGeometry.changed()
+        presenter.videoVisibility?.changed()
+        presenter.scrollPump.scrolled(nil)
+        node.repaintThrough()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        host?.presenter.elementScrolls.userScrolled(scrollView)
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        host?.presenter.elementScrolls.revealEnded(scrollView)
+    }
+
     // A button can remove a route before UIKit starts its pop. Preserve its
     // outgoing pixels for that transition; an interactive pop uses live views.
     func freeze() {
@@ -225,6 +289,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             if changing { startRevealing() }
         }
     }
+    var primaryRoutes: [RouteController] { primaryStacks.flatMap(\.stackRoutes).compactMap { $0 as? RouteController } }
     private(set) var presentedNavigations: [UINavigationController] = []
     /// The theme's title ink each bar was last given (`titleInk`), held no
     /// longer than its bar.
@@ -299,6 +364,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var coversPending = false
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
+    private var primaryAllocation: [NSLayoutConstraint] = []
+    var pinsPrimaryViewport: Bool { !primaryAllocation.isEmpty }
+    private var keyboardRangePinned = false
+
+    private func refreshKeyboardRange() {
+        let pinned = pinsPrimaryViewport
+        guard pinned != keyboardRangePinned else { return }
+        keyboardRangePinned = pinned
+        if presenter.keyboardPolicy == "resizes-visual" { presenter.setKeyboardInset(presenter.keyboardInset) }
+    }
     private var pendingSync = false
     /// The press whose commit a deferred sync still owes (PressHandoffIOS).
     private weak var pendingPress: PressHandoff?
@@ -444,8 +519,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         shownKeys = Array(keys(stacks[at])[range])
         selectedRouteCount = stacks[at].count
         let wanted = stacks.enumerated().map { index, routes in
-            (index == at ? Array(routes[range]) : routes).map { node -> RouteController in
+            var presented = false
+            return (index == at ? Array(routes[range]) : routes).map { node -> RouteController in
+                presented = presented || ["modal", "fullscreen"].contains(node.props["navigationPresentation"] ?? "")
                 let c = controllers[node.id] ?? RouteController(node)
+                c.usesPageViewport = !presented && !ExactEnv.authoredChrome
                 c.host = self
                 controllers[node.id] = c
                 c.mount()
@@ -453,6 +531,45 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
         }
         return Projection(root: root, tabs: tabs, stacks: stacks, at: at, selected: range.upperBound - 1, wanted: wanted)
+    }
+
+    /// Keep the native container in the viewport while CSS page content scrolls.
+    /// UIKit's frame guide owns the position; no scroll-offset correction is needed.
+    func fitOwner() {
+        guard let owner = primaryOwner, let view = owner.viewIfLoaded, let root = view.superview else { return }
+        defer { refreshKeyboardRange() }
+        let viewport = presenter.viewport
+        let margins = presenter.pageMargins
+        let frame = ownerFrame(owner, in: root)
+        guard !ExactEnv.authoredChrome, root.isDescendant(of: viewport) else {
+            clearOwnerAllocation()
+            if view.frame != frame { view.frame = frame }
+            return
+        }
+        if primaryAllocation.first?.firstItem as? UIView !== view {
+            clearOwnerAllocation()
+            view.translatesAutoresizingMaskIntoConstraints = false
+            let guide = viewport.frameLayoutGuide
+            primaryAllocation = [view.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+                                 view.topAnchor.constraint(equalTo: guide.topAnchor),
+                                 view.widthAnchor.constraint(equalTo: guide.widthAnchor),
+                                 view.heightAnchor.constraint(equalTo: guide.heightAnchor, constant: ownerKeyboardExtension(owner))]
+            NSLayoutConstraint.activate(primaryAllocation)
+        }
+        let constants = [margins.left, margins.top, -margins.left - margins.right,
+                         ownerKeyboardExtension(owner) - margins.top - margins.bottom]
+        for (constraint, constant) in zip(primaryAllocation, constants) where constraint.constant != constant {
+            constraint.constant = constant
+        }
+        if view.frame != frame { viewport.layoutIfNeeded() }
+    }
+
+    func clearOwnerAllocation() {
+        let view = primaryAllocation.first?.firstItem as? UIView
+        NSLayoutConstraint.deactivate(primaryAllocation)
+        primaryAllocation = []
+        view?.translatesAutoresizingMaskIntoConstraints = true
+        refreshKeyboardRange()
     }
 
     private func installPrimary(_ p: Projection, first: [RouteController]) {
@@ -474,10 +591,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         recordOwned(nav)
         watchPops(nav)
         parent.addChild(nav)
-        nav.view.frame = p.root.bounds
+        nav.view.frame = ownerFrame(nav, in: p.root)
         nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         p.root.addSubview(nav.view)
         nav.view.setPaintForeground(aboveAuthored: false)
+        fitOwner()
         nav.didMove(toParent: parent)
     }
 
@@ -661,7 +779,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // A presented navigation fills its sheet; the primary owner the root,
         // which no presentation resizes (LLP 1123 D1)
         if let top = primaryOwner {
-            top.view.frame = ownerFrame(top, in: root)
+            fitOwner()
             placeOwner()
             top.view.layoutIfNeeded()
         }
@@ -847,11 +965,15 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
     func observation() -> [String: Any] {
+        // Permit XCTest's application-wide Back lookup only for a single mounted session
+        let sessions = presenter.session?.app.sessions.filter { $0.view?.window != nil } ?? []
+        let nativeBack = sessions.count == 1 && sessions.first === presenter.session && (navigation?.viewControllers.count ?? 0) > 1
         let stack = (navigation?.viewControllers ?? primaryHeld?.stackRoutes ?? []).compactMap { ($0 as? RouteController)?.key }
         let transition: [String: Any] = ["interactive": navigation?.transitionCoordinator?.isInteractive ?? false,
                                          "phase": changing || pendingSync || presenter.modals.inTransition ? "in-progress" : lastTransition]
         let root = container ?? presenter.root.subviews.first as? NodeView
-        return ["route": root?.props["navigationKey"] ?? NSNull(), "stack": stack, "transition": transition]
+        return ["route": root?.props["navigationKey"] ?? NSNull(), "stack": stack, "transition": transition,
+                "nativeBack": nativeBack]
     }
 
     /// Whether a route or a logical ancestor of it (`eventParent`) is
@@ -1217,6 +1339,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func reset(clearFocus: Bool = true) {
+        clearOwnerAllocation()
         syncAfterTransitionArmed = false
         unanimated = false
         presenter.modals.reset()

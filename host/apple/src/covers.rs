@@ -37,7 +37,13 @@ impl<D: DataSource> Host<D> {
         margins: &[(ViewId, Option<GroupedMargins>)],
         list_margins: &[(ViewId, Option<[f32; 2]>)],
     ) -> String {
-        self.height_targets_dirty = true;
+        let needs_layout = !(covers.is_empty()
+            && blocks.is_empty()
+            && margins.is_empty()
+            && list_margins.is_empty());
+        if needs_layout {
+            self.height_targets_dirty = true;
+        }
         let mut batch = crate::batch::Batch::new();
         let mut error = None;
         for (view, cover) in self.top_layer_claims(covers) {
@@ -64,10 +70,12 @@ impl<D: DataSource> Host<D> {
                 error.get_or_insert(format!("list margins: {e:?}"));
             }
         }
-        if let Err(e) = self.layout(&mut batch) {
-            error.get_or_insert(e);
+        if needs_layout {
+            if let Err(e) = self.layout(&mut batch) {
+                error.get_or_insert(e);
+            }
+            self.canvas_turn(&mut batch);
         }
-        self.canvas_turn(&mut batch);
         self.finish(batch, error)
     }
 }

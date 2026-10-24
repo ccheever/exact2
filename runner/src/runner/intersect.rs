@@ -21,7 +21,7 @@ pub(super) type Intersections = Vec<Intersection>;
 
 impl<D: DataSource> Runner<D> {
     /// Sample mounted handlers after layout or a reported scroll. Ratio-only
-    /// changes are silent. A new root or margin starts a new observation.
+    /// changes are silent. A new authored root or margin starts an observation.
     pub fn intersect_due(&mut self) -> Vec<Intersection> {
         if !self
             .plan
@@ -50,6 +50,11 @@ impl<D: DataSource> Runner<D> {
                 let key = arena.key_of(view)?;
                 let (root, margin, is_intersecting, intersection_ratio) =
                     crate::geometry::intersection(&self.kernel, &self.scrolled, view);
+                // Native viewport publication refines the implicit root without repeating its initial entry
+                let root = match root {
+                    Some(crate::geometry::IntersectionRoot::Element(key)) => Some(key),
+                    _ => None,
+                };
                 let changed = !self.intersections.iter().any(|old| {
                     old.key == key
                         && old.root == root
