@@ -1,0 +1,71 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/camera's names and view
+// over @exact/media-capture's video half, each answer shown by testId for the
+// suite. The viewfinder can be hidden by `display: none` and removed.
+use getUserMedia, applyConstraints, stopTrack, mediaStreamTrack, enumerateDevices, cameraStatus, MediaStream, MediaStreamTrack, MediaDeviceList, CameraStatus from "@exact/media-capture"
+use takePhoto, getPhotoCapabilities, Photo, PhotoCapabilities from "@exact/camera"
+
+component Fixture
+  state track = ""
+  state shown = true
+  state placed = true
+  resource status = cameraStatus() as shape CameraStatus else empty()
+  resource devices = enumerateDevices() as shape MediaDeviceList else empty()
+  resource live = mediaStreamTrack(track=track) as shape MediaStreamTrack else empty()
+  resource caps = getPhotoCapabilities(track=track) as shape PhotoCapabilities else empty()
+  mutation opened as shape MediaStream then arm
+  mutation shot as shape Photo
+  mutation changed as shape MediaStreamTrack
+  derive cameras = devices.devices.filter(d => d.kind == "videoinput").length
+  derive shotError = match failure(shot) { case some(f) => f.code, case none => "" }
+  derive openError = match failure(opened) { case some(f) => f.code, case none => "" }
+  action open
+    send opened = getUserMedia(video=true)
+  action arm
+    match opened
+      case some(s)
+        track = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+      case none
+        track = ""
+  action shutter
+    send shot = takePhoto(track=track)
+  action keep
+    send shot = takePhoto(track=track, path="app:/data/kept")
+  action front
+    send changed = applyConstraints(track=track, facingMode="user")
+  action stop
+    send changed = stopTrack(track=track)
+  action toggle
+    shown = not shown
+  action unplace
+    placed = not placed
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state}` testId="status"
+      text `${cameras}` testId="cameras"
+      text `${live.kind} ${live.readyState} ${live.muted} ${match live.muteReason { case some(r) => r, case none => "none" }} ${live.enabled}` testId="live"
+      text `${match live.settings.width { case some(w) => w, case none => 0 }}x${match live.settings.height { case some(h) => h, case none => 0 }}` testId="size"
+      text `${caps.imageWidth.max} ${caps.fillLightMode.join(",")}` testId="caps"
+      text (match live.settings.facingMode { case some(f) => f, case none => "none" }) testId="facing"
+      text openError testId="open-error"
+      match shot
+        case some(p)
+          text `${p.path} ${p.type} ${p.size > 0} ${p.width}x${p.height}` testId="shot"
+        case none
+          text "none" testId="shot"
+      text shotError testId="shot-error"
+      button press=open testId="open"
+        text "Open"
+      button press=shutter testId="shutter"
+        text "Shutter"
+      button press=keep testId="keep"
+        text "Keep"
+      button press=front testId="front"
+        text "Front"
+      button press=stop testId="stop"
+        text "Stop"
+      button press=toggle testId="toggle"
+        text "Toggle"
+      button press=unplace testId="unplace"
+        text "Unplace"
+      if placed
+        exact-camera srcObject=track testId="viewfinder" width=320 height=240 display=(shown ? "block" : "none")
