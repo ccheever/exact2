@@ -303,10 +303,7 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
-            h.runner_mut()
-                .take_presence_asks()
-                .iter()
-                .for_each(|a| presenter.presence(a));
+            presenter.presences(h.runner_mut().take_presence_asks());
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(&mut s);
         }
