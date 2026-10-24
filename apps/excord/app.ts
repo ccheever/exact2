@@ -92,8 +92,7 @@ function channelRecord(id: string): Channel {
     typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
 }
 const TEXT = new Set([0, 5]);
-const readable = (guild: string) => S.guildChannels(store, guild).flatMap(group => group.channels)
-  .filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c));
+const readable = (guild: string) => S.guildChannelList(store, guild).filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c));
 
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
   hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
