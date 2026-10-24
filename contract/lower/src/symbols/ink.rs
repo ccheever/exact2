@@ -37,11 +37,9 @@ pub(crate) fn symbol_ink(tag: &str, positional: &[Expr], rows: &[Attr], face: bo
         return names
             .into_iter()
             .map(|name| {
-                ink(
-                    name,
-                    rows.iter().rev().find(|a| a.name == name).expect("named"),
-                    false,
-                )
+                // (Its author's still: said as the tint was, `currentcolor` in its place.)
+                let said = rows.iter().rev().find(|a| a.name == name).expect("named");
+                ink(name, said, said.written)
             })
             .collect();
     }
