@@ -593,6 +593,19 @@ impl NodeArena {
                 .is_some_and(|p| self.node_types[p as usize] == NodeType::Text)
     }
 
+    /// A Markdown leaf's atom kinds and faces (LLP 1045.000 D2); empty for
+    /// any other node.
+    pub fn markup_atoms(&self, slot: u32) -> crate::text::MarkupAtoms<'_> {
+        let props = &self.props[slot as usize];
+        if self.markup(slot) != crate::text::Markup::Markdown {
+            return crate::text::MarkupAtoms::default();
+        }
+        crate::text::MarkupAtoms {
+            kinds: props.str(PropId::Atoms).unwrap_or(""),
+            faces: props.str(PropId::AtomFaces).unwrap_or(""),
+        }
+    }
+
     /// What the leaf's string is (LLP 1045 D3): its `markup` prop.
     pub fn markup(&self, slot: u32) -> crate::text::Markup {
         crate::text::Markup::from_prop(self.props[slot as usize].str(PropId::Markup))

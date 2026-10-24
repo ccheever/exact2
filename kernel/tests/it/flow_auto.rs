@@ -415,6 +415,7 @@ fn padded_leaves_are_measured_in_content_space_and_line_clamp_holds() {
         style: node.text_style(),
     }];
     let metrics = MonospaceMeasurer::default().measure(&TextMeasureRequest {
+        atoms: Default::default(),
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(node.style),
         width: AxisOffer::Definite(node.frame.width - 8.),

@@ -1236,9 +1236,6 @@ impl LayoutTree {
                             if runs.is_empty() {
                                 return Size::ZERO;
                             }
-                            // Direction and alignment inherit (a paragraph inside a
-                            // centred column centres, as in CSS); the rest are its own.
-                            let paragraph = arena.paragraph(slot);
                             // @ref LLP 1043.000 §8 — an admitted auto-height leaf is
                             // measured around its settled shapes, in content space as
                             // the painters flow it. Intrinsic probes stay unobstructed:
@@ -1251,13 +1248,7 @@ impl LayoutTree {
                                     .collect(),
                                 _ => Vec::new(),
                             };
-                            let request = TextMeasureRequest {
-                                exclusions: &shapes,
-                                runs: &runs,
-                                paragraph,
-                                width,
-                                height,
-                            };
+                            let request = fit::request(arena, slot, &runs, &shapes, width, height);
                             fields::text(arena, slot, measurer, stamp.as_ref(), &request)
                         };
                         if !metrics.is_valid() {

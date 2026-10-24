@@ -44,6 +44,7 @@ pub(super) fn measure(
             style: crate::TextStyle::from_style(&title),
         };
         let request = TextMeasureRequest {
+            atoms: Default::default(),
             runs: std::slice::from_ref(&run),
             paragraph: crate::text::Paragraph::from_style(&title),
             width,

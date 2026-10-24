@@ -33,16 +33,25 @@ enum MarkupRuns {
         return navigationURL(href)?.absoluteString
     }
 
+    /// The `href` an atom's run carries: the press it reports, never a
+    /// destination (`NodeView.activateLink` takes it, LLP 1045.000 D7).
+    static let atomScheme = "exact-atom:"
+
     /// Expand `source` into runs over `base` (the node's own run style).
     /// `color` is the node's ink; nil keeps the paragraph colour. `boldText`:
     /// Bold Text weights `base`, and a piece's own weight takes its step.
-    static func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool = false) -> [Run] {
+    /// An atom (LLP 1045.000 D6) is its label on a rounded inline box, a
+    /// narrow no-break space each side its padding, so a line breaks around
+    /// it and never inside its ends.
+    static func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool = false, atoms: MarkdownAtoms = MarkdownAtoms()) -> [Run] {
         var out: [Run] = []
         var text = source
+        let handle = AtomHandle.of(atoms), paint = AtomPaint.resolve(atoms)
+        var boxes: UInt32 = 0
         text.withUTF8 { bytes in
             var pieces: UnsafePointer<ExactMarkupPiece>? = nil
             var count = 0
-            let handle = exact_markup_pieces(bytes.baseAddress, bytes.count, &pieces, &count)
+            let handle = exact_markup_pieces(bytes.baseAddress, bytes.count, handle, &pieces, &count)
             defer { exact_markup_free(handle) }
             guard handle != 0, let pieces else { return }
             out.reserveCapacity(count)
@@ -68,6 +77,23 @@ enum MarkupRuns {
                 switch p.role {
                 case 3, 4: run.color = color.map { c in [c[0], c[1], c[2], (c.count > 3 ? c[3] : 255) * 0.62] }
                 default: run.color = color
+                }
+                if let atom = p.atom, p.atom_len > 0, let detail = try? JSONSerialization.jsonObject(with: Data(bytes: atom, count: p.atom_len)) as? [String: Any] {
+                    let kind = detail["kind"] as? String ?? ""
+                    // One line, as a pill is (D4): its spaces and hyphens do not break.
+                    let unbroken = run.text.replacingOccurrences(of: " ", with: "\u{00A0}").replacingOccurrences(of: "-", with: "\u{2011}")
+                    run.text = "\u{202F}" + unbroken + "\u{202F}"
+                    // Its press is the atom's, not a link's: never underlined as one.
+                    run.decoration = p.strike != 0 ? "line-through" : "none"
+                    run.background = paint[kind]?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
+                    if let ink = paint[kind]?.ink { run.color = ink }
+                    boxes += 1
+                    run.backgroundBox = 0xA700_0000 | boxes
+                    run.backgroundRadii = Array(repeating: InlineRadius(px: Double(run.size) * 0.3), count: 4)
+                    let press: [Any] = [kind, detail["source"] ?? "", detail["href"] ?? "", detail["start"] ?? 0, detail["end"] ?? 0, detail["role"] ?? "button", detail["title"] ?? ""]
+                    if let json = try? JSONSerialization.data(withJSONObject: press), let value = String(data: json, encoding: .utf8) {
+                        run.href = atomScheme + (value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
+                    }
                 }
                 out.append(run)
             }
