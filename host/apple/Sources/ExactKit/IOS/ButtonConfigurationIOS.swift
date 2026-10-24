@@ -17,19 +17,7 @@ enum ButtonConfigurationIOS {
         guard size != nil || weight != nil else { return incoming }
         let targetSize = size ?? incoming.pointSize
         let cssWeight = weight ?? TextEngine.controlWeight(incoming)
-        let platformWeight: UIFont.Weight
-        switch cssWeight {
-        case ..<200: platformWeight = .ultraLight
-        case 200..<300: platformWeight = .thin
-        case 300..<400: platformWeight = .light
-        case 400..<500: platformWeight = .regular
-        case 500..<600: platformWeight = .medium
-        case 600..<700: platformWeight = .semibold
-        case 700..<800: platformWeight = .bold
-        case 800..<900: platformWeight = .heavy
-        default: platformWeight = .black
-        }
-        return TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
+        return TextEngine.cssWeight(cssWeight, size: targetSize) { UIFont.systemFont(ofSize: targetSize, weight: TextEngine.namedWeight($0)) }
     }
     /// Whether a colour row is the platform's accent itself (`AccentColor`),
     /// which UIKit draws from the view's tint rather than as a colour of its

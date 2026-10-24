@@ -7,24 +7,12 @@ enum ButtonConfigurationMac {
     // Weak keys retain each pristine control's value only while our authored
     // override is active. An absent row on an untouched control writes nothing.
     private static let pristineSizes = NSMapTable<NSButton, NSNumber>.weakToStrongObjects()
-    static func weight(_ value: Int) -> NSFont.Weight {
-        switch value {
-        case ..<200: return .ultraLight
-        case 200..<300: return .thin
-        case 300..<400: return .light
-        case 400..<500: return .regular
-        case 500..<600: return .medium
-        case 600..<700: return .semibold
-        case 700..<800: return .bold
-        case 800..<900: return .heavy
-        default: return .black
-        }
-    }
+    static func weight(_ value: Int) -> NSFont.Weight { TextEngine.namedWeight(value) }
     static func font(_ incoming: NSFont, rows: NodeStyle) -> NSFont {
         guard rows["font_size"] != nil || rows["font_weight"] != nil else { return incoming }
         let size = rows["font_size"]?.number.map { CGFloat($0) } ?? incoming.pointSize
         let value = rows["font_weight"]?.number.map(Int.init) ?? TextEngine.controlWeight(incoming)
-        return TextEngine.cssWeight(NSFont.systemFont(ofSize: size, weight: weight(value)), weight: value, size: size)
+        return TextEngine.cssWeight(value, size: size) { NSFont.systemFont(ofSize: size, weight: weight($0)) }
     }
     static func color(_ value: BatchValue?, appearance: NSAppearance, accent: NSColor?) -> NSColor? {
         let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

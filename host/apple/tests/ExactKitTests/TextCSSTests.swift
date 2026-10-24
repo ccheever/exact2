@@ -311,6 +311,8 @@ final class TextCSSTests: XCTestCase {
         XCTAssertLessThan(width(700, 50), width(700, 100))
         XCTAssertLessThan(width(700, 100), width(700, 125))
         XCTAssertLessThan(width(300, 100), width(900, 100))
+        let one = engine.font(size: 48, weight: 650, family: 8, italic: false) as CTFont
+        XCTAssertNil(CTFontCopyAttribute(one, kCTFontCascadeListAttribute), "a one-family stack falls back to nothing of its own")
 
         let regular = RegisteredFace(family: "Flex", generic: nil, weight: 400, italic: false, descriptor: file)
         let ranged = RegisteredFace(family: "Flex", generic: nil, weights: 500...900, stretches: 100...100, italic: false, descriptor: file)
