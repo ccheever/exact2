@@ -279,7 +279,7 @@ fn run_image(
     to: &str,
     request: ImageRequest,
 ) -> Result<fs_image::ImageFile, String> {
-    let service = cfg!(target_vendor = "apple")
+    let service = exact_data::image::available()
         .then(|| ImageService::new(std::sync::Arc::new(ImageCodec), image_limits()))
         .transpose()
         .map_err(error)?;
