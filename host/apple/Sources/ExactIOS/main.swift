@@ -186,6 +186,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         session = exact.makeSession(delegate: adapter, label: "main")
         #if !os(tvOS)
         exact.installNotificationClicks()
+        exact.installBackgroundRefresh()
         #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true

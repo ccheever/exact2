@@ -63,6 +63,11 @@ pub struct Device {
     /// Whether the line names a purpose: false for a row no platform asks
     /// the person about, written `device.<name>` alone (LLP 1133.017 D14).
     pub purpose: bool,
+    /// iOS `UIBackgroundModes` entries the row needs (LLP 1069.008 D4).
+    pub ios_modes: &'static [&'static str],
+    /// The `BGTaskScheduler` identifiers the row permits, each after the
+    /// bundle id and a dot in `BGTaskSchedulerPermittedIdentifiers`.
+    pub ios_tasks: &'static [&'static str],
 }
 
 /// What a row has unless it says otherwise.
@@ -82,6 +87,8 @@ const ROW: Device = Device {
     keeps_no_answers: false,
     narrows: None,
     purpose: true,
+    ios_modes: &[],
+    ios_tasks: &[],
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -311,16 +318,22 @@ pub const DEVICES: &[Device] = &[
     },
     // Background work (LLP 1133.017 D14): nothing asks the person, so no
     // line names a purpose. The WICG specifications name the first two
-    // (the Permissions Registry lists none of the three); the platforms'
-    // modes and identifiers join with each host's stage.
+    // (the Permissions Registry lists none of the three). Both run in the
+    // one refresh task the host keeps (D8); the processing identifiers D14
+    // lists for `background-sync` join when a processing wake is built.
+    // tvOS's refresh is later (D17): its build writes neither.
     Device {
         name: "background-sync",
         purpose: false,
+        ios_modes: &["fetch"],
+        ios_tasks: &["refresh"],
         ..ROW
     },
     Device {
         name: "periodic-background-sync",
         purpose: false,
+        ios_modes: &["fetch"],
+        ios_tasks: &["refresh"],
         ..ROW
     },
     Device {

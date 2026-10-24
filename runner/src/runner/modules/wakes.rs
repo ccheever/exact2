@@ -22,6 +22,8 @@
 //!   expired it ([`Runner::expire_wake`]): its requests answer as a network
 //!   failure would, and its `then`s, held calls and queued sends are
 //!   dropped. Invocations not yet delivered end with nothing delivered.
+//!   An expired wake ends then, without waiting for storage to drain: the
+//!   platform's time is up.
 //! - **Timers** do not fire while a wake runs in a session with no view or
 //!   a hidden one ([`WakeHow::hidden`]), and its page reads hidden
 //!   (`exactPage().visibilityState`), as the platform's background is; a
@@ -30,10 +32,17 @@
 //!   open system UI or play sound, journaled `<name>: refused: during a wake`.
 //!   A module name declared `"origin": "app"` and a permission request are
 //!   refused by admission (`admit.rs`).
+//! - **Told by an implementation.** A bound implementation the platform ran
+//!   (a `BGTask` handed to it, a scheduler's block) raises a wake through its
+//!   module's `changed`, as it emits an event ([`TOLD`]); each id it names is
+//!   one wake, and at the wake's end the implementation is told
+//!   `{"extension", "woke": id, "outcome"}`, the outcome its invocation's
+//!   (`completed`, `expired`, `superseded`, `refused`), or `unheard` when no
+//!   handler hears the event.
 
 use super::super::{CommitReceipt, DataSource, Runner, RunnerError};
-use super::{CallOrigin, Json};
-use crate::request::{FailureKind, Outcome};
+use super::{CallOrigin, Json, Route};
+use crate::request::{FailureKind, Outcome, Reply};
 use serde_json::json;
 use std::collections::VecDeque;
 
@@ -53,6 +62,10 @@ const REFUSED: &[&str] = &[
     "showPicker",
     "showSaveFilePicker",
 ];
+
+/// The prefix of a `changed` topic that is a wake a bound implementation
+/// raises, `{"extension", "event", "args", "id"}` after it (module doc).
+pub(in crate::runner) const TOLD: &str = "exact-wake:";
 
 /// How the host raises a wake's event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -114,6 +127,8 @@ struct Wake {
     expired: bool,
     /// The wake hid a page that was shown.
     hid: bool,
+    /// The implementation that raised it and its id for it, told the end.
+    told: Option<(String, String)>,
 }
 
 #[derive(Default)]
@@ -181,6 +196,7 @@ impl<D: DataSource> Runner<D> {
                         invocations: Vec::new(),
                         expired: false,
                         hid: false,
+                        told: None,
                     });
                     w.waiting.back_mut().expect("pushed")
                 }
@@ -251,6 +267,7 @@ impl<D: DataSource> Runner<D> {
             let wake = w.current.as_ref().expect("set above");
             let running = (wake.invocations.iter()).position(|i| i.state == State::Running);
             let next = (wake.invocations.iter()).position(|i| i.state == State::Queued);
+            let expired = wake.expired;
             if let Some(i) = running {
                 if self.wake_owns() {
                     break;
@@ -266,7 +283,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
-            if self.background_operations() > 0 {
+            if self.background_operations() > 0 && !expired {
                 break;
             }
             match self.end_wake() {
@@ -371,8 +388,25 @@ impl<D: DataSource> Runner<D> {
         let described = self.describe_wake(&wake, Some(outcome));
         self.log(format!("wake: {outcome}"));
         let w = &mut self.extensions.wakes;
-        w.ended.push(described.clone());
+        if wake.told.is_none() {
+            w.ended.push(described.clone());
+        }
         w.last = Some(described);
+        if let Some((extension, id)) = &wake.told {
+            let state = |s: State| wake.invocations.iter().any(|i| i.state == s);
+            let told = if wake.invocations.is_empty() {
+                "unheard"
+            } else if wake.expired || state(State::Expired) {
+                "expired"
+            } else if state(State::Superseded) {
+                "superseded"
+            } else if state(State::Refused) {
+                "refused"
+            } else {
+                "completed"
+            };
+            self.tell_woke(extension, id, told);
+        }
         self.native_slot().changed("");
         if wake.hid {
             return self.wake_page(false);
@@ -426,7 +460,7 @@ impl<D: DataSource> Runner<D> {
         let moves = if running {
             !self.wake_owns()
         } else {
-            queued || self.background_operations() == 0
+            queued || wake.expired || self.background_operations() == 0
         };
         if moves {
             Some(self.now_ms)
@@ -516,6 +550,64 @@ impl<D: DataSource> Runner<D> {
             } else {
                 i += 1;
             }
+        }
+    }
+
+    /// A wake a bound implementation raised (module doc): its id, with the
+    /// extension's name, is the platform object; the page hidden or not as
+    /// it is now. One raised for an extension the substitute answers, or for
+    /// an event no wake raises, is refused, and the implementation told so.
+    pub(in crate::runner) fn raise_told_wake(&mut self, body: &str) {
+        let v: Json = serde_json::from_str(body).unwrap_or_default();
+        let (Some(extension), Some(event), Some(id)) = (
+            v["extension"].as_str(),
+            v["event"].as_str(),
+            v["id"].as_str(),
+        ) else {
+            self.log(format!("a wake raised is unreadable: {body}"));
+            return;
+        };
+        let bound = (self.plan.modules.iter())
+            .any(|m| self.plan.str(m.extension) == extension && self.route(m) != Route::Substitute);
+        if !bound {
+            self.log(format!(
+                "{extension}.{event}: a wake raised, but the substitute answers"
+            ));
+            return;
+        }
+        // FNV-1a of the extension and its id, the top bit set: never an id a
+        // host's own platform object takes (the agent's count from 1).
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in extension.bytes().chain([0]).chain(id.bytes()) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+        let how = WakeHow {
+            id: hash | 1 << 63,
+            cold: false,
+            hidden: self.page.hidden,
+        };
+        if let Err(e) = self.raise_wake(extension, event, &v["args"].to_string(), how) {
+            self.log(e);
+            self.tell_woke(extension, id, "refused");
+            return;
+        }
+        let w = &mut self.extensions.wakes;
+        let told = Some((extension.to_owned(), id.to_owned()));
+        if let Some(wake) = w
+            .current
+            .iter_mut()
+            .chain(w.waiting.iter_mut())
+            .find(|w| w.how.id == how.id)
+        {
+            wake.told = told;
+        }
+    }
+
+    /// Tell the implementation of `extension` that its wake `id` ended.
+    fn tell_woke(&self, extension: &str, id: &str, outcome: &str) {
+        if let Some(handler) = self.native_slot().handler() {
+            let body = json!({ "extension": extension, "woke": id, "outcome": outcome });
+            handler(body.to_string().into_bytes(), Reply::new(|_| {}));
         }
     }
 

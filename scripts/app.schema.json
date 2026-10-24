@@ -570,8 +570,8 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "pattern": "^(?!remote-notification$).*$",
-                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9)."
+                "pattern": "^(?!(remote-notification|fetch|processing)$).*$",
+                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9). fetch and processing come from the grant lines device.background-sync and device.periodic-background-sync (LLP 1133.017 D14)."
               }
             },
             "associatedDomains": {
