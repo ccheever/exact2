@@ -297,9 +297,10 @@ export async function filesystemLock(root, path, fn) {
 // HTTP reads share a resident process: per-read exec can stall in macOS
 // executable assessment. Idle pipes do not keep Bun alive; pending reads do.
 // Parent exit terminates its helper, including one still awaiting OS startup.
-let reader;
+let reader, closes = 0;
 /** Ends the resident reader now (it would otherwise live until this process exits). */
 export function closeFilesystemReader() {
+  closes++;
   reader?.close();
   reader = undefined;
 }
@@ -307,9 +308,11 @@ export function filesystemRead(input) {
   if (input.op !== 'get') return Promise.reject(new Error('read session only accepts get'));
   // A helper that exits with reads pending (killed, or crashed) answered none of them, and a caller would take the
   // failure for a missing file (serve.mjs's 404). A get changes nothing, so each is asked once more of a fresh
-  // helper; a second exit is the read's failure. A close (`closeFilesystemReader`) is not retried.
+  // helper; a second exit is the read's failure. A read a close (`closeFilesystemReader`) came after is not asked
+  // again, whichever was seen first, the close or the exit: nothing starts a helper after the close.
+  const at = closes;
   return (reader ??= createReader()).send(input).catch((error) => {
-    if (error.code !== READER_EXITED) throw error;
+    if (error.code !== READER_EXITED || closes !== at) throw error;
     return (reader ??= createReader()).send(input);
   });
 }
