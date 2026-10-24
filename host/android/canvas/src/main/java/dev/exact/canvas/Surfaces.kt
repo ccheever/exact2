@@ -116,7 +116,9 @@ internal class Pane(
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val tell = key ?: return super.onKeyDown(keyCode, event)
         val key = when (keyCode) {
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> Surfaces.ENTER
+            // A held Select or Enter chooses once (LLP 1115.001.003 D3).
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BUTTON_SELECT ->
+                if (event.repeatCount > 0) return true else Surfaces.ENTER
             KeyEvent.KEYCODE_TAB -> if (event.isShiftPressed) Surfaces.TAB_BACK else Surfaces.TAB
             KeyEvent.KEYCODE_DPAD_UP -> Surfaces.UP; KeyEvent.KEYCODE_DPAD_DOWN -> Surfaces.DOWN
             KeyEvent.KEYCODE_DPAD_LEFT -> Surfaces.LEFT; KeyEvent.KEYCODE_DPAD_RIGHT -> Surfaces.RIGHT

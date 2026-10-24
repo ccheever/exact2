@@ -5,6 +5,7 @@
 //! (`frameworks/base/core/java/android/view/FocusFinder.java`), and Select
 //! presses the focus, as tvOS's Select does (LLP 1008 §9).
 use super::*;
+use std::collections::BTreeSet;
 
 /// The way an arrow moves the focus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -210,59 +211,131 @@ impl<D: DataSource> Presenter<D> {
         self.activate_with(id, now_ms, false);
     }
 
-    /// A TV's Back with no route to go back from presses the shown button
-    /// that answers Escape (`aria-keyshortcuts="Escape"`), as tvOS's Menu
-    /// does (D3, LLP 1008 §9): whether there is one. The press itself is
-    /// the page shortcut's ([`Self::shortcut`]).
-    pub(super) fn remote_back_shows(&self) -> bool {
+    /// What a TV's Back with no route to go back from presses (D3, LLP 1008
+    /// §9's Menu): the first shown, enabled button that answers Escape
+    /// (`aria-keyshortcuts="Escape"`), in the frontmost `aria-modal` view
+    /// where one shows, as a page shortcut is found; a bar's target is
+    /// shown. A TV's remote has no Escape key, so its Back is one.
+    pub(super) fn remote_back_target(&self) -> Option<ViewId> {
         if !self.remote() {
-            return false;
+            return None;
         }
         let kernel = self.host.kernel();
-        self.host.preorder().into_iter().any(|id| {
+        let preorder = self.host.preorder();
+        let shown = |id: ViewId| {
+            self.host.route_visibility(id) == (false, false) && self.display.allows(kernel, id)
+        };
+        let modal = preorder.iter().rev().copied().find(|&id| {
+            kernel
+                .node(id)
+                .is_some_and(|n| n.props.bool(PropId::AccessibilityModal) == Some(true))
+                && shown(id)
+        });
+        preorder.into_iter().find(|&id| {
             kernel.node(id).is_some_and(|n| {
                 n.props
                     .str(PropId::AccessibilityKeyShortcuts)
                     .is_some_and(|chords| chords.split_whitespace().any(|c| c == "Escape"))
                     && n.props.bool(PropId::Disabled) != Some(true)
             }) && self.alert_allows(id)
-                && self.host.route_visibility(id) == (false, false)
-                && self.display.allows(kernel, id)
+                && modal.is_none_or(|m| id == m || self.is_inside(id, m))
+                && (shown(id) || self.bar_target(id).is_some())
         })
     }
 
+    /// A TV's Back with no route to go back from: the press of
+    /// [`Self::remote_back_target`], as Select presses it. Whether there
+    /// was one.
+    pub(super) fn remote_back(&mut self, now_ms: f64) -> bool {
+        let Some(id) = self.remote_back_target() else {
+            return false;
+        };
+        self.remote_select(id, now_ms);
+        true
+    }
+
+    /// A remote's arrow at a focus that a commit disabled: the page's keys
+    /// refuse it, and the arrow moves the focus off it all the same (D4).
+    /// Whether it did.
+    pub(super) fn remote_leaves_disabled(&mut self, id: ViewId, name: &str, now_ms: f64) -> bool {
+        let Some(d) = Direction::of(name).filter(|_| self.remote()) else {
+            return false;
+        };
+        let disabled = (self.host.kernel().node(id))
+            .is_none_or(|n| crate::surfaces::controls::disabled_control(&n));
+        if disabled {
+            self.move_focus_toward(d, now_ms);
+        }
+        disabled
+    }
+
+    /// The page's remote stops in Tab order, with their boxes: its Tab
+    /// stops, every enabled radio of a group among them, so the remote
+    /// reaches each option (Select checks one). A stop that holds another
+    /// is none: a column with a `key` handler is focusable, and the remote
+    /// reaches the controls in it instead, since none of them lies beyond
+    /// its edges in any direction.
+    fn page_stops(&mut self) -> Vec<(ViewId, Rect4)> {
+        let boxed = self.shown_boxes();
+        let mut rects = BTreeMap::new();
+        for b in &self.boxes {
+            rects.entry(b.id).or_insert(b.rect);
+        }
+        let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
+        for (at, id) in self.host.preorder().into_iter().enumerate() {
+            if self.focus_stop(id, &boxed) {
+                let index = (self.host.kernel().node(id))
+                    .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()))
+                    .filter(|&i| i > 0)
+                    .unwrap_or(i64::MAX);
+                order.push((index, at, id));
+            }
+        }
+        let stops: BTreeSet<ViewId> = order.iter().map(|o| o.2).collect();
+        let kernel = self.host.kernel();
+        let mut holders = BTreeSet::new();
+        for &id in &stops {
+            let mut at = kernel.node(id).and_then(|n| n.parent);
+            while let Some(p) = at {
+                if stops.contains(&p) {
+                    holders.insert(p);
+                }
+                at = kernel.node(p).and_then(|n| n.parent);
+            }
+        }
+        order.sort_unstable();
+        (order.into_iter())
+            .filter(|o| !holders.contains(&o.2))
+            .filter_map(|o| rects.get(&o.2).map(|r| (o.2, *r)))
+            .collect()
+    }
+
     /// The focus moves to the nearest stop in `d` (D4), and that stop is
-    /// scrolled into view; from no focus, to the first Tab stop. With none
-    /// in `d`, the focus stays. The stops are the page's Tab stops, every
-    /// enabled radio of a group among them, so the remote reaches each
-    /// option (Select checks one), and the targets of the shell's bars.
+    /// scrolled into view. The stops are the page's ([`Self::page_stops`])
+    /// and the targets of the shell's bars. From no focus, or from one that
+    /// holds stops (a column the app focused), it moves to the first stop in
+    /// Tab order there, else to the bars' first. With none in `d`, the focus
+    /// stays.
     pub(crate) fn move_focus_toward(&mut self, d: Direction, now_ms: f64) {
         let bars = self.bar_stops();
-        let from = self.focus.and_then(|f| {
+        let page = self.page_stops();
+        let focus = self.focus;
+        let from = focus.and_then(|f| {
             (self.box_of(f).map(|b| b.rect))
                 .or_else(|| bars.iter().find(|(id, _)| *id == f).map(|(_, r)| *r))
         });
-        let Some(from) = from else {
-            if let Some(e) = self.move_focus(false, now_ms) {
-                eprintln!("exact: {e}");
-            }
-            if let Some(id) = self.focus {
-                self.keep_in_view(id, reveal::Cause::FocusMove);
-            }
-            return;
+        let next = match (focus, from) {
+            (Some(f), Some(from)) => match page.iter().find(|(id, _)| self.is_inside(*id, f)) {
+                Some((inner, _)) => Some(*inner),
+                None => nearest(
+                    d,
+                    from,
+                    (page.iter().chain(&bars).copied()).filter(|(id, _)| *id != f),
+                ),
+            },
+            _ => page.first().or(bars.first()).map(|(id, _)| *id),
         };
-        let boxed = self.shown_boxes();
-        let page = (self.boxes.iter())
-            .filter(|b| Some(b.id) != self.focus && self.focus_stop(b.id, &boxed))
-            .map(|b| (b.id, b.rect));
-        let stops: Vec<(ViewId, Rect4)> = page
-            .chain(
-                bars.iter()
-                    .copied()
-                    .filter(|(id, _)| Some(*id) != self.focus),
-            )
-            .collect();
-        let Some(next) = nearest(d, from, stops) else {
+        let Some(next) = next else {
             return;
         };
         if let Some(e) = self.set_focus(Some(next), now_ms) {

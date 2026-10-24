@@ -568,6 +568,11 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
+        // A held Select chooses nothing in a surface it opened either
+        // (LLP 1115.001.003 D3).
+        if repeat && code == "Select" && self.surface_takes_keys() {
+            return;
+        }
         // An open surface of the top layer takes every key (`top.rs`).
         if self.surface_key(name, now_ms) {
             return;
@@ -617,6 +622,7 @@ impl<D: DataSource> Presenter<D> {
             .node(id)
             .is_none_or(|n| crate::surfaces::controls::disabled_control(&n))
         {
+            self.remote_leaves_disabled(id, name, now_ms);
             return;
         }
         // A grouped grip's keys move its row (LLP 1094 D9).

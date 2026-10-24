@@ -102,6 +102,11 @@ impl<D: DataSource> Presenter<D> {
             self.focus_out = self.host.runner().focus_bubble(id, None, false);
             return (false, None);
         }
+        // A TV remote's focus on a bar's target: its node is inert under the
+        // route the bar lifted it from, and keeps the focus (LLP 1115.001.003 D4).
+        if self.host.kernel().node(id).is_some() && self.remote() && self.bar_node(id) {
+            return (false, None);
+        }
         // Gone, or inert under its route (`arrive.rs` keeps which).
         self.release_focus();
         let mut error = None;
