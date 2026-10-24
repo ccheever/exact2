@@ -1559,6 +1559,8 @@ the existing platform default. `buttonStyle="glass"` on a bar button gives it a
 glass capsule of its own (`sharesBackground = false`), one for each button so styled. The wrappers remain ordinary layout on the web;
 this adds no spacing value or custom button face.
 
+UIKit gives empty/whitespace titles no height; U+200B with `color="transparent"` keeps large-title height.
+
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS. A
 menu or `dialog` written in the header is its opener's, as on the web, not bar buttons.
