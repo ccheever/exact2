@@ -383,7 +383,7 @@ export async function openTouches({ udid, appId, foldable }) {
 
 const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.session && a.generation === b.generation
   && ['w', 'h', 'x', 'y'].every((k) => a.screen[k] === b.screen[k]) && a.point[0] === b.point[0] && a.point[1] === b.point[1]
-  && String(a.viewport) === String(b.viewport);
+  && ['viewport', 'fixed', 'fixedAxes', 'display'].every(k => JSON.stringify(a[k]) === JSON.stringify(b[k]));
 
 /** SpringBoard reads and gestures over the session's existing runner (WP14). */
 export async function springboard(touches, request, alive) {
@@ -411,7 +411,7 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * A real tap on view `id` (LLP 1080.000 D4/D5/D8), or with `drag` one whole
  * real gesture from it (§11): the host aims (`at`, a viewport point, or the
  * target's middle), the aim is taken twice and must agree (orientation,
- * origin, size, point, session), the runner checks the app is in the
+ * origin, size, point, session and display mapping), the runner checks the app is in the
  * foreground and injects, and the window's dispatch log must show exactly
  * one new touch that began and ended (for a drag that moves, moved by the
  * asked delta) — else an error that says what the log saw. `drag` is

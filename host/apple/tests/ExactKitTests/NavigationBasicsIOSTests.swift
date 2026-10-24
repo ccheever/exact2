@@ -521,14 +521,18 @@ final class NavigationBasicsIOSTests: XCTestCase {
     /// a compact width's) does; iPadOS's floating bar, at the top in a
     /// regular width, insets nothing, so there the bar's own state is read.
     private func barInsets(_ tabs: UITabBarController) -> Bool { tabs.tabBar.window != nil }
-    /// Whether the tab bar shows on screen: the bar, or an iPad's floating
-    /// list of its items, in the window, unhidden, opaque enough, on screen.
     private func barShows(_ tabs: UITabBarController) -> Bool {
-        guard let bar: UIView = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList, let window = bar.window else { return false }
-        var at: UIView? = bar
-        while let v = at { if v.isHidden || v.alpha < 0.01 { return false }; at = v.superview }
-        let box = bar.convert(bar.bounds, to: window)
-        return box.height > 1 && box.intersects(window.bounds)
+        let bar: UIView? = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList
+        return NavigationHost.shownBar(bar) != nil
+    }
+
+    private func assertTabBar(_ session: ExactSession, visible: Bool, file: StaticString = #filePath, line: UInt = #line) throws {
+        let list = try node(session, "tabs")
+        let observed = try XCTUnwrap(Agent(session: session).layout(["id": Int(list.id)])["node"] as? [String: Any], file: file, line: line)
+        let native = try XCTUnwrap(observed["native"] as? [String: Any], file: file, line: line)
+        let bar = try XCTUnwrap(native["tabBar"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(bar["visible"] as? Bool, visible, file: file, line: line)
+        XCTAssertEqual(bar["frame"] != nil, visible, "only the visible bar supplies geometry", file: file, line: line)
     }
 
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
@@ -538,6 +542,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let insets = barInsets(tabs)
         if !insets { XCTAssertNotNil(tabs.floatingTabList, "no UITabBar in the window: an iPad's floating bar") }
         XCTAssertTrue(barShows(tabs), "the tab bar shows over Home")
+        try assertTabBar(session, visible: true)
         let shown = home.view.safeAreaInsets.bottom
         if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         try tapNode(session, "detail")
@@ -547,6 +552,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(detail.hidesBottomBarWhenPushed, "the tablist shows over Detail")
         if insets { XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5) }
         XCTAssertTrue(barShows(tabs), "and over Detail")
+        try assertTabBar(session, visible: true)
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
@@ -554,6 +560,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // (On an iPad the floating bar, which does not take
         // `hidesBottomBarWhenPushed`, is hidden by `setTabBarHidden`.)
         until("the tab bar left") { !barShows(tabs) && (!insets || chat.view.safeAreaInsets.bottom < shown - 20) }
+        try assertTabBar(session, visible: false)
         // Another tab, its root showing the tablist, and back to Chat (selected by the app, as a link would).
         tapTab(tabs, 1)
         until("Second shows the bar") { tabs.selectedIndex == 1 && barShows(tabs) }
@@ -562,6 +569,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
+        try assertTabBar(session, visible: true)
     }
 
     /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
@@ -589,11 +597,13 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let settled = { nav.transitionCoordinator == nil }
         // Hidden over the root: the bar goes.
         try tapNode(session, "toggle-choosing")
-        until("the bar left") { tabs.isTabBarHidden && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
+        until("the bar left") { tabs.isTabBarHidden && !barShows(tabs) && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
+        try assertTabBar(session, visible: false)
         XCTAssertFalse(home.hidesBottomBarWhenPushed, "the root is never pushed: no flag")
         // Shown again: it comes back.
         try tapNode(session, "toggle-choosing")
-        until("the bar came back") { !tabs.isTabBarHidden && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
+        until("the bar came back") { !tabs.isTabBarHidden && barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
+        try assertTabBar(session, visible: true)
         // A hatch's hide, with the tablist shown and unchanged, stands; and
         // the tablist hidden and shown again over it leaves it standing too:
         // Exact did not make that hide.
