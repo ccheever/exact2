@@ -93,8 +93,8 @@ word.
 
 ```ebnf
 file          = { declaration } ;
-declaration   = use | shape | function | style | decoration | keyframes | font | sound
-              | theme | routes | component | test ;
+declaration   = use | shape | function | style | decoration | atom | keyframes | font
+              | sound | theme | routes | component | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
@@ -105,6 +105,7 @@ typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
 decoration    = "decoration" IDENT ( style-line | block(style-line) ) ;
+atom          = "atom" IDENT style-line ;
 style-line    = { FIELD "=" style-literal } NL ;
 part          = "::" "placeholder" NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
@@ -1236,9 +1237,10 @@ The editor's `select` hands its action a `MarkdownSelection` when the selection
 or the source changes: `formats`, space-separated (the inline command names,
 `heading1` to `heading6`, `bullet`, `ordered`, `task`, `quote`, `codeblock`);
 `mixed`, true when the selection spans different formats or links; `link`, the
-common link target or `""`; and `unavailable`, the commands that cannot apply
-there, space-separated (most of them, inside a code block). It carries no
-offsets. A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
+common link target or `""`; `unavailable`, the commands that cannot apply
+there, space-separated (most of them, inside a code block); and `atom`, the
+selected atom's source when the selection is exactly one [atom](#inline-atoms-atom-atoms-atomfaces-atompress),
+else `""`. It carries no offsets. A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
 
@@ -1252,6 +1254,61 @@ macOS and iOS; each `setRangeText` is one undo step, as a `format` is, and
 both are refused while an input method composes. On the web, where hidden
 syntax is not drawn, a caret put inside it is drawn at its visible edge and
 reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
+
+### Inline atoms: `atom`, `atoms`, `atomFaces`, `atompress`
+
+An atom is a span of a Markdown source that the editor and the reader show as
+one pill: a label that is not its source, an optional icon, a tooltip
+([LLP 1045.000](../llp/1045.000-inline-atoms.rfc.md)). A caret cannot stand
+inside it, a selection takes it whole, Backspace at its end (Delete at its start)
+removes its whole source as one undo step, ⌥⌫ takes it with the spaces before
+the caret, and a press selects it and then is the node's `atompress`. The value
+stays the source; copy takes the source, ⌘⇧C the labels.
+
+```text
+atom citation link="t3-citation:"
+atom file link="relative"
+atom mention prefix="@"
+atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
+
+component Composer
+  state draft = ""
+  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs")]
+  action pressed(e: AtomEvent)
+    open = e.source
+  view
+    textarea value=draft input=edit markup="markdown" atoms="citation file mention skill" atomFaces=faces atompress=pressed
+    text draft markup="markdown" atoms="citation" atompress=pressed
+```
+
+- `atom <name>` takes one form: `link="scheme:"`, any `[text](dest)` or
+  `![text](dest)` whose destination has that scheme (compared without case);
+  `link="relative"`, such a link whose destination has no scheme, between white
+  space; or `prefix="@"`, one of the characters at the start of a word, then a
+  bare run or a `"…"` string, followed by white space. A relative link and a
+  prefix token are atoms only when a face names their source; a scheme link
+  always is. It may take `role="link"` (a button by default) and `color` and
+  `background-color`; the pill's other metrics are the platform's
+  (`lower-atom-style`). It is scoped and imported as `style` is.
+- `atoms="a b"` on a `text` or `textarea` with `markup="markdown"` lists the
+  kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
+  one scheme, a shared prefix character, or both relative are refused
+  (`lower-atom-duplicate`).
+- `atomFaces` takes `AtomFace(source, label, icon, title)` records, keyed by an
+  atom's whole source: equal source is one atom, and new text is a new key. An
+  empty label is a link's text or a token without its prefix and quotes; the
+  icon is an image source (the web draws a URL or asset, not yet a `symbol:`).
+- `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
+  `href` (a link's destination as written), `start`, `end` (UTF-16) and the
+  modifiers. It never navigates. In the reader an atom is a tab stop that
+  Return or Space presses; in the editor it is not. `rangeFrame` over its range
+  is its pill, where a popover anchors.
+
+The web draws atoms in the editor and the reader; macOS and iOS are stage 2 of
+LLP 1045.000. Linux, Windows and Android show the source in the editor and the
+link text in the reader, with no `atompress`. The driver's `state atoms` lists
+each one: its node, kind, source, range, label and frame from the node's top
+left, where `tap <node> at <x> <y>` presses it.
 
 ### Keep-awake: `wakelock`
 

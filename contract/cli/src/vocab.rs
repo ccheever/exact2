@@ -192,7 +192,7 @@ struct Event {
 const CONTROL_RECORDS: &[(&str, &str, &str)] = &[
     ("InputEvent", "select", "`select=act` on a text field calls `action act(event: InputEvent)`"),
     ("InputEvent", "selectionchange", "`selectionchange=act` on a text field or textarea hands its action the `InputEvent` as an optional last parameter"),
-    ("MarkdownSelection", "select", "`select=act` on the Markdown editor calls `action act(selection: MarkdownSelection)`"),
+    ("MarkdownSelection", "select", "`select=act` on the Markdown editor calls `action act(selection: MarkdownSelection)`; its `atom` is the selected atom's source"),
 ];
 
 fn event(name: &str) -> Option<Event> {
@@ -827,6 +827,12 @@ fn kind(a: &AttrTarget) -> &'static str {
 }
 
 fn prop_type(p: PropId) -> String {
+    if p == PropId::Atoms {
+        return "a literal list of `atom` names: `atoms=\"citation mention\"`".into();
+    }
+    if p == PropId::AtomFaces {
+        return "AtomFace[]: AtomFace(source, label, icon, title), keyed by each atom's whole source text".into();
+    }
     if p == PropId::Decorations {
         return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();
     }
@@ -868,6 +874,9 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
+    if name == "atoms" || name == "atomFaces" {
+        return Some("a `text` or `textarea` with `markup=\"markdown\"`: `atoms` lists the `atom` kinds it recognizes, `atomFaces` the app's `AtomFace(source, label, icon, title)` records by each atom's source; web, macOS and iOS draw pills, Linux, Windows and Android the source (LLP 1045.000)");
+    }
     if name == "decorations" {
         return Some("plain `textarea`: paint only, each span's name a `decoration` declaration (color, background-color, text-decoration, text-shadow); the web paints it where `createValueRange` exists, Apple, Linux and Windows all but its text-shadow, Android and the terminal not yet (LLP 1114.007)");
     }
