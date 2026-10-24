@@ -53,10 +53,12 @@ try {
       check(host, 'key cursors: the pages follow on, the last with no cursor', at(1).page === all.slice(0, 4).join(',') && at(13).page === all.slice(4, 8).join(',') && at(16).page === all.slice(8, 12).join(',') && at(16).next === '',
         [at(1).page, at(13).page, at(16).page, at(16).next].join(' | '));
     }
-    // Asked: each read under prompt holds a permission ticket (the two
-    // readers' are @4 and @5); allowing one grants, and the other read answers too.
+    // Asked: each read under prompt holds a permission ticket; allowing the
+    // first grants, and the other reads answer too. Its number is the host's,
+    // so a first launch reads it.
     {
-      const r = drive(fixture, host, flags('prompt'), ['clock settle', 'state pending', 'tap @4 allow', 'clock settle', 'tree', 'state pending']);
+      const first = ticket(drive(fixture, host, flags('prompt'), ['clock settle', 'state pending'])[1], 'permission')?.ticket;
+      const r = drive(fixture, host, flags('prompt'), ['clock settle', 'state pending', `tap @${first} allow`, 'clock settle', 'tree', 'state pending']);
       const asked = ticket(r[1], 'permission');
       check(host, 'a read under prompt asks', asked?.device?.args?.capability === 'contacts', JSON.stringify(r[1]));
       check(host, 'allowed, both reads answer', texts(r[4]).walk === walked(expected('')) && texts(r[4]).page === expected('').slice(0, 4).join(',') && texts(r[4]).status === 'true granted full' && !ticket(r[5], 'permission'), `${texts(r[4]).walk} ${texts(r[4]).page} ${JSON.stringify(r[5])}`);
