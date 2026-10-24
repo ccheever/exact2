@@ -26,7 +26,9 @@ pub struct Device {
     /// iOS `Info.plist` keys set to true.
     pub ios_flags: &'static [&'static str],
     /// Android's runtime permissions (`<uses-permission>`), asked in one
-    /// request (LLP 1133.002 D6).
+    /// request (LLP 1133.002 D6). One the platform retired at an API level
+    /// is written `<name> maxSdkVersion=<level>`, which the manifest
+    /// declares as `android:maxSdkVersion` (LLP 1133.019 D4).
     pub android: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
@@ -164,12 +166,24 @@ pub const DEVICES: &[Device] = &[
     // Reading the library, `@exact/photos` (LLP 1133.019 D4): a deviation,
     // the web has no library. iOS never shows its automatic limited-access
     // alert, which a tool's or a wake's read would otherwise raise (D6). An
-    // app reading it keeps no answers (D6, ruling 6). Android's column is
-    // stage 3's.
+    // app reading it keeps no answers (D6, ruling 6). Android's read is a
+    // permission per API range: `READ_EXTERNAL_STORAGE` to 32,
+    // `READ_MEDIA_IMAGES` from 33, `READ_MEDIA_VISUAL_USER_SELECTED` (a
+    // partial grant) from 34; and `ACCESS_MEDIA_LOCATION`, without which
+    // another app's photo reads with its location redacted (D4). A level
+    // ignores a permission it does not define, so only a range's end is
+    // written; the implementation asks those its level has. Adding needs no
+    // permission from API 29, the host's oldest.
     Device {
         name: "photos",
         ios: &["NSPhotoLibraryUsageDescription"],
         ios_flags: &["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"],
+        android: &[
+            "android.permission.READ_EXTERNAL_STORAGE maxSdkVersion=32",
+            "android.permission.READ_MEDIA_IMAGES",
+            "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            "android.permission.ACCESS_MEDIA_LOCATION",
+        ],
         macos: &["NSPhotoLibraryUsageDescription"],
         hardened: Some("com.apple.security.personal-information.photos-library"),
         web: None,

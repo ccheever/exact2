@@ -701,6 +701,21 @@ mod tests {
             mac["entitlements"],
             json!(["com.apple.security.personal-information.photos-library"])
         );
+        // Android: adding asks nothing; reading is a permission per API range,
+        // the one that ends at 32 with its end.
+        assert_eq!(
+            derive_for("device.photos-add save", "linux")["android"],
+            json!([])
+        );
+        assert_eq!(
+            derive_for("device.photos-add save\ndevice.photos recents", "linux")["android"],
+            json!([
+                "android.permission.ACCESS_MEDIA_LOCATION",
+                "android.permission.READ_EXTERNAL_STORAGE maxSdkVersion=32",
+                "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            ])
+        );
     }
 
     #[test]
