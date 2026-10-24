@@ -1867,8 +1867,14 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 `.exact/backend-origin` overrides it, and refuses a missing entry, listing the
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
-same grants. Authored source stays unchanged; keyed grants are never moved to
-another origin.
+same grants. Authored source stays unchanged. Keyed grants move to another
+origin in one case: in a development build (`EXACT_UPDATE_TRUST` unset or
+`development`), an origin at a private-network address (RFC 1918 or link-local
+IPv4, `fc00::/7` or `fe80::/10` IPv6) with no entry takes the entry of the same
+server at loopback (`127.0.0.1`, `localhost` or `[::1]` with the same scheme and
+port), its `net.fetch` and `net.websocket` lines moved to that address with their
+paths. This is how a phone reaches a fixture server on the Mac's LAN address. A
+production build refuses it, as it refuses any missing entry.
 
 The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
