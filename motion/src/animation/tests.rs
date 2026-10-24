@@ -182,3 +182,36 @@ fn the_benchmark_draw_in_and_pulse() {
     );
     close(at(&pulse, 1.8, Property::R), 3.0);
 }
+
+#[test]
+fn font_rows_parse_and_write_back_as_css() {
+    let k = Keyframes::parse(
+        "from{font-weight:bold;font-stretch:condensed;font-variation-settings:'wght' 300, \"GRAD\" 0}\
+         to{font-weight:900;font-stretch:125%;font-variation-settings:'GRAD' 100,'wght' 800}",
+    )
+    .unwrap();
+    assert_eq!(
+        k.css(),
+        "0%{font-weight:700;font-stretch:75%;font-variation-settings:\"wght\" 300,\"GRAD\" 0;}\
+         100%{font-weight:900;font-stretch:125%;font-variation-settings:\"GRAD\" 100,\"wght\" 800;}"
+    );
+    assert_eq!(Keyframes::parse(&k.css()).unwrap(), k);
+    let wght = u32::from_be_bytes(*b"wght");
+    let axes: Vec<(u32, f64)> = (k.0[1].values.iter())
+        .filter(|(p, _)| *p == Property::FontVariationSettings)
+        .map(|(_, v)| (v.axis_tag(), v.x))
+        .collect();
+    assert_eq!(axes[1], (wght, 800.0));
+}
+
+#[test]
+fn keyframes_that_name_different_axes_are_refused() {
+    for bad in [
+        "from{font-variation-settings:'wght' 300}to{font-variation-settings:'wdth' 80}",
+        "to{font-variation-settings:normal}",
+        "to{font-weight:bolder}",
+        "to{font-weight:1001}",
+    ] {
+        assert!(Keyframes::parse(bad).is_err(), "{bad}");
+    }
+}

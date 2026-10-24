@@ -1209,6 +1209,9 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   the runner laying the text out again each frame (LLP 1019 §13 D10). Unblocks
   variable type that moves, as the browser and Expo SDK 58 draw it. Every other
   layout property stays out.
+  **Expanded (Charlie, 2026-10-24, "fix all those things", of a list naming
+  them):** `transition` on `font-variation-settings`, and `@keyframes` on all
+  three font rows, played the same way.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`
