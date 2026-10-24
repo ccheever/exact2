@@ -95,6 +95,21 @@ simulator. On a phone it is measured by hand, since a phone's
 
 ## Android
 
-No Android implementation is built (§14, stage 3). An Android build of an
-app that uses `@exact/background` gets the declared substitute: no wake
-fires on a phone.
+Build and install the fixture or Harmony on an emulator or phone with
+`bun scripts/agent-android.mjs build <app> --apk` (`test/android.mjs` shows
+the environment), then:
+
+1. **A sync with the network back.** Turn on Airplane Mode, write a
+   message in Harmony: it shows pending. Turn Airplane Mode off with the
+   app in front: the message is delivered within seconds.
+2. **The work after the app leaves.** As 1, but leave the app (Home)
+   before turning Airplane Mode off. Within a minute or so of the network's
+   return, WorkManager runs the tag's work (`adb shell dumpsys
+   jobscheduler | grep SystemJobService` lists it before; logcat's `exact`
+   tag says `background: WorkManager ran sync outbox:…`) and the message is
+   delivered, while the activity lives.
+3. **With the process gone.** As 2, but swipe the app away first. Record
+   that the message is not delivered until the next launch (no headless
+   session, §14 stage 3).
+4. **Restricted.** In Settings > Apps > Harmony > Battery, choose
+   Restricted. Open Harmony: Notify Me of Mentions is hidden (`denied`).

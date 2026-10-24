@@ -479,12 +479,14 @@ Kotlin under `sources.kotlin`) is compiled into the APK when the app binds it (L
 `exact.app.ExactExtensions`, and the permissions the app's grant lines derive (the bake's `reach.android`, from
 `runner/src/device.rs`) to the release manifest (`-Ppermissions`). The class subclasses `ExactExtension`
 (`Extensions.kt`): `later(name, args, reply)` for each source read and send (`later(name, args, preferred, reply)`
-under the agent), `release(name)` when a live source's last reader goes and `release(name, args)` when one argument
+under the agent; a list is answered as `{"exact:answer": [...]}`, since a reply is an object), `release(name)` when a live source's last reader goes and `release(name, args)` when one argument
 group's does, `dispose(ids)` for the handles of a reply the runner dropped, `foreground(shown)` when the app goes to
 the foreground or leaves it, `preferred(values)` for the agent's values, and `resumed()` when the activity is in front
 again, which is where it reads again what the person changed in Settings, since Android sends no event for it. Its
 `ExtensionContext` gives the application, the activity in front, `agent`, `now()` (the session's clock, the agent's
-under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, and
+under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, `wake(event, args, id,
+ended)`, which raises one of the interface's wake events and hears its outcome (LLP 1133.017 D8; `woke(id, outcome)`
+too), and
 `requestPermissions(permissions, done)`: one platform request, answered by `onRequestPermissionsResult`, or by the
 next resume when a recreated activity lost the result (LLP 1133.002 D9). The activity binds the roster's names as it
 is made (`Native.bindExtensions`). Outside the agent the host binds them as in production; under it, those a drive
