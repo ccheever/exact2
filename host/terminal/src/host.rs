@@ -445,8 +445,11 @@ impl<D: DataSource> Host<D> {
         self.layers
             .retain(|(id, ..)| self.runner.kernel().node(*id).is_some());
         self.sync_top_layer();
-        // A popover narrows Tab traversal, but page focus remains eligible.
-        if self.focus.is_some_and(|f| !self.input_eligible(f)) {
+        // Tab traversal stays in the top layer; focus follows modal eligibility.
+        if self
+            .focus
+            .is_some_and(|f| !self.is_control(f) || !self.input_eligible(f))
+        {
             self.focus = None;
         }
         // An `autofocus` control takes the focus once, as it arrives with
@@ -708,6 +711,15 @@ impl<D: DataSource> Host<D> {
         None
     }
 
+    fn is_control(&self, id: ViewId) -> bool {
+        self.kernel().node(id).is_some_and(|n| {
+            matches!(
+                n.node_type,
+                NodeType::Pressable | NodeType::TextInput | NodeType::Control
+            )
+        })
+    }
+
     /// Presented cells identify a target, but its live ancestry can refuse it.
     pub(crate) fn input_eligible(&self, id: ViewId) -> bool {
         let kernel = self.kernel();
@@ -719,12 +731,8 @@ impl<D: DataSource> Host<D> {
         {
             return false;
         }
-        let top = self
-            .layers
-            .last()
-            .filter(|(.., modal)| *modal)
-            .map(|(id, ..)| *id);
-        let mut in_top = top.is_none();
+        let modal = self.layers.iter().rposition(|(.., modal)| *modal);
+        let mut in_modal = modal.is_none();
         let mut in_open_layer = false;
         let mut at = Some(id);
         while let Some(id) = at {
@@ -743,10 +751,13 @@ impl<D: DataSource> Host<D> {
                 }
                 in_open_layer = true;
             }
-            in_top |= top == Some(id);
+            // Layers opened above the modal remain interactive even when
+            // their authored parent is outside it.
+            in_modal |= modal
+                .is_some_and(|start| self.layers[start..].iter().any(|(layer, ..)| *layer == id));
             at = node.parent;
         }
-        in_top
+        in_modal
     }
 
     pub(crate) fn is_field(&self, id: ViewId) -> bool {

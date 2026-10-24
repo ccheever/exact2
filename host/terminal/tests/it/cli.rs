@@ -1178,3 +1178,63 @@ fn type_distinguishes_offscreen_fields_from_ineligible_fields() {
         "{err}"
     );
 }
+
+#[test]
+fn modal_with_popover_refuses_background_tap_type_and_focus_command() {
+    let path = entry("modal-popover-input");
+    std::fs::write(
+        &path,
+        r#"component App
+  state draft = ""
+  state presses = 0
+  state focuses = 0
+  action edit(value)
+    draft = value
+  action press
+    presses = presses + 1
+  action focused
+    focuses = focuses + 1
+  action escape
+    focus("page-field")
+  view
+    column
+      input id="page-field" testId="page-field" value=draft input=edit focus=focused
+      button "Page" testId="page-button" press=press
+      button "Open" testId="open" commandfor="modal" command="show-modal"
+      dialog id="modal" width="30ch" height="5lh"
+        button "Popover" testId="open-popover" popovertarget="popover"
+      column id="popover" popover="manual" width="30ch" height="5lh"
+        button "Escape" testId="escape" press=escape
+        text `page:${presses} text:${draft} focus:${focuses}`
+"#,
+    )
+    .unwrap();
+    let mut failures = Vec::new();
+    for (name, ops) in [
+        ("tap", vec!["tap", "page-button", "print"]),
+        ("focus", vec!["tap", "escape", "key", "x", "print"]),
+        ("type", vec!["type", "page-field", "leak"]),
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+            .arg(&path)
+            .args(["--size", "60x20", "tap", "open", "tap", "open-popover"])
+            .args(ops)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let refused = match name {
+            "tap" => {
+                !out.status.success() && stderr.contains("tap: #page-button is not on the screen")
+            }
+            "type" => {
+                !out.status.success() && stderr.contains("type: #page-field is not on the screen")
+            }
+            _ => out.status.success() && stdout.contains("page:0 text: focus:0"),
+        };
+        if !refused {
+            failures.push(format!("{name}: {stdout}\n{stderr}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
