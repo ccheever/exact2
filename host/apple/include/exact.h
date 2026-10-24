@@ -490,7 +490,7 @@ uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
  * 49 = close (dialog); 50 = toggle: UTF-8 oldState,newState (open or closed).
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
- *      true|false for repeat;
+ *      true|false for repeat, and optionally newline, true|false for isComposing;
  * 46 = focusin, 47 = focusout (#283): UTF-8 `<target byte length>:<target id>`
  *      then `0` (no relatedTarget) or `1<related id>`;
  * any other kind is refused with an error batch.
