@@ -41,6 +41,7 @@ export async function serveToolFiles(req, res, url, toolDir = TOOL_DIST, headers
     // The build's own rules for its files (host/web/serve.mjs `buildTreeFile`: no dot segment, no link out).
     const found = await generationFile(toolDir, under.id, under.path);
     if (found === 'gone') { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); return res.end('this design tool build is no longer kept here: load the tool again\n'); }
+    if (found === 'busy') { res.writeHead(503, { 'cache-control': 'no-store', 'retry-after': '1' }); return res.end(); }
     if (!found || found.route.endsWith('.html')) return notFound(res);
     const type = TOOL_TYPES[found.route.slice(found.route.lastIndexOf('.'))] ?? 'application/octet-stream';
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
