@@ -54,6 +54,7 @@ impl Lowerer<'_> {
         // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
         let button_context = grouped::button_context(attrs);
         let separated = grouped::row_separator(attrs);
+        let acting = grouped::actions::said(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
         let attrs = unmarked.as_ref().unwrap_or(attrs);
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
@@ -105,7 +106,15 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
-        let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
+        let face = self.button_context == Some("a native button");
+        let inked = crate::symbols::symbol_ink(
+            tag,
+            positional,
+            &expanded[sheet.len()..],
+            face,
+            !self.fns.contains_key("startsWith")
+                && !contract_types::records::is_record_call("startsWith", &self.types.shapes),
+        );
         crate::popover_surface::check_authored(expanded)?;
         let surfaced = crate::popover_surface::implied(expanded, *span);
         let added: Vec<Attr> = inked
@@ -119,6 +128,7 @@ impl Lowerer<'_> {
         };
         let expanded = &*expanded;
         decorations::check_field(tag, expanded)?;
+        atoms::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
@@ -236,6 +246,7 @@ impl Lowerer<'_> {
         });
         let expanded = row_list.as_deref().unwrap_or(expanded);
         media::check_session(tag, expanded)?;
+        crate::frames::check(tag, positional, expanded)?;
         let audio = media::audio_rows(tag, expanded, *span)?;
         let expanded = audio.as_deref().unwrap_or(expanded);
         // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -283,8 +294,10 @@ impl Lowerer<'_> {
         let sheet_page = self.nav_place.sheet_page(expanded, *span);
         let expanded = sheet_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
-        // @ref LLP 1038 D8 — only the first root selects navigation.
-        if has(&["navigate"])
+        // @ref LLP 1038 D8 — only the first root selects navigation; an
+        // iframe's `navigate` is its guest's (LLP 1020.002 D2).
+        if tag != "iframe"
+            && has(&["navigate"])
             && (parent_tag.is_some()
                 || arm.is_some()
                 || order != 0
@@ -369,6 +382,10 @@ impl Lowerer<'_> {
         if cells {
             let rows = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
+        }
+        if let Some(acting) = acting {
+            let said = self.b.constant(&Value::Bool(acting));
+            bindings.push(prop_row(exact_kernel::PropId::GroupedAction, said, IMPLIED));
         }
         if separated {
             let on = self.b.constant(&Value::Bool(true));

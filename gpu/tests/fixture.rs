@@ -122,7 +122,7 @@ fn texture(gpu: &Gpu, format: wgpu::TextureFormat, layers: u32) -> wgpu::Texture
 }
 
 #[test]
-fn a_frame_reads_back_unpadded_and_as_a_ppm() {
+fn rgba_readback_preserves_row_layout_channel_order_and_ppm() {
     let Some(gpu) = device() else { return };
     let mut fill = Fill([0.2, 0.4, 0.6, 1.0]);
     // Three wide: a 12-byte row the copy pads to 256.
@@ -145,25 +145,9 @@ fn a_frame_reads_back_unpadded_and_as_a_ppm() {
     let ppm = px.ppm();
     assert_eq!(&ppm[..11], b"P6\n3 2\n255\n");
     assert_eq!(ppm.len(), 11 + 18);
-}
 
-#[test]
-fn a_bgra_texture_comes_back_rgba() {
-    let Some(gpu) = device() else { return };
-    let mut fill = Fill([0.2, 0.4, 0.6, 1.0]);
     let bgra = texture(&gpu, wgpu::TextureFormat::Bgra8Unorm, 1);
     let view = bgra.create_view(&Default::default());
-    let frame = Frame {
-        width: 3.0,
-        height: 2.0,
-        scale: 1.0,
-        now_ms: 0.0,
-        children_generation: 0,
-        seekable: false,
-        period_ms: 0.0,
-        shader_generation: exact_gpu::shaders::shader_generation(),
-        headroom: 1.0,
-    };
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     fill.render(
         &frame,

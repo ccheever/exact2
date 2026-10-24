@@ -9,19 +9,21 @@ impl<D: DataSource> Bridge<D> {
     /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
     /// with f32 width, height and, for each, 0 for a size, 1 for a maximum,
     /// or 2 for a content-fit limit that an authored size may exceed;
-    /// kind 5 takes a block back. Kind 6 says where a block is shown in
-    /// place (LLP 1123 D2): f32 x, y, width, height in the local
-    /// coordinates of a u32 view after them, which makes its record 28
-    /// bytes; kind 7 forgets it. Kind 8 is the margins UIKit's own list gives
-    /// a grouped list's cards and cells: f32 the card's left and right
+    /// kind 5 takes a block back. Kinds 6 and 13 place a block (LLP 1123 D2):
+    /// f32 x, y, width, height, then the u32 containing view and f32 content
+    /// offsets x and y (36 bytes). Kind 6 is a fixed allocation and ignores
+    /// the offsets; kind 13 is a scrollport, including at offset zero.
+    /// Kind 7 forgets either placement. Kind 8 reports UIKit's grouped-list
+    /// card and cell margins: f32 the card's left and right
     /// insets, then the cell's left and right margins; kind 9 clears them.
+    /// Kind 12 reports scrollbar gutters in the right and bottom fields.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let mut records = Vec::new();
         let mut rest = bytes;
         while rest.len() >= 8 {
-            let size = if rest[4..8] == 6u32.to_le_bytes() {
-                28
+            let size = if rest[4..8] == 6u32.to_le_bytes() || rest[4..8] == 13u32.to_le_bytes() {
+                36
             } else {
                 24
             };
@@ -56,9 +58,20 @@ impl<D: DataSource> Bridge<D> {
                             placements.push((view, None));
                         }
                     }
-                    6 => {
+                    6 | 13 => {
                         let rect = [8, 12, 16, 20].map(|i| f64::from(edge(i)));
-                        placements.push((view, Some((rect, u32::from_le_bytes(word(24))))));
+                        let offset = [f64::from(edge(28)), f64::from(edge(32))];
+                        if !offset.iter().all(|value| value.is_finite()) {
+                            continue;
+                        }
+                        placements.push((
+                            view,
+                            Some((
+                                rect,
+                                u32::from_le_bytes(word(24)),
+                                (kind == 13).then_some(offset),
+                            )),
+                        ));
                     }
                     7 => placements.push((view, None)),
                     8 => margins.push((
@@ -76,6 +89,10 @@ impl<D: DataSource> Bridge<D> {
                         covers.push((view, Some(exact_kernel::HostCover::Edges(edges))));
                     }
                     2 => covers.push((view, Some(exact_kernel::HostCover::Whole))),
+                    12 => covers.push((
+                        view,
+                        Some(exact_kernel::HostCover::Gutter([edge(12), edge(16)])),
+                    )),
                     3 => {
                         let inset = exact_kernel::HostCover::Inset([edge(8), edge(16)]);
                         covers.push((view, Some(inset)));

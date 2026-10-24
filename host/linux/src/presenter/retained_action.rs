@@ -9,13 +9,13 @@ use exact_runner::runner::ActionBinding;
 use std::rc::{Rc, Weak};
 
 pub(super) struct Target {
+    hit: NodeKey,
     pub(super) key: NodeKey,
     pub(super) kind: EventKind,
     binding: Weak<ActionBinding>,
     picture: Weak<()>,
 }
 pub(super) struct RetainedContact {
-    hit: NodeKey,
     pub(super) press: Option<Target>,
     pub(super) swipe: Option<Target>,
 }
@@ -59,7 +59,8 @@ impl MotionPermit {
 }
 impl Target {
     fn matches(&self, other: &Self) -> bool {
-        self.key == other.key
+        self.hit == other.hit
+            && self.key == other.key
             && self.kind == other.kind
             && Weak::ptr_eq(&self.picture, &other.picture)
             && Weak::ptr_eq(&self.binding, &other.binding)
@@ -121,6 +122,7 @@ impl<D: DataSource> Presenter<D> {
                             .validate_action_binding(binding, kind)
                             .map_err(|_| ())?;
                         selected = Some(Target {
+                            hit,
                             key,
                             kind,
                             binding: Rc::downgrade(binding),
@@ -162,7 +164,7 @@ impl<D: DataSource> Presenter<D> {
             .retained_route(hit, EventKind::Swiperight)
             .ok()
             .flatten();
-        (press.is_some() || swipe.is_some()).then_some(RetainedContact { hit, press, swipe })
+        (press.is_some() || swipe.is_some()).then_some(RetainedContact { press, swipe })
     }
     pub(super) fn retained_swipe_candidate(&self, hit: NodeKey) -> Option<NodeKey> {
         self.retained_route(hit, EventKind::Swiperight)
@@ -178,7 +180,7 @@ impl<D: DataSource> Presenter<D> {
                 // A's stale text descendant may cease to be a hit in a later
                 // A repaint. Keep its captured chain/barriers, but require the
                 // selected action node and ancestors in the actual ACK witness.
-                self.retained_captured_route(contact.hit, old.kind)
+                self.retained_captured_route(old.hit, old.kind)
                     .ok()
                     .flatten()
                     .is_some_and(|t| old.matches(&t))
@@ -254,7 +256,7 @@ impl<D: DataSource> Presenter<D> {
     }
     fn retained_binding(&self, target: &Target) -> Option<Rc<ActionBinding>> {
         let current = self
-            .retained_route(target.key, target.kind)
+            .retained_captured_route(target.hit, target.kind)
             .ok()
             .flatten()?;
         target
@@ -262,17 +264,36 @@ impl<D: DataSource> Presenter<D> {
             .then(|| target.binding.upgrade())
             .flatten()
     }
+    fn prepare_retained_target(
+        &mut self,
+        target: &Target,
+        held: Option<HoldToken>,
+        now_ms: f64,
+    ) -> Option<Rc<ActionBinding>> {
+        let binding = self.retained_binding(target)?;
+        let committed =
+            self.host
+                .advance_retained_input(target.key, &binding, target.kind, held, now_ms)?;
+        if committed {
+            if let Some(error) = self.after_commit() {
+                self.host.log(error);
+            }
+        }
+        // Recheck the acknowledged picture, ancestors and swipe policy as
+        // well as the action arguments. Timers and their effects can change any.
+        self.retained_binding(target)
+    }
     pub(crate) fn retained_press(&mut self, hit: ViewId, now_ms: f64) -> Option<ViewId> {
         let key = self.host.kernel().node(hit)?.key;
         let target = self.retained_route(key, EventKind::Press).ok().flatten()?;
         self.retained_press_target(&target, now_ms)
     }
     pub(super) fn retained_press_target(&mut self, target: &Target, now_ms: f64) -> Option<ViewId> {
-        let binding = self.retained_binding(target)?;
+        let binding = self.prepare_retained_target(target, None, now_ms)?;
         let view = self.host.kernel().node_by_key(target.key)?.id;
         match self
             .host
-            .dispatch_retained(target.key, &binding, EventKind::Press, now_ms)
+            .dispatch_retained(target.key, &binding, EventKind::Press, None)
         {
             Ok(false) => return None,
             Err(error) => self.host.log(error),
@@ -294,17 +315,17 @@ impl<D: DataSource> Presenter<D> {
         token: exact_motion::HoldToken,
         now_ms: f64,
     ) -> Result<bool, String> {
-        let Some(binding) = self.retained_binding(target) else {
+        let Some(binding) = self.prepare_retained_target(target, Some(token), now_ms) else {
             return Ok(false);
         };
-        let accepted = self
-            .host
-            .dispatch_retained_held(token, target.key, &binding, now_ms)?;
-        if accepted {
+        let accepted =
+            self.host
+                .dispatch_retained(target.key, &binding, EventKind::Swiperight, Some(token));
+        if accepted != Ok(false) {
             if let Some(error) = self.after_commit() {
                 return Err(error);
             }
         }
-        Ok(accepted)
+        accepted
     }
 }

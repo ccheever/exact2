@@ -113,10 +113,10 @@ public enum DevMenu {
     /// Whether a build has the Develop menu and its chords (LLP 1115.000
     /// D7.8): a development build does, a release build does not, as a
     /// shipped Mac app has no such menu. A release build is one baked with
-    /// production trust (its `compat.json`, which an app with no updater does
-    /// not record) or stamped `release` or `archive` by `build.mjs`
-    /// (`ExactBuildKind`: production trust, or `--distribution`, what
-    /// `exact release` signs). An unstamped host (a test's) is a
+    /// production trust (`ExactEnv.productionBake`) or stamped `release` or
+    /// `archive` by `build.mjs` (`ExactBuildKind`: `--release`,
+    /// `--distribution`, what `exact release` signs, or `--archive`; each
+    /// bakes production trust). An unstamped host (a test's) is a
     /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
     /// for either (`ExactEnv.devMenu`).
     static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {
@@ -126,14 +126,27 @@ public enum DevMenu {
     public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
                                          override: ExactEnv.devMenu)
     /// The session the menu reloads, describes and opens into: the key
-    /// window's, which the adapter that owns the windows keeps current.
+    /// window's. Installing the menu follows that window's key notifications.
     nonisolated(unsafe) public static weak var session: ExactSession?
     /// Where a reload without a connection restarts from: the dev loop's
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
+    nonisolated(unsafe) private static var windowKeyObserver: NSObjectProtocol?
     nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
     public static func install(session: ExactSession, planPath: String?) {
+        if windowKeyObserver == nil {
+            windowKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+                guard DevMenu.session != nil, let window = note.object as? NSWindow, let root = window.contentView else { return }
+                func sessions(in view: NSView) -> [ExactSession] {
+                    if let exact = view as? ExactView { return [exact.session] }
+                    return view.subviews.flatMap { sessions(in: $0) }
+                }
+                let owners = sessions(in: root)
+                // An embedding window with several sessions chooses its own commands.
+                if owners.count == 1 { DevMenu.select(session: owners[0]) }
+            }
+        }
         if widgetGenerationObserver == nil {
             widgetGenerationObserver = NotificationCenter.default.addObserver(forName: Notification.Name("ExactWidgetGeneration"), object: nil, queue: .main) { _ in
                 guard let session = DevMenu.session else { return }

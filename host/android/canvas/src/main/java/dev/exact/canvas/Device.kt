@@ -30,12 +30,14 @@ internal data class Device(
     val highContrast: Boolean,
     /** The screen is a finger's, and how far one moves before its touch is a drag, in dp (the system's touch slop). */
     val touch: Boolean,
+    /** The device is a television (LLP 1115.001.003 D2): its UI mode's type, which a TV's launcher sets. */
+    val tv: Boolean,
     val touchSlop: Float,
     /** How the device writes a date and a time: what a date control shows ([dates]). */
     val dates: String,
 ) {
     /** Tell exact2: on the thread that holds the host, or on any before it boots. */
-    fun tell() = Native.configure(night, fontScale, locale, rtl, hour24, noAnimations, boldText, highContrast, touch, touchSlop, dates)
+    fun tell() = Native.configure(night, fontScale, locale, rtl, hour24, noAnimations, boldText, highContrast, touch, tv, touchSlop, dates)
 
     companion object {
         fun read(context: Context): Device {
@@ -54,10 +56,27 @@ internal data class Device(
                 boldText = Build.VERSION.SDK_INT >= 31 && config.fontWeightAdjustment.let { it != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED && it > 0 },
                 highContrast = contrast,
                 touch = config.touchscreen == Configuration.TOUCHSCREEN_FINGER,
-                touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop / context.resources.displayMetrics.density,
+                tv = tv(context),
+                touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop / scale(context),
                 dates = dates(config.locales[0], android.text.format.DateFormat.is24HourFormat(context)),
             )
         }
+
+        /** The device is a television: its UI mode's type, which a TV's launcher sets (LLP 1115.001.003 D2). */
+        fun tv(context: Context) =
+            context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+
+        /**
+         * How many pixels a CSS pixel is: the display's density, except on a TV (LLP 1115.001.003 D6), where the page is
+         * [TV_HEIGHT] CSS pixels tall, as Apple TV's is that many points, so an app's TV layout is the same on both.
+         */
+        fun scale(context: Context): Float {
+            val metrics = context.resources.displayMetrics
+            if (!tv(context)) return metrics.density
+            return minOf(metrics.widthPixels, metrics.heightPixels) / TV_HEIGHT
+        }
+
+        private const val TV_HEIGHT = 1080f
 
         /**
          * The lines `host/linux/src/paint/dates.rs` reads: the patterns Android's formatter picks for the locale for a

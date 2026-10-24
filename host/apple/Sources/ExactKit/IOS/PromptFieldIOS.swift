@@ -26,6 +26,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
         let selection: NSRange?
     }
     private var restoring: Snapshot?
+    private var relocating = false
     /// The alert's own delegate for the field, which answers what this does
     /// not.
     private weak var alertDelegate: UITextFieldDelegate?
@@ -33,9 +34,6 @@ final class PromptField: NSObject, UITextFieldDelegate {
     /// prompt's first action that is not destructive (`MenuHost`).
     var returned: (() -> Void)?
     init(_ node: NodeView, presenter: Presenter) { self.node = node; self.presenter = presenter }
-    /// Whether UIKit's field holds the focus, and so raises the software keyboard.
-    var editing: Bool { field?.isFirstResponder == true }
-
     func snapshot() -> Snapshot? {
         guard let node = live(), let field else { return nil }
         return Snapshot(node: node, incarnation: node.incarnation, value: node.props["value"],
@@ -114,6 +112,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
         return alertDelegate?.textFieldShouldClear?(textField) ?? true
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
+        presenter?.keyboardPrompt = textField
         alertDelegate?.textFieldDidBeginEditing?(textField)
         if let node = live() { presenter?.focus(node.id) }
     }
@@ -123,7 +122,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
     }
     func textFieldDidEndEditing(_ textField: UITextField) {
         alertDelegate?.textFieldDidEndEditing?(textField)
-        live()?.textFieldDidEndEditing(textField) // the `change`, then the blur
+        if !relocating { live()?.textFieldDidEndEditing(textField) } // the `change`, then the blur
     }
     /// Return, one rule on every host (docs/contract-for-agents.md): the
     /// input's `key` handlers first (prevented, nothing more); its `change`;
@@ -223,8 +222,9 @@ final class PromptField: NSObject, UITextFieldDelegate {
 
     /// The alert is going: the edit commits, and the authored field is its
     /// own again.
-    func end() {
-        if let node = live() { presenter?.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change")) }
+    func end(relocating: Bool = false) {
+        self.relocating = relocating
+        if !relocating, let node = live() { presenter?.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change")) }
         if let node, node.headerField === field { node.headerField = nil }
     }
 }

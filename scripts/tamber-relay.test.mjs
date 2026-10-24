@@ -398,6 +398,27 @@ test('round 3: closing the server ends a relayed client\'s long poll', async () 
   await poll.closed;
 });
 
+test("the events GET long poll through the relay: a paired read token gets an answer and its cursor (tamber/1.17)", async () => {
+  const relay = await fakeRelay();
+  let doors = null;
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemote(w, { relay: relayOf(relay.control) }, { connect: toRelay(relay.control), say: () => {}, warn: () => {} });
+  closing.push(async () => { await doors.close(); await w.close(); });
+  await until(() => relay.idle.length === POOL);
+  const pt = await pairThrough(w, relay.pub);
+  const out = await new Promise((ok, fail) => {
+    const s = connectTLS({ host: '127.0.0.1', port: relay.pub, servername: TOOL, ca: devCert.cert }, () => s.write(`GET /__tamber/events?client=relayed HTTP/1.1\r\nHost: ${TOOL}\r\nx-exact-tamber-token: ${pt}\r\nConnection: close\r\n\r\n`));
+    let got = '';
+    s.on('data', d => { got += d; });
+    for (const e of ['end', 'close']) s.on(e, () => ok(got));
+    s.on('error', e => (got ? ok(got) : fail(e)));
+  });
+  expect(out.startsWith('HTTP/1.1 200')).toBe(true);
+  expect(out.toLowerCase()).not.toContain('retry-after');
+  const body = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+  expect(body.cursor).toBe(`${body.seq}.${body.held}`);
+});
+
 /** A paired client's long poll through the relay, pending: its first ask for where to start, then a wait after it. */
 async function longPoll(port, tok) {
   const first = await ask(port, TOOL, { path: '/__tamber/events', headers: `x-exact-tamber-token: ${tok}\r\n`, body: '{"wait":false}' });

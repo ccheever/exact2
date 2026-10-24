@@ -27,6 +27,8 @@ use exact_motion::{Property, Value};
 /// A circle's centre and radius.
 type Circle = (f32, f32, f32);
 
+mod budget;
+pub use budget::Limit;
 mod clip;
 mod filter;
 pub use filter::box_filter;
@@ -75,6 +77,9 @@ pub struct Scene {
     /// What this host cannot draw and so leaves out, by name: a
     /// `foreignObject` (LLP 1055.000 D13), which is the web's alone.
     pub refused: Option<&'static str>,
+    /// The cost limit the scene passed (LLP 1011.001 D2); `items` is then
+    /// empty.
+    pub over: Option<Limit>,
 }
 
 /// The refusal a native host reports for a `foreignObject`.
@@ -289,18 +294,22 @@ pub fn resolve(
         presented,
         uses: Vec::new(),
         refused: None,
+        budget: budget::Budget::new(),
+        bboxes: Default::default(),
     };
     r.present(node, &mut inherited);
     let items = match view {
         Some(v) => r.children(node, &inherited, vp, v),
         None => Vec::new(),
     };
+    let over = r.budget.over();
     Scene {
         content,
         view,
         clip,
-        items,
+        items: if over.is_some() { Vec::new() } else { items },
         refused: r.refused,
+        over,
     }
 }
 
@@ -313,7 +322,19 @@ struct Resolver<'k, 'p> {
     uses: Vec<u64>,
     /// A refusal met on the walk.
     refused: Option<&'static str>,
+    /// What the scene has cost so far.
+    budget: budget::Budget,
+    /// Bounding boxes found on this walk, by node, instance and viewport:
+    /// a group's box asks each child's twice (its own and its
+    /// transform's), which nested groups would make exponential.
+    bboxes: std::cell::RefCell<BoxMemo>,
 }
+
+/// [`Resolver::bboxes`]: the node's key in its instance (`uid`), and the
+/// viewport's width and height bits.
+type BoxMemo = std::collections::HashMap<(u64, u32, u32), Option<Rect4>>;
+
+type Rect4 = (f32, f32, f32, f32);
 
 /// The rows a child computes from its parent: every inherited row it does
 /// not set itself.
@@ -407,6 +428,9 @@ impl Resolver<'_, '_> {
         if !node.node_type.is_svg_element() || !node.node_type.renders() {
             return None;
         }
+        if !self.budget.cost(budget::ITEM) {
+            return None;
+        }
         let mut style = cascade(node, inherited);
         if style.display == Display::None {
             return None;
@@ -426,7 +450,17 @@ impl Resolver<'_, '_> {
             NodeType::SvgGroup => Kind::Group(self.children(node, &style, vp, ctm)),
             NodeType::SvgViewport => self.viewport(node, &style, vp, ctm),
             NodeType::SvgUse => self.instance(node, &style, vp, ctm)?,
-            NodeType::SvgText => Kind::Text(Box::new(self.text(node, &style, vp)?)),
+            NodeType::SvgText => {
+                let text = self.text(node, &style, vp)?;
+                let runs = text.chunks.iter().flat_map(|c| &c.runs);
+                let chars: usize = runs.clone().map(|r| r.text.chars().count()).sum();
+                let parts = (text.chunks.len() + runs.count()) as u64;
+                let cost = parts * budget::ITEM + chars as u64 * budget::CHARACTER;
+                if !self.budget.cost(cost) {
+                    return None;
+                }
+                Kind::Text(Box::new(text))
+            }
             _ => {
                 let mut shape = self.shape(node, &style, vp, ctm)?;
                 shape.markers = self.markers(node, &style, &shape.path, vp, ctm);
@@ -451,6 +485,12 @@ impl Resolver<'_, '_> {
         } else {
             None
         };
+        // A mask is two islands: what the element draws and the mask's.
+        if let Some(m) = &mask {
+            if !self.budget.surface(m.region, ctm, 8.0) {
+                return None;
+            }
+        }
         let filter = if style.filter.is_none() {
             None
         } else {
@@ -467,6 +507,11 @@ impl Resolver<'_, '_> {
             };
             self.filter(node, bbox, stroke, vp).map(Box::new)
         };
+        if let Some(f) = &filter {
+            if !self.budget.filter(f, ctm) {
+                return None;
+            }
+        }
         Some(Item {
             id: node.id,
             uid: self.uid(node.id),
@@ -559,6 +604,23 @@ impl Resolver<'_, '_> {
         style: &StyleProps,
         vp: Viewport,
     ) -> Option<(f32, f32, f32, f32)> {
+        // The instance's key: another `use` above may pass another
+        // `stroke-width` or font size down.
+        let key = (self.uid(node.id), vp.width.to_bits(), vp.height.to_bits());
+        if let Some(found) = self.bboxes.borrow().get(&key) {
+            return *found;
+        }
+        let found = self.bbox_of(node, style, vp);
+        self.bboxes.borrow_mut().insert(key, found);
+        found
+    }
+
+    fn bbox_of(
+        &self,
+        node: &NodeRef<'_>,
+        style: &StyleProps,
+        vp: Viewport,
+    ) -> Option<(f32, f32, f32, f32)> {
         match node.node_type {
             NodeType::SvgGroup => {
                 let mut acc: Option<(f32, f32, f32, f32)> = None;
@@ -624,18 +686,20 @@ impl Resolver<'_, '_> {
             }
         }
         let style = moved.as_ref().unwrap_or(style);
-        if node.node_type == NodeType::SvgCircle {
+        let made = if node.node_type == NodeType::SvgCircle {
             let r = self
                 .value(node.key, Property::R)
                 .map_or(vp.d(style.r), |v| v.x as f32);
             let (cx, cy) = (vp.x(style.cx), vp.y(style.cy));
-            return circle(cx, cy, r).map(|p| (p, Some((cx, cy, r))));
-        }
-        if node.node_type == NodeType::SvgPath {
+            circle(cx, cy, r).map(|p| (p, Some((cx, cy, r))))
+        } else if node.node_type == NodeType::SvgPath {
             let path = super::parse_d(&self.d(node)?);
-            return (!path.0.is_empty()).then_some((path, None));
-        }
-        geometry(node.node_type, node.props, style, vp).map(|p| (p, None))
+            (!path.0.is_empty()).then_some((path, None))
+        } else {
+            geometry(node.node_type, node.props, style, vp).map(|p| (p, None))
+        };
+        // Charged after the parse: one path's segments are the file's own.
+        made.filter(|(path, _)| self.budget.cost(path.0.len() as u64))
     }
 
     fn shape(
@@ -660,10 +724,32 @@ impl Resolver<'_, '_> {
                 };
             }
         }
+        // Each pattern paint is a tile at the scale it shows at, and on
+        // Apple a bitmap of the painted area the tile is repeated into (a
+        // stroke's reaching past the path by its width, joins and caps).
+        let reach = style.stroke_width.max(0.0) * style.stroke_miterlimit.max(1.5) / 2.0;
+        // Apple rounds the area out to whole user units and pads it by one.
+        let painted = |stroke: bool| {
+            let (x, y, w, h) = bbox.unwrap_or_default();
+            let r = if stroke { reach } else { 0.0 };
+            let (x0, y0) = ((x - r).floor() - 1.0, (y - r).floor() - 1.0);
+            let (x1, y1) = ((x + w + r).ceil() + 1.0, (y + h + r).ceil() + 1.0);
+            (x0, y0, x1 - x0, y1 - y0)
+        };
+        for (pat, stroke) in patterns.iter().zip([false, true]) {
+            let Some(Some(pat)) = pat else { continue };
+            let to = tf::mul(ctm, pat.transform);
+            if !self.budget.surface(pat.tile, to, 4.0)
+                || !self.budget.surface(painted(stroke), ctm, 4.0)
+            {
+                return None;
+            }
+        }
         let [fill_pattern, stroke_pattern] = patterns;
         let paint = |p: &Paint,
                      opacity: f32,
-                     pattern: Option<Option<Box<Pattern>>>|
+                     pattern: Option<Option<Box<Pattern>>>,
+                     stroke: bool|
          -> Option<ShapePaint> {
             if hidden {
                 return None;
@@ -684,6 +770,14 @@ impl Resolver<'_, '_> {
                 Paint::Url(id, _) => {
                     use super::server::{resolve, Resolved};
                     return match resolve(self.kernel, node.id, id, bbox, vp) {
+                        // A shape's own copy of the stops, and Apple's bitmap
+                        // of the painted area the gradient is drawn into.
+                        Resolved::Server(server)
+                            if !self.budget.cost(server.stops.len() as u64)
+                                || !self.budget.surface(painted(stroke), ctm, 4.0) =>
+                        {
+                            None
+                        }
                         Resolved::Server(server) => Some(ShapePaint {
                             color: style.text_color,
                             opacity,
@@ -724,19 +818,38 @@ impl Resolver<'_, '_> {
             })
         };
         let width = style.stroke_width.max(0.0);
-        let stroke =
-            paint(&style.stroke, style.stroke_opacity, stroke_pattern).filter(|_| width > 0.0);
+        let stroke = paint(&style.stroke, style.stroke_opacity, stroke_pattern, true)
+            .filter(|_| width > 0.0);
         let scale = dash_scale(&path, node.props);
         let offset = style.stroke_dashoffset;
+        let dash = style.stroke_dasharray.pattern(scale);
+        if !self.budget.cost(dash.len() as u64) {
+            return None;
+        }
+        if stroke.is_some() && !dash.is_empty() {
+            // A non-scaling stroke is dashed in the content box, where the
+            // host draws it; each subpath starts the pattern again.
+            let non_scaling = style.vector_effect == VectorEffect::NonScalingStroke;
+            let length = if non_scaling {
+                path.transformed(ctm).length()
+            } else {
+                path.length()
+            };
+            let subpaths = path.0.iter().filter(|s| matches!(s, super::Seg::Move(..)));
+            if !self.budget.dashes(length, &dash) || !self.budget.restarts(subpaths.count(), &dash)
+            {
+                return None;
+            }
+        }
         Some(Shape {
-            fill: paint(&style.fill, style.fill_opacity, fill_pattern),
+            fill: paint(&style.fill, style.fill_opacity, fill_pattern, false),
             fill_rule: style.fill_rule,
             stroke,
             width,
             cap: style.stroke_linecap,
             join: style.stroke_linejoin,
             miter: style.stroke_miterlimit.max(1.0),
-            dash: style.stroke_dasharray.pattern(scale),
+            dash,
             dash_offset: offset * scale,
             dash_scale: scale,
             non_scaling: style.vector_effect == VectorEffect::NonScalingStroke,

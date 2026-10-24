@@ -189,8 +189,8 @@ events and by the semantics' sources and the harness that runs them
 async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
-app's `test` blocks (its own and those in `app.test.contract` beside it)
-plus an explore script, on the runner and on the semantics. A divergence
+app's `test` blocks (its own, those in `app.test.contract` and those in
+every other `*.test.contract` beside it) plus an explore script, on the runner and on the semantics. A divergence
 names the step where the two first differ and the line of the test that
 step comes from, where the element it tapped is declared, and the slot,
 derive or element whose line differs:
@@ -430,8 +430,8 @@ trusting that expansion preserves meaning.
 **The unexpanded file.** `contract lean --components <file>` emits the file
 before expansion as a `Contract.Components.CProgram`: every component with
 its props (declared type, whether `action`), injects, `provide` section,
-`slot`, states, derives and actions (each with the checker's types: the
-root's from the expanded root, a child's from the checker's standalone
+`slot`, states, derives, resources and actions (each with the checker's types:
+the root's from the expanded root, a child's from the checker's standalone
 pass), and a view whose `Use` and `children` nodes are still there, each
 region, use and `children` node numbered within its component.
 
@@ -452,8 +452,11 @@ through the props to the action it names with the curried arguments; its
 arguments are evaluated at dispatch. A child's action writes its
 instance's states; an `action` prop called last (LLP 1017 §11) runs the
 named action's statements in its own frame in the same commit. The root's
-own slots, settlement, actions and timers are `Contract.Runtime`'s, of the
-root alone (`rootProgram`).
+own slots, settlement, actions and timers are `Contract.Runtime`'s
+(`rootProgram`). Each child's `exactViewport()` and `exactPage()` resources
+live in that root environment under `name@Component`, shared by all its
+instances. Reads, status queries and refreshes in the child's frame resolve
+to those resources.
 
 **The expander** (`Contract.Expand`) transcribes inline.rs and its
 submodules step for step, numbering and spelling included: capture-avoiding
@@ -463,7 +466,10 @@ read twice on every path bound once by a `let`), lifted states and actions
 `x#n` with their owners, a slot's fill inlined afresh at each `children`
 node under that node's region arms, props and injects captured as hidden
 parameters `@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
-`@check:` statement the flat embedding drops is not emitted).
+`@check:` statement the flat embedding drops is not emitted). Device resources
+are hoisted once per declaration, including unused components, in file order.
+Their value reads and refresh targets are renamed; same-named function calls
+keep their heads.
 
 **`difftest expansion`** checks the real expander on each program:
 
@@ -522,9 +528,9 @@ component-level semantics keeps per instance. A disagreement is kept under
 - `ExpandMap.use_prop`, `use_state`: the same of the expander's own
   substitution for a use (`Expand.baseMap`, `withDerives`, which
   `inlineNode` builds it with), for a component whose props, injects,
-  states, actions and derives have distinct names: a prop's replacement is
-  its argument substituted at the use site (`map_prop`), a state's its
-  lifted name (`map_state`).
+  states, actions, derives and device resources have distinct names: a
+  prop's replacement is its argument substituted at the use site (`map_prop`),
+  a state's its lifted name (`map_state`).
 
 **What is left.** The theorem stops at expressions in an instance's
 frame. Not proved, and covered only by `difftest expansion`: that derive

@@ -55,6 +55,9 @@ pub(super) struct Subst<'m, T> {
     /// and `match` variables) are values, never callable, so a call that
     /// spells one names a function (`t("key")` beside `for t in …`).
     calls: bool,
+    /// States, device facts and derives replace value reads only, even
+    /// when a derive's body is shaped like a curried action binding.
+    pub(super) value_only: BTreeSet<String>,
     /// The declared record constructors: shapes that are not `fn`s. A call
     /// spelling one constructs that record ahead of any scoped name (LLP
     /// 1035.005.000 D3), so its head is never replaced — its arguments are.
@@ -73,6 +76,7 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
             free: OnceCell::new(),
             binders: Vec::new(),
             calls: true,
+            value_only: BTreeSet::new(),
             records,
             callee: None,
         }
@@ -96,6 +100,11 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
         }
     }
 
+    pub(super) fn with_value_only(mut self, names: &BTreeSet<String>) -> Self {
+        self.value_only.clone_from(names);
+        self
+    }
+
     /// The replacements, for a view's substitution (no binder is in force
     /// over a view: its binders are renamed apart, never entered).
     pub(super) fn map(&self) -> &'m BTreeMap<String, T> {
@@ -110,6 +119,18 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
             }
         }
         self.map.get(name).map(SubstitutionValue::replacement)
+    }
+
+    /// A value binder protects call heads from prop substitution but cannot
+    /// rename them. Freshening appends `@…`, retaining the authored name so
+    /// later substitutions can preserve that protection.
+    fn binds_call(&self, name: &str) -> bool {
+        self.binders.iter().any(|(bound, _)| {
+            bound == name
+                || bound
+                    .split_once('@')
+                    .is_some_and(|(authored, _)| authored == name)
+        })
     }
 
     fn free(&self) -> &BTreeSet<String> {
@@ -164,6 +185,7 @@ pub(super) fn renamed_locals(e: &Expr, map: &BTreeMap<String, String>) -> Expr {
 
 /// `e` with `map` substituted, for a one-off substitution; a call naming one
 /// of `records` keeps its head.
+#[cfg(test)]
 pub(super) fn substituted<T: SubstitutionValue>(
     e: &Expr,
     map: &BTreeMap<String, T>,
@@ -192,7 +214,7 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
         },
         Expr::Call(n, args, span) => {
             let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, s)).collect();
-            if !s.calls || s.records.contains(n) {
+            if !s.calls || s.value_only.contains(n) || s.records.contains(n) || s.binds_call(n) {
                 return Expr::Call(n.clone(), args, *span);
             }
             match s.get(n) {
@@ -411,7 +433,9 @@ pub(super) fn subst_stmts(
                     .collect();
                 match s.callee {
                     Some(map) => {
-                        let mut deep = Subst::new(map, s.records).into_calls(map);
+                        let mut deep = Subst::new(map, s.records)
+                            .with_value_only(&s.value_only)
+                            .into_calls(map);
                         deep.calls = s.calls;
                         inner.extend(subst_stmts(&body[params..], &mut deep, names));
                     }

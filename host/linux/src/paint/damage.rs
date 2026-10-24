@@ -42,8 +42,7 @@ impl Changes {
         }
         for key in &r.touched {
             self.full |= !kernel.node_by_key(*key).is_some_and(|n| {
-                n.style.position_type == PositionType::Absolute
-                    && n.style.wrap_flow == WrapFlow::Both
+                n.layout_position() == PositionType::Absolute && n.style.wrap_flow == WrapFlow::Both
             });
             self.keys.insert(*key);
         }

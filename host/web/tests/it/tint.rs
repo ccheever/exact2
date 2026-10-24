@@ -256,3 +256,52 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
         );
     }
 }
+
+/// theme2 2026-10-23 (after `lower-symbol-tint`): a symbol's own `-exact-tint-color` is no paint of it on the web
+/// either: lowering answers it with `currentcolor`, which the glue's mask paints in the symbol's `color`, as Apple
+/// draws it. A native button's face keeps its tint (LLP 1115 D4), as a raster does.
+#[test]
+fn a_symbols_own_tint_is_painted_in_its_colour_and_a_native_face_keeps_its_tint() {
+    let plan = contract::compile(
+        r##"component App
+  action go
+  view
+    column color="#0000ff"
+      image "symbol:search" testId="symbol" -exact-tint-color="#ff0000"
+      button press=go testId="lock"
+        image "symbol:lock" testId="face" -exact-tint-color="#ff0000"
+        text "Lock"
+      image "assets/mark.png" testId="raster" -exact-tint-color="#ff0000"
+"##,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let create = |test_id: &str| {
+        let id = view_with_test_id(&host, test_id);
+        let at = first.find(&format!("\"id\":{id},\"tag\":\"img\"")).unwrap();
+        first[at..].split("\"op\":").next().unwrap().to_string()
+    };
+    let symbol = create("symbol");
+    assert!(symbol.contains("--exact-tint:currentcolor"), "{symbol}");
+    assert!(
+        !symbol.contains("#ff0000") && !symbol.contains("255, 0, 0"),
+        "{symbol}"
+    );
+    for kept in ["face", "raster"] {
+        let made = create(kept);
+        assert!(
+            !made.contains("--exact-tint:currentcolor"),
+            "{kept}: {made}"
+        );
+        assert!(
+            made.contains("--exact-tint:rgba(255,0,0,1)"),
+            "{kept}: {made}"
+        );
+    }
+}

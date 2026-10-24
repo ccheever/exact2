@@ -12,7 +12,8 @@ impl Event {
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
     /// (beforeunload), 37 (wheel), 38 (drop), 55 and 56 (a file drag's
-    /// dragenter and dragleave), 57 (a paste with files), 39 (resize, its
+    /// dragenter and dragleave), 57 (a paste with files), 59 (atompress),
+    /// 39 (resize, its
     /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
     /// input, change, select and replacement input), 45 (intersect,
     /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
@@ -20,8 +21,8 @@ impl Event {
     /// (beforeinput/input metadata) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
-            // A key's down (6), up (43) or capture (44, #140): the chord, then its code
-            // and repeat (`KeyboardEvent::parse`).
+            // A key's down (6), up (43) or capture (44, #140): the chord, then its code,
+            // repeat and isComposing (`KeyboardEvent::parse`).
             6 => super::KeyboardEvent::parse(payload)
                 .map(Event::Key)
                 .ok_or("invalid key event"),
@@ -64,6 +65,14 @@ impl Event {
                 })
                 .ok_or("invalid drag event"),
             57 => Event::paste_files_payload(payload).ok_or("invalid clipboard event"),
+            // @ref LLP 1020.002 D2 — an iframe's guest: its event, then the record.
+            58 => super::event::frame_navigation::FrameNavigation::parse(payload)
+                .map(|(kind, n)| Event::FrameNavigation(kind, Box::new(n)))
+                .ok_or("invalid frame navigation"),
+            // A press on an inline atom (LLP 1045.000 D7).
+            59 => super::AtomEvent::parse(payload)
+                .map(Event::Atompress)
+                .ok_or("invalid atom press"),
             45 => {
                 let (hit, ratio) = payload
                     .split_once(',')
@@ -109,11 +118,12 @@ impl Event {
         }
     }
 
-    /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
+    /// Decode host kind 21: formats, mixed (0/1), unavailable, the selected
+    /// atom's source (LLP 1045.000 D3; never a line break), then the link
     /// remainder, separated by newlines. Token lists never contain newlines;
     /// a target may, so the final remainder is kept verbatim.
     pub fn selection_payload(payload: &str) -> Option<Self> {
-        let mut parts = payload.splitn(4, '\n');
+        let mut parts = payload.splitn(5, '\n');
         let formats = parts.next()?;
         let mixed = match parts.next()? {
             "0" => false,
@@ -121,6 +131,7 @@ impl Event {
             _ => return None,
         };
         let unavailable = parts.next()?;
+        let atom = parts.next()?;
         let link = parts.next()?;
         let tokens = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b' ');
         if !tokens(formats) || !tokens(unavailable) {
@@ -131,6 +142,7 @@ impl Event {
             mixed,
             link: link.into(),
             unavailable: unavailable.into(),
+            atom: atom.into(),
         })
     }
 

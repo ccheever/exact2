@@ -1,7 +1,6 @@
 // The UIKit presenter (LLP 1008 §9): a viewport scroll view over a content-sized
 // document, one `NodeView` per kernel node, host batches, keyboard insets and
-// field reveal. It belongs to one session (LLP 1031 D1) and reaches that session's
-// canvases, web views and menus.
+// field reveal, owned by one session (LLP 1031 D1).
 #if os(iOS) || os(tvOS)
 import UIKit
 import CoreText
@@ -13,7 +12,7 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     weak var autofocusedThisTurn: NodeView? // taken out of the window this turn, it has not had its autofocus (NodeViewIOS)
     var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
-    /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
+    /// A booted session's autofocus waits for its first activation.
     var launchAutofocusReleased = false
     private var projectionSyncOwed = false
     /// Nodes whose frame or content box applied since the batch or projection
@@ -49,10 +48,8 @@ package final class Presenter {
     /// The `aria-modal` view VoiceOver was last moved into, and the views
     /// made modal, which a cleared prop drops from the index (`syncModal`).
     var announcedModal: (id: UInt32, incarnation: UInt64)?
-    /// The `.screenChanged` post, replaceable in tests.
     static var postScreenChanged: (Any?) -> Void = { UIAccessibility.post(notification: .screenChanged, argument: $0) }
     let modalViews = NSHashTable<NodeView>.weakObjects()
-    /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
     package let root = PlainView(frame: .zero)
@@ -85,6 +82,7 @@ package final class Presenter {
     package var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
     lazy package var transformGeometry = TransformGeometryHost(self)
+    lazy var nativeGeometry = NativeGeometry(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
     let fixedGradients = NSHashTable<NodeView>.weakObjects()
@@ -144,20 +142,12 @@ package final class Presenter {
     /// The first root's `interactiveWidget` prop, as written (`keyboardPolicy`
     /// is what applies).
     private(set) var interactiveWidget: String?
-    /// The keyboard's policy (LLP 1116 D2): `resizes-content` unless the root
-    /// says otherwise, as a hand-built app avoids the keyboard — the layout
-    /// viewport ends at the keyboard's top (the controller lays out again,
-    /// inside the keyboard's animation, so every frame that moves moves with
-    /// it), so a scroller ends above the keys and the focused field is
-    /// revealed in what is left, as UIKit's keyboard layout guide and
-    /// SwiftUI's keyboard safe area do. The root opts out with the web's
-    /// default, `resizes-visual` (the inset below: the page pans, nothing is
-    /// laid out), or with `overlays-content` (nothing moves).
+    /// Keyboard avoidance defaults to resizing the editing route's layout block,
+    /// or the viewport of an ordinary page. Visual resizing instead insets its
+    /// scrollport; overlays-content leaves layout to keyboard toolbars.
     var keyboardPolicy: String { interactiveWidget ?? "resizes-content" }
-    /// The keyboard's top edge in the window while one is shown, else nil.
-    private(set) var keyboardTop: CGFloat?
-    /// The controller's: frame the viewport again (`Controller.fit`).
-    var onKeyboardResize: (() -> Void)?
+    /// The keyboard guide's top in window coordinates for this session's current layout.
+    var keyboardTop: CGFloat?
     /// The safe-area insets the kernel was given (LLP 1008 §9): the
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
@@ -173,32 +163,39 @@ package final class Presenter {
     /// Whether `UIHingeInteraction` has reported once (a hinge or none):
     /// before that, a 27.1 device's fold is unknown (LLP 1078 D7).
     var hingeReported = false
-    /// The keyboard's inset on the viewport: the points of the screen's
-    /// viewport a software keyboard covers. Under `resizes-content` (the
-    /// default) the controller sets it, measured against the viewport it
-    /// would frame without a keyboard. Under `resizes-visual`, the web's
-    /// visual viewport — the layout viewport does not change; the viewport
-    /// insets its content by this and reveals the field being edited, in the
-    /// keyboard's own animation.
+    /// The keyboard's overlap with the viewport before avoidance,
+    /// derived by `ExactView.fit`.
     package var keyboardInset: CGFloat = 0
+    /// The keyboard's own contribution to the viewport's shared insets.
+    private let keyboardViewportInset = KeyboardInset()
     /// What scrollers took below their content to show a field above pinned
     /// content, while the keyboard is up (`PinnedRoom`).
     let pinnedRoom = PinnedRoom()
-    var hasKeyboardEditor: Bool {
-        views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
-            || hasNativeKeyboardEditor
+    /// A native prompt outside the session's mounts, associated by its creator.
+    package weak var keyboardPrompt: UITextField?
+    var keyboardEditor: UIView? {
+        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput,
+              mounts(responder) || responder === keyboardPrompt else { return nil }
+        return responder
     }
-    /// A notification describes the keyboard's target, not its current
-    /// presence: UIKit announces hiding even during a cancelled sideways pop.
-    /// The guide observes the keyboard in its owning container's coordinates.
+    var hasKeyboardEditor: Bool { keyboardEditor != nil }
+
+    /// A route's content or its projected search field currently owns text input.
+    func ownsKeyboard(in container: UIView) -> Bool {
+        guard let editor = keyboardEditor else { return false }
+        if editor.isDescendant(of: container) { return true }
+        let route = ViewPresentation.controller(for: container) as? RouteController
+        return route?.search?.field?.headerField === editor
+    }
+    /// The docked keyboard's occupied geometry in its owning container.
     package func keyboardGuideTop(in container: UIView) -> CGFloat? {
         #if os(tvOS)
-        // tvOS has no keyboard layout guide.
         return nil
         #else
-        guard hasKeyboardEditor || keyboardInset > 0 || menus.promptEditing /* UIKit's field, in a prompt */ else { return nil }
+        guard container.window != nil, hasKeyboardEditor else { return nil }
+        if let view = container as? ExactView, !view.hasKeyboardGuide { return nil }
         let guide = container.keyboardLayoutGuide.layoutFrame
-        return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
+        return guide.height > 0 ? guide.minY : nil
         #endif
     }
 
@@ -214,131 +211,62 @@ package final class Presenter {
         // Rows a rescue built show this frame: their text paints now, not
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
+        viewport.keyboardDismissMode = .interactive
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .platformBackground(in: root)
     }
 
     func observeKeyboard() {
-        // tvOS has no keyboard frame notifications.
         #if !os(tvOS)
         let c = NotificationCenter.default
         c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-        c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         c.addObserver(self, selector: #selector(keyboardSettled(_:)), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
         #endif
     }
 
     #if !os(tvOS)
-
-    /// The keyboard is about to move: inset the viewport by what it will
-    /// cover and reveal the field, inside an animation with the keyboard's
-    /// own duration and curve — Core Animation runs both in the same
-    /// transaction, so the content moves in lockstep with the keyboard,
-    /// never a frame behind it.
+    /// Use notifications for animation timing; read geometry from the guide at layout.
     @objc func keyboardChanged(_ n: Notification) {
-        guard let info = n.userInfo, let window = viewport.window, viewport.superview != nil else { return }
-        // A keyboard is this session's business only for its own editor, or
-        // while it still holds an inset it applied; another session's editor
-        // in the same window is not (LLP 1035.001 D5, two-session host).
-        let ownEditor = editing != nil || hasKeyboardEditor
-        guard NavigationRules.keyboardConcerns(editing: ownEditor, holdsInset: keyboardTop != nil) else { return }
-        let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
-        let hiding = n.name == UIResponder.keyboardWillHideNotification
-        // The keyboard's frame is the screen's; the viewport's, the window's.
-        let keyboard = window.convert(end, from: window.screen.coordinateSpace)
-        let shown = !hiding && keyboard.minY < window.bounds.maxY
-        let top: CGFloat? = shown ? keyboard.minY : nil
-        let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-        let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        // A focus moving from one field to another comes as a burst of
-        // notifications with no duration, over a few turns — the height
-        // jittering between the two keyboards (335, 308, 335 on the
-        // simulator) — and laying out for each flashed the page. Those wait
-        // 80 ms for the last of them, which usually changes nothing. An
-        // animated change (the show, the hide) is applied at once, in the
-        // keyboard's own transaction, so it stays in step with the keyboard.
-        keyboardDebounce?.cancel()
-        keyboardDebounce = nil
-        if duration > 0 || interactiveKeyboardDrag {
-            applyKeyboard(top: top, duration: duration, curve: curve)
-        } else {
-            let work = DispatchWorkItem { [weak self] in
-                self?.keyboardDebounce = nil
-                self?.applyKeyboard(top: top, duration: 0, curve: curve)
-            }
-            keyboardDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
-        }
+        if let screen = n.object as? UIScreen, screen !== viewport.window?.screen { return }
+        refitKeyboard(duration: n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0,
+                      curve: n.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7)
     }
     #endif
-    /// The last no-duration keyboard change, waiting to be applied.
-    private var keyboardDebounce: DispatchWorkItem?
-    var hasPendingKeyboardResize: Bool { keyboardDebounce != nil || session?.view?.holdsKeyboardGuide == true }
-    /// Apply a pending keyboard change before a back swipe fixes its route frames.
-    func flushKeyboardResize() {
-        session?.view?.releaseKeyboardGuide()
-        guard let work = keyboardDebounce else { return }
-        keyboardDebounce = nil
-        work.perform()
-        work.cancel() // its queued run, not this one
-    }
-    /// A drag is moving the keyboard: on the scroller that shows, a grouped list's collection view included.
+
     var interactiveKeyboardDrag: Bool {
-        views.values.contains { node in
-            guard let sv = node.scrollView else { return false }
-            return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
-        }
+        let drags = { (sv: UIScrollView) in sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging) }
+        return drags(viewport) || views.values.contains { node in node.scrollView.map(drags) ?? false }
+            || navigation.primaryRoutes.contains { $0.contentViewport.map(drags) ?? false }
     }
 
-    /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
-    /// laid out to end there (`resizes-content`, the default: the
-    /// controller's `fit`) or inset by the overlap (`resizes-visual`), the field
-    /// being edited revealed after — inside an animation with the keyboard's
-    /// own duration and curve, so the frames the batch sets are Core
-    /// Animation moves in the keyboard's transaction, never a frame behind.
-    func applyKeyboard(top: CGFloat?, duration: Double, curve: UInt) {
-        // Removing a focused view can synchronously announce keyboard hiding.
-        // Finish its batch before resizing; otherwise that older batch can
-        // overwrite the new viewport's frames after this call returns.
-        if applying {
-            waiting.append((nil, { [weak self] in self?.applyKeyboard(top: top, duration: duration, curve: curve) }))
+    /// Reconcile through UIKit layout in the keyboard's animation, after batches finish.
+    /// Deferred work captures timing only and reads current ownership and geometry.
+    func refitKeyboard(duration: Double = 0, curve: UInt = 7) {
+        guard let view = session?.view, view.window != nil else { return }
+        if Owner.shared.isServingMain {
+            DispatchQueue.main.async { [weak self] in self?.refitKeyboard(duration: duration, curve: curve) }
             return
         }
-        guard let window = viewport.window, let parent = viewport.superview else { return }
-        keyboardTop = top
-        let change = {
-            if self.keyboardPolicy == "resizes-content" {
-                self.onKeyboardResize?()
-            } else if self.keyboardPolicy == "overlays-content" {
-                let frame = parent.convert(self.pageFrame, to: window)
-                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
-                self.keyboardInset = overlap
-                self.keyboardToolbars.ride(overlap: overlap)
-            } else {
-                let frame = parent.convert(self.pageFrame, to: window)
-                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
-                self.setKeyboardInset(overlap); if self.hasFold { self.onKeyboardResize?() } // a fold's last row ends at the keys' top
-            }
-            if top == nil { self.pinnedRoom.release() }
-            self.menus.rehostPopovers()
-            self.revealEditorAsTheKeysMove()
+        if applying {
+            afterBatch { [weak self] in self?.refitKeyboard(duration: duration, curve: curve) }
+            return
         }
-        // Under the agent (LLP 1012) the change applies at once, as the
-        // agent's wheel scrolls at once: its world is settled between calls,
-        // and UIKit hit-tests a scroll view at its presentation offset while
-        // the keyboard's spring is still settling — a tap there would miss.
-        if ExactEnv.agentFreezes || duration <= 0 { change(); return }
-        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
+        #if !os(tvOS)
+        view.installKeyboardProbe()
+        #endif
+        let change = {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
+        // Inherit an active animation; apply interactive transition geometry without a separate one
+        if ExactEnv.agentFreezes || duration <= 0 || UIView.inheritedAnimationDuration > 0 || navigation.hasInteractiveTransition { change(); return }
+        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState, .allowUserInteraction], animations: change)
     }
 
-    func setKeyboardInset(_ h: CGFloat) {
-        keyboardInset = h
-        var inset = viewport.contentInset
-        inset.bottom = h
-        viewport.contentInset = inset
-        var indicators = viewport.verticalScrollIndicatorInsets
-        indicators.bottom = h
-        viewport.verticalScrollIndicatorInsets = indicators
+    func setKeyboardInset(_ overlap: CGFloat) {
+        keyboardInset = overlap
+        let amount = keyboardPolicy == "resizes-visual" && !navigation.pinsPrimaryViewport ? overlap : 0
+        keyboardViewportInset.apply(amount, to: viewport)
     }
 
     /// The viewport's size in points: what the kernel lays out under, the
@@ -399,7 +327,7 @@ package final class Presenter {
         listViews.removeAll()
         heightBindings.removeAll()
         transformBindings.removeAll()
-        transformGeometry.reset()
+        transformGeometry.reset(); nativeGeometry.reset()
         videoVisibility?.reset()
     }
 
@@ -409,7 +337,7 @@ package final class Presenter {
         let m = pageMargins; var size = viewportSize
         for r in root.subviews {
             let v = r as? NodeView, extent = v.flatMap { $0.scrollView == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
-            let reach = extent.map { r.convert(CGRect(origin: .zero, size: $0), to: root) } ?? .zero // through the root's transform
+            let reach = extent.flatMap { _ in v?.documentOverflow(in: root) } ?? .zero
             size = CGSize(width: max(size.width, r.frame.maxX, reach.maxX), height: max(size.height, r.frame.maxY, reach.maxY))
         }
         let frame = CGRect(origin: CGPoint(x: m.left, y: m.top), size: size)
@@ -441,15 +369,17 @@ package final class Presenter {
     var pendingFocusNode: NodeView? { pendingFocus?.node }
 
     func flushPendingFocus() {
-        guard let pending = pendingFocus, !applying, !navigation.defersFocus, !modals.defersFocus else { return }
+        guard let pending = pendingFocus, !applying, !modals.defersFocus else { return }
+        let arriving = navigation.isArriving(pending.node)
+        guard !navigation.defersFocus || arriving else { return }
         guard views[pending.node.id] === pending.node,
               pending.node.props["id"] == pending.name,
-              !navigation.isInactiveRoute(containing: pending.node) else {
+              arriving || !navigation.isInactiveRoute(containing: pending.node) else {
             pendingFocus = nil
             session?.log("pending focus cancelled: its target or route was replaced")
             return
         }
-        guard pending.node.window != nil, pending.node.bounds.width > 0, pending.node.bounds.height > 0 else { return }
+        guard (pending.node.headerField ?? pending.node).window != nil, Self.sized(pending.node) else { return }
         pendingFocus = nil
         deliveringFocus = true
         focus(pending.node, selectText: pending.selectText)
@@ -484,7 +414,7 @@ package final class Presenter {
         if fields, focused.map({ backward ? $0 == 0 : $0 == order.count - 1 }) ?? true { return false }
         let next = focused.map { (backward ? $0 - 1 + order.count : $0 + 1) % order.count } ?? (backward ? order.count - 1 : 0)
         let target = order[next]
-        let responder: UIView = target.textArea ?? target.field ?? target
+        let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
         chooseFocus(target)
         let became = responder.becomeFirstResponder()
         if became, responder === target { target.showFocusRing(true) }
@@ -526,15 +456,23 @@ package final class Presenter {
     /// A hatch's `focus()` on the node it resolved (LLP 1075.003 §3.4).
     func focusNode(_ target: NodeView) { focus(target, selectText: false) }
 
+    /// Whether `target` has a box to focus. A header's search field is the
+    /// bar's, which UIKit collapses to no height until it is pulled down or
+    /// its search is active.
+    private static func sized(_ target: NodeView) -> Bool {
+        target.headerField != nil || (target.bounds.width > 0 && target.bounds.height > 0)
+    }
+
     /// The node an action's `focus()` last named, delivered yet or not: a field's Return reads it to learn whether its `submit` asked for the keyboard back (LLP 1115.000 D9.2).
     weak var focusAsked: NodeView?
     private func focus(_ target: NodeView, selectText: Bool) {
         focusAsked = target
         let name = target.props["id"] ?? "#\(target.id)"
+        let shown: UIView = target.headerField ?? target
         // UIKit may not announce its next transition until after the outgoing
         // sheet starts dismissing. The selected route's editor already exists,
         // but cannot receive focus until its controller mounts it in a window.
-        if !deliveringFocus, navigation.defersFocus || modals.defersFocus || target.window == nil {
+        if !deliveringFocus, (navigation.defersFocus && !navigation.isArriving(target)) || modals.defersFocus || shown.window == nil {
             pendingFocus = (target, target.props["id"], selectText, navigation.defersFocus
                 ? "navigation is still transitioning" : modals.defersFocus
                 ? "the sheet is still presenting" : "the target is not mounted")
@@ -542,21 +480,28 @@ package final class Presenter {
             return
         }
         // Inert behind a presentation, or under an authored `inert` (LLP 1123 D2)
-        let hidden = sequence(first: target as UIView, next: \.superview).contains { $0.isHidden }
+        let hidden = sequence(first: shown, next: \.superview).contains { $0.isHidden }
         // The mounted window is a prerequisite, never another session's.
-        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.formDisabled,
-                                                     zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
+        if let reason = NavigationRules.focusRefusal(mounted: shown.window != nil, disabled: target.formDisabled,
+                                                     zeroSize: !Self.sized(target),
                                                      hiddenAncestor: hidden, inertAncestor: target.inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
             return
         }
-        let responder: UIView = target.textArea ?? target.field ?? target
+        let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
         if selectText, target.textArea == nil, target.field == nil {
             session?.log("selectText \"\(name)\" refused: not a text editor")
             return
         }
         chooseFocus(target)
-        if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
+        guard responder.canBecomeFirstResponder else {
+            session?.log("focus \"\(name)\" refused: not focusable")
+            return
+        }
+        guard responder.becomeFirstResponder() else {
+            session?.log("focus \"\(name)\" refused: UIKit did not accept first responder")
+            return
+        }
         if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
 
@@ -566,7 +511,7 @@ package final class Presenter {
         pendingFocus = nil
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
-            let responder: UIView = target.textArea ?? target.field ?? target
+            let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
             if responder.isFirstResponder { _ = responder.resignFirstResponder() }
             return
         }
@@ -628,7 +573,7 @@ package final class Presenter {
         pressHeld = held; defer { pressHeld = "" }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         let original = views[id]
-        onPress?(id)
+        dispatchPressHandler(id, from: original)
         if let original, views[id] === original { menus.invoke(original, bubbled: bubbled) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
@@ -644,7 +589,7 @@ package final class Presenter {
         if input { onInput?(id, value) }
     }
     func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
-        guard edited == id else { return }
+        guard edited == id, !menus.preservesFocus(id) else { return }
         edited = nil
         var value = value
         // A number input's typed value past `min` or `max` commits as the
@@ -777,7 +722,8 @@ package final class Presenter {
         modals.prepare(batch)
         navigation.prepare(batch)
         anchorChanges.reset()
-        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
+        let anchorFocus = scrollers.isEmpty ? nil : focusedNode
+        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition(focused: anchorFocus) }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
             // SVG text shapes with the session's fonts (LLP 1055.000 D11).
@@ -815,6 +761,9 @@ package final class Presenter {
                 #endif
                 if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus(); elementScrolls.flush()
+                #if os(iOS)
+                session?.view?.syncKeyboardFocus()
+                #endif
             }
         }
         var beganGeometry = false, touchedIDs: [UInt32] = []
@@ -839,7 +788,10 @@ package final class Presenter {
                 navigation.installInitialOwner(batch)
             }
             let id = op.id
-            if kind == .children { touched(id, children: true) } else if ![.roots, .create, .fieldContent].contains(kind) { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
+            if kind == .children { touched(id, children: true) } else if ![.roots, .create, .fieldContent].contains(kind) {
+                let wordsOnly = kind == .props && op.props.keys.allSatisfy { $0 == "text" } && op.clear.allSatisfy { $0 == "text" }
+                touched(id, textChanged: [.props, .style, .destroy].contains(kind), boxChanged: kind != .paragraph && !wordsOnly)
+            }
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
@@ -892,6 +844,7 @@ package final class Presenter {
                 applyParagraph(id, op.runs)
             case .props:
                 if flats.isFlat(id) { if flats.props(id, op) { continue }; flats.promote(id) }
+                if let view = views[id] { anchorChanges.noteProps(op, on: view) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
@@ -901,7 +854,8 @@ package final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
                 v.applyStyle(v.presented(op.style))
-                anchorChanges.note(id, from: old, to: v.style)
+                v.refreshPressInheritance()
+                anchorChanges.note(id, from: old, to: v.style, popover: v.props["popover"] != nil)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6):
@@ -987,7 +941,7 @@ package final class Presenter {
                 case "flight": presentFlight(id, x)
                 default: break
                 }
-            default: break
+            default: menus.sheets.applied(op); owners.applied(op)
             }
         }
         schemes.end(); regridMoved() // every override and move made: the traits before anything reads them
@@ -997,7 +951,11 @@ package final class Presenter {
         fitDocument(); reachPageEdges()
         paintCanvas()
         let first = root.subviews.first as? NodeView
-        interactiveWidget = first?.props["interactiveWidget"]
+        let widget = first?.props["interactiveWidget"]
+        if widget != interactiveWidget {
+            interactiveWidget = widget
+            session?.view?.setNeedsLayout()
+        }
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
@@ -1163,7 +1121,7 @@ package final class Presenter {
     private func contextPanel(_ preview: NodeView) -> NodeView? {
         var parent = preview.superview as? NodeView
         while let node = parent {
-            if node.style["position_type"]?.string == "absolute" { return node }
+            if node.layoutPosition == "absolute" { return node }
             parent = node.superview as? NodeView
         }
         return nil
@@ -1295,9 +1253,7 @@ package final class Presenter {
             // nearest positioned ancestor, expressed in the parent coordinates.
             var containing = parent
             while containing !== root && containing.superview !== root {
-                if let node = containing as? NodeView,
-                   node.style["position_type"]?.string != nil,
-                   node.style["position_type"]?.string != "static" { break }
+                if let node = containing as? NodeView, node.layoutPosition != "static" { break }
                 // A route's root, whose container is its controller's view, is as far as a presented one goes
                 guard let ancestor = containing.superview, ancestor is NodeView || ancestor === root else { break }
                 containing = ancestor
@@ -1377,119 +1333,21 @@ package final class Presenter {
         let color = first?.color("background_color", .platformBackground(in: root)) ?? .platformBackground(in: root)
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
-
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
-    func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false) {
+    func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false, boxChanged: Bool = true) {
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {
             if textChanged || children { node.invalidateText() }
-            node.setNeedsDisplay()
+            if boxChanged || !node.canRasterText { node.setNeedsDisplay() }
             paragraph = node.superview as? NodeView
         }
         if children, start.overlay != nil { start.needsCapture = true }
         if let c = start.paragraphOwner.canvasAbove { c.needsCapture = true }
     }
 }
-
-/// Pixels a view's subtree was painted into: premultiplied RGBA, rows
-/// top-down, `width * 4` bytes per row, owned by the context.
-package struct Bitmap {
-    let context: CGContext
-    package let width: Int
-    package let height: Int
-    package var bytes: UnsafeMutableRawPointer? { context.data }
-    package var bytesPerRow: Int { context.bytesPerRow }
-    /// Empty pixels for the module to fill (a readback).
-    package static func blank(width: Int, height: Int) -> Bitmap? {
-        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
-        else { return nil }
-        return Bitmap(context: ctx, width: width, height: height)
-    }
-    package var image: UIImage? { context.makeImage().map { UIImage(cgImage: $0) } }
-}
-
-/// A view's subtree as pixels (LLP 1014 D3).
-package enum Capture {
-    /// A capture is drawing: its draws are not repaints (D4 b).
-    nonisolated(unsafe) static var capturing = false
-    /// Guest pictures when this turn chooses arm snapshots; their remote
-    /// platform views are hidden while the nodes draw these (LLP 1020 D4/D6).
-    nonisolated(unsafe) static var web: [UInt32: ExactWebImage] = [:]
-    /// EXACT_CAPTURE=cpu: the Core Graphics capture even where Metal is
-    /// present — the measure's baseline, and the fixture's oracle.
-    package static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"
-    /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
-    /// transparent where nothing painted.
-    package static func bitmap(of view: UIView, scale: CGFloat) -> Bitmap? {
-        let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
-        guard let bitmap = Bitmap.blank(width: w, height: h) else { return nil }
-        // The GPU, where there is one (`Shadow`); Core Graphics otherwise.
-        if !cpu, let shadow = Shadow.shared {
-            capturing = true
-            let ok = shadow.render(view, scale: scale, into: bitmap)
-            capturing = false
-            if ok {
-                // EXACT_CAPTURE_DUMP=<dir>: this render and the CPU one of the
-                // same frame, as PNGs, to compare the two by eye.
-                if let dir = ProcessInfo.processInfo.environment["EXACT_CAPTURE_DUMP"], dumped < 4 {
-                    dumped += 1
-                    try? bitmap.image?.pngData()?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("gpu-\(dumped).png"))
-                    if let cpuBitmap = Bitmap.blank(width: w, height: h) { draw(view, scale: scale, into: cpuBitmap); try? cpuBitmap.image?.pngData()?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("cpu-\(dumped).png")) }
-                }
-                return bitmap
-            }
-        }
-        draw(view, scale: scale, into: bitmap)
-        return bitmap
-    }
-    nonisolated(unsafe) static var dumped = 0
-
-    /// The CPU capture: Core Graphics rasterizes the subtree into `bitmap`.
-    static func draw(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) {
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        let h = bitmap.height
-        let ctx = bitmap.context
-        // UIKit's geometry — y down from the top — into a context whose y
-        // is up from the bottom: the first row in memory is then the top.
-        ctx.translateBy(x: 0, y: CGFloat(h))
-        ctx.scaleBy(x: scale, y: -scale)
-        // A subtree painted through its canvas composites at alpha 0; paint
-        // it opaque into the bitmap regardless.
-        let alpha = view.alpha
-        view.alpha = 1
-        // A canvas nested under this one that is painted through its own
-        // surface: its picture comes by readback (its draw), not from its
-        // overlay's views, which the render would paint regardless of their
-        // alpha — so those are hidden for the duration.
-        var hidden: [UIView] = []
-        func hide(_ v: UIView) {
-            for s in v.subviews {
-                if let n = s as? NodeView, n.placement != nil, !n.isHidden { n.isHidden = true; hidden.append(n); continue }
-                // A nested canvas paints its readback in `draw` (LLP 1014):
-                // drop the layer's cached picture so the render calls `draw`
-                // instead of copying what it drew last time (its placements
-                // are read there too, so the cards of a deck in the sky move).
-                if let n = s as? NodeView, n.kind == "canvas" { n.layer.contents = nil; n.setNeedsDisplay() }
-                if let n = s as? NodeView, let o = n.overlay, o.alpha == 0, !o.isHidden { o.isHidden = true; hidden.append(o); continue }
-                hide(s)
-            }
-        }
-        hide(view)
-        capturing = true
-        UIGraphicsPushContext(ctx)
-        paintOrderLayer(of: view, root: view.layer).render(in: ctx)
-        UIGraphicsPopContext()
-        capturing = false
-        for o in hidden { o.isHidden = false }
-        view.alpha = alpha
-    }
-}
-
 extension CGRect {
     /// The rect inside the given edges (never negative in size).
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> CGRect {

@@ -60,6 +60,7 @@ fn measure(m: &mut CallbackMeasurer, k: &Kernel, w: AxisOffer, h: AxisOffer) -> 
     let node = k.node(1).unwrap();
     let runs = node.text_runs();
     let req = TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(node.style),
@@ -410,6 +411,7 @@ mod storage {
             && actual.variation_tags == expected.variation_tags
             && actual.variation_values.map(f32::to_bits)
                 == expected.variation_values.map(f32::to_bits)
+            && actual.optical_sizing_none == expected.optical_sizing_none
     }
 
     extern "C" fn inspect_request(ctx: *mut c_void, request: *const CRequest) -> CMetrics {
@@ -428,6 +430,8 @@ mod storage {
             && actual.text_indent.to_bits() == expected.text_indent.to_bits()
             && actual.hyphens == expected.hyphens
             && actual.text_wrap_style == expected.text_wrap_style
+            && actual.atoms_len == expected.atoms_len
+            && actual.faces_len == expected.faces_len
             && same_run(&actual.strut, &expected.strut)
             && !actual.runs.is_null();
         if probe.exact {
@@ -468,6 +472,7 @@ mod storage {
             font_style: FontStyle::Italic,
             font_stretch: 87.5,
             font_variations: exact_kernel::style::FontVariations::parse(r#""GRAD" 150"#).unwrap(),
+            font_optical_sizing: exact_kernel::FontOpticalSizing::None,
             font_family: 23,
             line_height: heights[variant],
             letter_spacing: -0.125,
@@ -480,6 +485,7 @@ mod storage {
             font_style: FontStyle::Normal,
             font_stretch: 100.0,
             font_variations: Default::default(),
+            font_optical_sizing: Default::default(),
             font_family: 7,
             line_height: Some(30.25),
             letter_spacing: -0.0,
@@ -512,6 +518,7 @@ mod storage {
                 variation_count: 1,
                 variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
                 variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                optical_sizing_none: 1,
             },
             CRun {
                 text: "".as_ptr(),
@@ -528,6 +535,7 @@ mod storage {
                 variation_count: 0,
                 variation_tags: [0; 8],
                 variation_values: [0.0; 8],
+                optical_sizing_none: 0,
             },
         ];
         let widths = [
@@ -558,6 +566,7 @@ mod storage {
             paragraph.text_wrap_style = exact_kernel::TextWrapStyle::Balance;
         }
         let request = TextMeasureRequest {
+            atoms: Default::default(),
             exclusions: &[],
             runs: &runs[..count],
             paragraph,
@@ -591,6 +600,10 @@ mod storage {
                 text_box_over: 0,
                 text_box_under: 0,
                 text_wrap_style: (variant % 2) as u8,
+                atoms: "".as_ptr(),
+                atoms_len: 0,
+                faces: "".as_ptr(),
+                faces_len: 0,
             },
             calls: 0,
             exact: true,

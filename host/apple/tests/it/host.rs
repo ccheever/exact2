@@ -201,7 +201,8 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
         "typed style rows: {}",
         &batch[..400]
     );
-    assert!(batch.contains("\"background_color\":[238,238,238,255]"));
+    // The glass cards' `light-dark()` pair: both schemes' colours travel.
+    assert!(batch.contains("\"background_color\":[[255,255,255,217],[28,28,30,217]]"));
     // The root is a block as wide as the viewport (LLP 1008 §1) and, since
     // the app lives inside a sky canvas that fills the window (LLP 1014
     // §1a), as tall as it: its `scroll` child holds the page.
@@ -968,7 +969,7 @@ pub(crate) mod handles {
     /// would carry it: the exports hand it to the runner at every boot.
     pub const COMPAT: &str =
         r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"0"}}}"#;
-    pub const ANALYSIS_COMPAT: &str = r#"{"inputs":{"store":{"L":"A"},"trust":"production"},"embedded":{"analysis":true,"seq":null}}"#;
+    pub const ANALYSIS_COMPAT: &str = r#"{"inputs":{"store":{"L":"A"},"trust":"production"},"embedded":{"analysis":true,"seq":null,"trust":"production"}}"#;
     fn compat() -> &'static str {
         ANALYSIS.with(|analysis| {
             if analysis.get() {

@@ -196,7 +196,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         let has = |key: &str| strings.is_some_and(|s| s.base_table().contains_key(key));
         // A grant built otherwise cannot be read, so it is not warned about;
         // granted with its purpose anywhere settles it; else the first key written.
-        let Some(keys) = literals::keys(&lits, device.name) else {
+        let Some(keys) = literals::keys(&lits, &line) else {
             continue;
         };
         if keys.iter().any(|k| has(k)) {
@@ -237,7 +237,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
     for (grants, span, call) in modules {
         let Some(found) = grants
             .iter()
-            .map(|g| literals::keys(&lits, g.trim_start_matches("device.")))
+            .map(|g| literals::keys(&lits, g))
             .collect::<Option<Vec<_>>>()
         else {
             continue;
@@ -247,11 +247,19 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         }
         let lines: Vec<String> = grants.iter().map(|g| format!("`{g}`")).collect();
         let last = grants.last().cloned().unwrap_or_default();
-        let key = format!("purpose.{}", last.trim_start_matches("device."));
+        // A device line names its purpose key; any other its target (`auth.passkey <rp id>`).
+        let named = |d: &str| {
+            (exact_runner::device::DEVICES.iter()).any(|row| row.name == d && row.purpose)
+        };
+        let add = match last.strip_prefix("device.") {
+            Some(device) if !named(device) => format!("`{last}` to the app's grants"),
+            Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
+            None => format!("`{last} <its target>` to the app's grants"),
+        };
         out.push(CompileError {
             id: "grant-missing".into(),
             ..warn(span, format!(
-                "{call} answers only under one of {}, and no file of the app's data module names one: add `{last} {key}` to the app's grants, with its purpose in strings/{base}.json",
+                "{call} answers only under one of {}, and no file of the app's data module names one: add {add}",
                 lines.join(" or ")
             ))
         });
@@ -259,23 +267,23 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
     out
 }
 
-/// Each native module interface the app reads or sends, once, by its first
-/// use: its grant lines, where, and the call.
+/// Each set of grant lines a native module's names the app reads or sends
+/// answer under, once, by its first use: the lines, where, and the call. A
+/// name's own list of lines is its set (an empty one, as a picker's, needs
+/// none: LLP 1133.018 D4); else its interface's.
 fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
     let mut out: Vec<(Vec<String>, Span, String)> = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
+    let mut seen: Vec<(&str, Vec<String>)> = Vec::new();
     for m in &file.modules {
-        if seen.contains(&m.extension.as_str()) {
-            continue;
-        }
-        let grants: Vec<String> = serde_json::from_str::<serde_json::Value>(&m.substitute)
-            .ok()
-            .and_then(|s| s["grants"].as_array().cloned())
-            .unwrap_or_default()
-            .iter()
+        let sub = serde_json::from_str::<serde_json::Value>(&m.substitute).unwrap_or_default();
+        let lines = match &sub["nameGrants"] {
+            serde_json::Value::Array(own) => own.clone(),
+            _ => sub["grants"].as_array().cloned().unwrap_or_default(),
+        };
+        let grants: Vec<String> = (lines.iter())
             .filter_map(|g| g.as_str().map(str::to_owned))
             .collect();
-        if grants.is_empty() {
+        if grants.is_empty() || seen.contains(&(m.extension.as_str(), grants.clone())) {
             continue;
         }
         fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
@@ -301,7 +309,7 @@ fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
                     .find_map(|a| sends(&a.body, &m.name))
             });
         if let Some(span) = used {
-            seen.push(&m.extension);
+            seen.push((&m.extension, grants.clone()));
             out.push((grants, span, format!("`{}`", m.declared)));
         }
     }

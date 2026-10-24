@@ -13,10 +13,12 @@ use std::collections::BTreeMap;
 
 pub(crate) type Rows = Vec<(StyleId, StyleValue<'static>)>;
 
+/// A case's declarations, each its author's (`written`), as a page's CSS is.
 pub(crate) fn props(rows: &Rows) -> StyleProps {
     let mut p = StyleProps::default();
     for (row, value) in rows {
         p.set_dynamic(*row, value).unwrap();
+        p.written.set(*row);
     }
     p
 }
@@ -208,6 +210,15 @@ pub(crate) fn lay_out_as(
 
 /// Every mismatch of `[x, y, width, height]`, named by case and node.
 pub(crate) fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -> Vec<String> {
+    mismatches_with_tolerance(case, k, expected, 0.01)
+}
+
+fn mismatches_with_tolerance(
+    case: &str,
+    k: &Kernel,
+    expected: &[(u32, [f32; 4])],
+    tolerance: f32,
+) -> Vec<String> {
     let mut out = Vec::new();
     for (id, want) in expected {
         let f = k.node(*id).unwrap().frame;
@@ -215,7 +226,7 @@ pub(crate) fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -
         if got
             .iter()
             .zip(want)
-            .any(|(g, w)| !g.is_finite() || !w.is_finite() || (g - w).abs() > 0.01)
+            .any(|(g, w)| !g.is_finite() || !w.is_finite() || (g - w).abs() > tolerance)
         {
             out.push(format!("{case} #{id}: kernel {got:?}, Chrome {want:?}"));
         }
@@ -896,4 +907,126 @@ fn a_button_lays_out_its_content_as_chrome_does() {
         &[(3, [0.0, 41.0, 200.0, 18.0])],
     ));
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Chrome 151 on Linux, 2026-10-23: literal CSS measured with
+/// getBoundingClientRect; child boxes have min-height: 30px.
+#[test]
+fn calculated_grid_tracks_match_chrome() {
+    let mut failures = Vec::new();
+    for (css, expected) in [
+        (
+            "width:150px;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))",
+            vec![
+                [0.0, 0.0, 150.0, 30.0],
+                [0.0, 30.0, 150.0, 30.0],
+                [0.0, 60.0, 150.0, 30.0],
+            ],
+        ),
+        (
+            "width:650px;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))",
+            vec![
+                [0.0, 0.0, 216.65625, 30.0],
+                [216.65625, 0.0, 216.67188, 30.0],
+                [433.32813, 0.0, 216.67188, 30.0],
+            ],
+        ),
+        (
+            "width:650px;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))",
+            vec![[0.0, 0.0, 325.0, 30.0], [325.0, 0.0, 325.0, 30.0]],
+        ),
+        (
+            "width:400px;grid-template-columns:calc(50% - 10px) calc(50% - 10px)",
+            vec![[0.0, 0.0, 190.0, 30.0], [190.0, 0.0, 190.0, 30.0]],
+        ),
+        (
+            "width:100px;height:200px;grid-template-rows:clamp(20px,25%,80px) max(10px,20%)",
+            vec![[0.0, 0.0, 100.0, 50.0], [0.0, 50.0, 100.0, 40.0]],
+        ),
+        (
+            "width:400px;grid-template-columns:calc(10px - 20px) 1fr",
+            vec![[0.0, 0.0, 0.0, 30.0], [0.0, 0.0, 400.0, 30.0]],
+        ),
+        (
+            "width:100px;grid-template-rows:min(50%,40px) calc(50% - 10px)",
+            vec![[0.0, 0.0, 100.0, 30.0], [0.0, 30.0, 100.0, 30.0]],
+        ),
+        (
+            "width:400px;grid-template-columns:repeat(2,minmax(calc(20% + 10px),max(30%,120px)))",
+            vec![[0.0, 0.0, 120.0, 30.0], [120.0, 0.0, 120.0, 30.0]],
+        ),
+        (
+            "width:400px;padding:20px;grid-template-columns:calc(50% - 10px) calc(50% - 10px)",
+            vec![[20.0, 20.0, 190.0, 30.0], [210.0, 20.0, 190.0, 30.0]],
+        ),
+        (
+            "width:400px;grid-template-columns:min(100%,calc(10px - 20px)) 1fr",
+            vec![[0.0, 0.0, 0.0, 30.0], [0.0, 0.0, 400.0, 30.0]],
+        ),
+        (
+            "width:150px;grid-template-columns:repeat(auto-fill,min(100%,200px))",
+            vec![[0.0, 0.0, 150.0, 30.0], [0.0, 30.0, 150.0, 30.0]],
+        ),
+        (
+            "width:100px;grid-template-rows:clamp(10px,20px,30px) calc(10px - 20px)",
+            vec![[0.0, 0.0, 100.0, 30.0], [0.0, 20.0, 100.0, 30.0]],
+        ),
+    ] {
+        let root = props(&css_rows(&format!("display:grid;{css}")));
+        let nodes = (2..2 + expected.len() as u32)
+            .map(|id| (id, 1, css_rows("min-height:30px")))
+            .collect();
+        let k = lay_out(root, nodes, &[]);
+        let expected = expected
+            .into_iter()
+            .enumerate()
+            .map(|(i, rect)| (i as u32 + 2, rect))
+            .collect::<Vec<_>>();
+        // Chrome quantizes thirds to 1/64px; the kernel retains f32 coordinates.
+        failures.extend(mismatches_with_tolerance(css, &k, &expected, 1.0 / 64.0));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn calculated_grid_tracks_recompute_after_resize_and_stay_finite() {
+    let mut k = lay_out(
+        props(&css_rows("display:grid;width:150px;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))")),
+        (2..5).map(|id| (id, 1, css_rows("min-height:30px"))).collect(), &[],
+    );
+    for (epoch, width, columns) in [(2, 650.0, 3.0), (3, 150.0, 1.0)] {
+        k.apply(
+            0,
+            epoch,
+            &[Op::SetStyle {
+                id: 1,
+                patch: Box::new(props(&vec![(Width, n(width))])),
+            }],
+        )
+        .unwrap();
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        assert!((k.node(2).unwrap().frame.width - width as f32 / columns).abs() < 0.02);
+    }
+    for css in [
+        "calc(NaN * 1px)",
+        "calc(infinity * 1px)",
+        "calc(-infinity * 1px)",
+        "min(1e100px, 20%)",
+        "max(-1e100px, 10%)",
+        "calc(1e100% + 1e100px)",
+    ] {
+        let k = lay_out(
+            props(&css_rows(&format!(
+                "display:grid;width:400px;grid-template-columns:{css}"
+            ))),
+            empty(1, &[2]),
+            &[],
+        );
+        let f = k.node(2).unwrap().frame;
+        assert!(
+            [f.x, f.y, f.width, f.height].iter().all(|v| v.is_finite()),
+            "{css}: {f:?}"
+        );
+        assert!(f.width >= 0.0);
+    }
 }

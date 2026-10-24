@@ -555,6 +555,22 @@ fn the_style_hint_suggests_only_what_compiles() {
             "font-size: 14px; font-weight: 600; line-height: 1.4",
             "font-size=\"14px\" font-weight=600 line-height=1.4",
         ),
+        // String shorthands keep quotes even when their CSS value is a number.
+        ("border: 0", "border=\"0\""),
+        ("border-top: 0", "border-top=\"0\""),
+        ("border-right: 0", "border-right=\"0\""),
+        ("border-bottom: 0", "border-bottom=\"0\""),
+        ("border-left: 0", "border-left=\"0\""),
+        ("columns: 2", "columns=\"2\""),
+        ("columns: 1", "columns=\"1\""),
+        ("columns: 65535", "columns=\"65535\""),
+        ("columns: 02", "columns=\"02\""),
+        ("columns: 12px", "columns=\"12px\""),
+        ("column-rule: 0", "column-rule=\"0\""),
+        (
+            "column-count: 2; column-rule-width: 0; padding: 8",
+            "column-count=2 column-rule-width=0 padding=8",
+        ),
         // A custom property is not an attribute; the others are.
         ("--gap: 8px; padding: 8px", "padding=\"8px\""),
         // A plain number is unquoted, as the lexer wants it.
@@ -612,6 +628,71 @@ fn the_style_hint_suggests_only_what_compiles() {
             message.contains("a look nodes share is a `style Name` block"),
             "{style}: {message}"
         );
+    }
+}
+
+#[test]
+fn the_style_hint_keeps_importance_for_properties_with_shared_rows() {
+    for (a, b) in [
+        ("border-color: red", "border-bottom-color: blue"),
+        ("border-width: 2px", "border-top: 1px solid red"),
+        ("border-top: 1px solid red", "border-color: blue"),
+        ("animation: pulse 1s", "animation-duration: 2s"),
+        ("animation-duration: 1s", "animation-duration: 2s"),
+    ] {
+        for (first, last) in [(a, b), (b, a)] {
+            let style = format!("{first} !important; {last}");
+            let src = format!("component A\n  view\n    text \"a\" style={style:?}\n");
+            let e = contract::compile(&src).unwrap_err();
+            assert_eq!(e.id, "lower-unknown-attr");
+            assert!(!e.message.contains("write "), "{style}: {e}");
+            assert!(e
+                .message
+                .contains("a look nodes share is a `style Name` block"));
+        }
+    }
+    // Distinct animation longhands compose into parts of one row without competing.
+    let app = |attrs: &str| {
+        format!("keyframes pulse\n  to opacity=0\ncomponent A\n  view\n    text \"a\" {attrs}\n")
+    };
+    let longhands: Vec<_> = exact_motion::animation::LONGHANDS
+        .into_iter()
+        .zip([
+            "pulse", "1s", "linear", "0s", "infinite", "reverse", "both", "paused",
+        ])
+        .collect();
+    for (i, a) in longhands.iter().enumerate() {
+        for b in &longhands[i + 1..] {
+            for ((first, x), (last, y)) in [(a, b), (b, a)] {
+                for importance in ["", " !important"] {
+                    let style = format!("{first}: {x}{importance}; {last}: {y}");
+                    let e = contract::compile(&app(&format!("style={style:?}"))).unwrap_err();
+                    let attrs = format!("{first}=\"{x}\" {last}=\"{y}\"");
+                    assert!(
+                        e.message
+                            .contains(&format!("write the declarations as attributes, `{attrs}`")),
+                        "{style}: {e}"
+                    );
+                    contract::compile(&app(&attrs)).unwrap_or_else(|e| panic!("{attrs}: {e}"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_style_hint_does_not_turn_invalid_column_counts_into_widths() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    for value in ["2.0", "2.5", "2.", "0.5", "0", "65536"] {
+        let style = format!("columns: {value}");
+        let e = contract::compile(&app(&format!("style={style:?}"))).unwrap_err();
+        let attrs = format!("columns={value}");
+        assert!(
+            e.message
+                .contains(&format!("write the declarations as attributes, `{attrs}`")),
+            "{style}: {e}"
+        );
+        contract::compile(&app(&attrs)).expect_err("invalid counts must remain refused");
     }
 }
 
@@ -760,6 +841,7 @@ fn the_element_lint_finds_nothing_in_any_app() {
                     source_id: 1,
                     bindable: false,
                     package: None,
+                    root: None,
                 });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());

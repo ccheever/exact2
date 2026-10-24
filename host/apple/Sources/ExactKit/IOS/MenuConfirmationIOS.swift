@@ -2,6 +2,14 @@
 import UIKit
 
 extension MenuHost {
+    /// A visible native cell replaces its host-hidden authored section; CSS hiding still withdraws the invoker.
+    func groupedProjectionShows(_ source: NodeView, behind view: UIView) -> Bool {
+        guard let node = view as? NodeView, node.hiddenByHost, node.style["display"]?.string != "none",
+              let lists = presenter?.groupedLists, lists.hides(node),
+              case .view(let drawn, let port)? = lists.shown(source) else { return false }
+        return drawn.window != nil && !drawn.isHidden && !port.isHidden
+    }
+
     /// An alertdialog-shaped popover has one or more actions and at most one
     /// hide-only cancel: a chooser ("Open in…") is one action per choice.
     /// Retain this owner until native dismissal completes; ids alone are not
@@ -59,6 +67,11 @@ extension MenuHost {
             route = host.presenter?.navigation.routeKey(containing: source ?? popover)
             alert = UIAlertController(title: title, message: message, preferredStyle: style == .alert ? .alert : .actionSheet)
         }
+        func observeDisappearance() {
+            let lifetime = ConfirmationLifetime(frame: .zero)
+            lifetime.owner = self
+            alert.view.addSubview(lifetime)
+        }
         func owns(_ node: NodeView) -> Bool { actions.contains { $0.node === node } }
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }
         #if !os(tvOS)
@@ -72,4 +85,18 @@ extension MenuHost {
     }
 
 }
+private final class ConfirmationLifetime: UIView {
+    weak var owner: MenuHost.Confirmation?
+    private var mounted = false
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { mounted = true; return }
+        guard mounted else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let owner = self?.owner, owner.alert.presentingViewController == nil, !owner.finishing else { return }
+            owner.host?.cancelled(owner)
+        }
+    }
+}
+
 #endif

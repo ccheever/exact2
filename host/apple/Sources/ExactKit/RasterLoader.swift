@@ -200,6 +200,14 @@ private final class RasterBackend: @unchecked Sendable {
             RasterInput.fetch(url, cancellation: cancellation) { [weak self] result in self?.downloaded(source, cancellation, result) }
             return true
         }
+        // A package's picture is asked of its implementation, on the main thread.
+        if fetched == nil, let pictures = loader?.pictures, pictures.serving(source.name) != nil {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let loader = self.loader else { return }
+                loader.askPicture(source.name) { [weak self] result in self?.downloaded(source, cancellation, result) }
+            }
+            return true
+        }
         var metadata: RasterMetadata?, input: RasterInput?, failure: String?
         do {
             guard let resolver = source.resolver else { throw RasterFailure.decode }
@@ -255,6 +263,9 @@ private final class RasterBackend: @unchecked Sendable {
                 if let name = input.catalog, exact_raster_is_cancelled(work.permit) == 0,
                    let image = RasterImage.catalog(name, metadata: metadata, plan: plan, charge: charge, sourceOwner: source) {
                     return image
+                }
+                if let picture = input.decoded {
+                    return try RasterImage.picture(picture, metadata: metadata, plan: plan, charge: charge, sourceOwner: source)
                 }
                 let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
@@ -470,11 +481,17 @@ final class RasterLoader {
     private(set) var budget: UInt64
     let id: UInt64
     private let backend: RasterBackend
+    /// Package pictures admitted and revoked (PackagePictures.swift).
+    let pictures = PackagePictures()
     private var interests: [UInt32: Interest] = [:]
     private var deferred: [UInt32: DeferredInterest] = [:]
     /// The source each view's last refusal before a fetch named: its `error`
     /// goes out once, though every props op asks for that source again.
     private var refused: [UInt32: String] = [:]
+    /// Package pictures refused admission, by view: asked again after each
+    /// commit, since an implementation bound or a permission granted since
+    /// may let one in (LLP 1133.019 D2).
+    private var refusedPictures: [UInt32: (view: () -> NodeView?, source: String, resolver: AssetResolver)] = [:]
     private var deferredCursor: UInt32 = 0
     /// The views parked off screen (`park`), for the scroll check.
     private var parked = Set<UInt32>()
@@ -537,6 +554,12 @@ final class RasterLoader {
             view.presenter?.session?.log("image refused: a data: source is over \(RasterInput.dataLimit) bytes (LLP 1011 §2)")
             refuse("a data: source over \(RasterInput.dataLimit) bytes"); return false
         }
+        refusedPictures[view.id] = nil
+        if let session = view.presenter?.session, let refusal = pictures.admit(source, session: session) {
+            view.presenter?.session?.log("image refused: \(source): \(refusal) (LLP 1133.019 D2)")
+            refusedPictures[view.id] = ({ [weak view] in view }, source, resolver)
+            refuse(refusal); return false
+        }
         let retained = interests[view.id] != nil || deferred[view.id] != nil
         guard !destroyed, retained || interests.count + deferred.count < 1024 else {
             view.presenter?.session?.log("image deferred: raster subscriber limit")
@@ -564,6 +587,7 @@ final class RasterLoader {
     }
     func cancel(_ view: UInt32) {
         deferred.removeValue(forKey: view)
+        refusedPictures.removeValue(forKey: view)
         refused.removeValue(forKey: view)
         unpark(view)
         guard let interest = interests.removeValue(forKey: view) else { return }
@@ -571,6 +595,52 @@ final class RasterLoader {
         backend.release(interest.source.id)
     }
     func invalidate(_ source: String) { backend.invalidate(source) }
+    /// Each refused package picture whose admission now passes loads. Main
+    /// thread, after a commit applied.
+    func readmitPictures() {
+        for (id, refusal) in refusedPictures {
+            guard let view = refusal.view(), let session = view.presenter?.session else { refusedPictures[id] = nil; continue }
+            guard pictures.admit(refusal.source, session: session) == nil else { continue }
+            refused[id] = nil
+            load(view, source: refusal.source, resolver: refusal.resolver)
+        }
+    }
+    /// Ask the implementation for package picture `name` at the size of a
+    /// box that shows it. Main thread.
+    fileprivate func askPicture(_ name: String, done: @escaping (Result<RasterInput, Error>) -> Void) {
+        let view = interests.values.first { $0.source.name == name && $0.view != nil }?.view
+        guard let view, let session = view.presenter?.session else { return done(.failure(RasterFailure.unresolved)) }
+        let scale = Self.displayScale(view)
+        // Before layout, the platform's own thumbnail size.
+        let box = view.bounds.size == .zero ? CGSize(width: 512, height: 512) : view.bounds.size
+        pictures.ask(name, session: session, width: max(1, Int((box.width * scale).rounded(.up))),
+                     height: max(1, Int((box.height * scale).rounded(.up))),
+                     fit: view.style["object_fit"]?.string ?? "fill", done: done)
+    }
+    /// The implementation took package picture `source` back (LLP 1133.019
+    /// D2): every view showing it is emptied and fires `error`, its loads
+    /// and cache entries go, and a reply in flight is dropped.
+    func revokePicture(_ source: String) {
+        pictures.revoke(source)
+        backend.invalidate(source)
+        var gone: [(view: NodeView, generation: Int?, failure: String?)] = []
+        for (id, interest) in interests where interest.source.name == source {
+            if let view = interest.view { view.withdrawPicture(); gone.append((view, nil, "revoked")) }
+            cancel(id)
+            refused[id] = source
+        }
+        Self.announce(gone)
+    }
+    /// The implementation says package picture `source` changed: each view
+    /// showing it loads it again.
+    func pictureChanged(_ source: String) {
+        backend.invalidate(source)
+        for (id, interest) in interests where interest.source.name == source {
+            guard let view = interest.view, let resolver = interest.source.resolver else { continue }
+            cancel(id)
+            load(view, source: source, resolver: resolver)
+        }
+    }
     /// Images on screen still loading (the agent's `clock` and `screenshot`
     /// wait for them).
     var loadingOnScreen: Int {
@@ -630,9 +700,14 @@ final class RasterLoader {
     /// pixel size, which is the concrete object size the picture is drawn at
     /// (LLP 1011.001 D1); nil for a bitmap or another fit.
     private static func svgAspect(_ view: NodeView, _ metadata: RasterMetadata) -> (Int, Int)? {
-        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        #if os(iOS) || os(tvOS)
+        let box = view.buttonRasterView == nil ? view.bounds.size : metadata.naturalSize
+        #else
+        let box = view.bounds.size
+        #endif
+        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", box.width > 0, box.height > 0 else { return nil }
         let scale = displayScale(view)
-        return (max(1, Int((view.bounds.width * scale).rounded())), max(1, Int((view.bounds.height * scale).rounded())))
+        return (max(1, Int((box.width * scale).rounded())), max(1, Int((box.height * scale).rounded())))
     }
     /// The decoded image's longest side: enough device pixels for the box
     /// at its object-fit (`cover` and `fill` scale the image until both axes
@@ -643,6 +718,13 @@ final class RasterLoader {
         let scale = view.window?.backingScaleFactor ?? 1
         #else
         let scale = view.traitCollection.displayScale
+        #endif
+        #if os(iOS) || os(tvOS)
+        // A native face displays the image at its natural dimensions, even
+        // before metadata has enlarged the button's image-free layout box.
+        if view.buttonRasterView != nil, let natural = metadata?.naturalSize {
+            return max(64, min(4096, Int(ceil(max(natural.width, natural.height) * scale))))
+        }
         #endif
         let box = view.bounds.size
         var longest = max(box.width, box.height)
@@ -982,7 +1064,12 @@ final class RasterLoader {
     private func report(_ landed: [(view: NodeView, generation: Int, size: CGSize)]) {
         guard let presenter = landed.first?.view.presenter else { return }
         let sizes = landed.compactMap { item -> (UInt32, CGSize?)? in
-            item.view.loadGeneration == item.generation && presenter.views[item.view.id] === item.view ? (item.view.id, item.size) : nil
+            guard item.view.loadGeneration == item.generation, presenter.views[item.view.id] === item.view else { return nil }
+            #if os(iOS) || os(tvOS)
+            return (item.view.buttonRasterView ?? item.view.id, item.size)
+            #else
+            return (item.view.id, item.size)
+            #endif
         }
         if !sizes.isEmpty { presenter.onIntrinsic?(sizes) }
     }
@@ -998,7 +1085,7 @@ final class RasterLoader {
         if !paused { reconcile() }
     }
     func reset() {
-        interests.removeAll(); deferred.removeAll(); refused.removeAll(); deferredCursor = 0
+        interests.removeAll(); deferred.removeAll(); refused.removeAll(); refusedPictures.removeAll(); deferredCursor = 0
         parked.removeAll(); stopWatchingScrolls()
         backend.reset(stop: false); exact_raster_session_control(id, 0)
     }

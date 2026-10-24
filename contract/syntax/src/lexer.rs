@@ -131,7 +131,16 @@ impl Lexer {
                 && indent == 0
                 && matches!(
                     word,
-                    Some("component" | "font" | "shape" | "style" | "decoration" | "fn" | "test")
+                    Some(
+                        "component"
+                            | "font"
+                            | "shape"
+                            | "style"
+                            | "decoration"
+                            | "atom"
+                            | "fn"
+                            | "test"
+                    )
                 )
             {
                 *depth = 0;

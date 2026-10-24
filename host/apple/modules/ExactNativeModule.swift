@@ -52,6 +52,7 @@
 //     }
 //     #endif
 import Foundation
+import Security
 #if os(macOS)
 import AppKit
 public typealias ExactNativeView = NSView
@@ -97,11 +98,16 @@ public final class ExactModuleContext: @unchecked Sendable {
     var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
     private var nextToken: UInt64 = 1
 
+    /// Who posts what an activation is for (LLP 1133.004 D7): the session, its owner, the process.
+    let poster: [String: String]
+    var emitted: UInt64 = 0
+
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
         diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
         let url = { (key: String) in URL(fileURLWithPath: json[key] as? String ?? NSTemporaryDirectory(), isDirectory: true) }
         agent = json["agent"] as? Bool ?? false
         data = url("data"); cache = url("cache"); temporary = url("temporary")
+        poster = ["session", "owner", "process"].reduce(into: [:]) { $0[$1] = json[$1] as? String ?? "" }
         self.host = host; changedFn = changed; nowFn = now
     }
 
@@ -194,9 +200,11 @@ public final class ExactReply: @unchecked Sendable {
         bytes.withUnsafeBufferPointer { fn(taken, status, $0.baseAddress, $0.count) }
     }
 
-    /// Resolve the TypeScript promise with a JSON object.
+    /// Resolve the TypeScript promise with a JSON object, or with the value
+    /// of its one key `exact:answer` (a package's list, ExactPackage.swift).
     public func send(_ value: [String: Any]) {
-        guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else {
+        let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
+        guard JSONSerialization.isValidJSONObject(sent), let data = try? JSONSerialization.data(withJSONObject: sent) else {
             return fail("the reply was not JSON")
         }
         answer(200, String(decoding: data, as: UTF8.self))
@@ -406,6 +414,8 @@ public final class ExactWindow {
     public internal(set) var frame = CGRect.zero
     /// The surface's safe area: top, right, bottom, left.
     public internal(set) var safeArea: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) = (0, 0, 0, 0)
+    /// The window's angle as the web's `screen.orientation.angle`: 0, 90, 180 or 270.
+    public internal(set) var angle: Double = 0
     /// True in the first `window` call of this handle; false on a size or safe-area change.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
@@ -426,6 +436,7 @@ public final class ExactWindow {
         exclusive = json["exclusive"] as? Bool ?? false
         if let f = json["frame"] as? [Double], f.count == 4 { frame = CGRect(x: f[0], y: f[1], width: f[2], height: f[3]) }
         if let s = json["safeArea"] as? [Double], s.count == 4 { safeArea = (CGFloat(s[0]), CGFloat(s[1]), CGFloat(s[2]), CGFloat(s[3])) }
+        angle = json["angle"] as? Double ?? 0
     }
 }
 
@@ -519,6 +530,18 @@ final class ExactHatches {
     /// One of 120 or more: `app.onLine`.
     typealias OnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
     let onLineFn: OnLineFn?
+    /// One of 136 or more: a capture's claim on the audio session and its release (LLP 1133.009 D7; ExactExtensions.swift).
+    let audioClaimFn: AudioClaims.ClaimFn?, audioReleaseFn: AudioClaims.ReleaseFn?
+    /// One of 144 or more: a package picture changed (0) or revoked (1) (LLP 1133.019 D11 item 1).
+    typealias PictureFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+    let pictureFn: PictureFn?
+    /// One of 160 or more: a package's canvas input (LLP 1133.013 D6; ExactExtensions.swift).
+    typealias SurfaceHasFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
+    typealias SurfaceSensorFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32,
+                                                UnsafePointer<Double>?, UInt32, UInt32, Double, UInt32) -> Void
+    let surfaceHasFn: SurfaceHasFn?, surfaceSensorFn: SurfaceSensorFn?
+    /// One of 168 or more: a package's call of the app's handler (LLP 1133.016 D15 item 1; ExactExtensions.swift).
+    let invokeFn: Invocations.InvokeFn?
     #if os(iOS) || os(tvOS)
     /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
     typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -563,6 +586,43 @@ final class ExactHatches {
         #endif
         onLineFn = table.load(as: UInt32.self) >= 120
             ? table.load(fromByteOffset: 112, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OnLineFn.self) } : nil
+        let audio = table.load(as: UInt32.self) >= 136
+        audioClaimFn = audio ? table.load(fromByteOffset: 120, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ClaimFn.self) } : nil
+        audioReleaseFn = audio ? table.load(fromByteOffset: 128, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ReleaseFn.self) } : nil
+        pictureFn = table.load(as: UInt32.self) >= 144
+            ? table.load(fromByteOffset: 136, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PictureFn.self) } : nil
+        let surfaces = table.load(as: UInt32.self) >= 160
+        surfaceHasFn = surfaces ? table.load(fromByteOffset: 144, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceHasFn.self) } : nil
+        surfaceSensorFn = surfaces ? table.load(fromByteOffset: 152, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceSensorFn.self) } : nil
+        invokeFn = table.load(as: UInt32.self) >= 168
+            ? table.load(fromByteOffset: 160, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: Invocations.InvokeFn.self) } : nil
+    }
+
+    /// A package picture changed (0) or revoked (1): the host's raster loader acts on it.
+    func picture(_ kind: UInt32, _ source: String) {
+        let bytes = Array(source.utf8)
+        bytes.withUnsafeBufferPointer { pictureFn?(host, kind, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// Whether the session places a canvas of surface `name`; nil when the host feeds no canvas input.
+    func hasSurface(_ name: String) -> Bool? {
+        guard let surfaceHasFn else { return nil }
+        let bytes = Array(name.utf8)
+        return bytes.withUnsafeBufferPointer { surfaceHasFn(host, $0.baseAddress, UInt32($0.count)) } == 1
+    }
+
+    /// A sample written into surface `surface`'s canvas input, or its end.
+    func sensor(_ surface: String, _ sensor: String, _ values: [Double], dropped: Int, at: Double, ended: Bool) {
+        guard let surfaceSensorFn else { return }
+        let s = Array(surface.utf8), n = Array(sensor.utf8)
+        s.withUnsafeBufferPointer { s in
+            n.withUnsafeBufferPointer { n in
+                values.withUnsafeBufferPointer { v in
+                    surfaceSensorFn(host, s.baseAddress, UInt32(s.count), n.baseAddress, UInt32(n.count), v.baseAddress, UInt32(v.count),
+                                    UInt32(clamping: dropped), at, ended ? 1 : 0)
+                }
+            }
+        }
     }
 
     func onLine() -> Bool? { onLineFn.flatMap { f in let answer = f(host); return answer > 1 ? nil : answer == 1 } }
@@ -894,235 +954,8 @@ public final class ExactToolbar {
 }
 #endif
 
-/// The nine events (kernel `EventKind` ordinals) and host-only size reports.
-public final class ExactNativeEvents: @unchecked Sendable {
-    let fn: ExactNativeEventFn
-    let ctx: UnsafeMutableRawPointer?
-    let nonce: UInt32
-    init(fn: @escaping ExactNativeEventFn, ctx: UnsafeMutableRawPointer?, nonce: UInt32) { self.fn = fn; self.ctx = ctx; self.nonce = nonce }
-    private func send(_ kind: UInt32, _ text: String = "") {
-        let bytes = Array(text.utf8)
-        bytes.withUnsafeBufferPointer { fn(ctx, nonce, kind, $0.baseAddress, UInt32($0.count)) }
-    }
-    public func press() { send(0) }
-    public func change(_ value: String) { send(1, value) }
-    public func hover(_ over: Bool) { send(2, over ? "true" : "false") }
-    public func focus() { send(3) }
-    public func blur() { send(4) }
-    public func key(_ name: String) { send(5, name) }
-    public func submit() { send(6) }
-    public func load() { send(7) }
-    public func message(_ text: String) { send(8, text) }
-    /// Preferred content size in points, independent of the assigned frame.
-    /// Report after creation and whenever content changes; nil forgets it.
-    /// Both axes must be finite and positive. CSS still owns the final frame;
-    /// no aspect ratio is inferred. This is not a constrained measure callback.
-    /// Any thread; stale instances are ignored, and a turn's reports coalesce.
-    public func intrinsicSize(_ size: CGSize?) {
-        guard let size else { send(9); return }
-        send(9, "\(size.width),\(size.height)")
-    }
-}
-
-/// Agent-only input. Text replaces the widget's value, as standard `type`
-/// does; keys use the agent's web-named chord and optional down/up phase.
-/// A nil phase is one complete key press (down followed by up).
-/// Throw before changing anything for an unsupported input. Human input and
-/// IME continue through the platform responder, never through this hook.
-public enum ExactNativeInput {
-    case text(String)
-    case key(String, phase: String?)
-}
-
-/// One instance of a module tag.
-open class ExactNativeInstance {
-    public let events: ExactNativeEvents
-    public init(events: ExactNativeEvents) { self.events = events }
-    /// The view the host puts in the node's box; it fills the box, and
-    /// observes its own bounds.
-    open var view: ExactNativeView { fatalError("\(type(of: self)) has no view") }
-    #if os(iOS) || os(tvOS)
-    /// A native screen (LLP 1075.003 §3.6): a controller whose view is
-    /// `view`, contained in the route's controller as a child while it shows.
-    open var controller: UIViewController? { nil }
-    #endif
-    /// Optional focus destination: the view itself or an attached descendant.
-    /// The host owns first-responder changes; return nil to refuse focus.
-    open var focusTarget: ExactNativeView? { nil }
-    /// Synchronous, main-thread agent input, after the host focuses this view.
-    /// Return only after delivery; do not retain a request for later delivery.
-    open func agentInput(_ input: ExactNativeInput) throws {
-        throw ExactNativeRefusal("native view does not support agent input")
-    }
-    /// The whole props object, replaced; throw to refuse it.
-    open func setProps(_ props: [String: String]) throws {}
-    /// PNG bytes of the view, for a tag whose factory sets `snapshot`.
-    open func snapshot() throws -> Data { throw ExactNativeRefusal("no snapshot") }
-    /// Last call. The events object is dead to the host after this.
-    open func destroy() {}
-    /// Reuse (a factory with `reuse`, LLP 1068 §4.8): the instance is now as
-    /// if created with no props; throw to refuse, and the host destroys it.
-    /// The next `setProps` is a first mount, and `events.load()` follows once
-    /// nothing of the last row shows. Events sent before that mount are dropped.
-    open func prepareForReuse() throws { throw ExactNativeRefusal("no reuse") }
-}
-
-#if os(iOS) || os(tvOS)
-/// A module view that is a whole screen (LLP 1075.003 §3.6): `screen`'s view
-/// fills the node's box, and `screen` is a child of the route's controller,
-/// with UIKit's appearance, safe-area and trait propagation.
-open class ExactNativeScreen: ExactNativeInstance {
-    public let screen: UIViewController
-    public init(screen: UIViewController, events: ExactNativeEvents) {
-        self.screen = screen
-        super.init(events: events)
-    }
-    open override var view: ExactNativeView { screen.view }
-    open override var controller: UIViewController? { screen }
-}
-#endif
-
-/// A roster entry: how to make an instance from the session's module,
-/// whether it answers snapshots, whether a list may reuse it (LLP 1068
-/// §4.8), and whether it joins the first frame its node shows in.
-///
-/// Every other tag's view attaches after the first frame has painted (LLP
-/// 1024 D3), so a slow view (a map) never delays it. `firstFrame` is for a
-/// cheap view that must be there from the first frame, such as a boot
-/// splash: the artifact loads, and its view and the session's module are
-/// made, before that frame commits, so their time is first pixel's. Its
-/// `context.frames` and `after` work from then; the module's hatches are
-/// called from first pixel on. The build reads the flag from this roster.
-public struct ExactNativeFactory {
-    public let snapshot: Bool
-    public let reuse: Bool
-    public let firstFrame: Bool
-    public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.snapshot = snapshot
-        self.reuse = reuse
-        self.firstFrame = firstFrame
-        self.make = make
-    }
-    /// A view that needs nothing from the module.
-    public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse, firstFrame: firstFrame) { _, props, events in try make(props, events) }
-    }
-    /// A view of the app's module, typed: `ExactNativeFactory(for: Recorder.self)
-    /// { recorder, props, events in … }`. The session's module is always the
-    /// app's `exactModule`; another type is refused by name.
-    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse, firstFrame: firstFrame) { owner, props, events in
-            guard let typed = owner as? M else { throw ExactNativeRefusal("the session's module is \(type(of: owner)), not \(M.self)") }
-            return try make(typed, props, events)
-        }
-    }
-}
-
-private func props(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32) throws -> [String: String] {
-    guard let bytes, length > 0 else { return [:] }
-    let data = Data(bytes: bytes, count: Int(length))
-    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-        throw ExactNativeRefusal("props are not a JSON object of strings")
-    }
-    return object
-}
-
-private func write(_ message: String, _ out: UnsafeMutablePointer<UInt8>?, _ capacity: UInt32) {
-    guard let out, capacity > 0 else { return }
-    let bytes = Array(message.utf8.prefix(Int(capacity) - 1))
-    for (i, b) in bytes.enumerated() { out[i] = b }
-    out[bytes.count] = 0
-}
-
-private final class Handle {
-    let instance: ExactNativeInstance
-    let reply: ExactNativeReplyFn?
-    let ctx: UnsafeMutableRawPointer?
-    let nonce: UInt32
-    init(_ instance: ExactNativeInstance, reply: ExactNativeReplyFn?, ctx: UnsafeMutableRawPointer?, nonce: UInt32) {
-        self.instance = instance; self.reply = reply; self.ctx = ctx; self.nonce = nonce
-    }
-}
-
-private func handle(_ raw: UnsafeMutableRawPointer?) -> Handle? {
-    raw.map { Unmanaged<Handle>.fromOpaque($0).takeUnretainedValue() }
-}
-
-private func module(_ raw: UnsafeMutableRawPointer?) -> ExactModule? {
-    raw.map { Unmanaged<ExactModule>.fromOpaque($0).takeUnretainedValue() }
-}
-
-private let roster: [String: ExactNativeFactory] = exactModule.views
-
-private let create: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, ExactNativeEventFn?, ExactNativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer? = { owner, tag, tagLength, json, jsonLength, event, reply, ctx, nonce, out, capacity in
-    let name = tag.map { String(decoding: UnsafeBufferPointer(start: $0, count: Int(tagLength)), as: UTF8.self) } ?? ""
-    guard let factory = roster[name] else { write("no factory for \(name)", out, capacity); return nil }
-    guard let owner = module(owner) else { write("no module instance", out, capacity); return nil }
-    guard let event else { write("no event callback", out, capacity); return nil }
-    do {
-        let instance = try factory.make(owner, try props(json, jsonLength), ExactNativeEvents(fn: event, ctx: ctx, nonce: nonce))
-        Tambers.made(instance.view, by: owner)
-        return Unmanaged.passRetained(Handle(instance, reply: reply, ctx: ctx, nonce: nonce)).toOpaque()
-    } catch {
-        write(String(describing: error), out, capacity)
-        return nil
-    }
-}
-
-private let platformView: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
-    handle(raw).map { Unmanaged.passUnretained($0.instance.view).toOpaque() }
-}
-
-private let setProps: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32 = { raw, json, length, out, capacity in
-    guard let h = handle(raw) else { return 1 }
-    do { try h.instance.setProps(try props(json, length)); return 0 } catch {
-        write(String(describing: error), out, capacity)
-        return 1
-    }
-}
-
-private let focusTarget: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
-    handle(raw)?.instance.focusTarget.map { Unmanaged.passUnretained($0).toOpaque() }
-}
-
-private let agentInput: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32 = { raw, json, length, out, capacity in
-    do {
-        guard let h = handle(raw) else { throw ExactNativeRefusal("no native instance") }
-        let request = try props(json, length)
-        let input: ExactNativeInput
-        if let key = request["key"], request["text"] == nil {
-            let phase = request["phase"]
-            guard phase == nil || phase == "down" || phase == "up" else { throw ExactNativeRefusal("invalid key phase") }
-            input = .key(key, phase: phase)
-        } else if let text = request["text"], request["key"] == nil, request["phase"] == nil {
-            input = .text(text)
-        } else { throw ExactNativeRefusal("expected text or key") }
-        try h.instance.agentInput(input)
-        return 0
-    } catch { write(String(describing: error), out, capacity); return 1 }
-}
-
-private let snapshot: @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void = { raw, token in
-    guard let h = handle(raw), let reply = h.reply else { return }
-    do {
-        let png = [UInt8](try h.instance.snapshot())
-        png.withUnsafeBufferPointer { reply(h.ctx, h.nonce, token, 0, $0.baseAddress, UInt32($0.count)) }
-    } catch {
-        let text = Array(String(describing: error).utf8)
-        text.withUnsafeBufferPointer { reply(h.ctx, h.nonce, token, 2, $0.baseAddress, UInt32($0.count)) }
-    }
-}
-
-private let destroy: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
-    guard let raw else { return }
-    let h = Unmanaged<Handle>.fromOpaque(raw)
-    h.takeUnretainedValue().instance.destroy()
-    h.release()
-}
-
 private let moduleCreate: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ExactModuleChangedFn?, ExactModuleNowFn?, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer? = { json, length, host, changed, now, out, capacity in
-    guard let changed, let now else { write("no host callbacks", out, capacity); return nil }
+    guard let changed, let now else { ExactNativeViewABI.write("no host callbacks", out, capacity); return nil }
     let data = json.map { Data(bytes: $0, count: Int(length)) } ?? Data()
     let object = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     let instance = exactModule.init(context: ExactModuleContext(json: object, host: host, changed: changed, now: now))
@@ -1168,6 +1001,10 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
     }
 }
 
+private func module(_ raw: UnsafeMutableRawPointer?) -> ExactModule? {
+    raw.map { Unmanaged<ExactModule>.fromOpaque($0).takeUnretainedValue() }
+}
+
 /// `done(ctx)` exactly once: when the module calls it, or when it lets the
 /// closure go without calling it.
 private final class QuitDone: @unchecked Sendable {
@@ -1192,11 +1029,6 @@ private let moduleWillQuit: @convention(c) (UnsafeMutableRawPointer?, UnsafeMuta
     let done = QuitDone(ctx: ctx, fn: fn)
     guard let m = module(raw) else { return done.call() }
     m.willQuit { done.call() }
-}
-
-private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { raw in
-    guard let h = handle(raw) else { return 1 }
-    do { try h.instance.prepareForReuse(); return 0 } catch { return 1 }
 }
 
 // The hatches (LLP 1075.003 §3.2): the host connects its callbacks once,
@@ -1409,6 +1241,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
     let handle = event == 0 ? ExactWindow() : (hatches.window ?? ExactWindow())
     handle.hatches = hatches
     let isNew = event == 0 || hatches.window == nil
+    let angle = hatches.window?.angle
     handle.read(fields)
     #if os(macOS)
     handle.window = window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }
@@ -1427,16 +1260,52 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
     hatches.window = handle
     handle.isNew = isNew
     m.window(handle)
+    if angle != handle.angle { ExactExtensions.orientation(m, handle.angle) }
 }
 
-/// `platform_controller(handle) → UIViewController?`: a native screen's
-/// controller (the module keeps ownership), or nil for a plain view.
-private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
-    #if os(iOS) || os(tvOS)
-    handle(raw)?.instance.controller.map { Unmanaged.passUnretained($0).toOpaque() }
-    #else
-    nil
-    #endif
+
+/// `authenticate(module, json, len, accessControl, ctx, done)` (LLP 1133.010
+/// D13): the person's check for a presence item, by the extension whose
+/// interface declares the authenticator entry; json {"reason", "policy",
+/// "origin"}, the access control borrowed. done(ctx, context, error, len)
+/// once, from any thread: the evaluated context retained once for the host,
+/// or nil and an error's JSON.
+private let moduleAuthenticate: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
+                                                (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void)?) -> Void = { raw, json, length, control, ctx, done in
+    guard let done else { return }
+    let fail = { (error: [String: Any]) in
+        let data = (try? JSONSerialization.data(withJSONObject: error)) ?? Data()
+        data.withUnsafeBytes { done(ctx, nil, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
+    guard let m = module(raw), let json, let control,
+          let request = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: length)) as? [String: Any]
+    else { return fail(["error": "NotSupportedError", "message": "an unreadable presence check"]) }
+    let access = Unmanaged<SecAccessControl>.fromOpaque(control).takeUnretainedValue()
+    ExactExtensions.authenticate(m, request, access) { context, error in
+        guard let context else { return fail(error ?? ["error": "UnknownError"]) }
+        done(ctx, Unmanaged.passRetained(context).toOpaque(), nil, 0)
+    }
+}
+
+/// `image(module, json, len, ctx, done)` (LLP 1133.019 D11 item 1): a
+/// picture of a package's `img` scheme, which the runner admitted; json
+/// {"extension", "source", "width", "height", "fit", "owned"}. done(ctx,
+/// image, error, len) once, from any thread: the `CGImage` retained once for
+/// the host, or nil and an error's code.
+private let moduleImage: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?,
+                                         (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void)?) -> Void = { raw, json, length, ctx, done in
+    guard let done else { return }
+    let fail = { (code: String) in
+        let bytes = Array(code.utf8)
+        bytes.withUnsafeBufferPointer { done(ctx, nil, $0.baseAddress, $0.count) }
+    }
+    guard let m = module(raw), let json,
+          let request = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: length)) as? [String: Any]
+    else { return fail("NotSupportedError") }
+    ExactExtensions.image(m, request) { image, error in
+        guard let image else { return fail(error ?? "UnknownError") }
+        done(ctx, Unmanaged.passRetained(image).toOpaque(), nil, 0)
+    }
 }
 
 /// The ABI major this artifact was built against; the host refuses others.
@@ -1452,33 +1321,34 @@ private let table: UnsafeMutableRawPointer = {
         + ",\"extensions\":{\"names\":[" + ExactExtensions.names.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
         // `app.onLine` is asked of the host (`on_line`), not read from the facts.
         + ",\"facts\":{\"onLine\":\"asks\"}"
+    let roster = ExactNativeViewABI.roster
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 224
+    let size = 248
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
     t.storeBytes(of: UInt32(size), toByteOffset: 4, as: UInt32.self)
     t.storeBytes(of: UnsafeRawPointer(strdup(text)), toByteOffset: 8, as: UnsafeRawPointer?.self)
-    t.storeBytes(of: unsafeBitCast(create, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(platformView, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(setProps, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(snapshot, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(destroy, to: UnsafeRawPointer.self), toByteOffset: 48, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(agentInput, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(focusTarget, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.create, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.platformView, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.setProps, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.snapshot, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.destroy, to: UnsafeRawPointer.self), toByteOffset: 48, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.agentInput, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.focusTarget, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleCreate, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleDestroy, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleLater, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleCall, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(prepareForReuse, to: UnsafeRawPointer.self), toByteOffset: 104, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.prepareForReuse, to: UnsafeRawPointer.self), toByteOffset: 104, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleConnect, to: UnsafeRawPointer.self), toByteOffset: 120, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleNavigation, to: UnsafeRawPointer.self), toByteOffset: 128, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleRoute, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTabs, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTabContainer, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(platformController, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.platformController, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleElement, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 176, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleApp, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
@@ -1486,6 +1356,9 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWillQuit, to: UnsafeRawPointer.self), toByteOffset: 208, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.createView, to: UnsafeRawPointer.self), toByteOffset: 224, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleAuthenticate, to: UnsafeRawPointer.self), toByteOffset: 232, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleImage, to: UnsafeRawPointer.self), toByteOffset: 240, as: UnsafeRawPointer.self)
     return t
 }()
 

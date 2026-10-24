@@ -23,6 +23,7 @@ struct AgentPan {
     /// its `-exact-press-scale`, else the platform's dim), as a touch's
     /// `touchesBegan` sets it.
     var shown: HeldNode?
+    var feedback: RecognizedPress?
     /// The contact in the viewport's space, and its synthetic time in seconds.
     var at: CGPoint
     var t: Double
@@ -43,6 +44,7 @@ struct FingerReach {
     var href: String?
     var action: HeldNode?
     var path: PressPath?
+    var lifetime: PressPath?
     /// With no press target: the path to the invoker the lift activates.
     var invocation: PressPath?
     /// A native control in the reached node took the touch (`controlTakesTouch`).
@@ -55,10 +57,13 @@ struct FingerReach {
     /// good. A crossing press the recognizer found dead before then stays
     /// cancelled. The press keeps the target it reached.
     mutating func rearm(_ presenter: Presenter) {
-        guard let old = path, let node = reached?.live(in: presenter), let action = action?.live(in: presenter) else { return }
-        if old.bubbled, !old.isLive(in: presenter) { return }
-        let fresh = PressPath(from: node, to: action, presenter: presenter)
-        if fresh.isLive(in: presenter) { path = fresh }
+        guard let node = reached?.live(in: presenter) else { return }
+        if let old = path, old.bubbled, !old.isLive(in: presenter) { return }
+        let fresh = PressPath(from: node, presenter: presenter, trackOpenings: false)
+        guard fresh.isLive(in: presenter) else { return }
+        lifetime = fresh
+        if path != nil, let action = action?.live(in: presenter) { path = PressPath(from: node, to: action, presenter: presenter) }
+        if invocation != nil, let invoker = presenter.menus.invoker(from: node) { invocation = PressPath(from: node, to: invoker, presenter: presenter) }
     }
 }
 
@@ -146,6 +151,25 @@ extension Agent {
         #endif
     }
 
+    /// Native projections activate without traversing the ordinary press path.
+    /// Their pointer observers still hear the contact before the control acts.
+    func nativePointer(_ node: NodeView, request: [String: Any], at point: CGPoint? = nil) -> Bool {
+        let snapshot = HeldNode(node)
+        let positioned = ["at", "x", "y"].contains { request[$0] != nil }
+        var point = positioned ? tapPoint(request, node: node).map { windowPoint($0) } : point
+        if point == nil, case .success(let item)? = tabItem(node) {
+            point = item.convert(CGPoint(x: item.bounds.midX, y: item.bounds.midY), to: nil)
+        }
+        if point == nil, case .success(let item)? = barItem(node) {
+            point = item.bar.convert(CGPoint(x: item.item.midX, y: item.item.midY), to: nil)
+        }
+        let at = point ?? windowPoint(tapPoint(request, node: node) ?? .zero)
+        let path = Agent.fingerPath(from: node), held = Agent.heldPrefix(request)
+        fingerPointer(.down, path, at: at, held: held)
+        fingerPointer(.up, path, at: at, held: held)
+        return snapshot.live(in: presenter) != nil && !node.disabled && !node.inert && node.window != nil
+    }
+
     /// A request's `modifiers` (`Shift+Meta`) as a chord prefix (`Shift+Meta+`).
     static func heldPrefix(_ req: [String: Any]) -> String {
         (req["modifiers"] as? String).map { $0.isEmpty || $0.hasSuffix("+") ? $0 : $0 + "+" } ?? ""
@@ -209,6 +233,7 @@ extension Agent {
         let href = element == nil && run == nil && node.inlineActivationTarget(at: local) == nil ? node.inlineLink(at: local) : nil
         let action = element == nil ? node.activationTarget(at: p) : nil
         var reach = FingerReach(reached: HeldNode(node), element: element, run: run?.id, href: href, action: action.map(HeldNode.init))
+        reach.lifetime = PressPath(from: node, presenter: presenter, trackOpenings: false)
         reach.consumed = node.controlTakesTouch(at: p)
         // An inline run or link takes the touch first: no press crosses then.
         if run == nil, href == nil, let action {
@@ -248,10 +273,11 @@ extension Agent {
         // As `touchesEnded`: a node the events took away, gave to another
         // node (`NodePool.rebind`) or disabled ends the touch there, with no
         // activation, no press and no focus change.
-        guard reach.presentationsOpen, reach.path?.isLive(in: presenter) ?? true, reach.invocation?.isLive(in: presenter) ?? true,
+        guard reach.lifetime?.isLive(in: presenter) ?? true, reach.presentationsOpen, reach.path?.isLive(in: presenter) ?? true, reach.invocation?.isLive(in: presenter) ?? true,
               let node = reach.reached?.live(in: presenter), !node.disabled else { return ["pressed": NSNull()] }
         if let run = reach.run, !node.inert, node.activateInline(run) { return ["pressed": Int(run)] }
         if let href = reach.href {
+            if node.pressReaderAtom(href) { return ["pressed": Int(node.id)] } // an inline atom (LLP 1045.000 D7)
             presenter.session?.follow(href)
             return ["followed": href]
         }
@@ -261,6 +287,8 @@ extension Agent {
         defer { handoff?.dispatched() }
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field {
+                // A pill's press, as its tap recognizer takes a finger's (FieldAtoms.swift, LLP 1045.000 D7).
+                if let area = field as? TextArea, let hit = area.atom(at: area.convert(p, from: nil)) { area.pressAtom(hit.range); return ["pressed": Int(node.id), "atom": hit.atom.kind] }
                 handoff = presenter.beginPress(control: field)
                 if !field.isFirstResponder { _ = field.becomeFirstResponder() }
                 took = true; break
@@ -277,9 +305,10 @@ extension Agent {
         // Nothing settled the focus, as in `focusForPress`: the text being
         // edited loses it, and any other focus stays.
         if !took, presenter.hasKeyboardEditor, !presenter.contextRetainsFocus(node) { presenter.endEditing() }
+        guard reach.lifetime?.survivesFocus(in: presenter) ?? true else { return ["pressed": NSNull()] }
         // The press, its target checked after the focus's callbacks too.
         var pressed: Any = NSNull()
-        if let element = reach.element, let node = reach.reached?.live(in: presenter), !node.disabled, !node.inert { presenter.press(element, held: held); pressed = Int(element) }
+        if let element = reach.element, let node = reach.reached?.live(in: presenter), !node.disabled, !node.inert { node.activateSvg(element, held: held); pressed = Int(element) }
         if reach.element == nil, reach.presentationsOpen, reach.reached?.live(in: presenter) === node {
             let target = stillPresses(reach)
             if target != nil || reach.action == nil && reach.invocation?.isLive(in: presenter) == true {
@@ -360,7 +389,8 @@ extension Agent {
     /// (`HeavyLeaves.hideFar`). A bar with a search field, whose rests were
     /// not measured, is left as `place` leaves it.
     static func rest(_ sv: UIScrollView, at want: CGPoint, x: Bool, y: Bool) {
-        place(sv, at: want, x: x, y: y)
+        let target = x ? (sv.superview as? NodeView)?.snappedOffset(want, in: sv) ?? want : want
+        place(sv, at: target, x: x, y: y)
         // tvOS has no large titles.
         #if os(iOS)
         let o = sv.contentOffset, top = -sv.adjustedContentInset.top, reach = min(sv.bounds.height, sv.window?.bounds.height ?? 0) / 2
@@ -457,18 +487,17 @@ extension Agent {
                     target.pressed = true
                     highlight(target, true)
                     contact.shown = HeldNode(target)
+                    let feedback = RecognizedPress(target)
+                    reach.lifetime?.holdFeedback(feedback)
+                    contact.feedback = feedback
                 }
                 panContact = contact
                 return ["contact": Int(v.id), "phase": "down", "at": point(at), "delivery": "recognized"]
             }
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
-            // A contact that lands on a press inside the pan node (a button in
-            // a draggable card) presses that node if the pan never begins.
-            let pressInside = hit.isDescendant(of: node) && sequence(first: hit, next: { $0.superview }).prefix { $0 !== node }
-                .contains { ($0 as? NodeView)?.handlers.contains("press") == true }
-            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
-            // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
-            if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }
+            // A stationary contact keeps its activation even without a press listener.
+            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit),
+                                   reach: fingerReach(hit, at: p), at: at, t: t, held: Agent.heldPrefix(req))
             MainActor.assumeIsolated { HeldState.input(at: hit) } // where the finger lands, a held node inside the pan's included
             panContact = contact
             panPointer(contact, .down)
@@ -573,7 +602,7 @@ extension Agent {
                 contact.t += ms / 1000 / Double(steps)
                 panPointer(contact, .move)
             }
-            if let shown = contact.shown?.live(in: presenter) {
+            if contact.feedback?.cancelled != true, let shown = contact.shown?.live(in: presenter) {
                 let inside = shown.pressInside(at: windowPoint(to))
                 shown.pressFollows(inside: inside)
                 highlight(shown, inside)

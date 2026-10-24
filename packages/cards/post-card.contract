@@ -1,4 +1,4 @@
-use iconRepost, iconPin, iconCornerDownRight, Glyph, Name, Avatar, VerifiedBadge from "./common.contract"
+use Name, Avatar, VerifiedBadge from "./common.contract"
 
 // A post card's shell (the clone's FeedPost): the thread's lines above and
 // below, the avatar, who and when, an optional context line (its icon by
@@ -54,11 +54,12 @@ component PostCard
               margin-left="cards.context-hang"
               margin-bottom="cards.context-under"
               gap="cards.context-gap"
-              Glyph(
-                d=(context == "pinned" ? iconPin() : iconRepost()),
-                size="cards.context-icon",
+              image (context == "pinned" ? "symbol:cards.pin" : "symbol:cards.repost")
+                width="cards.context-icon"
+                height="cards.context-icon"
+                flex-shrink=0
+                aria-hidden=true
                 color="param.meta"
-              )
               text contextText font-size="cards.small-size"
                 font-weight=500
                 line-height="cards.small-line"
@@ -113,7 +114,12 @@ component PostCard
           if replyTo != ""
             row gap="cards.meta-gap" padding-bottom="cards.meta-under" align-items="center"
               column position="relative" top="cards.reply-rise"
-                Glyph(d=iconCornerDownRight(), size="cards.reply-icon", color="param.meta")
+                image "symbol:cards.corner-down-right"
+                  width="cards.reply-icon"
+                  height="cards.reply-icon"
+                  flex-shrink=0
+                  aria-hidden=true
+                  color="param.meta"
               text replyTo font-size="cards.small-size"
                 line-height="cards.small-line"
                 white-space="nowrap"

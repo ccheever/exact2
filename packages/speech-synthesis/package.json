@@ -1,0 +1,12 @@
+{
+  "name": "@exact/speech-synthesis",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Web Speech API's speechSynthesis: text spoken aloud on the host's audio session (LLP 1133.012).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

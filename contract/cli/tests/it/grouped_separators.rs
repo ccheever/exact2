@@ -85,7 +85,7 @@ fn a_full_width_row_stays_in_its_card_and_its_separator_is_decoration() {
     let full_line = line("full").unwrap();
     assert_eq!(
         (full_line.x, full_line.y, full_line.width, full_line.height),
-        (56.0, 51.0, 314.0, 1.0),
+        (55.0, 51.0, 315.0, 1.0),
         "from the text after the symbol to the card's edge, at the row's foot"
     );
     // A percentage padding is of the card's width (CSS Box Model 3 §5.2).
@@ -106,6 +106,45 @@ fn a_full_width_row_stays_in_its_card_and_its_separator_is_decoration() {
     assert_eq!(owned, [false, false, true, false, false, false, false]);
     let next: Vec<bool> = rows.iter().map(|row| row.next_authored_top).collect();
     assert_eq!(next, [false, false, false, true, false, false, false]);
+}
+
+/// Right to left the sheet's insets mirror, as UIKit's list does: the
+/// leading symbol and the text after it are at the right, and the line runs
+/// from the card's edge to the text's. An inset the author wrote stays on
+/// the side it was written.
+#[test]
+fn right_to_left_a_rows_insets_and_its_separator_mirror() {
+    let r = boot(
+        "list appearance=\"auto\" direction=\"rtl\" flex=1
+  section
+    row testId=\"full\"
+      image \"symbol:sf/star\" testId=\"symbol\"
+      text \"Custom\" testId=\"title\"
+    row padding-left=30 testId=\"own\"
+      text \"Own inset\"
+    row testId=\"last\"
+      text \"Last\"",
+    );
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    assert_eq!((frame("full").x, frame("full").width), (16.0, 370.0));
+    let (symbol, title) = (frame("symbol"), frame("title"));
+    assert!(
+        symbol.x > title.x,
+        "the symbol leads, at the right: {symbol:?} {title:?}"
+    );
+    let line = k.grouped_separator(id(&r, "full")).unwrap().rect;
+    assert_eq!(
+        (line.x, line.width),
+        (0.0, 315.0),
+        "from the card's edge to the text after the symbol"
+    );
+    let own = k.node(id(&r, "own")).unwrap().key;
+    assert_eq!(
+        k.resolved_padding(own).unwrap().0,
+        30.0,
+        "the author's left inset stays left"
+    );
 }
 
 /// The row after a row is the next one shown, as UIKit's list has it: a
@@ -193,5 +232,6 @@ fn a_full_width_native_button_row_stays_in_its_card() {
     // A row a class made one: its inset knows a leading symbol, and its
     // widest does too.
     let symbol = frame("class-symbol");
-    assert_eq!((symbol.x, symbol.x + symbol.width), (72.0, 386.0));
+    // At the test's 16-point root UIKit's text starts 55 in (`-exact-list-symbol-inset`).
+    assert_eq!((symbol.x, symbol.x + symbol.width), (71.0, 385.0));
 }

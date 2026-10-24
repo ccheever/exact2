@@ -48,15 +48,17 @@ export function stored(slot, initial, t) {
 export function keep(s, slot, t) {
   let last = null;
   try { last = localStorage.getItem(KEY + slot); } catch {}
-  Kept.push({ s, slot, t, last });
+  Kept.push({ s, slot, t, last, failed: null });
   if (Kept.length === 1) After.push(flush);
 }
 
 function flush() {
   for (const k of Kept) {
     const text = encode(k.s.n.v, k.t);
+    if (text !== k.failed) k.failed = null;
     if (text === k.last) continue;
     if (bytes(text) > LIMIT) { say(`persisted state ${k.slot}: ${bytes(text)} bytes is over the ${LIMIT} a persisted value may hold: not kept (the store keeps its last value)`); k.last = text; continue; }
-    try { localStorage.setItem(KEY + k.slot, text); k.last = text; say(`store ${KEY}${k.slot}`); } catch {}
+    try { localStorage.setItem(KEY + k.slot, text); k.last = text; k.failed = null; say(`store ${KEY}${k.slot}`); }
+    catch (e) { if (k.failed !== text) { k.failed = text; say(`persisted state ${k.slot}: write failed: ${e}`); } }
   }
 }

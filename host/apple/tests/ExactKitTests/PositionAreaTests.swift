@@ -43,6 +43,30 @@ final class PositionAreaTests: XCTestCase {
         XCTAssertEqual(PositionArea.origin("none", anchor: low, size: size, margins: .init(right: 5, bottom: 5), in: layer),
                        CGPoint(x: 275, y: 535), "held at the bottom and right edges, its margins inside them")
     }
+
+    /// A painted popover whose author wrote no area takes the web's UA
+    /// default (neutral.css): below from the inline start, flipping above or
+    /// inline where that doesn't fit (Harmony's emoji button at the bottom-left
+    /// opens above it, not held over it), and shifted into its limit only when
+    /// nothing fits. Authored fallbacks, `none` included, replace the flips;
+    /// an authored area keeps its own.
+    func testAPaintedPopoverWithNoAreaFlipsAsTheWebsDefault() {
+        func at(_ anchor: CGRect, _ size: CGSize, area: String? = nil, fallbacks: String? = nil, rtl: Bool = false, _ m: PositionArea.Margins = .init()) -> CGPoint {
+            let placed = PositionArea.painted(area: area, fallbacks: fallbacks, rtl: rtl)
+            return PositionArea.origin(placed.area, anchor: anchor, size: size, margins: m, fallbacks: placed.fallbacks, rtl: rtl, in: layer)
+        }
+        let emoji = CGRect(x: 12, y: 560, width: 30, height: 30), picker = CGSize(width: 300, height: 200)
+        XCTAssertEqual(at(emoji, picker), CGPoint(x: 12, y: 360), "above, from its left edge")
+        XCTAssertEqual(at(anchor, size), CGPoint(x: 100, y: 230), "room below: as before")
+        XCTAssertEqual(at(CGRect(x: 380, y: 570, width: 20, height: 30), size, .init(right: 5, bottom: 5)), CGPoint(x: 280, y: 510),
+                       "bottom-right: above and leftward, its margins flipped too")
+        XCTAssertEqual(at(CGRect(x: 200, y: 100, width: 30, height: 30), CGSize(width: 120, height: 60), rtl: true), CGPoint(x: 110, y: 130),
+                       "right to left: below, spanning left from its inline start")
+        XCTAssertEqual(at(emoji, CGSize(width: 300, height: 700)).y, 0, "nothing fits: shifted into the bounds")
+        XCTAssertEqual(at(emoji, picker, fallbacks: "none"), CGPoint(x: 12, y: 400), "authored `none`: no flips, shifted up into the bounds")
+        XCTAssertEqual(at(emoji, picker, area: "none"), PositionArea.origin("none", anchor: emoji, size: picker, in: layer), "an authored area keeps its own")
+    }
+
     func testOrderedFlipsAtEveryEdgeAndNoFittingFallback() {
         let viewport = CGRect(x: 0, y: 0, width: 420, height: 600)
         let box = CGSize(width: 322, height: 122)

@@ -520,6 +520,26 @@ fn destinations(text: &str) -> Vec<(String, String)> {
 }
 
 #[test]
+fn angle_link_destinations_hide_the_full_syntax() {
+    for destination in ["<b)c>", "<b(c>", "<a b>", r"<a\<b\>c>", " <b)c> \"title\""] {
+        for prefix in ["", "!"] {
+            let source = format!("😀 {prefix}[日本]({destination}) [after](e)");
+            assert_eq!(
+                destinations(&source),
+                [
+                    (format!("{prefix}["), format!("]({destination})")),
+                    ("[".into(), "](e)".into()),
+                ],
+                "{source}"
+            );
+        }
+    }
+    for source in [r"[a](<foo\>)", "![a](<foo<bar>)", "[a](<foo\nbar>)"] {
+        assert!(destinations(source).is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn link_destinations_are_each_links_own_syntax() {
     let pair = |o: &str, c: &str| (o.to_string(), c.to_string());
     // A long percent-encoded target, a title, an image and a file link.

@@ -26,7 +26,10 @@
 //! `font-weight` and `font-stretch` are numbers (CSS Fonts 4: a weight, a
 //! percentage). They change glyph advances, so the runner moves them, a
 //! style commit each presented frame, and layout follows as for any commit;
-//! no host's engine is given their targets (LLP 1019 §13 D10).
+//! no host's engine is given their targets (LLP 1019 §13 D10). So does
+//! `font-variation-settings`, whose value is one axis: its number, then its
+//! tag in two 16-bit halves ([`Value::axis`]), which an `f32` on the wire
+//! carries exactly. A keyframe declares one value per axis it names.
 //!
 //! `layout` is not a CSS property: it is a node's laid-out box in its parent
 //! (origin and size), which a `-exact-layout-transition` row animates (LLP 1063).
@@ -96,15 +99,17 @@ pub enum Property {
     FontWeight = 24,
     /// CSS `font-stretch`, a percentage of normal width.
     FontStretch = 25,
+    /// One axis of CSS `font-variation-settings` ([`Value::axis`]).
+    FontVariationSettings = 26,
     /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
     /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
     /// observed by a host after layout; only a node's `-exact-layout-transition` row
     /// moves it, never `transition`.
-    Layout = 26,
+    Layout = 27,
     /// SVG 2 `d`, a path's data (LLP 1055.000 D15). Its slot's value is a
     /// running transition's progress from one path to the next; the paths
     /// are [`crate::path::PathValue`]s the engine keeps beside it.
-    D = 27,
+    D = 28,
 }
 
 impl Property {
@@ -112,15 +117,15 @@ impl Property {
     /// [`Property::Layout`] and [`Property::D`] included.
     pub(crate) fn from_slot(slot: u32) -> Property {
         match slot {
-            26 => Property::Layout,
-            27 => Property::D,
+            27 => Property::Layout,
+            28 => Property::D,
             slot => Property::ALL[slot as usize],
         }
     }
 
     /// Every authorable property, in wire order ([`Property::Layout`] is
     /// the host's, not an author's, and never on the wire).
-    pub const ALL: [Property; 26] = [
+    pub const ALL: [Property; 27] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
@@ -147,10 +152,11 @@ impl Property {
         Property::ShadowColor,
         Property::FontWeight,
         Property::FontStretch,
+        Property::FontVariationSettings,
     ];
 
     /// How many properties there are on the wire.
-    pub const COUNT: usize = 26;
+    pub const COUNT: usize = 27;
 
     /// How many properties the engine has slots for: the wire's, then
     /// [`Property::Layout`] and [`Property::D`].
@@ -204,6 +210,7 @@ impl Property {
             Property::ShadowColor => "box-shadow-color",
             Property::FontWeight => "font-weight",
             Property::FontStretch => "font-stretch",
+            Property::FontVariationSettings => "font-variation-settings",
             Property::Layout => "layout",
             Property::D => "d",
         }
@@ -279,11 +286,11 @@ impl Property {
     /// How many components the value carries: four for `translate` (its x
     /// and y lengths, then its x and y percentages of the box, which CSS
     /// interpolates componentwise as a `calc()`), three for `box-shadow`'s
-    /// geometry, four for a colour and for `layout`'s box, else one.
+    /// geometry and for a variation axis, four for a colour and for `layout`'s box, else one.
     pub fn components(self) -> usize {
         match self {
             Property::Translate => 4,
-            Property::BoxShadow => 3,
+            Property::BoxShadow | Property::FontVariationSettings => 3,
             Property::Layout => 4,
             p if p.is_color() => 4,
             _ => 1,
@@ -353,6 +360,17 @@ impl Value {
             w,
             oklab: false,
         }
+    }
+
+    /// One `font-variation-settings` axis: `value` in `x`, the tag's high
+    /// and low 16 bits in `y` and `z`.
+    pub fn axis(tag: u32, value: f64) -> Value {
+        Value::four(value, f64::from(tag >> 16), f64::from(tag & 0xffff), 0.0)
+    }
+
+    /// The tag of a [`Value::axis`].
+    pub fn axis_tag(self) -> u32 {
+        ((self.y as u32) << 16) | (self.z as u32 & 0xffff)
     }
 
     /// A colour from OKLab components and alpha, stored premultiplied.

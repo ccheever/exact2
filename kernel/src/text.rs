@@ -104,6 +104,8 @@ pub struct TextStyle {
     pub font_stretch: f32,
     /// CSS `font-variation-settings`, set after weight, width and size.
     pub font_variations: crate::style::FontVariations,
+    /// CSS `font-optical-sizing`: `auto` sets a face's `opsz` to the size.
+    pub font_optical_sizing: crate::FontOpticalSizing,
     /// Index into the host's font registry (0 = system default).
     pub font_family: u16,
     /// Resolved logical length, or natural metrics. Zero remains explicit.
@@ -120,12 +122,13 @@ pub struct TextStyle {
 
 impl TextStyle {
     /// The rows [`TextStyle::from_style`] reads.
-    pub const ROWS: [StyleId; 9] = [
+    pub const ROWS: [StyleId; 10] = [
         StyleId::FontSize,
         StyleId::FontWeight,
         StyleId::FontStyle,
         StyleId::FontStretch,
         StyleId::FontVariationSettings,
+        StyleId::FontOpticalSizing,
         StyleId::FontFamily,
         StyleId::LineHeight,
         StyleId::LetterSpacing,
@@ -165,6 +168,7 @@ impl TextStyle {
             font_style: s.font_style,
             font_stretch: s.font_stretch,
             font_variations: s.font_variation_settings,
+            font_optical_sizing: s.font_optical_sizing,
             font_family: s.font_family,
             line_height: s.line_height.resolve(s.font_size),
             letter_spacing: s.letter_spacing,
@@ -348,6 +352,20 @@ pub struct TextMeasureRequest<'a> {
     /// Resolved exclusions in content coordinates; empty during box layout.
     /// @ref LLP 1043.000 §3 D5 — hosts answer from their flowed layout.
     pub exclusions: &'a [exact_textflow::FlowShape],
+    /// A Markdown paragraph's inline atoms (LLP 1045.000 D2): its `atoms`
+    /// and `atomFaces`, which a label's width depends on; empty otherwise.
+    pub atoms: MarkupAtoms<'a>,
+}
+
+/// A Markdown node's `atoms` and `atomFaces` JSON, as the kernel holds them
+/// (LLP 1045.000 D3): a host that draws atoms expands the source with them,
+/// for measure and paint alike. Empty strings are none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MarkupAtoms<'a> {
+    /// The compiled kinds (`atoms`).
+    pub kinds: &'a str,
+    /// The app's faces (`atomFaces`).
+    pub faces: &'a str,
 }
 
 /// A measurement.
@@ -940,6 +958,7 @@ struct TextRows {
     font_style: crate::FontStyle,
     font_stretch: f32,
     font_variations: crate::style::FontVariations,
+    font_optical_sizing: crate::FontOpticalSizing,
     font_family: u16,
     line_height: crate::LineHeight,
     letter_spacing: f32,
@@ -954,6 +973,7 @@ impl TextRows {
             font_style: s.font_style,
             font_stretch: s.font_stretch,
             font_variations: s.font_variation_settings,
+            font_optical_sizing: s.font_optical_sizing,
             font_family: s.font_family,
             line_height: s.line_height,
             letter_spacing: s.letter_spacing,
@@ -976,6 +996,9 @@ impl TextRows {
         if mask.has(StyleId::FontVariationSettings) {
             self.font_variations = s.font_variation_settings;
         }
+        if mask.has(StyleId::FontOpticalSizing) {
+            self.font_optical_sizing = s.font_optical_sizing;
+        }
         if mask.has(StyleId::FontFamily) {
             self.font_family = s.font_family;
         }
@@ -996,6 +1019,7 @@ impl TextRows {
             font_style: self.font_style,
             font_stretch: self.font_stretch,
             font_variations: self.font_variations,
+            font_optical_sizing: self.font_optical_sizing,
             font_family: self.font_family,
             line_height: self.line_height.resolve(self.font_size),
             letter_spacing: self.letter_spacing,

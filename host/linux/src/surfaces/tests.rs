@@ -506,9 +506,9 @@ fn e11_development_module_requires_its_own_completed_receipt() {
     std::fs::write(&product, b"changed").unwrap();
     assert!(verify_module(&product, &compat, "").is_err());
     std::fs::write(&product, b"module").unwrap();
-    compat["inputs"]["trust"] = json!("production");
+    compat["embedded"]["trust"] = json!("production");
     assert!(verify_module(&product, &compat, "").is_err());
-    compat["inputs"]["trust"] = Value::Null;
+    compat["embedded"]["trust"] = json!("development");
     compat["embedded"]["gpu"]["trust"] = json!("production");
     assert!(verify_module(&product, &compat, "").is_err());
     std::fs::remove_dir_all(dir).unwrap();
@@ -524,6 +524,19 @@ fn production_ignores_module_path_override() {
     compat["embedded"]["gpu"]["trust"] = "development".into();
     assert_eq!(
         module_path(default, &compat, Some("override".into())),
+        PathBuf::from("override")
+    );
+    // An updater-free (L=0) production build: no trust in its cohort, and
+    // still no override, whatever its card says.
+    let mut zero = json!({"inputs":{"store":{"L":"0"},"trust":null},
+        "embedded":{"trust":"production","gpu":{"trust":"development"}}});
+    assert_eq!(
+        module_path(default, &zero, Some("override".into())),
+        default
+    );
+    zero["embedded"]["trust"] = "development".into();
+    assert_eq!(
+        module_path(default, &zero, Some("override".into())),
         PathBuf::from("override")
     );
 }

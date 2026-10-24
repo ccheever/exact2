@@ -785,14 +785,26 @@ component App
     }
 }
 
-/// LLP 1115.000 D12.2: the document the wasm runtime adopts writes a bare
-/// `font-size` style's weight where it fills one, as the live host does;
-/// the one the JavaScript runtime adopts does not, as its template does
-/// not, and a shorthand's it writes in both.
+/// A JS document uses the same conditional fills as its template, so an
+/// ancestor's bound row can arrive or disappear after adoption.
 #[test]
-fn a_bare_text_styles_weight_is_written_for_the_runtime_that_writes_it() {
+fn bare_text_styles_fill_unsaid_rows_in_the_js_document() {
     let h = host(
-        "component App\n  view\n    column\n      text font-size=\"-exact-headline\" \"Bare\"\n      text font=\"-exact-headline\" \"Shorthand\"\n",
+        r#"component App
+  view
+    column
+      text font-size="-exact-headline" "Bare"
+      text font="-exact-headline" "Shorthand"
+      text font-size="-exact-headline" font-weight="unset" line-height="unset" "Clear"
+      column font-weight=700 line-height="40px"
+        text font-size="-exact-headline" "Inherited"
+      column font-size="-exact-headline"
+        text font-size="-exact-body" "Nested"
+      text role="heading" aria-level=1
+        text font-size="-exact-headline" "Heading"
+      button
+        text font-size="-exact-headline" "Control"
+"#,
         Says(""),
         "/",
     );
@@ -806,8 +818,37 @@ fn a_bare_text_styles_weight_is_written_for_the_runtime_that_writes_it() {
         .unwrap()
         .root;
     assert!(style(&wasm, "Bare").contains("font-weight:600"), "{wasm}");
-    assert!(!style(&js, "Bare").contains("font-weight"), "{js}");
-    for doc in [&wasm, &js] {
-        assert!(style(doc, "Shorthand").contains("font-weight:600"), "{doc}");
+    for text in ["Bare", "Inherited", "Heading", "Control"] {
+        let tag = style(&js, text);
+        assert!(
+            tag.contains("font-weight:var(--exact-said-font-weight,600)"),
+            "{tag}"
+        );
+        assert!(
+            tag.contains("line-height:var(--exact-said-line-height,normal)"),
+            "{tag}"
+        );
     }
+    assert!(
+        style(&js, "Nested").contains("font-weight:var(--exact-said-font-weight,400)"),
+        "{js}"
+    );
+    let clear = style(&js, "Clear");
+    assert!(
+        clear.contains("font-weight:unset") && clear.contains("line-height:unset"),
+        "{clear}"
+    );
+    assert!(!clear.contains("var(--exact-said-"), "{clear}");
+    let shorthand = style(&js, "Shorthand");
+    assert!(shorthand.contains("font-weight:600"), "{shorthand}");
+    assert!(
+        shorthand.contains("--exact-said-font-weight: ;"),
+        "{shorthand}"
+    );
+    assert!(
+        shorthand.contains("--exact-said-line-height: ;"),
+        "{shorthand}"
+    );
+    assert!(js.contains("font-weight:700"), "{js}");
+    assert!(js.contains("line-height:40px"), "{js}");
 }

@@ -258,7 +258,7 @@ component Reflow
           column width=contentWidth gap=10
             text "03 / MASONRY" class=Eyebrow
             row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
-              text `${masonryScene.cols} columns of ${masonryScene.colWidth} px. Every card's height was computed from the font's advances before it was placed in the shortest column; the footer says what the arithmetic expected.` class=Lede flex=1 min-width=200
+              text `${masonryScene.cols} ${masonryScene.cols == 1 ? "column" : "columns"} of ${masonryScene.colWidth} px. Every card's height was computed from the font's advances before it was placed in the shortest column; the footer says what the arithmetic expected.` class=Lede flex=1 min-width=200
               button testId="shuffle" press=shuffle class=Pill background-color="light-dark(#3b2f2a, #e3d3b8)" color="light-dark(#fbf6ec, #2a211c)"
                 text "Shuffle" font-size=12
             row testId="masonry" gap=16 align-items="flex-start" width=contentWidth
@@ -266,11 +266,11 @@ component Reflow
                 column testId=col.id width=masonryScene.colWidth gap=16
                   for card in col.cards key=card.id
                     column testId=card.id width=masonryScene.colWidth padding=16 padding-right=14 box-sizing="border-box" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
-                      CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.titleLines + card.bodyLines} lines · ${card.height} px predicted`)
+                      CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.titleLines + card.bodyLines} ${card.titleLines + card.bodyLines == 1 ? "line" : "lines"} · ${card.height} px predicted`)
         if scene == "magazine"
           column width=contentWidth gap=10
             text "04 / DYNAMIC LAYOUT" class=Eyebrow
-            text `${magazineScene.cols} columns of ${magazineScene.colWidth} px. Drag the bar at the page's right edge: the columns are re-cut at line boundaries on every sample, from widths that were known before you touched it.` class=Lede
+            text `${magazineScene.cols} ${magazineScene.cols == 1 ? "column" : "columns"} of ${magazineScene.colWidth} px. Drag the bar at the page's right edge: the columns are re-cut at line boundaries on every sample, from widths that were known before you touched it.` class=Lede
             box testId="magazine-frame" position="relative" width=contentWidth height=(magazineScene.colHeight + 176)
               column testId="magazine-page" position="absolute" left=0 top=0 width=magazineWidth padding=(viewport.width < 700 ? 16 : 28) box-sizing="border-box" gap=12 background-color="light-dark(#fbf8f1, #27211b)" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
                 text "The Measured Page" font-weight=700 font-size=(viewport.width < 700 ? 30 : 40) line-height="44px" letter-spacing=-0.5
@@ -278,7 +278,7 @@ component Reflow
                 row gap=28 align-items="flex-start"
                   for col in magazineScene.columns key=col.id
                     text col.text testId=col.id width=magazineScene.colWidth height=magazineScene.colHeight overflow="hidden" class=Article
-                text (magazineScene.leftover > 0 ? `${magazineScene.leftover} words continue on the next page.` : "The whole essay fits on this page.") font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
+                text (magazineScene.leftover > 0 ? `${magazineScene.leftover} ${magazineScene.leftover == 1 ? "word continues" : "words continue"} on the next page.` : "The whole essay fits on this page.") font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
               box testId="magazine-handle" pan=resize touch-action="none" position="absolute" left=(magazineWidth - 7) top=0 width=14 height=(magazineScene.colHeight + 176) border-radius=7 background-color="light-dark(#3b2f2a, #e3d3b8)" opacity=0.85
         if scene == "ascii"
           column width=contentWidth gap=10 align-items="center"
@@ -295,16 +295,16 @@ component Reflow
         if scene == "wall"
           column width=contentWidth gap=10
             text "06 / OCCLUSION" class=Eyebrow
-            text `${wallScene.count} cards in ${wallScene.cols} columns, ${wallScene.total} px tall, and only ${wallScene.visible} of them exist as views. Every position was known before the first card was drawn, so the scroll extent is exact and nothing re-estimates as you move.` class=Lede
+            text `${wallScene.count} ${wallScene.count == 1 ? "card" : "cards"} in ${wallScene.cols} ${wallScene.cols == 1 ? "column" : "columns"}, ${wallScene.total} px tall, and only ${wallScene.visible} of them exist as views. Every position was known before the first card was drawn, so the scroll extent is exact and nothing re-estimates as you move.` class=Lede
             scroll testId="wall-scroll" scroll=wallScrolled width=contentWidth height=wallHeight
               box testId="wall" position="relative" width=contentWidth height=wallScene.total
                 for card in wallScene.cards key=card.id
                   column testId=card.id position="absolute" left=card.x top=card.y width=wallScene.colWidth height=card.h padding=16 padding-right=14 box-sizing="border-box" overflow="hidden" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
-                    CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.lines} lines · ${card.h} px`)
+                    CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.lines} ${card.lines == 1 ? "line" : "lines"} · ${card.h} px`)
         if scene == "spread"
           column width=contentWidth gap=10
             text "07 / EDITORIAL SPREAD" class=Eyebrow
-            text `${spreadScene.cols} columns. The drop cap, the quotation and the picture are exclusions in the kernel; each column's text was cut where the same walker, run in the data crate around the same shapes, said its flow would stop. Narrow the window to one column and the obstacles move with it.` class=Lede
+            text `${spreadScene.cols} ${spreadScene.cols == 1 ? "column" : "columns"}. The drop cap, the quotation and the picture are exclusions in the kernel; each column's text was cut where the same walker, run in the data crate around the same shapes, said its flow would stop. Narrow the window to one column and the obstacles move with it.` class=Lede
             column testId="spread-page" width=contentWidth padding=pagePad box-sizing="border-box" gap=18 background-color="light-dark(#fbf8f1, #27211b)" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
               text "The Measured Page" font-weight=700 font-size=(viewport.width < 700 ? 34 : 52) line-height=1.02 letter-spacing=-1
               text "Why a magazine measures first and draws second" font-style="italic" font-size=17 line-height="24px" color="light-dark(#6a5f50, #b8ad99)"
@@ -319,7 +319,7 @@ component Reflow
                   box position="absolute" left="18%" top="18%" width="64%" height="64%" border-radius=200 background-color="light-dark(#c2603f, #e39a77)"
                   box position="absolute" left="36%" top="36%" width="28%" height="28%" border-radius=200 background-color="light-dark(#f2c14e, #ffd166)"
               if spreadScene.leftover > 0
-                text `${spreadScene.leftover} words continue overleaf.` font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
+                text `${spreadScene.leftover} ${spreadScene.leftover == 1 ? "word continues" : "words continue"} overleaf.` font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
         row width=contentWidth justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
           text "After Cheng Lou's Pretext demos. Advances read from the font files at build time; lines broken by the walker every host flows text with." font-style="italic" font-size=12 line-height="18px" color="light-dark(#7a6a55, #b8a98f)" flex=1 min-width=200
           text `${viewport.width} × ${viewport.height}` font-size=11 color="light-dark(#8a7c66, #a89a82)"

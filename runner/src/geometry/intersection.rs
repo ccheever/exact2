@@ -4,11 +4,17 @@ use super::*;
 
 type Rect = [f64; 4]; // left, top, right, bottom
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Root {
+    Element(NodeKey),
+    Scrollport(NodeKey),
+}
+
 pub(crate) fn intersection(
     kernel: &Kernel,
     scrolled: &Scrolled,
     view: ViewId,
-) -> (Option<NodeKey>, String, bool, f64) {
+) -> (Option<Root>, String, bool, f64) {
     let arena = kernel.arena();
     let key = arena.key_of(view).expect("a mounted handler");
     let margin = arena
@@ -21,13 +27,25 @@ pub(crate) fn intersection(
     // lifts to the top layer, and none a placed block's root steps past
     let mut root = None;
     let mut at = key.index;
-    while let Shown::Parent(slot, _) = shown_in(kernel, scrolled, at, arena.frame(at)) {
+    loop {
+        if scrolled.is_scrollport(kernel, at) {
+            root = Some(Root::Scrollport(arena.key(at)));
+            break;
+        }
+        let Shown::Parent(slot, _) = shown_in(kernel, scrolled, at, arena.frame(at)) else {
+            break;
+        };
         let s = arena.style(slot);
-        let implicit_scroll =
+        let scrolls = |overflow| {
+            matches!(
+                overflow,
+                Overflow::Auto | Overflow::Scroll | Overflow::Hidden
+            )
+        };
+        let implicit =
             !s.mask.has(StyleId::OverflowY) && arena.node_type(slot).scrolls_by_default();
-        if implicit_scroll || s.overflow_x != Overflow::Visible || s.overflow_y != Overflow::Visible
-        {
-            root = Some(arena.key(slot));
+        if implicit || scrolls(s.overflow_x) || scrolls(s.overflow_y) {
+            root = Some(Root::Element(arena.key(slot)));
             break;
         }
         at = slot;
@@ -36,8 +54,14 @@ pub(crate) fn intersection(
         let (frame, _) = kernel.laid_out_frame(key)?;
         let mut ancestor = Some(key.index);
         while let Some(slot) = ancestor {
+            // A box its host replaces whole (a closed `dialog` or popover on
+            // iOS, `closed.rs`) lays out nothing under it, as `display: none`
+            // does; the box itself answers by its native frame below.
+            let replaced =
+                slot != key.index && arena.cover(slot) == Some(exact_kernel::HostCover::Whole);
             if arena.style(slot).display == Display::None
                 || arena.flags(slot).has(NodeFlags::HIDDEN)
+                || replaced
             {
                 return None;
             }
@@ -51,40 +75,64 @@ pub(crate) fn intersection(
         let mut clipped = [0.0, 0.0, f64::from(frame.width), f64::from(frame.height)];
         let mut slot = key.index;
         let mut transform = IDENTITY;
+        let mut rooted = false;
         loop {
             let s = arena.style(slot);
             if s.display == Display::None || arena.flags(slot).has(NodeFlags::HIDDEN) {
                 return None;
             }
             let f = arena.frame(slot);
-            if root.is_some_and(|r| r.index == slot) {
-                let border = |width, style| match style {
-                    exact_kernel::BorderStyle::None | exact_kernel::BorderStyle::Hidden => 0.0,
-                    _ => f64::from(width),
-                };
-                let bounds = [
-                    border(s.border_width_left, s.border_style_left),
-                    border(s.border_width_top, s.border_style_top),
-                    f64::from(f.width) - border(s.border_width_right, s.border_style_right),
-                    f64::from(f.height) - border(s.border_width_bottom, s.border_style_bottom),
-                ];
-                let bounds = expand(bounds, &margin);
-                clipped = clip(map(transform, clipped), bounds)?;
-                // Ratio is measured in viewport coordinates, as is the target.
-                let visible = to_viewport(kernel, scrolled, slot, clipped);
-                return Some((true, visible.map_or(0.0, |v| ratio(v, area))));
+            let element_root = root == Some(Root::Element(arena.key(slot)));
+            let clips_overflow =
+                s.overflow_x != Overflow::Visible || s.overflow_y != Overflow::Visible;
+            if element_root || (!rooted && slot != key.index && clips_overflow) {
+                let mut bounds = padding_box(kernel, slot);
+                if !element_root {
+                    if s.overflow_x == Overflow::Visible {
+                        bounds[0] = f64::NEG_INFINITY;
+                        bounds[2] = f64::INFINITY;
+                    }
+                    if s.overflow_y == Overflow::Visible {
+                        bounds[1] = f64::NEG_INFINITY;
+                        bounds[3] = f64::INFINITY;
+                    }
+                }
+                clipped = clip(
+                    map(transform, clipped),
+                    if element_root {
+                        expand(bounds, &margin)
+                    } else {
+                        bounds
+                    },
+                )?;
+                transform = IDENTITY;
+                rooted |= element_root;
             }
-            if slot != key.index {
+            if !rooted && slot != key.index {
                 if let Some(bounds) = path_bounds(&s.rare.clip_path) {
                     clipped = clip(map(transform, clipped), bounds)?;
                     transform = IDENTITY;
                 }
             }
             transform = mul(placed_transform(kernel, scrolled, slot), transform);
-            // A block clips what its host shows in it, a sheet or a pane
-            if let Some(bounds) = block_clip(kernel, slot, f) {
-                clipped = clip(map(transform, clipped), bounds)?;
-                transform = IDENTITY;
+            // A route's native scrollport wraps its authored CSS scroll root, so it lies above that root
+            if !rooted || (element_root && !scrolled.is_scrollport(kernel, slot)) {
+                if let Some(bounds) = block_clip(kernel, scrolled, slot, f) {
+                    let scrollport_root = root == Some(Root::Scrollport(arena.key(slot)));
+                    let Some(visible) = clip(
+                        map(transform, clipped),
+                        if scrollport_root {
+                            expand(bounds, &margin)
+                        } else {
+                            bounds
+                        },
+                    ) else {
+                        return Some((rooted, 0.0));
+                    };
+                    clipped = visible;
+                    transform = IDENTITY;
+                    rooted |= scrollport_root;
+                }
             }
             match shown_in(kernel, scrolled, slot, f) {
                 Shown::Parent(up, to) => {
@@ -92,16 +140,23 @@ pub(crate) fn intersection(
                     slot = up;
                 }
                 Shown::Viewport(to) => {
-                    clipped =
-                        top_clip(scrolled, arena.key(slot), map(mul(to, transform), clipped))?;
-                    let env = arena.env();
-                    let viewport = [
-                        0.0,
-                        0.0,
-                        f64::from(env.viewport_width),
-                        f64::from(env.viewport_height),
-                    ];
-                    clipped = clip(clipped, expand(viewport, &margin))?;
+                    clipped = map(mul(to, transform), clipped);
+                    if !rooted || element_root {
+                        let Some(visible) = top_clip(scrolled, arena.key(slot), clipped) else {
+                            return Some((rooted, 0.0));
+                        };
+                        clipped = visible;
+                    }
+                    if !rooted {
+                        let env = arena.env();
+                        let viewport = [
+                            0.0,
+                            0.0,
+                            f64::from(env.viewport_width),
+                            f64::from(env.viewport_height),
+                        ];
+                        clipped = clip(clipped, expand(viewport, &margin))?;
+                    }
                     return Some((true, ratio(clipped, area)));
                 }
             }
@@ -111,33 +166,20 @@ pub(crate) fn intersection(
     (root, margin, inside, ratio)
 }
 
-/// `rect`, in `slot`'s local coordinates, where it shows in the viewport,
-/// less what the blocks above it clip; `None` when they clip all of it.
-fn to_viewport(
-    kernel: &Kernel,
-    scrolled: &Scrolled,
-    mut slot: u32,
-    mut rect: Rect,
-) -> Option<Rect> {
+fn padding_box(kernel: &Kernel, slot: u32) -> Rect {
     let arena = kernel.arena();
-    let mut transform = IDENTITY;
-    loop {
-        let f = arena.frame(slot);
-        transform = mul(placed_transform(kernel, scrolled, slot), transform);
-        if let Some(bounds) = block_clip(kernel, slot, f) {
-            rect = clip(map(transform, rect), bounds)?;
-            transform = IDENTITY;
-        }
-        match shown_in(kernel, scrolled, slot, f) {
-            Shown::Parent(up, to) => {
-                transform = mul(to, transform);
-                slot = up;
-            }
-            Shown::Viewport(to) => {
-                return top_clip(scrolled, arena.key(slot), map(mul(to, transform), rect))
-            }
-        }
-    }
+    let s = arena.style(slot);
+    let f = arena.frame(slot);
+    let border = |width, style| match style {
+        exact_kernel::BorderStyle::None | exact_kernel::BorderStyle::Hidden => 0.0,
+        _ => f64::from(width),
+    };
+    [
+        border(s.border_width_left, s.border_style_left),
+        border(s.border_width_top, s.border_style_top),
+        f64::from(f.width) - border(s.border_width_right, s.border_style_right),
+        f64::from(f.height) - border(s.border_width_bottom, s.border_style_bottom),
+    ]
 }
 
 fn top_clip(scrolled: &Scrolled, key: NodeKey, rect: Rect) -> Option<Rect> {
@@ -162,6 +204,13 @@ fn placed_transform(kernel: &Kernel, scrolled: &Scrolled, slot: u32) -> Affine {
     let scroll =
         if implicit || s.overflow_x != Overflow::Visible || s.overflow_y != Overflow::Visible {
             scrolled.offset(root)
+        } else if let Some((block, _)) = scrolled.placed_block(kernel, root.index) {
+            let offset = block.offset.unwrap_or([0.0; 2]);
+            let frame = arena.frame(root.index);
+            (
+                (offset[0] - f64::from(frame.x)).max(0.0),
+                (offset[1] - f64::from(frame.y)).max(0.0),
+            )
         } else if arena.is_root(root.index) {
             let frame = arena.frame(root.index);
             (

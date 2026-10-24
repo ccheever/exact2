@@ -222,7 +222,7 @@ struct IslandGeometry {
 /// trailing content ... By default, leading and trailing positions receive
 /// an equal amount of horizontal space"): the sides take their content's
 /// width at least, the centre what is left of the inner width at most, the
-/// sides the equal remainder, the centre below the camera, the bottom below
+/// sides equal space capped at the camera, the centre below it, the bottom below
 /// them all. The frames never overlap.
 enum ExpandedArrangement {
     struct Frames: Equatable {
@@ -234,7 +234,7 @@ enum ExpandedArrangement {
         let sideLimit = max(0, (inner - geometry.obstruction.width) / 2)
         let sideMinimum = min(max(leading.width, trailing.width), sideLimit)
         let centerWidth = max(0, min(center.width, inner - 2 * sideMinimum))
-        let side = max(sideMinimum, (inner - centerWidth) / 2)
+        let side = min(sideLimit, max(sideMinimum, (inner - centerWidth) / 2))
         let leadingFrame = CGRect(x: 0, y: 0, width: side, height: leading.height)
         let trailingFrame = CGRect(x: inner - side, y: 0, width: side, height: trailing.height)
         let centerFrame = CGRect(x: (inner - centerWidth) / 2, y: geometry.obstruction.height, width: centerWidth, height: center.height)

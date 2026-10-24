@@ -116,6 +116,14 @@ impl<'a> NodeRef<'a> {
         self.arena.looks(self.slot)
     }
 
+    /// How the node is positioned for layout: its `position`, but absolute in
+    /// the top layer (an open or closed popover, unless its author wrote
+    /// `sticky`). A host's layout-side read goes through this, not
+    /// `style.position_type`.
+    pub fn layout_position(&self) -> crate::PositionType {
+        crate::style::top_layer::layout_position(self.arena, self.slot)
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)
@@ -459,7 +467,7 @@ impl Kernel {
         profile: crate::region::RegionProfile,
     ) -> Result<bool, KernelError> {
         self.mirror();
-        if binding.is_some() && self.arena.blocks.any() {
+        if binding.is_some() && self.arena.blocks.any_given() {
             return Err(LayoutError::HostBlock("no content region beside a block").into());
         }
         if binding.is_some() && engine(&mut self.layout).has_presented_height() {
@@ -486,6 +494,9 @@ impl Kernel {
             })
             .transpose()?;
         self.region = next;
+        // A popover under the region stays in its trial; one it no longer
+        // holds is in the viewport again (`imply_blocks`).
+        self.imply_blocks();
         // The previous region cut its owner's ordinary child edge. Restore
         // current authored topology when replacing or removing it, only AFTER
         // the new binding passed preflight. Invalid replacement leaves it intact.
@@ -515,6 +526,7 @@ impl Kernel {
             return Err(LayoutError::NotARoot(root).into());
         }
         self.replace_env(self.arena.env().with_viewport(offer))?;
+        self.imply_blocks();
         let region = self
             .region
             .as_mut()
@@ -532,10 +544,21 @@ impl Kernel {
             // the shell too. No failed derived cache is reused on recovery.
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
-        if result.is_ok() && region.provisional_chrome {
+        let counted = result.is_ok() && region.provisional_chrome;
+        if counted {
             self.provisional_layouts += 1;
         }
-        Ok(result?)
+        let mut result = result?;
+        // The shell's popovers, each in its block: recovered, and counted
+        // when provisional, as the region's own pass is.
+        if let Err(e) = self.lay_out_blocks(slot, &mut result.shell) {
+            self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
+            return Err(e.into());
+        }
+        if !counted && engine(&mut self.layout).provisional_chrome() {
+            self.provisional_layouts += 1;
+        }
+        Ok(result)
     }
 
     /// Bounded kernel-owned source/offer retention, separately from native heap.
@@ -607,6 +630,7 @@ impl Kernel {
             }
         }
         self.replace_env(self.arena.env().with_viewport(offer))?;
+        self.imply_blocks();
         engine(&mut self.layout).present_heights(&self.arena, presented);
         // The root, then each subtree a host gave a block (LLP 1115.002 D8.2).
         let result = match self.lay_out_roots(slot, offer) {
@@ -639,7 +663,9 @@ impl Kernel {
     /// Measure current authored border-box heights without publishing layout.
     /// Active presentations are temporarily removed for this pass and restored
     /// before returning, including after failure. Frames, overflow, flags,
-    /// authored styles, receipts and epoch remain unchanged. Results are used
+    /// authored styles, receipts and epoch remain unchanged, but for what the
+    /// next layout at `offer` would set first: the viewport, and each
+    /// popover's block in it (`imply_blocks`). Results are used
     /// border-box sizes after constraints, not unconstrained CSS intrinsic sizes.
     ///
     /// Call when a target's content or offer changes, not on every motion tick.
@@ -672,6 +698,10 @@ impl Kernel {
         if owners.is_empty() {
             return Ok(Vec::new());
         }
+        // The offer's viewport, as the layout that follows will have it: a
+        // popover's block is that viewport (`imply_blocks`).
+        self.replace_env(self.arena.env().with_viewport(offer))?;
+        self.imply_blocks();
         let previous = engine(&mut self.layout).height_samples(self.epoch);
         engine(&mut self.layout).present_heights(&self.arena, &[]);
         let measure = |kernel: &mut Self| {
@@ -823,8 +853,8 @@ impl Kernel {
     /// root font size is: UIKit's `displayScale`, AppKit's
     /// `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a
     /// point a shell draws at. The next commit applies it, re-resolving
-    /// every hairline row, so an empty batch is enough. `false` when it is
-    /// the scale already set.
+    /// every hairline row and, on a pixel-snapping host, every border width.
+    /// An empty batch is enough. `false` when it is the scale already set.
     /// @ref LLP 1115.000 D10.3
     pub fn set_display_scale(&mut self, scale: f32) -> Result<bool, KernelError> {
         if !scale.is_finite() || scale <= 0.0 {
@@ -837,8 +867,7 @@ impl Kernel {
         Ok(true)
     }
 
-    /// Whether any live node has a hairline row: a new display scale moves
-    /// nothing otherwise.
+    /// Whether any live node has a hairline row.
     pub fn has_hairlines(&self) -> bool {
         use crate::style::relative::Unit;
         let arena = &self.arena;
@@ -1064,6 +1093,8 @@ mod block_tests;
 mod cover_tests;
 #[cfg(test)]
 mod presented_height_tests;
+#[cfg(test)]
+mod top_layer_tests;
 
 #[cfg(test)]
 mod paragraph_domain_tests {

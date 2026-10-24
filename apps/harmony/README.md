@@ -51,6 +51,34 @@ Keep every read in the one `snapshot` source and every write admit-only
 (`db.write`): natively the Snapback device serves one answer at a time
 (`app/app.ts` says why).
 
+## Background work
+
+Harmony uses `@exact/background` (LLP 1133.017) for two things a chat app
+does while the person is not looking:
+
+- **The outbox goes out at the next chance.** A message written while the
+  server cannot be reached stays on the device, and the data code registers
+  `sync` with the tag `outbox:<persona>`. The platform fires it at its next
+  chance to run online: on the web while the page is open and on a Mac
+  while Harmony runs, at once if online, else when the network returns; on
+  an iPhone at the next refresh wake or the next launch, which can be
+  hours. A round that fails registers
+  the tag again and waits out the backoff (5 minutes, doubling to an hour).
+- **A mention while Harmony is closed is a notification.** Under You,
+  Notify Me of Mentions registers `periodicsync` every 30 minutes; each
+  catch-up runs one round, finds the persona's mentions newer than the mark
+  it keeps in `app:/data`, and shows the newest room's as one notification
+  that opens the room. The platform decides when, or whether, a catch-up
+  runs: timely mentions need push, which Harmony does not have. The web has
+  no periodic sync, so the switch is hidden there. On the Mac, closing the
+  window keeps Harmony running (`keepRunning`), so a catch-up has a process
+  to run in.
+
+`bun packages/background/test/harmony.mjs <web|macos|ios>`, from exact2's root,
+drives both under the agent against a server of its own;
+`chromium`, `firefox` or `webkit` in place of the host drives the outbox in
+that browser, with the network switched off and on.
+
 ## Where things are
 
 | | |

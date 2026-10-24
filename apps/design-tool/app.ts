@@ -6,7 +6,7 @@
 // by the long poll, `POST /__tamber/events`: a data module's `fetch` reads a
 // body whole, so it cannot follow the server-sent stream. A failure is
 // words in the answer, never a throw.
-import type { Answer, Result, Sources } from './app.contract.d.ts';
+import type { Answer, Result, Sources, StreamEvent } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
@@ -14,7 +14,7 @@ import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, takeRefusals } from './refusals';
+import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { opWords, whenText } from './optext';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -44,7 +44,7 @@ const READ_WAIT = WRITE_WAIT;
 const RESOLVES_AT_ONCE = 4, LEVEL_WAIT = 5000;
 // The one `tamber/1` client (wire.ts): this machine's server at API, or
 // another machine's the tool paired with.
-const { call, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
+const { call, longPoll, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
 
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
@@ -84,7 +84,6 @@ let paramNames = new Map<string, string>();
 // The params as the newest settled read of the app's design has them.
 let appParams = new Map<string, ParamInfo>(), appParamsKey = '', appKinds = new Map<string, string>();
 const lineName = (param: string) => paramNames.get(param) ?? param;
-const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
 
 // Each design read, by its number (given as the read starts): its axes,
 // its columns, its dials' groups and each token's stored values per tuple.
@@ -365,6 +364,168 @@ const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stal
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
 let polls = 0, resync = true, polled = '', seeded = '';
+// The changes' poll (stage 14 D): `reread`, a reply the long poll could not fold alone (a coalesced one, from
+// another cursor, or starting again), so the next ask reads once by POST; its answers' common part.
+let reread = false, byCursor = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
+const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), ...refusalRows(buildsNow.values()) });
+/** One reply of the long poll (wire.ts `longPoll`), folded as it comes, or the poll's end (`ok: false`, asked again
+ * after 3 s). A reply that names another cursor than the last folded, or carries others folded into it (D4's
+ * coalescing keeps the newest), or starts again (missed, another run), is read again once by POST instead, which
+ * folds a gap, a missed stretch or another run whole: no events are lost. */
+function streamed(e: StreamEvent, used: string, gen: number, epoch: string, client: string) {
+  answers += 1;
+  if (gen !== polls) return { ok: true, error: '', missed: false, stream: true, ...changesState() };
+  // (Its end, whatever ended it, one too large to carry included: the next ask reads by POST, then opens again.)
+  if (e.type === 'error') { reread = true; return { ok: false, error: `The design server's change stream ended (${String((e as { message?: string }).message ?? 'no reason given')}): asking again.`, missed: false, stream: false, ...changesState() }; }
+  let r: any = null;
+  try { r = JSON.parse(String(e.data)); } catch { /* read again */ }
+  // (Each reply names the cursor it answers, the first `open`'s: in step only if that is the last one folded.)
+  const behind = typeof r?.asked !== 'string' || r.asked !== taken;
+  if (!r || e.coalesced > 0 || behind || r.missed || r.epoch !== place.epoch) { reread = true; return { ok: true, error: '', missed: false, stream: false, ...changesState() }; }
+  fold(r, used, epoch, client);
+  taken = r.cursor;
+  return { ok: true, error: '', missed: false, stream: true, ...changesState() };
+}
+/** One read of the changes by POST: at once (the first, after a reply the long poll could not fold, or with no token in
+ * hand, which this asks for), or, `wait`, the POST long poll a server before 1.17 holds (`exactHeld`). */
+async function readChanges(gen: number, epoch: string, client: string, wait: boolean) {
+  reread = false;
+  const { error, reply, used } = await call('/__tamber/events', epoch ? { after: place.seq, epoch, client, ...(wait ? {} : { wait: false }), ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000, undefined, wait);
+  answers += 1;
+  if (error) return { ok: false, error, missed: false, stream: false, ...changesState() };
+  if (gen !== polls) return { ok: true, error: '', missed: false, stream: false, ...changesState() };
+  const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[]; cursor?: unknown };
+  if (fold(r, used, epoch, client)) resync = true;
+  taken = r.cursor;
+  // Starting again, the builds are the server's list now (its events
+  // before this answer are not sent): read at once, not a poll later, and
+  // again each poll until a read succeeds (the list kept meanwhile).
+  if (resync) {
+    const now = await call('/__tamber', { method: 'hello' });
+    if (gen !== polls) return { ok: true, error: '', missed: false, stream: false, ...changesState() };
+    if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? [], client); latch(); resync = false; }
+    else if (!wait) return { ok: false, error: now.error, missed: false, stream: false, ...changesState() }; // (read at once, asked again in 3 s)
+  }
+  return { ok: true, error: '', missed: r.missed === true, stream: false, ...changesState() };
+}
+/** A reply folded into what the tool holds (the held list, a gap's row, the builds, the scrubs, the selection, the
+ * changes listed, the place): true when it starts again (the first, a missed stretch, another run). */
+function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] }, used: string, epoch: string, client: string): boolean {
+  // The open proposals, each with its proposer, diff and tokens; a
+  // recomputed one says which it replaces, and is reviewed afresh. None
+  // sent: the list is the one this tool has (its revision named), shown
+  // again only when a newer read of the design moves its swatches.
+  const design = Math.max(0, ...snapshots.keys());
+  if (r.proposals || design !== heldDesign) {
+    if (r.proposals) {
+      heldAt = { epoch: String(r.epoch ?? ''), revision: typeof r.held === 'number' ? r.held : -1 };
+      heldRaw = r.proposals;
+      heldToken = used;
+    }
+    heldDesign = design;
+    heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
+    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
+    held = heldRaw.map(p => ({
+      proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
+      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
+      items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
+      ...reviewOf(p),
+    }));
+  }
+  // Another run of the server (or another app's, on this port), or more
+  // missed than it keeps: its sequence numbers start again, or the list
+  // has a gap, so the list starts again. Another run has none of this
+  // session's inverses: undo and redo start again too.
+  // Another run's session has none of this one's writes to commit: the
+  // changeset starts again with it.
+  // Another run of the server has none of this run's scrub: it ended
+  // there, and a new one is chosen again.
+  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+  // Events missed: an end among them would be lost, so a scrub open is
+  // ended here (cancelled, if the server still has it).
+  // Missed, inspect mode's state is not known either: Inspect sends it again.
+  if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
+  if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
+    const s = scrubbing;
+    endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
+    void closeScrub(s);
+  }
+  if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
+  // The session's changeset: every write since the tool opened (not the
+  // backlog the first answer carries).
+  // Where the changes start from: the files as the poll has them when it
+  // starts again (the first answer, a gap it says it missed, a new run).
+  const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
+  if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
+  // A gap in this run: said in the list, which is no longer complete.
+  if (epoch && r.missed && r.epoch === place.epoch) {
+    changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
+  }
+  // (The files as each event came: a selection is of those, not of a write later in the answer. The
+  // first answer's start is not known, so a selection before a write in it is of no files known.)
+  let filesAt = lastFiles;
+  const lastWrite = anew ? ((r.events ?? []) as any[]).findLastIndex(e => e.event === 'changed') : -1;
+  if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
+  // The builds, as their events tell them.
+  for (const [i, e] of ((r.events ?? []) as any[]).entries()) {
+    // (The design server gone: its scrubs with it.)
+    if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
+    if (e.event === 'paired' || e.event === 'revoked') clientMoves += 1;
+    if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
+    if (e.event === 'changed' && e.files) filesAt = e.files;
+    // Each as it comes, so a reload told in one answer still ends a
+    // selection (a build that went keeps its inspect mode at the server,
+    // which tells it again when it is back).
+    if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
+    else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
+    // This tool's scrub, ended by the server (another write, idle, the
+    // tool gone, the server lost): said, and a new one is chosen again.
+    else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
+      if (e.client === client) { endedIds.set(String(e.scrub), String(e.reason)); if (endedIds.size > 32) endedIds.delete(endedIds.keys().next().value!); }
+      if (scrubbing?.id && e.scrub === scrubbing.id) endScrub(scrubbing, scrubEndText(String(e.reason)));
+    }
+    // A hold's end, in words, for the inspector (LLP 1122 D8): a build's own
+    // let-go, the server's clearing (no single site after a new plan).
+    else if (e.event === 'held' || e.event === 'hold-cleared') {
+      const b = buildsNow.get(String(e.build)); if (b) b.holding = heldEvent(b.holding, e);
+      if (!e.state) { asked.delete(String(e.build)); forgetHeld(String(e.build)); }
+      if (!e.state && e.reason) holdNotes.set(String(e.build), letGo(String(e.reason), e.detail));
+    }
+    else if (e.event === 'unsupported') {
+      const b = buildsNow.get(String(e.build)), step = e.what === 'inspect' && stepRefused(String(e.build), e.detail, b); if (b && !step) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+      // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
+      if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
+      if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && !step && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
+      if (e.what === 'inspect' && !step && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
+    }
+    // A selection joined to source, with what it was made under.
+    // A selection's held report counts only as the answer to the hold its page was asked under: one
+    // from before the hold moved (or unasked) is asked for again.
+    else if (e.event === 'selection') {
+      const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null); stepping.delete(String(e.build));
+      selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
+    }
+    // Inspect mode's owners as they move (tamber/1.6): this client's on or
+    // off, or another's taking a build over. Inspect mode ending where the
+    // selection is (an off taken by no one, `to: null`) ends it, whoever
+    // had it; this client's own loss ends it too.
+    else if (e.event === 'inspect' && Array.isArray(e.builds)) {
+      for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) { inspectOn.delete(id); const b = buildsNow.get(id); if (b?.inspectRefused != null) refuse(b, null); } }
+      if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) selectionNow.stale ||= 'inspect mode was turned off there';
+    }
+    // A page that left inspect mode itself (the server says so only for
+    // its current command): its selection is no longer current.
+    else if (e.event === 'selected' && e.selected === null) {
+      if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
+    }
+  }
+  const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
+  recent = [...fresh, ...recent].slice(0, 50);
+  place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
+  placeRun = used;
+  return !!anew;
+}
+
 const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
 /** Builds as the panel lists them: each one's effective scheme, contrast,
  * mode and root font size from its status (an app's own setScheme beats a
@@ -391,7 +552,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
-  buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
+  stepsAgain(list ?? [], buildsNow); buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
   for (const b of list ?? []) owned(b, client);
 };
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
@@ -518,29 +679,9 @@ function chosen(proposal: string, picked: string): number[] {
   const tokens = Number(r?.tokens ?? 0);
   return ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
 }
-/** An operation in plain words, as a held proposal lists its items. */
-const opText = (o: any): string => {
-  const what =
-    o?.op === 'set-token' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
-    : o?.op === 'unset-token-when' ? `${o.name}: drop when ${whenText(o.when ?? [])}`
-    : o?.op === 'set-dial' ? `${o.name} = ${o.value}`
-    : o?.op === 'set-param' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
-    : o?.op === 'unset-param' ? `reset ${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''}`
-    : o?.op === 'add-token' ? `add ${o.name} = ${o.value}`
-    : o?.op === 'rename-token' ? `rename ${o.from} → ${o.to}`
-    : o?.op === 'remove-token' ? `remove ${o.name}`
-    : o?.op === 'add-axis' ? `add axis ${o.name ?? o.axis} = ${[].concat(o.values ?? []).join(' | ')}`
-    : o?.op === 'add-axis-value' ? `add ${o.value} to axis ${o.axis ?? o.name}`
-    : o?.op === 'remove-axis-value' ? `remove ${o.value} from axis ${o.axis ?? o.name}`
-    : o?.op === 'set-state' ? `set ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row} = ${typeof o.value === 'string' ? JSON.stringify(o.value) : o.value}`
-    : o?.op === 'set-row' ? `set ${o.style ? `${o.style} ` : ''}${o.state ? `:${o.state} ` : ''}${o.row}${o.style ? '' : ` at ${o.file}:${o.at?.line}`} = ${typeof o.value === 'string' ? JSON.stringify(o.value) : o.value}`
-    : o?.op === 'unset-state' ? `unset ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row}`
-    : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
-    : JSON.stringify(o);
-  // The file it edits (the design's when it names none): two items may
-  // differ only there.
-  return `${what} (${o?.file || designFile || 'the design'})`;
-};
+/** An operation in plain words (optext.ts), and the file it edits (the design's when it names none): two items may
+ * differ only there. */
+const opText = (o: any): string => `${opWords(o)} (${o?.file || designFile || 'the design'})`;
 
 /** An event as the changeset keeps it. */
 function noted(e: any) {
@@ -631,7 +772,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 }
 
 const sources: Sources = {
-  ...pairingSources(call, pairWith, remote),
+  ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); if (r.error) stepping.delete(String(build)); return { ok: !r.error, error: r.error }; },
   ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
@@ -640,7 +781,7 @@ const sources: Sources = {
     // Paired, the server is another machine's whatever its hello says: never this machine's pages.
     const local = remote() === '' && ok.local !== false;
     liveTable = ok.live === true;
-    designFile = String(ok.design ?? '');
+    designFile = String(ok.design ?? ''); byCursor = Number(/^tamber\/1\.(\d+)$/.exec(String(ok.protocol ?? ''))?.[1] ?? 0) >= 17; // (the events' GET long poll, 1.17)
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(local ? pageOf(ok.page, Number(new URL(API).port)) : { page: '', frame: '' }), live: liveTable,
@@ -1001,7 +1142,7 @@ const sources: Sources = {
       return { column: c.id, label: c.label, ratio: typeof r === 'string' ? r : `${r.toFixed(2)}:1${p!.residual || q!.residual ? ' (fallback)' : ''}` };
     }) };
   },
-  waitChanges: async ([since, epoch, , client]) => {
+  waitChanges: ([epoch, , client]) => {
     // Up to 25 s with nothing new, and the server answers once there is.
     // The first asks, at once, from the start of what the server keeps. It
     // names the tool's client: a client is present while its poll is, and
@@ -1011,134 +1152,14 @@ const sources: Sources = {
     const gen = ++polls;
     // Another name is another client: what this tool inspects is read again.
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
-    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
-    answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
-    if (error) return { ok: false, error, missed: false, ...state() };
-    if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
-    const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
-    // The open proposals, each with its proposer, diff and tokens; a
-    // recomputed one says which it replaces, and is reviewed afresh. None
-    // sent: the list is the one this tool has (its revision named), shown
-    // again only when a newer read of the design moves its swatches.
-    const design = Math.max(0, ...snapshots.keys());
-    if (r.proposals || design !== heldDesign) {
-      if (r.proposals) {
-        heldAt = { epoch: String(r.epoch ?? ''), revision: typeof r.held === 'number' ? r.held : -1 };
-        heldRaw = r.proposals;
-        heldToken = used;
-      }
-      heldDesign = design;
-      heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
-      heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
-      held = heldRaw.map(p => ({
-        proposal: String(p.proposal), client: String(p.client ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
-        tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
-        items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
-        ...reviewOf(p),
-      }));
-    }
-    // Another run of the server (or another app's, on this port), or more
-    // missed than it keeps: its sequence numbers start again, or the list
-    // has a gap, so the list starts again. Another run has none of this
-    // session's inverses: undo and redo start again too.
-    // Another run's session has none of this one's writes to commit: the
-    // changeset starts again with it.
-    // Another run of the server has none of this run's scrub: it ended
-    // there, and a new one is chosen again.
-    if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
-    // Events missed: an end among them would be lost, so a scrub open is
-    // ended here (cancelled, if the server still has it).
-    // Missed, inspect mode's state is not known either: Inspect sends it again.
-    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
-    if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
-      const s = scrubbing;
-      endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
-      void closeScrub(s);
-    }
-    if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
-    // The session's changeset: every write since the tool opened (not the
-    // backlog the first answer carries).
-    // Where the changes start from: the files as the poll has them when it
-    // starts again (the first answer, a gap it says it missed, a new run).
-    const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
-    // A gap in this run: said in the list, which is no longer complete.
-    if (epoch && r.missed && r.epoch === place.epoch) {
-      changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
-    }
-    // (The files as each event came: a selection is of those, not of a write later in the answer. The
-    // first answer's start is not known, so a selection before a write in it is of no files known.)
-    let filesAt = lastFiles;
-    const lastWrite = anew ? ((r.events ?? []) as any[]).findLastIndex(e => e.event === 'changed') : -1;
-    if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
-    // The builds, as their events tell them.
-    for (const [i, e] of ((r.events ?? []) as any[]).entries()) {
-      // (The design server gone: its scrubs with it.)
-      if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
-      if (e.event === 'paired' || e.event === 'revoked') clientMoves += 1;
-      if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
-      if (e.event === 'changed' && e.files) filesAt = e.files;
-      // Each as it comes, so a reload told in one answer still ends a
-      // selection (a build that went keeps its inspect mode at the server,
-      // which tells it again when it is back).
-      if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
-      else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
-      // This tool's scrub, ended by the server (another write, idle, the
-      // tool gone, the server lost): said, and a new one is chosen again.
-      else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
-        if (e.client === client) { endedIds.set(String(e.scrub), String(e.reason)); if (endedIds.size > 32) endedIds.delete(endedIds.keys().next().value!); }
-        if (scrubbing?.id && e.scrub === scrubbing.id) endScrub(scrubbing, scrubEndText(String(e.reason)));
-      }
-      // A hold's end, in words, for the inspector (LLP 1122 D8): a build's own
-      // let-go, the server's clearing (no single site after a new plan).
-      else if (e.event === 'held' || e.event === 'hold-cleared') {
-        const b = buildsNow.get(String(e.build)); if (b) b.holding = heldEvent(b.holding, e);
-        if (!e.state) { asked.delete(String(e.build)); forgetHeld(String(e.build)); }
-        if (!e.state && e.reason) holdNotes.set(String(e.build), letGo(String(e.reason), e.detail));
-      }
-      else if (e.event === 'unsupported') {
-        const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
-        // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
-        if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
-        if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
-        if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
-      }
-      // A selection joined to source, with what it was made under.
-      // A selection's held report counts only as the answer to the hold its page was asked under: one
-      // from before the hold moved (or unasked) is asked for again.
-      else if (e.event === 'selection') {
-        const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null);
-        selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
-      }
-      // Inspect mode's owners as they move (tamber/1.6): this client's on or
-      // off, or another's taking a build over. Inspect mode ending where the
-      // selection is (an off taken by no one, `to: null`) ends it, whoever
-      // had it; this client's own loss ends it too.
-      else if (e.event === 'inspect' && Array.isArray(e.builds)) {
-        for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) { inspectOn.delete(id); const b = buildsNow.get(id); if (b?.inspectRefused != null) refuse(b, null); } }
-        if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) selectionNow.stale ||= 'inspect mode was turned off there';
-      }
-      // A page that left inspect mode itself (the server says so only for
-      // its current command): its selection is no longer current.
-      else if (e.event === 'selected' && e.selected === null) {
-        if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
-      }
-    }
-    // Starting again, the builds are the server's list now (its events
-    // before this answer are not sent): read at once, not a poll later, and
-    // again each poll until a read succeeds (the list kept meanwhile).
-    if (anew) resync = true;
-    if (resync) {
-      const now = await call('/__tamber', { method: 'hello' });
-      if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
-      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? [], client); latch(); resync = false; }
-    }
-    const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
-    recent = [...fresh, ...recent].slice(0, 50);
-    place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
-    placeRun = used;
-    return { ok: true, error: '', missed: r.missed === true, ...state() };
+    // Once this run has been read, with nothing to read again first: the long poll by cursor (tamber/1.17's GET,
+    // stage 14 D), its re-asks and backoff the host's (LLP 1016.000 D8), held by no clock after its first reply (D9),
+    // each reply folded as it comes. Else, or with no token in hand, one read at once (`wait: false`); with a server
+    // before 1.17, the POST long poll as before, held (`exactHeld`, D9).
+    const ready = byCursor && !!epoch && epoch === place.epoch && heldAt.epoch === epoch && heldAt.revision >= 0 && typeof taken === 'string' && !resync && !reread;
+    // (Its first ask opens from the last read's cursor, `open`, answered at once, as no clock should wait on a first
+    // ask for long, with what came since; the host's re-asks carry each reply's as `after`.)
+    return (ready && longPoll(`open=${encodeURIComponent(String(taken))}&epoch=${encodeURIComponent(epoch)}&client=${encodeURIComponent(client)}`, (e, used) => streamed(e, used, gen, epoch, client))) || readChanges(gen, epoch, client, !byCursor && !!epoch && !reread);
   },
   loadLit: async ([file, answer, faded]) => {
     // The cells of this file changed since its highlights last faded (in
@@ -1197,10 +1218,10 @@ const sources: Sources = {
     const fadeTo = JSON.stringify({ epoch: place.epoch, files: { ...(cursor.epoch === place.epoch ? cursor.files : {}), [f]: oldest } });
     // Each row names every client still lit on it.
     const whos = [...rows.values()].map(w => [...w].join(', '));
+    const names = [...rows.keys()], tints = [...rows.values()].map(w => tintOf([...w].at(-1)!));
     return {
-      seq: oldest, epoch: place.epoch, file: f, fadeTo,
-      names: [...rows.keys()], whos, tints: [...rows.values()].map(w => tintOf([...w].at(-1)!)),
-      cells: [...cells.keys()], cellTints: [...cells.values()].map(tintOf),
+      seq: oldest, epoch: place.epoch, file: f, fadeTo, names, whos, tints, marks: names.map((name, i) => ({ name, who: whos[i], tint: tints[i] })),
+      cells: [...cells.keys()], cellTints: [...cells.values()].map(tintOf), cellMarks: [...cells].map(([cell, who]) => ({ cell, tint: tintOf(who) })),
     };
   },
   loadScope: async ([client]) => {
@@ -1332,11 +1353,9 @@ const sources: Sources = {
     return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
   editImport: async ([client, proposal, index, mode, value, picked]) => {
-    // A mapped token's value in one mode changed before accepting: the
-    // import held again (on the same server run) as what the card has
-    // chosen, with the edit, its review renumbered to those items and its
-    // overrides on, since they were ticked; the old one dropped. So its
-    // diff is what Accept writes, and an override left unticked is not
+    // A mapped token's value in one mode changed before accepting: the import held again (on the same server run)
+    // as what the card has chosen, with the edit, its review renumbered to those items and its overrides on, since
+    // they were ticked; the old one dropped. So its diff is what Accept writes, and an override left unticked is not
     // checked along with an edit it has no part in.
     const at = session;
     const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
@@ -1353,12 +1372,13 @@ const sources: Sources = {
       ...r, kept: true, from: proposal, tokens: keep.filter(i => i < tokens).length,
       offers: (r.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })),
     };
-    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
+    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
+    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim(), items: keep } : { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
-    const dropped = await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
+    const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
     const carried: string[] = [];
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
@@ -1476,24 +1496,3 @@ const sources: Sources = {
   },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
-
-/** WCAG 2's contrast ratio of a text colour `fg` over a background `bg`,
- * each `#rrggbb[aa]`: the text composited over the background first. A
- * background that is not opaque has no one ratio until what is behind it
- * is known: said, as is anything that is not such a colour. */
-export function contrast(fg: string, bg: string): number | string {
-  const rgba = (hex: string) => {
-    const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-    return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).concat(m[2] ? parseInt(m[2], 16) / 255 : 1) : null;
-  };
-  const [f, b] = [rgba(fg), rgba(bg)];
-  if (!f || !b) return 'not a colour';
-  if (b[3] < 1) return 'translucent background';
-  const over = f.slice(0, 3).map((c, i) => c * f[3] + b[i] * (1 - f[3]));
-  const lum = (c: number[]) => {
-    const [r, g, bl] = c.map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
-  };
-  const [x, y] = [lum(over), lum(b.slice(0, 3))];
-  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
-}

@@ -229,3 +229,235 @@ test('a horizontal wheel leaves a vertical Chrome jump running to one scrollend'
   expect(result.left).toBe(0);
   expect(result.ends).toBe(1);
 }, 60_000);
+
+test('drop anchoring preserves visible rows and cancellation in the DOM', async () => {
+  const {sessionId, targetId} = await suite.page();
+  const call = (method, params) => cdp.send(method, params, sessionId);
+  const evaluate = async expression => {
+    const r = await call('Runtime.evaluate', {expression, returnByValue:true, awaitPromise:true});
+    if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+    return r.result.value;
+  };
+  await call('Page.navigate', {url: `http://127.0.0.1:${server.port}`});
+  await evaluate(`Promise.all([import('/rt.js'), import('/list.js')]).then(([rt, list]) => { globalThis.rt = rt; globalThis.list = list; rt.clock.agent = true; })`);
+  const result = await evaluate(`(async () => {
+    const results = [];
+    for (const [offset, item, y, cancel, grouped] of [[200,10,300,false,false], [207,10,300,false,false], [0,0,100,false,false], [500,25,600,false,false], [200,10,300,true,false], [200,10,300,false,true]]) {
+      const port = document.createElement('div'); port.id = 'arrange';
+      if (grouped) port.dataset.reordergroup = 'cards';
+      port.style.cssText = 'height:100px;width:320px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const rows = rt.sig(Array.from({length:30}, (_, i) => String(i)));
+      port.$reorderdrop = (item, before) => {
+        const next = rows().filter(k => k !== item);
+        next.splice(before === null ? next.length : next.indexOf(before), 0, item);
+        rt.W(rows, next);
+      };
+      const own = rt.scope(() => list.vl(port, rows, i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = i();
+        row.dataset.reorderfor = 'arrange'; row.dataset.view = rt.viewId(row); row.style.height = '20px'; w.append(row);
+      }, {est:20, pw:[], ph:[100], follow:() => true}));
+      rt.settled();
+      await exact.lists.pending(); await exact.lists.settle();
+      const { install } = await import('/reorder.js');
+      const reorder = install(exact.lists, {}, rt.After);
+      if (offset) await new Promise(resolve => { port.addEventListener('scroll', resolve, {once:true}); port.scrollTop = offset; });
+      await exact.lists.settle();
+      const row = port.querySelector('[data-listitemkey="s:' + item + '"]').firstElementChild;
+      row.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, pointerId:1}));
+      await exact.lists.settle();
+      const binding = reorder.binding(rt.viewId(row)), geometry = reorder.geometry(binding.list);
+      const start = grouped ? reorder.beginGroup(binding, geometry, false) : reorder.begin(binding, geometry);
+      if (!start) throw Error(JSON.stringify({binding, geometry, pin:port.$list.geometry.interaction_view, preview:port.$list.preview}));
+      const token = start.token;
+      const preview = reorder.preview(token, geometry, y);
+      let dropped;
+      rt.commit(() => {
+        if (cancel) { reorder.cancel(token); port.$reorderdrop(String(item), '15'); dropped = false; }
+        else dropped = grouped ? reorder.dropGroup(token, geometry, 0) : reorder.drop(token, geometry);
+      });
+      const corrected = port.$list.geometry.offset, moved = rows().indexOf(String(item));
+      reorder.finish(token);
+      row.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, pointerId:1}));
+      await exact.lists.settle();
+      const successor = port.querySelector('[data-listitemkey="s:' + (item + 1) + '"]');
+      const top = successor.getBoundingClientRect().top - port.getBoundingClientRect().top;
+      const scrollTop = port.scrollTop;
+      rt.end(own); port.remove(); rt.settled();
+      results.push({preview, dropped, moved, offset:corrected, top, scrollTop});
+    }
+    return results;
+  })()`);
+  await cdp.send('Target.closeTarget', {targetId});
+  expect(result).toEqual([
+    {preview:'accepted', dropped:true, moved:14, offset:180, top:20, scrollTop:180},
+    {preview:'accepted', dropped:true, moved:14, offset:187, top:13, scrollTop:187},
+    {preview:'accepted', dropped:true, moved:4, offset:0, top:0, scrollTop:0},
+    {preview:'accepted', dropped:true, moved:29, offset:480, top:20, scrollTop:480},
+    {preview:'accepted', dropped:false, moved:14, offset:280, top:-80, scrollTop:280},
+    {preview:'accepted', dropped:true, moved:14, offset:180, top:20, scrollTop:180},
+  ]);
+}, 60_000);
+
+test('relative corrections and drop eligibility survive later commits', async () => {
+  const {sessionId, targetId} = await suite.page();
+  const call = (method, params) => cdp.send(method, params, sessionId);
+  const evaluate = async expression => {
+    const r = await call('Runtime.evaluate', {expression, returnByValue:true, awaitPromise:true});
+    if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+    return r.result.value;
+  };
+  await call('Page.navigate', {url: `http://127.0.0.1:${server.port}`});
+  const results = await evaluate(`(async () => {
+    const rt = await import('/rt.js'), list = await import('/list.js'), {install} = await import('/reorder.js');
+    rt.clock.agent = true;
+    const results = [];
+    for (const mode of ['trim', 'same-slot', 'same-slot-group', 'refuse', 'refuse-cancel', 'refuse-write', 'refuse-group', 'refuse-write-group', 'pending-cancel', 'pending', 'pending-group', 'landed-group']) {
+      const port = document.createElement('div'); port.id = 'arrange';
+      const grouped = mode.endsWith('-group');
+      if (grouped) port.dataset.reordergroup = 'cards';
+      port.style.cssText = 'height:100px;width:320px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const rows = rt.sig(Array.from({length:30}, (_, i) => String(i)));
+      const move = (item, before) => {
+        const next = rows().filter(k => k !== item);
+        next.splice(before === null ? next.length : next.indexOf(before), 0, item);
+        rt.W(rows, next);
+      };
+      const invalid = rt.sig(0, 'n');
+      port.$reorderdrop = (item, before) => {
+        if (mode.startsWith('refuse-write')) { rt.W(invalid, 'wrong'); return; }
+        if (mode.startsWith('refuse')) throw new rt.Refusal('refused drop');
+        if (!mode.startsWith('pending')) move(item, before);
+      };
+      const own = rt.scope(() => list.vl(port, rows, i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = i();
+        row.dataset.reorderfor = 'arrange'; row.dataset.view = rt.viewId(row); row.style.height = '20px'; w.append(row);
+      }, {est:20, pw:[], ph:[100]}));
+      rt.settled(); await exact.lists.pending(); await exact.lists.settle();
+      const reorder = install(exact.lists, {}, rt.After);
+      await new Promise(resolve => { port.addEventListener('scroll', resolve, {once:true}); port.scrollTop = 200; });
+      await exact.lists.settle();
+      const c = port.$list;
+      if (mode === 'trim') {
+        const ix = new c.index.constructor(20); ix.replace(['s:a', 's:b', 's:c']); ix.leading = 20;
+        const boundaries = [-21, -20, 0, 40, 41].map(offset => {
+          const a = ix.anchorAt('s:a', offset);
+          return [ix.restoreAnchor(a, 20), ix.keptRow(a, 20)];
+        });
+        results.push({mode:'boundaries', values:boundaries});
+        port.scrollTop = 210; // Ten pixels of fling travel after the last geometry report.
+        rt.commit(() => rt.W(rows, rows().slice(10)));
+        const correction = {offset:c.geometry.offset, from:c.correction?.from};
+        await exact.lists.settle();
+        results.push({mode, ...correction, scroll:port.scrollTop});
+      } else {
+        const row = port.querySelector('[data-listitemkey="s:10"]').firstElementChild;
+        row.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, pointerId:1}));
+        await exact.lists.settle();
+        const binding = reorder.binding(rt.viewId(row)), geometry = reorder.geometry(binding.list);
+        const {token} = grouped ? reorder.beginGroup(binding, geometry, false) : reorder.begin(binding, geometry);
+        reorder.preview(token, geometry, mode.startsWith('same-slot') ? 200 : 300);
+        const accepted = rt.commit(() => grouped ? reorder.dropGroup(token, geometry, 0) : reorder.drop(token, geometry));
+        if (grouped && mode.startsWith('refuse')) results.push({mode:mode + '-hold', phase:reorder.session().phase, ending:reorder.session().ending});
+        if (mode === 'refuse-cancel' || mode === 'pending-cancel') reorder.cancel(token);
+        if (mode === 'landed-group') {
+          results.push({mode, offset:c.geometry.offset, pending:!!c.dropAnchor()});
+        } else {
+          rt.commit(() => move('10', mode.startsWith('refuse') || mode === 'pending-cancel' ? '15' : '12'));
+          const first = c.geometry.offset;
+          let landed;
+          if (mode === 'pending') {
+            await exact.lists.settle();
+            rt.commit(() => move('10', '15'));
+            landed = c.geometry.offset;
+          }
+          results.push({mode, accepted, first, ...(landed === undefined ? {} : {landed})});
+        }
+        if (grouped) reorder.reconcileGroup();
+        reorder.finish(token);
+        row.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, pointerId:1}));
+      }
+      rt.end(own); port.remove(); rt.settled();
+    }
+    return results;
+  })()`);
+  await cdp.send('Target.closeTarget', {targetId});
+  expect(results).toEqual([
+    {mode:'boundaries', values:[[-20,false], [-20,true], [0,true], [40,true], [40,false]]},
+    {mode:'trim', offset:0, from:200, scroll:10},
+    {mode:'same-slot', accepted:true, first:220},
+    {mode:'same-slot-group', accepted:true, first:220},
+    {mode:'refuse', accepted:false, first:280},
+    {mode:'refuse-cancel', accepted:false, first:280},
+    {mode:'refuse-write', accepted:false, first:280},
+    {mode:'refuse-group-hold', phase:'settling', ending:null},
+    {mode:'refuse-group', accepted:false, first:280},
+    {mode:'refuse-write-group-hold', phase:'settling', ending:null},
+    {mode:'refuse-write-group', accepted:false, first:280},
+    {mode:'pending-cancel', accepted:true, first:280},
+    {mode:'pending', accepted:true, first:220, landed:200},
+    {mode:'pending-group', accepted:true, first:220},
+    {mode:'landed-group', offset:180, pending:false},
+  ]);
+}, 60_000);
+
+// Rows of 100.3 px: a keyed jump to row 18 asks for 1805.4, which the
+// browser rounds to the device pixel at 1805. The 0.4 px of row 17 above
+// the port's start is painted nowhere (edges snap to device pixels), so the
+// first visible row is 18, as the reader sees it.
+test('a jump reports the row it put at the start, not a sliver above it', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div'); port.id = 'sliver-feed';
+    port.style.cssText = 'height:300px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    let heard;
+    rt.onScroll(port, 'scroll', (x, y, e) => { heard = e; }, (kind, f) => port.addEventListener(kind, f));
+    const own = rt.scope(() => list.vl(port, () => Array.from({length:100}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '100.3px'; w.append(row);
+    }, {est:100.3, pw:[], ph:[300]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    rt.Hosts.scrollIntoView('sliver-feed', 18, 'start', 'nearest', 'instant', null, null);
+    await exact.lists.settle();
+    port.dispatchEvent(new Event('scroll'));
+    const top = port.scrollTop, row = port.querySelector('[data-listitemkey="n:18"]');
+    const drawn = row.getBoundingClientRect().top - port.getBoundingClientRect().top;
+    rt.end(own); port.remove(); rt.settled();
+    return {top, drawn, key:heard[6], offset:heard[7]};
+  })()`);
+  expect(result.top).toBe(1805);
+  expect(result.key).toBe('18');
+  expect(result.offset).toBe(0);
+}, 60_000);
+
+// Rows 150 px tall under an estimate of 100: lists opened at their ends
+// are first placed at the ends their estimates give; each one's rows are
+// measured, and the port moved to their end, before the next frame, whose
+// scroll events therefore hear the ends (collection-glue.js `commit`).
+// Three open at once, as one budget a frame would not reach them all.
+test('lists opened at their ends report only their ends while their rows measure', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = Array.from({length:3}, () => {
+      const port = document.createElement('div');
+      port.style.cssText = 'height:300px;width:200px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const heard = [];
+      rt.onScroll(port, 'scroll', (x, y, e) => { heard.push(Math.round(e[3] - e[1] - e[5])); }, (kind, f) => port.addEventListener(kind, f));
+      const own = rt.scope(() => list.vl(port, () => Array.from({length:100}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '150px'; w.append(row);
+      }, {est:100, pw:[], ph:[300], atEnd:true}));
+      return {port, heard, own};
+    });
+    rt.settled();
+    for (let f = 0; f < 10; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    const out = lists.map(({port, heard}) => ({heard, gap: port.scrollHeight - port.scrollTop - port.clientHeight}));
+    for (const {port, own} of lists) { rt.end(own); port.remove(); }
+    rt.settled();
+    return out;
+  })()`);
+  for (const {heard, gap} of result) {
+    expect(gap).toBe(0);
+    expect(heard.length).toBeGreaterThan(0);
+    expect(heard).toEqual(heard.map(() => 0));
+  }
+}, 60_000);

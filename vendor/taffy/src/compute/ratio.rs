@@ -246,10 +246,9 @@ pub(crate) fn minimum_ratio_width(
     })?;
     let transferred = ratio.width(height);
     drop(style);
-    // EXACT PATCH 57: a leaf must measure content independently: a supplied
-    // height derives a width and returns before calling its measurer. A
-    // container needs the height to let content exceed its transferred cap.
-    let known = if tree.child_count(node) == 0 { Size::NONE } else { Size { width: None, height: Some(height) } };
+    // EXACT PATCH 64: leaves and containers both use the supplied height
+    // as an inline floor while measuring content beyond its transferred cap.
+    let known = Size { width: None, height: Some(height) };
     let intrinsic = tree.measure_child_size(
         node,
         known,

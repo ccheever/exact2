@@ -67,6 +67,7 @@ struct Row {
     size: (f32, f32),
     boxes: Vec<PaintedBox>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
+    inline: Vec<(ViewId, Rc<inline_frame::PaintedInline>)>,
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     /// Where each picture kept apart from the row is drawn.
     slots: Vec<Slot>,
@@ -99,6 +100,7 @@ struct Capture {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     slots: Vec<Slot>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
+    inline: Vec<(ViewId, Rc<inline_frame::PaintedInline>)>,
     frames: Vec<RowFrame>,
     scrolls: Vec<(ViewId, (f32, f32))>,
 }
@@ -464,6 +466,12 @@ impl Painter {
         }
     }
 
+    pub(super) fn row_inline(&mut self, id: ViewId, p: &Rc<inline_frame::PaintedInline>) {
+        if let Some(c) = &mut self.rows.recording {
+            c.inline.push((id, p.clone()));
+        }
+    }
+
     /// What a recording row cannot keep (a caret, a canvas, a 3D island).
     pub(super) fn row_refuse(&mut self) {
         if let Some(c) = &mut self.rows.recording {
@@ -544,6 +552,9 @@ impl Painter {
             for (k, p) in &row.text {
                 walk.text.insert(*k, p.clone());
             }
+            for (id, inline) in &row.inline {
+                walk.inline.insert(*id, inline.translated(d.0, d.1));
+            }
             self.damage.unsupported |= row.unsupported;
             let bounds = (
                 row.bounds.0 + origin.0,
@@ -583,6 +594,7 @@ impl Painter {
         self.backend.row_begin(self.rows.next, content, previous);
         self.rows.recording = Some(Capture::default());
         self.node(walk, id, ts, walk_offset, None);
+        let mut capture = self.rows.recording.take().expect("recording");
         if local {
             for b in &mut walk.boxes[start..] {
                 b.rect.0 += origin.0;
@@ -592,8 +604,13 @@ impl Painter {
                     .affine
                     .map(|(t, r)| (t.post_translate(origin.0, origin.1), r));
             }
+            for (id, inline) in &mut capture.inline {
+                *inline = inline.translated(origin.0, origin.1);
+                if let Some(published) = walk.inline.get_mut(id) {
+                    *published = inline.clone();
+                }
+            }
         }
-        let capture = self.rows.recording.take().expect("recording");
         let row_unsupported = std::mem::replace(&mut self.damage.unsupported, unsupported);
         self.damage.unsupported |= row_unsupported;
         let boxes: Vec<PaintedBox> = walk.boxes[start..].to_vec();
@@ -641,6 +658,7 @@ impl Painter {
                 size: (node.frame.width, node.frame.height),
                 boxes,
                 text: capture.text,
+                inline: capture.inline,
                 images: capture.images,
                 slots: capture.slots,
                 frames: capture

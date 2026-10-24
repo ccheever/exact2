@@ -60,6 +60,7 @@
     }
   ],
   "data": ["privacy"],
+  "watch": { "source": "watch.contract", "component": "CaltrainWatch" },
   "live_activities": [
     {
       "kind": "departure",

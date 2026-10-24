@@ -58,6 +58,20 @@ pub(crate) fn face_json_named(
         Some(l) => quote(l, &mut json),
         None => json.push_str("null"),
     }
+    json.push_str(",\"image\":");
+    if let Some(image) = &face.image {
+        json.push_str(&format!("{{\"view\":{},\"source\":", image.view));
+        quote(&image.source, &mut json);
+        json.push_str(",\"size\":");
+        if let Some((width, height)) = image.size {
+            json.push_str(&format!("[{width},{height}]"));
+        } else {
+            json.push_str("null");
+        }
+        json.push('}');
+    } else {
+        json.push_str("null");
+    }
     json.push_str(",\"style\":");
     match style {
         Some(style) => quote(style, &mut json),
@@ -103,7 +117,18 @@ pub(crate) fn face_json_named(
             json.push(':');
             json.push_str(&value.map_or_else(
                 || "{}".into(),
-                |rows| crate::style::style_json_resolved(rows).0,
+                |part| {
+                    let mut part = part.clone();
+                    // A clear declaration has no value mask. Text still resolves
+                    // through the button, but genuine absence keeps platform ink.
+                    if matches!(name, "title" | "subtitle")
+                        && (part.written.has(exact_kernel::StyleId::TextColor)
+                            || rows.button.written.has(exact_kernel::StyleId::TextColor))
+                    {
+                        part.mask.set(exact_kernel::StyleId::TextColor);
+                    }
+                    crate::style::style_json_resolved(&part).0
+                },
             ));
         }
         json.push_str(",\"imageGap\":");
@@ -122,6 +147,44 @@ pub(crate) fn face_json_named(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_raster_size_report_refreshes_the_native_button_face() {
+        let mut plan = contract::compile("component App\n  view\n    button appearance=\"auto\"\n      image \"symbol:sf/photo\"\n      text \"Photo\"\n").unwrap();
+        // The host protocol can represent a raster while portable authoring
+        // admission waits for every graphical host to paint one.
+        let source = plan
+            .strings
+            .iter()
+            .position(|s| s.starts_with("symbol:"))
+            .unwrap();
+        plan.strings.set(source, "photo.png");
+        let (mut host, _) = crate::Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.0,
+            800.0,
+        )
+        .unwrap();
+        let button = host.runner().kernel().roots()[0];
+        let image = host
+            .runner()
+            .kernel()
+            .press_face(button)
+            .unwrap()
+            .image
+            .unwrap();
+        let batch: serde_json::Value =
+            serde_json::from_str(&host.set_intrinsic(image.view, Some((32.0, 20.0)))).unwrap();
+        assert_eq!(batch["controls"], true);
+        let face = host.runner().kernel().press_face(button).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&face_json(Some(&face), None, None)).unwrap();
+        assert_eq!(json["image"]["view"], image.view);
+        assert_eq!(json["image"]["source"], "photo.png");
+        assert_eq!(json["image"]["size"], serde_json::json!([32, 20]));
+    }
+
     #[test]
     fn bridge_rows_keep_authorship_and_child_overrides_and_semantic_fields() {
         let plan = contract::compile(r#"component Buttons
@@ -157,6 +220,57 @@ mod tests {
         assert_eq!(json["rows"]["button"]["control_size"], "large");
         assert_eq!(json["rows"]["button"]["padding_left"], 9);
         assert_eq!(json["rows"]["button"]["border_radius_top_left"], 18);
+    }
+    #[test]
+    fn clear_colour_intent_reaches_native_faces_without_colouring_unsaid_faces() {
+        let plan = contract::compile(
+            r#"component Buttons
+  view
+    column color="red"
+      button testId="unsaid" "Unsaid"
+      button testId="clear-button" color="inherit" "Clear"
+      button testId="clear-title"
+        text "Clear" color="inherit"
+      button testId="transparent" color="transparent" "Transparent"
+"#,
+        )
+        .unwrap();
+        let (host, _) = crate::Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.,
+            800.,
+        )
+        .unwrap();
+        let kernel = host.runner().kernel();
+        for name in ["unsaid", "clear-button", "clear-title", "transparent"] {
+            let id = kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id;
+            let rows = kernel.button_face_style(id).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&face_json(
+                kernel.press_face(id).as_ref(),
+                Some(&rows),
+                None,
+            ))
+            .unwrap();
+            if name == "unsaid" {
+                assert!(json["rows"]["title"].get("text_color").is_none(), "{json}");
+            } else {
+                let expected = if name == "transparent" {
+                    [0, 0, 0, 0]
+                } else {
+                    [255, 0, 0, 255]
+                };
+                assert_eq!(
+                    json["rows"]["title"]["text_color"],
+                    serde_json::json!(expected),
+                    "{name}: {json}"
+                );
+            }
+        }
     }
     /// LLP 1115.000 D12.1: a face row's size is the kernel's number, which
     /// the host draws as it is. An `em` under the platform's control font

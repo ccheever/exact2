@@ -12,8 +12,9 @@
 //! browser lays out `<ul>`/`<ol>` (LLP 1045 D4). Colours are roles the host
 //! resolves from its theme.
 
+use crate::atoms::{AtomRole, Atoms};
 use crate::block::{BlockKind, MarkerKind, B};
-use crate::style::{analyze, Replacement};
+use crate::style::{analyze_with, Replacement};
 use crate::{BOLD, CODE, ITALIC, LINK, MARKER, STRIKE};
 
 /// The colour a piece takes, resolved by the host from its theme.
@@ -64,6 +65,26 @@ pub struct Piece {
     /// right-aligned in the gutter and a wrapped line starts under the text,
     /// as the browser's `list-style-position: outside` marker sits.
     pub hang: bool,
+    /// An inline atom (LLP 1045.000 D6): one box whose text is its label,
+    /// drawn as a pill by the hosts that draw atoms.
+    pub atom: Option<Box<AtomPiece>>,
+}
+
+/// What an atom piece carries besides its label (LLP 1045.000 D6, D7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AtomPiece {
+    /// The declaring kind's name.
+    pub kind: String,
+    /// Its role.
+    pub role: AtomRole,
+    /// The face's icon, an image source; empty for none.
+    pub icon: String,
+    /// The face's title; empty for none.
+    pub title: String,
+    /// A link atom's destination; empty for a prefix token.
+    pub href: String,
+    /// The atom's whole source text.
+    pub source: String,
 }
 
 /// One list level's indent, CSS px: the browser's `padding-inline-start` on
@@ -84,6 +105,7 @@ impl Piece {
             source: None,
             indent: 0.0,
             hang: false,
+            atom: None,
         }
     }
 }
@@ -128,7 +150,13 @@ fn block_ranges<'a, T>(pending: &mut &'a [T], block: &B, bounds: fn(&T) -> &B) -
 
 /// Flattens `source` into pieces for one paragraph engine.
 pub fn pieces(source: &str) -> Vec<Piece> {
-    let analysis = analyze(source, None);
+    pieces_with(source, &Atoms::default())
+}
+
+/// The pieces with `atoms` recognized: each atom one piece whose text is its
+/// label, its runs of white space one space (LLP 1045.000 D4, D6).
+pub fn pieces_with(source: &str, atoms: &Atoms) -> Vec<Piece> {
+    let analysis = analyze_with(source, None, atoms);
     let offsets = crate::offsets::Offsets::new(source);
     let mut out: Vec<Piece> = Vec::new();
     let mut previous: Option<BlockKind> = None;
@@ -136,6 +164,7 @@ pub fn pieces(source: &str) -> Vec<Piece> {
     let mut remaining_spans = analysis.spans.as_slice();
     let mut remaining_hidden = analysis.hidden.as_slice();
     let mut remaining_replaced = analysis.replaced.as_slice();
+    let mut remaining_atoms = analysis.atoms.as_slice();
     for (n, block) in blocks.iter().enumerate() {
         let (kind, depth, quote) = (&block.kind, block.depth as usize, block.quote as usize);
         // Spacing: none inside a run of list items or code lines, a short line
@@ -226,7 +255,11 @@ pub fn pieces(source: &str) -> Vec<Piece> {
         let mut spans = block_ranges(&mut remaining_spans, &range, |s| &s.0);
         let mut hidden = block_ranges(&mut remaining_hidden, &range, |r| r);
         let mut replaced = block_ranges(&mut remaining_replaced, &range, |r| &r.0);
+        let mut found = block_ranges(&mut remaining_atoms, &range, |a| &a.range);
         let mut cuts: Vec<usize> = vec![range.start, range.end];
+        for a in found {
+            cuts.extend([a.range.start, a.range.end]);
+        }
         for (r, _, _) in spans {
             cuts.extend([r.start, r.end]);
         }
@@ -246,6 +279,18 @@ pub fn pieces(source: &str) -> Vec<Piece> {
             advance_ranges(&mut hidden, start, |r| r);
             advance_ranges(&mut replaced, start, |r| &r.0);
             advance_ranges(&mut spans, start, |s| &s.0);
+            advance_ranges(&mut found, start, |a| &a.range);
+            if let Some(a) = found
+                .first()
+                .filter(|a| a.range.start <= start && end <= a.range.end)
+            {
+                if start == a.range.start {
+                    out.push(atom_piece(
+                        source, &offsets, atoms, a, spans, scale, weight, indent,
+                    ));
+                }
+                continue;
+            }
             if hidden
                 .first()
                 .is_some_and(|h| h.start <= start && end <= h.end)
@@ -319,6 +364,7 @@ pub fn pieces(source: &str) -> Vec<Piece> {
                 source: Some(offsets.range16(&(start..end))),
                 indent,
                 hang: false,
+                atom: None,
             });
         }
         let mut end = Piece::glyph("\n", Role::Ink);
@@ -340,6 +386,8 @@ pub fn pieces(source: &str) -> Vec<Piece> {
                     && last.indent == p.indent
                     && !last.hang
                     && !p.hang
+                    && last.atom.is_none()
+                    && p.atom.is_none()
                     && last.source.is_some() == p.source.is_some()
                     && last
                         .source
@@ -364,4 +412,55 @@ pub fn pieces(source: &str) -> Vec<Piece> {
         }
     }
     merged
+}
+
+/// An atom's piece: its label in the formats around it (`**[x](…)**` draws a
+/// bold label, LLP 1045.000 D4), the link colour, its source range.
+#[allow(clippy::too_many_arguments)]
+fn atom_piece(
+    source: &str,
+    offsets: &crate::offsets::Offsets,
+    atoms: &Atoms,
+    a: &crate::atoms::Found,
+    spans: &[(B, u8, String)],
+    scale: f32,
+    weight: u16,
+    indent: f32,
+) -> Piece {
+    let text = &source[a.range.clone()];
+    let face = atoms.face(text);
+    let label = face
+        .map(|f| f.label.as_str())
+        .filter(|l| !l.is_empty())
+        .unwrap_or(&a.default);
+    // The formats of the whole atom: those every span inside it shares.
+    let mut flags: Option<u8> = None;
+    for (r, f, _) in spans {
+        if r.start < a.range.end && a.range.start < r.end {
+            flags = Some(flags.map_or(*f, |g| g & f));
+        }
+    }
+    let flags = flags.unwrap_or(0);
+    let kind = &atoms.kinds[a.kind];
+    Piece {
+        text: label.split_whitespace().collect::<Vec<_>>().join(" "),
+        scale,
+        weight: if flags & BOLD != 0 { 700 } else { weight },
+        italic: flags & ITALIC != 0,
+        mono: false,
+        strike: flags & STRIKE != 0,
+        href: String::new(),
+        role: Role::Link,
+        source: Some(offsets.range16(&a.range)),
+        indent,
+        hang: false,
+        atom: Some(Box::new(AtomPiece {
+            kind: kind.name.clone(),
+            role: kind.role,
+            icon: face.map(|f| f.icon.clone()).unwrap_or_default(),
+            title: face.map(|f| f.title.clone()).unwrap_or_default(),
+            href: a.href.clone(),
+            source: text.to_string(),
+        })),
+    }
 }

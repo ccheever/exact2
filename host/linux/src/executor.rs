@@ -145,4 +145,8 @@ impl Executor {
     pub fn socket_reader(&self) -> exact_runner::SocketReader {
         self.core.socket_reader()
     }
+    /// Each long poll's backoff wait, by its stream ticket, live (D8).
+    pub fn retry_reader(&self) -> exact_runner::RetryReader {
+        self.core.retry_reader()
+    }
 }

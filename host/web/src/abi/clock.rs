@@ -1,10 +1,36 @@
 //! The page's live clock while it owns time (the timers RFC, D1): told to
-//! the running host and kept for every boot, a dev restart's included.
+//! the running host and kept for every boot, a dev restart's included; and
+//! what the agent's clock waits on or hands the worlds between its frames.
 
 use super::Bridge;
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Requests the agent waits on, including turns parked inside a source.
+    /// Declared holds and streams after their first message keep the runner's exemptions.
+    pub fn requests_pending(&self) -> u32 {
+        u32::from(self.host.as_ref().is_some_and(|h| h.runner().has_pending()))
+    }
+
+    /// Whether the substitute feeds a canvas a sensor's samples (LLP
+    /// 1133.013 D6): the agent's clock then steps the worlds a frame at a time.
+    pub fn sensor_inputs(&self) -> u32 {
+        u32::from((self.host.as_ref()).is_some_and(|h| h.runner().surface_sensor_inputs()))
+    }
+
+    /// The samples the substitute's canvas inputs owe their surfaces up to
+    /// `to_ms`, as `[{"surface", "event"}]`, each event the input JSON a
+    /// canvas takes.
+    pub fn sensor_events(&mut self, to_ms: f64) -> u32 {
+        let events = (self.host.as_mut())
+            .map(|h| h.runner_mut().surface_sensor_events(to_ms))
+            .unwrap_or_default();
+        let out: Vec<serde_json::Value> = (events.into_iter())
+            .map(|(surface, event)| serde_json::json!({ "surface": surface, "event": event }))
+            .collect();
+        self.emit(serde_json::Value::Array(out).to_string())
+    }
+
     /// The page's clock owns time (`Some`), or the agent's seekable one does
     /// (`None`): the running runner and every one booted later take it.
     pub fn set_live_clock(&mut self, now: Option<fn() -> f64>) {
@@ -41,6 +67,24 @@ impl<D: DataSource> Bridge<D> {
 #[doc(hidden)]
 macro_rules! live_clock_export {
     ($bridge:ident) => {
+        /// Whether a clock must wait for a runner request, even without host work.
+        #[no_mangle]
+        pub extern "C" fn exact_requests_pending() -> u32 {
+            $bridge.with(|b| b.borrow().requests_pending())
+        }
+
+        /// Nonzero while the substitute feeds a canvas a sensor's samples.
+        #[no_mangle]
+        pub extern "C" fn exact_sensor_inputs() -> u32 {
+            $bridge.with(|b| b.borrow().sensor_inputs())
+        }
+
+        /// The samples owed the canvases up to `to_ms`; returns the length.
+        #[no_mangle]
+        pub extern "C" fn exact_sensor_events(to_ms: f64) -> u32 {
+            $bridge.with(|b| b.borrow_mut().sensor_events(to_ms))
+        }
+
         /// Nonzero: the page's clock owns time; zero: the agent's does.
         #[no_mangle]
         pub extern "C" fn exact_live_clock(on: u32) {

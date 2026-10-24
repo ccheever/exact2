@@ -54,7 +54,7 @@ pub mod velocity;
 pub use animation::link as link_animations;
 pub use animation::{
     Animation, AnimationError, Animations, Direction, FillMode, Keyframes, Phase, MAX_ANIMATIONS,
-    MAX_KEYFRAMES,
+    MAX_KEYFRAMES, MAX_VALUES,
 };
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{

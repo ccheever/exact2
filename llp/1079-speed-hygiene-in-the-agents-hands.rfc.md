@@ -177,7 +177,7 @@ the re-export and the bounded journal (D4).
 - **Production trust: collection off.** The host tells the runner once,
   after boot: `Runner::measure(on, moves)` (ruled, Q2: never a field the app
   can read). The Apple, Linux and web wasm hosts already hold the baked
-  `compat.json` and decide from its `inputs.trust` (`delivery::production`).
+  `compat.json` and decide from its `embedded.trust` (`delivery::production`).
   Off, each counter is one branch on an empty
   table. A production JS build references neither `pf` nor `perf.js`. This is
   not a cargo feature, so the ban on optional capability in core crates is

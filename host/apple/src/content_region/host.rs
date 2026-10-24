@@ -749,6 +749,7 @@ impl<D: DataSource> Host<D> {
         }
         self.mirror.entry(owner_id).or_default().children = owner_children.into_boxed_slice();
         self.collections_json = collections_json;
+        self.collection_heads = None;
         native.selected = Some(SelectedNative {
             identity: candidate.identity,
             serial,

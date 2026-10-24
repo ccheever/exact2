@@ -146,11 +146,10 @@ size; that is not a second `load`.
 font-size=17 font-weight=600 tint-color="#007aff"` uses one of the seven
 schema roles: back, close, compose, add, microphone, send and search. Literal
 unknown roles are `lower-attr-value`; a dynamic unknown role paints empty,
-clears intrinsic size and logs a refusal. Symbols are decorative: the surrounding
-control carries its accessible name, the symbol does not carry another one.
-Since 2026-10-04 a symbol its author names (`alt` or `aria-label`) keeps that
-name on the web and macOS (LLP 1035.004 D1, amended); iOS still hides every
-symbol from VoiceOver (`NodeViewIOS.swift`), and Linux exposes no image names.
+clears intrinsic size and logs a refusal. An unnamed symbol is decorative:
+its surrounding control carries the accessible name. A symbol with an
+accessible name is an image element on the web, macOS and iOS (LLP 1035.004
+D1, amended). Linux exposes no image names.
 No network or asset load resolves a symbol. Definite dimensions still size its
 box; inherited font size/weight configure its natural glyph dimensions.
 

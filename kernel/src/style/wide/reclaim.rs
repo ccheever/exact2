@@ -279,9 +279,9 @@ impl Table {
         self.tick();
         if !self.told {
             self.told = true;
-            eprintln!(
+            crate::diagnostic(format_args!(
                 "exact: the wide colour table is full ({WIDE_CAP} colours held); {text} refused, and the row keeps its value (LLP 1121 stage 4)"
-            );
+            ));
         }
     }
 
@@ -511,9 +511,9 @@ pub(in crate::style) fn stale(id: u16) {
         first
     });
     if first {
-        eprintln!(
+        crate::diagnostic(format_args!(
             "exact: wide colour {id:#06x} read after its slot was reclaimed: a holder its mark missed (LLP 1121 stage 4)"
-        );
+        ));
     }
     debug_assert!(
         false,

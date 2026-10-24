@@ -17,7 +17,7 @@ component SwitchRow
   view
     row testId=`${id}-row`
       if symbol != ""
-        image `symbol:${symbol}` -exact-tint-color="param.tint"
+        image `symbol:${symbol}` color="param.tint"
       text title
       input part="switch" type="checkbox" switch
         accent-color="param.on"

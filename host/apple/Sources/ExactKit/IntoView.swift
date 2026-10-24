@@ -125,12 +125,10 @@ private extension CGPoint {
     static func - (a: CGPoint, b: CGPoint) -> CGPoint { CGPoint(x: a.x - b.x, y: a.y - b.y) }
 }
 
-/// `scrollIntoView` requests held until their targets can be scrolled to
-/// (UIKit's sheets mount a turn after the batch that made them; euxy's
-/// preselected icon was asked in that turn), and carried out once more when a
-/// presentation or navigation settles, after any focus it brought, which
-/// UIKit would otherwise scroll back to. One per HTML id, the latest; a
-/// request for another element leaves them be.
+/// Hold `scrollIntoView` requests until their targets mount and pending fills finish.
+/// Repeat them after navigation or presentation settles, following focus so UIKit
+/// cannot scroll back to the focused field. Keep the latest request per HTML id;
+/// a request for another element leaves the others in place.
 final class ElementScrolls {
     private struct Held {
         weak var node: NodeView?
@@ -146,6 +144,9 @@ final class ElementScrolls {
     func hold(_ node: NodeView, _ name: String, _ args: [Any]) {
         drop(name)
         held.append(Held(node: node, incarnation: node.incarnation, name: name, args: args))
+        if let session = presenter.session, session.fillInFlight {
+            session.whenIdle { [weak self] in self?.flush() }
+        }
     }
     func drop(_ name: String) { held.removeAll { $0.name == name } }
     /// A closing sheet or dialog takes its requests with it.
@@ -234,12 +235,13 @@ final class ElementScrolls {
     /// it is, and whether it moved says so. A target gone ends it there.
     @discardableResult func retarget(_ scroll: UIScrollView) -> Bool {
         guard let reveal = reveal(on: scroll) else { return false }
-        guard let to = reveal.realigned() else { cutReveal(scroll); return true }
+        guard let destination = reveal.realigned() else { cutReveal(scroll); return true }
+        let to = PixelGrid.offset(destination, in: scroll)
         guard to != reveal.to else { return false }
         revealBegan(scroll, to: to, target: reveal.target, realigned: reveal.realigned, arrived: reveal.arrived)
         cutting = scroll
         defer { cutting = nil }
-        scroll.setContentOffset(to, animated: true)
+        scroll.setContentOffset(PixelGrid.offset(to, in: scroll), animated: true)
         return true
     }
     /// The scroller goes to another list (`NodePool`), its motion stopped.
@@ -267,7 +269,7 @@ extension Presenter {
     /// collection, which projects the row (or, offscreen, scrolls to the
     /// original's place).
     func canScrollIntoView(_ target: NodeView) -> Bool {
-        guard target.window != nil else { return false }
+        guard target.window != nil, session?.fillInFlight != true else { return false }
         return groupedLists?.scroller(for: target.id) != nil || target.bounds.width > 0 || target.bounds.height > 0
     }
 
@@ -279,7 +281,7 @@ extension Presenter {
         }
         guard canScrollIntoView(target), !applying else {
             elementScrolls.hold(target, name, args)
-            session?.log("scrollIntoView \"\(name)\" waits: its target is not laid out in a window yet")
+            session?.log("scrollIntoView \"\(name)\" waits for its target to mount or its pending layout to finish")
             return
         }
         scrollIntoView(target, args)
@@ -306,14 +308,14 @@ extension Presenter {
             // The inner ports, weakly, for a destination asked again later.
             let inners = scrollers[..<index].map { inner in { [weak inner] in inner } }
             let projected = projection(target, through: inners.compactMap { $0() }, grouped: grouped, block: block, inline: inline)
-            let to = elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to
+            let to = PixelGrid.offset(elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to, in: sv)
             let topInset = sv.adjustedContentInset.top
             // Where this port aligns the target now, the inner ports headed
             // where their reveals are going.
             let realigned = { [weak self, weak target, weak sv, weak grouped, id = target.id, incarnation = target.incarnation] () -> CGPoint? in
                 guard let self, let target, let sv, self.views[id] === target, target.incarnation == incarnation else { return nil }
                 let projected = self.projection(target, through: inners.compactMap { $0() }, grouped: grouped, block: block, inline: inline)
-                return self.elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to
+                return PixelGrid.offset(self.elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to, in: sv)
             }
             // A jump that collapses a large title moves the offset by the
             // inset it took away, past the range's end near the bottom; the
@@ -322,7 +324,7 @@ extension Presenter {
             let settle = { [weak sv] in
                 guard let sv, sv.adjustedContentInset.top != topInset else { return }
                 sv.layoutIfNeeded()
-                if let settled = realigned(), settled != sv.contentOffset { sv.setContentOffset(settled, animated: false) }
+                if let settled = realigned(), settled != sv.contentOffset { sv.setContentOffset(PixelGrid.offset(settled, in: sv), animated: false) }
             }
             let key = (target.id, target.incarnation)
             // A reveal already headed there goes on: a held request carried
@@ -337,10 +339,10 @@ extension Presenter {
             // A new request replaces a running reveal, even one needing no move.
             elementScrolls.cutReveal(sv)
             guard to != sv.contentOffset else { continue }
-            guard animates else { sv.setContentOffset(to, animated: false); settle(); continue }
+            guard animates else { sv.setContentOffset(PixelGrid.offset(to, in: sv), animated: false); settle(); continue }
             // UIKit's own scroll animation; its end ends the reveal and
             // releases the scroller's `scrollend` (`ScrollEndIOS.swift`).
-            sv.setContentOffset(to, animated: true)
+            sv.setContentOffset(PixelGrid.offset(to, in: sv), animated: true)
             elementScrolls.revealBegan(sv, to: to, target: key, realigned: realigned, arrived: settle)
         }
     }

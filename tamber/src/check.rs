@@ -2,6 +2,7 @@
 //! mode key, the `under scheme=dark` rules and completeness, folding every
 //! token for every full app tuple as it goes.
 
+use crate::bound::Walk;
 use crate::fold::{self, FoldError, Folded, Half, Named, Names};
 use crate::measure::{self, Kind, Length, Value};
 use crate::syntax::{role_spelling, At, Design, DialKind, Token};
@@ -55,14 +56,6 @@ pub(crate) enum DialValue {
     Color(Folded),
     Number(f64),
     Length(f64),
-}
-
-/// The tokens [`Checker::kind_of`] is following (`on`), the kinds it has
-/// found that met no cycle (`known`), and the cycles it has met.
-struct Walk {
-    on: Vec<bool>,
-    known: Vec<Option<Kind>>,
-    cycles: usize,
 }
 
 struct Checker<'a> {
@@ -166,7 +159,14 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
     let tuples = c.axes();
     c.dials();
     c.declare();
-    c.kinds();
+    // A chain of names past the bound, met inferring kinds: refused there,
+    // and nothing folded (each fold would follow it again).
+    if let Some(i) = c.kinds() {
+        let (id, why) = crate::bound::too_deep();
+        c.at(&design.tokens[i].name, id, why);
+        let kinds = c.kinds.clone();
+        return Err((c.finish(), kinds));
+    }
     let Some(tuples) = tuples else {
         let kinds = c.kinds.clone();
         return Err((c.finish(), kinds));
@@ -531,7 +531,7 @@ impl<'a> Checker<'a> {
                 DialKind::Color => {
                     let folded = css::parse(&d.value.value)
                         .map_err(|m| FoldError {
-                            id: "tamber-syntax",
+                            id: css::refusal_id(&d.value.value, &m),
                             message: m,
                         })
                         .and_then(|items| fold::color(&items, &mut Literal { roles: &self.roles }));
@@ -734,15 +734,19 @@ impl<'a> Checker<'a> {
 
     /// Each token's kind: written, else inferred from its default value
     /// (§3), a lone name taking the kind of what it names; else a colour.
-    fn kinds(&mut self) {
+    fn kinds(&mut self) -> Option<usize> {
         let design = self.design;
         let mut walk = Walk {
             on: vec![false; design.tokens.len()],
             known: vec![None; design.tokens.len()],
-            cycles: 0,
+            depth: 0,
+            deep: None,
         };
         for i in 0..design.tokens.len() {
             self.kinds[i] = self.kind_of(i, &mut walk);
+            if walk.deep.is_some() {
+                return walk.deep;
+            }
             let t = &design.tokens[i];
             if !self.refused[i]
                 && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
@@ -798,11 +802,15 @@ impl<'a> Checker<'a> {
                 );
             }
         }
+        walk.deep
     }
 
     /// Token `i`'s kind; `walk` holds the names followed to it, so a cycle
-    /// (refused when it folds) ends as a colour, and each kind found without
-    /// meeting one, so a chain is followed once however many tokens read it.
+    /// (refused when it folds) ends as a colour, and each kind found, so a
+    /// chain is followed once however many tokens read it, a cycle's too (its
+    /// design is refused, and the walk's order is the build's and the
+    /// check's alike: no 2^n over a cycle read twice a level). A chain past
+    /// [`crate::bound::MAX_REFERENCE_DEPTH`] stops where it passes (`Walk::deep`).
     fn kind_of(&self, i: usize, walk: &mut Walk) -> Kind {
         let t = &self.design.tokens[i];
         if let Some(k) = t.kind.as_deref().and_then(Kind::parse) {
@@ -811,16 +819,17 @@ impl<'a> Checker<'a> {
         if let Some(k) = walk.known[i] {
             return k;
         }
-        if std::mem::replace(&mut walk.on[i], true) {
-            walk.cycles += 1;
+        if walk.on[i] {
             return Kind::Color;
         }
-        let cycles = walk.cycles;
-        let kind = self.inferred_kind(i, walk);
-        walk.on[i] = false;
-        if walk.cycles == cycles {
-            walk.known[i] = Some(kind);
+        if !walk.enter(i) {
+            return Kind::Color;
         }
+        walk.on[i] = true;
+        let kind = self.inferred_kind(i, walk);
+        walk.depth -= 1;
+        walk.on[i] = false;
+        walk.known[i] = Some(kind);
         kind
     }
 
@@ -874,7 +883,8 @@ impl<'a> Checker<'a> {
     }
 
     /// Whether a function's items hold a length: a dimension, or a name of
-    /// a length token or dial, at any depth.
+    /// a length token or dial, at any depth (each function a level of
+    /// [`crate::bound::MAX_REFERENCE_DEPTH`], as each name followed is).
     fn measures<'i>(
         &self,
         items: impl Iterator<Item = &'i css::Item>,
@@ -887,7 +897,14 @@ impl<'a> Checker<'a> {
                 css::Item::Ident(name) => {
                     (self.named_length)(name) || self.named_kind(name, i, walk) == Kind::Length
                 }
-                css::Item::Func(_, args, _) => self.measures(args.iter().flatten(), i, walk),
+                css::Item::Func(_, args, _) => {
+                    if !walk.enter(i) {
+                        return false;
+                    }
+                    let length = self.measures(args.iter().flatten(), i, walk);
+                    walk.depth -= 1;
+                    length
+                }
                 _ => false,
             };
             if length {
@@ -1000,6 +1017,10 @@ impl<'a> Checker<'a> {
                 .map(|&s| design.tokens[s].name.value.as_str())
                 .collect();
             chain.push(&t.name.value);
+            // (a long one said by its ends: its words stay short)
+            if chain.len() > 12 {
+                chain.splice(6..chain.len() - 6, ["…"]);
+            }
             self.at(
                 &t.name,
                 "tamber-cycle",
@@ -1007,6 +1028,14 @@ impl<'a> Checker<'a> {
             );
             return None;
         }
+        // Each name followed recurses: a chain past the bound is refused
+        // where it passes, before the stack would run out.
+        let Some(_level) = crate::bound::deeper() else {
+            let (id, why) = crate::bound::too_deep();
+            self.at(&t.name, id, why);
+            self.memo.insert((i, tuple), None);
+            return None;
+        };
         self.stack.push(i);
         self.at.push(self.traced.then_some(tuple));
         let digits = self.digits(tuple);
@@ -1150,7 +1179,7 @@ impl<'a> Checker<'a> {
             Ok(items) => items,
             Err(_) if shadow => Vec::new(),
             Err(m) => {
-                self.at(value, "tamber-syntax", m);
+                self.at(value, css::refusal_id(&value.value, &m), m);
                 return None;
             }
         };
@@ -1212,7 +1241,7 @@ impl<'a> Checker<'a> {
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(m) => {
-                self.at(value, "tamber-syntax", m);
+                self.at(value, css::refusal_id(&value.value, &m), m);
                 return None;
             }
         };

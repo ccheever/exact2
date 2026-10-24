@@ -107,3 +107,85 @@ fn frames_answer_each_node_in_preorder_with_its_bits() {
         "{cut}"
     );
 }
+
+/// A block's root is sent in its block, as a host lays it out there (a
+/// sheet's route, a popover's viewport): its frame is not less its
+/// parent's, which is in the page's space.
+#[test]
+fn a_blocks_root_is_answered_in_its_block() {
+    let mut b = PlanBuilder::new(SCHEMA_DIGEST, 1);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let plan = b.finish().unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        Empty,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let sized = |w: f32, h: f32| {
+        let mut s = StyleProps {
+            width: Dimension::Points(w),
+            height: Dimension::Points(h),
+            ..Default::default()
+        };
+        s.mask.set(StyleId::Width);
+        s.mask.set(StyleId::Height);
+        s
+    };
+    let mut half = StyleProps {
+        width: Dimension::Percent(50.),
+        ..Default::default()
+    };
+    half.mask.set(StyleId::Width);
+    let mut ops: Vec<Op> = (2..=5)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        })
+        .collect();
+    for (id, patch) in [
+        (1, sized(600., 400.)),
+        (2, sized(100., 50.)),
+        (3, sized(100., 50.)),
+        (4, sized(80., 40.)),
+        (5, half),
+    ] {
+        ops.push(Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        });
+    }
+    ops.extend([
+        Op::SetProp {
+            id: 5,
+            prop: PropId::Popover,
+            value: "auto".into(),
+        },
+        Op::SetChildren {
+            id: 3,
+            children: vec![4, 5],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let kernel = runner.kernel_mut();
+    kernel.apply(0, 0, &ops).unwrap();
+    let sheet = HostBlock {
+        width: BlockAxis::AtMost(300.),
+        height: BlockAxis::AtMost(200.),
+    };
+    kernel.set_host_block(4, Some(sheet)).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(600., 400.))
+        .unwrap();
+    let json = agent::handle(&runner, r#"{"op":"frames"}"#);
+    assert!(
+        json.contains(r#"[3,1,0,50,100,50,0],[4,3,0,0,80,40,0],[5,3,0,0,300,0,0]]"#),
+        "the sheet and the popover each at its block's origin, not 50 above it: {json}"
+    );
+}

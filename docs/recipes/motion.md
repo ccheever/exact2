@@ -43,9 +43,9 @@ component App
 ```
 
 - **What animates:** translate, scale, rotate, opacity, colours, `box-shadow`, SVG geometry,
-  a numeric `height`, `font-weight`, `font-stretch`. Other layout properties (`width`,
-  `margin`, `gap`, `top`) are refused, naming `-exact-layout-transition`. A native `button`
-  animates only opacity and transforms.
+  a numeric `height`, `font-weight`, `font-stretch`, `font-variation-settings`. Other
+  layout properties (`width`, `top`) are refused, naming `-exact-layout-transition`. A
+  native `button` animates only opacity and transforms.
 - **`-exact-spring(stiffness, damping, mass)`** is a transition's timing, with no duration;
   an `animation` refuses it.
 - **Keyframes** take literals or the app's own `fn` on constants.
@@ -63,4 +63,4 @@ component App
   `exactViewport()`, as above (a shared-element flight on iOS and macOS lands at once); drive it
   with `prefer prefers-reduced-motion reduce`.
 - **Check it:** `clock settle` ends the motion; `screenshot .exact/m.png over 600 every 50`
-  films it (`.apng` to play).
+  films it.

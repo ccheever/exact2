@@ -1,4 +1,5 @@
 import CommonCrypto
+import CoreGraphics
 import Foundation
 
 /// A source-interest lifetime, not a Runtime callback. Cancelling detaches the
@@ -37,8 +38,17 @@ final class RasterInput: @unchecked Sendable {
     /// decoded from the catalog at the size the launch screen shows it. An
     /// update's new bytes under the name are decoded from the file.
     private(set) var catalog: String?
+    /// A package's picture, already decoded (PackagePictures.swift): no
+    /// bytes, its size the image's own, drawn into the plan's storage.
+    private(set) var decoded: CGImage?
     private init(url: URL, encodedBytes: Int, temporary: Bool, catalog: String? = nil) {
         self.url = url; self.encodedBytes = encodedBytes; self.temporary = temporary; self.catalog = catalog
+    }
+    static func picture(_ image: CGImage) -> RasterInput {
+        let bytes = min(RasterMetadata.encodedLimit, max(1, image.bytesPerRow * image.height))
+        let input = RasterInput(url: URL(fileURLWithPath: "/dev/null"), encodedBytes: bytes, temporary: false)
+        input.decoded = image
+        return input
     }
     private static let launchSource = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSource") as? String
     private static let launchDigest = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSHA256") as? String
@@ -117,6 +127,10 @@ final class RasterInput: @unchecked Sendable {
         return Data(base64Encoded: text)
     }
     func metadata() throws -> RasterMetadata {
+        if let decoded {
+            return try RasterMetadata.validated(width: decoded.width, height: decoded.height, orientation: 1,
+                                                encodedBytes: encodedBytes, headerBytes: 1, deep: decoded.bitsPerComponent > 8)
+        }
         let file = try FileHandle(forReadingFrom: url)
         defer { try? file.close() }
         // The launch image's name: the whole file is read once (only under

@@ -1,0 +1,14 @@
+component GlassDragTouch
+  state buttons = 0
+  state handles = 0
+  action button
+    buttons = buttons + 1
+  action handle
+    handles = handles + 1
+  view
+    column width="100%" height="100%"
+      text `${buttons} ${handles}` testId="facts" padding-top=70
+      view width="100%" height=400 position="relative"
+        view id="photo" width="100%" height="100%" background-color="-exact-secondary-background"
+        view press=button backgroundMaterial="glass" position="absolute" left=30 top=30 width=80 height=60 border-radius=30 z-index=1 testId="glass"
+        view transformDragFor="photo" press=handle dblclick=handle touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="handle"

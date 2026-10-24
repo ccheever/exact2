@@ -106,6 +106,29 @@ private def listPanel : CProgram :=
   | .ok { view := [.element _ _ _ _ [.element "list" _ _ _ [.each ..]]], .. } => true
   | _ => false
 
+-- The corpus's fixed device facts cannot reveal a refresh sent to the
+-- wrong resource. Check the component action's effects before settlement.
+private def childFacts : CProgram :=
+  { root := { name := "App" }, components := [{ name := "Child", resources := [
+      { name := "viewport", ty := .record "Viewport", source := "exactViewport", args := [] },
+      { name := "page", ty := .record "Page", source := "exactPage", args := [] }] }] }
+
+private def childFactsEnv : CompSem.CEnv :=
+  { prog := childFacts, root := { prog := CompSem.rootProgram childFacts, slots := [] }, store := [] }
+
+#guard match CompSem.cexec 10 childFactsEnv (.inst "Child" [] []) []
+    [.refresh "viewport", .refresh "page"] {} with
+  | .ok fx => fx.flat.refreshes == ["viewport@Child", "page@Child"]
+  | _ => false
+
+-- Before settlement, a child's status read must reach its resource,
+-- rather than report the quiet status of an unknown name.
+#guard ["pending", "failed", "failure"].all fun which =>
+  ["viewport", "page"].all fun name =>
+    match CompSem.ceval 10 childFactsEnv (.inst "Child" [] []) [] (.call which [.var name]) with
+    | .error .pending => true
+    | _ => false
+
 /-- Both checks for one case, as lines: `#expand-error`, `#struct`, `#types`
 (each with what differs, or `ok`), then the flat observation after
 `#flat` and the component-level one after `#comp`. -/

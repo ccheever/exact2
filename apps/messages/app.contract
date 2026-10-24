@@ -144,16 +144,23 @@ component Messages
     selectedOutgoing = outgoing
     panel = false
     blur("composer")
+    focus("message-menu-reply")
+  action menuKey(k: string)
+    if k == "Escape"
+      dismiss()
+      preventDefault()
   action dismiss
+    if selected != ""
+      focus(`message-actions-${selected}`)
     selected = ""
     panel = false
     choosing = false
   action react(glyph: string)
     send changed = command("reaction", thread, `${selected}|${glyph}`, wallTime.epochAtZero + performanceNow())
-    selected = ""
+    dismiss()
   action copy
     copyText(selectedBody)
-    selected = ""
+    dismiss()
   action reply(id: string, body: string)
     replyBody = body
     selected = ""
@@ -260,7 +267,7 @@ component Messages
                   image "symbol:compose"
               text "Messages" font-size=34 font-weight=700 letter-spacing=-0.7 margin-left=20 margin-bottom=12 margin-top=4
               row margin-left=16 margin-right=16 margin-bottom=12 border-radius=12 height=36 background-color="light-dark(#efeff0, #1c1c1e)" align-items="center" gap=7 padding-left=10 padding-right=10 flex-shrink=0
-                image "symbol:search" font-size=16 -exact-tint-color="#8e8e93"
+                image "symbol:search" font-size=16 color="#8e8e93"
                 input appearance="none" value=query input=search placeholder="Search" testId="search" aria-label="Search conversations" font-size=17 flex=1 min-width=0 border-width=0 background-color="#00000000" class=Ink
               scroll flex=1 min-height=0 testId="inbox-list"
                 for t in data.threads key=t.id
@@ -269,9 +276,9 @@ component Messages
                       Avatar(initials=t.initials, color=t.color, size=44)
                       text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1
                       button press=inboxOperation("mute", t.id) testId=`mute-${t.id}` aria-label=(t.muted ? "Show alerts" : "Hide alerts") class=GlassButton backgroundMaterial="glass"
-                        image "symbol:notifications" font-size=18 -exact-tint-color="#5856d6"
+                        image "symbol:notifications" font-size=18 color="#5856d6"
                       button press=inboxOperation("delete-thread", t.id) testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` class=GlassButton backgroundMaterial="glass"
-                        image "symbol:delete" font-size=18 -exact-tint-color="#ff3b30"
+                        image "symbol:delete" font-size=18 color="#ff3b30"
                   else
                     scroll swipeContent=`conversation-${t.id}` swipeLeading=`unread-${t.id}` swipeTrailing=`delete-thread-${t.id} mute-${t.id}` scroll=inboxScrolled(t.id) testId=`thread-swipe-${t.id}` width="100%" height=86.667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(inboxEditing ? 200 : (swiped == t.id ? swipeOffset : 70))
                       row width="100%" height=86.667
@@ -286,7 +293,7 @@ component Messages
                                 box width=7 height=7 border-radius=4 background-color="#0088ff"
                               text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1 text-align="left"
                               if t.muted
-                                image "symbol:notifications" font-size=12 -exact-tint-color="#8e8e93"
+                                image "symbol:notifications" font-size=12 color="#8e8e93"
                               text (t.at > 0 ? formatTime(t.at, wallTime.utcOffset, "short") : "") font-size=14 class=Secondary
                               text "›" font-size=19 class=Secondary
                             text t.preview font-size=15 line-height="20px" class=Secondary line-clamp=2 text-align="left"
@@ -362,8 +369,8 @@ component Messages
           if entry.name == "reader"
             column testId="reader" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=44 padding-left=16 padding-right=16 align-items="center" gap=16
-                button press=back testId="reader-back" class=GlassButton backgroundMaterial="glass"
-                  image "symbol:back" font-size=20 -exact-tint-color="light-dark(#000000, #ffffff)"
+                button press=back testId="reader-back" aria-label="Back" class=GlassButton backgroundMaterial="glass"
+                  image "symbol:back" font-size=20 color="light-dark(#000000, #ffffff)"
                 text "Message" font-size=17 font-weight=600
               scroll flex=1 min-height=0 padding=20
                 textarea appearance="none" readonly=true value=fullText aria-label="Full message text" testId="reader-text" field-sizing="content" width="100%" min-height=300 padding=0 border-width=0 background-color="#00000000" class=Ink font-size=17 line-height="24px"
@@ -402,36 +409,36 @@ component Messages
                       Avatar(initials="↓", color="#34c759", size=38)
                       text "Latest message" font-size=24
             if selected != ""
-              column position="absolute" top=0 left=0 right=0 bottom=0 z-index=30 background-color="#00000030" padding-left=16 padding-right=16
-                button press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
+              column keycapture=menuKey position="absolute" top=0 left=0 right=0 bottom=0 z-index=30 background-color="#00000030" padding-left=16 padding-right=16
+                button tabindex=0 press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
                 column position="absolute" left=(not selectedOutgoing and thread == "demo" ? 47 : 16) right=16 top=max(76, min(selectedY - 68, viewport.height - selectedHeight - 292)) gap=12 align-items=(selectedOutgoing ? "flex-end" : "flex-start")
                   row border-radius=30 backgroundMaterial="glass" padding=8 gap=4 animation=(viewport.prefersReducedMotion ? "none" : "card 180ms ease-out")
-                    button press=react("❤️") testId="react-heart" width=40 height=40
+                    button tabindex=0 press=react("❤️") testId="react-heart" aria-label="Heart" width=40 height=40
                       image "assets/tapbacks/heart.png" width=34 height=34 object-fit="contain"
-                    button press=react("👍") testId="react-like" width=40 height=40
+                    button tabindex=0 press=react("👍") testId="react-like" aria-label="Like" width=40 height=40
                       image "assets/tapbacks/like.png" width=34 height=34 object-fit="contain"
-                    button press=react("👎") testId="react-dislike" width=40 height=40
+                    button tabindex=0 press=react("👎") testId="react-dislike" aria-label="Dislike" width=40 height=40
                       image "assets/tapbacks/dislike.png" width=34 height=34 object-fit="contain"
-                    button press=react("😂") testId="react-laugh" width=40 height=40
+                    button tabindex=0 press=react("😂") testId="react-laugh" aria-label="Laugh" width=40 height=40
                       image "assets/tapbacks/laugh.png" width=34 height=34 object-fit="contain"
-                    button press=react("‼️") testId="react-emphasis" width=40 height=40
+                    button tabindex=0 press=react("‼️") testId="react-emphasis" aria-label="Emphasize" width=40 height=40
                       image "assets/tapbacks/emphasis.png" width=34 height=34 object-fit="contain"
-                    button press=react("❓") testId="react-question" width=40 height=40
+                    button tabindex=0 press=react("❓") testId="react-question" aria-label="Question" width=40 height=40
                       image "assets/tapbacks/question.png" width=34 height=34 object-fit="contain"
                   column contextTarget=`bubble-${selected}` contextMagnify=true max-height=320 overflow="hidden" padding-bottom=6.65
                     Balloon(body=selectedBody, outgoing=selectedOutgoing, tail=true, maximum=maximum, identifier="context-balloon")
                   column width=250 padding-top=6 padding-bottom=6 border-radius=26 backgroundMaterial="glass"
-                    button appearance="none" press=reply(selected, selectedBody) testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button tabindex=0 appearance="none" press=reply(selected, selectedBody) id="message-menu-reply" testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "↩" font-size=22
                       text "Reply" font-size=17
-                    button appearance="none" press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
-                      image "symbol:copy" font-size=20 -exact-tint-color="light-dark(#000000, #ffffff)"
+                    button tabindex=0 appearance="none" press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                      image "symbol:copy" font-size=20 color="light-dark(#000000, #ffffff)"
                       text "Copy" font-size=17
-                    button appearance="none" press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                    button tabindex=0 appearance="none" press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "Aa" font-size=18
                       text "Select Text" font-size=17
-                    button appearance="none" press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
-                      image "symbol:delete" font-size=20 -exact-tint-color="#ff3b30"
+                    button tabindex=0 appearance="none" press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                      image "symbol:delete" font-size=20 color="#ff3b30"
                       text "Delete" font-size=17 color="#ff3b30"
             if choosing
               column position="absolute" top=0 left=0 right=0 bottom=0 z-index=40 background-color="#00000030" justify-content="flex-end"

@@ -21,6 +21,7 @@
 
 mod alert_parts;
 pub mod anatomy;
+mod atoms;
 mod box_transform;
 mod buttons;
 mod cells;
@@ -39,6 +40,7 @@ pub mod expr;
 mod fields;
 mod font_axes;
 mod fonts;
+mod frames;
 mod grouped;
 mod handlers;
 mod headings;
@@ -212,6 +214,10 @@ pub(crate) struct Lowerer<'a> {
     /// Literal decoration rows and the aliases visible to each source file.
     pub decorations: BTreeMap<String, serde_json::Value>,
     pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
+    /// The `atom` declarations by name, and the aliases each source file sees
+    /// (LLP 1045.000 D3).
+    pub(crate) atoms: BTreeMap<String, atoms::Declared>,
+    pub atom_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
     pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
@@ -393,6 +399,8 @@ fn lower_with_sites(
         styles: BTreeMap::new(),
         decorations: BTreeMap::new(),
         decoration_scopes: file.decoration_scopes.clone(),
+        atoms: BTreeMap::new(),
+        atom_scopes: file.atom_scopes.clone(),
         keyframes: BTreeMap::new(),
         fns: file
             .fns
@@ -484,6 +492,7 @@ fn lower_body(
         return Err(Vec::new());
     }
     l.declare_decorations(file)?;
+    l.declare_atoms(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -564,21 +573,46 @@ fn lower_body(
     // A used module's other names are there too, unread: its substitute reads
     // them (its status, the source a send answers from).
     let mut sources = root_types.sources.clone();
+    // An event the root hears uses its module too (LLP 1133.004 D6).
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name))
+        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some())
         .map(|m| m.extension.as_str())
         .collect();
-    for m in file
-        .modules
-        .iter()
-        .filter(|m| used.contains(&m.extension.as_str()))
-    {
+    // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
+    let mut schemes: std::collections::BTreeMap<String, &str> = Default::default();
+    for m in (file.modules.iter()).filter(|m| used.contains(&m.extension.as_str())) {
+        let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+        let Some(scheme) = sub["images"]["scheme"].as_str() else {
+            continue;
+        };
+        match schemes.insert(scheme.to_owned(), &m.package) {
+            Some(other) if other != m.package => {
+                return Err(vec![LowerError {
+                    id: "bake-scheme-twice",
+                    message: format!(
+                        "the image scheme `{scheme}:` is declared by {other} and by {}: a scheme is one package's, so the app uses one of them",
+                        m.package
+                    ),
+                    span: m.span,
+                }])
+            }
+            _ => {}
+        }
+    }
+    for m in file.modules.iter().filter(|m| {
+        used.contains(&m.extension.as_str()) && m.kind != contract_syntax::ModuleKind::Event
+    }) {
         let options = format!("{}__options", m.name);
         let params = match l.types.shapes.map.contains_key(&options) {
             true => vec![Ty::Record(options)],
             false => Vec::new(),
         };
-        if let Ok(ty) = l.types.shapes.resolve(&m.answers) {
+        // A send that answers nothing answers `unit` (LLP 1133.004 D5).
+        let answers = match &m.answers {
+            Some(a) => l.types.shapes.resolve(a),
+            None => Ok(Ty::Unit),
+        };
+        if let Ok(ty) = answers {
             sources.entry(m.name.clone()).or_insert((params, ty));
         }
     }
@@ -731,6 +765,21 @@ fn lower_body(
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
+    }
+    // Each module event the root hears, and the action it runs (LLP 1133.004 D6).
+    for m in &file.modules {
+        let Some(name) = &m.handler else { continue };
+        let Some(i) = root.actions.iter().position(|a| &a.name == name) else {
+            continue;
+        };
+        l.b.module_event(
+            &m.extension,
+            &m.declared,
+            l.actions[i],
+            &m.raised,
+            m.hold,
+            m.budget,
+        );
     }
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;
@@ -995,7 +1044,7 @@ impl<'a> Lowerer<'a> {
                     self.b
                         .region(RegionKind::When, parent, arm, order, subject, unit, 2);
                 let mut inner = scope.clone();
-                inner.push_region(None);
+                inner.push_none();
                 self.arm_scopes.insert((*tag, 0), (arms[0], inner.clone()));
                 self.arm_scopes.insert((*tag, 1), (arms[1], inner.clone()));
                 self.nodes(then, None, Some(arms[0]), &inner, locals, parent_tag)?;
@@ -1011,12 +1060,8 @@ impl<'a> Lowerer<'a> {
                 ..
             } => {
                 let (subject, list_ty) = self.typed_code(list, scope, locals)?;
-                let item_ty = match list_ty {
-                    Ty::List(t) => *t,
-                    _ => Ty::Unknown,
-                };
                 let mut inner = scope.clone();
-                inner.push_each(var, index.as_deref(), item_ty);
+                inner.push_each_of(var, index.as_deref(), list_ty);
                 let key = self.expr_code(key, &inner, locals)?;
                 let (_r, arms) =
                     self.b
@@ -1032,16 +1077,12 @@ impl<'a> Lowerer<'a> {
                 ..
             } => {
                 let (code, subject_ty) = self.typed_code(subject, scope, locals)?;
-                let bound_ty = match subject_ty {
-                    Ty::Option(t) => *t,
-                    _ => Ty::Unknown,
-                };
                 let unit = self.b.constant(&Value::Unit);
                 let (_r, arms) =
                     self.b
                         .region(RegionKind::Match, parent, arm, order, code, unit, 2);
                 let mut some_scope = scope.clone();
-                some_scope.push_region(Some((some.0.clone(), Ref::Bound(0), bound_ty)));
+                some_scope.push_some_of(&some.0, subject_ty);
                 self.arm_scopes
                     .insert((*tag, 0), (arms[0], some_scope.clone()));
                 self.nodes(
@@ -1053,7 +1094,7 @@ impl<'a> Lowerer<'a> {
                     parent_tag,
                 )?;
                 let mut none_scope = scope.clone();
-                none_scope.push_region(None);
+                none_scope.push_none();
                 self.arm_scopes
                     .insert((*tag, 1), (arms[1], none_scope.clone()));
                 self.nodes(none, None, Some(arms[1]), &none_scope, locals, parent_tag)
@@ -1076,6 +1117,12 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         if a.name == "decorations" {
             return self.bind_decorations(tag, a, scope, locals, bindings);
+        }
+        if a.name == "atoms" {
+            return self.bind_atoms(a, scope, locals, bindings);
+        }
+        if a.name == "atomFaces" {
+            return self.bind_atom_faces(a, scope, locals, bindings);
         }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));

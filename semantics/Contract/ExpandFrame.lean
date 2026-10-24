@@ -18,9 +18,9 @@ namespace Contract.ExpandFrame
 open Contract Components CompSem CompSemFacts Expand ExpandSubst
 
 /-- The names an instance's frame reads besides locals: its component's
-derives and states, and its props and injects. -/
+derives, states and device resources, and its props and injects. -/
 def frameNames (C : CComponent) (binds : List (String × Expr × Frame × Locals)) : List String :=
-  C.derives.map (·.name) ++ C.states.map (·.name) ++ binds.map (·.1)
+  C.derives.map (·.name) ++ C.states.map (·.name) ++ (binds.map (·.1) ++ C.deviceResources.map (·.name))
 
 open Classical in
 /-- What name `x` reads in the frame, if it reads anything. -/
@@ -109,6 +109,7 @@ theorem cvar_mem {n ce c id binds x v} {C : CComponent} (hC : ce.comp c = .ok C)
       · split at h
         · rename_i e f' ls' hb
           right
+          left
           clear h
           induction binds with
           | nil => simp [lookupBind] at hb
@@ -118,7 +119,11 @@ theorem cvar_mem {n ce c id binds x v} {C : CComponent} (hC : ce.comp c = .ok C)
             split at hb
             · rename_i hy; exact ⟨(y, e0, f0, l0), by simp, by simp at hy; exact hy.symm⟩
             · obtain ⟨b', hb', hb'x⟩ := ih hb; exact ⟨b', by simp [hb'], hb'x⟩
-        · simp at h
+        · split at h
+          · rename_i hr
+            right; right
+            simpa only [List.any_eq_true, beq_iff_eq] using hr
+          · simp at h
 
 /-! ## The frame's evaluator is the flat one over the frame environment -/
 

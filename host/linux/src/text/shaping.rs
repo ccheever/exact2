@@ -87,13 +87,17 @@ pub(super) fn push_style(
     }
     // CSS `font-optical-sizing: auto` (CSS Fonts 4 §2.7): a face's `opsz` is
     // the size, as the browser and CoreText set it; one without the axis
-    // ignores it. Parley applies it after fontique's synthesis, and
-    // `font-variation-settings` after it, each axis winning over the
-    // weight's, the width's and the size's (CSS Fonts 4 §7.2, LLP 1019 D9).
-    let mut axes = vec![parley::FontVariation::new(
-        parley::setting::Tag::new(b"opsz"),
-        run.size,
-    )];
+    // ignores it, and `none` leaves the face's own. Parley applies it after
+    // fontique's synthesis, and `font-variation-settings` after it, each axis
+    // winning over the weight's, the width's and the size's (CSS Fonts 4
+    // §7.2, LLP 1019 D9).
+    let mut axes = Vec::new();
+    if run.optical_sizing {
+        axes.push(parley::FontVariation::new(
+            parley::setting::Tag::new(b"opsz"),
+            run.size,
+        ));
+    }
     axes.extend(run.variations.axes().iter().map(|(tag, value)| {
         parley::FontVariation::new(parley::setting::Tag::new(&tag.to_be_bytes()), *value)
     }));
@@ -125,6 +129,8 @@ pub(super) fn push_style(
 
 /// A hard line: its text and its one shaped layout.
 pub(super) struct HardLine {
+    /// Byte offset in the canonical runs, after the preceding separator.
+    pub(super) start: usize,
     pub(super) text: String,
     layout: Mutex<Broken>,
     /// The resolved base direction (CSS `direction`, or the first strong
@@ -171,10 +177,11 @@ type Pieces = Vec<(Range<usize>, usize)>;
 
 /// The paragraph's text split into hard lines as cosmic-text split it: at
 /// each paragraph separator (`\r\n` one), the last empty piece dropped,
-/// and one empty line for no text. Each line's pieces: (range in the
-/// line, run index).
-pub(super) fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
-    let mut out: Vec<(String, Pieces)> = vec![(String::new(), Vec::new())];
+/// and one empty line for no text. Each line keeps its byte offset and
+/// pieces: (range in the line, run index).
+fn hard_lines(spec: &Spec) -> Vec<(usize, String, Pieces)> {
+    let mut out: Vec<(usize, String, Pieces)> = vec![(0, String::new(), Vec::new())];
+    let mut offset = 0;
     let mut after_cr = false;
     for (index, run) in spec.runs.iter().enumerate() {
         let mut rest = run.text.as_str();
@@ -189,9 +196,10 @@ pub(super) fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
                 }
                 None => (rest, None),
             };
+            let consumed = sep.map_or(rest.len(), |(at, ch)| at + ch.len_utf8());
             if !piece.is_empty() {
                 after_cr = false;
-                let (text, pieces) = out.last_mut().expect("one line");
+                let (_, text, pieces) = out.last_mut().expect("one line");
                 let start = text.len();
                 text.push_str(piece);
                 pieces.push((start..text.len(), index));
@@ -199,17 +207,21 @@ pub(super) fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
             match sep {
                 Some((at, ch)) => {
                     // `\r\n` is one break.
-                    if !(ch == '\n' && after_cr && piece.is_empty()) {
-                        out.push((String::new(), Vec::new()));
+                    let next = offset + consumed;
+                    if ch == '\n' && after_cr && piece.is_empty() {
+                        out.last_mut().expect("one line").0 = next;
+                    } else {
+                        out.push((next, String::new(), Vec::new()));
                     }
                     after_cr = ch == '\r';
                     rest = &rest[at + ch.len_utf8()..];
                 }
                 None => rest = "",
             }
+            offset += consumed;
         }
     }
-    if out.len() > 1 && out.last().is_some_and(|l| l.0.is_empty()) {
+    if out.len() > 1 && out.last().is_some_and(|l| l.1.is_empty()) {
         out.pop();
     }
     out
@@ -269,7 +281,7 @@ impl ShapedSource {
         let mut text_bytes = 0;
         let pieces = hard_lines(&spec);
         let mut lines = Vec::with_capacity(pieces.len());
-        for (h, (text, runs)) in pieces.into_iter().enumerate() {
+        for (h, (start, text, runs)) in pieces.into_iter().enumerate() {
             #[cfg(test)]
             SHAPE_LINES.with(|n| n.set(n.get() + 1));
             text_bytes += text.len();
@@ -316,6 +328,7 @@ impl ShapedSource {
                 );
             }
             lines.push(HardLine {
+                start,
                 text,
                 rtl: layout.is_rtl(),
                 layout: Mutex::new(Broken {
