@@ -900,9 +900,13 @@ fn field_range_frame(
     start: f64,
     end: f64,
 ) -> GeometryAnswer {
-    let field = kernel
-        .node(view)
-        .is_some_and(|node| node.node_type == exact_kernel::NodeType::TextInput);
+    // A text field, or a Markdown reader, whose atoms' pills answer
+    // (LLP 1045.000 D7).
+    let field = kernel.node(view).is_some_and(|node| {
+        node.node_type == exact_kernel::NodeType::TextInput
+            || (node.node_type == exact_kernel::NodeType::Text
+                && node.props.str(exact_kernel::PropId::Markup) == Some("markdown"))
+    });
     let Some((start, end)) = range_offsets(start, end).filter(|_| field) else {
         return GeometryAnswer::UNAVAILABLE;
     };

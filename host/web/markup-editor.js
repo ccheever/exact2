@@ -4,7 +4,8 @@
 // placement, deletion, pending formats, list Return, undo — is the shared
 // exact-markdown-editor crate, in markup-editor.wasm, fetched with this module
 // only when a Markdown textarea mounts.
-import { inertAncestor, atomBox } from './navigation.js';
+import { inertAncestor } from './navigation.js';
+import { atomBox } from './atoms.js';
 
 const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
 // beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
@@ -421,10 +422,11 @@ function installMarkupEditor(textarea, host) {
     const o = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), 2);
     return source.slice(o[0], o[1]);
   }
+  // ⌘⇧C: the copy range's plain text, each atom the editor recognized in the whole source its label.
   const copyPlain = () => {
-    const markdown = copied();
-    if (markdown === null) return;
-    navigator.clipboard?.writeText(text(wasm.mde_plain(h, put(markdown)))).catch(error => console.warn('exact: plain copy failed', error));
+    if (!wasm.mde_copy(h)) return;
+    const [a, b] = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), 2);
+    navigator.clipboard?.writeText(text(wasm.mde_plain(h, a, b))).catch(error => console.warn('exact: plain copy failed', error));
   };
   function configure() {
     const disabled = el.hasAttribute('disabled'), readonly = el.hasAttribute('readonly');
@@ -538,9 +540,11 @@ function installMarkupEditor(textarea, host) {
   el.addEventListener('cut', clip(true));
   // A press on an island selects its atom, then is the field's `atompress` (LLP 1045.000 D5, D7).
   const pressed = e => { const box = e.target.closest?.('.exact-atom'); return box && el.contains(box) && index.has(box.parentNode) ? islands().find(i => i.box === box) : null; };
+  // A disabled or inert field presses no atom; a read-only one presses but selects nothing.
+  const pressable = () => !el.hasAttribute('disabled') && !inertAncestor(el);
   el.addEventListener('pointerdown', e => {
     const atom = e.button === 0 && pressed(e);
-    if (atom) { e.preventDefault(); if (document.activeElement !== el) HTMLElement.prototype.focus.call(el, { preventScroll: true }); direction = 'none'; after(wasm.mde_set_selection(h, atom.s, atom.e)); return; }
+    if (atom) { e.preventDefault(); if (!pressable() || !writable()) return; if (document.activeElement !== el) HTMLElement.prototype.focus.call(el, { preventScroll: true }); direction = 'none'; after(wasm.mde_set_selection(h, atom.s, atom.e)); return; }
     const line = e.target.closest?.('.md-task');
     if (line && el.contains(line) && writable() && e.clientX - line.getBoundingClientRect().left <= parseFloat(getComputedStyle(line).paddingLeft)) {
       e.preventDefault();
@@ -553,7 +557,7 @@ function installMarkupEditor(textarea, host) {
   window.addEventListener('pointerup', release);
   window.addEventListener('pointercancel', release);
   el.addEventListener('focus', () => queueMicrotask(emit));
-  el.addEventListener('click', e => { const atom = pressed(e); if (!atom || destroyed) return; const d = atom.box.dataset; el.dispatchEvent(new CustomEvent('atompress', { detail: [d.exactAtom, d.atomSource, d.atomHref ?? '', atom.s, atom.e, e.shiftKey, e.ctrlKey, e.altKey, e.metaKey] })); });
+  el.addEventListener('click', e => { const atom = pressed(e); if (!atom || destroyed || !pressable()) return; const d = atom.box.dataset; el.dispatchEvent(new CustomEvent('atompress', { detail: [d.exactAtom, d.atomSource, d.atomHref ?? '', atom.s, atom.e, e.shiftKey, e.ctrlKey, e.altKey, e.metaKey] })); });
   el.addEventListener('dblclick', e => { if (pressed(e)) e.preventDefault(); });
   document.addEventListener('selectionchange', selectionChanged);
 
@@ -614,7 +618,8 @@ function installMarkupEditor(textarea, host) {
     // A line not drawn (a collapsed fence's) has no caret.
     if (!line || !line.getClientRects().length) return null;
     // At an atom's edge, its island's (LLP 1045.000 D7).
-    for (const { box, s, e } of islands()) if (box.parentNode === line && (p === s || p === e)) { const b = box.getBoundingClientRect(); return new DOMRect(p === s ? b.left : b.right, b.top, 0, b.height); }
+    // Its start is the line's start side: the right in a right-to-left line.
+    for (const { box, s, e } of islands()) if (box.parentNode === line && (p === s || p === e)) { const b = box.getBoundingClientRect(), rtl = getComputedStyle(line).direction === 'rtl'; return new DOMRect((p === s) !== rtl ? b.left : b.right, b.top, 0, b.height); }
     const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), r = document.createRange();
     // The visible text holding `p`, else the nearer of the text either side.
     let at = null, before = null, after = null;
