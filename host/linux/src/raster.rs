@@ -848,7 +848,7 @@ impl Backend for Raster {
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let dev = self.device(ts);
-        let Some(region) = tiny_path(&part.region).filter(|p| reach::border(p, dev)) else {
+        let Some(region) = tiny_path(&part.region) else {
             return;
         };
         let parent = self.active_clip().cloned();
@@ -857,7 +857,7 @@ impl Backend for Raster {
         let clipped = match &part.clip {
             None => None,
             Some(clip) => {
-                let Some(clip) = tiny_path(clip).filter(|p| reach::border(p, dev)) else {
+                let Some(clip) = tiny_path(clip) else {
                     return;
                 };
                 let Some(mut mask) = Mask::new(self.width, self.height) else {
@@ -872,7 +872,7 @@ impl Backend for Raster {
         };
         let mask = clipped.or(parent);
         let mask = if let Some(ring) = &part.ring_clip {
-            let Some(ring) = tiny_path(ring).filter(|p| reach::border(p, dev)) else {
+            let Some(ring) = tiny_path(ring) else {
                 return;
             };
             let Some(mut ring_mask) = Mask::new(self.width, self.height) else {
