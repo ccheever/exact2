@@ -103,7 +103,11 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     assert!(first.contains("\"src\":\"symbol:search\""));
     assert!(first.contains("\"data-symbol-path\":\"M16 10"));
     assert!(first.contains("\"alt\":\"\"") && first.contains("\"alt\":\"Add a stop\""));
-    assert!(first.contains("--exact-tint:light-dark("), "{first}");
+    // A symbol's own tint is answered with `currentcolor` (contract/lower/src/symbols/ink.rs): its `color` paints it.
+    assert!(
+        first.contains("--exact-tint:currentcolor") && !first.contains("--exact-tint:light-dark("),
+        "{first}"
+    );
     let changed = host.dispatch(view_with_test_id(&host, "change"), Event::Press);
     assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");
 }

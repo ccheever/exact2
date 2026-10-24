@@ -100,3 +100,49 @@ fn a_grouped_rows_symbol_with_a_colour_and_only_a_states_tint_is_its_colour_not_
     assert!(tint("plain-lead").is_some());
     assert_eq!(tint("lead"), None);
 }
+
+#[test]
+fn a_computed_sources_state_tint_a_partial_template_and_an_apps_own_starts_with() {
+    let src = "component A\n  state off = false\n  state pic = \"symbol:heart\"\n  state suffix = \"bol:heart\"\n  action flip\n    off = not off\n  view\n    column color=\"#0000ff\"\n      button \"Flip\" press=flip testId=\"flip\"\n      image pic testId=\"computed\" color=\"#0000ff\" disabled=off alt=\"Pic\"\n        :disabled\n          -exact-tint-color=\"#00ff00\"\n      image `sym${suffix}` testId=\"partial\" -exact-tint-color=\"#ff0000\" alt=\"Part\"\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let tint = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .tint_color
+    };
+    let green: ColorValue = Color::parse_hex("#00ff00").unwrap().into();
+    assert_ne!(tint(&r, "computed"), Some(green.clone()));
+    assert_eq!(tint(&r, "partial"), None);
+    let k = r.kernel();
+    let flip = k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id;
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    // Disabled, the state's green is answered too: the symbol is its `color`.
+    assert_ne!(tint(&r, "computed"), Some(green));
+    // An app's own `startsWith` is the app's: no answer is made through it, so nothing traps.
+    let own = "fn startsWith(s: string, p: string): number = 1\ncomponent A\n  state pic = \"symbol:heart\"\n  view\n    column\n      image pic testId=\"computed\" -exact-tint-color=\"#ff0000\" alt=\"Pic\"\n";
+    let plan = contract::bake(contract::compile(own).unwrap(), NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        r.journal()
+            .all(|l| !l.contains("poisoned") && !l.contains("TypeMismatch")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+}
