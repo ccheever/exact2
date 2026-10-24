@@ -238,19 +238,9 @@ impl<D: DataSource> Bridge<D> {
     /// How a presence check the host made ended (`exact_presence`, LLP
     /// 1133.010 D13): the value goes to the waiting call alone.
     pub fn presence(&mut self, len: usize) -> u32 {
-        use exact_runner::presence::PresenceAnswer;
-        let json: serde_json::Value =
-            serde_json::from_slice(&self.input[..len.min(self.input.len())]).unwrap_or_default();
-        let text = |k: &str| json[k].as_str().unwrap_or_default().to_owned();
-        let answer = match json["status"].as_str() {
-            Some("passed") => PresenceAnswer::Passed,
-            Some("read") => {
-                PresenceAnswer::Read(json["value"].as_str().map(|v| v.as_bytes().to_vec()))
-            }
-            _ => PresenceAnswer::Failed(text("code"), text("message")),
-        };
-        if let (Some(h), Some(id)) = (self.host.as_mut(), json["call"].as_u64()) {
-            h.runner_mut().presence_answer(id, answer);
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut()
+                .presence_reply(&self.input[..len.min(self.input.len())]);
         }
         if let Some(x) = self.executor.as_deref() {
             x.notify();

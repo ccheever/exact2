@@ -451,10 +451,12 @@ open class ExactActivity : Activity() {
         // What changed while the activity was stopped and is no configuration change.
         configure()
         view.running(true)
+        Exact.hidden(false)
     }
 
     override fun onStop() {
         stopped = true
+        Exact.hidden(true)
         pads.blur()
         view.running(false, reads())
         contentResolver.unregisterContentObserver(settings)

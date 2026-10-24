@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup up to Android 11 (`fullBackupContent`): everything but the locked secrets' files (LLP 1133.010 D6),
+     which a restore could never open, since their Keystore keys stay on the device that made them. -->
+<full-backup-content>
+    <exclude domain="file" path="exact-presence/" />
+</full-backup-content>

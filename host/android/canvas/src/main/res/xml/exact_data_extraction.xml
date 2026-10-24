@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later (`dataExtractionRules`): the locked secrets' files go neither to the cloud nor to another
+     device (LLP 1133.010 D6). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="exact-presence/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="exact-presence/" />
+    </device-transfer>
+</data-extraction-rules>

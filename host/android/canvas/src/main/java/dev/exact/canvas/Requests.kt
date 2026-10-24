@@ -81,6 +81,7 @@ internal class Requests(private val activity: ExactActivity) {
                     PICK -> pick(id, words, body)
                     HATCH -> activity.hatches()?.told(words, body, i)
                     MODULE -> Extensions.call(id, string(words, body).first)
+                    PRESENCE -> Presence.check(string(words, body).first)
                 }
             } catch (e: RuntimeException) {
                 // The platform refused (no activity to start from, a full clipboard transaction): the app goes on.
@@ -243,6 +244,7 @@ internal class Requests(private val activity: ExactActivity) {
         const val PICK = 9
         const val HATCH = 10
         const val MODULE = 11
+        const val PRESENCE = 12
         /** How long after the activity is in front again a share sheet's choice is still waited for. */
         const val DISMISSED_MS = 500L
     }

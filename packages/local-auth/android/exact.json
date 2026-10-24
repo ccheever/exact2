@@ -34,6 +34,11 @@
     "promptBuilder",
     "keyBuilder"
   ],
-  "sources": {},
-  "artifacts": []
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.localauth.LocalAuthModule"
 }

@@ -247,7 +247,13 @@ impl<D: DataSource> Host<D> {
         crate::picker::know_roots(data.app_id());
         // A named drive's secrets, read before the runner takes the source.
         // A carried reload keeps its memory store and does not touch the files.
-        let store_snapshot = store_snapshot(data.app_id(), carried.is_some());
+        let mut store_snapshot = store_snapshot(data.app_id(), carried.is_some());
+        // Locked secrets' backend, reconciled before boot (LLP 1133.010 D4).
+        let presence = crate::presence_secrets::backend(data.app_id(), data.grants());
+        presence
+            .iter()
+            .filter(|_| carried.is_none())
+            .for_each(|p| store_snapshot.extend(p.snapshot.clone()));
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -259,6 +265,9 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        if let Some(p) = presence {
+            runner.install_presence(p.backend, p.keystore);
+        }
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }

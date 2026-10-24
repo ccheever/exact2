@@ -170,6 +170,9 @@ mod gradient;
 #[path = "canvas/input.rs"]
 mod input;
 #[cfg(target_os = "android")]
+#[path = "canvas/presence.rs"]
+pub mod presence;
+#[cfg(target_os = "android")]
 #[path = "canvas/time.rs"]
 pub mod time;
 #[cfg(target_os = "android")]

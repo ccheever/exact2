@@ -65,6 +65,12 @@ pub enum Request {
     /// "args"}` or `{"extension", "release"}`): answered with the reply's
     /// JSON, which is the call's.
     Module(String),
+    /// The platform's check for a presence call (LLP 1133.010 D8), as
+    /// `PresenceAsk::json` writes it: the reader's authenticator shows its
+    /// prompt and the reader reads the item. Answered by `Native.presence`
+    /// on the store's completion path, never by this request's id, so the
+    /// value never passes the requests' journal.
+    Presence(String),
 }
 
 /// What a picker is opened with, each value as HTML writes it and empty
@@ -102,6 +108,7 @@ impl Request {
             Request::Pick(_) => 9,
             Request::Hatch(_) => 10,
             Request::Module(_) => 11,
+            Request::Presence(_) => 12,
         }
     }
 }
@@ -222,7 +229,10 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
     let at = out.len();
     out.extend([request.kind(), id as i32, 0]);
     match request {
-        Request::Open(text) | Request::Copy(text) | Request::Module(text) => string(out, text),
+        Request::Open(text)
+        | Request::Copy(text)
+        | Request::Module(text)
+        | Request::Presence(text) => string(out, text),
         Request::Haptic(haptic) => out.push(*haptic as i32),
         Request::Share(share) => {
             // Which of the three the app gave (bit 0 the title, 1 the text,

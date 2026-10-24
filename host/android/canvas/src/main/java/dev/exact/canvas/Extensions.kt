@@ -77,6 +77,24 @@ abstract class ExactExtension(val context: ExtensionContext) {
     open fun bound(session: String, id: String, prop: String, origin: String) {}
 }
 
+/**
+ * The authenticator entry (LLP 1133.010 D13): what an implementation whose interface declares `authenticator` serves,
+ * called by the reader's presence backend ([Presence]) in this process on the main thread. The prompt has one owner,
+ * the implementation; the key and its bytes stay the reader's.
+ */
+interface ExactAuthenticator {
+    /**
+     * Show the platform's prompt over the resumed activity for [authenticators] (`BiometricManager.Authenticators`),
+     * with [reason] already translated, [crypto] its `CryptoObject` (null for a check alone); [origin] is who made the
+     * call. [done] once, on the main thread: the authenticated object, or a failure `{"error": code, "message"}`.
+     */
+    fun authenticate(crypto: android.hardware.biometrics.BiometricPrompt.CryptoObject?, authenticators: Int, reason: String, origin: String,
+                     done: (android.hardware.biometrics.BiometricPrompt.CryptoObject?, JSONObject?) -> Unit)
+
+    /** A presence name's key builder, before generation: the key hatch (D11). What the backend owns it sets again after. */
+    fun configure(builder: android.security.keystore.KeyGenParameterSpec.Builder) {}
+}
+
 /** The app's bound extensions by name, each with how to make it: what the build writes as `exact.app.ExactExtensions`. */
 interface ExtensionRoster {
     val extensions: Map<String, (ExtensionContext) -> ExactExtension>
@@ -109,6 +127,9 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** The file an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's
      * scratch tree under the agent. Admission checked the path against the calling source's grants. */
     fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
+
+    /** Whether the activity is resumed: a prompt shows only over a resumed activity (LLP 1133.010 D8). */
+    val resumed: Boolean get() = Extensions.resumedNow
 
     /** Whether the app is in the foreground, as the runner's admission reads it ([ExactExtension.foreground]). */
     var foreground = true
@@ -150,6 +171,7 @@ internal object Extensions {
     /** The activity was made: the host binds the names of the extensions the APK carries. */
     fun bind(activity: Activity) {
         if (application == null) application = activity.applicationContext
+        Presence.application = activity.applicationContext
         if (roster.isNotEmpty()) Exact.bindExtensions(roster.keys.joinToString("\n"))
     }
 
@@ -205,6 +227,12 @@ internal object Extensions {
             reply(JSONObject().put("error", "NotSupportedError"))
         }
     }
+
+    /** Whether the activity is resumed ([resumed], [paused]). */
+    val resumedNow: Boolean get() = foreground
+
+    /** The extension that serves the authenticator entry (LLP 1133.010 D13), made if need be. */
+    fun authenticator(): ExactAuthenticator? = roster.keys.firstNotNullOfOrNull { extension(it) as? ExactAuthenticator }
 
     /** Extension [name], made at its first call or view. */
     private fun extension(name: String): ExactExtension? = made[name]
