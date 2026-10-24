@@ -277,6 +277,7 @@ impl Painter {
             boxes: Vec::new(),
             text: BTreeMap::new(),
             fields: HashMap::new(),
+            inline: HashMap::new(),
             skip: None,
             replay: None,
             ranks: Rc::clone(&walk.ranks),
