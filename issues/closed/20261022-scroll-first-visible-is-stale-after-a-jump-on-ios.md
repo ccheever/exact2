@@ -1,6 +1,7 @@
 # After a keyed jump, iOS reports the row above as the first visible one
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: the scroll event's first visible row and offset are judged as drawn, on device pixels (runner traversal.rs, web list.js), so a jump's snapped offset no longer names the row above by a sub-pixel sliver.
 **Systems:** Apple host (iOS), the virtualized `list`'s scroll event
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)
