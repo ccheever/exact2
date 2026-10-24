@@ -37,7 +37,7 @@
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release (or EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
 import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, entryProfiles, macWidgetSigning } from './widgets.mjs';
-import { assembleMac, assembleIOS } from './bundle.mjs';
+import { assembleMac, assembleIOS, pushSigningEnvironment } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -343,6 +343,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
+  if (ios.pushNotifications && !app.widgetTV && !app.widgetAppId && !app.widgetHost && !app.clipParent) dict['aps-environment'] = debuggable ? 'development' : 'production';
   // The clip (`clipParent`, the app's id) is its parent's App Clip: the parent's entitlements, the App Group and
   // Keychain group of the parent's included (how a clip shares data with its app), under the clip's own
   // application-identifier (Apple, "Creating an App Clip with Xcode", the App Clip entitlement).
@@ -434,6 +435,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   const families = tv ? [3] : (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
     CFBundleExecutable: executable,
+    ...(!tv && !clip && id === app.id && ios.pushNotifications ? { ExactPushNotifications: true } : {}),
     CFBundleIdentifier: id,
     CFBundleName: name,
     CFBundleDisplayName: name,
@@ -675,6 +677,7 @@ async function main(args, lockHeld = false) {
   const macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;
   if (!ios && widgets && !macWidgets) sha1 = null;
   if (!ios) widgets = !!macWidgets;
+  if (ios) pushSigningEnvironment(app, { device, tv, profile: prof });
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one
   // Swift binary serves every app, and two apps' modules would otherwise

@@ -12,6 +12,14 @@ import { listAssets } from '../web/serve.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, copyMacResources, signingOrder, helperEntitlements, wrapFramework, assertArchiveFrameworks } from './assets.mjs';
 import { allows, profile, identity, embeddedProfile } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
+export function pushSigningEnvironment(app, { device = false, tv = false, kind = 'app', profile = null } = {}) {
+  if (tv || kind !== 'app' || app.manifest.host?.ios?.pushNotifications !== true) return null;
+  if (!device) return 'sandbox';
+  if (!profile) throw new Error('pushNotifications requires a signing profile; an unsigned archive cannot determine its APNs environment');
+  const aps = profile.dev ? 'development' : 'production';
+  if (profile.aps !== aps) throw new Error(`provisioning profile "${profile.name}" lacks aps-environment=${aps}; enable Push Notifications and refresh the profile`);
+  return profile.dev ? 'sandbox' : 'production';
+}
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts, stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
@@ -193,6 +201,10 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
     writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: kind === 'host', ...(kind === 'clip' ? { clipParent: app.id } : {}) }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix }));
+    const environment = pushSigningEnvironment(app, { device, tv, kind, profile: signingProfile });
+    if (environment) {
+      runApple('plutil', ['-insert', 'ExactPushEnvironment', '-string', environment, resolve(assembled, 'Info.plist')]);
+    }
     if (shared && kind === 'app') {
       const group = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', ent]).stdout)['keychain-access-groups'][0];
       runApple('plutil', ['-insert', 'ExactKeychainAccessGroup', '-string', group, resolve(assembled, 'Info.plist')]);

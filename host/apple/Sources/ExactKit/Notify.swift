@@ -99,17 +99,33 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
         let notification = response.notification
         let request = notification.request
+        #if os(iOS)
+        if ExactRemoteNotifications.enabled, request.trigger is UNPushNotificationTrigger {
+            deliverRemote(id: request.identifier, date: notification.date, info: request.content.userInfo)
+            return
+        }
+        #endif
         deliver(id: request.identifier, date: notification.date, info: request.content.userInfo)
+    }
+
+    private func firstDelivery(id: String, date: Date) -> Bool {
+        let key = "\(id):\(date.timeIntervalSince1970)"
+        guard delivered.insert(key).inserted else { return false }
+        order.append(key)
+        if order.count > 128 { delivered.remove(order.removeFirst()) }
+        return true
+    }
+
+    func deliverRemote(id: String, date: Date, info: [AnyHashable: Any], defaults: UserDefaults = .standard, center: NotificationCenter = .default) {
+        guard firstDelivery(id: id, date: date) else { return }
+        ExactRemoteNotifications.opened(info, defaults: defaults, center: center)
     }
 
     func deliver(id: String, date: Date, info: [AnyHashable: Any]) {
         guard let location = info["navigate"] as? String, !location.isEmpty,
               let label = info["session"] as? String,
               let owner = info["owner"] as? String else { return }
-        let key = "\(id):\(date.timeIntervalSince1970)"
-        guard delivered.insert(key).inserted else { return }
-        order.append(key)
-        if order.count > 128 { delivered.remove(order.removeFirst()) }
+        guard firstDelivery(id: id, date: date) else { return }
         let sessions = app?.sessions.filter { $0.state != .destroyed } ?? []
         let sameProcess = (info["process"] as? String).map { $0 == app?.notificationProcessID } ?? true
         let session: ExactSession?

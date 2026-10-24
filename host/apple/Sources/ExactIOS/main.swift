@@ -172,6 +172,14 @@ func printSmoke() {
 }
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
+    #if !os(tvOS)
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        if ExactRemoteNotifications.enabled { ExactRemoteNotifications.registered(token) }
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        if ExactRemoteNotifications.enabled { ExactRemoteNotifications.failed(error) }
+    }
+    #endif
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         ExactEnv.stamp("didFinishLaunching")
         // EXACT_PLAN naming a local bake with its module (LLP 1116.003) is the
