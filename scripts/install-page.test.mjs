@@ -282,7 +282,7 @@ printf '%s\\n' '{"value":"aGk="}'
       assert.equal(readFileSync('spawns','utf8'),'xx');
       closeFilesystemReader(); // the second helper has exited too, unseen yet: the next read starts with a fresh one
       rmSync('spawns');writeFileSync('die','');
-      await assert.rejects(get(),/filesystem reader exited \\(status 42/);
+      await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'}); // by its exit or its broken input pipe
       assert.equal(readFileSync('spawns','utf8'),'xx','asked once more, not again');
       rmSync('die');rmSync('spawns');
       const pending=get();closeFilesystemReader();
