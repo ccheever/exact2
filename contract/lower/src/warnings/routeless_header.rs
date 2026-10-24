@@ -6,7 +6,7 @@ use super::nested_header::WRAPPERS;
 use super::width::{last, rows};
 use super::{computed, has, literal};
 use crate::LowerError;
-use contract_syntax::{Attr, Expr, Node, StyleDecl};
+use contract_syntax::{Attr, Expr, Node};
 use contract_types::Checked;
 
 pub(super) fn check(checked: &Checked<'_>, out: &mut Vec<LowerError>) {
@@ -35,7 +35,7 @@ pub(super) fn check(checked: &Checked<'_>, out: &mut Vec<LowerError>) {
             return;
         }
         if tag == "header" {
-            if !none_or_computed(&rows, "appearance") && headings(children, styles) == Some(1) {
+            if !none_or_computed(&rows, "appearance") && headings(children) == Some(1) {
                 out.push(LowerError {
                     id: "lower-header-routeless",
                     message: "this app has no navigation route (a keyed screen inside a keyed navigation root), so on iOS this `header` is drawn in the page, not as the navigation bar. Add a navigation root holding a separately keyed screen (both have `navigationKey`), with this header as the screen's first child, or set `appearance=\"none\"` on the header to keep it drawn as written (docs/recipes/navigation-stack.md)".into(),
@@ -58,8 +58,8 @@ fn has_route(nodes: &[Node], in_root: bool) -> bool {
             attrs, children, ..
         } => {
             let keyed = has(attrs, "navigationKey");
-            (in_root && keyed && !has(attrs, "navigationBack"))
-                || has_route(children, in_root || keyed)
+            // A host may treat a keyed child as a route even with `navigationBack`.
+            (in_root && keyed) || has_route(children, in_root || keyed)
         }
         Node::When {
             then, otherwise, ..
@@ -79,10 +79,10 @@ fn none_or_computed(rows: &[&Attr], name: &str) -> bool {
     }
 }
 
-// A branch with differing counts, a computed role or an unknown style
-// could add or remove a heading.
+// A branch with differing counts or a computed display or role can make
+// the heading count uncertain. Classes do not change the bar's heading count.
 // Dialogs and popovers belong to the top layer, not to the bar.
-fn headings(nodes: &[Node], styles: &[StyleDecl]) -> Option<usize> {
+fn headings(nodes: &[Node]) -> Option<usize> {
     let mut count = 0;
     for node in nodes {
         let (tag, attrs, children) = match node {
@@ -95,17 +95,17 @@ fn headings(nodes: &[Node], styles: &[StyleDecl]) -> Option<usize> {
             Node::When {
                 then, otherwise, ..
             } => {
-                count += branch_headings(then, otherwise, styles)?;
+                count += branch_headings(then, otherwise)?;
                 continue;
             }
             Node::Match { some, none, .. } => {
-                count += branch_headings(&some.1, none, styles)?;
+                count += branch_headings(&some.1, none)?;
                 continue;
             }
-            Node::Each { body, .. } if headings(body, styles) == Some(0) => continue,
+            Node::Each { body, .. } if headings(body) == Some(0) => continue,
             _ => return None,
         };
-        if tag == "dialog" || has(attrs, "popover") {
+        if literal(attrs, "display") == Some("none") || tag == "dialog" || has(attrs, "popover") {
             continue;
         }
         let found = if tag == "text" && computed(attrs, "role") {
@@ -115,20 +115,14 @@ fn headings(nodes: &[Node], styles: &[StyleDecl]) -> Option<usize> {
         } else if literal(attrs, "role") == Some("tablist") {
             Some(0)
         } else {
-            headings(children, styles)
+            headings(children)
         };
         // Styles cannot supply a role. Unknown presentation cannot change
         // the heading count of a subtree that cannot contain a heading.
         if found == Some(0) {
             continue;
         }
-        let rows = rows(attrs, styles)?;
-        match last(&rows, "display").map(|a| &a.value) {
-            Some(Expr::Str(value, _)) if value == "none" => continue,
-            Some(Expr::Str(..)) | None => {}
-            Some(_) => return None,
-        }
-        if computed(attrs, "role") {
+        if computed(attrs, "display") || computed(attrs, "role") {
             return None;
         }
         count += found?;
@@ -136,7 +130,7 @@ fn headings(nodes: &[Node], styles: &[StyleDecl]) -> Option<usize> {
     Some(count)
 }
 
-fn branch_headings(a: &[Node], b: &[Node], styles: &[StyleDecl]) -> Option<usize> {
-    let a = headings(a, styles)?;
-    (headings(b, styles)? == a).then_some(a)
+fn branch_headings(a: &[Node], b: &[Node]) -> Option<usize> {
+    let a = headings(a)?;
+    (headings(b)? == a).then_some(a)
 }
