@@ -135,17 +135,37 @@ pub(crate) fn literal<'p>(
 /// The app's colour literals checked for `platform`: the first one it
 /// can't show, as an error naming it, the platform and the way out.
 pub fn check(app_dir: &Path, platform: &str) -> Result<(), String> {
+    match compiled(app_dir)? {
+        Some(plan) => check_plan(app_dir, &plan, platform),
+        None => Ok(()),
+    }
+}
+
+/// The app's `app.contract` compiled, as [`check`] reads it; none without
+/// one. The compatibility id compiles it once and reads it twice: the
+/// colours here, and its icons' fill rules (`icon_rules`, stage 14 C2).
+pub(crate) fn compiled(app_dir: &Path) -> Result<Option<exact_plan::Plan>, String> {
     let source = app_dir.join("app.contract");
     if !source.exists() {
-        return Ok(());
+        return Ok(None);
     }
-    let plan = contract::compile_path(&source).map_err(|e| format!("app.contract: {e}"))?;
+    contract::compile_path(&source)
+        .map(Some)
+        .map_err(|e| format!("app.contract: {e}"))
+}
+
+/// [`check`] on the app's plan, already compiled ([`compiled`]).
+pub(crate) fn check_plan(
+    app_dir: &Path,
+    plan: &exact_plan::Plan,
+    platform: &str,
+) -> Result<(), String> {
     // A row computed by an expression is the runtime's to refuse.
     let literals: Vec<String> = plan
         .bindings
         .iter()
         .filter(|b| b.kind == exact_plan::BindingKind::Style)
-        .filter_map(|b| literal(&plan, &b))
+        .filter_map(|b| literal(plan, &b))
         .map(|text| target_colors(text, platform))
         .collect();
     let mut channels = std::collections::BTreeMap::new();
@@ -202,7 +222,7 @@ pub fn check(app_dir: &Path, platform: &str) -> Result<(), String> {
                 id if id == exact_kernel::PropId::ColorType as u16 => ("color-type", "float16"),
                 _ => continue,
             };
-            if literal(&plan, &b) == Some(refused) {
+            if literal(plan, &b) == Some(refused) {
                 return Err(format!(
                     "app.contract: a canvas's `{attr}=\"{refused}\"`: Linux's canvases are 8-bit sRGB (LLP 1100 D12a)"
                 ));

@@ -170,7 +170,12 @@ pub fn compatibility_id_sources_with_entries(
     };
     crate::reach::parsed(app_dir, grants, rust_grants)?;
     // @ref LLP 1100 D1 — a colour this platform can't show is refused here.
-    crate::colors::check(app_dir, platform)?;
+    // The app's plan, compiled once here: its colours checked, and (stage
+    // 14 C2) its icons' fill rules read below.
+    let plan = crate::colors::compiled(app_dir)?;
+    if let Some(plan) = &plan {
+        crate::colors::check_plan(app_dir, plan, platform)?;
+    }
     let ceiling = rust_grants.map(|rust| grant_union(grants.unwrap_or(""), rust));
     let mut compat = compatibility_with_trust(
         app_dir,
@@ -185,7 +190,7 @@ pub fn compatibility_id_sources_with_entries(
     }
     crate::reach::derive(app_dir, platform, &mut compat)?;
     // An even-odd icon's plan needs a binary that reads its rule (stage 14 C2).
-    if let Some(rules) = crate::icon_rules::needed(app_dir) {
+    if let Some(rules) = crate::icon_rules::needed(app_dir, plan.as_ref()) {
         compat.inputs["iconFillRules"] = serde_json::json!(rules);
         compat.id = compatibility_digest(&compat.inputs);
     }
