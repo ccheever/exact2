@@ -360,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 71] = [
+pub const HANDLERS: [&str; 72] = [
     "press",
     "change",
     "input",
@@ -419,6 +419,9 @@ pub const HANDLERS: [&str; 71] = [
     "drop",
     "dragenter",
     "dragleave",
+    // A press on an inline atom of a Markdown text or field (LLP 1045.000
+    // D7); it may hand its action an `AtomEvent`.
+    "atompress",
     "swiperight",
     "refresh",
     "scroll",

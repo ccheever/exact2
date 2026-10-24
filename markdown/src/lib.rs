@@ -40,7 +40,8 @@ pub use pieces::{pieces, pieces_with, AtomPiece, Piece, Role};
 pub use segment::{embed, excerpt, plain, plain_with, segments, video, Embed, Provider, Segment};
 pub use selection::{selection, Selection};
 pub use style::{
-    style, style_with, Footnote, LinkSyntax, Paragraph, ParagraphKind, Replaced, Replacement, Span, Styled,
+    style, style_with, Footnote, LinkSyntax, Paragraph, ParagraphKind, Replaced, Replacement, Span,
+    Styled,
 };
 
 /// Bold.

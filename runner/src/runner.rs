@@ -18,7 +18,7 @@ pub mod foresee;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
-pub use pointer::{DropEvent, PointerEvent, WheelEvent};
+pub use pointer::{AtomEvent, DropEvent, PointerEvent, WheelEvent};
 mod intersect;
 mod reorder;
 mod reorder_codec;

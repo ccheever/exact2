@@ -329,11 +329,15 @@ pub(crate) fn analyze_with(source: &str, reveal: Option<B>, atoms: &Atoms) -> An
                 ) {
                     figures.push(n);
                 }
-                let inside =
-                    |r: &B| found.iter().any(|f| f.range.start <= r.start && r.end <= f.range.end);
+                let inside = |r: &B| {
+                    found
+                        .iter()
+                        .any(|f| f.range.start <= r.start && r.end <= f.range.end)
+                };
                 out.hidden.retain(|(m, _)| !inside(m));
                 out.footnotes.retain(|(r, _)| !inside(r));
-                out.marks.retain(|m| m.flags & MARKER == 0 || !inside(&m.range));
+                out.marks
+                    .retain(|m| m.flags & MARKER == 0 || !inside(&m.range));
                 analysis.atoms.extend(found);
             }
         }

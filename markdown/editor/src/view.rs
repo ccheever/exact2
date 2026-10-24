@@ -106,7 +106,11 @@ impl Editor {
             let mut cuts = vec![a];
             let edges = here
                 .iter()
-                .filter(|s| !boxes.iter().any(|x| x.range.start < s.range.end && s.range.start < x.range.end))
+                .filter(|s| {
+                    !boxes
+                        .iter()
+                        .any(|x| x.range.start < s.range.end && s.range.start < x.range.end)
+                })
                 .flat_map(|s| [s.range.start, s.range.end])
                 .chain(hidden.iter().flat_map(|r| [r.start, r.end]))
                 .chain(boxes.iter().flat_map(|x| [x.range.start, x.range.end]));
@@ -145,7 +149,9 @@ impl Editor {
                         // The formats every span over the atom shares.
                         let style = here
                             .iter()
-                            .filter(|sp| sp.range.start < x.range.end && x.range.start < sp.range.end)
+                            .filter(|sp| {
+                                sp.range.start < x.range.end && x.range.start < sp.range.end
+                            })
                             .map(|sp| sp.style)
                             .reduce(|f, g| f & g)
                             .unwrap_or(0);

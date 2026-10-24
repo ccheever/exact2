@@ -260,8 +260,12 @@ impl Editor {
     pub fn visible_text(&self) -> String {
         // Hidden clusters drop out; each atom is its label. Neither overlaps
         // the other, and both are sorted.
-        let mut skips: Vec<(u32, u32, Option<&str>)> =
-            self.proj.clusters.iter().map(|&(a, b)| (a, b, None)).collect();
+        let mut skips: Vec<(u32, u32, Option<&str>)> = self
+            .proj
+            .clusters
+            .iter()
+            .map(|&(a, b)| (a, b, None))
+            .collect();
         skips.extend(
             self.styled
                 .atoms
@@ -541,10 +545,7 @@ impl Editor {
         } else {
             let inside = |p: u32| Some(proj.cluster(p)).filter(|c| c.0 < p && p < c.1);
             let (a, b) = proj.outward((from, to));
-            self.sel = (
-                inside(a).map_or(a, |c| c.0),
-                inside(b).map_or(b, |c| c.1),
-            );
+            self.sel = (inside(a).map_or(a, |c| c.0), inside(b).map_or(b, |c| c.1));
             if self.sel != (from, to) && (a, b) != (from, to) {
                 return Selected::Place;
             }

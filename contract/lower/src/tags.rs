@@ -494,6 +494,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "drop" => AttrTarget::Handler("drop"),
         "dragenter" => AttrTarget::Handler("dragenter"),
         "dragleave" => AttrTarget::Handler("dragleave"),
+        // A press on an inline atom (LLP 1045.000 D7).
+        "atompress" => AttrTarget::Handler("atompress"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),

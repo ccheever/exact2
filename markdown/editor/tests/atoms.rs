@@ -5,7 +5,8 @@
 use exact_markdown::Atoms;
 use exact_markdown_editor::{view::HIDDEN, Editor, Input, Outcome, Selected, SelectionMode};
 
-const KINDS: &str = r#"[{"name":"citation","link":"t3-citation:"},{"name":"mention","prefix":"@"}]"#;
+const KINDS: &str =
+    r#"[{"name":"citation","link":"t3-citation:"},{"name":"mention","prefix":"@"}]"#;
 const CITE: &str = "[Quote](t3-citation:1)";
 
 fn u(s: &str) -> Vec<u16> {
@@ -114,12 +115,8 @@ fn option_backspace_takes_the_atom_and_the_spaces_to_the_caret_but_not_a_line_br
     p.caret(n(CITE) + 1);
     // No atom across the line break: the platform's own word deletion.
     let now = p.now();
-    let out = p.e.before_input(
-        Input::WordBackward,
-        &[],
-        Some((n(CITE), n(CITE) + 1)),
-        now,
-    );
+    let out =
+        p.e.before_input(Input::WordBackward, &[], Some((n(CITE), n(CITE) + 1)), now);
     assert!(matches!(out, Outcome::Handled(_)));
     assert_eq!(p.source(), format!("{CITE}b"));
     let mut p = Page::open(&format!("x  {CITE} y"), "[]");
@@ -191,9 +188,10 @@ fn a_face_that_arrives_makes_a_gated_token_an_atom_and_moves_a_caret_inside_it()
     let mut p = Page::open("hi @src/main.rs now", "[]");
     assert!(p.e.atoms().is_empty());
     p.caret(6);
-    let change = p
-        .e
-        .set_atoms(Atoms::parse(KINDS, r#"[{"source":"@src/main.rs","label":"main.rs"}]"#));
+    let change = p.e.set_atoms(Atoms::parse(
+        KINDS,
+        r#"[{"source":"@src/main.rs","label":"main.rs"}]"#,
+    ));
     assert!(change.place && !change.source);
     assert_eq!(p.e.selection(), (15, 15));
     assert_eq!(p.e.visible_text(), "hi main.rs now");
@@ -249,7 +247,10 @@ fn the_drawn_line_hides_an_atoms_source_and_lists_the_atom() {
     assert!(line.segments.contains(&(start, end, HIDDEN)));
     assert_eq!(line.atoms, vec![(start, end, 0, exact_markdown::BOLD)]);
     // Copy takes the source; plain copy, the label.
-    let mut p = Page::open(&text, r#"[{"source":"[Quote](t3-citation:1)","label":"Q"}]"#);
+    let mut p = Page::open(
+        &text,
+        r#"[{"source":"[Quote](t3-citation:1)","label":"Q"}]"#,
+    );
     p.e.set_selection(start, end);
     assert_eq!(p.e.copy_range(), Some((2, end + 2)));
     assert_eq!(p.e.plain(&text), "a Q");

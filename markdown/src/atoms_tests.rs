@@ -64,7 +64,10 @@ fn the_compiled_kinds_and_the_faces_parse() {
 fn a_scheme_link_is_an_atom_without_a_face_and_its_syntax_is_not_hidden_inside() {
     let a = atoms(&[]);
     let s = "see [Quote](T3-Citation://v1/abc) here";
-    assert_eq!(found(s, &a), one("[Quote](T3-Citation://v1/abc)", "citation", "Quote"));
+    assert_eq!(
+        found(s, &a),
+        one("[Quote](T3-Citation://v1/abc)", "citation", "Quote")
+    );
     let styled = style_with(s, None, &a);
     assert_eq!(styled.atoms[0].range, Range::new(4, 33));
     assert_eq!(styled.atoms[0].href, "T3-Citation://v1/abc");
@@ -85,7 +88,11 @@ fn gated_forms_are_atoms_only_when_a_face_names_their_source() {
     assert_eq!(
         found(s, &a),
         vec![
-            ("[main.rs](src/main.rs)".into(), "file".into(), "main.rs".into()),
+            (
+                "[main.rs](src/main.rs)".into(),
+                "file".into(),
+                "main.rs".into()
+            ),
             ("@src/lib.rs".into(), "mention".into(), "lib.rs".into()),
         ]
     );
@@ -95,7 +102,14 @@ fn gated_forms_are_atoms_only_when_a_face_names_their_source() {
 fn a_gated_token_needs_whitespace_around_it() {
     let a = atoms(&[("@x", ""), ("[a](b.rs)", "")]);
     // At the very end of the source, before punctuation, or after a letter: text.
-    for s in ["@x", "say @x.", "a@x b", "**@x** b", "x[a](b.rs) c", "[a](b.rs)"] {
+    for s in [
+        "@x",
+        "say @x.",
+        "a@x b",
+        "**@x** b",
+        "x[a](b.rs) c",
+        "[a](b.rs)",
+    ] {
         assert!(found(s, &a).is_empty(), "{s}");
     }
     // At a line's start and before a line break: atoms.
@@ -134,7 +148,14 @@ fn a_quoted_token_takes_escapes_and_a_prefix_may_name_several_characters() {
 #[test]
 fn a_token_is_never_in_code_a_link_or_hidden_syntax() {
     let a = atoms(&[("@x", ""), ("@a*b*", "")]);
-    for s in ["`@x` b", "[@x ](u) b", "[t](@x) b", "<https://e.dev/@x> b", "@a*b* c", "```\n@x \n```"] {
+    for s in [
+        "`@x` b",
+        "[@x ](u) b",
+        "[t](@x) b",
+        "<https://e.dev/@x> b",
+        "@a*b* c",
+        "```\n@x \n```",
+    ] {
         assert!(found(s, &a).is_empty(), "{s}");
     }
 }
@@ -144,11 +165,17 @@ fn a_scheme_link_wins_over_a_relative_one_and_a_link_over_a_token() {
     // The token inside the citation's label is not an atom of its own.
     let a = atoms(&[("@x", "")]);
     let s = "[ @x ](t3-citation:1) b";
-    assert_eq!(found(s, &a), one(s.trim_end_matches(" b"), "citation", " @x "));
+    assert_eq!(
+        found(s, &a),
+        one(s.trim_end_matches(" b"), "citation", " @x ")
+    );
     // An image inside a citation link: the outer link, which starts first.
     let s = "[![i](t3-citation:2)](t3-citation:1) b";
     assert_eq!(found(s, &atoms(&[])).len(), 1);
-    assert_eq!(found(s, &atoms(&[]))[0].0, "[![i](t3-citation:2)](t3-citation:1)");
+    assert_eq!(
+        found(s, &atoms(&[]))[0].0,
+        "[![i](t3-citation:2)](t3-citation:1)"
+    );
 }
 
 #[test]
@@ -164,7 +191,10 @@ fn a_lone_image_atom_is_a_line_of_text_not_a_figure() {
     let styled = style_with(s, None, &a);
     assert_eq!(styled.atoms.len(), 1);
     assert_eq!(styled.paragraphs[0].kind, ParagraphKind::Body);
-    assert_eq!(crate::style(s, None).paragraphs[0].kind, ParagraphKind::Image);
+    assert_eq!(
+        crate::style(s, None).paragraphs[0].kind,
+        ParagraphKind::Image
+    );
 }
 
 #[test]
@@ -191,5 +221,8 @@ fn an_atom_is_one_piece_with_its_label_in_the_formats_around_it() {
 #[test]
 fn plain_copy_writes_each_atom_as_its_label() {
     let a = atoms(&[("@x", "Ex")]);
-    assert_eq!(plain_with("hi @x and [q](t3-citation:1) **b**", &a), "hi Ex and q b");
+    assert_eq!(
+        plain_with("hi @x and [q](t3-citation:1) **b**", &a),
+        "hi Ex and q b"
+    );
 }

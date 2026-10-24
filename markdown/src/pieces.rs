@@ -285,7 +285,9 @@ pub fn pieces_with(source: &str, atoms: &Atoms) -> Vec<Piece> {
                 .filter(|a| a.range.start <= start && end <= a.range.end)
             {
                 if start == a.range.start {
-                    out.push(atom_piece(source, &offsets, atoms, a, spans, scale, weight, indent));
+                    out.push(atom_piece(
+                        source, &offsets, atoms, a, spans, scale, weight, indent,
+                    ));
                 }
                 continue;
             }

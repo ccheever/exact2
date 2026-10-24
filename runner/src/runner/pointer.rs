@@ -318,3 +318,61 @@ mod tests {
         }
     }
 }
+
+/// A press on an inline atom of a Markdown text or field (LLP 1045.000 D7):
+/// its kind, source, destination and source range, and the modifiers held.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AtomEvent {
+    /// The declaring `atom`'s name.
+    pub kind: String,
+    /// The atom's whole source text, the faces' key.
+    pub source: String,
+    /// A link atom's destination as written; empty for a prefix token.
+    pub href: String,
+    /// Its source range, UTF-16.
+    pub start: f64,
+    /// One past its last code unit.
+    pub end: f64,
+    /// The modifier keys held.
+    pub held: super::KeyModifiers,
+}
+
+impl AtomEvent {
+    /// Decode ABI kind 58: `start,end,modifiers`, then the kind, the
+    /// destination and the source a line each, the source verbatim. `None`
+    /// for a malformed line, a range that is not whole and ordered, or a
+    /// range whose length is not the source's.
+    pub fn parse(payload: &str) -> Option<AtomEvent> {
+        let mut lines = payload.splitn(4, '\n');
+        let ([start, end], held) = numbers(lines.next()?)?;
+        let (kind, href, source) = (lines.next()?, lines.next()?, lines.next()?);
+        let whole = |n: f64| n >= 0.0 && n.fract() == 0.0;
+        let fits = whole(start)
+            && whole(end)
+            && start < end
+            && (end - start) as usize == source.encode_utf16().count();
+        (fits && !kind.is_empty()).then(|| AtomEvent {
+            kind: kind.into(),
+            source: source.into(),
+            href: href.into(),
+            start,
+            end,
+            held,
+        })
+    }
+
+    /// The `AtomEvent` record, its fields in the compiler's order.
+    pub fn value(&self) -> Value {
+        Value::record(vec![
+            Value::str(&self.kind),
+            Value::str(&self.source),
+            Value::str(&self.href),
+            Value::Number(self.start),
+            Value::Number(self.end),
+            Value::Bool(self.held.shift),
+            Value::Bool(self.held.ctrl),
+            Value::Bool(self.held.alt),
+            Value::Bool(self.held.meta),
+        ])
+    }
+}

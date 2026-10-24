@@ -21,6 +21,7 @@
 
 mod alert_parts;
 pub mod anatomy;
+mod atoms;
 mod box_transform;
 mod buttons;
 mod cells;
@@ -212,6 +213,10 @@ pub(crate) struct Lowerer<'a> {
     /// Literal decoration rows and the aliases visible to each source file.
     pub decorations: BTreeMap<String, serde_json::Value>,
     pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
+    /// The `atom` declarations by name, and the aliases each source file sees
+    /// (LLP 1045.000 D3).
+    pub(crate) atoms: BTreeMap<String, atoms::Declared>,
+    pub atom_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
     pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
@@ -393,6 +398,8 @@ fn lower_with_sites(
         styles: BTreeMap::new(),
         decorations: BTreeMap::new(),
         decoration_scopes: file.decoration_scopes.clone(),
+        atoms: BTreeMap::new(),
+        atom_scopes: file.atom_scopes.clone(),
         keyframes: BTreeMap::new(),
         fns: file
             .fns
@@ -484,6 +491,7 @@ fn lower_body(
         return Err(Vec::new());
     }
     l.declare_decorations(file)?;
+    l.declare_atoms(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -1101,6 +1109,12 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         if a.name == "decorations" {
             return self.bind_decorations(tag, a, scope, locals, bindings);
+        }
+        if a.name == "atoms" {
+            return self.bind_atoms(a, scope, locals, bindings);
+        }
+        if a.name == "atomFaces" {
+            return self.bind_atom_faces(a, scope, locals, bindings);
         }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));

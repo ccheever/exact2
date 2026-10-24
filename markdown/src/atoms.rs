@@ -179,7 +179,11 @@ fn has_scheme(dest: &str) -> bool {
 }
 
 fn space_before(source: &str, at: usize, line_start: bool) -> bool {
-    line_start || source[..at].chars().next_back().is_some_and(char::is_whitespace)
+    line_start
+        || source[..at]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
 }
 
 /// Followed by whitespace: a token at the very end of the source is not one
@@ -483,7 +487,8 @@ impl Reader<'_> {
                         b'r' => out.push(13),
                         b't' => out.push(9),
                         b'u' => {
-                            let hex = std::str::from_utf8(self.b.get(self.at..self.at + 4)?).ok()?;
+                            let hex =
+                                std::str::from_utf8(self.b.get(self.at..self.at + 4)?).ok()?;
                             out.push(u16::from_str_radix(hex, 16).ok()?);
                             self.at += 4;
                         }

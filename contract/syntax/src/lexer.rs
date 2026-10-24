@@ -132,7 +132,13 @@ impl Lexer {
                 && matches!(
                     word,
                     Some(
-                        "component" | "font" | "shape" | "style" | "decoration" | "atom" | "fn"
+                        "component"
+                            | "font"
+                            | "shape"
+                            | "style"
+                            | "decoration"
+                            | "atom"
+                            | "fn"
                             | "test"
                     )
                 )

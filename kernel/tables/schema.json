@@ -1688,6 +1688,26 @@
       "name": "groupedAction",
       "kind": "bool",
       "_comment": "@ref LLP 1116.019 D6: whether a grouped list's button row is an action cell, in the platform's action ink. Set by Contract's grouped sheet, never written by an author (`contract/lower/src/grouped.rs` `ink`): the sheet decides from the source, which sees every state of an `if` or a choice row, where the shown children see one. Absent on a row the sheet does not judge (no `button`), where the kernel reads the row's shape (`GroupedRow::action`)."
+    },
+    {
+      "id": 282,
+      "name": "atoms",
+      "kind": "str",
+      "measure": true,
+      "_comment": "@ref LLP 1045.000 D1, D3: the inline atom kinds a `markup=\"markdown\"` text or textarea recognizes, the compiler's table of the `atom` declarations its `atoms` names, as JSON `[{name, link | prefix, role}]` (`link` a scheme with its colon, or `relative`). Not an authored value."
+    },
+    {
+      "id": 283,
+      "name": "atomStyles",
+      "kind": "str",
+      "_comment": "@ref LLP 1045.000 D3: the paint of the atom kinds in `atoms`, by kind name, each a list of [style id, literal] rows of `color` and `background-color`, as `decorationStyles` carries a decoration's. Paint only: never measured."
+    },
+    {
+      "id": 284,
+      "name": "atomFaces",
+      "kind": "str",
+      "measure": true,
+      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title}]`, keyed by each atom's whole source text. Measured: a label changes a pill's width."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

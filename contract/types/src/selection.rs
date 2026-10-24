@@ -73,6 +73,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
         "drop" | "dragenter" | "dragleave" => Some("DragEvent"),
+        "atompress" => Some("AtomEvent"),
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "toggle" => Some("ToggleEvent"),
@@ -139,6 +140,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("mixed".into(), Ty::Bool),
             ("link".into(), Ty::String),
             ("unavailable".into(), Ty::String),
+            // The selected atom's source when the selection is exactly one
+            // atom, else "" (LLP 1045.000 D3).
+            ("atom".into(), Ty::String),
         ],
     );
     // What a `key` or `keyup` handler's action hears after the key when it

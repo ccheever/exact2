@@ -128,6 +128,7 @@ impl Lowerer<'_> {
         };
         let expanded = &*expanded;
         decorations::check_field(tag, expanded)?;
+        atoms::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
