@@ -862,6 +862,23 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(phase(), "completed")
     }
 
+    func testHatchOwnershipAcceptsTheContentViewportAndDetectsARemovedRoute() throws {
+        let session = try fixture("hatch-content-mount", module: true)
+        let navigation = session.presenter.navigation
+        until("the route hatch is connected") { journal(session).contains("hatch route 0: built") }
+        _ = Agent(session: session).clock(["settle": true])
+        let route = try XCTUnwrap(navigation.primaryNavigation?.topViewController as? RouteController)
+        let mount = try XCTUnwrap(route.contentViewport)
+        XCTAssertTrue(route.node.superview === mount)
+        let violation = "route 0: view changed outside Exact, which owns it"
+        navigation.checkOwned()
+        XCTAssertFalse(journal(session).contains(violation), "Exact's own content mount is valid")
+        defer { mount.addSubview(route.node) }
+        route.node.removeFromSuperview()
+        navigation.checkOwned()
+        XCTAssertTrue(journal(session).contains(violation), "the first real ownership violation is still reported")
+    }
+
     func testTheModulesHatchesRunAtTheirMomentsAndActThroughAuthoredControls() throws {
         let session = try fixture("bar-hatches", module: true)
         let log = { self.journal(session) }

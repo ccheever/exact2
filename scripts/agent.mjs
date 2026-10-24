@@ -1113,7 +1113,30 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const r = { ...(await s.op({ op: 'tap', close: true })), carrier: host };
       return r.closed ? r : s.landed(r);
     },
-    async back() { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); const r = await carrier.ask({ op: 'tap', back: true }); if (r.error) throw Object.assign(new Error(r.error), { reply: r }); return s.landed({ ...r, carrier: host }); }, // the platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed route popped; the wire's `tap` with `back`
+    /** Invoke the platform's Back handler, or tap UIKit's Back through XCTest with `native: true`. */
+    async back({ native = false } = {}) {
+      if (s.held) {
+        throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+      }
+      if (native) {
+        if (!carrier.touches || touch !== 'platform') {
+          throw new Error('native Back needs iOS with --touch platform');
+        }
+        if ((await carrier.ask({ op: 'state' })).navigation?.nativeBack !== true) {
+          throw new Error('native Back needs a pushed route in the app\'s only mounted Exact session; settle that route or drive a single-session fixture');
+        }
+        const r = await carrier.touches.ask({ op: 'tap', back: true }, 150000);
+        if (r.error) {
+          throw new Error(r.error);
+        }
+        return s.landed({ ...r, delivery: 'platform', carrier: host });
+      }
+      const r = await carrier.ask({ op: 'tap', back: true });
+      if (r.error) {
+        throw Object.assign(new Error(r.error), { reply: r });
+      }
+      return s.landed({ ...r, carrier: host });
+    },
     /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share`, `can-share-files`, `can-share-pictures`, `can-open-files` and `has-focus` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows), `"bold-text"` `"true"|"false"` (Apple's Bold Text, refused by name elsewhere). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);

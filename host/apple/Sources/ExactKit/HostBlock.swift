@@ -32,17 +32,19 @@ struct HostBlock: Equatable {
 struct BlockPlacement: Equatable {
     var rect: CGRect
     var within: UInt32
+    /// A scrollport's offset in block points, including zero; nil for a fixed allocation.
+    var contentOffset: CGPoint?
 }
 
 extension Runtime {
     /// Subtrees' containing blocks (nil takes one back) under one layout,
     /// through the door the covers use (`exact_host_covers`, kinds 4 and 5),
     /// and where the blocks are shown when the host shows them in place
-    /// (kinds 6 and 7; nil forgets one), which only the runner's geometry
+    /// (kinds 6 and 13; kind 7 forgets one), which only the runner's geometry
     /// reads (LLP 1123 D2).
     func blocks(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) -> Batch {
         return on {
-            var bytes = Data(capacity: (blocks.count + placements.count) * 28)
+            var bytes = Data(capacity: (blocks.count + placements.count) * 36)
             let append = { (words: [UInt32]) in
                 for word in words { withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) } }
             }
@@ -57,7 +59,8 @@ extension Runtime {
                     continue
                 }
                 let r = placement.rect
-                append([view, 6] + [r.minX, r.minY, r.width, r.height].map { Float($0).bitPattern } + [placement.within])
+                let offset = placement.contentOffset ?? .zero
+                append([view, placement.contentOffset == nil ? 6 : 13] + [r.minX, r.minY, r.width, r.height].map { Float($0).bitPattern } + [placement.within] + [offset.x, offset.y].map { Float($0).bitPattern })
             }
             return read(exact_host_covers(rt, write(bytes)))
         }

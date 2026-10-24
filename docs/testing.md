@@ -118,6 +118,14 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+With an iOS session using `touch: 'platform'`, `await session.back({ native: true })`
+locates UIKit's Back button through XCTest and taps it. It requires the app's only
+mounted Exact session, so an embedded session cannot tap another session's control.
+Settle the session and assert its resulting route or screen.
+The ordinary `back()` invokes the platform's handler;
+it does not establish touch delivery. XCTest can wait a minute for the app and another
+minute for SpringBoard to idle before tapping, so the native call has a 150-second bound.
+
 ## Browsers
 
 - **Launch Chromium through `chromium()`, never by a path.** It
