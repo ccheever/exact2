@@ -65,7 +65,7 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// One receipt for a commit and the one that followed it in the same apply.
-fn take_tail(receipt: &mut CommitReceipt, tail: CommitReceipt) {
+pub(super) fn take_tail(receipt: &mut CommitReceipt, tail: CommitReceipt) {
     receipt.batch = tail.batch;
     receipt.epoch = tail.epoch;
     for key in tail.touched {

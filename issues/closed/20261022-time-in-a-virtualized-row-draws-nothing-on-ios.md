@@ -1,6 +1,7 @@
 # A `time` element in a virtualized list's row draws no text on iOS
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: scrollIntoView's phased commit now prepares live times (and font rows) as apply does, so rows a keyed jump builds get their time text (runner/src/runner/into_view.rs).
 **Systems:** Apple host (iOS), the virtualized `list`
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)
