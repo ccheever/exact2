@@ -8,14 +8,18 @@
 // - Android's units, sign and Earth frame are the W3C's (m/s², rad/s, µT; x east, y north, z up), so readings pass
 //   through. A rotation vector is answered as the quaternion `SensorManager.getQuaternionFromVector` gives, reordered
 //   to x, y, z, w; `deviceOrientation`'s angles are Chromium's, from the rotation matrix.
-// - `referenceFrame: "screen"` turns x and y by the display's rotation, as the web's `screen.orientation.angle`.
+// - `referenceFrame: "screen"` turns x and y by the display's angle (the context's `orientation`, the web's
+//   `screen.orientation.angle`).
 // - Above 200 Hz Android 12 needs `HIGH_SAMPLING_RATE_SENSORS`, which no grant line derives yet: without it a faster
 //   frequency is asked at 200 Hz. The status's `android` is null: neither the permission nor the microphone
 //   toggle's limit is reported yet (D9).
 // - Registrations are removed while the app is in the background and made again in the foreground; each reader's next
 //   answer reads `interrupted` (D8).
-// - A canvas input needs the context's surface input, which this host does not give an implementation yet:
-//   `startSensorInput` is `NotSupportedError`.
+// - A canvas input (D6) is a consumer of its sensor like a reader, thinned to its own frequency (60 Hz by default), each
+//   sample written into the surface's input (the context's `surfaces`), which the host drains into the canvas once a
+//   frame. It holds the lease while displayed: hidden, it pauses; shown by an `app` commit, it resumes; shown by a
+//   tool's or a wake's, it stays paused. The background pauses it too, and the return resumes one whose canvas stayed
+//   displayed. The first sample after a pause counts the samples the pause lost in its `dropped`.
 // - Tier 3 (D10): `MotionModule.hatch` is given the manager once, when the module is made.
 package exact.motion
 
@@ -29,7 +33,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.view.Surface
 import dev.exact.canvas.ExactExtension
 import dev.exact.canvas.ExtensionContext
 import org.json.JSONArray
@@ -62,6 +65,12 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
             "deviceMotion" to Sensor.TYPE_ACCELEROMETER,
             "deviceOrientation" to Sensor.TYPE_GAME_ROTATION_VECTOR,
         )
+        /** Each canvas input's sensor as the source that reads it. */
+        private val SOURCES = mapOf(
+            "accelerometer" to "accelerometer", "linearAcceleration" to "linearAccelerationSensor", "gravity" to "gravitySensor",
+            "gyroscope" to "gyroscope", "magnetometer" to "magnetometer",
+            "absoluteOrientation" to "absoluteOrientationSensor", "relativeOrientation" to "relativeOrientationSensor",
+        )
         private val SENSORS = mapOf(
             "accelerometer" to Sensor.TYPE_ACCELEROMETER, "linearAcceleration" to Sensor.TYPE_LINEAR_ACCELERATION,
             "gravity" to Sensor.TYPE_GRAVITY, "gyroscope" to Sensor.TYPE_GYROSCOPE,
@@ -72,6 +81,15 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
     }
 
     private class Sample(val sequence: Int, val fields: JSONObject)
+
+    /** A canvas input (D6): [sensor]'s samples, read as source [name] reads them, written into [input]. */
+    private class Feed(val surface: String, val sensor: String, val name: String, val input: dev.exact.canvas.SurfaceInput,
+                       val frequency: Double, val screen: Boolean) {
+        val period = 1000 / frequency
+        var next = Double.NEGATIVE_INFINITY
+        /** When it last stopped taking samples, until the next one it takes. */
+        var pausedAt: Double? = null
+    }
     private class Group(val args: JSONObject) {
         val period: Double = args.optDouble("frequency", 0.0).let { if (it > 0) 1000 / it else 0.0 }
         var next = Double.NEGATIVE_INFINITY
@@ -90,11 +108,19 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
     /** The latest event values of each sensor type, which `deviceMotion` composes. */
     private val latest = mutableMapOf<Int, FloatArray>()
     private var shown = true
+    /** Canvas inputs by surface and sensor. */
+    private val feeds = mutableMapOf<String, Feed>()
+    /** The surfaces the runner said are hidden, and those whose inputs wait for an app's commit to show them (the
+     * lease), while an input feeds them. */
+    private val hidden = mutableSetOf<String>()
+    private val leased = mutableSetOf<String>()
 
     override fun later(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         main.post {
             when (name) {
                 "motionStatus", "requestMotionPermission" -> reply(status())
+                "startSensorInput" -> reply(startInput(args))
+                "stopSensorInput" -> reply(stopInput(args))
                 in TYPES -> read(name, args, reply)
                 else -> reply(JSONObject().put("error", "NotSupportedError"))
             }
@@ -171,7 +197,49 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
         if (shown == this.shown) return
         this.shown = shown
         if (!shown) for (g in groups.values.flatMap { it.values }) g.pauses += g.sequence
+        pauseFeeds()
         restart()
+    }
+
+    private fun startInput(args: JSONObject): JSONObject {
+        val surface = args.optString("surface")
+        val sensor = args.optString("sensor")
+        val name = SOURCES[sensor]
+        if (name == null || !has(TYPES.getValue(name))) return JSONObject().put("error", "NotSupportedError")
+        val input = context.surfaces.input(surface)
+            ?: return JSONObject().put("error", "NotFoundError").put("message", "no canvas places surface $surface")
+        val frequency = args.optDouble("frequency", 0.0).takeIf { it > 0 } ?: 60.0
+        feeds["$surface $sensor"] = Feed(surface, sensor, name, input, frequency, args.optString("referenceFrame") == "screen")
+        // A new start takes the canvas as the runner last said it is.
+        if (surface !in hidden) leased.remove(surface)
+        restart()
+        context.log("motion: input $sensor on $surface at $frequency Hz${if (active(surface)) "" else ", paused"}")
+        return JSONObject().put("surface", surface).put("sensor", sensor)
+    }
+
+    private fun stopInput(args: JSONObject): JSONObject {
+        val surface = args.optString("surface")
+        val sensor = args.optString("sensor")
+        feeds.remove("$surface $sensor")?.input?.end(sensor, context.now())
+        if (feeds.values.none { it.surface == surface }) { hidden.remove(surface); leased.remove(surface) }
+        restart()
+        return JSONObject().put("surface", surface).put("sensor", sensor)
+    }
+
+    override fun displayed(surface: String, shown: Boolean, origin: String) {
+        if (shown) hidden.remove(surface) else hidden.add(surface)
+        if (!shown) leased.add(surface) else if (origin == "app") leased.remove(surface)
+        context.log("motion: surface $surface displayed $shown ($origin origin), its inputs ${if (active(surface)) "run" else "paused"}")
+        pauseFeeds()
+        restart()
+    }
+
+    /** Whether the inputs on [surface] take samples now. */
+    private fun active(surface: String) = shown && surface !in hidden && surface !in leased
+
+    /** Each input that stops taking samples now notes when. */
+    private fun pauseFeeds() {
+        for (f in feeds.values) if (!active(f.surface) && f.pausedAt == null) f.pausedAt = context.now()
     }
 
     /** The registrations the readers need: each sensor type at the fastest frequency of the names it feeds. */
@@ -183,6 +251,11 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
             val asked = g.args.optDouble("frequency", 0.0).takeIf { it > 0 && name != "deviceMotion" }
             val f = (asked ?: GAME_HZ).let { if (high) it else minOf(MOST_HZ, it) }
             for (t in types) if (has(t)) wanted[t] = maxOf(wanted[t] ?: 0.0, f)
+        }
+        for (feed in feeds.values) if (active(feed.surface)) {
+            val type = TYPES.getValue(feed.name)
+            val f = if (high) feed.frequency else minOf(MOST_HZ, feed.frequency)
+            wanted[type] = maxOf(wanted[type] ?: 0.0, f)
         }
         for ((type, pair) in registered.toMap()) {
             val us = wanted[type]?.let { (1_000_000 / it).toInt() }
@@ -225,15 +298,26 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
                 waiting.forEach { it() }
             }
         }
+        for (feed in feeds.values) {
+            if (TYPES[feed.name] != type || !active(feed.surface)) continue
+            if (at < feed.next - feed.period / 2) continue
+            feed.next = maxOf(feed.next + feed.period, at + feed.period / 2)
+            val deg = if (feed.screen) angle() else 0
+            val values = if (feed.name.endsWith("OrientationSensor")) {
+                val q = quaternion(event.values, deg)
+                DoubleArray(4) { q.getDouble(it) }
+            } else {
+                val v = xyz(event.values, at, deg)
+                doubleArrayOf(v.getDouble("x"), v.getDouble("y"), v.getDouble("z"))
+            }
+            val dropped = feed.pausedAt?.let { maxOf(0, ((at - it) / feed.period).toInt()) } ?: 0
+            feed.pausedAt = null
+            feed.input.sample(feed.sensor, values, dropped, at)
+        }
     }
 
-    /** The display's rotation in degrees, as the web's `screen.orientation.angle`. */
-    private fun angle(): Int = when (context.activity?.display?.rotation) {
-        Surface.ROTATION_90 -> 90
-        Surface.ROTATION_180 -> 180
-        Surface.ROTATION_270 -> 270
-        else -> 0
-    }
+    /** The display's angle, as the web's `screen.orientation.angle`. */
+    private fun angle(): Int = context.orientation
 
     private fun xyz(v: FloatArray, at: Double, deg: Int): JSONObject {
         val r = deg * PI / 180

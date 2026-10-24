@@ -329,7 +329,7 @@ function buildApk(app, env, profile, writeLocks = false) {
  * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
  * (`kept` copies the verification back). null, said why, when the app names libraries but not their lock. */
 function mavenGraph(app, writeLocks) {
-  const maven = app.manifest.game ? [] : [...new Set(androidImplementations(app.dir).flatMap((b) => b.maven ?? []))].sort();
+  const maven = [...new Set(androidImplementations(app.dir).flatMap((b) => b.maven ?? []))].sort();
   const placed = resolve(READER, 'gradle/verification-metadata.xml');
   const none = { args: [], kept() {}, done() {} };
   if (!maven.length) return none;
@@ -351,7 +351,7 @@ function mavenGraph(app, writeLocks) {
  * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
  * permissions the app's grant lines derive (the bake's `reach.android`), as Gradle properties. */
 function extensionArgs(app, out) {
-  const bound = app.manifest.game ? [] : androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
+  const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
   let permissions = [];
   try { permissions = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach?.android ?? []; } catch { /* no bake output: none */ }
