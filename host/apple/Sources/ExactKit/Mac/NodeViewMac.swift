@@ -1084,6 +1084,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let old = style
         style = s
         if old["display"] != s["display"] { isHidden = hostHidden }
+        if old["zoom"] != s["zoom"], kind == "iframe" { updateEmbedded() } // the guest's page zoom (LLP 1020.002 D6)
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if old["appearance"] != s["appearance"] { needsLayout = true } // a form row's bezel (FormRowsMac.swift)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }

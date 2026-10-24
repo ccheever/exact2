@@ -1330,6 +1330,9 @@ impl Em<'_> {
                 | EventKind::Scrollend
                 | EventKind::Resize
                 | EventKind::Intersect
+                | EventKind::Currententrychange
+                | EventKind::Navigatesuccess
+                | EventKind::Navigateerror
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1368,7 +1371,7 @@ impl Em<'_> {
                 let _ = write!(self.out, "{f}({e},{handler});");
                 continue;
             }
-            if h.event == EventKind::Navigate {
+            if h.event == EventKind::Navigate && node_type != NodeType::WebView {
                 let nav = self.uses.rt("navigateTo");
                 let _ = write!(self.out, "{nav}({handler});");
                 continue;

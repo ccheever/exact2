@@ -15,6 +15,7 @@
 
 mod card;
 mod concepts;
+mod frames;
 mod recipes;
 
 use concepts::Concept;
@@ -193,6 +194,7 @@ const CONTROL_RECORDS: &[(&str, &str, &str)] = &[
     ("InputEvent", "select", "`select=act` on a text field calls `action act(event: InputEvent)`"),
     ("InputEvent", "selectionchange", "`selectionchange=act` on a text field or textarea hands its action the `InputEvent` as an optional last parameter"),
     ("MarkdownSelection", "select", "`select=act` on the Markdown editor calls `action act(selection: MarkdownSelection)`"),
+    ("FrameNavigation", "navigate", "`navigate=act` on an `iframe` calls `action act`, or `action act(event: FrameNavigation)` for its `FrameNavigation` (LLP 1020.002 D2)"),
 ];
 
 fn event(name: &str) -> Option<Event> {
@@ -441,6 +443,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         println!("{name}: {} attribute", kind(&a));
         for line in attr_detail(name, &a) {
             println!("  {line}");
+        }
+        if let Some(note) = frames::note(name) {
+            println!("  {note}");
         }
         if let Some(only) = only_on(name) {
             println!("  only on {only}");
@@ -800,7 +805,7 @@ fn command_text(name: &str) -> String {
         "setRangeText" =>"; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
-        _ => "",
+        _ => frames::command(name).unwrap_or(""),
     };
     format!("host command, an action statement (docs/contract-grammar.md#host-commands){what}")
 }
@@ -958,6 +963,14 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
+    }
+    if let Some(note) = frames::note(name) {
+        let key = if doc.get("note").is_some() {
+            "iframe"
+        } else {
+            "note"
+        };
+        doc[key] = note.into();
     }
     if name == "type" {
         doc["note"] = SEARCH_TYPE.into();
