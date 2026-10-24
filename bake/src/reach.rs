@@ -609,14 +609,23 @@ mod tests {
     }
 
     #[test]
-    fn background_lines_derive_ios_modes_and_the_refresh_identifier() {
-        // LLP 1133.017 D14: one mode and one identifier for both lines; the Mac needs neither.
+    fn background_lines_derive_ios_modes_and_the_task_identifiers() {
+        // LLP 1133.017 D14: `fetch` and the refresh identifier for a periodic
+        // line, `processing` and two processing identifiers too for a sync
+        // one, each once; the Mac needs none.
         let dir = app(&[("en", "{}")]);
+        let mut periodic = compat("device.periodic-background-sync");
+        derive(&dir.0, "ios", &mut periodic).unwrap();
+        assert_eq!(periodic.reach["backgroundModes"], json!(["fetch"]));
+        assert_eq!(periodic.reach["tasks"], json!(["refresh"]));
         let grants = "device.background-sync\ndevice.periodic-background-sync";
         let mut ios = compat(grants);
         derive(&dir.0, "ios", &mut ios).unwrap();
-        assert_eq!(ios.reach["backgroundModes"], json!(["fetch"]));
-        assert_eq!(ios.reach["tasks"], json!(["refresh"]));
+        assert_eq!(ios.reach["backgroundModes"], json!(["fetch", "processing"]));
+        assert_eq!(
+            ios.reach["tasks"],
+            json!(["processing.network", "processing.network-power", "refresh"])
+        );
         assert_eq!(ios.reach["usage"], json!({}));
         let mut mac = compat(grants);
         derive(&dir.0, "macos", &mut mac).unwrap();
