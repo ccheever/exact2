@@ -91,6 +91,10 @@ final class PhotoCanvas: UIView, UIGestureRecognizerDelegate {
     }
     private func fromCentre(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x - centre.x, y: p.y - centre.y) }
     func summary(_ e: PhotoEdit) -> String { e.summary(stage: stage.size) }
+    func inPhoto(_ e: PhotoEdit) -> String {
+        guard let image else { return "{}" }
+        return e.inPhoto(CGSize(width: image.width, height: image.height), stage: stage.size)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
