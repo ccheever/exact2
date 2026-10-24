@@ -187,8 +187,22 @@ final class IframePartitionTests: XCTestCase {
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(seen.records.first?.record["navigationType"] as? String, "push", "\(seen.records)")
 
+        // A traversal to an entry of the same URL: WebKit says nothing of a
+        // `pushState` that keeps the URL, nor of a traversal back to it, so
+        // the command's type must not outlive it; a fragment change after it
+        // and a link are pushes.
+        step(seen) { web.evaluateJavaScript("history.pushState({again: true}, '', location.href)") { _, _ in } }
+        step(seen) { json(["op": "traverseHistory", "delta": -1], arm.command, handle) }
+        settle(seen)
+        step(seen) { web.evaluateJavaScript("location.hash = 'fragment'") { _, _ in } }
+        spin { self.events(seen).contains("navigatesuccess") }
+        XCTAssertEqual(seen.records.first?.record["navigationType"] as? String, "push", "\(seen.records)")
+        step(seen) { web.evaluateJavaScript("location.assign('/b')") { _, _ in } }
+        spin { self.events(seen).contains("navigatesuccess") }
+        XCTAssertEqual(seen.records.first?.record["navigationType"] as? String, "push", "\(seen.records)")
+
         // Back to the first page: a traversal.
-        step(seen) { json(["op": "traverseHistory", "delta": -2], arm.command, handle) }
+        step(seen) { json(["op": "traverseHistory", "delta": -4], arm.command, handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(seen.records.last?.record["navigationType"] as? String, "traverse")
         XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/a")

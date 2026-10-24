@@ -13,6 +13,19 @@ import AppKit
 final class IframePartitionSessionTests: XCTestCase {
     nonisolated(unsafe) private static var server: FramePages?
 
+    /// A `persist:` partition belongs to the runner's app id, never to the
+    /// data root's whole path: iOS moves an app's container (its HOME) at
+    /// every update, and the partition must survive it.
+    func testAPersistentPartitionsAppSurvivesAMovedHome() {
+        let before = "/var/mobile/Containers/Data/Application/1A2B/Library/Application Support/exact/dev.exact.frames/data"
+        let after = "/var/mobile/Containers/Data/Application/9Z8Y/Library/Application Support/exact/dev.exact.frames/data"
+        XCTAssertEqual(WebViews.appKey(before, home: "/var/mobile/Containers/Data/Application/1A2B"), "dev.exact.frames")
+        XCTAssertEqual(WebViews.appKey(after, home: "/var/mobile/Containers/Data/Application/9Z8Y"), "dev.exact.frames")
+        XCTAssertNotEqual(WebViews.appKey(before.replacingOccurrences(of: "dev.exact.frames", with: "dev.exact.other")), "dev.exact.frames")
+        XCTAssertEqual(WebViews.appKey("/home/x/elsewhere/data", home: "/home/x"), "/elsewhere/data")
+        XCTAssertEqual(WebViews.appKey(nil), Bundle.main.bundleIdentifier ?? "exact")
+    }
+
     func testRecordsReachActionsAndCommandsMoveTheFrame() throws {
         guard let module = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
             throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")

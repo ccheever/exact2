@@ -19,6 +19,10 @@
 //   same-origin guest that navigates to another origin (or fails to load,
 //   showing the browser's error page) ends its navigation with
 //   `navigateerror` (`NotSupportedError`): the page cannot see the outcome.
+//   A frame removed mid-navigation ends it with `AbortError`. A navigation
+//   no document follows (a 204, an attachment, a load WebKit failed and kept
+//   the old page for, telling the page nothing) ends after `LIMITS.noDocumentMs`
+//   (60 s) with `TimeoutError`; a document that comes later starts a new one.
 // - `partition` is never honoured (a browser partitions by top-level site),
 //   so every record says `partitioned: false`.
 import { frameURL } from './navigation.js';
@@ -29,6 +33,9 @@ export const FIELDS = ['url', 'destination', 'navigationId', 'navigationType', '
   'partitioned', 'controller', 'error', 'message', 'recovering'];
 export const EVENTS = new Set(['navigate', 'currententrychange', 'navigatesuccess', 'navigateerror']);
 export const positional = record => FIELDS.map(k => record[k]);
+/** How long a cross-document navigation may go with no document before it
+ * ends in `navigateerror` (`TimeoutError`); a test shortens it. */
+export const LIMITS = { noDocumentMs: 60000 };
 
 /** The guest's window and document when the page may read them, else null. */
 function guest(e) {
@@ -101,6 +108,7 @@ function changed(e) {
 function loaded(e) {
   const s = state(e), g = guest(e);
   clearInterval(s.poll); s.poll = 0;
+  if (!e.isConnected) return end(e, 'navigateerror', 'AbortError', 'the frame was removed');
   if (!g) {
     // Another origin's document, or the browser's error page for a load that
     // failed: the page sees neither where it landed nor whether it loaded, so
@@ -121,11 +129,19 @@ function loaded(e) {
     nav.addEventListener('navigate', ev => {
       if (!here()) return;
       begin(e, ev.destination.url, ev.navigationType); // a cross-document one is committed by the next document's `load`
-      // Firefox shows its error page for a load that fails with no `load` event: a frame whose document can no
-      // longer be read, with no `load`, has left the page's origin all the same.
+      // Looked at while it is in flight, for what no event says: a frame removed (Firefox and WebKit end
+      // nothing), a document that can no longer be read with no `load` (Firefox's error page), or no document
+      // at all within the bound (a 204, an attachment, a load WebKit failed and kept the old page for).
       if (ev.hashChange || ev.downloadRequest != null) return;
       clearInterval(s.poll);
-      s.poll = setInterval(() => { if (!s.flight) { clearInterval(s.poll); s.poll = 0; } else if (!guest(e)) loaded(e); }, 250);
+      const flight = s.flight, since = Date.now(), stop = () => { clearInterval(s.poll); s.poll = 0; };
+      s.poll = setInterval(() => {
+        if (s.flight !== flight) return stop();
+        if (!e.isConnected || !guest(e)) return loaded(e);
+        if (Date.now() - since < LIMITS.noDocumentMs) return;
+        stop();
+        end(e, 'navigateerror', 'TimeoutError', `no document followed in ${LIMITS.noDocumentMs / 1000} s: a response the frame does not show (a 204, a download), or a load the browser did not report`);
+      }, 250);
     });
     nav.addEventListener('currententrychange', () => {
       if (!here() || !nav.currentEntry || nav.currentEntry.url === s.committed && !s.flight) return;

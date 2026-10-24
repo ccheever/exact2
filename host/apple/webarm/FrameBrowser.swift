@@ -256,7 +256,16 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     }
 
     func started(_ navigation: WKNavigation?) {
-        let type = commandType ?? policy?.type ?? "push"
+        // WebKit's own navigation type wins, but for a reload by URL (crash
+        // recovery, the reload of a load that failed), which it calls `other`;
+        // so a stale command type never colours a link.
+        let type: String
+        switch (policy?.type, commandType) {
+        case ("push"?, "reload"?): type = "reload"
+        case (let decided?, _): type = decided
+        case (nil, let command?): type = command
+        default: type = "push"
+        }
         commandType = nil
         let destination = policy?.url ?? web?.url?.absoluteString ?? ""
         policy = nil
@@ -310,9 +319,17 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.closed else { return }
             self.urlScheduled = false
-            guard let web = self.web, self.flight == nil, !web.isLoading, let now = web.url?.absoluteString, now != self.committed, !self.committed.isEmpty else { return }
-            let type: String
+            guard let web = self.web, self.flight == nil, !web.isLoading, let now = web.url?.absoluteString, !self.committed.isEmpty else { return }
             let back = web.backForwardList.backList.count, current = web.backForwardList.currentItem.map(ObjectIdentifier.init)
+            // `pushState` of the same URL, or a traversal to an entry of the
+            // same URL, moves the history and not `url`.
+            let moved = current != self.history.current
+            guard now != self.committed || moved else {
+                // Nothing moved: a command's type must not outlive it into the next navigation.
+                self.commandType = nil
+                return
+            }
+            let type: String
             if let command = self.commandType {
                 // `traverseHistory` to an entry of this document starts no provisional navigation.
                 type = command
@@ -346,6 +363,13 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.closed else { return }
             self.stateScheduled = false
+            // A same-document navigation that moved only the history is one, not a state change.
+            if self.flight == nil, let web = self.web, !self.committed.isEmpty,
+               web.backForwardList.currentItem.map(ObjectIdentifier.init) != self.history.current { return self.urlChanged() }
+            // A command whose navigation never came (WebKit says nothing of a
+            // `pushState` that keeps the URL, nor of a traversal back to it)
+            // must not outlive it into the next navigation.
+            if self.flight == nil, self.web?.isLoading == false { self.commandType = nil }
             guard self.flight == nil, !self.committed.isEmpty, Self.stateKey(self.record()) != self.lastSent else { return }
             self.send("currententrychange")
         }

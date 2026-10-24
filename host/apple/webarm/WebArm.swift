@@ -206,6 +206,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// The `about:blank` load shown in place of a refused source: its own
     /// navigation reports nothing, and one it cancels still ends as itself.
     var blank: WKNavigation?
+    /// Whether `navigation` is that load: a nil one never is.
+    func isBlank(_ navigation: WKNavigation?) -> Bool { blank != nil && navigation === blank }
     var src: String?
     /// A local `src`'s bytes, as the host read them (`exact_web_set_document`).
     var suppliedDocument: Data?
@@ -906,25 +908,25 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        guard !invalidated, navigation !== blank, let browser else { return }
+        guard !invalidated, !isBlank(navigation), let browser else { return }
         if browser.flight == nil { emit(kind: 3) }
         browser.started(navigation)
     }
 
     func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
-        guard !invalidated, navigation !== blank else { return }
+        guard !invalidated, !isBlank(navigation) else { return }
         browser?.redirected(navigation)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        guard !invalidated, navigation !== blank else { return }
+        guard !invalidated, !isBlank(navigation) else { return }
         browser?.committed(navigation)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard !invalidated, let browser else { return }
         serving = false
-        if navigation === blank { blank = nil; return }
+        if isBlank(navigation) { blank = nil; return }
         emit(kind: 2)
         browser.failed(navigation, error)
     }
@@ -933,7 +935,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         serving = false
         guard !invalidated else { return }
         if let browser {
-            if navigation === blank { blank = nil; return }
+            if isBlank(navigation) { blank = nil; return }
             emit(kind: 2)
             return browser.failed(navigation, error)
         }
@@ -952,7 +954,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         serving = false
         recovering = false
         guard direct, !invalidated else { return }
-        if navigation === blank { blank = nil; return }
+        if isBlank(navigation) { blank = nil; return }
         // A direct guest's document loaded: the iframe's `load`.
         emit(kind: 2)
         if suppressLoad { suppressLoad = false } else { emit(kind: 0) }

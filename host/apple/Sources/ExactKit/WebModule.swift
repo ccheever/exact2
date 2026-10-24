@@ -251,10 +251,8 @@ final class WebViews {
     /// `partition`, `zoom` and the `apple.*` words as the arm takes them
     /// (`exact_web_configure`), before its web view is made.
     private func configuration(_ owner: NodeView) -> Data {
-        // The app's data root names the app (its directories are by app id), so
-        // two apps embedded in one process keep apart their `persist:` partitions.
         var values: [String: Any] = ["agent": ExactEnv.agentMode, "session": sessionKey,
-                                     "app": session?.appFileRoots["data"] ?? Bundle.main.bundleIdentifier ?? "exact"]
+                                     "app": WebViews.appKey(session?.appFileRoots["data"])]
         if let partition = owner.props["partition"] { values["partition"] = partition }
         if let zoom = owner.style["zoom"]?.number, zoom > 0 { values["zoom"] = zoom }
         for (prop, key) in WebViews.appleWords {
@@ -262,6 +260,23 @@ final class WebViews {
             values[key] = value == "true" ? true as Any : value == "false" ? false as Any : value as Any
         }
         return (try? JSONSerialization.data(withJSONObject: values, options: .sortedKeys)) ?? Data("{}".utf8)
+    }
+
+    /// The app a `persist:` partition belongs to: the runner's app id, which
+    /// names the app's data root (`…/Library/Application Support/exact/<app id>/data`,
+    /// `host/apple/src/picker.rs`), so two apps embedded in one process keep
+    /// theirs apart. Never the root's whole path: iOS moves an app's data
+    /// container (its HOME) at every update and reinstall, and a store keyed
+    /// by it would be lost each time. Without a root, the bundle's id.
+    static func appKey(_ dataRoot: String?, home: String = NSHomeDirectory()) -> String {
+        let fallback = Bundle.main.bundleIdentifier ?? "exact"
+        guard let dataRoot else { return fallback }
+        let marker = "/Library/Application Support/exact/"
+        if let range = dataRoot.range(of: marker),
+           let id = dataRoot[range.upperBound...].split(separator: "/").first, !id.isEmpty {
+            return String(id)
+        }
+        return dataRoot.hasPrefix(home) ? String(dataRoot.dropFirst(home.count)) : dataRoot
     }
 
     /// The tier 2 words (@ref LLP 1020.002 §9), by prop.

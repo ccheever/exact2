@@ -16,6 +16,8 @@ function serve() {
     if (path === '/g/b') return guest('B');
     if (path === '/g/redirect') return Response.redirect(`http://127.0.0.1:${SAME}/g/b`, 302);
     if (path === '/g/slow') { await Bun.sleep(3000); return guest('Slow'); }
+    if (path === '/g/nocontent') return new Response(null, { status: 204 });
+    if (path === '/g/attach') return new Response('a file', { headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="a.bin"' } });
     if (path === '/g/probe') return html(`<!doctype html><script>requestAnimationFrame(() => parent.postMessage({dark: matchMedia('(prefers-color-scheme: dark)').matches, width: innerWidth, ratio: devicePixelRatio}, '*'))</script>`);
     if (path.startsWith('/i/') || path === '/favicon.ico') return new Response('', { status: 404 });
     return html(`<!doctype html><main id="exact-root"></main><script type="module">
@@ -69,7 +71,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
       const page = await browser.newPage();
       await page.goto(`http://127.0.0.1:${SAME}/`);
       await page.waitForFunction(() => window.nav);
-      await page.evaluate(() => hear(mount('/g/a')));
+      await page.evaluate(() => { nav.LIMITS.noDocumentMs = 1500; hear(mount('/g/a')); });
       await settle(page, 0, 'navigatesuccess', '/g/a');
       const hasApi = await page.evaluate(() => 'navigation' in document.querySelector('#tab').contentWindow);
       const first = await page.evaluate(() => events.find(([n]) => n === 'navigatesuccess')[1]);
@@ -153,15 +155,15 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
         await settle(page, n, 'navigatesuccess', '/g/a');
       }
 
-      if (engine === 'webkit') {
-        // The failed load WebKit says nothing of: still in flight, until the next navigation supersedes it.
+      // No document follows: a 204, an attachment, and (WebKit) a failed load it keeps the old page for and says
+      // nothing of. Each ends after the bound (1.5 s here, 60 s unsaid) with TimeoutError, the URL unclaimed.
+      for (const target of ['/g/nocontent', '/g/attach', ...(engine === 'webkit' ? ['http://127.0.0.1:16589/dead'] : [])]) {
         n = await count(page);
-        await page.evaluate(() => { const d = document.querySelector('#tab').contentDocument, a = d.createElement('a'); a.href = 'http://127.0.0.1:16589/dead'; d.body.append(a); a.click(); });
-        await page.waitForTimeout(1500);
-        expect((await since(page, n)).map(([e, loading]) => [e, loading])).toEqual([['navigate', true]]);
-        await page.evaluate(port => run('navigate', `http://127.0.0.1:${port}/g/a`), SAME);
-        await settle(page, n, 'navigatesuccess', '/g/a');
-        expect((await since(page, n)).find(([e]) => e === 'navigateerror')?.[5]).toBe('AbortError');
+        const from = await page.evaluate(() => events.at(-1)[1].url);
+        await page.evaluate(href => { const d = document.querySelector('#tab').contentDocument, a = d.createElement('a'); a.href = href; d.body.append(a); a.click(); }, target);
+        await settle(page, n, 'navigateerror', 'TimeoutError').catch(async () => { throw new Error(`${target}: ${JSON.stringify(await since(page, n))}`); });
+        const ended = await since(page, n);
+        expect([target, ended.at(-1)[2], ended.some(([e]) => e === 'navigatesuccess')]).toEqual([target, from, false]);
       }
 
       // A cross-origin guest: `navigate` reaches it; it reports nothing of its own, and the other commands are refused.
@@ -179,6 +181,15 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
       await page.evaluate(port => run('navigate', `http://127.0.0.1:${port}/g/a`), SAME);
       await settle(page, n, 'navigatesuccess', '/g/a');
       expect(await page.evaluate(() => logs.filter(l => !/NotSupported|not a URL|another origin|no history entry|ignoreCache/.test(l)))).toEqual([]);
+
+      // A frame removed mid-navigation: AbortError in every engine (Chrome's Navigation API says so; Firefox's and
+      // WebKit's say nothing).
+      n = await count(page);
+      await page.evaluate(() => run('navigate', '/g/slow'));
+      await page.waitForFunction(n => events.slice(n).some(([e]) => e === 'navigate'), n);
+      await page.evaluate(() => document.querySelector('#tab').remove());
+      await settle(page, n, 'navigateerror', 'AbortError');
+      expect((await since(page, n)).filter(([e]) => e === 'navigateerror').map(e => e[5])).toEqual(['AbortError']);
     } finally {
       servers.stop();
       await browser?.close();
