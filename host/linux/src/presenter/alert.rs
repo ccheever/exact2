@@ -1,7 +1,7 @@
 //! Desktop Neutral confirmations. Admission shares the windowed shape reader;
 //! layout and action order remain the authored tree (LLP 1115.000 D13.4, D17).
 use super::*;
-use exact_kernel::{BlockAxis, HostBlock, NodeKey, StyleMask};
+use exact_kernel::{BlockAxis, HostBlock, NodeKey};
 
 pub(super) struct Open {
     serial: u32,
@@ -239,17 +239,9 @@ impl<D: DataSource> Presenter<D> {
         let k = self.host.kernel();
         let node = k.node(id).ok_or("alert removed during layout")?;
         let key = node.key;
-        let mut style = node.computed_style(StyleMask::INHERITED);
+        let style = node.alert_title_style();
         let prefix = k.alert_prefix_frame(id);
         let title = label.filter(|label| !label.is_empty()).map(|label| {
-            style.font_size = exact_kernel::style::metrics::length_in(
-                exact_kernel::generated::metric::ALERT_TITLE,
-                exact_kernel::style::metrics::Column::Neutral,
-                style.font_size,
-                k.root_font_size(),
-            )
-            .unwrap();
-            style.font_weight = 600;
             let shown = style.hyphens.shown(style.text_transform.apply(&label, ""));
             let p = self.text.borrow_mut().paragraph(
                 &crate::paint::text_spec(&style, &shown),

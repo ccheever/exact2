@@ -37,15 +37,7 @@ pub(super) fn measure(
     {
         cached.metrics
     } else {
-        let mut title = arena.computed_style(context.slot, crate::StyleMask::INHERITED);
-        title.font_size = crate::style::metrics::length_in(
-            crate::generated::metric::ALERT_TITLE,
-            crate::style::metrics::Column::Neutral,
-            title.font_size,
-            arena.root_font_size(),
-        )
-        .unwrap();
-        title.font_weight = 600;
+        let title = arena.alert_title_style(context.slot);
         let shown = title.hyphens.shown(title.text_transform.apply(label, ""));
         let run = TextRun {
             text: shown,
