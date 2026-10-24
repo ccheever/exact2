@@ -544,9 +544,6 @@ impl Backend for Raster {
             return;
         };
         let mut dev = self.device(ts);
-        if !reach::within(&path, 0.0, dev) {
-            return;
-        }
         #[cfg(target_arch = "x86_64")]
         if self.fill_solid_middle(shape, color, &path, dev) {
             return;
@@ -793,7 +790,7 @@ impl Backend for Raster {
 
     fn fill_gradient(&mut self, shape: &Shape, gradient: &GradientPaint, ts: Transform) {
         let dev = self.device(ts);
-        let Some(path) = rounded_rect(shape).filter(|p| reach::within(p, 0.0, dev)) else {
+        let Some(path) = rounded_rect(shape) else {
             return;
         };
         // tiny-skia mixes stops unpremultiplied; CSS mixes premultiplied.
@@ -851,7 +848,7 @@ impl Backend for Raster {
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let dev = self.device(ts);
-        let Some(region) = tiny_path(&part.region).filter(|p| reach::within(p, 0.0, dev)) else {
+        let Some(region) = tiny_path(&part.region).filter(|p| reach::border(p, dev)) else {
             return;
         };
         let parent = self.active_clip().cloned();
@@ -860,7 +857,7 @@ impl Backend for Raster {
         let clipped = match &part.clip {
             None => None,
             Some(clip) => {
-                let Some(clip) = tiny_path(clip).filter(|p| reach::within(p, 0.0, dev)) else {
+                let Some(clip) = tiny_path(clip).filter(|p| reach::border(p, dev)) else {
                     return;
                 };
                 let Some(mut mask) = Mask::new(self.width, self.height) else {
@@ -875,7 +872,7 @@ impl Backend for Raster {
         };
         let mask = clipped.or(parent);
         let mask = if let Some(ring) = &part.ring_clip {
-            let Some(ring) = tiny_path(ring).filter(|p| reach::within(p, 0.0, dev)) else {
+            let Some(ring) = tiny_path(ring).filter(|p| reach::border(p, dev)) else {
                 return;
             };
             let Some(mut ring_mask) = Mask::new(self.width, self.height) else {
