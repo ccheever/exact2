@@ -215,3 +215,60 @@ fn sibling_swaps_keep_the_screen_exemptions_and_outermost_warning() {
         );
     }
 }
+
+#[test]
+fn responsive_chain_with_a_disclosure_stays_quiet() {
+    let search = LIST.replace("press=open(m)", "press=toggle");
+    let src = finder(&format!(
+        "if viewport.name == \"wide\"\n{search}else if open2\n  button press=toggle\n    text \"Close\"\nelse\n{search}"
+    ));
+    assert_eq!(warned(&src), []);
+}
+
+#[test]
+fn persisted_state_in_a_viewport_arm_does_not_hide_a_later_screen_swap() {
+    let detail = DETAIL
+        .replace("\n  ", "\n    ")
+        .replacen("  column", "    column", 1);
+    let src = finder(&format!(
+        "if viewport.name == \"wide\" and hidden\n  text \"Hidden\"\nelse if showingDetail\n  for m in chosen key=m.id\n{detail}else if not showingDetail\n{LIST}"
+    ))
+    .replace("  state open2", "  state hidden = false persist\n  state open2");
+    assert_eq!(
+        warned(&src),
+        [(SCREEN.to_string(), line_of(&src, "if viewport"))]
+    );
+}
+
+#[test]
+fn sibling_comparisons_accept_option_and_list_operands() {
+    let cases = [
+        ("selected == some(id)", "selected != some(id)"),
+        ("chosen == []", "chosen != []"),
+        (
+            "chosen.length == (open2 ? 0 : 1)",
+            "chosen.length != (open2 ? 0 : 1)",
+        ),
+    ];
+    let results: Vec<_> = cases
+        .iter()
+        .map(|(first, second)| {
+            let src = siblings(first, second)
+                .replace(
+                    "  state chosen",
+                    "  state selected = some(\"x\")\n  state id = \"x\"\n  state chosen",
+                )
+                .replace(
+                    "    chosen = [m]",
+                    "    chosen = [m]\n    selected = some(m.id)",
+                );
+            (
+                warned(&src),
+                vec![(SCREEN.to_string(), line_of(&src, &format!("if {first}")))],
+            )
+        })
+        .collect();
+    for ((actual, expected), case) in results.iter().zip(cases) {
+        assert_eq!(actual, expected, "{case:?}");
+    }
+}
