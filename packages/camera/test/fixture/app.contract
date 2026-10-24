@@ -26,6 +26,9 @@ component Fixture
         track = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
       case none
         track = ""
+  // The Mac's own camera, never a phone's through Continuity Camera, for a person's run of the Apple suite.
+  action openBuiltIn
+    send opened = getUserMedia(video=true, apple.deviceType="builtInWideAngleCamera")
   action shutter
     send shot = takePhoto(track=track)
   action keep
@@ -55,6 +58,8 @@ component Fixture
       text shotError testId="shot-error"
       button press=open testId="open"
         text "Open"
+      button press=openBuiltIn testId="open-builtin"
+        text "Open built-in"
       button press=shutter testId="shutter"
         text "Shutter"
       button press=keep testId="keep"
