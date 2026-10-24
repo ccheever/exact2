@@ -1,9 +1,35 @@
-import { test, expect } from 'bun:test';
+import { test, expect, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { webCompiler } from './module.mjs';
+import { moduleGrants, webCompiler } from './module.mjs';
+
+test.each(['', 'net.fetch https://api.example', 'fs.read app:/data\nsqlite.open app:/data/notes.db'])('module metadata preserves grants: %s', async grants => {
+  const root = resolve(import.meta.dir, '../..');
+  mkdirSync(resolve(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(resolve(root, 'target/module-grants-')), path = resolve(dir, 'app.module.wasm');
+  writeFileSync(path, new Uint8Array());
+  const memory = new WebAssembly.Memory({ initial: 1 }), out = 1024, bytes = [];
+  const u32 = n => bytes.push(n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255);
+  const string = s => { const b = new TextEncoder().encode(s); u32(b.length); bytes.push(...b); };
+  u32(4); bytes.push(0); string('test.grants'); string(grants);
+  new Uint8Array(memory.buffer, out, bytes.length).set(bytes);
+  const instantiate = spyOn(WebAssembly, 'instantiate').mockResolvedValue({ instance: { exports: {
+    memory, exact_logic_abi: () => 4, exact_logic_create: () => 1, exact_logic_alloc: () => 0,
+    exact_logic_call(_session, pointer, length) {
+      const request = new DataView(memory.buffer, pointer, length);
+      return length === 5 && request.getUint32(0, true) === 4 && request.getUint8(4) === 0 ? 0 : 1;
+    },
+    exact_logic_output: () => out, exact_logic_output_len: () => bytes.length,
+  } } });
+  try {
+    expect(await moduleGrants(path)).toBe(grants);
+  } finally {
+    instantiate.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test.each([false, true])('optional hook warnings are confined to authored imports (authored: %s)', authored => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
