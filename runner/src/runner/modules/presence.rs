@@ -80,6 +80,17 @@ pub struct PresenceAsk {
     pub keystore: Option<String>,
 }
 
+impl PresenceAsk {
+    /// What a host is handed: the call, the name, its item's account
+    /// (`<name>#<generation>`), where the item is (`service`), the line's
+    /// words, the reason's text and the origin. Never a value.
+    pub fn json(&self) -> String {
+        json!({ "call": self.id, "name": self.name, "account": format!("{}#{}", self.name, self.generation),
+            "service": self.keystore, "policy": self.policy, "reason": self.reason, "origin": self.origin.word() })
+        .to_string()
+    }
+}
+
 /// How a check the host made ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PresenceAnswer {
@@ -218,6 +229,25 @@ impl<D: DataSource> Runner<D> {
             PresenceAnswer::Failed(code, message) => Checked::Failed(code, message),
         };
         self.presence_checked(id, checked);
+    }
+
+    /// How a check the host made ended, as a host says it:
+    /// `{"call", "status": "passed"|"read"|"failed", "value"?, "code"?,
+    /// "message"?}`, a `read` without a value being an item the platform
+    /// dropped. The value goes to the waiting call alone; never journaled.
+    pub fn presence_reply(&mut self, json: &[u8]) {
+        let v: Json = serde_json::from_slice(json).unwrap_or_default();
+        let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
+        let answer = match v["status"].as_str() {
+            Some("passed") => PresenceAnswer::Passed,
+            Some("read") => {
+                PresenceAnswer::Read(v["value"].as_str().map(|s| s.as_bytes().to_vec()))
+            }
+            _ => PresenceAnswer::Failed(text("code"), text("message")),
+        };
+        if let Some(call) = v["call"].as_u64() {
+            self.presence_answer(call, answer);
+        }
     }
 
     /// `key`'s text in the strings table the app shows now, or the key.
@@ -633,5 +663,29 @@ impl<D: DataSource> Runner<D> {
             Some(name) => Err(crate::StoreError::Locked(name).into()),
             None => answer,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_host_is_handed_the_item_and_the_words_never_a_value() {
+        let ask = PresenceAsk {
+            id: 4,
+            name: "token".into(),
+            generation: 2,
+            policy: "user-presence optional".into(),
+            reason: "Unlock Excord".into(),
+            origin: CallOrigin::App,
+            keystore: Some("com.example.presence".into()),
+        };
+        let json: Json = serde_json::from_str(&ask.json()).unwrap();
+        assert_eq!(
+            json,
+            json!({ "call": 4, "name": "token", "account": "token#2", "service": "com.example.presence",
+                "policy": "user-presence optional", "reason": "Unlock Excord", "origin": "app" })
+        );
     }
 }

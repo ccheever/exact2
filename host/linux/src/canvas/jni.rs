@@ -150,6 +150,7 @@ macro_rules! canvas_jni {
                 // The reader hosts the app's text fields (LLP 1115.001 D8).
                 $crate::canvas::field::attach(env, scale);
                 $crate::canvas::legacy::attach(env);
+                $crate::canvas::presence::attach(env);
                 let dir = string(env, dir);
                 pipeline_cache();
                 std::env::set_var("HOME", &dir);
@@ -211,6 +212,7 @@ macro_rules! canvas_jni {
                 }
                 $crate::canvas::field::attach(env, scale);
                 $crate::canvas::legacy::attach(env);
+                $crate::canvas::presence::attach(env);
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
                 pipeline_cache();

@@ -55,7 +55,7 @@ show, and the token stays in the login keychain. When the signing lands:
 
 ## Android phone (stage 2)
 
-Build the APK with the reader (`bun host/android/build.mjs excord`) and
+Build the APK with the reader (`bun scripts/agent-android.mjs build excord --apk`; the NDK and JDK 17 as `host/android/README.md` says) and
 install it.
 
 1. The switch reads the platform's own label ("Use fingerprint", "Use

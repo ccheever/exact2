@@ -807,6 +807,19 @@ impl<D: DataSource> Presenter<D> {
                 self.run_dispatch(r, dispatch);
             }
         }
+        // The platform's checks for presence calls: the shell's (LLP 1133.010 D8).
+        for ask in self.host.runner_mut().take_presence_asks() {
+            match self.has_shell() {
+                true => _ = self.request(requests::Request::Presence(ask.json())),
+                false => self.host.runner_mut().presence_answer(
+                    ask.id,
+                    exact_runner::presence::PresenceAnswer::Failed(
+                        "NotSupportedError".into(),
+                        "this host has no shell to check the person".into(),
+                    ),
+                ),
+            }
+        }
         // Socket frames of the commits that stood (LLP 1016.000 D7).
         let executor = &self.executor;
         self.host

@@ -67,6 +67,28 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.p.answer_request(id, answer);
     }
 
+    /// How a presence check the reader made ended (LLP 1133.010 D13).
+    pub fn presence_reply(&mut self, answer: &str) {
+        self.p
+            .host_mut()
+            .runner_mut()
+            .presence_reply(answer.as_bytes());
+        self.force = true;
+    }
+
+    /// The activity started or stopped: the page's visibility, which a
+    /// return lock reads (LLP 1133.010 §9).
+    pub fn page_hidden(&mut self, hidden: bool) {
+        let page = self.p.host().runner().page();
+        if page.hidden != hidden {
+            let error = self.p.set_page(exact_runner::Page { hidden, ..page });
+            if let Some(error) = error {
+                eprintln!("exact: page: {error}");
+            }
+            self.force = true;
+        }
+    }
+
     /// A topic the reader's extensions announced (`ExtensionContext.changed`,
     /// LLP 1016.002): its readers are asked again.
     pub fn extension_changed(&mut self, topic: &str) {
