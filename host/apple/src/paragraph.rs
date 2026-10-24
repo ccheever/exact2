@@ -688,9 +688,13 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
         {
             out.insert("symbolName", exact_kernel::apple_symbol_name(role).into());
             // @ref LLP 1121 D10 — an svg-only icon's path, which Apple draws (stage 9 A).
-            if let Some((d, view_box)) = crate::icon_path::commands(role) {
+            if let Some((d, view_box, even_odd)) = crate::icon_path::commands(role) {
                 out.insert("symbolPath", d);
                 out.insert("symbolViewBox", view_box.into());
+                // Stage 14 C2: an even-odd icon says so; a nonzero one sends what it did.
+                if even_odd {
+                    out.insert("symbolFillRule", "evenodd".into());
+                }
             }
             // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
             if node.symbol_color_said() {
@@ -731,3 +735,7 @@ impl StyleTexts {
 #[cfg(test)]
 #[path = "popover_surface_tests.rs"]
 mod popover_surface_tests;
+
+#[cfg(test)]
+#[path = "icon_fill_rule_tests.rs"]
+mod icon_fill_rule_tests;
