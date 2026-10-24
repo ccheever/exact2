@@ -40,6 +40,7 @@ async function until(predicate, label) {
   throw Error('timeout: '+label+' '+JSON.stringify({slots:state.slots,pending:state.pending,logs:await app.logs()}));
 }
 try {
+  assert.equal((await app.find('interaction-count')).props.text,'Still interactive: 0 clicks');
   await app.tap(`count-${lanes}`);
   await app.tap('start-wave');
   const first=await until(s=>s.derives.pendingCount===lanes,'first pending');
@@ -48,6 +49,9 @@ try {
   await typeAndAcknowledge(`typing while ${lanes} logical requests are pending`,'held');
   await app.tap('interact');
   assert.equal((await app.state()).slots.clicks,1);
+  assert.equal((await app.find('interaction-count')).props.text,'Still interactive: 1 click');
+  await app.tap('interact');
+  assert.equal((await app.find('interaction-count')).props.text,'Still interactive: 2 clicks');
   await app.tap('navigate-away');
   assert.equal((await app.state()).derives.pendingCount,0);
   assert.equal((await app.tree()).nodes.filter(n=>n.props.testId==='lane-0').length,0);
