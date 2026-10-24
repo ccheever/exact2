@@ -64,7 +64,11 @@ pub struct Compat {
     pub activate: String,
     /// The exact target the binary-producing Cargo bake received.
     pub target: String,
-    /// Embedded bundle provenance and its complete static roster.
+    /// Embedded bundle provenance and its complete static roster, and
+    /// `trust`: the build's resolved trust, which every host's production
+    /// policy reads. Beside the id, not in it: an updater-free (`L = 0`)
+    /// cohort has no trust epoch, so `inputs.trust` is null there and a
+    /// production and a development build share the id (LLP 1030 D4).
     pub embedded: serde_json::Value,
     /// What the app can reach and each host's spelling of it (LLP 1069.008
     /// D7): beside the id, not in it; `null` when the grants are unknown.
@@ -484,7 +488,7 @@ fn compatibility_with_trust(
         origin,
         activate: manifest.activate(),
         target: target.into(),
-        embedded: serde_json::Value::Null,
+        embedded: json!({ "trust": trust }),
         reach: serde_json::Value::Null,
     })
 }
@@ -1448,6 +1452,10 @@ mod tests {
                 .unwrap();
         assert!(zero.inputs["keys"].is_null());
         assert!(zero.inputs["trust"].is_null());
+        assert_eq!(
+            zero.embedded["trust"], "production",
+            "the build's trust, beside the id"
+        );
         assert!(zero.inputs["abi"]["storeCodec"].is_null());
         assert_eq!(zero.inputs["store"]["acceptedKinds"], serde_json::json!([]));
         assert!(zero.origin.is_none());
@@ -1460,6 +1468,7 @@ mod tests {
             zero.id, changed.id,
             "a missing updater has no key or trust epoch"
         );
+        assert_eq!(changed.embedded["trust"], "development");
         manifest.json["deploy"]["store"] = serde_json::json!({"linux":"A"});
         manifest.json["deploy"]["signing"]["keys"] =
             serde_json::json!({"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="});

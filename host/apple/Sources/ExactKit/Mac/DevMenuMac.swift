@@ -113,10 +113,10 @@ public enum DevMenu {
     /// Whether a build has the Develop menu and its chords (LLP 1115.000
     /// D7.8): a development build does, a release build does not, as a
     /// shipped Mac app has no such menu. A release build is one baked with
-    /// production trust (its `compat.json`, which an app with no updater does
-    /// not record) or stamped `release` or `archive` by `build.mjs`
-    /// (`ExactBuildKind`: production trust, or `--distribution`, what
-    /// `exact release` signs). An unstamped host (a test's) is a
+    /// production trust (`ExactEnv.productionBake`) or stamped `release` or
+    /// `archive` by `build.mjs` (`ExactBuildKind`: `--release`,
+    /// `--distribution`, what `exact release` signs, or `--archive`; each
+    /// bakes production trust). An unstamped host (a test's) is a
     /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
     /// for either (`ExactEnv.devMenu`).
     static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {

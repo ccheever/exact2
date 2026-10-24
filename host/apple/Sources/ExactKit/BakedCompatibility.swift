@@ -8,4 +8,12 @@ package enum BakedCompatibility {
         let bytes = Runtime.bakedCompat()
         return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
     }
+    /// Whether `compat` is a production build's: its `embedded.trust`, the
+    /// build's resolved trust, which bake records beside the cohort id (an
+    /// updater-free binary's `inputs.trust` is null, LLP 1030 D4). The one
+    /// reading every production policy goes through, as
+    /// `exact_runner::delivery::production` is on the Rust side.
+    package static func production(_ compat: [String: Any]) -> Bool {
+        (compat["embedded"] as? [String: Any])?["trust"] as? String == "production"
+    }
 }

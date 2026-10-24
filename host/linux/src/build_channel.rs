@@ -1043,7 +1043,7 @@ mod tests {
 
     #[test]
     fn a_production_build_holds_no_channel() {
-        let production = r#"{"inputs":{"trust":"production"}}"#;
+        let production = r#"{"embedded":{"trust":"production"}}"#;
         let poller =
             crate::fetch::Poller::new("http://127.0.0.1:9/".into(), production.into(), None);
         assert!(poller.link.is_none());
