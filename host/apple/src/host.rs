@@ -683,6 +683,9 @@ impl<D: DataSource> Host<D> {
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());
         }
+        if op.as_deref() == Some("sensorEvents") {
+            return Some(self.sensor_events(request));
+        }
         // The documents a person chose, and those the app keeps (LLP 1069.010 D1, 1069.010.000).
         if let Some(reply) = crate::documents::answer(op.as_deref(), request, &self.runner) {
             return Some(reply);

@@ -464,16 +464,14 @@ impl<D: DataSource> Runner<D> {
             .filter(|m| self.samples_of(m).is_some() && self.route(m) == Route::Substitute)
             .map(|m| self.key(m))
             .collect();
+        let mut held = std::collections::BTreeSet::new();
         for key in keys {
             let resources = &self.resources;
             let readers = self.extensions.readers.entry(key.clone()).or_default();
             readers.retain(|i, _| resources.get(*i).is_some_and(Option::is_some));
+            held.extend(readers.keys().copied());
             let groups: Vec<String> = readers.values().cloned().collect();
             let samples = &mut self.extensions.samples;
-            samples.cursors.retain(|r, _| match r {
-                Reader::Resource(i) => readers.contains_key(i),
-                Reader::Data(_) => true,
-            });
             // A data-code reader's grid is kept while its cursor is.
             let data = samples.data.lock().map(|d| d.clone()).unwrap_or_default();
             samples.grids.retain(|(k, g), _| {
@@ -484,6 +482,11 @@ impl<D: DataSource> Runner<D> {
                 self.extensions.polls.remove(&key);
             }
         }
+        // A reader's cursor goes with it; another source's readers keep theirs.
+        (self.extensions.samples.cursors).retain(|r, _| match r {
+            Reader::Resource(i) => held.contains(i),
+            Reader::Data(_) => true,
+        });
     }
 
     /// A send that `feeds` a canvas's input, answered by the substitute: the
