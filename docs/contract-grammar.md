@@ -1302,8 +1302,9 @@ component Composer
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that
   Return or Space presses (a link atom, Return only); in the editor it is not.
-  `rangeFrame` over its range is its pill, in the editor and the reader alike,
-  where a popover anchors; elsewhere in a reader's text it is unavailable.
+  `rangeFrame` over its range is its pill, in the editor and the reader alike
+  (on Apple, the editor's only for now), where a popover anchors; elsewhere in
+  a reader's text it is unavailable.
 
 The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
 icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of
