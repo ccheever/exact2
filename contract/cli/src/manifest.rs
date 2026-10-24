@@ -9,6 +9,8 @@ mod widgets;
 pub use widgets::Widget;
 mod activities;
 pub use activities::Activity;
+mod watch;
+pub use watch::{WatchEntry, WATCH_KIND};
 
 /// The app manifest (`app.json`, LLP 1030 D2; 1030.000 D7) as the bake
 /// reads it — the JSON, and the identity every platform derives from it.

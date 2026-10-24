@@ -1044,11 +1044,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     /// D1: resolved at use, by HTML id, among live enabled press controls —
-    /// never captured at a gesture's start (`NavigationRules.backControl`).
+    /// never captured at a gesture's start (`NavigationBack.control`).
     private var backControl: NodeView? {
         guard let route = selectedRoute else { return nil }
         let routes = routeIDs.compactMap { presenter.views[$0] }
-        return NavigationRules.backControl(named: container?.props["navigationBack"], among: presenter.carrying("id"),
+        return NavigationBack.control(named: container?.props["navigationBack"], among: presenter.carrying("id"),
                                            id: \.id, htmlID: { $0.props["id"] }, pressable: { $0.handlers.contains("press") }, disabled: \.disabled,
                                            inActiveRoute: { $0 === route || $0.isDescendant(of: route) },
                                            inAnyRoute: { control in routes.contains { control === $0 || control.isDescendant(of: $0) } })
@@ -1060,10 +1060,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     /// How Back goes from the selected route, resolved at use as its
-    /// control is (`NavigationRules.back`, LLP 1115 D5).
-    var back: NavigationRules.Back? {
+    /// control is (`NavigationBack.way`, LLP 1115 D5).
+    var back: NavigationBack.Way? {
         guard let root = container, let route = selectedRoute else { return nil }
-        return NavigationRules.back(control: backControl?.id, declared: declaresBack(route), hearsNavigate: root.handlers.contains("navigate"),
+        return NavigationBack.way(control: backControl?.id, declared: declaresBack(route), hearsNavigate: root.handlers.contains("navigate"),
                                     beneath: { [presenter] in route.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) } })
     }
 

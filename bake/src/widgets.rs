@@ -266,6 +266,25 @@ mod tests {
         }
     }
 
+    /// The watch entry (LLP 1126.002 D4) is its own live plan in the plans map,
+    /// at `plans/watch.plan`, and no widget: `widgets.json` does not list it.
+    #[test]
+    fn the_watch_entry_bakes_its_plan_beside_no_widget() {
+        let dir =
+            TempDir(std::env::temp_dir().join(format!("exact-watch-bake-{}", std::process::id())));
+        let out = dir.0.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/caltrain");
+        let mut manifest = Manifest::read(&app).unwrap();
+        manifest.json.as_object_mut().unwrap().remove("widgets");
+        let entries = contract::snapshot::compile_entries(&app, &manifest).unwrap();
+        let (assets, plans) = emit(&out, false, &entries).unwrap();
+        let bytes = std::fs::read(out.join("plans/watch.plan")).unwrap();
+        assert_eq!(plans["watch"]["sha256"], exact_update::sha256_hex(&bytes));
+        assert!(assets.iter().any(|c| c["name"] == "plans/watch.plan"));
+        assert!(!out.join("plans/widgets.json").exists());
+    }
+
     #[test]
     fn activity_only_bake_copies_schemas_and_removes_obsolete_state_artifacts() {
         let dir = TempDir(
@@ -276,6 +295,7 @@ mod tests {
         let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/caltrain");
         let mut manifest = Manifest::read(&app).unwrap();
         manifest.json.as_object_mut().unwrap().remove("widgets");
+        manifest.json.as_object_mut().unwrap().remove("watch");
         let entries = contract::snapshot::compile_entries(&app, &manifest).unwrap();
         assert_eq!(entries.len(), 2);
         let (assets, plans) = emit(&out, false, &entries).unwrap();
