@@ -963,6 +963,7 @@ sits on that list carries the trade it would take.
 - **Evaluate a component's computed prop once per instance** (2026-10-18; worth ~2 points of euxy's playing CPU): a prop read several times in a stateless one-box component is re-evaluated at every read. A memo in the inliner was tried and removed (review: it hoisted reads under `&&`/`||`, `?:`, expression `match` arms and arrow bodies, so `range(-1)` ran where the program skipped it). Redo it with the guaranteed-evaluation rule `contract/syntax/src/inline/derives.rs` `summarize` already uses, never memoize handler arguments or clock-reading props, and mirror it in `semantics/Contract/Expand.lean`; `semantics/corpus/components/prop-guarded.contract` and `prop-event-time.contract` are the cases it must keep agreeing on.
 - **A large reply's owed Hermes collection can wait forever** (2026-10-17; `js/src/prelude.js:1051,1187`, `js/src/lib.rs:863,1084,1128`): the full collection a promoted large string owes runs only when no other answer is pending, so a fetch that never settles keeps a dropped 376 KB QR buffer for the life of the process; and a reply whose serialization throws (capture limit, cycle) leaves its call in `calls` as `done`, blocking every later owed collection. Run the owed collection on the reply and re-stamp pending calls' epochs; `__exact_forget` a call whose settle fails.
 - **Bold Text on Material popup typography** (2026-10-24; LLP 1115.000 D12.3): `host/linux/src/presenter/top/look.rs` builds dialog and menu paragraphs at fixed weights (400 for headline/body, 500 for labels), and its popup symbols stroke at a fixed regular weight (`(1.1 + 300.0 / 400.0)`, ~line 298). Confirmed in `paragraph`: it takes neither a node nor the preference; `Inputs` carries only scheme, font scale and window size. Carry the applicable Bold Text setting into surface layout and its cache inputs, and step these host-assigned weights once for measurement and paint.
+- **Two exact-web-js paint tests fail on main on Linux** (2026-10-24, 450b, 5c786cfcf8): `cargo test -p exact-web-js --bins` fails `paint_tests::server_client_and_adopted_paint_agree_on_the_chrome_corpus` and `paint_tests::waiting_rows_recompute_parent_and_sibling_facts_against_kernel` (125 pass) at `host/web-js/src/paint_tests.rs:381`: the Bun fixture `host/web/tests/paint-order/compare.mjs` gets rolldown 1.2.9's `[INVALID_OPTION] Invalid value "iife" for option "output.format" - UMD and IIFE are not supported for code-splitting builds`. Find which bundle call in the fixture's path asks for IIFE with more than one entry or a dynamic import, and set `codeSplitting: false` or split it.
 - **Two timing-budget tests fail on main on 450b** (2026-10-24, seen on 485521e590, each also alone): `cargo test -p contract --test it tamber_rows_check::a_worst_case_write_is_checked_within_the_budget` takes 13.4 ms against its 10 ms budget, and `cargo test -p exact-svg-file --lib tests::a_file_that_expands_past_a_limit_draws_nothing_and_names_it` takes 5.28 s to refuse one of its files against its 5 s bound (`host/svg-file/src/lib.rs:439`, a debug build). Both pass on other machines; find whether the budgets assume a faster box or a release build, and make them hold on a 12-thread Linux box.
 - **The Apple host drops a store write that fails to persist** (2026-10-14): the runner keeps the value, but the host does not retry a failed write. Retain it for a later commit and report the failure once per name until it succeeds or is replaced. Setting an unchanged value is no write, so an identical `set` does not retry it.
 - **Linux element reveals land at once** (2026-10-18; LLP 1070.000 §14, LLP 1115.000 D8.4; `host/linux/src/presenter/reveal.rs`): macOS and UIKit animate `scrollIntoView(id)` with omitted, `auto` or `smooth` behavior and hold the scroller's `scrollend` until the animation ends; the Linux host lands every element jump at once. Animate it there too, landing at once for `instant`, reduced motion and the frozen agent, a new request or `scrollTop` write replacing a running one.
@@ -1059,6 +1060,29 @@ sits on that list carries the trade it would take.
     row fails each of those build forms with a target diagnostic. Not taken:
     moving the `contract` binary to its own package (compiler dependence on
     the web host), or a refusal registry in `contract` (a second authority).
+    2026-10-24 (lane q24/dynamic-exit-js on 450b, parked after three fix
+    rounds; the branch is kept there at 5664246094): the JS target maps each
+    exit string the code names through the kernel's CSS (style.rs, as
+    `layout_transitions`), loads presence at an initial `none`, and
+    snapshots the committed exit in rt.js `S` so a removal in the same
+    action plays it in either assignment order, as the wasm host does.
+    `contract build` checks every plan with the emitter (`target-web-js`
+    diagnostics at the row's source site via the map). Lessons for the next
+    attempt: skip `--entry` widget plans (the emitter refuses them as
+    WrongEntry; Shelf's widget build passes on main); keep the TypeScript
+    check main's way (only `app.contract`, no `--entry`, compiled from
+    source so `contract::check`'s bake refusals still fail it); pipe stdout
+    only for `build` (`tamber serve --stdio` streams); run the emitter with
+    `compilerCargo`'s pinned toolchain and keep kept.mjs's cache line off
+    stdout under `--json`; refuse a dynamic `-exact-press-scale` only beside
+    an exit whose keyframes animate `scale`; and child-state initializers
+    must run in declaration order (regions.rs; semantics/corpus/rows/
+    row-init-chain.contract is refused otherwise). Open where it stopped
+    (both round-3 reviewers): `Sm` and `Sr` (rt.js, motion and `url(` rows)
+    write through `css()` without the snapshot, so on a swipe or spring node
+    the exit still depends on assignment order; take the snapshot in
+    `css()`. Also open: a bound press scale beside an exit read from a slot
+    (no string literal) is accepted though the exit may name scale keyframes.
   - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
     pop; a test can't fake a data source, or open a URL.
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
