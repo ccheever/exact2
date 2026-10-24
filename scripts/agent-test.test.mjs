@@ -377,3 +377,48 @@ test "a failure does not stop the next test"
     ]);
   } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
+
+test('authored wakelock expectations follow the holder record and name holders on failure', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-wakelock-'));
+  const contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Wake Lock', app: { id: 'test.exact.wakelock', name: 'Wake Lock' }, host: {}, deploy: {} }));
+  writeFileSync(contract, `component App
+  state on = true
+  action toggle
+    on = !on
+  view
+    column wakelock=(on ? "screen" : "none") testId="awake"
+      button "Toggle" press=toggle testId="toggle"
+`);
+  writeFileSync(file, `test "toggle the holder"
+  expect wakelock held
+  tap "toggle"
+  expect wakelock released
+  tap "toggle"
+  expect wakelock held
+
+test "a holder prevents release"
+  expect wakelock released
+
+test "nothing holds after toggling off"
+  tap "toggle"
+  expect wakelock held
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+  try {
+    const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    expect(compile.status, compile.stderr).toBe(0);
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'wakelock', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
+    expect(build.status, build.stderr).toBe(0);
+    const server = createServer((request, response) => serveBuildTree(dist, request, response));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+      expect(r.passed).toBe(1);
+      expect(r.results.map(t => t.failures.length)).toEqual([0, 1, 1]);
+      expect(r.results[1].failures[0]).toMatch(/line 9: expected wakelock released; held by view \d+ \("awake"\)$/);
+      expect(r.results[2].failures[0]).toBe('nothing holds after toggling off: line 13: expected wakelock held; nothing holds it');
+    } finally { server.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);

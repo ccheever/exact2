@@ -778,6 +778,19 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
+            case 'expect-wakelock': {
+              const lock = (await s.state()).wakelock;
+              if (!lock) { failures.push(`${at}: this host reports no wakelock holder record`); break; }
+              if (lock.held !== st.held) {
+                const nodes = lock.by.length ? (await s.tree()).nodes : [];
+                const holders = lock.by.map(id => {
+                  const testId = nodes.find(node => node.id === id)?.props?.testId;
+                  return `view ${id}${testId ? ` (${JSON.stringify(testId)})` : ''}`;
+                });
+                failures.push(`${at}: expected wakelock ${st.held ? 'held' : 'released'}; ${holders.length ? `held by ${holders.join(', ')}` : 'nothing holds it'}`);
+              }
+              break;
+            }
             // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
             // source matching every clause given, or none; a dropped call is not a voice.
             case 'expect-sound': {

@@ -800,7 +800,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, or `mediasession`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, or `mediasession`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -877,6 +877,20 @@ impl Parser {
                             span,
                         }
                     }
+                    "wakelock" => {
+                        let held = if self.at_ident("held") {
+                            true
+                        } else if self.at_ident("released") {
+                            false
+                        } else {
+                            return self.err(
+                                "syntax-expected-step",
+                                "`expect wakelock` takes `held` or `released`",
+                            );
+                        };
+                        self.next();
+                        Step::ExpectWakelock { held, span }
+                    }
                     "sound" => self.expect_sound(span)?,
                     "midi" => self.expect_midi(span)?,
                     "mediasession" => self.expect_media_session(span)?,
@@ -937,7 +951,7 @@ impl Parser {
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, or `mediasession`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, or `mediasession`, not `{other}`{hint}"),
                         );
                     }
                 }
