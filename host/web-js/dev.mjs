@@ -18,7 +18,8 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathS
 import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
-import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFileAsync as buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { generationOf, generationPath, servedFile } from '../web/generations.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
@@ -372,13 +373,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // makes it), kept by the plan's digest, the 4 last; it names that plan,
   // and one made while dist moved on is not served.
   const tables = new Map();
-  const inspectTable = (digest) => {
+  const inspectTable = (digest, plan = resolve(dist, 'app.plan')) => {
     if (!tables.has(digest)) {
       tables.set(digest, new Promise((done) => {
         // (this loop's own: another loop on one target/ may make the same plan's table, and removes its own)
         const out = resolve(app.target, `inspect-${digest}-${process.pid}.json`);
         const compiler = toolFresh() ? { cmd: tool.path, pre: [], done() {} } : webCompiler();
-        const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', resolve(dist, 'app.plan'), out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
+        const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', plan, out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
         let err = '';
         child.stderr.on('data', (d) => { err += d; });
         child.on('exit', (code) => {
@@ -890,11 +891,14 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // The build channel (LLP 1122 D4): the page's stream gives it a nonce;
     // reports come up by POST; a build with no stream here (the resident
     // loop's devices, Linux) opens a polled one.
-    // The page's inspect table, for the plan dist serves now.
-    if (url.pathname === '/dev-inspect.json' && req.method === 'GET') {
-      let digest = null;
-      try { digest = createHash('sha256').update(readFileSync(resolve(dist, 'app.plan'))).digest('hex'); } catch { /* no build */ }
-      const bytes = digest && await inspectTable(digest);
+    // The page's inspect table, for the plan dist serves now, or (beside a page's generation base) the plan of the
+    // build that page booted (host/web/generations.mjs).
+    const inspectAt = generationPath(url.pathname);
+    if ((url.pathname === '/dev-inspect.json' || (inspectAt && inspectAt !== 'bad' && inspectAt.path === '/dev-inspect.json')) && req.method === 'GET') {
+      let digest = null, plan = resolve(dist, 'app.plan');
+      if (inspectAt) plan = generationOf(dist) === inspectAt.id ? plan : resolve(`${dist}.gen`, inspectAt.id, 'app.plan');
+      try { digest = createHash('sha256').update(readFileSync(plan)).digest('hex'); } catch { /* no build */ }
+      const bytes = digest && await inspectTable(digest, plan);
       if (!bytes) { res.writeHead(503, { 'cache-control': 'no-store' }); return res.end(); }
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       return res.end(bytes);
@@ -973,11 +977,15 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // to it (below), started at the first such request.
     if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
       || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
-    const found = await buildTreeFile(dist, url.pathname, req.headers.accept);
+    // From the build the page booted (host/web/generations.mjs): a document names its generation in its base, and
+    // its scripts, chunks and plan are read from that build while the next one is put in place.
+    const served = await servedFile(dist, url.pathname, req.headers.accept);
+    if (served.status === 410 || served.status === 400) { res.writeHead(served.status, { 'cache-control': 'no-store' }); res.end(); return; }
+    const found = served.status === 200 ? served : null;
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-    let body = installer.page(found.route, readFileSync(found.path), access);
+    let body = installer.page(found.route, found.body, access);
     if (found.route.endsWith('.html')) {
       body = body.toString();
       const id = url.searchParams.get('__exactDev'), carried = id && checkpoints.get(id);
