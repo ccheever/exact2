@@ -69,7 +69,7 @@ export async function importTheme(argv) {
     // The server plans on its own app: one `--app` names elsewhere is refused (Grok's round 1).
     const hello = await post({ method: 'hello' });
     const served = hello.ok?.app && realpathSync(resolve(hello.ok.app));
-    if (served && served !== realpathSync(app)) { console.error(`tamber import: ${origin} serves ${served}, not ${app}`); return 1; }
+    if (served !== realpathSync(app)) { console.error(`tamber import: ${origin} serves ${served ?? 'an app it does not name'}, not ${app}`); return 1; }
     const held = await post({ method: 'import', kind, client, sources, ...(at('--prefix') !== undefined ? { prefix: at('--prefix') } : {}) });
     if (!held.ok) return fail(held.error);
     say(held.ok.review);
