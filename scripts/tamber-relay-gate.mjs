@@ -84,8 +84,9 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     }
     // What a packet capture at the relay's public side holds: every byte both ways.
     const seen = [];
-    let forwarded = 0;
-    const tap = createTCP(c => { const r = connectTCP({ host: target, port }, () => { forwarded++; }); c.on('data', d => { seen.push(d); r.write(d); }); r.on('data', d => { seen.push(d); c.write(d); }); c.on('close', () => r.destroy()); r.on('close', () => c.destroy()); c.on('error', () => {}); r.on('error', () => {}); });
+    // The client ports whose connection the tap carried through to the relay.
+    const reachedFrom = new Set();
+    const tap = createTCP(c => { const from = c.remotePort, r = connectTCP({ host: target, port }, () => { reachedFrom.add(from); }); c.on('data', d => { seen.push(d); r.write(d); }); r.on('data', d => { seen.push(d); c.write(d); }); c.on('close', () => r.destroy()); r.on('close', () => c.destroy()); c.on('error', () => {}); r.on('error', () => {}); });
     await new Promise(ok => tap.listen(0, '127.0.0.1', ok));
     cleanup.push(() => tap.close());
     const pub = tap.address().port;
@@ -138,8 +139,10 @@ export async function gate({ say = console.log, deployed = null } = {}) {
       if (got === expected.get(to)) return true;
       intercepted.push(`${to}: ${got}`); s.destroy(); return false;
     };
+    const INTERCEPTED = 'a client connection ended on a certificate not its design server\'s';
     const call = (to, path, body, headers = '', method = 'POST') => new Promise((ok, fail) => {
-      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: clientCa }, () => { if (!ours(to, s)) return; s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`); });
+      // (one that ended elsewhere fails the run: nothing was sent, and no line may pass on an empty answer)
+      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: clientCa }, () => { if (!ours(to, s)) { fail(new Error(`${INTERCEPTED}: ${intercepted.at(-1)}`)); return; } s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`); });
       let out = ''; s.on('data', d => { out += d; }); s.on('end', () => ok(out)); s.on('close', () => ok(out)); s.on('error', e => (out ? ok(out) : fail(e)));
     });
     const status = out => Number(out.split(' ')[1]);
@@ -172,10 +175,11 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     const after = await call(a.tool, '/__tamber', '{"method":"hello"}', `x-exact-tamber-token: ${pt}\r\n`);
     verdict('revoking the paired client cuts its pending long poll through the relay, and refuses its next request', pending && poll.text.startsWith('HTTP/1.1 401') && status(after) === 401, [`pending before: ${pending}; after revoke: ${poll.text.split('\r\n')[0]}; next hello ${status(after)}`]);
     // Line 3 (stage 10): an unencrypted connection is refused: plain HTTP to the relay is closed, nothing answered.
-    // (closed at the relay, not by a forward that never reached it: the tap's connection to the relay was made)
-    const reached = forwarded;
-    const plain = await new Promise(ok => { const c = connectTCP({ host: '127.0.0.1', port: pub }, () => c.write(`POST /__tamber/pair HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Length: 2\r\n\r\n{}`)); let got = ''; const t = setTimeout(() => { c.destroy(); ok(got || null); }, 10_000); c.on('data', d => { got += d; }); c.on('close', () => { clearTimeout(t); ok(got); }); c.on('error', () => {}); });
-    verdict('plain HTTP to a session\'s name (the pairing endpoint) is closed at the relay, nothing answered', plain === '' && forwarded > reached, [`answered ${plain === null ? 'nothing, but held open 10 s' : `${plain.length} bytes`}; the relay was reached: ${forwarded > reached}`]);
+    // (closed at the relay, not by a forward that never reached it: the tap carried this very connection through)
+    let mine = null;
+    const plain = await new Promise(ok => { const c = connectTCP({ host: '127.0.0.1', port: pub }, () => { mine = c.localPort; c.write(`POST /__tamber/pair HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Length: 2\r\n\r\n{}`); }); let got = ''; const t = setTimeout(() => { c.destroy(); ok(got || null); }, 10_000); c.on('data', d => { got += d; }); c.on('close', () => { clearTimeout(t); ok(got); }); c.on('error', () => {}); });
+    const reached = mine !== null && reachedFrom.has(mine);
+    verdict('plain HTTP to a session\'s name (the pairing endpoint) is closed at the relay, nothing answered', plain === '' && reached, [`answered ${plain === null ? 'nothing, but held open 10 s' : `${plain.length} bytes`}; this connection reached the relay: ${reached}`]);
     // Line 4: the capture holds no token and no design text in clear.
     const design = 'space.gate-secret = 17px', secondPair = (await a.local({ method: 'pair-code', scope: 'read', name: 'cap' })).ok;
     const p2 = await call(a.tool, '/__tamber/pair', JSON.stringify({ code: secondPair.code, name: 'cap' }));
@@ -211,6 +215,8 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     const bCode = (await b.local({ method: 'pair-code', scope: 'read', name: 'b2' })).ok.code;
     const bAfter = await call(b.tool, '/__tamber/pair', JSON.stringify({ code: bCode, name: 'b2' }));
     verdict('cross-account: one session\'s pairing flooded to its limit leaves the other\'s untouched', flood.includes(429) && status(bAfter) === 200, [`${A}'s pairs: ${flood.join(' ')}; ${B}'s next pair ${status(bAfter)}`]);
+    // Every client connection, the long poll's too, ended on its own design server's certificate.
+    if (intercepted.length) verdict(INTERCEPTED, false, intercepted);
   } catch (e) {
     verdict('the run itself', false, String(e?.stack ?? e).split('\n').slice(0, 4));
   } finally {
