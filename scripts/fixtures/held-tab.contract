@@ -6,7 +6,8 @@
 // focus as the route moves into the navigation controller. Open Two pushes
 // two routes in one batch. Titled starts with a bar. Bump changes a text no
 // tab shows, Rename the Titled tab's own: a tab's face is read again only
-// after the second (NavigationTabsIOSTests).
+// after the second (NavigationTabsIOSTests). Detail in Plain, from Titled,
+// selects Plain and pushes onto its held stack in one update.
 routes nav
   tab plain "/"
     detail "/detail"
@@ -25,6 +26,8 @@ component HeldTab
     nav = push(nav, "/detail")
   action openTwo
     nav = push(push(nav, "/detail"), "/detail/more")
+  action openFromTitled
+    nav = open(nav, "/detail")
   action openSheet
     nav = push(nav, "/sheet")
   action back
@@ -70,6 +73,9 @@ component HeldTab
                     column height=1600
                   // Outside the scroller, so its batch is projected (`onlyListRows`).
                   text `Bumped ${bumps}` testId="bumps"
+                if e.name == "titled"
+                  button press=openFromTitled testId="open-from-titled"
+                    text "Detail in Plain"
                 if e.name == "sheet"
                   button id="back" press=back testId="close"
                     text "Close"
