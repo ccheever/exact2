@@ -194,3 +194,12 @@ test('with two renames for a swap (no one-step exchange), a page\'s files are st
   expect(pages).toBeGreaterThan(5);
   expect(bad).toBe(0);
 });
+
+test('no build yet: not found at once, not held for a swap that is not under way', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'exact-generations-none-'));
+  try {
+    const at = Date.now();
+    expect((await servedFile(join(root, 'dist'), '/', 'text/html')).status).toBe(404);
+    expect(Date.now() - at).toBeLessThan(500);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
