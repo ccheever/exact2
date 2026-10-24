@@ -245,7 +245,8 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
   the digests an `import` carries to the server). A larger one gets 413, or the connection is cut
   while it is being read. (*1.17*) The local loopback token's body may be 16 MiB (a CLI import's
   sources, which the server plans as any import), judged from its length before a byte is read;
-  every paired, remote or relayed client's stays 1 MiB.
+  every paired, remote or relayed client's stays 1 MiB, as does a request through `tamber tool --via`'s
+  proxy.
 - **A client's `ops`** (*1.17*) are at most 1024 in one request (`transaction`, `propose`, a
   scrub): more is refused with 400 and `id: "tamber-ops-size"` before any is read. Operations the
   server applies itself (accepting a held proposal, a revert's, an import it plans) are no
