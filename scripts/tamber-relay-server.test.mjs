@@ -325,12 +325,16 @@ test('the gate against a deployed relay (R4) reads it from the environment: the 
   const home = mkdtempSync(join(tmpdir(), 'exact-gate-home-'));
   try {
     const { mkdirSync } = await import('node:fs');
-    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), `${l}-token\n`); }
+    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), `${l}-token\n`, { mode: 0o600 }); }
     const d = deployedRelay({ RELAY_GATE_DOMAIN: 'Relay.Example', RELAY_GATE_RELAY: '127.0.0.1:18443', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home);
     expect([d.domain, d.host, d.port, d.labels, d.tokens, d.certs, d.ca]).toEqual(['relay.example', '127.0.0.1', 18443, ['alpha', 'beta'], { alpha: 'alpha-token', beta: 'beta-token' }, null, undefined]);
     expect(deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home).port).toBe(443);
     expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,alpha' }, home)).toThrow('two labels');
     expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example' }, home)).toThrow(/acct/);
+    expect(deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_RELAY: '[::1]:8443', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home)).toMatchObject({ host: '::1', port: 8443 });
+    const { chmodSync } = await import('node:fs');
+    chmodSync(join(home, '.exact', 'relay', 'beta', 'token'), 0o644);
+    expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home)).toThrow('chmod 600');
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -350,7 +354,7 @@ test('the gate\'s deployed mode, against a relay of its own with certificates fr
     };
     issue('relay', 'relay.example'); issue('alpha', '*.alpha.relay.example'); issue('beta', '*.beta.relay.example');
     const home = join(dir, 'home'), tokens = { alpha: 'alpha-token-0123456789abcdef', beta: 'beta-token-0123456789abcdef' };
-    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), tokens[l]); }
+    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), tokens[l], { mode: 0o600 }); }
     const sha = t => createHash('sha256').update(t).digest('hex');
     writeFileSync(join(dir, 'accounts.json'), JSON.stringify({ accounts: { alpha: { token_sha256: sha(tokens.alpha) }, beta: { token_sha256: sha(tokens.beta) } }, revoked: [] }));
     relay = relayServer({ domain: 'relay.example', listen: '127.0.0.1:0', tls: { cert: readFileSync(join(dir, 'relay.cert.pem'), 'utf8'), key: readFileSync(join(dir, 'relay.key.pem'), 'utf8') }, accounts: join(dir, 'accounts.json'), dns: { publish: async () => {}, clear: async () => {} } }, { log: () => {} });

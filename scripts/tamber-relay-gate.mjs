@@ -12,7 +12,7 @@
 //   [RELAY_GATE_ACME=<directory URL>, default Let's Encrypt's]  bun scripts/tamber-relay-gate.mjs
 import { createHash, randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect as connectTCP, createServer as createTCP } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,10 +31,14 @@ const LOCAL_DOMAIN = 'relay.test';
 /** The deployed relay the lines run against, from the environment (above); null on loopback. */
 export function deployedRelay(env = process.env, home = homedir()) {
   if (!env.RELAY_GATE_DOMAIN) return null;
-  const domain = env.RELAY_GATE_DOMAIN.toLowerCase(), [host, port] = (env.RELAY_GATE_RELAY ?? domain).split(':');
+  const domain = env.RELAY_GATE_DOMAIN.toLowerCase(), at = env.RELAY_GATE_RELAY ?? domain;
+  // host, host:port, [v6] or [v6]:port (a bare v6 address is a host alone)
+  const [, host, port] = /^\[(.+)\](?::(\d+))?$/.exec(at) ?? (at.split(':').length === 2 ? /^(.+):(\d+)$/.exec(at) : [null, at]);
   const labels = (env.RELAY_GATE_ACCOUNTS ?? 'acct,other').split(',');
   if (labels.length !== 2 || labels[0] === labels[1]) throw new Error('RELAY_GATE_ACCOUNTS: two labels, a,b');
   const read = path => readFileSync(path, 'utf8');
+  // (the tokens as the connector keeps them: readable by their owner alone)
+  for (const l of labels) { const f = join(home, '.exact', 'relay', l, 'token'); if (statSync(f).mode & 0o077) throw new Error(`${f} may be read by others: chmod 600 it`); }
   return { domain, host, port: Number(port ?? 443), labels, tokens: Object.fromEntries(labels.map(l => [l, read(join(home, '.exact', 'relay', l, 'token')).trim()])),
     ca: env.RELAY_GATE_CA ? read(env.RELAY_GATE_CA) : undefined,
     certs: env.RELAY_GATE_CERTS ? Object.fromEntries(labels.map(l => [l, { cert: read(join(env.RELAY_GATE_CERTS, `${l}.cert.pem`)), key: read(join(env.RELAY_GATE_CERTS, `${l}.key.pem`)) }])) : null,
@@ -80,7 +84,8 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     }
     // What a packet capture at the relay's public side holds: every byte both ways.
     const seen = [];
-    const tap = createTCP(c => { const r = connectTCP({ host: target, port }); c.on('data', d => { seen.push(d); r.write(d); }); r.on('data', d => { seen.push(d); c.write(d); }); c.on('close', () => r.destroy()); r.on('close', () => c.destroy()); c.on('error', () => {}); r.on('error', () => {}); });
+    let forwarded = 0;
+    const tap = createTCP(c => { const r = connectTCP({ host: target, port }, () => { forwarded++; }); c.on('data', d => { seen.push(d); r.write(d); }); r.on('data', d => { seen.push(d); c.write(d); }); c.on('close', () => r.destroy()); r.on('close', () => c.destroy()); c.on('error', () => {}); r.on('error', () => {}); });
     await new Promise(ok => tap.listen(0, '127.0.0.1', ok));
     cleanup.push(() => tap.close());
     const pub = tap.address().port;
@@ -124,15 +129,25 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     /** A client's HTTPS request through the relay (by the capture) to `to`. */
     // The certificate each client's TLS ended on, by name: the design server's own (its fingerprint, as pair-code gives
     // it) if the relay passed the TLS through, anything else if the relay ended it.
-    const saw = new Map();
+    // Every client connection checks it before sending a byte (a pairing code, a token, a design): one that ended
+    // anywhere else sends nothing, and is kept in `intercepted`.
+    const saw = new Map(), expected = new Map(), intercepted = [];
+    const ours = (to, s) => {
+      const got = s.getPeerCertificate().fingerprint256;
+      saw.set(to, got);
+      if (got === expected.get(to)) return true;
+      intercepted.push(`${to}: ${got}`); s.destroy(); return false;
+    };
     const call = (to, path, body, headers = '', method = 'POST') => new Promise((ok, fail) => {
-      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: clientCa }, () => { saw.set(to, s.getPeerCertificate().fingerprint256); s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`); });
+      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: clientCa }, () => { if (!ours(to, s)) return; s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`); });
       let out = ''; s.on('data', d => { out += d; }); s.on('end', () => ok(out)); s.on('close', () => ok(out)); s.on('error', e => (out ? ok(out) : fail(e)));
     });
     const status = out => Number(out.split(' ')[1]);
     const json = out => { const b = out.slice(out.indexOf('\r\n\r\n') + 4); return JSON.parse(b.slice(b.indexOf('{'), b.lastIndexOf('}') + 1)); };
 
     const a = await serve(A), b = await serve(B);
+    // (one wildcard per account: its tool's and its canvas's names end on the same certificate, its server's own)
+    for (const x of [a, b]) for (const n of [x.tool, x.canvas]) expected.set(n, x.doors.relay().fingerprint);
     // Line 1 (stage 10): a paired propose client reads and proposes; it cannot write.
     const minted = (await a.local({ method: 'pair-code', scope: 'propose', name: 'laptop' })).ok;
     const paired = await call(a.tool, '/__tamber/pair', JSON.stringify({ code: minted.code, name: 'laptop' }));
@@ -140,13 +155,13 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     const hello = await call(a.tool, '/__tamber', '{"method":"hello"}', `x-exact-tamber-token: ${pt}\r\n`);
     const write = await call(a.tool, '/__tamber', JSON.stringify({ method: 'transaction', client: 'laptop', files: {}, ops: [{ op: 'set-token', name: 'x', value: '1px' }] }), `x-exact-tamber-token: ${pt}\r\n`);
     const own = minted.remote?.find(r => r.relay)?.fingerprint;
-    verdict('a paired propose client through the relay reads, and cannot write (its scope named); its TLS ends at the design server, not the relay', status(paired) === 200 && status(hello) === 200 && status(write) === 403 && /propose/.test(JSON.stringify(json(write))) && !!own && saw.get(a.tool) === own,
+    verdict('a paired propose client through the relay reads, and cannot write (its scope named); its TLS ends at the design server, not the relay', status(paired) === 200 && status(hello) === 200 && status(write) === 403 && /propose/.test(JSON.stringify(json(write))) && !!own && own === expected.get(a.tool) && saw.get(a.tool) === own && intercepted.length === 0,
       [`pair-code's relay entry: ${JSON.stringify(minted.remote?.find(r => r.relay))}`, `the certificate the client's TLS ended on: ${saw.get(a.tool)} (${saw.get(a.tool) === own ? 'the design server\'s own' : 'NOT the design server\'s'})`, `pair ${status(paired)}, hello ${status(hello)}, a set-token transaction ${status(write)}: ${JSON.stringify(json(write).error ?? {}).slice(0, 140)}`]);
     // Line 2 (stage 10): revocation cuts the client's pending long poll through the relay, and its next request.
     const first = await call(a.tool, '/__tamber/events', '{"wait":false}', `x-exact-tamber-token: ${pt}\r\n`);
     const { seq, epoch } = json(first);
     const poll = { text: '' };
-    const s = connectTLS({ host: '127.0.0.1', port: pub, servername: a.tool, ca: clientCa }, () => { const body = JSON.stringify({ after: seq, epoch, wait: true }); s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${pt}\r\n\r\n${body}`); });
+    const s = connectTLS({ host: '127.0.0.1', port: pub, servername: a.tool, ca: clientCa }, () => { if (!ours(a.tool, s)) return; const body = JSON.stringify({ after: seq, epoch, wait: true }); s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${pt}\r\n\r\n${body}`); });
     s.on('data', d => { poll.text += d; });
     s.on('error', () => {});
     // Held at the server before the revoke (over a real network, a quiet 300 ms could be a request not yet there).
@@ -157,8 +172,10 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     const after = await call(a.tool, '/__tamber', '{"method":"hello"}', `x-exact-tamber-token: ${pt}\r\n`);
     verdict('revoking the paired client cuts its pending long poll through the relay, and refuses its next request', pending && poll.text.startsWith('HTTP/1.1 401') && status(after) === 401, [`pending before: ${pending}; after revoke: ${poll.text.split('\r\n')[0]}; next hello ${status(after)}`]);
     // Line 3 (stage 10): an unencrypted connection is refused: plain HTTP to the relay is closed, nothing answered.
-    const plain = await new Promise(ok => { const c = connectTCP({ host: '127.0.0.1', port: pub }, () => c.write(`POST /__tamber/pair HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Length: 2\r\n\r\n{}`)); let got = ''; c.on('data', d => { got += d; }); c.on('close', () => ok(got)); c.on('error', () => ok(got)); });
-    verdict('plain HTTP to a session\'s name (the pairing endpoint) is closed at the relay, nothing answered', plain === '', [`answered ${plain.length} bytes`]);
+    // (closed at the relay, not by a forward that never reached it: the tap's connection to the relay was made)
+    const reached = forwarded;
+    const plain = await new Promise(ok => { const c = connectTCP({ host: '127.0.0.1', port: pub }, () => c.write(`POST /__tamber/pair HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Length: 2\r\n\r\n{}`)); let got = ''; const t = setTimeout(() => { c.destroy(); ok(got || null); }, 10_000); c.on('data', d => { got += d; }); c.on('close', () => { clearTimeout(t); ok(got); }); c.on('error', () => {}); });
+    verdict('plain HTTP to a session\'s name (the pairing endpoint) is closed at the relay, nothing answered', plain === '' && forwarded > reached, [`answered ${plain === null ? 'nothing, but held open 10 s' : `${plain.length} bytes`}; the relay was reached: ${forwarded > reached}`]);
     // Line 4: the capture holds no token and no design text in clear.
     const design = 'space.gate-secret = 17px', secondPair = (await a.local({ method: 'pair-code', scope: 'read', name: 'cap' })).ok;
     const p2 = await call(a.tool, '/__tamber/pair', JSON.stringify({ code: secondPair.code, name: 'cap' }));
