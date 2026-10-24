@@ -386,6 +386,8 @@ device mid-hold neither presses again nor drops.
 | Fire while held, and on a quick tap | `input.held("fire") \|\| input.pressed("fire")` (Rivals): `held` alone misses a tap whose press and release share a tick |
 | Move with keys, a stick or touch | `Stick::wasd().or_arrows().or_pad(Pad::Left).or_touch(Region::Left)`; `.dead_zone(0.15)` (radial, the default) and `.curve(Curve::Power(1.5))` shape the pad's reading (Beacons) |
 | Throttle and brake | `Stick::pad(Pad::Triggers)`: forward is `GamepadR2`'s travel less `GamepadL2`'s |
+| Move by tilting the device | `Stick::wasd().or_tilt(Tilt { max_degrees: 20.0, dead_zone: 2.0 })`, fed by the app's `startSensorInput(surface="world", sensor="gravity")` (LLP 1133.013 D6): full deflection at `max_degrees` from level, nothing within `dead_zone` degrees, nothing before the first sample or after the input ends (`exact_game::tilt_stick` is the map). Level is the first sample, or what the tick sets with `w.set_tilt_neutral("move", gravity)` from a posted reading, from the next tick (Beacons' `tilt x y z`) |
+| Read a sensor every frame | `input.sensor(SensorKind::Gyroscope)`, the latest sample, which holds through ticks that receive none and is gone after the input ends; `input.sensor_samples(kind)`, this tick's own samples, every one the host delivered |
 | Sprint after holding a key | `.hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)`: `pressed` when held 200 ms, `held` until release; a shorter press fires nothing (Beacons) |
 | A double tap | `.double("roll", &["Space"], 0.25)`: `pressed` on a second press within 250 ms |
 | A short press distinct from a hold | `.tap("dash", &["ShiftLeft"])`: `pressed` and `released` together when a press of at most 200 ms (`Actions::TAP`; `tap_within` for another) lifts, so it fires late by design |
@@ -424,11 +426,13 @@ pushed as far, the lower index); a button is down while any pad holds it. Per ho
 
 What is saved and what is hashed differ. A save holds the input queue and the keys,
 pads and contacts held, which the world hash leaves out. The world hash covers the world
-the input changed, plus three resources that exist only once a game uses them:
+the input changed, plus resources that exist only once a game uses them:
 `InputContexts`, `Bindings`, and `InputState`: the triggers' gestures in progress, the
 latched actions, and the contexts and bindings as last applied. So two worlds whose holds
 started at different times differ, as do two whose context or rebind has yet to apply,
-and a restore mid-hold continues the hold. `InputEvent`'s `player` is 0 from every host and means
+and a restore mid-hold continues the hold. A sensor input's samples wait in the queue a save holds;
+the latest sample of each sensor and the tilt neutrals are a fourth resource, `SensorState`, which
+exists only once a sample arrives or a neutral is set. `InputEvent`'s `player` is 0 from every host and means
 nothing yet.
 
 ### Movement and appearance
