@@ -16,6 +16,7 @@ import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
 import { loadSshAliases } from '../../src/connections/remote-open';
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
 import { attachmentUrls, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView } from '../../src/timeline/timeline-attachments';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 function fixture(config: Obj = {}) {
   resetRemoteEditorsForTests();
@@ -31,7 +32,6 @@ function fixture(config: Obj = {}) {
     let value: Obj = {};
     if (request.op === 'sshHosts') value = { targets: {} };
     if (request.op === 'editorEdit') value = editor;
-    if (request.op === 'terminalOpenExternal') value = { opened: true };
     return { ok: true, generation: 0, value };
   } };
   owner.restAccess = ((n: Native) => ({ call: (request: Obj) => owner.call(n, request), request: async (method: string, body: Obj) => { requests.push({ method, ...body }); return {}; } })) as unknown as T3Client['restAccess'];
@@ -97,8 +97,9 @@ describe('Pull request number menu', () => {
     const { owner, native, menu, calls } = fixture();
     await pullRequestLinkPick(owner, native, 'copy-link\ngitlab https://gitlab.com/a/b/-/merge_requests/7');
     expect(calls.find(call => call.op === 'copyText')?.text).toBe('https://gitlab.com/a/b/-/merge_requests/7');
+    resetExternalOpensForTests();
     await pullRequestLinkPick(owner, native, 'open-external\ngithub https://github.com/a/b/pull/7');
-    expect(calls.find(call => call.op === 'terminalOpenExternal')?.url).toBe('https://github.com/a/b/pull/7');
+    expect(externalOpensForTests()).toEqual(['https://github.com/a/b/pull/7']);
     expect(toasts(owner)).toEqual([]);
     expect(menu()).toBeUndefined(); // no native menu
     expect([openOnHostLabel('github'), openOnHostLabel('gitlab'), openOnHostLabel('azure-devops'), openOnHostLabel('')]).toEqual(['Open on GitHub', 'Open on GitLab', 'Open on Azure DevOps', 'Open on host']);
@@ -106,10 +107,12 @@ describe('Pull request number menu', () => {
 
   test('does nothing without a link or for a row it does not have', async () => {
     const { owner, native, calls } = fixture();
+    resetExternalOpensForTests();
     await pullRequestLinkPick(owner, native, 'copy-link\ngithub ');
     await pullRequestLinkPick(owner, native, 'delete\ngithub https://github.com/a/b/pull/7');
     await pullRequestLinkPick(owner, native, 'github https://github.com/a/b/pull/7');
-    expect(calls.filter(call => call.op === 'copyText' || call.op === 'terminalOpenExternal')).toEqual([]);
+    expect(calls.filter(call => call.op === 'copyText')).toEqual([]);
+    expect(externalOpensForTests()).toEqual([]);
   });
 
   test('the popover lists Copy link, then the row\'s Open on <host>, each picking with the row\'s link', async () => {

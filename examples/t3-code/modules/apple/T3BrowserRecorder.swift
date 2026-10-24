@@ -133,7 +133,7 @@ final class T3BrowserRecording: NSObject {
 
     /// The page script (assets/browser-recording.js, idempotent per document) and `start` with the options.
     private func install(on page: WKWebView, completion: @escaping (Error?) -> Void) {
-        guard let url = T3TerminalAssets.fileURL("browser-recording.js"), let source = try? String(contentsOf: url, encoding: .utf8) else {
+        guard let url = T3Assets.fileURL("browser-recording.js"), let source = try? String(contentsOf: url, encoding: .utf8) else {
             return completion(T3BrowserRecordingError("The recording overlay is missing (assets/browser-recording.js)."))
         }
         page.evaluateJavaScript(source + "\n;true", in: nil, in: .defaultClient) { [weak self] result in

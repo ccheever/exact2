@@ -1,8 +1,7 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: packages/client-runtime/src/state/terminalOutput.ts).
 // Changes from the reference: `compacted.at(-1)` is `compacted[compacted.length - 1]` (the clone's
-// TypeScript lib is ES2020). The clone keeps this as the bun-tested twin of the native buffer
-// (modules/apple/T3TerminalOutput.swift), which holds the bytes the drawer shows; both read the shared
-// vectors in macos/tests/terminal/vectors.json (terminal-output.test.ts and the terminal AppKit tests).
+// TypeScript lib is ES2020). The terminal page writes output straight to its surface (terminal-host/src/session.ts),
+// so this buffer serves terminal-session.ts's reducer; terminal-output.test.ts replays tests/terminal/vectors.json.
 export interface TerminalOutputChunk {
   /** UTF-16 string offset within this generation and reset. */
   readonly startOffset: number;

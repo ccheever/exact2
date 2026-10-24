@@ -160,13 +160,12 @@ function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolea
   };
   const native: Native = { available: true, watch() {}, async later(request) {
     const op = obj(request); ops.push(op);
-    if (op.op === 'terminalOpenExternal') return { ok: true, generation: 0, value: { opened: true } };
     return { ok: true, generation: 0, value: { opened: true } };
   } };
   return { client, rpcs, ops, native };
 }
 const obj = (value: unknown): Obj => (value && typeof value === 'object' ? value as Obj : {});
-const external = (ops: Obj[]) => [...externalOpensForTests(), ...ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url)];
+const external = (_ops: Obj[]) => [...externalOpensForTests()];
 
 describe('openLink (useOpenLink)', () => {
   it('opens a Browser tab beside the thread when the setting says T3 Code', async () => {

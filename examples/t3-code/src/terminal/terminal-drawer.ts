@@ -1,6 +1,6 @@
 // The thread terminal drawer's pure logic, copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3):
 // - apps/web/src/components/ThreadTerminalDrawer.tsx: `MIN_DRAWER_HEIGHT`, `MAX_DRAWER_HEIGHT_RATIO`,
-//   `maxDrawerHeight`, `clampDrawerHeight`, `writeTerminalOutputUpdate`, `shouldHandleTerminalExit`,
+//   `maxDrawerHeight`, `clampDrawerHeight`, `writeTerminalOutputUpdate`, `shouldHandleTerminalExit` (74541bab17),
 //   `runtimeEnvSignature`.
 // - apps/web/src/components/ChatView.logic.ts: `MAX_HIDDEN_MOUNTED_TERMINAL_THREADS`,
 //   `reconcileMountedTerminalThreadIds`; `resolveTerminalWorktreePath` at 74541bab17.
@@ -13,11 +13,10 @@
 // Changes from the reference:
 // - `maxDrawerHeight` and `clampDrawerHeight` take the window height (the reference reads
 //   `window.innerHeight`); without one they answer as the reference does with no window (the default).
-// - `writeTerminalOutputUpdate` takes any `{ resetAndWrite, write }` (the native view's bridge has the same
-//   two calls: T3TerminalView.swift resetAndWrite / write).
+// - `writeTerminalOutputUpdate` takes any `{ resetAndWrite, write }`.
 // - `toSorted` is `[...list].sort` (the clone's TypeScript lib is ES2020).
-// The native session (T3TerminalSessions.swift) runs the same exit rule as `shouldHandleTerminalExit`
-// against the same cases (macos/tests/terminal).
+// The terminal page's session (terminal-host/src/session.ts) runs `shouldHandleTerminalExit` (74541bab17's, with the
+// buffer version).
 import type { TerminalOutputUpdate } from "./terminal-output";
 import type { TerminalSessionState } from "./terminal-session";
 import { DEFAULT_THREAD_TERMINAL_HEIGHT } from "./terminal-ui-state";
@@ -60,9 +59,13 @@ export function shouldHandleTerminalExit(
   current: TerminalSessionState["status"],
   synchronized: TerminalSessionState["status"],
   alreadyHandled: boolean,
+  version: number,
 ): boolean {
   return (
-    (current === "closed" || current === "exited") && current !== synchronized && !alreadyHandled
+    version > 0 &&
+    (current === "closed" || current === "exited") &&
+    current !== synchronized &&
+    !alreadyHandled
   );
 }
 

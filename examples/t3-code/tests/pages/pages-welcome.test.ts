@@ -129,7 +129,7 @@ test('agent setup buttons open a terminal without Enter and leaving the agents s
   const opened = await welcomeView(client, native, { step: 'agents', now: 0 });
   expect(opened.machines[0]!.terminal).toMatchObject({ ready: true, terminalId: 'onboarding-codex-fixture-id' });
   expect(calls[1]!.payload.data).toBe('curl -fsSL https://chatgpt.com/codex/install.sh | sh');
-  await welcomeLocal(client, native, 'terminal-exited', 'setup-env', JSON.stringify({ type: 'exited', terminalId: 'old-session' }));
+  await welcomeLocal(client, native, 'terminal-page', 'setup-env', JSON.stringify({ type: 'exited', terminalId: 'old-session' }));
   expect(calls).toHaveLength(2);
   await welcomeView(client, native, { step: 'connect', now: 0 });
   expect(calls[2]).toEqual({ method: 'terminal.close', payload: { threadId: 'onboarding-agent-setup', terminalId: 'onboarding-codex-fixture-id', deleteHistory: true } });

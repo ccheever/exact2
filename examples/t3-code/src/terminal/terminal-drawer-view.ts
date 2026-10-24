@@ -3,21 +3,19 @@ import { draftThreadId, ensureDraftThreadId } from '../composer/draft-thread-id'
 // The thread terminal drawer's client side: T3 Code 1e2ecbd975's
 // PersistentThreadTerminalDrawer and the ChatView terminal actions (MIT reference, see LICENSE-T3:
 // apps/web/src/components/ChatView.tsx toggleTerminalVisibility, createNewTerminal, closeTerminal, the
-// mounted-thread effect and the known-session reconcile; useThreadActions.ts thread delete cleanup;
+// known-session reconcile; useThreadActions.ts thread delete cleanup;
 // state/terminalSessions.ts useKnownTerminalSessions over `subscribeTerminalMetadata`).
 // Changes from the reference, for exact2:
 // - The UI state is the ported store (terminal-ui-state.ts), one per client, saved in the preference file.
 // - The drawer's resource (`terminalDrawer`) answers what the Contract drawer (terminal.contract) shows;
-//   the attach stream, its output buffer, input and resize are native (T3TerminalSessions.swift), so
-//   output never passes this client's event inbox. This side opens and closes sessions, follows the
-//   metadata stream (labels, the known-session reconcile) and tells the native side which mounted
-//   threads' terminals keep their streams without a view (`terminalRetain`).
+//   each pane is the terminal page in a frame, which holds the attach stream, its output buffer, input and
+//   resize on its own socket (terminal-host/src/session.ts), so output never passes this client. This side
+//   opens and closes sessions, follows the metadata stream (labels, the known-session reconcile) and answers
+//   the pages' messages (terminal-frames.ts).
+// - Only the active thread's drawer is mounted: a thread shown again attaches again, and the server's attach
+//   snapshot gives its terminals their history back.
 // - Draft terminals reserve the same thread identity the first message launches; split groups and
 //   right-panel surfaces share that identity and session allocation.
-// - Every environment's drawers stay mounted, as the reference's `existingOpenTerminalThreadKeys` covers every
-//   environment's threads and every draft: the clone opens a background
-//   environment's thread by focusing it (settings-b-fleet.ts), so the drawers the focus leaves behind keep their
-//   sessions natively, each on its own environment's transport (T3TerminalSessions.swift).
 // - Command failures are kept as the view's `failure` (the agent's `state` shows it), as the reference's
 //   atom commands only report them to the console; the attach stream's error shows in the terminal as
 //   `[terminal] <message>`.
@@ -29,7 +27,8 @@ import { activeRun, ClientError, type Files, type Native } from '../client/proto
 import { terminalLayout, terminalSplitLabel, terminalTabs, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
 import { focusedTerminal, recordTerminalFocus, clearTerminalFocus, terminalFocused } from './terminal-focus';
 import { chordWinners } from '../shell/keyboard-dispatch';
-import { terminalPanelIds, terminalPanelRetained } from './terminal-panel';
+import { terminalPanelIds } from './terminal-panel';
+import { copyTerminalText, mintTerminalSocket, terminalFrameId, terminalFrameMenuPick, terminalFrameMessage, terminalFramePosted, terminalFrameView, type TerminalFrameView } from './terminal-frames';
 import { runProjectTerminalScript } from '../details/project-scripts';
 import { insertContext } from '../composer/composer-editor';
 import { composerNow } from '../composer/composer-controls';
@@ -46,7 +45,6 @@ import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
   projectScriptTerminalInput,
-  reconcileMountedTerminalThreadIds,
   resolveTerminalWorktreePath,
   serverTerminalIdsStrictSubsetOfClient,
   terminalIdListsEqual,
@@ -56,7 +54,6 @@ import { applyTerminalMetadataStreamEvent, selectRunningSubprocessTerminalIds, t
 import { selectKnownTerminalSessions } from './terminal-sessions';
 import { parseScopedThreadKey, scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
 import { letGo } from '../client/let-go';
-import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 export const TERMINAL_METADATA_KEY = 'terminal-metadata';
 const METADATA_RETRY_MS = 3000;
@@ -66,17 +63,17 @@ export type TerminalDrawerView = {
   terminalId: string; label: string; cwd: string; worktree: string; env: string; height: number;
   commandPrefix: string; surface: string; keybindings: string; panes: TerminalPaneView[]; tabs: TerminalTabView[]; direction: string; showTabs: boolean; splitDisabled: boolean; splitLabel: string; splitVerticalLabel: string;
   focusRequest: number; closeTitle: string; closeBody: string; closeLabel: string; newLabel: string;
-  toggleLabel: string; sessionKey: string; mounted: number; metadata: string; failure: string;
+  toggleLabel: string; sessionKey: string; metadata: string; failure: string;
 };
 
 type MetadataState = { generation: number; environmentId: string; id: string; floor: number; maxSeen: number; metadata: TerminalSummary[] | null;
   error: string; refused: boolean; attemptAt: number };
-type DrawerState = { mounted: string[]; retained: string; focusRequest: number; viewportHeight: number; failure: string; metadata: MetadataState };
+type DrawerState = { focusRequest: number; viewportHeight: number; failure: string; metadata: MetadataState };
 const states = new WeakMap<T3Client, DrawerState>();
 function drawerState(client: T3Client): DrawerState {
   let state = states.get(client);
   if (!state) {
-    state = { mounted: [], retained: '', focusRequest: 0, viewportHeight: 0, failure: '',
+    state = { focusRequest: 0, viewportHeight: 0, failure: '',
       metadata: { generation: -1, environmentId: '', id: '', floor: 0, maxSeen: 0, metadata: null, error: '', refused: false, attemptAt: -Infinity } };
     states.set(client, state);
   }
@@ -114,6 +111,16 @@ export function paneLaunchProps(client: T3Client, ref: ScopedThreadRef, terminal
   const summary = knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary ?? null;
   const launch = launchFor(client, ref.threadId, summary);
   return { cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}) };
+}
+
+/** A pane's frame: the terminal page for the session `terminalId` names, launched where `launchFor` says. */
+export function paneFrame(client: T3Client, ref: ScopedThreadRef, terminalId: string, surface: string): TerminalFrameView {
+  const summary = knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary ?? null;
+  const launch = launchFor(client, ref.threadId, summary);
+  const identity = { environmentId: ref.environmentId, threadId: ref.threadId, terminalId, surface };
+  return terminalFrameView(client, terminalFrameId(surface, ref.environmentId, ref.threadId, terminalId), {
+    mode: 'session', identity, readOnly: !can(client, 'terminal:operate'), canAddToChat: true,
+    attach: { threadId: ref.threadId, terminalId, cwd: launch?.cwd ?? '', worktreePath: launch?.worktreePath ?? null, env: launch?.env ?? {} } });
 }
 
 /** PanelLayoutControls `terminalAvailable` (an active project), for a server thread. */
@@ -193,7 +200,7 @@ export function terminalCommandAction(client: T3Client, message: Obj): { op: str
 export function emptyTerminalDrawerView(): TerminalDrawerView {
   return { available: false, readOnly: true, open: false, threadKey: '', environmentId: '', threadId: '', terminalId: '', label: '', cwd: '', worktree: '', env: '{}',
     height: 280, focusRequest: 0, closeTitle: '', closeBody: '', closeLabel: 'Close Terminal', newLabel: 'New Terminal', toggleLabel: 'Terminal drawer is unavailable',
-    sessionKey: '', mounted: 0, metadata: '', failure: '', commandPrefix: 'terminallocal', surface: 'drawer', keybindings: '[]', panes: [], tabs: [], direction: 'row',
+    sessionKey: '', metadata: '', failure: '', commandPrefix: 'terminallocal', surface: 'drawer', keybindings: '[]', panes: [], tabs: [], direction: 'row',
     showTabs: false, splitDisabled: false, splitLabel: 'Split Terminal Horizontally', splitVerticalLabel: 'Split Terminal Vertically' };
 }
 
@@ -256,38 +263,7 @@ export function terminalMetadataEvent(client: T3Client, entry: Obj): void {
 
 // ── The drawer's resource ─────────────────────────────────────────────────────────────────────
 
-/**
- * ChatView's `existingThreadKeys` (serverThreadKeys of every environment, and draftThreadKeys): the thread keys an
- * open drawer may stay mounted for. The clone holds one environment's shell as the focus and the others in the fleet,
- * and a focus change empties a shell until it loads again; an environment whose threads are not known at the moment
- * (the focus before its shell loads, a switched-on environment still connecting) keeps the drawers it has mounted, as
- * the reference keeps a reconnecting environment's threads. An environment that is switched off or removed has none.
- */
-export function existingThreadKeys(client: T3Client, mounted: readonly string[], source: EnvironmentFleet = fleet): Set<string> {
-  const keys = new Set<string>(), known = new Set<string>();
-  const add = (environmentId: string, threadId: string) => { if (environmentId && threadId) keys.add(scopedThreadKey({ environmentId, threadId })); };
-  for (const thread of client.shell.threads) add(client.environmentId, str(thread.id));
-  if (client.environmentId && client.shellLoaded) known.add(client.environmentId);
-  for (const entry of source.entries.values()) {
-    if (entry.phase !== 'connected' || entry.synchronized !== entry.generation) continue;
-    known.add(entry.environmentId);
-    for (const thread of entry.shell.threads) add(entry.environmentId, str(thread.id));
-  }
-  // A draft's reserved id (draft-thread-id.ts), under the environment its draft key names.
-  for (const [draftKey, threadId] of Object.entries(client.local.composerControls?.draftThreads ?? {})) {
-    const at = draftKey.indexOf(':');
-    if (at > 0) add(draftKey.slice(0, at), threadId);
-  }
-  const listed = new Set([client.environmentId, ...[...source.entries.values()].map(entry => entry.environmentId),
-    ...source.wanted(client).map(entry => str(entry.environmentId))].filter(Boolean));
-  for (const key of mounted) {
-    const ref = parseScopedThreadKey(key);
-    if (ref && listed.has(ref.environmentId) && !known.has(ref.environmentId)) keys.add(key);
-  }
-  return keys;
-}
-
-/** The `terminalDrawer` resource: the active thread's drawer, after the reconcile and mount effects. */
+/** The `terminalDrawer` resource: the active thread's drawer, after the known-session reconcile. */
 export async function terminalDrawerView(client: T3Client, native: Native | null | undefined, viewportHeight: number, now: number): Promise<TerminalDrawerView> {
   const drawer = drawerState(client);
   if (viewportHeight > 0) drawer.viewportHeight = viewportHeight;
@@ -305,21 +281,6 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
       ui = selectThreadTerminalUiState(store.getState().terminalUiStateByThreadKey, ref);
     }
   }
-  // ChatView's mounted-thread effect: the active open thread plus the ten most recent hidden open ones.
-  const states = store.getState().terminalUiStateByThreadKey;
-  const existing = existingThreadKeys(client, drawer.mounted);
-  if (ref) existing.add(scopedThreadKey(ref));
-  const openKeys = Object.entries(states).filter(([key, state]) => state.terminalOpen && existing.has(key)).map(([key]) => key);
-  drawer.mounted = reconcileMountedTerminalThreadIds({ currentThreadIds: drawer.mounted, openThreadIds: openKeys, activeThreadId: ref ? scopedThreadKey(ref) : null,
-    activeThreadTerminalOpen: !!launch && ui.terminalOpen });
-  const retained = [...drawer.mounted.flatMap(key => {
-    const mountedRef = parseScopedThreadKey(key);
-    return mountedRef ? (states[key]?.terminalIds ?? []).map(id => sessionKey(mountedRef, id)) : [];
-  }), ...terminalPanelRetained(client)];
-  if (native?.available && JSON.stringify(retained) !== drawer.retained) {
-    drawer.retained = JSON.stringify(retained);
-    await client.call(native, { op: 'terminalRetain', sessions: retained }).catch(() => { drawer.retained = ''; });
-  }
   const terminalId = ui.terminalIds.includes(ui.activeTerminalId) ? ui.activeTerminalId : ui.terminalIds[0] ?? '';
   const summary = ref && terminalId ? knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary : null;
   const label = terminalId ? resolveTerminalSessionLabel(terminalId, summary) : '';
@@ -330,7 +291,8 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
   const labelFor = (id: string) => resolveTerminalSessionLabel(id, ref ? knownSessions(client, ref).find(session => session.target.terminalId === id)?.state.summary : null);
   const panes = layout.visible.map(id => ({ terminalId: id, label: labelFor(id), sessionKey: ref ? sessionKey(ref, id) : '', active: id === terminalId,
     focusRequest: can(client, 'terminal:operate') && ui.terminalOpen && id === terminalId ? drawer.focusRequest : 0, target: `${threadKey}|${id}`,
-    ...(ref ? paneLaunchProps(client, ref, id) : { cwd: '', worktree: '', env: '{}' }) }));
+    ...(ref ? paneLaunchProps(client, ref, id) : { cwd: '', worktree: '', env: '{}' }),
+    frame: ref ? paneFrame(client, ref, id, 'drawer') : terminalFrameView(client, '', {}) }));
   const tabs = terminalTabs(ui.terminalGroups, terminalId, layout.showHeaders, threadKey, labelFor, ui.terminalOpen ? keyClose : '');
   return {
     available: terminalAvailable(client), readOnly: !can(client, 'terminal:operate'), open: !!launch && ui.terminalOpen, threadKey: ref ? scopedThreadKey(ref) : '', environmentId: ref?.environmentId ?? '', threadId: ref?.threadId ?? '',
@@ -339,7 +301,7 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
     closeTitle, closeBody, closeLabel: ui.terminalOpen && keyClose ? `Close Terminal (${keyClose})` : 'Close Terminal',
     newLabel: ui.terminalOpen && keyNew ? `New Terminal (${keyNew})` : 'New Terminal',
     toggleLabel: launch ? `Toggle terminal drawer${keyToggle ? ` (${keyToggle})` : ''}` : 'Terminal drawer is unavailable',
-    sessionKey: ref && terminalId ? sessionKey(ref, terminalId) : '', mounted: drawer.mounted.length,
+    sessionKey: ref && terminalId ? sessionKey(ref, terminalId) : '',
     metadata: drawer.metadata.metadata === null ? (drawer.metadata.error || 'waiting') : `${drawer.metadata.metadata.length} sessions`,
     failure: drawer.failure,
     commandPrefix: 'terminallocal', surface: 'drawer', keybindings: terminalKeybindings(client), panes, tabs,
@@ -422,6 +384,14 @@ export async function handleTerminalMessage(client: T3Client, native: Native, me
   return true;
 }
 
+/** A terminal menu's row (terminal-frames.ts); Add to chat inserts the selection as the drawer's does. */
+export async function terminalMenuPick(client: T3Client, native: Native, frameId: string, value: string): Promise<void> {
+  const picked = await terminalFrameMenuPick(client, frameId, value, text => copyTerminalText(client, native, text));
+  if (!picked) return;
+  await handleTerminalMessage(client, native, { type: 'selectionAction', action: 'add-to-chat', threadId: str(picked.identity.threadId),
+    terminalId: str(picked.identity.terminalId), text: picked.text, lineStart: picked.lineStart, lineEnd: picked.lineEnd });
+}
+
 /** useThreadActions delete: close every session of the thread with its history, then forget its drawer. */
 export async function closeThreadTerminals(client: T3Client, native: Native, threadId: string): Promise<void> {
   if (!client.environmentId || !threadId) return;
@@ -440,13 +410,18 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
   const store = terminalUiStore(this), drawer = drawerState(this);
   const action = op.slice('terminallocal:'.length);
   if (['new', 'split', 'split-vertical', 'close', 'run-script', 'run-command'].includes(action)) requirePermission(this.scopes, 'terminal:operate');
-  if (action === 'message') {
+  if (action === 'posted') { terminalFramePosted(this, id, value); return true; }
+  if (action === 'menu') { await terminalMenuPick(this, native, id, value); return true; }
+  if (action === 'message' || action === 'ticket') {
     const message = obj(safeJson(value));
+    if (await terminalFrameMessage(this, id, message, { canAddToChat: true, mint: () => mintTerminalSocket(this, native, str(message.environmentId)) })) return true;
     if (message.type === 'command') {
       const command = terminalCommandAction(this, message);
       if (command) return terminalOps.call(this, command.op, command.id, '', n, native, storage, out);
       return true;
     }
+    // The rest addresses the terminal the page shows.
+    id = `${scopedThreadKey({ environmentId: str(message.environmentId), threadId: str(message.threadId) })}|${str(message.terminalId)}`;
   }
   if (action === 'run-script') { await runProjectTerminalScript(this, native, storage, id); return true; }
   if (action === 'run-command') { await runTerminalCommand(this, native, storage, value.trim(), '', 'preserve'); return true; }
@@ -486,11 +461,6 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
   const ref = parseScopedThreadKey(threadKey) ?? await ensureTerminalRef(this, native);
   if (!ref) return true;
   const wasOpen = selectThreadTerminalUiState(store.getState().terminalUiStateByThreadKey, ref).terminalOpen;
-  if (action === 'focus-in' || action === 'focus-out') {
-    recordTerminalFocus(this, { ...ref, terminalId, surface: value || 'drawer', focused: action === 'focus-in' });
-    if (action === 'focus-in' && terminalId) store.getState().setActiveTerminal(ref, terminalId);
-    return true;
-  }
   if (action === 'focus') { if (scopedThreadKey(ref) === (activeRef(this) ? scopedThreadKey(activeRef(this)!) : '')) drawer.focusRequest++; return true; }
   if (action === 'activate' && terminalId) { store.getState().setActiveTerminal(ref, terminalId); drawer.focusRequest++; }
   else if (action === 'new' || action === 'split' || action === 'split-vertical') {
