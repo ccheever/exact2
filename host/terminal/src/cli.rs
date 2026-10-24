@@ -428,7 +428,11 @@ fn run_plan<D: DataSource>(
             "type" => {
                 let (id, text) = (arg(), arg());
                 match host.by_test_id(&id) {
-                    Some(v) if host.on_screen(v) && host.input_eligible(v) => {
+                    Some(v) if !host.on_screen(v) => {
+                        eprintln!("type: #{id} is not on the screen");
+                        return ExitCode::FAILURE;
+                    }
+                    Some(v) if host.input_eligible(v) => {
                         host.press(v);
                         for c in text.chars() {
                             host.key(Key::Char(c));
