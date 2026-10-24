@@ -40,6 +40,12 @@ export function modules(rows, bound = {}, views = {}) {
   // Value tickets whose timeout has passed on the agent's clock fail `TIMEOUT`, retired (§6).
   Clocked.push(() => { for (const h of held.filter(h => h.deadline != null && h.deadline <= clock.now)) { say(`device position ${h.ticket}: timed out`); release(h, { error: "TIMEOUT" }); } });
   const sibling = (row, declared) => declared && byKey.get(`${row.key.slice(0, row.key.indexOf("."))}.${declared}`);
+  // A word an interface declares for its implementation's agent path alone (`agent`, LLP 1133.012 §9), by key
+  // (`speech-recognition.heard`): its type, where the key is no name of the interface.
+  const rowOf = key => [...byKey.values()].find(r => r.key.slice(0, r.key.indexOf(".")) === key.slice(0, key.indexOf(".")));
+  const agentWord = key => !byKey.has(key) && key.includes(".") ? rowOf(key)?.sub.agent?.[key.slice(key.indexOf(".") + 1)] : undefined;
+  const wordFits = (ty, v) => ty === "string" ? typeof v === "string" : ty === "number" ? typeof v === "number" : ty === "bool" ? typeof v === "boolean"
+    : ty.endsWith("[]") ? Array.isArray(v) && v.every(x => wordFits(ty.slice(0, -2), x)) : true;
   const isStatus = row => row.sub.permission?.status === row.key.slice(row.key.indexOf(".") + 1);
   const stateOf = name => permission.get(name) ?? "prompt";
   const now = () => reportTime(clock.now)[0] + clock.now; // the agent clock's date, as `exactTime` reads it
@@ -51,7 +57,13 @@ export function modules(rows, bound = {}, views = {}) {
   };
   const prefers = row => preferred.has(row.key) ? filled(row, preferred.get(row.key)) : undefined;
   // The web's own facts over a source's (`web`: local authentication's `later` cell, LLP 1133.010 D15).
-  const valueOf = row => row.sub.web ? { ...(prefers(row) ?? row.sub.default ?? {}), ...row.sub.web } : prefers(row) ?? row.sub.default;
+  // An interface that is its own substitute takes a partial preferred value, laid over the default (LLP 1133.009 D10
+  // item 11), as the runner's `value_of`.
+  const preferredOver = row => {
+    const p = prefers(row), d = row.sub.default;
+    return row.sub.implementation && p && !errorCode(p) && d && typeof d === "object" ? overlay(structuredClone(d), p) : p;
+  };
+  const valueOf = row => row.sub.web ? { ...(preferredOver(row) ?? row.sub.default ?? {}), ...row.sub.web } : preferredOver(row) ?? row.sub.default;
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
   // The permission a call asks: its declared one, or, where the interface declares several and the name's grants
   // are a line per argument (`permissionBy`), the one of the arguments it was given that settles the call now: a
@@ -59,8 +71,8 @@ export function modules(rows, bound = {}, views = {}) {
   const permissionOf = (row, args) => {
     const by = row.sub.permissionBy;
     if (!by) return row.sub.permission;
-    const given = Object.entries(by).filter(([a]) => args?.[a] != null && args[a] !== false).map(([, p]) => p);
-    return given.find(p => stateOf(p.name) === "denied") ?? given.find(p => stateOf(p.name) === "prompt") ?? given[0] ?? row.sub.permission;
+    const asked = Object.entries(by).filter(([a]) => given(args, a)).map(([, p]) => p);
+    return asked.find(p => stateOf(p.name) === "denied") ?? asked.find(p => stateOf(p.name) === "prompt") ?? asked[0] ?? row.sub.permission;
   };
   const permissionsOf = row => [row.sub.permission, ...Object.values(row.sub.permissionBy ?? {})].filter(Boolean);
   const permissionNamed = (row, name) => permissionsOf(row).find(p => p.name === name);
@@ -127,11 +139,23 @@ export function modules(rows, bound = {}, views = {}) {
   // the track table (`tracks`), admitted paths' files (`files`) and the audio session (`audioSession`). The web has
   // no session end an implementation could finish in.
   const loaded = new Map(), chunks = new Map(), live = new Set();
-  const shown = () => typeof document !== "object" || document.visibilityState !== "hidden";
+  // Under the agent the drive's page fact (`prefer visibility-state`, agent.js) is the foreground; the machine's never is.
+  let agentShown = true;
+  const shown = () => clock.agent ? agentShown : typeof document !== "object" || document.visibilityState !== "hidden";
   // The session's track table (LLP 1133.009 D10 item 6): tracks and streams by id, each track with the
   // implementation that opened it, its `owner`, through which a consuming implementation subscribes.
-  const table = new Map();
+  const table = new Map(), holds = new Set();
   const tracks = {
+    // An exclusive hold on a device for a recognizer that opens it itself (LLP 1133.012 D8, D12 item 4): granted
+    // only while no track of `kind` has a running capture (its owner's `leased(id)`), and while it lasts the owner
+    // opens no capture of that kind. Its release, or a throw `NotReadableError`.
+    hold(kind) {
+      if ([...table.values()].some(e => e.kind === kind && e.owner?.leased?.(e.id))) throw Object.assign(new Error(`a ${kind} capture runs`), { code: "NotReadableError" });
+      const h = { kind };
+      holds.add(h);
+      return () => { holds.delete(h); };
+    },
+    held: kind => [...holds].some(h => h.kind === kind),
     add: entry => { table.set(entry.id, entry); },
     lookup: id => table.get(id) ?? null,
     remove: id => { table.delete(id); },
@@ -155,16 +179,39 @@ export function modules(rows, bound = {}, views = {}) {
     // A file's first write makes its directory, as a recorder's writer needs it.
     write: (path, bytes) => fileStore().then(async s => { await s.mkdir(path.slice(0, path.lastIndexOf("/"))); return s.writeFile(path, bytes); }),
     append: (path, bytes) => fileStore().then(s => s.appendFile(path, bytes)),
+    read: path => fileStore().then(s => s.readFile(path)),
+    // A directory a handle fills (LLP 1133.012 D12 item 7): emptied, made, and listed.
+    remove: path => fileStore().then(s => s.rm(path)),
+    mkdir: path => fileStore().then(s => s.mkdir(path)),
+    list: path => fileStore().then(s => s.readdir(path)).catch(() => []),
   };
-  // The page's Audio Session (W3C Audio Session; LLP 1133.009 D7): `play-and-record` while any claim on it is held.
-  const claims = new Set();
+  // The page's Audio Session (W3C Audio Session; LLP 1133.009 D7, LLP 1133.012 D4): `play-and-record` while a
+  // capture's claim is held, else the strongest spoken type claimed (`playback` over `transient-solo` over
+  // `transient`), else what the page had.
+  const claims = new Set(), spoken = ["transient", "transient-solo", "playback"];
   let before = null;
+  const session = () => typeof navigator === "object" ? navigator.audioSession : undefined;
+  const compose = () => {
+    const s = session();
+    if (!s) return;
+    const types = [...claims].map(c => c.type);
+    const want = types.includes("play-and-record") ? "play-and-record" : spoken.filter(t => types.includes(t)).at(-1);
+    if (want && before == null) before = s.type;
+    if (want) s.type = want;
+    else if (before != null) { s.type = before; before = null; }
+  };
   const audioSession = {
-    claim() {
-      const claim = { release: () => { claims.delete(claim); if (!claims.size && before != null && navigator.audioSession) { navigator.audioSession.type = before; before = null; } } };
-      if (!claims.size && typeof navigator === "object" && navigator.audioSession) { before = navigator.audioSession.type; navigator.audioSession.type = "play-and-record"; }
+    /** A capture's claim, or speech's with `{type}`, one of the spoken types. */
+    claim(how = {}) {
+      const claim = { type: spoken.includes(how.type) ? how.type : "play-and-record", release: () => { claims.delete(claim); compose(); } };
       claims.add(claim);
+      compose();
       return claim;
+    },
+    /** The type in force: the page's, or the strongest claimed where the page has no Audio Session. */
+    type() {
+      const types = [...claims].map(c => c.type);
+      return session()?.type ?? (types.includes("play-and-record") ? "play-and-record" : spoken.filter(t => types.includes(t)).at(-1) ?? "auto");
     },
   };
   // The extension's chunk, and the session's one instance of its implementation, which its names and its views share
@@ -182,9 +229,9 @@ export function modules(rows, bound = {}, views = {}) {
   };
   const implementation = row => route(row) === "substitute" ? null : instance(extensionOf(row));
   packageViews(views, chunk, instance);
-  if (typeof addEventListener === "function") {
-    addEventListener("visibilitychange", () => { for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); });
-  }
+  const tell = () => { for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); };
+  if (typeof addEventListener === "function") addEventListener("visibilitychange", tell);
+  (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); } };
   // The agent's preferred values for an extension's names, by name.
   const preferredOf = extension => Object.fromEntries([...preferred].filter(([k]) => k.startsWith(`${extension}.`)).map(([k, v]) => [k.slice(extension.length + 1), v]));
   // Under the agent, the preferred value laid over the implementation's answer field by field (LLP 1133.009 D10 item 11).
@@ -251,8 +298,7 @@ export function modules(rows, bound = {}, views = {}) {
     if (Array.isArray(g) && !granted(g)) return `grant-missing (${g.join(" or ")})`;
     if (g && !Array.isArray(g) && typeof g === "object") {
       for (const [arg, line] of Object.entries(g)) {
-        const v = args?.[arg];
-        if (v != null && v !== false && !granted(line)) return `grant-missing (${arg}= needs ${[line].flat().join(" or ")})`;
+        if (given(args, arg) && !granted(line)) return `grant-missing (${arg}= needs ${[line].flat().join(" or ")})`;
       }
     }
     // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).
@@ -261,8 +307,10 @@ export function modules(rows, bound = {}, views = {}) {
       if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
     }
     const applies = !sub.when || Object.entries(sub.when).every(([k, v]) => args?.[k] === v);
-    if (applies && sub.origin === "app" && origin !== "app") return `person-required (${origin} origin)`;
-    if (applies && sub.foreground && typeof document === "object" && document.visibilityState === "hidden") return "not in the foreground";
+    // `{whenAny, is: "app"}`: only a call giving one of those options is held to `app` (LLP 1133.012 D12 item 5).
+    const appOnly = sub.origin?.whenAny ? sub.origin.whenAny.some(a => given(args, a)) : sub.origin === "app";
+    if (applies && appOnly && origin !== "app") return `person-required (${origin} origin)`;
+    if (applies && sub.foreground && !shown()) return "not in the foreground";
     return null;
   };
   // Admitted, then what answers: `{now}`, `{hold}`, or `{forward}` (the implementation).
@@ -274,7 +322,7 @@ export function modules(rows, bound = {}, views = {}) {
     const p = permissionOf(row, args);
     let d = r === "agent" ? decidePermission(row, send, p) ?? { forward: true } : decideTimed(row, send, timeout);
     // A name whose grants are per argument asks permission only for an argument it was given (LLP 1133.009 D3).
-    const g = row.sub.nameGrants, asks = !g || Array.isArray(g) || Object.keys(g).some(a => args?.[a] != null && args[a] !== false);
+    const g = row.sub.nameGrants, asks = !g || Array.isArray(g) || Object.keys(g).some(a => given(args, a));
     if (d.hold === "permission" && !asks) d = r === "agent" ? { forward: true } : { now: { error: "TypeError" } };
     // Only a person answers a prompt (D12).
     if (d.hold === "permission" && origin !== "app") { say(`${row.key}: refused, person-required (${origin} origin)`); return { now: { error: p.denied } }; }
@@ -451,6 +499,8 @@ export function modules(rows, bound = {}, views = {}) {
       }
       const group = req.extension ?? {};
       for (const [key, v] of Object.entries(group)) {
+        const word = agentWord(key);
+        if (word) { if (v !== "clear" && !wordFits(word, v)) return { error: `prefer extension: \`${key}\` is a ${word}` }; continue; }
         const row = byKey.get(key);
         const sources = [...byKey.values()].filter(r => !r.send).map(r => r.key);
         if (!row) return { error: `prefer extension: no source \`${key}\` in this app; its module sources are ${sources.join(", ") || "none"}` };
@@ -468,15 +518,19 @@ export function modules(rows, bound = {}, views = {}) {
         say(`prefer extension ${key}`);
       }
       // An implementation bound under the agent is told its names' preferred values (LLP 1133.008 D8 item 9).
-      for (const extension of new Set(Object.keys(group).map(k => byKey.get(k)).filter(r => route(r) === "agent").map(extensionOf))) {
+      for (const extension of new Set(Object.keys(group).map(k => byKey.get(k) ?? rowOf(k)).filter(r => r && route(r) === "agent").map(extensionOf))) {
         loaded.get(extension)?.then(impl => impl?.preferred?.(preferredOf(extension)));
       }
       settleValues();
-      if (Object.keys(group).length) reask(Object.keys(group));
+      const keys = Object.keys(group).filter(k => byKey.has(k));
+      if (keys.length) reask(keys);
       return { extension: Object.fromEntries(preferred), permission: Object.fromEntries(permission) };
     },
   };
 }
+
+/** Whether a call gave option `arg`: set and not `false`; the grant key `"*"` is every call's. */
+const given = (args, arg) => arg === "*" || (args?.[arg] != null && args[arg] !== false);
 
 /** `app:/<root>/<file…>` with no empty, `.` or `..` segment (the runner's `plain_app_path`). */
 const appPath = p => p.startsWith("app:/") && p.slice(5).split("/").length >= 2 && p.slice(5).split("/").every(s => s && s !== "." && s !== ".." && !s.includes("\0"));
