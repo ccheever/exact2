@@ -22,10 +22,13 @@ export function serveTool(req, res, url, access, toolDir = TOOL_DIST) {
   // opened as localhost would be another origin, every call refused.
   const host = /^localhost(:\d+)?$/i.exec(String(req.headers.host ?? ''));
   if (host) { res.writeHead(308, { location: `http://127.0.0.1${host[1] ?? ''}${url.pathname}`, 'cache-control': 'no-store' }); return res.end(); }
-  serveToolFiles(req, res, url, toolDir);
+  serveToolFiles(req, res, url, toolDir).catch(toolFilesFailed(res));
 }
 
 const TOOL_BASE = '/__tamber/tool/';
+/** What a caller of the async serveToolFiles does when it throws (rt1): the connection ended if an answer began, else
+ * not found, never an unhandled rejection. */
+export const toolFilesFailed = (res) => () => (res.headersSent ? res.destroy() : notFound(res));
 /** The tool's built files under `/__tamber/tool/`, static GETs only: no
  * secret is in them (the remote listener serves them too, stage 10 B). A
  * page's files come from the build it booted (host/web/generations.mjs): its
