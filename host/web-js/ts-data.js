@@ -146,7 +146,9 @@ const moduleWatched = new Map(); // module key -> sources
 globalThis.__exact_module = body => {
   const key = `${body.extension}.${body.source}`, call = answering.call;
   if (body.source && watching) (moduleWatched.get(key) ?? moduleWatched.set(key, new Set()).get(key)).add(watching);
-  return ordinary(() => globalThis.exact?.extensions?.call?.(body, () => call?.held?.() ?? true) ?? Promise.resolve({ error: 'NotSupportedError' }));
+  // A tool handler's call carries its origin (`data.tool`); every other is the app's.
+  const origin = call?.origin ?? 'app';
+  return ordinary(() => globalThis.exact?.extensions?.call?.({ ...body, origin }, () => call?.held?.() ?? true) ?? Promise.resolve({ error: 'NotSupportedError' }));
 };
 (globalThis.exact ??= {}).announceModule = topic => announce(topic, 'module');
 globalThis.exact.moduleReaders = key => Resources.filter(r => moduleWatched.get(key)?.has(r.source)).map(r => r.name);
@@ -444,6 +446,19 @@ export function install(data, mixed = false, modules = null) {
     } finally { overlaying.on = false; }
   });
   data.ts = ts;
+  // A module calling the app back (LLP 1133.016 D9, D15 item 1): the handler `tools` exports under `name`, run as a
+  // fresh answer that fills no slot, with the call's origin on it, so a module call it makes is admitted with that
+  // origin (`__exact_module`). Its answer, or null for a name `tools` does not export.
+  data.tool = (name, args, store, origin) => {
+    const handler = source.tools?.[name];
+    if (typeof handler !== 'function') return null;
+    const call = answering.call = { stream: null, mutation: true, name, turn: true, origin };
+    asking = name;
+    let r;
+    try { r = handler(args, createSecretFacade(store, tsGrantSet, kept), storage); }
+    finally { call.turn = false; asking = ''; answering.call = null; }
+    return Promise.resolve(r).finally(() => { call.settled = true; });
+  };
   // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
   data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
   for (const f of data.q.splice(0)) f();
