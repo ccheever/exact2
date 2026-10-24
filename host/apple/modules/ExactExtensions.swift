@@ -9,14 +9,17 @@
 // extension's adapter, made once a session on its first request; the app's
 // own module never sees it:
 //
-// - `{"extension", "source"|"send", "args", "preferred"?, "origin"?}`: a
-//   call of one of its names, `origin` when a tool or a wake made it;
+// - `{"extension", "source"|"send", "args", "preferred"?, "origin"?,
+//   "request"?}`: a call of one of its names, `origin` when a tool or a
+//   wake made it, `request` a send's number, which `cancel` names;
 // - `{"extension", "release", "args"?}`: a live source with no reader left,
 //   or, with `args`, an argument group of one (LLP 1133.009 D10 item 12);
 // - `{"extension", "preferred", "permissions"}`: the agent's preferred
 //   values and the runner's permission states, for an implementation bound
 //   under the agent;
 // - `{"extension", "dispose"}`: handles a dropped reply carried (item 10);
+// - `{"extension", "cancel"}`: a send let go before its reply (LLP
+//   1133.016 D15 item 2);
 // - `{"extension", "foreground"}`: the app went to the foreground or left
 //   it (item 3);
 // - `{"extension", "view", "displayed"|"bound", "origin"}`: a package view's
@@ -41,7 +44,7 @@ import ExactPackage
 /// One extension's adapter, as the build writes it.
 open class ExactExtensionAdapter {
     public init() {}
-    open func later(_ name: String, _ args: [String: Any], preferred: Any?, origin: String, reply: ExactReply) {
+    open func later(_ name: String, _ args: [String: Any], preferred: Any?, origin: String, request: Int?, reply: ExactReply) {
         reply.send(["error": "NotSupportedError"])
     }
     open func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
@@ -51,6 +54,7 @@ open class ExactExtensionAdapter {
     open func release(_ name: String, args: [String: Any]) {}
     open func preferred(_ values: [String: Any]) {}
     open func dispose(_ ids: [String]) {}
+    open func cancel(_ request: Int) {}
     open func foreground(_ shown: Bool) {}
     open func destroy(_ done: @escaping () -> Void) { done() }
     open func view(_ tag: String, id: String, props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
@@ -137,11 +141,14 @@ enum ExactExtensions {
         } else if let ids = request["dispose"] as? [String] {
             a.dispose(ids)
             reply.send([:])
+        } else if let cancelled = request["cancel"] as? Int {
+            a.cancel(cancelled)
+            reply.send([:])
         } else if let shown = request["foreground"] as? Bool {
             a.foreground(shown)
             reply.send([:])
         } else if let name = (request["source"] ?? request["send"]) as? String {
-            a.later(name, args ?? [:], preferred: request["preferred"], origin: request["origin"] as? String ?? "app", reply: reply)
+            a.later(name, args ?? [:], preferred: request["preferred"], origin: request["origin"] as? String ?? "app", request: request["request"] as? Int, reply: reply)
         } else {
             reply.send(["error": "NotSupportedError"])
         }
@@ -238,6 +245,37 @@ enum AudioClaims {
     }
 }
 
+/// A package's call of the app's handler (LLP 1133.016 D15 item 1), through
+/// the host table's `invoke` (NativeHatches.swift): the runner admits and
+/// runs it and answers JSON, given to `reply` on the main thread after the
+/// call that asked has returned.
+enum Invocations {
+    /// `invoke(host, body, len, reply, ctx)`: `reply(ctx, answer, len)` once.
+    typealias ReplyFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias InvokeFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, ReplyFn, UnsafeMutableRawPointer?) -> Void
+    final class Box {
+        let reply: ([String: Any]) -> Void
+        init(_ reply: @escaping ([String: Any]) -> Void) { self.reply = reply }
+    }
+
+    static func invoke(_ h: ExactHatches?, _ body: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+        guard let h, let fn = h.invokeFn, let data = try? JSONSerialization.data(withJSONObject: body) else {
+            return reply(["error": "NotSupportedError", "message": "this host runs no handler for a package"])
+        }
+        let box = Unmanaged.passRetained(Box(reply)), bytes = [UInt8](data)
+        bytes.withUnsafeBufferPointer { fn(h.host, $0.baseAddress, UInt32($0.count), invokeReply, box.toOpaque()) }
+    }
+}
+
+private let invokeReply: Invocations.ReplyFn = { ctx, bytes, length in
+    guard let ctx else { return }
+    let box = Unmanaged<Invocations.Box>.fromOpaque(ctx).takeRetainedValue()
+    let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? ["error": "OperationError", "message": "the runner's answer was not JSON"]
+    // After the call that asked has returned, as a handler's answer always is on the web.
+    DispatchQueue.main.async { box.reply(answer) }
+}
+
 /// The host's word for an audio session event, to the claim's `events`.
 private let audioEvent: AudioClaims.EventFn = { ctx, code in
     guard let ctx else { return }
@@ -271,7 +309,11 @@ extension ExactExtensions {
                     m?.hatches?.sensor(surface, sensor, values, dropped: dropped, at: at, ended: ended)
                 }
             },
-            orientation: { [weak m] in m?.hatches?.window?.angle ?? 0 })
+            orientation: { [weak m] in m?.hatches?.window?.angle ?? 0 },
+            invoke: { [weak m] handle, handler, args, reply in
+                let body: [String: Any] = ["extension": name, "handle": handle, "handler": handler, "args": args]
+                Invocations.invoke(m?.hatches, body, reply: reply)
+            })
     }
 }
 #endif

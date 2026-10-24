@@ -163,12 +163,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A data-code call's origin: the least privileged of the commit being
-    /// made and every request in flight, since such a call cannot be traced
-    /// to the answer that made it.
+    /// made, every request in flight and every handler running, since such
+    /// a call cannot be traced to the answer that made it.
     pub(in crate::runner) fn data_origin(&self) -> CallOrigin {
         let o = &self.extensions.origins;
         (self.pending.iter())
             .filter_map(|p| o.tickets.get(&p.ticket).copied())
+            .chain(self.tool_origin())
             .fold(o.now, CallOrigin::min)
     }
 
@@ -480,7 +481,9 @@ impl<D: DataSource> Runner<D> {
     /// preferred value laid over it field by field (LLP 1133.009 D10 item
     /// 11); any other answer as it is.
     pub(in crate::runner) fn overlaid(&self, row: &ModulesRow, mut answer: Json) -> Json {
-        if self.route(row) != Route::Agent || error_code(&answer).is_some() {
+        // An implementation that lays it itself is told it (LLP 1133.016 §9).
+        let laid = self.substitute(row)["overlays"] == "implementation";
+        if self.route(row) != Route::Agent || laid || error_code(&answer).is_some() {
             return answer;
         }
         if let Some(preferred) = self.extensions.preferred.get(&self.key(row)) {

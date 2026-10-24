@@ -137,9 +137,15 @@ impl<D: DataSource> Runner<D> {
             self.extensions.arrived.clone(),
             self.native_slot(),
         );
+        // The handlers its call listed, for the handles it carries (`invoke.rs`).
+        let sent: Json = serde_json::from_slice(&body).unwrap_or_default();
+        let (grant, granted) = (self.handler_grant(&row, &sent), self.granted());
         Dispatch::Run(Work::Later(Box::new(move |reply| {
             let watched = Reply::new(move |outcome: Outcome| {
                 let ids = ids_in(&outcome, &paths);
+                if let Some(grant) = &grant {
+                    super::invoke::grant_handles(&granted, &ids, grant);
+                }
                 if !ids.is_empty() {
                     let mut arrived = arrived.lock().unwrap_or_else(|e| e.into_inner());
                     arrived.push((ticket, extension, ids));
@@ -219,7 +225,7 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// The handle ids in `outcome` at each of `paths`.
-fn ids_in(outcome: &Outcome, paths: &[String]) -> Vec<String> {
+pub(super) fn ids_in(outcome: &Outcome, paths: &[String]) -> Vec<String> {
     let Outcome::Response(Response { body, .. }) = outcome else {
         return Vec::new();
     };
@@ -235,7 +241,7 @@ fn ids_in(outcome: &Outcome, paths: &[String]) -> Vec<String> {
 
 /// The strings at `path` in `value`: `a.b`, and `a[].b` for each element of
 /// the list `a`.
-fn collect(value: &Json, path: &str, out: &mut Vec<String>) {
+pub(super) fn collect(value: &Json, path: &str, out: &mut Vec<String>) {
     let (head, rest) = match path.split_once('.') {
         Some((head, rest)) => (head, Some(rest)),
         None => (path, None),

@@ -77,6 +77,7 @@ mod intersect;
 mod keyframes;
 mod keyup;
 mod language_model;
+mod language_model_seam;
 mod launch_identity;
 mod library_packages;
 mod library_path_icons;

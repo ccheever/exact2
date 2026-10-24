@@ -51,7 +51,7 @@ import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
-import { composedModule, moduleSeam } from './compose.mjs';
+import { composedModule, moduleSeam, weakFrameworks } from './compose.mjs';
 import { associatedDomains, macPresence, macPasskeys } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
@@ -1149,7 +1149,7 @@ async function main(args, lockHeld = false) {
   // Linker flags the manifest declares for the module artifact
   // (`host.macos.link`, `host.ios.link`; one argument each), for what an
   // archive needs but cannot say: `-lc++` for a static library with C++ inside.
-  const linkArgs = (forIos) => app.manifest.host?.[forIos ? 'ios' : 'macos']?.link ?? [];
+  const linkArgs = (forIos, os = forIos ? 'ios' : 'macos') => [...(app.manifest.host?.[os]?.link ?? []), ...weakFrameworks(packages, os, app.manifest.host?.[os]?.minimumOS)];
   // What the arm cache must see change: the flags, and each library's bytes.
   const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';

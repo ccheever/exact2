@@ -243,6 +243,17 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_matches(len), |_| 0)
         }
 
+        /// A package's call of the app's handler, answered once through
+        /// `reply`. @ref LLP 1133.016 D15 item 1
+        #[no_mangle]
+        pub extern "C" fn exact_module_invoke(rt: u32, len: usize, reply: extern "C" fn(*mut std::ffi::c_void, *const u8, u32), ctx: *mut std::ffi::c_void) {
+            let refused = |_| {
+                let text = r#"{"error":"InvalidStateError","message":"the runtime is busy or gone"}"#;
+                reply(ctx, text.as_ptr(), text.len() as u32);
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.module_invoke(len, reply, ctx), refused)
+        }
+
         /// The location beneath a visit, UTF-8; empty for none. @ref LLP 1115 D5
         #[no_mangle]
         pub extern "C" fn exact_location_beneath(rt: u32, id: u64) -> u32 {
