@@ -200,9 +200,11 @@ public final class ExactReply: @unchecked Sendable {
         bytes.withUnsafeBufferPointer { fn(taken, status, $0.baseAddress, $0.count) }
     }
 
-    /// Resolve the TypeScript promise with a JSON object.
+    /// Resolve the TypeScript promise with a JSON object, or with the value
+    /// of its one key `exact:answer` (a package's list, ExactPackage.swift).
     public func send(_ value: [String: Any]) {
-        guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else {
+        let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
+        guard JSONSerialization.isValidJSONObject(sent), let data = try? JSONSerialization.data(withJSONObject: sent) else {
             return fail("the reply was not JSON")
         }
         answer(200, String(decoding: data, as: UTF8.self))

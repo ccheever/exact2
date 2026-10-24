@@ -59,9 +59,10 @@ does while the person is not looking:
 - **The outbox goes out at the next chance.** A message written while the
   server cannot be reached stays on the device, and the data code registers
   `sync` with the tag `outbox:<persona>`. The platform fires it at its next
-  chance to run online: on the web while the page is open, at once if
-  online, else when the network returns; on an iPhone at the next refresh
-  wake or the next launch, which can be hours. A round that fails registers
+  chance to run online: on the web while the page is open and on a Mac
+  while Harmony runs, at once if online, else when the network returns; on
+  an iPhone at the next refresh wake or the next launch, which can be
+  hours. A round that fails registers
   the tag again and waits out the backoff (5 minutes, doubling to an hour).
 - **A mention while Harmony is closed is a notification.** Under You,
   Notify Me of Mentions registers `periodicsync` every 30 minutes; each
@@ -73,7 +74,7 @@ does while the person is not looking:
   window keeps Harmony running (`keepRunning`), so a catch-up has a process
   to run in.
 
-`bun packages/background/test/harmony.mjs <web|macos>`, from exact2's root,
+`bun packages/background/test/harmony.mjs <web|macos|ios>`, from exact2's root,
 drives both under the agent against a server of its own;
 `chromium`, `firefox` or `webkit` in place of the host drives the outbox in
 that browser, with the network switched off and on.

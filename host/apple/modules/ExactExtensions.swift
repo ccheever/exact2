@@ -26,6 +26,8 @@
 //   displayed state or binding prop changed (LLP 1133.008 D8 item 2);
 // - `{"extension", "surface", "displayed", "origin"}`: the canvases of a
 //   surface its input feeds were displayed or hidden (LLP 1133.013 D6);
+// - `{"extension", "woke", "outcome"}`: a wake it raised ended (LLP
+//   1133.017 D8);
 // - `{"extension", "sync", "args"}`, through `call`: data code's
 //   synchronous form.
 //
@@ -87,6 +89,7 @@ open class ExactExtensionAdapter {
     open func permissions(_ states: [String: String]) {}
     open func displayed(surface: String, _ shown: Bool, origin: String) {}
     open func orientation(_ angle: Double) {}
+    open func woke(_ id: String, _ outcome: String) {}
     /// The authenticator entry (ExactPackage.swift's `ExactAuthenticator`),
     /// for the extension `exactAuthenticator` names.
     open func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {
@@ -165,6 +168,9 @@ enum ExactExtensions {
             reply.send([:])
         } else if let shown = request["foreground"] as? Bool {
             a.foreground(shown)
+            reply.send([:])
+        } else if let id = request["woke"] as? String {
+            a.woke(id, request["outcome"] as? String ?? "completed")
             reply.send([:])
         } else if let name = (request["source"] ?? request["send"]) as? String, let admit = request["admit"] as? [String: Any],
                   let status = admit["status"] as? String, let field = admit["field"] as? String {
@@ -347,7 +353,8 @@ extension ExactExtensions {
             emit: { [weak module] event, args in module?.emit(name, event, args) },
             activation: { [weak module] event, args, navigate in
                 module?.activation(name, event, args, navigate: navigate) ?? [:]
-            })
+            },
+            wake: { [weak module] event, args, id in module?.wake(name, event, args, id: id) })
     }
 }
 #endif
@@ -369,6 +376,18 @@ extension ExactModuleContext {
             return
         }
         changed("exact-event:" + String(decoding: json, as: UTF8.self))
+    }
+
+    /// Raise `extensionName`'s wake event `name` for the platform object
+    /// `id` (LLP 1133.017 D8), through `changed` as an emitted event goes;
+    /// the runner tells the extension `{"woke": id, "outcome"}` at its end.
+    public func wake(_ extensionName: String, _ name: String, _ args: [Any], id: String) {
+        let body: [String: Any] = ["extension": extensionName, "event": name, "args": args, "id": id]
+        guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+            diagnostics.log("\(extensionName).\(name): its arguments are not JSON")
+            return
+        }
+        changed("exact-wake:" + String(decoding: json, as: UTF8.self))
     }
 
     /// The `userInfo` entry for content the module posts whose activation
