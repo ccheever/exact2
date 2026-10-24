@@ -1304,9 +1304,10 @@ component Composer
   Return or Space presses; in the editor it is not. `rangeFrame` over its range
   is its pill, where a popover anchors.
 
-The web draws atoms in the editor and the reader; macOS and iOS are stage 2 of
-LLP 1045.000. Linux, Windows and Android show the source in the editor and the
-link text in the reader, with no `atompress`. The driver's `state atoms` lists
+The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
+icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of
+the two spaces an atom's deletion leaves). Linux, Windows and Android show the
+source in the editor and the link text in the reader, with no `atompress`. The driver's `state atoms` lists
 each one: its node, kind, source, range, label and frame from the node's top
 left, where `tap <node> at <x> <y>` presses it.
 
