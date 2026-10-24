@@ -60,10 +60,11 @@ export function oneActivation(e) {
   }, true);
 }
 
-// Root-relative app files belong to the page's published release (LLP 1038 D7).
+// Root-relative app files belong to the page's published release (LLP 1038 D7), or to the build generation it
+// booted (host/web/generations.mjs: a dev or drive server's `.exact/gen/<id>/` base).
 let Release;
 export const releaseAsset = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => {
-    try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); }
+    try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$|^\/(?:[^/]+\/)*\.exact\/gen\/[0-9a-f]{32}\/$/.test(new URL(document.baseURI).pathname); }
     catch { return false; }
   })()) ? "." + v : v;

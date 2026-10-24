@@ -21,4 +21,9 @@ test('a chunk or script of a reaped generation reloads the page once; other fail
   expect(p.reloads()).toBe(1);
   p.listeners.error({ target: { src: 'http://x/.exact/gen/0123456789abcdef0123456789abcdef/app.js' } });
   expect(p.reloads()).toBe(1); // once a session: a bad build cannot loop
+  // A source's failed import, which the runtime catches (rt.js `ask` hands it over): the same.
+  const q = page();
+  reloadOnGone(q.win);
+  q.win.exact.generationGone(new TypeError('Failed to fetch dynamically imported module: http://x/.exact/gen/0123456789abcdef0123456789abcdef/lazy-2.js'));
+  expect(q.reloads()).toBe(1);
 });

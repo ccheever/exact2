@@ -53,7 +53,7 @@ export async function serveToolFiles(req, res, url, toolDir = TOOL_DIST, headers
   let file = resolve(toolDir, rel || 'index.html');
   if (file !== toolDir && !file.startsWith(toolDir + sep)) return notFound(res);
   try { if (statSync(file).isDirectory()) file = resolve(file, 'index.html'); } catch { /* below */ }
-  let bytes, generation;
+  let bytes, generation, whole = false;
   try {
     // Through no link out of the build, nor to a dot file in it; read whole from one build (its generation the same
     // before and after the read, else read again).
@@ -62,12 +62,14 @@ export async function serveToolFiles(req, res, url, toolDir = TOOL_DIST, headers
       const root = realpathSync(toolDir), real = realpathSync(file);
       if (!real.startsWith(root + sep) || relative(root, real).split(sep).some(s => s.startsWith('.'))) return notFound(res);
       bytes = readFileSync(real);
-      if (generationOf(toolDir) === generation) break;
+      if (generationOf(toolDir) === generation) { whole = true; break; }
     }
   } catch {
     if (!existsSync(resolve(toolDir, 'index.html'))) return json(res, 404, { message: 'the design tool is not built: run `bun exact.mjs tamber tool`' });
     return notFound(res);
   }
+  // Four swaps in a row under it: no file known to be one build's is sent.
+  if (!whole) { res.writeHead(503, { 'cache-control': 'no-store', 'retry-after': '1' }); return res.end(); }
   const type = TOOL_TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream';
   // Its pages anchor their files at the root; here that is this path.
   if (type.startsWith('text/html')) bytes = Buffer.from(toolPage(bytes, generation));
