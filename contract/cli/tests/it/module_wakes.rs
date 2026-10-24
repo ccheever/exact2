@@ -195,8 +195,8 @@ fn a_wake_event_carries_its_budget_and_the_bake_holds_its_bounds() {
 
 /// §10's warm wake on a periodic registration: refused until due; then the
 /// handler runs as the wake's, its request owned until it lands, the
-/// session's timers stopped meanwhile and its `copyText` refused; the entry
-/// stays, with its run.
+/// session's page hidden and timers stopped meanwhile and its `copyText`
+/// refused; the entry stays, with its run.
 #[test]
 fn a_tap_on_a_periodic_registration_is_a_warm_wake() {
     let app = App::new("warm");
@@ -222,7 +222,8 @@ fn a_tap_on_a_periodic_registration_is_a_warm_wake() {
     let wake = state(&r)["wake"].clone();
     assert_eq!(wake["invocations"][0]["state"], "running", "{wake}");
     assert_eq!(wake["cold"], false);
-    // Timers stop while the wake runs unseen.
+    // The page reads hidden, and timers stop, while the wake runs unseen.
+    assert!(r.page().hidden);
     by(&mut r, 3_000.0);
     assert_eq!(slot(&r, "ticks"), ticks, "{}", logs(&r));
     answer_pull(&mut r);
@@ -240,6 +241,7 @@ fn a_tap_on_a_periodic_registration_is_a_warm_wake() {
     assert!(journal.contains("wake: completed"), "{journal}");
     assert!(slot(&r, "pulled").contains('7'), "{}", slot(&r, "pulled"));
     assert_eq!(state(&r)["wake"]["outcome"], "completed");
+    assert!(!r.page().hidden, "the page the wake hid is shown again");
     let after = entry(&r, "every");
     assert!(after["lastRun"].is_number(), "{after}");
     r.apply_announced();

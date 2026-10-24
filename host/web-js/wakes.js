@@ -2,14 +2,17 @@
 // `"raised": "wake"` is raised only by its implementation through the context's `wakes.raise` (the web's wake is the
 // page's own `online` event), or under the agent by `tap @ref` on a registration or `--wake '<entry>'`. Each is an
 // invocation of origin `wake`, delivered once, in order, one at a time, each as its own commit. The page cannot tell
-// one request from another, so an invocation owns everything in flight from its delivery, `then`s and queued sends
-// included, and a request the server holds (`heldAsks`, which `inflight` leaves out), and the origin of every call is `wake` until that settles (`busy`), the least privileged in flight, as an
-// emitted event's `device` is. Nothing it started is cancelled at the deadline: the invocation ends `expired`, and
-// what it started settles under the app's origin. A wake in a hidden page fires no timer (`clock.stopped`).
+// one request from another, so an invocation owns every answer that went out after its delivery, `then`s and queued
+// sends included, and a request the server holds (`heldAsks`, which `inflight` leaves out); not a stream, which is a
+// view's (a resource's live answer the boot or the view opened meanwhile). The origin of every call is `wake` until
+// that settles (`busy`), the least privileged in flight, as an emitted event's `device` is. Nothing it started is cancelled at the deadline: the invocation ends `expired`, and
+// what it started settles under the app's origin. A wake in a hidden page fires no timer (`clock.stopped`); under the
+// agent the wake hides the page (`exactPage().visibilityState`) and shows it again after, as the platform's background.
 //
 // Registrations (§10): a keyed list declared with a `kind` keeps, beside each entry's options, its runs, attempts and
 // backoff, by the web's rules (D1) as `modules/declared/wake_list.rs` keeps them.
-import { clock, inflight, heldAsks, After, Clocked, Mutations, drive, data } from "./rt.js";
+import { clock, inflight, After, Clocked, Mutations, drive, data } from "./rt.js";
+import { Counting, heldTickets } from "./held.js";
 
 const BACKOFF = 5 * 60_000, LONGEST = 60 * 60_000, ATTEMPTS = 3;
 /** The host commands a commit of a wake's origin may not run: each opens system UI, asks a person, or plays sound. */
@@ -23,8 +26,15 @@ export function wakes({ events, say, value, run, toEpoch, onLine, lists, changed
   const now = () => toEpoch(clock.now);
   const meta = new Map(), waiting = [];
   let current = null, last = null, base = null, timer = 0, ids = 0;
+  // The agent's page facts (facts.js): whether the page reads visible, and setting it.
+  const seen = () => globalThis.exact?.page?.read?.()["visibility-state"] !== "hidden";
+  const see = shown => { globalThis.exact?.page?.prefer?.({ "visibility-state": shown ? "visible" : "hidden" }); globalThis.exact?.foreground?.(shown); };
   const storage = () => { const b = data.background?.(); return b ? b.queued + b.inFlight : 0; };
-  const owns = () => base !== null && (inflight.n > base.n || heldAsks().some(h => !base.held.has(h.ticket)) || Mutations.some(m => m.due < Infinity || m.wait?.length));
+  // By ticket, so a request of the app's that lands meanwhile does not pass for the wake's end; work counted without
+  // a ticket (a file, the storage queue) by its count beside the tickets.
+  const answer = t => !t.stream && !t.req?.stream;
+  const owns = () => base !== null && ([...Counting].some(t => answer(t) && !base.tickets.has(t)) || inflight.n - Counting.size > base.loose
+    || heldTickets().some(t => answer(t) && !base.held.has(t)) || Mutations.some(m => m.due < Infinity || m.wait?.length));
   const deadline = () => current?.started != null && !current.expired ? current.started + current.budget : null;
   const describe = (w, outcome = null) => ({ id: w.id, kind: w.invocations[0]?.event ?? null, cold: w.cold, started: w.started == null ? null : toEpoch(w.started),
     deadline: w.started == null ? null : toEpoch(w.started) + w.budget, invocations: w.invocations.map(i => ({ extension: i.key.split(".")[0], event: i.event, tag: i.tag, state: i.state })), outcome });
@@ -61,27 +71,32 @@ export function wakes({ events, say, value, run, toEpoch, onLine, lists, changed
     let values;
     try { values = types.map((t, i) => value(inv.args[i] ?? null, t, inv.key)); } catch (e) { say(`${inv.key}: refused: ${e.message}`); end(inv, "refused"); return; }
     say(`wake ${inv.event} ${inv.tag}: heard by ${name}`);
-    base = { n: inflight.n, held: new Set(heldAsks().map(h => h.ticket)) };
+    base = { tickets: new Set(Counting), loose: inflight.n - Counting.size, held: new Set(heldTickets()) };
     run(() => action()(...values));
   };
   const finish = () => {
     const outcome = current.expired || current.invocations.some(i => i.state === "expired") ? "expired" : "completed";
     last = describe(current, outcome);
     say(`wake: ${outcome}`);
+    if (current.hid) see(true);
     current = null; base = null; clearTimeout(timer); timer = 0;
     if (clock.stopped) { clock.stopped = false; if (!clock.agent) drive(); }
   };
   /** Deliver what is due: the next invocation once the one running owns nothing, and the wake's end once each ended. */
   function step() {
     for (;;) {
-      if (!current) { if (!waiting.length) return; current = waiting.shift(); clock.stopped = current.hidden; }
+      if (!current) { if (!waiting.length) return; current = waiting.shift(); clock.stopped = current.hidden; current.hid = current.hidden && clock.agent && seen(); if (current.hid) see(false); }
       const running = current.invocations.find(i => i.state === "running"), next = current.invocations.find(i => i.state === "queued");
-      if (running) { if (owns()) return; base = null; end(running, "completed"); continue; }
+      if (running) { if (owns()) return again(); base = null; end(running, "completed"); continue; }
       if (next) { deliver(next); continue; }
-      if (storage() > 0) return;
+      if (storage() > 0) return again();
       finish();
     }
   }
+  // Work can settle with no commit after it (a storage write draining, a reply that changes nothing): looked at again
+  // while the wake waits on it. The deadline is the clock's, never this timer's.
+  let poll = 0;
+  function again() { if (!poll) poll = setTimeout(() => { poll = 0; step(); }, 20); }
   function expire() {
     if (!current || current.expired) return;
     current.expired = true;
