@@ -52,6 +52,7 @@
 //     }
 //     #endif
 import Foundation
+import Security
 #if os(macOS)
 import AppKit
 public typealias ExactNativeView = NSView
@@ -1207,6 +1208,29 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
 }
 
 
+/// `authenticate(module, json, len, accessControl, ctx, done)` (LLP 1133.010
+/// D13): the person's check for a presence item, by the extension whose
+/// interface declares the authenticator entry; json {"reason", "policy",
+/// "origin"}, the access control borrowed. done(ctx, context, error, len)
+/// once, from any thread: the evaluated context retained once for the host,
+/// or nil and an error's JSON.
+private let moduleAuthenticate: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
+                                                (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void)?) -> Void = { raw, json, length, control, ctx, done in
+    guard let done else { return }
+    let fail = { (error: [String: Any]) in
+        let data = (try? JSONSerialization.data(withJSONObject: error)) ?? Data()
+        data.withUnsafeBytes { done(ctx, nil, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
+    guard let m = module(raw), let json, let control,
+          let request = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: length)) as? [String: Any]
+    else { return fail(["error": "NotSupportedError", "message": "an unreadable presence check"]) }
+    let access = Unmanaged<SecAccessControl>.fromOpaque(control).takeUnretainedValue()
+    ExactExtensions.authenticate(m, request, access) { context, error in
+        guard let context else { return fail(error ?? ["error": "UnknownError"]) }
+        done(ctx, Unmanaged.passRetained(context).toOpaque(), nil, 0)
+    }
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
 private let major: UInt32 = 3
 
@@ -1224,7 +1248,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 232
+    let size = 240
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1256,6 +1280,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleWillQuit, to: UnsafeRawPointer.self), toByteOffset: 208, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.createView, to: UnsafeRawPointer.self), toByteOffset: 224, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleAuthenticate, to: UnsafeRawPointer.self), toByteOffset: 232, as: UnsafeRawPointer.self)
     return t
 }()
 
