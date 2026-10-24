@@ -12,6 +12,10 @@
 //   typed ids looked up in the package's fixture, which is loaded only then.
 
 const PROPERTIES = ['address', 'email', 'icon', 'name', 'tel'];
+
+/** Whether the call came inside the person's transient activation, which the picker needs (HTML's
+ * `navigator.userActivation`; `unknown` in a browser without it). */
+const activation = () => typeof navigator === 'object' && navigator.userActivation ? String(navigator.userActivation.isActive) : 'unknown';
 const absent = { available: false, state: 'unknown', access: 'unknown', apple: null, android: null };
 
 /** A `DOMException`'s name as the module's error, with what the browser said. */
@@ -67,12 +71,13 @@ export function implementation({ agent, files, log }) {
           const contact = fixture.contacts.find(c => c.id === id);
           if (!contact) return { error: 'NotFoundError', message: `no fixture contact ${id}` };
           const bytes = name => Uint8Array.from(atob(fixture.icons[name]), c => c.charCodeAt(0));
-          contacts.push(await picked(contact, properties, ++picks, c => c.icon.map(name => ({ bytes: bytes(name), type: 'image/png' }))));
+          contacts.push(await picked(contact, properties, ++picks, c => (c.icon ?? []).map(name => ({ bytes: bytes(name), type: 'image/png' }))));
         }
         say(`picked ${ids.join(',')} (${properties.join(',')})`);
         return { contacts };
       }
       if (!picker?.select) return { error: 'NotSupportedError' };
+      say(`select (${properties.join(',')}${multiple ? ', multiple' : ''}), activation ${activation()}`);
       if (showing) return { error: 'InvalidStateError', message: 'a picker is showing' };
       showing = true;
       try {
