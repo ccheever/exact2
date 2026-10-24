@@ -55,6 +55,8 @@ pub struct CRun {
     pub variation_tags: [u32; 8],
     /// Their values, in each axis's units.
     pub variation_values: [f32; 8],
+    /// 1 for CSS `font-optical-sizing: none`: the face keeps its own `opsz`.
+    pub optical_sizing_none: u8,
 }
 
 /// One request, as the callback sees it.
@@ -357,6 +359,9 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         variation_values: std::array::from_fn(|i| {
             style.font_variations.axes().get(i).map_or(0.0, |a| a.1)
         }),
+        optical_sizing_none: u8::from(
+            style.font_optical_sizing == exact_kernel::FontOpticalSizing::None,
+        ),
     }
 }
 

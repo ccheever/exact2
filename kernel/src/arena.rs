@@ -1261,6 +1261,7 @@ mod tests {
             (StyleId::FontStyle, text("italic")),
             (StyleId::FontStretch, text("75%")),
             (StyleId::FontVariationSettings, text(r#""GRAD" 150"#)),
+            (StyleId::FontOpticalSizing, text("none")),
             (StyleId::FontFamily, number(3.0)),
             (StyleId::Cursor, text("grab")),
             (StyleId::TextAlign, text("right")),

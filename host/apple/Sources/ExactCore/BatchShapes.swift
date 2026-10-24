@@ -269,7 +269,8 @@ extension InlineStyle {
             if key == "font_weight" { run.weight = Int(n) } else { run.family = Int(n) }
         case "font_style": run.italic = try BatchFields.string(value) == "italic"
         case "font_stretch": run.stretch = CGFloat(Float(try BatchFields.number(value)))
-        case "font_variation_settings": run.variations = FontAxis.of(value)
+        case "font_variation_settings": run.variations = FontAxis.settings(value, keeping: run.variations)
+        case "font_optical_sizing": run.variations = FontAxis.opticalSizing(try BatchFields.string(value), run.variations)
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
         case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
