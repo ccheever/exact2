@@ -9,7 +9,9 @@
 //! loading, error or empty view (a condition on a resource or a mutation,
 //! or an arm of one control or none), a kept setting (a `persist` state),
 //! disclosure and an arm with no heading, anything inside a row, a button,
-//! a tab panel, a dialog or a popover. A swap counts only when a press in
+//! a tab panel, a dialog or a popover. A viewport read that two sibling `if`s
+//! share as the same `or` term is the split's, not a loading view's: it is
+//! set aside and the state parts are judged. A swap counts only when a press in
 //! one of its arms moves it: the detail's Back, the list's row, a form's
 //! Cancel. The outermost swap is named once.
 
