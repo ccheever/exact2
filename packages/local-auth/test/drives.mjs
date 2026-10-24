@@ -8,7 +8,7 @@
 //   Builds nothing: build Excord for the host first (host/apple/build.mjs
 //   excord-apple, `--ios --sim <udid>` for a simulator), which the driver
 //   checks is current. Starts Excord's fixture server on 4790 and stops it.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
@@ -71,9 +71,16 @@ async function lockOn(s) {
   await answer(s, 'presence', 'allow');
   await s.clock('settle');
 }
+/** The app's home: this Mac's, or on a simulator (EXACT_SIM) the app's data container. */
+let container;
+function home() {
+  if (host !== 'ios') return homedir();
+  container ??= spawnSync('xcrun', ['simctl', 'get_app_container', process.env.EXACT_SIM ?? 'booted', 'com.exact.excord', 'data'], { encoding: 'utf8' }).stdout.trim();
+  return container;
+}
 /** The drive store's files: whether a plain copy and a locked item of the token are on disk. */
 function copies(name) {
-  const tree = [resolve(homedir(), 'Library/Caches/exact/com.exact.excord/agent', store(name))].find(existsSync);
+  const tree = [resolve(home(), 'Library/Caches/exact/com.exact.excord/agent', store(name))].find(existsSync);
   if (!tree) return null;
   const files = (dir) => (existsSync(dir) ? readdirSync(dir) : []);
   return { plain: files(resolve(tree, 'secrets')).length > 0, locked: files(resolve(tree, 'kv/exact.presence.agent')).length > 0 };

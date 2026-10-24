@@ -303,6 +303,10 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
+            h.runner_mut()
+                .take_presence_asks()
+                .iter()
+                .for_each(|a| presenter.presence(a));
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(&mut s);
         }
@@ -560,8 +564,8 @@ impl<D: DataSource> Bridge<D> {
                 if let Some(why) = unbound {
                     host.log(&format!("{why}; every request is refused"));
                 }
-                if let Some(backend) = presence {
-                    host.runner_mut().install_presence(backend);
+                if let Some((backend, keystore)) = presence {
+                    host.runner_mut().install_presence(backend, keystore);
                 }
                 host.commit_boot();
                 let executor = self.links.io.map(|io| {
@@ -891,8 +895,8 @@ impl<D: DataSource> Bridge<D> {
                 if let Some(why) = unbound {
                     host.log(&format!("{why}; every request is refused"));
                 }
-                if let Some(backend) = presence {
-                    host.runner_mut().install_presence(backend);
+                if let Some((backend, keystore)) = presence {
+                    host.runner_mut().install_presence(backend, keystore);
                 }
                 self.output = batch.as_bytes().to_vec();
                 self.prepared = Some(PreparedHost {

@@ -123,7 +123,7 @@ fn a_launch_that_begins_locked_shows_no_kept_answer_and_holds_no_bytes() {
     // Unlocked, the kept answer shows before the source is ready.
     let (backend, snapshot) = reconciled(&vault);
     let mut open = launch(false, snapshot);
-    open.install_presence(backend);
+    open.install_presence(backend, None);
     assert_eq!(
         open.resource("session"),
         Some(&Value::str("signed in, kept"))
@@ -152,7 +152,7 @@ fn a_launch_that_begins_locked_shows_no_kept_answer_and_holds_no_bytes() {
     assert_eq!(backend.occupancy("token"), Some(Occupancy::Locked));
     let (backend, snapshot) = reconciled(&vault);
     let mut r = launch(false, snapshot);
-    r.install_presence(backend);
+    r.install_presence(backend, None);
     assert_eq!(r.resource("session"), Some(&Value::str("…")));
     assert!(r.journal().any(|l| l.contains("kept answers not shown")));
     assert!(r
@@ -166,7 +166,7 @@ fn a_locked_write_goes_to_the_backend_and_a_get_of_it_fails_the_answer() {
     let vault = MemoryVault::default();
     let (backend, snapshot) = reconciled(&vault);
     let mut r = launch(true, snapshot);
-    r.install_presence(backend);
+    r.install_presence(backend, None);
     // An optional name starts plain: its write is the backend's, which keeps it plain.
     r.store.set("token", "alice").unwrap();
     assert!(
@@ -202,7 +202,7 @@ fn unlock_answers_behind_the_agent_s_ticket_and_never_for_a_tool() {
     let vault = MemoryVault::default();
     let (backend, snapshot) = reconciled(&vault);
     let mut r = launch(true, snapshot);
-    r.install_presence(backend);
+    r.install_presence(backend, None);
     r.store.set("token", "alice").unwrap();
     r.take_store_writes();
     run(
