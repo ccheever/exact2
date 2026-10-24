@@ -93,6 +93,53 @@ fn inline_frame_matches_chromes_font_boxes_and_wrap_union() {
 }
 
 #[test]
+fn inline_frame_empty_run_on_a_blank_hard_line() {
+    for separator in [r"\n", r"\u{d}\n"] {
+        let text = format!("text \"a{separator}\"\ntext \"\" id=\"run\"\ntext \"{separator}b\"");
+        let mut p = boot(&app(&text, "white-space=\"pre\"", "", &["run"]));
+        close(relative(&mut p, 0), [0., 20., 0., 19.], 1.5);
+    }
+}
+
+#[test]
+fn inline_frame_pre_wrap_keeps_chromes_hanging_spaces_and_tabs() {
+    for (text, width, expected) in [
+        ("one two three", 90, [0., 0., 69., 39.]),
+        ("one two   three", 90, [0., 0., 79., 39.]),
+        (r"Hi\tthere", 50, [0., 0., 43., 39.]),
+        (r"Hi\t\tthere", 50, [0., 0., 80., 39.]),
+    ] {
+        let mut p = boot(&app(
+            &format!("text \"{text}\" id=\"run\""),
+            &format!("white-space=\"pre-wrap\" width={width}"),
+            "",
+            &["run"],
+        ));
+        close(relative(&mut p, 0), expected, 1.5);
+    }
+}
+
+#[test]
+fn inline_frame_publication_visits_each_box_once() {
+    for count in [16, 64] {
+        let mut source = String::from("component App\n  view\n    column\n");
+        for i in 0..count {
+            source += &format!("      text height=20\n        text \"line\" id=\"r{i}\"\n      textarea height=20 value=\"field\"\n");
+        }
+        let mut p = boot(&source);
+        p.resize(400., 6000.);
+        p.frame();
+        assert_eq!(p.brush.inline_text.len(), count);
+        assert_eq!(p.brush.field_text.len(), count);
+        PUBLICATION_BOX_VISITS.set(0);
+        p.publish_ranges();
+        assert_eq!(p.ranges.inline.borrow().len(), count);
+        assert_eq!(p.ranges.fields.borrow().len(), count);
+        assert_eq!(PUBLICATION_BOX_VISITS.get(), p.boxes.len());
+    }
+}
+
+#[test]
 fn inline_frame_scroll_scale_and_paint_only_ellipsis() {
     let source = app(
         "text \"one two three\" id=\"run\"",
@@ -138,6 +185,31 @@ fn inline_frame_rotates_each_line_before_bounding() {
     let all = measure(&mut p, 0).unwrap();
     let a = measure(&mut p, 1).unwrap();
     let b = measure(&mut p, 2).unwrap();
+    let mut plain = boot(&app(
+        text,
+        "white-space=\"pre-wrap\"",
+        "padding=70",
+        &["all", "a", "b"],
+    ));
+    let parent = plain.rect_of(view(&plain, "paragraph")).unwrap();
+    let (cx, cy) = (
+        f64::from(parent.0 + parent.2 / 2.),
+        f64::from(parent.1 + parent.3 / 2.),
+    );
+    let (sin, cos) = (0.5, 3_f64.sqrt() / 2.);
+    for (i, rotated) in [(1, a), (2, b)] {
+        let [x, y, w, h] = measure(&mut plain, i).unwrap();
+        close(
+            rotated,
+            [
+                cx + (x - cx) * cos - (y + h - cy) * sin,
+                cy + (x - cx) * sin + (y - cy) * cos,
+                w * cos + h * sin,
+                w * sin + h * cos,
+            ],
+            0.001,
+        );
+    }
     let (x, y) = (a[0].min(b[0]), a[1].min(b[1]));
     close(
         all,

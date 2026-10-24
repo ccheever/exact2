@@ -594,6 +594,7 @@ impl Painter {
         self.backend.row_begin(self.rows.next, content, previous);
         self.rows.recording = Some(Capture::default());
         self.node(walk, id, ts, walk_offset, None);
+        let mut capture = self.rows.recording.take().expect("recording");
         if local {
             for b in &mut walk.boxes[start..] {
                 b.rect.0 += origin.0;
@@ -603,8 +604,13 @@ impl Painter {
                     .affine
                     .map(|(t, r)| (t.post_translate(origin.0, origin.1), r));
             }
+            for (id, inline) in &mut capture.inline {
+                *inline = inline.translated(origin.0, origin.1);
+                if let Some(published) = walk.inline.get_mut(id) {
+                    *published = inline.clone();
+                }
+            }
         }
-        let capture = self.rows.recording.take().expect("recording");
         let row_unsupported = std::mem::replace(&mut self.damage.unsupported, unsupported);
         self.damage.unsupported |= row_unsupported;
         let boxes: Vec<PaintedBox> = walk.boxes[start..].to_vec();

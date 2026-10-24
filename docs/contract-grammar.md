@@ -916,9 +916,10 @@ says. Every roster function has a row and an example, and each example written
 
 On Apple, Linux and Windows, `frame` of an inline `text` run returns the
 viewport-space union of its line fragments, using the run's own font ascent
-and descent and excluding hanging wrap spaces. An empty run has a zero-width
-rectangle at its insertion point with its font's height. Scrolling moves this
-rectangle; clipping does not trim it. Linux and Windows read the acknowledged
+and descent and excluding collapsible spaces at a soft wrap. Preserved spaces
+and tabs remain in the rectangle, including at a soft wrap. An empty run has a
+zero-width rectangle at its insertion point with its font's height. Scrolling
+moves this rectangle; clipping does not trim it. Linux and Windows read the acknowledged
 paragraph, including multi-column placement and affine transforms; a
 perspective-projected paragraph is unavailable. These readers give a cross-run
 ligature's advance to its first character's run; later runs have zero-width
