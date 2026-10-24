@@ -76,32 +76,30 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertEqual(line.minX - frame.minX, 16, accuracy: 0.5, "the line where the content now starts")
     }
 
-    /// Right to left the line is UIKit's own (the row's views are not
-    /// mirrored), and a row the model drops takes its mark with it.
+    /// Right to left the kernel mirrors the row's insets, and the line starts
+    /// past its symbol from the right; a row the model drops takes its mark
+    /// with it.
     func testRightToLeftTheLineIsTheKernelsAndADroppedRowTakesItsMark() throws {
         var dropped = false
-        let p = presenter { dropped ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [
+        let p = presenter(style: ["direction": "rtl"]) { dropped ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [
             Row(view: 10, symbol: "person.circle", title: "Profile", accessory: "disclosure", pressable: true),
         ])]) : self.customFirst() }
         p.apply(wireBatch([
             ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:person", "symbolName": "person.circle"], "style": ["font_size": 17.0, "object_fit": "contain"]],
             ["op": "children", "id": 21, "ids": [30]],
             ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 370.0, "h": 61.0],
-            ["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0],
+            ["op": "frame", "id": 30, "x": 330.0, "y": 20.5, "w": 24.0, "h": 20.0],
         ]))
         let row = try XCTUnwrap(p.views[21]), image = try XCTUnwrap(p.views[30])
-        row.kernelContentBox = CGRect(x: 56, y: 0, width: 298, height: 61)
+        row.kernelContentBox = CGRect(x: 16, y: 0, width: 298, height: 61)
         let l = try list(p)
-        l.collection.semanticContentAttribute = .forceRightToLeft
+        XCTAssertEqual(l.collection.effectiveUserInterfaceLayoutDirection, .rightToLeft, "the list's direction")
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom"]]]))
         l.collection.collectionViewLayout.invalidateLayout()
         l.collection.layoutIfNeeded()
-        let custom = try cell(p, 21)
-        func lines(_ v: UIView) -> [UIView] { (String(describing: type(of: v)).contains("Separator") ? [v] : []) + v.subviews.flatMap(lines) }
-        let frame = custom.convert(custom.bounds, to: l.collection)
-        let line = try XCTUnwrap(lines(l.collection).map { $0.convert($0.bounds, to: l.collection) }.first { abs($0.maxY - frame.maxY) < 1.5 })
-        XCTAssertNil(try list(p).lineStart(21), "no line of ours right to left")
-        XCTAssertEqual(frame.maxX - line.maxX, 16, accuracy: 0.5, "UIKit's own: its margin")
+        // Where UIKit draws it is not read here: this fixture's window has no
+        // scene, and the list layout's environment stays left to right in it.
+        XCTAssertEqual(try XCTUnwrap(try list(p).lineStart(21)), 56, accuracy: 0.5, "from the right, past the symbol")
         XCTAssertTrue(image.listSymbol)
         dropped = true
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "dropped"]]]))
@@ -119,28 +117,68 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         ]))
         let image = try XCTUnwrap(p.views[30])
         XCTAssertFalse(image.listSymbol, "its author's fit")
-        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["width", "height"]]],
                            ["op": "frame", "id": 30, "x": 16.0, "y": 14.0, "w": 32.0, "h": 32.0]]))
         XCTAssertFalse(image.listSymbol, "its author's size")
-        p.apply(wireBatch([["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0]]))
+        // The sheet's slot, at whatever size its ramps give it.
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+                           ["op": "frame", "id": 30, "x": 16.0, "y": 16.5, "w": 32.11, "h": 26.76]]))
         XCTAssertTrue(image.listSymbol, "the sheet's slot")
         // A fit its author wrote, even the sheet's own value, is theirs.
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["object_fit"]]]]))
         XCTAssertFalse(image.listSymbol, "its author's contain")
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]]]))
         XCTAssertTrue(image.listSymbol)
-        // At an accessibility size the slot keeps today's drawing (its
-        // medium scale, in its box) until its rows grow with Dynamic Type.
+        // At an accessibility size too, drawn at UIKit's smaller size there.
         window.traitOverrides.preferredContentSizeCategory = .accessibilityLarge
         window.layoutIfNeeded() // traits reach the views at layout
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "large"]]]))
-        XCTAssertFalse(image.listSymbol, "an accessibility size")
+        XCTAssertTrue(image.listSymbol, "an accessibility size")
+        let base = UIImage.SymbolConfiguration(pointSize: 33)
+        XCTAssertEqual(image.symbolShape(base), base.applying(UIImage.SymbolConfiguration(pointSize: 25.14)).applying(UIImage.SymbolConfiguration(scale: .large)))
         window.traitOverrides.preferredContentSizeCategory = .extraExtraExtraLarge
         window.layoutIfNeeded()
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "xxxl"]]]))
         XCTAssertTrue(image.listSymbol, "the largest size short of them")
         host(p).lists[1]?.remove()
         XCTAssertFalse(image.listSymbol, "gone with the list")
+    }
+
+    /// A cell UIKit gives to another custom row takes that row's height,
+    /// which is no resize: the layout already knows each row's height. When
+    /// it was one, two cells handed back and forth between rows of two
+    /// heights at a long list's bottom edge laid the list out again on every
+    /// turn, and Hackers' feed spun a core at rest (LLP 1141.001 D13).
+    func testACellTakingAnotherRowsHeightLaysNothingOutAgain() throws {
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].header = nil
+            m.sections[0].footer = nil
+            m.sections[0].rows[0] = Row(view: 10, custom: true, pressable: true)
+            m.sections[0].rows[1] = Row(view: 11, custom: true, pressable: true)
+            return m
+        }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 16.0, "y": 0.0, "w": 354.0, "h": 85.0],
+                           ["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 79.0]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let l = try list(p)
+        let a = try XCTUnwrap(try cell(p, 10) as? GroupedCell), b = try XCTUnwrap(try cell(p, 11) as? GroupedCell)
+        let pathA = try XCTUnwrap(l.collection.indexPath(for: a)), pathB = try XCTUnwrap(l.collection.indexPath(for: b))
+        XCTAssertEqual([a.height, b.height], [85, 79])
+        XCTAssertFalse(l.resized, "laid out")
+        // UIKit shows each cell for the other's row, then gives them back.
+        l.collectionView(l.collection, willDisplay: a, forItemAt: pathB)
+        l.collectionView(l.collection, willDisplay: b, forItemAt: pathA)
+        XCTAssertTrue(try XCTUnwrap(p.views[11]).superview === a.contentView)
+        XCTAssertEqual(a.height, 79, "the cell takes its new row's height")
+        XCTAssertFalse(l.resized, "which the layout already has")
+        l.collectionView(l.collection, willDisplay: a, forItemAt: pathA)
+        l.collectionView(l.collection, willDisplay: b, forItemAt: pathB)
+        XCTAssertFalse(l.resized)
+        // A row whose own height changes still lays the list out again.
+        p.apply(wireBatch([["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 120.0]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(try cell(p, 11).bounds.height, 120, accuracy: 0.5, "its row grew")
     }
 }
 #endif

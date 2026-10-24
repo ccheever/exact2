@@ -661,7 +661,14 @@ fn changing_only_the_rotation_axis_suppresses_anchoring() {
 #[cfg(not(windows))]
 #[test]
 fn input_that_only_moves_the_pending_model_completes_after_acknowledgement() {
-    for input in ["wheel", "command", "reader", "feed"] {
+    for (input, deferred) in [
+        ("wheel", None),
+        ("command", None),
+        ("reader", None),
+        ("feed", None),
+        ("wheel", Some(false)),
+        ("wheel", Some(true)),
+    ] {
         let mut source = source(false)
             .replace("  action fold", "  state footer = 0\n  state order = \"\"\n  action moved(x: number, y: number)\n    order = `${order}s${y};`\n  action ended\n    order = `${order}e;`\n  action fold")
             .replace("header = 0", "header = 0\n    footer = 248\n    order = \"\"")
@@ -675,6 +682,7 @@ fn input_that_only_moves_the_pending_model_completes_after_acknowledgement() {
         let rev = p.reader_under(200., 60., 1.)[5] as u32;
         fold(&mut p);
         assert_eq!(p.live_scroll_max(port), 848.);
+        p.set_deferred_collections(deferred.is_some());
         match input {
             "wheel" => p.wheel_at(200., 200., 0., 10.),
             "command" => {
@@ -687,14 +695,19 @@ fn input_that_only_moves_the_pending_model_completes_after_acknowledgement() {
         }
         assert_eq!(p.scroll_of(port).1, 648.);
         assert_eq!(p.collection_paint_scroll().unwrap()[&port].1, 610.);
+        if deferred == Some(false) {
+            assert!(p.run_deferred_collections());
+        }
         assert_eq!(p.clock(p.host.now() + 100.).1, None);
         let order = p.host.runner().slot("order").unwrap().as_str().unwrap();
-        assert!(!order.contains('e'), "input={input} order={order}");
+        assert_eq!(order, "", "input={input} deferred={deferred:?}");
         attach(&mut p);
         assert_eq!(p.scroll_of(port).1, 610.);
+        if deferred == Some(true) {
+            assert!(p.run_deferred_collections());
+        }
         assert_eq!(p.clock(p.host.now() + 100.).1, None);
         let order = p.host.runner().slot("order").unwrap().as_str().unwrap();
-        assert!(order.ends_with("s610;e;"), "input={input} order={order}");
-        assert_eq!(order.matches("e;").count(), 1);
+        assert_eq!(order, "s610;e;", "input={input} deferred={deferred:?}");
     }
 }

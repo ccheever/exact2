@@ -1,8 +1,14 @@
 // Agents: a messenger whose contacts are models. The sidebar lists conversations; a
 // conversation is one model at one thinking effort; New Conversation is a sheet that picks both.
 // app.ts keeps the conversations in a file and streams answers from service.ts, which holds
-// the OpenRouter key; the view polls while an answer streams.
+// the OpenRouter key; the view polls while an answer streams. "On this device" is the device's own
+// model (@exact/language-model, LLP 1133.016 §10), which app.ts prompts with no service at all.
 use EmptyState from "exact:content"
+use languageModelAvailability, createLanguageModel, LanguageModelAvailability, LanguageModelInfo, LanguageModelTool from "@exact/language-model"
+
+// What the on-device model's tool is given: the topic to look up in earlier conversations.
+shape ConversationQuery
+  query: string
 
 routes nav
   chats "/"
@@ -46,6 +52,8 @@ shape Bubble
   waiting: bool
   live: bool
   last: bool
+  searched: string
+  forgot: bool
 
 shape Snapshot
   revision: number
@@ -99,6 +107,14 @@ component Agents
   resource models = catalog(modelQuery, top(nav).name == "new") as shape Option[] else empty()
   derive streaming = data.rows.filter(r => r.streaming).length > 0
   derive canSend = draft.trim() != "" and not data.streaming and not pending(changed)
+  // The device's model: offered unless this device or platform can never run one.
+  resource device = languageModelAvailability() as shape LanguageModelAvailability else empty()
+  mutation fetched as shape LanguageModelInfo then afterFetch
+  derive deviceReason = match device.reason { case some(r) => r, case none => "" }
+  derive deviceOffered = not (device.availability == "unavailable" and (deviceReason == "device-not-eligible" or deviceReason == "not-supported"))
+  derive deviceReady = device.availability == "available"
+  derive deviceProgress = match device.progress { case some(p) => round(p * 100), case none => 0 }
+  derive deviceLine = deviceReady ? "Private and offline: nothing leaves this device." : deviceReason == "not-enabled" ? "Turn on Apple Intelligence in Settings to use this model." : deviceReason == "model-not-ready" ? "The on-device model isn’t ready yet." : device.availability == "downloading" ? `Downloading… ${deviceProgress}%` : device.availability == "downloadable" ? "Downloaded once, then it runs on this device." : "The on-device model isn’t available."
 
   task stream when streaming
     every(120, poll)
@@ -127,6 +143,19 @@ component Agents
     modelQuery = v
   action create
     send changed = command("new", "", `${newModel}|${newEffort}`, time.epochAtZero + performanceNow())
+  // A download is the person's act (LLP 1133.016 D5): this press creates the session that fetches the model,
+  // with the conversation tool where the platform runs tools (D9).
+  action download
+    if device.tools
+      send fetched = createLanguageModel(tools=[LanguageModelTool(name="findConversations", description="Finds the person’s earlier conversations about a topic, with their titles and an excerpt of each.", inputSchema="ConversationQuery")])
+    else
+      send fetched = createLanguageModel()
+  action afterFetch
+    match fetched
+      case some(f)
+        send changed = command("new", "", `device|none|${f.id}`, time.epochAtZero + performanceNow())
+      case none
+        tick = tick
   // A new conversation replaces the sheet with itself, beside the list.
   action afterChange
     match changed
@@ -199,11 +228,15 @@ component Agents
               text (data.found or pending(data) ? data.title : "Not Found") role="heading" aria-level=2 testId="chat-title"
               button popovertarget="model-menu" aria-label="Model" testId="model"
                 image "symbol:sf/cpu"
-              button popovertarget="effort-menu" aria-label="Thinking Effort" testId="effort"
-                image "symbol:sf/brain"
+              if data.model != "device"
+                button popovertarget="effort-menu" aria-label="Thinking Effort" testId="effort"
+                  image "symbol:sf/brain"
               button press=askDelete aria-label="Delete Conversation" testId="delete"
                 image "symbol:delete"
             column id="model-menu" popover="auto" role="menu" position="absolute" aria-label="Model"
+              if deviceOffered
+                button press=setModel("device") role="menuitemradio" aria-checked=(data.model == "device") disabled=(data.streaming or not deviceReady) popovertarget="model-menu" popovertargetaction="hide" testId="model-item-device"
+                  text "On this device"
               for o in models key=o.id
                 button press=setModel(o.id) role="menuitemradio" aria-checked=(data.model == o.id) disabled=data.streaming popovertarget="model-menu" popovertargetaction="hide" testId=`model-item-${o.id}`
                   text o.name
@@ -221,6 +254,12 @@ component Agents
                         text m.body padding="9px 14px" position="relative" overflow-wrap="anywhere" user-select="text" testId=`msg-${m.id}`
                   else
                     column gap=6 padding="8px 0 10px" max-width=760 width="100%" box-sizing="border-box"
+                      if m.forgot
+                        text "Earlier messages no longer fit in the on-device model’s memory" font="-exact-footnote" color="-exact-secondary-label" testId=`forgot-${m.id}`
+                      if m.searched != ""
+                        row gap=6 align-items="center"
+                          image "symbol:search" width=12 height=12 color="-exact-secondary-label"
+                          text m.searched font="-exact-footnote" color="-exact-secondary-label" testId=`searched-${m.id}`
                       if m.thought != ""
                         button press=toggleThought(m.id) buttonStyle="borderless" align-self="flex-start" testId=`thought-${m.id}`
                           image (opened.includes(m.id) ? "symbol:sf/chevron.down" : "symbol:forward-chevron")
@@ -273,7 +312,7 @@ component Agents
                   button appearance="none" press=sendDraft disabled=(not canSend) aria-label="Send" testId="send" class=Round
                     background-color="AccentColor" opacity=(canSend ? 1 : 0.35)
                     image "symbol:sf/arrow.up" width=14 height=14 color="-exact-background"
-              text (data.connected ? data.subtitle : "Can’t reach the Agents service. Start it with: bun service.ts")
+              text (data.connected or data.model == "device" ? data.subtitle : "Can’t reach the Agents service. Start it with: bun service.ts")
                 font="-exact-caption1" color="-exact-secondary-label" text-align="center" testId="composer-caption"
         if e.name == "new"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-form" position="absolute" inset=0 width="min(520px, 100vw)"
@@ -281,19 +320,31 @@ component Agents
               button id="back" press=back testId="new-cancel"
                 text "Cancel"
               text "New Conversation" role="heading"
-              button press=create buttonStyle="filled" disabled=pending(changed) testId="new-start"
+              button press=create buttonStyle="filled" disabled=(pending(changed) or (newModel == "device" and not deviceReady)) testId="new-start"
                 text "Start"
             list id="new-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              section
-                header
-                  text "Thinking"
-                row
-                  row role="radiogroup" aria-label="Thinking effort" flex=1
-                    for x in ["none", "low", "medium", "high", "xhigh"] key=x
-                      button role="radio" aria-checked=(newEffort == x) press=pickEffort(x) flex=1 testId=`new-effort-${x}`
-                        text (x == "none" ? "Off" : effortName(x))
-                footer
-                  text (newEffort == "none" ? "Answers right away, without reasoning first." : newEffort == "xhigh" ? "Thinks as long as it needs. Slowest, most thorough." : "How long the model reasons before it answers.")
+              if deviceOffered and modelQuery == ""
+                section
+                  button press=pickModel("device") role="radio" aria-checked=(newModel == "device") disabled=(device.availability == "unavailable") testId="model-device"
+                    column flex=1 min-width=0 gap=1
+                      text "On this device" line-clamp=1
+                      text deviceLine font="-exact-footnote" color="-exact-secondary-label" testId="device-line"
+                    if newModel == "device"
+                      image "symbol:checkmark" color="AccentColor"
+                  if newModel == "device" and device.availability == "downloadable"
+                    button press=download disabled=pending(fetched) testId="download"
+                      text "Download On-Device Model"
+              if newModel != "device"
+                section
+                  header
+                    text "Thinking"
+                  row
+                    row role="radiogroup" aria-label="Thinking effort" flex=1
+                      for x in ["none", "low", "medium", "high", "xhigh"] key=x
+                        button role="radio" aria-checked=(newEffort == x) press=pickEffort(x) flex=1 testId=`new-effort-${x}`
+                          text (x == "none" ? "Off" : effortName(x))
+                  footer
+                    text (newEffort == "none" ? "Answers right away, without reasoning first." : newEffort == "xhigh" ? "Thinks as long as it needs. Slowest, most thorough." : "How long the model reasons before it answers.")
               section
                 header
                   text "Model"

@@ -243,7 +243,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         uniform[31] *= self.environment.ambient_scale();
         crate::water::write(&mut uniform, frame, self.water_effects);
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
-        self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
+        self.prepare_cull(
+            frame,
+            cascades.as_ref(),
+            hooks.materials(),
+            H::ENABLED,
+            size,
+        );
         if frame.water.is_some() {
             let split = [self.depth_split()];
             let at = (crate::water::SPLIT * 4) as u64;

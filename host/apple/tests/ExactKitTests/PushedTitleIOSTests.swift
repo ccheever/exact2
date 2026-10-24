@@ -65,6 +65,11 @@ final class PushedTitleIOSTests: XCTestCase {
         return (session, tabs, nav)
     }
 
+    private func slots(_ session: ExactSession) -> [String: Any]? {
+        let value = try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))
+        return (value as? [String: Any])?["slots"] as? [String: Any]
+    }
+
     private func find(_ testId: String) -> NodeView? {
         session?.presenter.views.values.first { $0.props["testId"] == testId && $0.window != nil }
     }
@@ -111,7 +116,7 @@ final class PushedTitleIOSTests: XCTestCase {
             guard !view.isHidden, !found else { return }
             let a = alpha * view.alpha
             let inside = view.clipsToBounds ? clip.intersection(view.convert(view.bounds, to: window)) : clip
-            if let label = view as? UILabel, label.text == title, label.font.pointSize >= 26, a > 0.5 {
+            if let label = view as? UILabel, label.text == title.capitalized, label.font.pointSize >= 26, a > 0.5 {
                 let frame = label.convert(label.bounds, to: window), shown = frame.intersection(inside)
                 if frame.height > 1, !shown.isNull, shown.height >= frame.height / 2 { found = true }
             }
@@ -198,6 +203,20 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertTrue(long.large)
         XCTAssertEqual(long.scrolled, 0, accuracy: 0.5)
         XCTAssertEqual(long.below, 0, accuracy: 0.5)
+
+        // At its top under a collapsed title (a scroller replaced in place
+        // leaves one): the reselected tab opens it, as UIKit's status-bar
+        // tap goes on to the open title's inset.
+        try scroll("long-scroll", to: 300)
+        let sv = try XCTUnwrap(scroller.scroll)
+        sv.contentOffset.y = -sv.adjustedContentInset.top
+        settle()
+        XCTAssertFalse(try state(nav, "long", "long-scroll").large, "collapsed, at its top")
+        session.presenter.navigation.scrollToTop(route)
+        settle()
+        long = try state(nav, "long", "long-scroll")
+        XCTAssertEqual(long.bar, expanded, accuracy: 0.5, "the title open again")
+        XCTAssertTrue(long.large)
     }
 
     /// Pushed without UIKit's animation, as a context menu's commit pushes
@@ -212,6 +231,14 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertTrue(long.large)
         XCTAssertEqual(long.scrolled, 0, accuracy: 0.5)
         XCTAssertEqual(long.below, 0, accuracy: 0.5)
+    }
+
+    func testALevelOneRouteWithoutAnAuthoredScrollerArrivesExpanded() throws {
+        let (_, _, nav) = try fixture()
+        let (expanded, _) = try heights(nav)
+        try tap("home-open-edit-visual", in: nav, depth: 2)
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
+        XCTAssertTrue(largeTitleShows("edit"))
     }
 
     func testEveryKindOfLevelOneRouteArrivesExpandedAndALevelTwoRouteIsInline() throws {
@@ -362,6 +389,140 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertNotNil(find("swap-reason"), "the reason shows between the header and the scroller")
         XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "nothing collapses the title now, and it stays")
         XCTAssertTrue(largeTitleShows("swap"), "in sight, not left in the scroller below the reason")
+        // The reason goes: the scroller, the route's bottom-edge scroller all
+        // along and so inset by UIKit throughout, gets the bar back at its top.
+        try tap("swap-fail", in: nav, depth: 2)
+        XCTAssertNil(find("swap-reason"))
+        swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
+        XCTAssertEqual(swap.scrolled, 0, accuracy: 0.5, "back at its top, not scrolled by the bar's inset")
+        XCTAssertEqual(swap.bar, expanded, accuracy: 0.5, "the title stays open")
+        XCTAssertEqual(swap.below, 0, accuracy: 0.5, "its first line just below the title")
     }
+    func testAReasonAboveABottomScrollerDoesNotChangeItsPositionWhenRemoved() throws {
+        let (_, _, nav) = try fixture()
+        let (expanded, _) = try heights(nav)
+        try tap("home-open-swap", in: nav, depth: 2)
+        try tap("swap-fail", in: nav, depth: 2)
+        try tap("swap-fail", in: nav, depth: 2)
+        let swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
+        XCTAssertEqual(swap.scrolled, 0, accuracy: 0.5)
+        XCTAssertEqual(swap.bar, expanded, accuracy: 0.5)
+        XCTAssertTrue(swap.large)
+    }
+
+    func testReselectingATabOpensACollapsedTitleWhoseContentIsAlreadyAtTheTop() throws {
+        let (session, _, nav) = try fixture()
+        let (expanded, _) = try heights(nav)
+        try tap("home-open-long", in: nav, depth: 2)
+        try scroll("long-scroll", to: 300)
+        try tap("long-replace-short", in: nav, depth: 2)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        session.presenter.navigation.scrollsToTopAnimated = false
+        session.presenter.navigation.scrollToTop(route)
+        settle()
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
+        XCTAssertTrue(largeTitleShows("short"))
+    }
+
+    /// Baseline coverage: this drive also passes on the starting revision.
+    func testAgentDragsScrollAGroupedListAndPullItsTitleOpen() throws {
+        let (session, _, nav) = try fixture()
+        let (expanded, inline) = try heights(nav)
+        try tap("home-open-rows", in: nav, depth: 2)
+        let rows = try node("rows-scroll")
+        let agent = Agent(session: session)
+        let down = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, -300.0]])
+        XCTAssertNil(down["error"], "\(down)")
+        settle()
+        XCTAssertGreaterThan(try state(nav, "rows", "rows-scroll").scrolled, 200)
+        XCTAssertEqual(nav.navigationBar.frame.height, inline, accuracy: 0.5)
+        let up = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, 600.0]])
+        XCTAssertNil(up["error"], "\(up)")
+        settle()
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
+        XCTAssertEqual(try state(nav, "rows", "rows-scroll").scrolled, 0, accuracy: 0.5)
+    }
+
+    /// Header search focuses after its push and commits its final edit and blur
+    /// once before native Back removes the route (LLP 1035.001 D2).
+    func testHeaderSearchFocusesAfterPushAndCommitsBeforeBack() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "native search editing needs the hosted app responder lifecycle")
+        }
+        let (session, _, nav) = try fixture()
+        try tap("home-open-seek", in: nav, depth: 2)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController, "the header's search field is the item's search controller")
+        until("the bar's search field takes the autofocus") { search.searchBar.searchTextField.isFirstResponder }
+        XCTAssertTrue(search.isActive, "programmatic search focus activates its UIKit search controller")
+        until("the search field begins editing before Back") {
+            guard let state = slots(session) else { return false }
+            return state["searching"] as? Bool == true
+        }
+        search.searchBar.searchTextField.insertText("nonanimated")
+        until("typing reaches the search input action") {
+            guard let state = slots(session) else { return false }
+            return state["query"] as? String == "nonanimated"
+        }
+        try back(nav, depth: 1)
+        let state = try XCTUnwrap(slots(session), "the fixture exposes its runtime state")
+        XCTAssertEqual(state["searchBlurs"] as? Int, 1,
+                       "the completed pop blurs the search field while its node is live")
+        XCTAssertEqual(state["searchChanges"] as? Int, 1)
+        XCTAssertEqual(state["committedQuery"] as? String, "nonanimated")
+        XCTAssertEqual(state["query"] as? String, "nonanimated", "dismissal does not clear the typed input")
+        XCTAssertEqual(session.presenter.navigation.selectedKey, (nav.topViewController as? RouteController)?.key)
+        XCTAssertEqual((nav.topViewController as? RouteController)?.node.props["testId"], "route-home")
+        try tap("home-open-find", in: nav, depth: 2)
+        XCTAssertFalse(try XCTUnwrap(nav.topViewController?.navigationItem.searchController).searchBar.searchTextField.isFirstResponder,
+                       "a search field without autofocus waits for a tap")
+        try back(nav, depth: 1)
+        try tap("home-open-seek", in: nav, depth: 2)
+        let again = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+        until("search editing begins again") { again.searchBar.searchTextField.isFirstResponder }
+        again.searchBar.searchTextField.insertText("-animated")
+        nav.popViewController(animated: true)
+        until("the animated pop finishes") { rests(nav, 1) }
+        settle()
+        let after = try XCTUnwrap(slots(session), "the fixture exposes its runtime state")
+        XCTAssertEqual(after["searchBlurs"] as? Int, 2,
+                       "the animated pop delivers its live blur action once")
+        XCTAssertEqual(after["searchChanges"] as? Int, 2)
+        XCTAssertEqual(after["committedQuery"] as? String, "nonanimated-animated")
+    }
+
+    func testSearchBlurPreservesNewVisitsAndDismissesReplacedVisits() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "search blur navigation needs the hosted app responder lifecycle")
+        }
+        // Replacing a visit keeps it subject to Back; a new visit supersedes that pop
+        for (query, route, depth) in [("redirect", "route-find", 2), ("replace", "route-home", 1)] {
+            for animated in [false, true] {
+                let (session, _, nav) = try fixture()
+                defer { session.destroy(); window?.isHidden = true }
+                try tap("home-open-seek", in: nav, depth: 2)
+                let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+                until("the search takes focus") { search.searchBar.searchTextField.isFirstResponder }
+                search.searchBar.searchTextField.insertText(query)
+                until("the query arms navigation from the blur handler") {
+                    guard let state = slots(session) else { return false }
+                    return state["query"] as? String == query
+                }
+                nav.popViewController(animated: animated)
+                until("the blur handler preserves the intended visit") {
+                    rests(nav, depth) && !session.presenter.navigation.inTransition
+                        && session.presenter.navigation.selectedKey == (nav.topViewController as? RouteController)?.key
+                        && (nav.topViewController as? RouteController)?.node.props["testId"] == route
+                }
+                let state = try XCTUnwrap(slots(session), "the fixture exposes its runtime state")
+                XCTAssertEqual(nav.viewControllers.count, depth)
+                XCTAssertEqual((nav.topViewController as? RouteController)?.node.props["testId"], route)
+                XCTAssertEqual(session.presenter.navigation.selectedKey, (nav.topViewController as? RouteController)?.key)
+                XCTAssertEqual(state["searchBlurs"] as? Int, 1)
+                XCTAssertEqual(state["committedQuery"] as? String, query)
+            }
+        }
+    }
+
 }
+
 #endif

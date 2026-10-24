@@ -135,7 +135,7 @@ extension NodeView {
     /// AppKit's would be, in AppKit's colour at its own strength; where the
     /// node clips its box, inside the border.
     func showFieldFocus(_ on: Bool) {
-        let show = on && !disabled && !outlineNone && (!isNativeTextControl || textArea != nil)
+        let show = on && !disabled && !outlineNone && (!isNativeTextControl || textArea != nil || fieldGround != nil)
         let bordered = bordersItself
         // A textarea's scroll view covers the node's own border, so its ring
         // is a layer above the node's subviews instead.

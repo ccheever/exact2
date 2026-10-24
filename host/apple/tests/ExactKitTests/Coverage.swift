@@ -25,3 +25,22 @@ func fixturePlan(_ key: String) throws -> Data {
     }
     return try Data(contentsOf: URL(fileURLWithPath: path))
 }
+
+#if os(iOS)
+import UIKit
+
+/// Wait for the hosted test app's scene to connect before checking its prerequisites.
+func hostedWindowScene() -> UIWindowScene? {
+    MainActor.assumeIsolated {
+        func connected() -> UIWindowScene? {
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        }
+        guard Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil else { return connected() }
+        let deadline = Date().addingTimeInterval(5)
+        while connected() == nil, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return connected()
+    }
+}
+#endif

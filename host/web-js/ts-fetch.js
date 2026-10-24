@@ -10,7 +10,35 @@ import { tsGrantSet } from './admission-data.js';
 // captured when called and starts after its source returns, so a refused
 // one never starts; a module with none fetches at once, as before.
 export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';
+// `exactHeld` (LLP 1016.000 D9), with Hermes's words (js/src/prelude.js): the server may hold the reply. Each
+// fetch is counted on its answer, held (`call.held`) or not (`call.plain`), or as tied to no answer
+// (`answering.loose`); an answer with only held fetches out counts for no clock (held.js `counted`, whose
+// hooks the page's entry sets on `answering`, build.mjs).
 export function fetch(input, options) {
+  // Checked before any path, a mutation's captured fetch included (LLP 1016.000 D8).
+  if (options?.exactLongPoll !== undefined && options.exactStream === undefined)
+    return Promise.reject(new TypeError('exactLongPoll asks again for an answer that keeps coming: give exactStream too'));
+  const held = options?.exactHeld;
+  if (held !== undefined && held !== true && held !== false) return Promise.reject(new TypeError('exactHeld is true or false'));
+  if (held && options.exactStream !== undefined) return Promise.reject(new TypeError('exactHeld: a stream is never held; it stops counting at its first message'));
+  // A stream counts by its own rule (D5), never here.
+  if (options?.exactStream !== undefined) return fetchNow(input, options);
+  // An upload is never held: its file is read before it is sent (Request::is_held).
+  return counting(held && options.exactBodyFrom === undefined ? 'held' : 'plain', () => fetchNow(input, options));
+}
+/** Work an answer awaits that is no held fetch (a fetch, `crypto.subtle`, `native.later`, a kept key): counted on
+ * its answer (`call.plain`), so the answer is never held while it is out (LLP 1016.000 D9). */
+export const ordinary = start => counting('plain', start);
+globalThis.__exact_ordinary = ordinary; // for host modules ts-fetch.js does not reach (auth.js)
+function counting(kind, start) {
+  const call = answering.call;
+  const end = () => { if (call) { call[kind]--; if (kind === 'held') answering.heldReply(call); call.recount?.(); } else answering.loose(-1); };
+  if (call) { call[kind] = (call[kind] ?? 0) + 1; call.recount?.(); } else answering.loose(1);
+  let out;
+  try { out = start(); } catch (e) { end(); throw e; }
+  return Promise.resolve(out).finally(end);
+}
+function fetchNow(input, options) {
   if (overlaying.on) return Promise.reject(inOverlay('fetch()'));
   // A socket's mapper answering a frame makes no fetch (D7).
   if (answering.mapper) return Promise.reject(new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
@@ -90,7 +118,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, sockets: false, mapper: null };
+export const answering = { call: null, sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start) }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -152,6 +180,12 @@ Object.setPrototypeOf(DateTimeFormat, NativeFormat);
 // refuses them (host/web/module-glue.js), so no independent socket or origin
 // is reached past the grants.
 const noIo = api => function () { throw new Error(`${api} is unavailable in data sources`); };
+// `scheduler.yield()` (LLP 1141.001 D10): the browser's where it has one, else
+// a task posted on a MessageChannel, which no timer clamp delays. The page has
+// no turn budget; a yield here lets it paint and answer input mid-walk.
+const pageYield = globalThis.scheduler?.yield?.bind(globalThis.scheduler) ?? (typeof MessageChannel === 'function'
+  ? () => new Promise(resolve => { const { port1, port2 } = new MessageChannel(); port1.onmessage = () => { port1.close(); resolve(); }; port2.postMessage(null); })
+  : () => Promise.resolve());
 const guarded = {
   Date: GuardedDate, Math: GuardedMath,
   XMLHttpRequest: noIo('XMLHttpRequest'), WebSocket: noIo('WebSocket'), EventSource: noIo('EventSource'),
@@ -160,16 +194,20 @@ const guarded = {
   requestAnimationFrame: noTimers('requestAnimationFrame()'), requestIdleCallback: noTimers('requestIdleCallback()'),
   clearTimeout() {}, clearInterval() {}, cancelAnimationFrame() {}, cancelIdleCallback() {},
   performance: Object.freeze({ now: () => refuse('performance.now()') }),
+  scheduler: Object.freeze({
+    yield: () => overlaying.on ? Promise.reject(inOverlay('scheduler.yield()')) : pageYield(),
+    postTask() { throw new Error('scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()'); },
+  }),
   // The page's own, but no draw while an overlay runs.
   crypto: Object.freeze({ subtle: globalThis.crypto?.subtle && new Proxy(globalThis.crypto.subtle, { get(target, name) {
       const v = target[name];
-      return typeof v !== 'function' ? v : (...a) => overlaying.on ? Promise.reject(inOverlay(`crypto.subtle.${String(name)}()`)) : v.apply(target, a);
+      return typeof v !== 'function' ? v : (...a) => overlaying.on ? Promise.reject(inOverlay(`crypto.subtle.${String(name)}()`)) : ordinary(() => v.apply(target, a));
     } }),
     getRandomValues: a => { if (overlaying.on) throw inOverlay('crypto.getRandomValues()'); return globalThis.crypto.getRandomValues(a); },
     randomUUID: () => { if (overlaying.on) throw inOverlay('crypto.randomUUID()'); return globalThis.crypto.randomUUID(); } }),
 };
 export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame, requestIdleCallback, clearTimeout, clearInterval,
-  cancelAnimationFrame, cancelIdleCallback, performance, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
+  cancelAnimationFrame, cancelIdleCallback, performance, scheduler, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.

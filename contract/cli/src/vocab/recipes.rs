@@ -29,6 +29,7 @@ macro_rules! pattern {
 pub const RECIPES: &[(&str, &str)] = &[
     recipe!("after-a-write"),
     recipe!("app-json"),
+    recipe!("background-work"),
     recipe!("chat-thread"),
     recipe!("content-design"),
     recipe!("dates-and-days"),

@@ -6,11 +6,14 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, judge, ratio } from '../../scripts/agent-check.mjs';
 import { decodePng } from '../../scripts/png.mjs';
 import { serveBuildTree } from './serve.mjs';
+
+const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 // One view per finding class, each named by its testId; `fits`, `ellipsis`, `covered-card` (a card under a view drawn over
 // it), `blob` (a shape holding no text or control that shows) and `grouped` (a list, whose ground is the page's, whatever its role) are what
@@ -186,9 +189,9 @@ const built = (() => {
     if (!ready.has(name)) ready.set(name, (async () => {
       const dir = mkdtempSync(join(tmpdir(), `exact-check-${name}-`)), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
       writeFileSync(contract, source);
-      const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding: 'utf8' });
+      const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding: 'utf8' });
       if (compile.status !== 0) throw new Error(compile.stderr);
-      const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: new URL('../../', import.meta.url).pathname, encoding: 'utf8' });
+      const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8' });
       if (build.status !== 0) throw new Error(build.stderr);
       const server = createServer((request, response) => serveBuildTree(dist, request, response));
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

@@ -136,6 +136,7 @@ fn measure_request_and_fragment_paint_have_identical_metrics() {
     }];
     let exclusions = circle(120.);
     let request = TextMeasureRequest {
+        atoms: Default::default(),
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(&exact_kernel::StyleProps::default()),
         width: AxisOffer::Definite(250.),

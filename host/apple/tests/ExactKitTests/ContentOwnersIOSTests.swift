@@ -32,10 +32,10 @@ final class ContentOwnersIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
+    private func until(_ what: @autoclosure () -> String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
-        XCTAssertTrue(done(), what)
+        XCTAssertTrue(done(), what())
     }
 
     /// A fixture booted in a window of the test host's scene, `size` large:
@@ -92,7 +92,7 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// ordinary route's placement is.
     private func local(_ session: ExactSession, _ view: UIView) -> BlockPlacement? {
         let owner = session.presenter.navigation.container
-        return owner.map { BlockPlacement(rect: view.convert(view.bounds, to: $0), within: $0.id) }
+        return owner.map { BlockPlacement(rect: view.convert(view.bounds, to: $0), within: $0.id, contentOffset: .zero) }
     }
 
     /// Where a person sees `view`, in viewport points.
@@ -165,6 +165,30 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// route beside its panel, so neither reaches the card, and `frame`,
     /// both point reads and the intersection observer agree with the card's
     /// view.
+    func testANativeOwnerPublishesItsIntermediatePlacement() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "native owner motion requires a scene") }
+        let s = try fixture("owner-animation", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
+        let p = s.presenter, route = try node(s, "route-first")
+        let view = try XCTUnwrap(p.navigation.controllers[route.id]?.viewIfLoaded)
+        let owner = try XCTUnwrap(p.navigation.container)
+        p.owners.publish()
+        let start = try XCTUnwrap(p.owners.told[route.id]?.placement?.rect).minX
+        var finished = false
+        UIView.animate(withDuration: 0.8, delay: 0, options: [.curveLinear]) {
+            view.transform = CGAffineTransform(translationX: 160, y: 0)
+            p.owners.publish()
+        } completion: { _ in finished = true }
+        until("the owner publishes an intermediate position", 2) {
+            guard let x = p.owners.told[route.id]?.placement?.rect.minX else { return false }
+            return x > start + 30 && x < start + 120
+        }
+        let layer = try XCTUnwrap(view.layer.presentation()), destination = try XCTUnwrap(owner.layer.presentation())
+        let shown = layer.convert(layer.bounds, to: destination)
+        XCTAssertEqual(try XCTUnwrap(p.owners.told[route.id]?.placement?.rect).minX, shown.minX, accuracy: 3)
+        until("the owner finishes moving", 2) { finished }
+        until("the geometry clock stops", 2) { !FrameClock.shared.wants(p.nativeGeometry) }
+    }
+
     func testATabsRouteIsReadWhereUIKitShowsItUnderATurnedPanel() throws {
         let session = try fixture("owner-turned-tab", CGSize(width: 402, height: 874), plan: "EXACT_TAB_OWNER_PLAN")
         let p = session.presenter
@@ -390,30 +414,51 @@ final class ContentOwnersIOSTests: XCTestCase {
         }
         // The whole screen, so the window reaches the home indicator.
         let session = try fixture("owner-sheet-edge", scene.screen.bounds.size, plan: "EXACT_NAVIGATION_BARS_PLAN")
+        try assertSheetScrollerReachesItsBottom(session, opener: "start-open-form", route: "route-form", scroller: "form-scroll")
+    }
+
+    /// The same under a `viewport-fit="cover"` document, whose own route's
+    /// scroller keeps the cover (`reachBottom`): the document's insets are
+    /// not the sheet's, so a sheet's scroller still reaches the sheet's edge.
+    func testASheetsEdgeScrollerReachesItsBottomUnderACoverDocument() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene else {
+            throw missing("scene", "a sheet is presented, with its safe area, only in a scene's window")
+        }
+        let session = try fixture("owner-cover-sheet", scene.screen.bounds.size, plan: "EXACT_COVER_SCROLL_PLAN")
+        try assertSheetScrollerReachesItsBottom(session, opener: "open-picker", route: "route-picker", scroller: "picker-scroll")
+    }
+
+    private func assertSheetScrollerReachesItsBottom(_ session: ExactSession, opener: String, route routeID: String, scroller: String,
+                                                     file: StaticString = #filePath, line: UInt = #line) throws {
         let p = session.presenter
-        p.press(try node(session, "start-open-form").id)
+        p.press(try node(session, opener).id)
         until("UIKit has presented the sheet") {
             guard let sheet = self.host?.presentedViewController else { return false }
             return sheet.view.window != nil && !sheet.isBeingPresented && sheet.transitionCoordinator == nil
         }
-        let route = try node(session, "route-form")
-        let controller = try XCTUnwrap(p.navigation.controllers[route.id])
-        let sheetView = try XCTUnwrap(controller.view)
-        until("the sheet's route takes the sheet's size") { self.laidOut(session, route.id) == sheetView.bounds.size }
-        let form = try node(session, "form-scroll"), sv = try XCTUnwrap(form.scroll)
-        XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route")
+        let route = try node(session, routeID)
+        let controller = try XCTUnwrap(p.navigation.controllers[route.id], file: file, line: line)
+        let sheetView = try XCTUnwrap(controller.view, file: file, line: line)
+        // Layout crosses the host ABI as f32; compare UIKit's bounds at that precision.
+        until("the sheet's route takes the sheet's size: kernel \(String(describing: self.laidOut(session, route.id))), UIKit \(sheetView.bounds.size)") {
+            let size = CGSize(width: CGFloat(Float(sheetView.bounds.width)), height: CGFloat(Float(sheetView.bounds.height)))
+            return self.laidOut(session, route.id) == size
+        }
+        let form = try node(session, scroller), sv = try XCTUnwrap(form.scroll, file: file, line: line)
+        XCTAssertTrue(controller.edgeScroll === form, "the scroller ends the route", file: file, line: line)
         let bottom = { form.convert(form.bounds, to: sheetView).maxY }
         until("the scroller reaches the sheet's bottom edge, inset by the sheet's bottom safe area") {
             sheetView.safeAreaInsets.bottom > 0 && abs(bottom() - sheetView.bounds.maxY) < 0.5
                 && abs(sv.adjustedContentInset.bottom - sheetView.safeAreaInsets.bottom) < 0.5
         }
-        XCTAssertGreaterThan(sheetView.safeAreaInsets.bottom, 0, "the sheet has a bottom safe area")
-        XCTAssertEqual(bottom(), sheetView.bounds.maxY, accuracy: 0.5, "the scroller ends at the sheet's bottom edge")
-        XCTAssertEqual(sv.adjustedContentInset.bottom, sheetView.safeAreaInsets.bottom, accuracy: 0.5)
+        XCTAssertGreaterThan(sheetView.safeAreaInsets.bottom, 0, "the sheet has a bottom safe area", file: file, line: line)
+        XCTAssertEqual(bottom(), sheetView.bounds.maxY, accuracy: 0.5, "the scroller ends at the sheet's bottom edge", file: file, line: line)
+        XCTAssertEqual(sv.adjustedContentInset.bottom, sheetView.safeAreaInsets.bottom, accuracy: 0.5, "UIKit's inset alone", file: file, line: line)
         var view: UIView? = sv
         while let v = view, v !== sheetView {
             if v.clipsToBounds {
-                XCTAssertEqual(v.convert(v.bounds, to: sheetView).maxY, sheetView.bounds.maxY, accuracy: 0.5, "\(type(of: v)) clips at the sheet's edge")
+                XCTAssertEqual(v.convert(v.bounds, to: sheetView).maxY, sheetView.bounds.maxY, accuracy: 0.5, "\(type(of: v)) clips at the sheet's edge",
+                               file: file, line: line)
             }
             view = v.superview
         }
@@ -424,6 +469,9 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// slice in flight, as the blocks do, and so scrolls in the geometry the
     /// field is shown in, never in one about to change.
     func testASheetsEditorIsRevealedAfterItsBlocksLand() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture("owner-reveal", CGSize(width: 402, height: 874))
         let p = session.presenter
         p.press(try node(session, "sheet").id)
@@ -435,10 +483,12 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(field.field).becomeFirstResponder())
         p.collections.onFill?(try node(session, "route-sheet").id, Data())
         XCTAssertTrue(session.fillInFlight)
-        p.applyKeyboard(top: 600, duration: 0, curve: 0)
+        setKeyboard(p, top: 600)
         NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
         if session.fillInFlight { XCTAssertEqual(scroller.contentOffset.y, 0, "the reveal waits for the slice") }
-        until("the slice lands and the field is revealed") { !session.fillInFlight && scroller.contentOffset.y > 0 }
+        until("the slice lands and the field is revealed") {
+            !session.fillInFlight && scroller.contentOffset.y > 0 && scroller.bounds.contains(field.convert(field.bounds, to: scroller))
+        }
         let shown = field.convert(field.bounds, to: scroller)
         XCTAssertTrue(scroller.bounds.contains(shown), "the field is in its scroller's view: \(shown) in \(scroller.bounds)")
     }

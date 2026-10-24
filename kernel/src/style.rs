@@ -1131,24 +1131,6 @@ impl Overflow {
     }
 }
 
-fn overflow(v: Overflow) -> taffy::style::Overflow {
-    match v {
-        Overflow::Visible => taffy::style::Overflow::Visible,
-        Overflow::Hidden => taffy::style::Overflow::Hidden,
-        Overflow::Clip => taffy::style::Overflow::Clip,
-        Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
-    }
-}
-
-fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
-    match v {
-        GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
-        GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
-        GridAutoFlow::Dense | GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
-        GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
-    }
-}
-
 pub(crate) fn set_grid_dynamic(
     style: &mut StyleProps,
     id: StyleId,
@@ -1298,8 +1280,8 @@ impl StyleProps {
         };
         let x = self.overflow_x;
         s.overflow = taffy::geometry::Point {
-            x: overflow(x.computed(y)),
-            y: overflow(y.computed(x)),
+            x: engine::overflow(x.computed(y)),
+            y: engine::overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
 
@@ -1371,7 +1353,7 @@ impl StyleProps {
             height: length(cells::gap(env, self.row_gap, down)),
         };
 
-        s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
+        s.grid_auto_flow = engine::grid_auto_flow(self.grid_auto_flow);
         s.rare = engine::rare(self);
         s
     }
@@ -1474,6 +1456,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // A grouped list's card and cell margins, as the platform's list has them.
     crate::grouped::apply_margins(arena, slot, &mut s);
     crate::rows::apply_margins(arena, slot, &mut s);
+    crate::replaced::apply_zoom(arena, slot, &mut s);
+    if direction == Direction::Rtl {
+        sides::mirror_unsaid(arena.style(slot), &mut s);
+    }
     // @ref LLP 1115.002 D8.2 — the containing block a host gave the subtree.
     crate::kernel::apply_block(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely

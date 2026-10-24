@@ -181,6 +181,14 @@ extension CanvasesHost {
     func surfaceNames() -> [String] { Array(Set(entries.values.map(\.name))).sorted() }
     /// Whether posts to `name` still wait for a canvas of it.
     func waiting(_ name: String) -> Bool { pendingPosts.contains { $0.name == name } }
+    /// A sensor input's event (LLP 1133.013 D6) for the live canvas of surface
+    /// `name` with the lowest view id, stamped with its sample's time; false
+    /// when none is live. Not held: a sample with no canvas to take it is gone.
+    @discardableResult func sensor(_ name: String, _ event: [String: Any]) -> Bool {
+        guard let e = entries.values.filter({ $0.name == name && live($0.view.id) === $0 })
+                .min(by: { $0.view.id < $1.view.id }), let m = e.module else { return false }
+        return input(e, m, event)
+    }
     /// The refusal when the post is dropped (`postBound` already wait for the name), else nil.
     @discardableResult func post(_ name: String, _ text: String) -> String? {
         guard pendingPosts.filter({ $0.name == name }).count < CanvasesHost.postBound else {

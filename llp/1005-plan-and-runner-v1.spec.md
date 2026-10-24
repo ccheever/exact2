@@ -797,6 +797,38 @@ page's `window` `blur`). Tests: `KeyUpMacTests` (the chord, ⌘Enter and the
 Send button, Shift's release), `FieldCompositionIOSTests`, and
 `contract/cli/tests/it/keyup.rs`'s held-modifier reset.
 
+**`KeyboardEvent.isComposing`** (2026-10-24). The record gains the DOM's
+`isComposing` last: the key came between an input method's
+`compositionstart` and `compositionend` (UI Events), so a handler can skip
+the Enter that picks a candidate, as web code does (`not e.isComposing`).
+Chrome 156 reports it on every key during a composition: the Enter, a
+modifier's own press and release, and a ⌘ chord (CDP's
+`Input.imeSetComposition`, then the keys).
+
+- **ABI:** kinds 6, 43 and 44 take an optional fourth line, `true` or
+  `false` (`KeyboardEvent::parse`); a missing one is false, so a chord alone
+  and the three-line wire keep their meaning.
+- **Web** (`glue.js` and `document-glue.js` `keyChord`; the JS target's
+  `onKey`): `event.isComposing` as Chrome reports it.
+- **macOS and iOS** (`Presenter.composes`, `NodeView.composes`): true on a
+  modifier's own press or release while the field has marked text, the only
+  composing keys that reach handlers there (`passesComposition`). A ⌘ chord
+  is false, and so are the keys after it, ⌘'s own release included: its
+  keydown commits the composition before its handlers run (above), where
+  Chrome's chord and the keys after it arrive still composing.
+  On macOS 27.2, Korean 2-Set inserts each syllable into an AppKit text
+  field without marked text, a stock `NSTextField` included, so no key there
+  is composing and the Enter after a syllable reaches handlers, where
+  Chrome's is composing
+  (`issues/closed/20261025-macos-korean-composes-without-marked-text.md`).
+- **Linux, Windows, the terminal and Android:** false. No input method's
+  composition reaches their key handlers.
+
+Tests: `runner/src/runner/event/keyboard.rs`, `contract/cli/tests/it/keyup.rs`
+(a composer skipping the candidate's Enter), `KeyUpMacTests` (Shift released
+and ⌘ pressed during a composition), `FieldCompositionIOSTests`, and the web's
+`focus.test.mjs` (the wire) and `js-runtime.test.mjs` (the JS target's record).
+
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
 completed swipe. Move/cancel samples do not enter the runner.
@@ -818,6 +850,9 @@ It does not bubble. The root is the nearest ancestor CSS scroll container
 and requires CSS number syntax (digits after a decimal point or exponent).
 Percentages follow Chrome: root height for top/bottom, root width for left/right. The margin expands only the root;
 intervening clips still apply. This is geometric intersection, not occlusion or painted visibility.
+A placed native scrollport is also an observer root, including at offset zero.
+Fixed pane allocations keep their clips. Ancestors above an explicit observer
+root only map coordinates, as [Intersection Observer §3.2.7](https://w3c.github.io/IntersectionObserver/#compute-the-intersection) requires.
 
 The browser's IntersectionObserver with threshold 0 supplies initial delivery
 (including an offscreen node), then enter/leave. Edge contact may report true
@@ -826,7 +861,8 @@ change alone does not deliver. Removed nodes stop observing without a synthetic
 leave; a new mount gets a fresh initial delivery. Callback entries retain browser
 order within a root/margin observer; different observers have no ordering
 guarantee. Static rendering dispatches nothing.
-A changed nearest root restarts observation with a fresh initial delivery.
+A changed nearest authored root restarts observation with a fresh initial delivery.
+Native viewport geometry updates preserve the implicit-root observation.
 
 Host coverage: both web targets use the same browser adapter. AppKit, UIKit
 (including tvOS) and Linux use one runner sampler over laid-out frames and

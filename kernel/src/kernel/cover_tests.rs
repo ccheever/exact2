@@ -393,3 +393,105 @@ fn a_popover_after_the_scroller_leaves_it_the_bottom_edge() {
         "a popover again: the edge is the scroller's"
     );
 }
+
+/// A popover is laid out in the viewport, a block of its own (stage 14 B):
+/// its parent's cover neither offsets nor trims it, before or after the
+/// cover changes. A host places it.
+#[test]
+fn a_popover_is_out_of_its_parents_cover() {
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![];
+    for id in 1..=2 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+    }
+    ops.push(style(1, &[(StyleId::Height, StyleValue::Number(800.0))]));
+    ops.push(style(
+        2,
+        &[
+            (StyleId::Top, StyleValue::Number(0.0)),
+            (StyleId::Height, StyleValue::Number(40.0)),
+        ],
+    ));
+    ops.push(Op::SetProp {
+        id: 2,
+        prop: crate::PropId::Popover,
+        value: crate::props::PropValue::Str("auto".into()),
+    });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![2],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    for top in [50.0, 80.0] {
+        k.set_host_cover(1, Some(HostCover::Edges([top, 0.0, 0.0, 0.0])))
+            .unwrap();
+        k.compute_layout(1, Offer::definite(390.0, 800.0)).unwrap();
+        let frame = k.node(2).unwrap().frame;
+        assert_eq!(
+            (frame.y, frame.height),
+            (0.0, 40.0),
+            "under a {top}-point bar"
+        );
+        assert_eq!(k.host_block_size(2), Some((0.0, 40.0)));
+    }
+}
+
+#[test]
+fn measured_scroller_gutters_change_only_the_available_content_space() {
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::View,
+            },
+            style(
+                1,
+                &[
+                    (StyleId::Width, StyleValue::Number(300.0)),
+                    (StyleId::Height, StyleValue::Number(200.0)),
+                    (StyleId::OverflowX, StyleValue::Text("auto".into())),
+                    (StyleId::OverflowY, StyleValue::Text("auto".into())),
+                ],
+            ),
+            style(
+                2,
+                &[
+                    (StyleId::Width, StyleValue::Text("100%".into())),
+                    (StyleId::Height, StyleValue::Text("100%".into())),
+                ],
+            ),
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    for gutter in [[15.0, 0.0], [0.0, 15.0], [15.0, 15.0], [0.0, 0.0]] {
+        k.set_host_cover(1, Some(HostCover::Gutter(gutter)))
+            .unwrap();
+        k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+        assert_eq!(k.node(1).unwrap().frame.width, 300.0);
+        let child = k.node(2).unwrap().frame;
+        assert_eq!(
+            (child.width, child.height),
+            (300.0 - gutter[0], 200.0 - gutter[1])
+        );
+        assert!(!k.node(1).unwrap().style.mask.has(StyleId::PaddingRight));
+    }
+    assert!(k
+        .set_host_cover(1, Some(HostCover::Gutter([f32::NAN, 0.0])))
+        .is_err());
+}

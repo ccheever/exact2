@@ -52,7 +52,11 @@ impl Recorder {
                     continue;
                 }
             }
-            let optical = self.optical_size(&run.font, run.size);
+            let optical = if run.optical_sizing {
+                self.optical_size(&run.font, run.size)
+            } else {
+                None
+            };
             let font = self.font(&file, run.weight, &run.synthesis, optical, &run.variations);
             if self.blur > 0.0 {
                 self.ops.push(BLUR);

@@ -209,3 +209,75 @@ fn a_picture_with_text_waits_for_the_paint_thread_and_draws_with_its_fonts() {
     let inked = p.data().chunks(4).filter(|px| px[3] > 0).count();
     assert!(inked > 20 && inked < 40 * 20, "{inked} pixels inked");
 }
+
+/// A file past a cost limit (LLP 1011.001 D2): the decode is refused, so
+/// no picture is made and the view keeps its refusal; nothing is asked again.
+#[test]
+fn a_picture_past_a_cost_limit_is_refused_by_the_loader() {
+    let mut defs = String::from("<path id=\"l0\" d=\"M0 0");
+    defs += &"l1 1l1 -1".repeat(15);
+    defs += "\"/>";
+    for k in 1..=16 {
+        defs += &format!(
+            "<g id=\"l{k}\"><use href=\"#l{0}\"/><use href=\"#l{0}\"/></g>",
+            k - 1
+        );
+    }
+    let bomb: Arc<[u8]> = Arc::from(
+        format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"9\" height=\"9\"><defs>{defs}</defs><use href=\"#l16\"/></svg>")
+            .into_bytes(),
+    );
+    let assets = Assets::selected(
+        PathBuf::new(),
+        Arc::new(move |name| Ok((name == "bomb.svg").then(|| bomb.clone()))),
+    );
+    let k = kernel("bomb.svg", 64.0, 64.0, ObjectFit::Fill);
+    let mut images = Images::with_assets(assets);
+    images.sync_visible(&k, &k.roots(), 1.0, |_| true);
+    let started = Instant::now();
+    while images.views[&1].refusal.is_none() {
+        images.poll();
+        images.sync_visible(&k, &k.roots(), 1.0, |_| true);
+        assert!(started.elapsed() < WAIT, "never refused");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(images.views[&1].refusal, Some(Refusal::DecodeFailed));
+    assert!(!images.bitmaps.contains_key(&1));
+}
+
+/// tiny-skia panics on a path reaching past about ±2^31 device pixels; a
+/// file's coordinates, `viewBox` and `stroke-width` can reach that, and
+/// such a path is not drawn while the rest of the picture is.
+#[test]
+fn a_path_out_of_tiny_skias_reach_is_not_drawn() {
+    let file = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <clipPath id="c"><rect x="-1e10" y="-1e10" width="2e10" height="2e10"/></clipPath>
+      <rect x="-1e10" y="-1e10" width="2e10" height="2e10" fill="#f00"/>
+      <path d="M10 10 L50 10" stroke="#f00" stroke-width="1e10"/>
+      <rect width="30" height="30" clip-path="url(#c)" fill="#f00"/>
+      <svg x="-1e10" y="-1e10" width="2e10" height="2e10" overflow="hidden"><rect x="1e10" y="1e10" width="30" height="30" fill="#f00"/></svg>
+      <rect x="50" y="50" width="50" height="50" fill="#00f"/>
+    </svg>"##;
+    let loaded = exact_svg_file::load(file).unwrap();
+    let scene = loaded.scene(64.0, 64.0);
+    let pixels = exact_raster::PixelSize {
+        width: 64,
+        height: 64,
+    };
+    let drawn = super::svg_picture::paint(
+        crate::text::TextEngine::shared(),
+        &scene,
+        (64.0, 64.0),
+        1.0,
+        pixels,
+    )
+    .unwrap();
+    let at = |x: u32, y: u32| drawn.pixel(x, y).unwrap();
+    assert_eq!(
+        at(5, 5).alpha(),
+        0,
+        "the far rect, stroke, clip and viewport draw nothing"
+    );
+    let blue = at(50, 50);
+    assert_eq!((blue.red(), blue.blue(), blue.alpha()), (0, 255, 255));
+}

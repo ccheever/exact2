@@ -106,10 +106,8 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
     walk(runner, None, true).map(|(document, _)| document)
 }
 
-/// [`project`], for the JavaScript runtime to adopt: a bare `font-size`
-/// style's weight and leading are not written (LLP 1115.000 D12.2), as its
-/// template writes none, so none stays inline once it sees an ancestor's
-/// weight arrive.
+/// [`project`], with the JavaScript template's conditional text-style fills
+/// (LLP 1115.000 D12.2), so its static styles can become classes at adoption.
 pub fn project_for_js<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
     walk(runner, None, false).map(|(document, _)| document)
 }
@@ -129,6 +127,10 @@ pub(crate) fn project_keeping<D: DataSource>(
 /// holds without one ([`DocTree`], LLP 1048.004). One walk writes both, so
 /// the two documents differ only where the trees do.
 pub trait Source {
+    /// Whether CSS must resolve text-style fills after the document is adopted.
+    fn js_styles(&self) -> bool {
+        true
+    }
     /// The facts of node `id`, when it is live.
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>>;
     /// Its children, in order.
@@ -136,8 +138,8 @@ pub trait Source {
     /// The element an SVG reference from `from` names.
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
     /// `style`, node `id`'s, with the weight and leading a text style named
-    /// on it gives (LLP 1115.000 D12.2): a kernel's tree knows them, a
-    /// render's tree has them in its facts already.
+    /// on it gives the wasm host (LLP 1115.000 D12.2). JavaScript's fills
+    /// are written from the node's facts instead.
     fn with_style_rows<'s>(
         &self,
         _id: ViewId,
@@ -147,14 +149,16 @@ pub trait Source {
     }
 }
 
-/// A kernel's tree; `bare`: a bare `font-size` style's rows are written
-/// too ([`super::element::css_style_named`]).
+/// A kernel's tree; `bare`: the live wasm host's resolved text-style fills.
 struct KernelSource<'k> {
     kernel: &'k exact_kernel::Kernel,
     bare: bool,
 }
 
 impl Source for KernelSource<'_> {
+    fn js_styles(&self) -> bool {
+        !self.bare
+    }
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
         self.kernel.node(id).map(|n| n.facts())
     }
@@ -175,9 +179,7 @@ impl Source for KernelSource<'_> {
         style: Cow<'s, exact_kernel::StyleProps>,
     ) -> Cow<'s, exact_kernel::StyleProps> {
         match self.kernel.node(id) {
-            Some(node) if self.bare || node.names_text_style_through_font() => {
-                super::element::with_style_rows(style, &node)
-            }
+            Some(node) if self.bare => super::element::with_style_rows(style, &node),
             _ => style,
         }
     }
@@ -611,25 +613,38 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
-        if let Some(raw) = props.get("data-decoration-styles") {
-            let css = crate::css::decoration_styles(raw, &self.fonts);
-            props.insert("data-decoration-styles".into(), css);
+        // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+        for name in ["data-decoration-styles", "data-atom-styles"] {
+            if let Some(raw) = props.get(name) {
+                let css = crate::css::decoration_styles(raw, &self.fonts);
+                props.insert(name.into(), css);
+            }
         }
         super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
+        let mut text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
                 self.css
                     .entry(style as *const exact_kernel::StyleProps as usize)
-                    .or_insert_with(|| css::css_text(style, fonts).0)
+                    .or_insert_with(|| {
+                        if src.js_styles() {
+                            css::css_text_relative(style, fonts).0
+                        } else {
+                            css::css_text(style, fonts).0
+                        }
+                    })
                     .clone()
             }
+            Cow::Owned(style) if src.js_styles() => css::css_text_relative(&style, &self.fonts).0,
             Cow::Owned(style) => css::css_text(&style, &self.fonts).0,
         };
+        if src.js_styles() {
+            css::text_style::fills(&node, &mut text);
+        }
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
         let paint = self.isolation.get(&id).copied().unwrap_or_default();
@@ -1018,6 +1033,9 @@ impl<S: Source> Walk<'_, '_, S> {
             }
             let element = if link { "a" } else { "span" };
             let mut attrs = Vec::new();
+            if let Some(kind) = &piece.atom {
+                attrs.push(("data-exact-atom".to_owned(), Some(kind.clone())));
+            }
             if !style.is_empty() {
                 attrs.push(("style".to_owned(), Some(style)));
             }
@@ -1145,6 +1163,9 @@ struct Piece {
     href: String,
     /// A list item's indent, CSS px; "0" outside a list.
     indent: String,
+    /// An inline atom's kind: its label is drawn as text, marked
+    /// `data-exact-atom` for the page to draw again (LLP 1045.000 D6).
+    atom: Option<String>,
 }
 
 /// Read the host's own `markupPieces` back (`[[text, scale, weight, flags,
@@ -1174,6 +1195,22 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
         } else {
             "0".to_owned()
         };
+        // An inline atom's detail (LLP 1045.000 D6): its kind and source,
+        // marked so the page draws its pill when it adopts this one.
+        let mut atom = None;
+        if p.peek() == Some(b',') {
+            p.next();
+            p.expect(b'[')?;
+            let mut fields = Vec::new();
+            for n in 0..8 {
+                if n > 0 {
+                    p.expect(b',')?;
+                }
+                fields.push(if n < 6 { p.string()? } else { p.number()? });
+            }
+            p.expect(b']')?;
+            atom = Some(fields[0].clone());
+        }
         p.expect(b']')?;
         pieces.push(Piece {
             text,
@@ -1182,6 +1219,7 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
             flags,
             href,
             indent,
+            atom,
         });
         match p.next() {
             Some(b',') => continue,

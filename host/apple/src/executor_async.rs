@@ -645,7 +645,7 @@ impl Machine {
         if abort.signal().aborted() {
             return refuse(failed(FailureKind::Aborted, "native request aborted"));
         }
-        if let Some(why) = request.timeout_refusal() {
+        if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
             return refuse(failed(FailureKind::Refused, why));
         }
         let Some((transport, fetch)) = &self.transports[lane] else {
@@ -1103,6 +1103,7 @@ fn settle(state: &mut State, run: Run, outcome: Outcome) {
             stream: false,
             light: read,
             again: false,
+            reply: false,
         });
     }
     physical(state, run);

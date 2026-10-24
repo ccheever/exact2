@@ -268,6 +268,7 @@ pub(crate) fn reserve(
         let shown = arena.reservation_text(slot, value);
         let runs = [TextRun { text: shown, style }];
         let request = TextMeasureRequest {
+            atoms: arena.markup_atoms(slot),
             runs: &runs,
             paragraph: arena.paragraph(slot),
             width: AxisOffer::MaxContent,

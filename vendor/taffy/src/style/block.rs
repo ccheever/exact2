@@ -1,9 +1,15 @@
 //! Style types for Block layout
-use crate::style::AlignContent;
+use crate::style::{AlignContent, JustifyItems, JustifySelf};
 use crate::{CoreStyle, Style};
 
 /// The set of styles required for a Block layout container
 pub trait BlockContainerStyle: CoreStyle {
+    /// Default inline-axis alignment of the block's children.
+    #[inline(always)]
+    fn justify_items(&self) -> Option<JustifyItems> {
+        Style::<Self::CustomIdent>::DEFAULT.justify_items
+    }
+
     /// Defines which row in the grid the item should start and end at
     #[inline(always)]
     fn text_align(&self) -> TextAlign {
@@ -66,6 +72,12 @@ impl Multicol {
 
 /// The set of styles required for a Block layout item (child of a Block container)
 pub trait BlockItemStyle: CoreStyle {
+    /// Inline-axis alignment, falling back to the container's `justify-items`.
+    #[inline(always)]
+    fn justify_self(&self) -> Option<JustifySelf> {
+        Style::<Self::CustomIdent>::DEFAULT.justify_self
+    }
+
     /// Whether the item is a table. Table children are handled specially in block layout.
     #[inline(always)]
     fn is_table(&self) -> bool {

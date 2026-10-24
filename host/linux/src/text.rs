@@ -37,6 +37,7 @@ pub(crate) mod transfer;
 mod transfer_tests;
 use shaping::ShapedSource;
 mod ink;
+mod inline;
 pub(crate) mod markup;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
 pub(crate) use catalog::scaler_id;
@@ -78,6 +79,8 @@ pub struct Run {
     pub stretch: f32,
     /// CSS `font-variation-settings` (LLP 1019 D9).
     pub variations: exact_kernel::style::FontVariations,
+    /// CSS `font-optical-sizing: auto`: a face's `opsz` is the size.
+    pub optical_sizing: bool,
     /// Resolved logical length, or normal font metrics.
     pub line_height: Option<f32>,
     /// Points per glyph.
@@ -111,6 +114,7 @@ impl Clone for Run {
             italic: self.italic,
             stretch: self.stretch,
             variations: self.variations,
+            optical_sizing: self.optical_sizing,
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
@@ -136,6 +140,7 @@ impl Run {
             italic: style.font_style != exact_kernel::FontStyle::Normal,
             stretch: style.font_stretch,
             variations: style.font_variations,
+            optical_sizing: style.font_optical_sizing == exact_kernel::FontOpticalSizing::Auto,
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
@@ -539,6 +544,8 @@ pub struct GlyphRun {
     /// The run's `font-variation-settings`, set after `synthesis` and
     /// optical size, in the axes' own units (LLP 1019 D9).
     pub variations: exact_kernel::style::FontVariations,
+    /// Whether `opsz` is the size (`font-optical-sizing: auto`).
+    pub optical_sizing: bool,
     /// (glyph id, x, y) — y is the baseline.
     pub glyphs: Vec<(u32, f32, f32)>,
 }
@@ -1082,6 +1089,12 @@ impl TextEngine {
                         .runs
                         .get(run_index)
                         .map_or_else(Default::default, |r| r.variations),
+                    optical_sizing: paragraph
+                        .source
+                        .spec
+                        .runs
+                        .get(run_index)
+                        .is_none_or(|r| r.optical_sizing),
                     glyphs,
                 })
             })

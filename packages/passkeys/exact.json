@@ -1,0 +1,320 @@
+{
+  "kind": "interface",
+  "name": "@exact/passkeys",
+  "version": "1.0.0",
+  "grants": [
+    "auth.passkey"
+  ],
+  "groups": {
+    "credentials": [
+      "create",
+      "get"
+    ],
+    "PublicKeyCredential": {
+      "getClientCapabilities": "getClientCapabilities",
+      "isUserVerifyingPlatformAuthenticatorAvailable": {
+        "over": "getClientCapabilities",
+        "field": "userVerifyingPlatformAuthenticator"
+      },
+      "isConditionalMediationAvailable": {
+        "over": "getClientCapabilities",
+        "field": "conditionalGet"
+      },
+      "signalUnknownCredential": "signalUnknownCredential",
+      "signalAllAcceptedCredentials": "signalAllAcceptedCredentials",
+      "signalCurrentUserDetails": "signalCurrentUserDetails"
+    }
+  },
+  "shapes": {
+    "ClientCapabilities": {
+      "available": "bool",
+      "conditionalCreate": "option<bool>",
+      "conditionalGet": "option<bool>",
+      "hybridTransport": "option<bool>",
+      "passkeyPlatformAuthenticator": "option<bool>",
+      "userVerifyingPlatformAuthenticator": "option<bool>",
+      "relatedOrigins": "option<bool>",
+      "signalAllAcceptedCredentials": "option<bool>",
+      "signalCurrentUserDetails": "option<bool>",
+      "signalUnknownCredential": "option<bool>",
+      "preferImmediatelyAvailableCredentials": "option<bool>",
+      "extensions": "option<ClientCapabilityExtensions>",
+      "android": "option<AndroidPasskeyStatus>"
+    },
+    "ClientCapabilityExtensions": {
+      "prf": "option<bool>",
+      "largeBlob": "option<bool>",
+      "credProps": "option<bool>"
+    }
+  },
+  "names": [
+    {
+      "send": "create",
+      "request": true,
+      "contract": false,
+      "origin": "app",
+      "foreground": true,
+      "grants": {
+        "publicKey.rp.id": {
+          "line": "auth.passkey",
+          "matches": "target",
+          "refuse": "SecurityError",
+          "omitted": "page"
+        }
+      },
+      "options": {
+        "publicKey": "json<PublicKeyCredentialCreationOptionsJSON>",
+        "mediation": "option<enum<optional|conditional>>"
+      },
+      "answers": "json<RegistrationResponseJSON>",
+      "handles": {
+        "id": "credential"
+      },
+      "withhold": [
+        "clientExtensionResults.prf.results"
+      ],
+      "substitute": {
+        "ceremony": {
+          "ticket": "passkey",
+          "status": "getClientCapabilities",
+          "options": "publicKey",
+          "answer": {
+            "type": "public-key"
+          },
+          "cancel": {
+            "error": "NotAllowedError",
+            "apple": {
+              "code": "canceled"
+            },
+            "android": {
+              "type": "androidx.credentials.TYPE_CREATE_CREDENTIAL_CANCELLATION_EXCEPTION"
+            }
+          },
+          "choices": {
+            "excluded": {
+              "error": "InvalidStateError",
+              "apple": {
+                "code": "matchedExcludedCredential"
+              },
+              "android": {
+                "type": "androidx.credentials.TYPE_CREATE_PUBLIC_KEY_CREDENTIAL_DOM_EXCEPTION/androidx.credentials.TYPE_INVALID_STATE_ERROR"
+              }
+            }
+          },
+          "unless": [
+            {
+              "field": "available",
+              "is": false,
+              "error": "NotSupportedError"
+            },
+            {
+              "when": {
+                "mediation": "conditional"
+              },
+              "field": "conditionalCreate",
+              "is": false,
+              "error": "NotSupportedError"
+            }
+          ],
+          "clientOrigin": {
+            "web": "page",
+            "ios": "https://{rpId}",
+            "macos": "https://{rpId}"
+          }
+        }
+      }
+    },
+    {
+      "send": "get",
+      "request": true,
+      "contract": false,
+      "origin": "app",
+      "foreground": true,
+      "grants": {
+        "publicKey.rpId": {
+          "line": "auth.passkey",
+          "matches": "target",
+          "refuse": "SecurityError",
+          "omitted": "page"
+        }
+      },
+      "options": {
+        "publicKey": "json<PublicKeyCredentialRequestOptionsJSON>",
+        "mediation": "option<enum<optional|conditional>>",
+        "preferImmediatelyAvailableCredentials": "option<bool>"
+      },
+      "answers": "json<AuthenticationResponseJSON>",
+      "withhold": [
+        "clientExtensionResults.prf.results"
+      ],
+      "substitute": {
+        "ceremony": {
+          "ticket": "passkey",
+          "status": "getClientCapabilities",
+          "options": "publicKey",
+          "answer": {
+            "type": "public-key"
+          },
+          "cancel": {
+            "error": "NotAllowedError",
+            "apple": {
+              "code": "canceled"
+            },
+            "android": {
+              "type": "androidx.credentials.TYPE_GET_CREDENTIAL_CANCELLATION_EXCEPTION"
+            }
+          },
+          "choices": {
+            "none": {
+              "error": "NotAllowedError",
+              "apple": {
+                "code": "canceled"
+              },
+              "android": {
+                "type": "androidx.credentials.TYPE_NO_CREDENTIAL"
+              }
+            }
+          },
+          "unless": [
+            {
+              "field": "available",
+              "is": false,
+              "error": "NotSupportedError"
+            },
+            {
+              "when": {
+                "mediation": "conditional"
+              },
+              "field": "conditionalGet",
+              "is": false,
+              "error": "NotSupportedError"
+            },
+            {
+              "when": {
+                "preferImmediatelyAvailableCredentials": true
+              },
+              "field": "preferImmediatelyAvailableCredentials",
+              "is": false,
+              "error": "NotSupportedError"
+            }
+          ],
+          "clientOrigin": {
+            "web": "page",
+            "ios": "https://{rpId}",
+            "macos": "https://{rpId}"
+          }
+        }
+      }
+    },
+    {
+      "source": "getClientCapabilities",
+      "live": true,
+      "answers": "ClientCapabilities",
+      "sync": {
+        "name": "getClientCapabilitiesSync",
+        "from": "read"
+      },
+      "substitute": {
+        "partial": true,
+        "default": {
+          "available": true,
+          "conditionalCreate": true,
+          "conditionalGet": true,
+          "hybridTransport": true,
+          "passkeyPlatformAuthenticator": true,
+          "userVerifyingPlatformAuthenticator": true,
+          "relatedOrigins": true,
+          "signalAllAcceptedCredentials": true,
+          "signalCurrentUserDetails": true,
+          "signalUnknownCredential": true,
+          "preferImmediatelyAvailableCredentials": true,
+          "extensions": {
+            "prf": true,
+            "largeBlob": true,
+            "credProps": true
+          }
+        },
+        "targets": {
+          "macos": {
+            "available": false,
+            "conditionalGet": false
+          },
+          "android": {
+            "extensions": {
+              "prf": null
+            },
+            "android": {
+              "providerConfigured": true
+            }
+          },
+          "web": {
+            "preferImmediatelyAvailableCredentials": false
+          }
+        }
+      }
+    },
+    {
+      "send": "signalUnknownCredential",
+      "contract": false,
+      "origin": "app",
+      "grants": {
+        "rpId": {
+          "line": "auth.passkey",
+          "matches": "target",
+          "refuse": "SecurityError"
+        }
+      },
+      "options": {
+        "rpId": "string",
+        "credentialId": "string"
+      },
+      "answers": "unit",
+      "substitute": {
+        "records": true
+      }
+    },
+    {
+      "send": "signalAllAcceptedCredentials",
+      "contract": false,
+      "origin": "app",
+      "grants": {
+        "rpId": {
+          "line": "auth.passkey",
+          "matches": "target",
+          "refuse": "SecurityError"
+        }
+      },
+      "options": {
+        "rpId": "string",
+        "userId": "string",
+        "allAcceptedCredentialIds": "string[]"
+      },
+      "answers": "unit",
+      "substitute": {
+        "records": true
+      }
+    },
+    {
+      "send": "signalCurrentUserDetails",
+      "contract": false,
+      "origin": "app",
+      "grants": {
+        "rpId": {
+          "line": "auth.passkey",
+          "matches": "target",
+          "refuse": "SecurityError"
+        }
+      },
+      "options": {
+        "rpId": "string",
+        "userId": "string",
+        "name": "string",
+        "displayName": "string"
+      },
+      "answers": "unit",
+      "substitute": {
+        "records": true
+      }
+    }
+  ]
+}

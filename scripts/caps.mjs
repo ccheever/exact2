@@ -23,7 +23,8 @@ import { fileURLToPath } from 'node:url';
 const RULES_PATH = 'rules/RULES.md';
 const CODE_EXTENSIONS = new Set([
   '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.rs', '.go', '.py', '.rb', '.lean',
-  '.java', '.kt', '.swift', '.c', '.h', '.cc', '.cpp', '.hpp', '.cs', '.php',
+  '.java', '.kt', '.kts', '.swift', '.c', '.h', '.cc', '.cpp', '.hpp', '.m', '.mm', '.cs', '.php', '.sh', '.lua', '.gd',
+  '.metal', '.wgsl', '.contract', '.tamber',
 ]);
 const DEAD_STATUSES = new Set(['superseded', 'shelved', 'withdrawn', 'tombstoned', 'archived']);
 // Review artifacts and the overlay directories are not design documents. Counting

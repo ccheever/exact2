@@ -335,7 +335,7 @@ pub(crate) const FILE_WORDS: (&str, &str) = ("Choose File", "No file chosen");
 fn file_specs(node: &NodeRef<'_>, beside: &str) -> (crate::text::Spec, crate::text::Spec) {
     let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
     let mut button = style.clone();
-    button.font_weight = look::number(metric::CONTROL_WEIGHT) as u16;
+    button.font_weight = node.emboldened_weight(look::number(metric::CONTROL_WEIGHT) as u16);
     (
         super::text_spec(&button, FILE_WORDS.0),
         super::text_spec(&style, beside),

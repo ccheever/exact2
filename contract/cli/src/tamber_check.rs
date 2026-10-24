@@ -515,14 +515,14 @@ mod tests {
                 .unwrap();
             let linked = fingerprint(&dir, &inputs, &[]);
             assert_ne!(made, linked);
-            design(&dir, "two");
+            // Non-input files use length and mtime; change length even if mtime stays equal.
+            design(&dir, "2");
             let edited = fingerprint(&dir, &inputs, &[]);
             assert_ne!(linked, edited, "the link's target changed");
             // A linked directory is walked: a file in it is seen.
             let outside = app("print-outside", false);
             std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
             let with_link = fingerprint(&dir, &inputs, &[]);
-            std::thread::sleep(std::time::Duration::from_millis(10));
             std::fs::write(outside.join("app.tamber"), "tamber t\n\ntheme\n  one = 3\n").unwrap();
             assert_ne!(
                 with_link,

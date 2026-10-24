@@ -418,10 +418,11 @@ fn round_4_a_baseline_whose_references_copy_a_large_tree_is_refused_before_copyi
     use exact_tamber::export::reimport_against;
     let text = dtcg(&check(DESIGN, &vocab()).unwrap(), &vocab()).unwrap();
     let mut forged: Value = serde_json::from_str(&text).unwrap();
-    // Five levels of eight references to one token carrying 256 KiB: 8 GiB copied, unbudgeted.
-    for level in 0..5 {
-        let next = if level == 4 {
-            json!([{"x": {"$type": "number", "$value": 1, "$description": "d".repeat(256 << 10)}}])
+    // Six levels of eight references to one token carrying 4000 bytes (under the checker's
+    // 4096-byte bound on a string, so the budget is what refuses): 1 GiB copied, unbudgeted.
+    for level in 0..6 {
+        let next = if level == 5 {
+            json!([{"x": {"$type": "number", "$value": 1, "$description": "d".repeat(4000)}}])
         } else {
             json!(vec![json!({"$ref": format!("#/sets/l{}", level + 1)}); 8])
         };
@@ -443,6 +444,12 @@ fn round_4_a_baseline_whose_references_copy_a_large_tree_is_refused_before_copyi
         refused.iter().any(|d| d.message.contains("expands past")),
         "{refused:?}"
     );
+    // A string past the bound is refused before any reference is followed.
+    let mut long = forged.clone();
+    long["sets"]["l5"]["sources"][0]["x"]["$description"] = json!("d".repeat(256 << 10));
+    let refused =
+        reimport_against(&text, Some(&long.to_string()), &[], DESIGN, &vocab()).unwrap_err();
+    assert_eq!(refused[0].id, "tamber-value-size", "{refused:?}");
 }
 
 /// Judged whole (option B), a dial's change is known before its literal

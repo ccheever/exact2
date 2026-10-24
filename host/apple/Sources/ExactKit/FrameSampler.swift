@@ -66,6 +66,16 @@ final class FrameSampler: NSObject {
     private var dropped = 0, presented = 0, lateCount = 0, missed = 0, segments = 0
     private var pending: (first: UInt64?, last: UInt64?, batches: Int, apply: Double) = (nil, nil, 0, 0)
     private var observers: [NSObjectProtocol] = []
+    private var replyMain: [Double] = []
+    private var replyCount = 0, replyTotal = 0.0
+
+    /// Main-thread wall time submitting and presenting each executor pump.
+    /// A pump takes at most one outcome; wakes with no outcome count too.
+    func replyPump(main ms: Double) {
+        replyCount += 1; replyTotal += ms
+        replyMain.append(ms)
+        if replyMain.count > Self.ring { replyMain.removeFirst() }
+    }
     /// The main thread's turns against the frame they serve (`watchTurns`):
     /// the last target the link gave, when this turn began, the worst
     /// overrun since the last sample, and how many there were.
@@ -127,6 +137,7 @@ final class FrameSampler: NSObject {
         dropped = 0; presented = 0; lateCount = 0; missed = 0; segments = 0; overruns = 0; overrun = 0
         pending = (nil, nil, 0, 0)
         period = nil
+        replyMain = []; replyCount = 0; replyTotal = 0
     }
 
     func stop() {
@@ -226,6 +237,8 @@ final class FrameSampler: NSObject {
         let xs = records.map(\.interval).sorted()
         let q = { (f: Double) -> Any in xs.isEmpty ? NSNull() : xs[min(xs.count - 1, Int(f * Double(xs.count)))] }
         var out: [String: Any] = [
+            "replyPumps": ["count": replyCount, "mainTotalMs": replyTotal,
+                           "mainMs": replyMain, "includesEmptyWakes": true] as [String: Any],
             "period": ["ms": period.map { ($0 * 100).rounded() / 100 } ?? NSNull(), "source": "target"] as [String: Any],
             "covers": ["batches", "frame-source", "turns"],
             "lifetime": ["presented": presented, "late": lateCount, "missed": missed, "overruns": overruns, "segments": segments],

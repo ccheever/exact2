@@ -171,7 +171,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js', 'modules.js', 'samples.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
@@ -181,7 +181,7 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 // ts-data.js over a scripted store (the storage test below), written before
 // anything is imported from here: the loader reads this directory once.
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
-stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
+stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const appGrantSet = () => null; export const coversPath = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
 stub('admission-data.js', 'export const tsGrantSet = {};');
 stub('ts-fetch.js', "export const answering = { call: null }; export const files = { appId: null }; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
 stub('names.js', 'export const sourceTypes = {};');
@@ -191,7 +191,8 @@ stub('storage-fs.js', `const files = new Map(); export const createFileSystem = 
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
   writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
   readFile: async p => files.get(p) ?? '',
-  compressImage: async (from, to, o) => ({ path: to, type: o.type, size: o.maxBytes, width: o.maxDimension, height: 1 }) });`);
+  compressImage: async (from, to, o) => ({ path: to, type: o.type, size: o.maxBytes, width: o.maxDimension, height: 1, ...(o.rotate === undefined ? {} : { rotate: o.rotate }) }),
+  transformImage: async (from, to, o) => ({ path: to + '.jpg', options: o }) });`);
 stub('app.mjs', `export const appId = 'test';
   export function answer(source, [op, value], store, storage) {
     if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
@@ -208,6 +209,15 @@ stub('app.mjs', `export const appId = 'test';
       .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
     if (op === 'compress-png') return storage.fs.compressImage('app:/tmp/in.png', 'app:/tmp/out.png', { maxDimension: 8, maxBytes: 100, type: 'image/png' }).then(r => JSON.stringify(r));
     if (op === 'compress-bad-type') return storage.fs.compressImage('app:/tmp/in.png', 'app:/tmp/out.webp', { maxDimension: 8, maxBytes: 100, type: 'image/webp' })
+      .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
+    if (op === 'compress-edit') return storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', { maxDimension: 8, maxBytes: 100, rotate: 90 }).then(r => JSON.stringify(r));
+    if (op === 'transform') {
+      const options = { rotate: 90, crop: { x: 0, y: 0, width: 4, height: 4 }, metadata: 'no-location', unknown: true };
+      const done = storage.fs.transformImage('app:/tmp/in.jpg', 'app:/tmp/edit', options);
+      options.rotate = 0;
+      return done.then(r => JSON.stringify(r));
+    }
+    if (op === 'transform-bad') return storage.fs.transformImage('app:/tmp/in.jpg', 'app:/tmp/edit', { flip: 'both' })
       .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
     const codes = [];
     for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
@@ -755,6 +765,18 @@ test('a key handler stops and prevents its event while a view transition holds t
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });
 
+test('a key handler hears isComposing last in its KeyboardEvent record', async () => {
+  const { on, onKey } = await import(resolve(dir, 'rt.js'));
+  const listeners = [];
+  const el = { addEventListener: (type, f) => listeners.push([type, f]) };
+  const heard = [];
+  on(el, 'key', (_, record) => heard.push(record), onKey);
+  // Chrome's keydown for the Enter that commits a candidate: keyCode 229, isComposing.
+  for (const ev of [{ key: 'Enter', code: 'Enter', repeat: false, isComposing: true }, { key: 'Enter', code: 'Enter', repeat: false, isComposing: false }, { key: 'a' }])
+    for (const [type, f] of listeners) if (type === 'keydown') f({ shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...ev });
+  expect(heard.map(r => [r[0], r[7]])).toEqual([['Enter', true], ['Enter', false], ['a', false]]);
+});
+
 test('capture stop ends Exact key handlers but leaves Enter submission and the browser default available', async () => {
   const { on, onKey, onSubmit, Hosts } = await import(resolve(dir, 'rt.js'));
   const saved = globalThis.addEventListener, windowListeners = [];
@@ -1022,6 +1044,46 @@ test('notification clicks use the route location corpus, including canonical pat
   } finally { globalThis.Notification = previous; globalThis.focus = previousFocus; navigateTo(null); }
 });
 
+// LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.
+test('a command keeps the origin of the commit that queued it, whenever its tail runs', async () => {
+  const { commit, C, Hosts, Origin } = await import(resolve(dir, 'rt.js'));
+  let got = null;
+  Hosts.probe = Object.assign((from, x) => { got = [from, x]; }, { origin: true });
+  const was = Origin.now;
+  try {
+    commit(() => { Origin.now = () => 'device'; C('probe', [1]); Origin.now = () => 'app'; });
+    // This file's view transition holds every tree update: the tail, and its commands, run later.
+    expect(got).toBe(null);
+    globalThis.heldTail();
+    expect(got).toEqual(['device', 1]);
+  } finally { Origin.now = was; delete Hosts.probe; }
+});
+
+test('an emitted event\'s requests make data code the device\'s until they land; activation binds only a person\'s input', async () => {
+  const { clock, inflight, After, journal } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  const sub = { permission: { name: 'p', status: 'status', field: 'state', denied: 'NotAllowedError' }, admission: 'request' };
+  let context = null;
+  clock.agent = true;
+  modules({ ask: ['dev.ask', true, sub, ['?', 'n'], 'always', null, false] }, {}, {},
+    { 'dev.chime': [() => () => { inflight.n++; }, 'emit', 4, [], 'chimed'] });
+  const call = () => globalThis.exact.extensions.call({ extension: 'dev', send: 'ask', args: {} });
+  // A package's emit, through the bound context (the agent binds none: a stand-in context here).
+  globalThis.exact.extensions.raiseForTests?.('dev.chime');
+  await new Promise(r => setTimeout(r, 0));
+  expect(await Promise.race([call(), new Promise(r => setTimeout(() => r('held'), 30))])).toEqual({ error: 'NotAllowedError' });
+  inflight.n--; for (const f of After) f();
+  expect(await Promise.race([call(), new Promise(r => setTimeout(() => r('held'), 30))])).toBe('held');
+  clock.agent = false;
+  modules({ post: ['act.post', true, { effect: true }, 'u', 'never', null, false] }, { act: () => Promise.resolve({ implementation: c => { context = c; return { post: async () => null }; } }) });
+  await globalThis.exact.extensions.call({ extension: 'act', send: 'post', args: {} });
+  const target = { listeners: [], addEventListener(type, f) { this.listeners.push(type); } };
+  context.activation(target, 'pointermove', 'moved', []);
+  context.activation(target, 'click', 'opened', []);
+  expect(target.listeners).toEqual(['click']);
+  expect(journal.some(l => l.endsWith('act.moved: a pointermove is no person\'s activation; nothing is bound'))).toBe(true);
+});
+
 // LLP 1090: a string past MAX_STRING comes only from a data source, which the
 // JS target's Rust seam caps at 16 MiB a message, so conformance cannot carry
 // one (host/web-js/conformance/budget.contract); the runtime's checks are run
@@ -1085,6 +1147,13 @@ test('compressImage copies its options and refuses bad ones before the queue', a
   const badType = ask('compress-bad-type');
   expect(data.background().queued + data.background().inFlight).toBe(0);
   expect(await badType.promise).toBe('TypeError undefined storage.fs.compressImage(): type must be "image/jpeg" or "image/png"');
+  // LLP 1133.019 D14, D15: the edit and a transform's options, copied as checked.
+  expect(JSON.parse(await ask('compress-edit').promise)).toMatchObject({ rotate: 90, width: 8 });
+  expect(JSON.parse(await ask('transform').promise)).toEqual({ path: 'app:/tmp/edit.jpg',
+    options: { rotate: 90, crop: { x: 0, y: 0, width: 4, height: 4 }, metadata: 'no-location' } });
+  const badFlip = ask('transform-bad');
+  expect(data.background().queued + data.background().inFlight).toBe(0);
+  expect(await badFlip.promise).toBe('TypeError undefined storage.fs.transformImage(): flip must be "horizontal" or "vertical"');
 });
 
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {

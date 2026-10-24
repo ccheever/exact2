@@ -18,14 +18,13 @@
 //   the server's own writes are known by digest and announced once.
 //   - `POST /__tamber/subscribe`: a streamed response, one `data:` line an
 //     event.
-//   - `POST /__tamber/events` `{"after": n, "epoch": e, "wait"?: false}`:
-//     the events after `n` (the last 256 kept), answered once there is one
-//     or after 25 s with none (at once with `wait: false`): for a client whose `fetch` reads a body whole, as a JS-target
-//     data module's does. A number this run did not give, or one older than
-//     the events kept, is `missed`: no events, and the files to start from.
-//     Each answer has the held proposals' revision (`held`, tamber/1.12),
-//     and the proposals unless the request named that revision (`"held": r`
-//     with this run's epoch).
+//   - `POST /__tamber/events` `{"after": n, "epoch": e, "wait"?: false}`: the events after `n` (the last 256
+//     kept), answered once there is one or after 25 s with none (at once with `wait: false`), for a client whose
+//     `fetch` reads a body whole. A number this run did not give, or one older than the events kept, is
+//     `missed`: no events, and the files to start from. Each answer has the held proposals' revision (`held`,
+//     1.12), and the proposals unless the request named it (`"held": r` with this run's epoch). `GET
+//     /__tamber/events?after=<cursor>&epoch=&client=` (1.17, tamber-events-get.mjs) is the same read for a client
+//     re-asking by cursor (`exactLongPoll`; first `open=`, any answer's opaque `cursor`), a 204 after 25 s.
 // - The wire's own requests (LLP 1122 D9, D10), beside the server's:
 //   - `commit` `{client, message?}`: the files this session wrote, committed
 //     to git as scripts/tamber-commit.mjs guards it; never pushed.
@@ -90,9 +89,9 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
-import { buildChannel, navigateRequest } from './tamber-builds.mjs';
+import { buildChannel, navigateRequest, selectRequest } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, join, levelsUp, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
@@ -100,22 +99,22 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
-import { packageDesigns } from './tamber-package-designs.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { earlyAnswer, readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
+import { earlyAnswer, readBody, parseRequest as parse, tooDeep, upstream, viaDoor } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
 const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
-const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
+const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
 const GONE = 'this paired client was revoked or its token expired';
-export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'edit-held', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -206,14 +205,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     pruneSelections();
     while (lastSelection.size > 256) lastSelection.delete(lastSelection.keys().next().value);
   };
-  // A selection (LLP 1122 D5) joined to source: refused and asked again
-  // when it is from before the build's latest status; else published as a
-  // `selection`, and every copy of its node outlined.
-  // Source maps by plan digest (LLP 1122 T2c): each build's own plan's, as
-  // the dev loop gives it now (`sourceMap(digest)`; with none, the running
-  // generation's). A map can change under one plan digest (an edit that
-  // moves only source locations), so the dev loop is asked each time; its
-  // bytes are parsed once.
+  // A selection (LLP 1122 D5) joined to source: refused and asked again when it is from before the build's latest
+  // status; else published as a `selection`, and every copy of its node outlined. Source maps by plan digest (LLP
+  // 1122 T2c): each build's own plan's, as the dev loop gives it now (`sourceMap(digest)`; with none, the running
+  // generation's). A map can change under one plan digest (an edit that moves only source locations), so the dev loop
+  // is asked each time; its bytes are parsed once.
   const parsed = new WeakMap();
   const mapOf = (digest) => {
     let raw = null, map = null;
@@ -290,25 +286,26 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   });
   // Which clients are present (LLP 1122 D4's ownership): a client holding a
   // subscription that names it, or a long poll open or answered within the
-  // last 35 s (the poll's 25 s and some), as a client whose fetch reads a
-  // body whole holds the wire. A client no longer present loses its pins on
-  // every build. The same timer expires a polled build that stopped polling.
-  const presence = new Map(); // client -> { open, answered }
-  const PRESENT_MS = 35_000;
+  // last 35 s (the poll's 25 s and some; 90 s after a GET long poll's, which
+  // re-asks after a backoff), as a client whose fetch reads a body whole holds
+  // the wire. A client no longer present loses its pins on every build. The
+  // same timer expires a polled build that stopped polling.
+  const presence = new Map(); // client -> { open, answered, long }
+  const PRESENT_MS = TIMING.present;
   // A paired client revoked or expired is never present again (its streams'
   // closes come after); one past its deadline is gone before its end runs.
   const ended = new Set();
   const gone = client => ended.has(client) || (!!client?.startsWith(REMOTE) && !pairs.live(client));
-  const present = client => { const p = presence.get(client); return !gone(client) && !!p && (p.open > 0 || Date.now() - p.answered < PRESENT_MS); };
-  const attend = (client, delta, answered = false) => {
+  const present = client => { const p = presence.get(client); return !gone(client) && !!p && (p.open > 0 || Date.now() - p.answered < (p.long ? LONG_POLL_PRESENT_MS : PRESENT_MS)); };
+  const attend = (client, delta, answered = false, long = false) => {
     if (!client) return;
-    const p = presence.get(client) ?? { open: 0, answered: 0 };
+    const p = presence.get(client) ?? { open: 0, answered: 0, long: false };
     p.open += delta;
-    if (answered) p.answered = Date.now();
+    if (answered) { p.answered = Date.now(); p.long = long; }
     presence.set(client, p);
   };
   const absent = () => { pairs.expire(); channel.sweep(); scrubs.absent(present); for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
-  const absence = setInterval(absent, 5_000);
+  const absence = setInterval(absent, TIMING.sweep);
   absence.unref?.();
   /** Announce `files` (path → digest): the paths whose digest moved, and
    * any `gone`. */
@@ -396,13 +393,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     packaged(reply.ok.packages, baseline, reply.ok.watch); watchAll(Object.keys(reply.ok.files));
     learnParams(reply.ok.files);
   };
-  // The app's component params (LLP 1122 T3), read again when its files
-  // move: the join names a row's param by them, never by its IR token. A
-  // file change empties the map until the read answers (a row reading a
-  // param is read-only meanwhile, said so); a read that fails is tried
-  // again at the next change. A new plan (`plan`) reads them again too.
-  // While a new plan's read is out, the names stand but no alias is offered
-  // (one may have moved with a package's component).
+  // The app's component params (LLP 1122 T3), read again when its files move: the join names a row's param by them,
+  // never by its IR token. A file change empties the map until the read answers (a row reading a param is read-only
+  // meanwhile, said so); a read that fails is tried again at the next change. A new plan (`plan`) reads them again
+  // too. While a new plan's read is out, the names stand but no alias is offered (one may have moved with a package's
+  // component).
   const params = { key: null, plan: null, map: new Map(), reading: 0 };
   const learnParams = (files, plan = params.plan) => {
     const key = files ? JSON.stringify(Object.entries(files).sort()) : params.key;
@@ -523,8 +518,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // token, once.
     if (url.pathname === '/__tamber/pair') { await pairEndpoint(req, res, access); return true; }
     if (!wire) return false;
-    const who = req.method === 'POST' ? principalOf(req, access) : null;
-    if (!who) { if (req.method === 'POST' && wasRevoked(req)) json(res, 401, { error: { message: GONE } }); else notFound(res); return true; }
+    const get = req.method === 'GET' && url.pathname === '/__tamber/events', who = req.method === 'POST' || get ? principalOf(req, access) : null; // (the events' GET long poll, tamber/1.17: its query is its request)
+    if (!who) { if ((req.method === 'POST' || get) && wasRevoked(req)) json(res, 401, { error: { message: GONE } }); else notFound(res); return true; }
     const scope = who.scope;
     // The change stream's paths by the table too (scripts/tamber-pairing.mjs).
     const stream = url.pathname === '/__tamber' ? null : needs({ method: url.pathname.slice('/__tamber/'.length) });
@@ -540,7 +535,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (res.destroyed || res.writableEnded) return true;
     const text = await (early ?? body(req, res));
     if (text == null) { if (text === null) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
-    const request = parse(text);
+    const query = get ? eventsQuery(url) : null, request = get ? query.request : parse(text);
+    if (query?.error) { json(res, 400, { error: { message: query.error } }); return true; }
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
     if (request && tooDeep(request)) { json(res, 400, { error: { message: 'a request is nested at most 64 levels deep' } }); return true; }
@@ -582,7 +578,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // `{client}`: present while this poll is open, and for 35 s after.
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
       attend(client, 1);
-      try { return await longPoll(); } finally { attend(client, -1, true); }
+      try { return await longPoll(); } finally { attend(client, -1, true, get); }
     }
     async function longPoll() {
       const after = request?.after ?? seq;
@@ -594,7 +590,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // Missed: no events to apply, the files to start again from.
         // The held list, unless the client named its revision in this run (1.12).
         const has = request?.held === heldRevision && request?.epoch === epoch;
-        const body = namedPaths({ events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }) }, appDir);
+        const body = namedPaths({ events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }), cursor: cursorOf(seq, heldRevision), ...(get ? { asked: url.searchParams.get('after') ?? url.searchParams.get('open') } : {}) }, appDir); // (`asked`: the cursor it answers, so a client sees one skipped)
         if (!fits(Buffer.byteLength(JSON.stringify(body)))) return json(res, 503, { error: { message: 'too much is queued to slow readers: try again shortly' } }); else track(res);
         json(res, 200, who.local ? body : forRemote(body));
       };
@@ -604,7 +600,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (down && !events.some(e => e.seq > after)) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       if (down) { answer(); return true; }
       // `wait: false` (a client's first ask, for where to start) is answered at once.
-      if (request?.wait === false || events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch)) { answer(); return true; }
+      // (A GET with no cursor, where to start, at once too; and when the held list moved past its cursor's revision.)
+      const news = () => events.some(e => e.seq > after) || (get && request?.held !== undefined && request.held !== heldRevision);
+      if (request?.wait === false || (get && request.now) || news() || after > seq || (request?.epoch !== undefined && request.epoch !== epoch)) { answer(); return true; }
       await new Promise(ok => {
         // Revoked or expired: the poll is answered 401 at once.
         let unend = () => {}, done = false;
@@ -617,7 +615,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       });
       // Woken by its own client's end (revoke, expiry): told so, not answered.
       if (who.client && (ended.has(who.client) || !pairs.live(who.client))) { if (!res.writableEnded) json(res, 401, { error: { message: GONE } }); return true; }
-      if (!res.writableEnded && !res.destroyed) answer();
+      // Nothing in 25 s: a GET is told so with no body (a heartbeat, which it asks again), a POST as ever.
+      if (!res.writableEnded && !res.destroyed) { if (get && !news()) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); } else answer(); }
       return true;
     }
     if (!request || !METHODS.has(request.method)) {
@@ -737,6 +736,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
+    if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, scope, { expire, proposals, hold, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
     if (request.method === 'history') return history(request);
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
@@ -755,7 +755,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'drop') {
       const refused = needsClient(request);
       if (refused) return refused;
-      if (!proposals.has(request.proposal)) return { status: 404, error: { message: `no held proposal \`${request.proposal}\`` } };
+      if (!proposals.has(request.proposal) || proposals.get(request.proposal).busy) return { status: 404, error: { message: `no held proposal \`${request.proposal}\` (being edited, or gone)` } };
       forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
@@ -770,19 +770,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   /** `propose` through a dev loop whose pages write some tokens inline (the
-   * JS target, LLP 1121 stage 6): a `live` edit that moves one is `rebuild`
-   * there, since `class` is the serving loop's (LLP 1121 D13), so the tool
-   * says so before the gesture rather than failing a scrub. */
+   * JS target, LLP 1121 stage 6): its class is the serving loop's (D13), so the
+   * tool says so before the gesture rather than failing a scrub. */
   async function proposeHere(request) {
     const reply = await ask({ ...request, texts: true });
     if (!reply.ok) return reply;
-    const ok = { ...reply.ok };
-    if (ok.class === 'live' && ok.texts) {
-      const why = await scrub.inline(ok.texts).catch(() => null);
-      if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
-    }
+    const ok = await servedClass({ ...reply.ok });
     if (request.texts !== true) delete ok.texts;
     return { ...reply, ok };
+  }
+  async function servedClass(ok) { // A `live` edit the loop's pages can't apply in place (`scrub.inline`, or one it can't check) is `rebuild`; a held one too.
+    const why = scrub?.inline && ok.class === 'live' && ok.texts ? await scrub.inline(ok.texts).catch(e => `it could not be checked (${e?.message ?? e}): rebuild assumed`) : null;
+    if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
+    return ok;
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
@@ -792,6 +792,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * (`selections`), asking no build again, since a build's answer outlines
    * on the developer's screens. */
   function inspect(request, scope) {
+    // (tamber/1.16 `select`, tamber-builds.mjs: the sites n call sites up from the last selection, by its map; write, as `on` is.)
+    if (request.select !== undefined) return !allows(scope, 'write') ? refusal('inspect', scope, 'write') : selectRequest(channel, request, (id, up) => { const s = lastSelection.get(id), plan = channel.list().find(b => b.id === id)?.planDigest, map = plan ? mapOf(plan) : null; return map && Number.isSafeInteger(s?.site) ? { levels: levelsUp(map, s.site, up), plan, from: s.site, instance: s.instance ?? [] } : null; });
     if (!allows(scope, 'write')) {
       const build = request.build ?? null;
       if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
@@ -928,23 +930,22 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   let heldRevision = 0;
 
   const forget = (id, why) => { proposals.delete(id); heldRevision++; send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
-  const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) forget(id, { client: null, reason: 'expired' }); };
+  const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now() && !p.busy) forget(id, { client: null, reason: 'expired' }); };
   const expiry = setInterval(expire, 30_000);
   expiry.unref?.();
-  /** A proposal held again (an accept that did not apply it), announced,
-   * within the cap. */
+  /** A proposal held again (an accept that did not apply it), announced, within the cap. */
   const restore = (id, p) => {
-    if (p.expires <= Date.now()) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'expired' }); return; }
+    if (p.expires <= Date.now() || (proposals.size >= HELD && ![...proposals].some(([, q]) => !q.busy))) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: p.expires <= Date.now() ? 'expired' : 'too many held' }); return; } // (full of edits planning: not held again over the cap)
     // Its client ended while it was out being accepted: marked as held ones were.
     if (gone(p.client)) p.shown = { ...p.shown, revoked: true };
     proposals.set(id, p); heldRevision++;
-    while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
+    for (let o; proposals.size > HELD && (o = [...proposals].find(([k, q]) => k !== id && !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning, nor this one)
     send({ event: 'proposal', seq: ++seq, epoch, ...p.shown });
   };
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
-  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false) {
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false, editedBy = undefined) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -983,26 +984,27 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       }
     }
     // Its import cancelled while it was planned (an import's `signal`): decided in the same turn as the insert, nothing evicted.
-    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } };
-    delete planned.ok.texts;
+    await servedClass(planned.ok); // (before the cancellation guard: an import that left while it was checked holds nothing)
+    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } }; delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
     const size = Buffer.byteLength(JSON.stringify({ diff: planned.ok.diff, changed: planned.ok.changed, ops, review }));
-    if (size > 4 << 20 || size + [...proposals.values()].reduce((n, q) => n + (q.size ?? 0), 0) > 32 << 20) return /* a proposal at most 4 MiB, all held at most 32 MiB */ { status: 413, error: { message: 'the proposal is over 4 MiB, or the held ones together over 32 MiB: accept or drop some, or propose it in parts' } };
-    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
+    if (size > 4 << 20 || size + [...proposals].reduce((n, [k, q]) => n + (k === replaces ? 0 : q.size ?? 0), 0) > 32 << 20) return /* a proposal at most 4 MiB, all held at most 32 MiB */ { status: 413, error: { message: 'the proposal is over 4 MiB, or the held ones together over 32 MiB: accept or drop some, or propose it in parts' } };
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(editedBy ? { editedBy } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
     // At most 64 held. A client below `write` may not drop another's
     // (theme2's ruling (a)): at the cap its own oldest goes, and with none
     // of its own its hold is refused, decided here, in the same turn as the
     // insert. A `write` client's makes room by the oldest, as before.
-    if (proposals.size >= HELD && !allows(scope, 'write')) {
-      const own = [...proposals].find(([, p]) => p.client === client);
-      if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
+    const full = proposals.size - +proposals.has(replaces) >= HELD; if (full && ![...proposals].some(([k, q]) => k !== replaces && !q.busy)) return { status: 409, error: { message: `${HELD} proposals are held and each is being edited: try again shortly` } }; // (the one it replaces, held while an edit plans it, counts as gone)
+    if (full && !allows(scope, 'write')) {
+      const own = [...proposals].find(([k, p]) => k !== replaces && !p.busy && p.client === client);
+      if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none of this client's can go (none, or its own being edited): one must be accepted or dropped first` } };
       forget(own[0], { client, reason: 'too many held' });
     }
-    proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size, restoring }); heldRevision++;
-    while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
+    proposals.delete(replaces); proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size, restoring }); heldRevision++;
+    for (let o; proposals.size > HELD && (o = [...proposals].find(([k, q]) => k !== id && !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning, nor this one)
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
   }
@@ -1012,7 +1014,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   async function accept(request) {
     expire();
     const id = request.proposal, p = proposals.get(id);
-    if (!p) return { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or expired)` } };
+    if (!p || p.busy) return { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
     const items = request.items;
     if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) {
       return { status: 400, error: { message: `\`items\` lists indices of the proposal's ${p.ops.length} operations` } };
@@ -1053,7 +1055,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
       if (!p.reimport && review) { delete review.dials; delete review.pins; } // a client's own marks are not carried past its operations
-      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring); } catch (e) { restore(id, p); throw e; }
+      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring, p.shown.editedBy); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };
@@ -1308,10 +1310,10 @@ async function buildTool() {
  * and that server run's epoch. */
 export async function toolAnswers(origin = TOOL_ORIGIN, tries = 1) { // `{app, epoch}`, or null; a token probe that times out is tried again, `tries` in all (a loaded dev loop answers late), one refused never
   try {
-    let got; for (let i = 1; !got; i++) try { got = await fetch(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
+    let got; for (let i = 1; !got; i++) try { got = await upstream(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
     if (!got.ok) return { app: null };
     const { token } = await got.json();
-    const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
+    const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
     return { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null };
   } catch { return null; }
 }
@@ -1430,7 +1432,7 @@ export async function forward(req, res, url, access, target) {
     // A body within the server's own limit, read here (its bytes) before it is sent on; over it, answered 413 first.
     const bytes = await readBody(req, BODY_LIMIT, res, true); // a GET's or a HEAD's too (none is sent on), whatever its content-length
     if (bytes == null) { if (bytes === null && !res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
-    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: bytes }) });
+    const answer = await upstream(`${target}${url.pathname}${url.search}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: bytes }) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
     for await (const chunk of answer.body ?? []) {
       if (!res.write(chunk)) await new Promise(ok => {

@@ -56,3 +56,26 @@ fn a_literal_outside_the_two_words_is_refused() {
         .to_string();
     assert!(error.contains("wakelock"), "{error}");
 }
+
+#[test]
+fn test_steps_read_the_holder_record() {
+    let src = "test \"lock\"\n  expect wakelock held\n  expect wakelock released\n";
+    let tests = contract::tests(src).unwrap();
+    let json = contract::tests_json(&tests);
+    for want in [
+        r#"{"op":"expect-wakelock","held":true,"line":2}"#,
+        r#"{"op":"expect-wakelock","held":false,"line":3}"#,
+    ] {
+        assert!(json.contains(want), "{want}\n{json}");
+    }
+    for bad in ["on", "screen", "Held", "", "\"held\""] {
+        let error =
+            contract::tests(&format!("test \"lock\"\n  expect wakelock {bad}\n")).unwrap_err();
+        assert_eq!(error.id, "syntax-expected-step");
+        assert!(
+            error.message.contains("held") && error.message.contains("released"),
+            "{bad}: {error}"
+        );
+    }
+    assert!(contract::tests("test \"lock\"\n  expect wakelock held by \"box\"\n").is_err());
+}

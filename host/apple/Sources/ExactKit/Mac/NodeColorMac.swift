@@ -10,7 +10,7 @@ extension NodeView {
     /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
     var placeholderColor: NSColor? { cgColor("placeholder_color").flatMap { NSColor(cgColor: $0) } }
     /// A colour row as Core Graphics draws it (LLP 1100 D2).
-    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) } }
+    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) } }
 
     /// The node whose `accent-color` is this view's tint: the nearest at or
     /// above it whose accent is a colour (`auto`, or one naming the tint
@@ -64,7 +64,7 @@ extension NodeView {
     /// to do where it names none, or where the accent above is the node's
     /// it last resolved by and that node's accent did not change.
     func retint(changed: Bool = false) {
-        guard kind == "svg" || symbolView != nil || style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) else { return }
+        guard kind == "svg" || hasSymbolLeaf || style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) else { return }
         guard changed || accentNode.map(ObjectIdentifier.init) != tintSource else { return }
         if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
         reapplyColors()

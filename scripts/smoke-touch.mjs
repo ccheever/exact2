@@ -47,7 +47,7 @@ try {
     process.env.EXACT_SIM = ownedSim;
   }
   const device = chooseSimulator(process.env.EXACT_SIM);
-  if (device.type !== 'iPhone-17-Pro') throw Error(`ios-touch refuses ${device.name} (${device.type}): the Island hold and Lock Screen swipe points were measured on iPhone 17 Pro`);
+
   console.log(`ios-touch: ${device.name} ${device.udid}, ${device.runtime}`);
 if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
@@ -88,6 +88,34 @@ for (const timing of ['agent', 'platform']) {
     const y1 = await row();
     check(dragged.delivery === 'platform' && dragged.touch?.moved > 0 && y0 - y1 > 150, `${timing}: a real drag of 250 pt moved the stations ${y0 - y1} pt: ${JSON.stringify(dragged)}`);
     console.log(`${timing}: drag moved the stations ${y0 - y1} pt in ${dragged.touch?.moved} moves`);
+    const checkpoints = [];
+    const heldRow = async () => { const y = await row(); checkpoints.push(y); return y; };
+    const reversed = await s.tap('stations-screen', { drag: {
+      dx: 0, dy: 120, over: 300, hold: 500, during: [heldRow],
+      path: [{ dx: 0, dy: -120, over: 300, hold: 500, during: [heldRow] }],
+    } });
+    check(reversed.delivery === 'platform' && reversed.touch?.moved > 0 &&
+      Math.abs(reversed.touch?.travel?.[1]) < 2 && checkpoints.length === 2 && checkpoints[0] - checkpoints[1] > 70,
+      `${timing}: held reversal did not keep one touch and move back: ${JSON.stringify({reversed, checkpoints})}`);
+    console.log(`${timing}: held reversal checkpoints ${JSON.stringify(checkpoints)}, travel ${JSON.stringify(reversed.touch?.travel)}`);
+
+    const stationary = [];
+    const held = await s.tap('stations-screen', { drag: {
+      dx: 0, dy: -120, over: 300,
+      path: [{ dx: 0, dy: 0, hold: 500, during: [async () => {
+        await s.clock('+50 real');
+        stationary.push(await row());
+        await s.clock('+200 real');
+        stationary.push(await row());
+      }] }],
+    } });
+    const lifted = await row();
+    await s.clock('settle');
+    const rested = await row();
+    check(held.delivery === 'platform' && Math.abs(stationary[1] - stationary[0]) < 3 && Math.abs(rested - lifted) < 3,
+      `${timing}: a final stationary leg holds and releases at rest: ${JSON.stringify({stationary, lifted, rested})}`);
+    console.log(`${timing}: stationary hold ${JSON.stringify(stationary)}, release ${lifted} → ${rested}`);
+
     await s.type('station-search', 'Palo');
     await tap('station-paloalto');
     if (timing === 'platform') await s.clock('settle');
@@ -126,12 +154,10 @@ for (const timing of ['agent', 'platform']) {
       let was = 'false 0 0';
       for (const [target, want] of [['toggle', 'true 0 0'], ['toggle', 'false 0 0'], ['info', 'false 1 0'], ['open', 'false 1 1']]) {
         let r = await tap(target);
-        // Tap again, once, when nothing changed where UIKit drops the tap (QUEUE): the detail button left the window
-        // under the finger, as UIKit rebuilds it while it loads its accessibility, or the window had the switch's down
-        // only after the lift, the app busy or the system slow to deliver it. That forgives a stall of Exact's own as
-        // well, so the line printed says how late the down was. Any other lost tap fails below.
-        const dropped = target === 'info' && r.viewGone ? 'the detail button left the window under the finger'
-          : target === 'toggle' && r.downAfterLift ? `the window had the switch's down ${Math.round((r.touch.dispatched - r.touch.ended) * 1000)} ms after the lift` : null;
+        // A switch whose down reaches the window after the lift gets one retry;
+        // detail buttons must keep their control through the whole contact.
+        const dropped = target === 'toggle' && r.downAfterLift
+          ? `the window had the switch's down ${Math.round((r.touch.dispatched - r.touch.ended) * 1000)} ms after the lift` : null;
         if (dropped) {
           await s.clock('settle');
           if ((await facts()) === was) { console.log(`grouped: ${dropped}; tapped again`); r = await tap(target); }
@@ -141,10 +167,36 @@ for (const timing of ['agent', 'platform']) {
         const seen = await facts();
         check(seen === want, `grouped: after a real tap on ${target} the facts read ${seen}, not ${want} (landed ${JSON.stringify(r.landed)}${r.viewGone ? ', its view gone before the lift' : ''}${r.downAfterLift ? ', its down after the lift' : ''}, touch ${JSON.stringify(r.touch)})`);
       }
+      // Loading accessibility can replace a native list accessory under a held finger.
+      await s.tree(undefined, { ax: true });
+      for (let count = 2; count <= 9; count++) {
+        const r = await s.tap('info', { drag: { dx: 0, dy: 0, hold: 300 } });
+        await s.clock('settle');
+        const seen = await facts();
+        check(r.delivery === 'platform' && !r.viewGone && seen === `false ${count} 1`,
+          `grouped: held detail touch ${count} read ${seen}, viewGone=${!!r.viewGone}`);
+      }
       console.log('grouped: a real switch, detail button and row tap each landed on UIKit\'s cell');
     } catch (error) {
       check(false, `grouped: ${error.message}`);
     } finally { await s?.close(); }
+  }
+  // A command-only invoker remains activatable when UIKit hides its authored grouped row.
+  if (c.status === 0) for (const touch of ['agent', 'platform']) {
+    const s = await open({ host: 'ios', app: 'caltrain', plan, touch });
+    try {
+      await s.clock('settle');
+      const tap = await s.tap('delete-item');
+      await s.clock('settle');
+      const shown = (await s.state()).navigation?.popover;
+      check(shown?.kind === 'confirmation' && shown.phase === 'open', `grouped modal (${touch}): the command opened a confirmation: ${JSON.stringify(shown)}`);
+      await s.tap('remove-confirm');
+      await s.clock('settle');
+      const state = await s.state();
+      check(state.slots.removes === 1 && state.navigation.popover == null, `grouped modal (${touch}): confirm removes once and closes`);
+      console.log(`grouped modal (${touch}): ${tap.delivery}, removes ${state.slots.removes}`);
+    } catch (error) { check(false, `grouped modal (${touch}): ${error.message}`); }
+    finally { await s.close(); }
   }
 }
 
@@ -153,7 +205,8 @@ if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--widget-gallery', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
   if (built.status !== 0) throw Error('activity archive: the gallery build failed');
 }
-await archiveActivities(device.udid, check);
+if (device.type === 'iPhone-17-Pro') await archiveActivities(device.udid, check);
+else console.log(`activity archive: skipped on ${device.type}; Island and Lock Screen points require iPhone 17 Pro`);
 } catch (error) {
   check(false, error.message);
 } finally {

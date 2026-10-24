@@ -1452,7 +1452,7 @@ const serve = async (req, res) => {
   }
   // Negotiate the live envelope from current plan bytes (LLP 1023 D1–D2).
   // Resolve files and extensionless locations first (LLP 1038 D7).
-  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '');
+  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '', current?.files.get('app.plan'));
   const wantsEnvelope = url.pathname === '/exact.json'
     || (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {

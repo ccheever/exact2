@@ -89,8 +89,8 @@ extension NavigationHost {
             }
             return container
         }()
-        mount(holder, in: parent, at: p.root)
         tabOwner = holder
+        mount(holder, in: parent, at: p.root)
         tint(tabs.tablist)
         // Kept under the agent too, where the authored tablist shows in the
         // bar's place: a real touch refuses it (LLP 1080.000 D7).
@@ -104,11 +104,15 @@ extension NavigationHost {
 
     private func mount(_ holder: UIViewController, in parent: UIViewController, at root: NodeView) {
         parent.addChild(holder)
+        if holder.view.accessibilityIdentifier == nil {
+            holder.view.accessibilityIdentifier = "exact-navigation-\(UUID().uuidString)"
+        }
         // Sized before it enters the window, where UIKit lays it out.
-        holder.view.frame = root.bounds
+        holder.view.frame = ownerFrame(holder, in: root)
         holder.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         root.addSubview(holder.view)
         holder.view.setPaintForeground(aboveAuthored: false)
+        fitOwner()
         holder.didMove(toParent: parent)
     }
 
@@ -161,8 +165,8 @@ extension NavigationHost {
         container.view.removeFromSuperview()
         container.removeFromParent()
         tabController = nil
-        mount(owned, in: parent, at: root)
         tabOwner = owned
+        mount(owned, in: parent, at: root)
         presenter.session?.log("hatch: the app's \(type(of: owned)) holds the tabs; the content moved after the first frame")
     }
 
@@ -305,13 +309,25 @@ extension NavigationHost {
         tint(tabs.tablist)
     }
 
-    /// The tablist's `accent-color` tints the bar's selected item, as it
-    /// tints a control (recipes F20, shop F28); `auto` keeps the system's.
+    /// The selected tab's own tint, else the tablist's accent colour, tints
+    /// the bar's selected item; an inherited tab tint leaves that fallback.
     /// The row is inherited, as in CSS, and reaches the host only on the
     /// node that sets it: the nearest ancestor that does is read. Resolved
     /// per appearance, so dark mode follows.
     func tint(_ list: NodeView) {
         guard let bar = tabController?.tabBar else { return }
+        if let tabs = tabItemsSource?.0, tabs.tablist === list, tabs.tabs.indices.contains(routerTab) {
+            let selected = tabs.tabs[routerTab]
+            if selected.ownColor("tint_color") != nil,
+               let light = selected.channels("tint_color", dark: false), let dark = selected.channels("tint_color", dark: true) {
+                let wanted = [light, dark]
+                guard tabTint != wanted || !tabTintOwn else { return }
+                tabTint = wanted
+                tabTintOwn = true
+                bar.tintColor = UIColor { TextEngine.color($0.userInterfaceStyle == .dark ? dark : light) }
+                return
+            }
+        }
         var view: UIView? = list
         while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
         let source = view as? NodeView
@@ -321,14 +337,16 @@ extension NavigationHost {
         // an alert or a menu is already dimmed (`tintAdjustmentMode`), and
         // the bar would dim it a second time.
         if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint", let source, inheritsSameTint(bar, as: source) {
-            guard tabTint != [] else { return }
+            guard tabTint != [] || tabTintOwn else { return }
             tabTint = []
+            tabTintOwn = false
             bar.tintColor = nil
             return
         }
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
-        guard wanted != tabTint else { return }
+        guard wanted != tabTint || tabTintOwn else { return }
         tabTint = wanted
+        tabTintOwn = false
         // Never `.tintColor` in its place: that is the bar's own tint, this
         // colour, and a tablist whose accent went before the next sync (a
         // style that drops it) resolved it until the stack ran out. The
@@ -385,11 +403,14 @@ extension NavigationHost {
     /// UIKit's tab bar does not do this itself: a selected tab tapped again
     /// scrolls nothing in UIKit alone (iOS 27, a real touch).
     func scrollToTop(_ c: RouteController) {
-        guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
-        guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
+        guard let sv = contentScrollView(of: c) else { return }
+        let node = contentScroller(of: c)
+        // At its top under a collapsed title it goes on to the open title's
+        // inset, as UIKit's status-bar tap does, and opens it.
+        let inset = max(sv.adjustedContentInset.top, node != nil && node === c.collapseScroll ? node?.scrollOrigin ?? 0 : 0)
+        guard sv.contentOffset.y > 0.5 - inset else { return restAtTop(sv, in: c) }
         guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
-        let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
-        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
+        sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -inset), in: sv, clamped: false), animated: true)
     }
 
     /// Where `scrollToTop` ends, in one turn, under the agent's frozen clock,
@@ -401,7 +422,7 @@ extension NavigationHost {
     /// unanimated: no frame shows the pull. This is the one place Exact moves
     /// a large title itself.
     func restAtTop(_ sv: UIScrollView, in c: RouteController) {
-        sv.contentOffset.y = -sv.adjustedContentInset.top
+        sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false)
         // tvOS has no large titles.
         #if !os(tvOS)
         guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
@@ -412,11 +433,11 @@ extension NavigationHost {
             // UIKit grows the inset by what the pull opened of it.
             for _ in 0..<4 {
                 let top = sv.adjustedContentInset.top
-                sv.contentOffset.y = -top - nav.navigationBar.frame.height
+                sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -top - nav.navigationBar.frame.height), in: sv, clamped: false)
                 nav.view.layoutIfNeeded()
                 if sv.adjustedContentInset.top <= top + 0.5 { break }
             }
-            sv.contentOffset.y = -sv.adjustedContentInset.top
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false)
         }
         #endif
     }
@@ -453,6 +474,7 @@ extension NavigationHost {
         tabItems = []
         tabItemsSource = nil
         tabTint = nil
+        tabTintOwn = false
         adoptedTablist = nil
         tablistAppearanceNone = false
         measuredTablist = nil

@@ -534,7 +534,7 @@ fn a_bound_module_answers_through_the_native_slot() {
         };
         reply.send(exact_runner::Outcome::Response(exact_runner::Response { status: 200, headers: Vec::new(), body: answer.to_string().into_bytes() }));
     })));
-    r.bind_extensions(&["geolocation"]);
+    r.bind_extensions(&["geolocation"], &[]);
     r.apply_announced();
     let pump = |r: &mut exact_runner::Runner<NoData>| {
         for out in r.take_requests() {
@@ -612,7 +612,7 @@ fn a_synchronous_form_answers_from_the_substitute_until_its_module_is_bound() {
     );
     // Anything else is the host's module's own call.
     assert_eq!(now(r#"{"op":"level"}"#), r#"{"state":"module"}"#);
-    r.bind_extensions(&["geolocation"]);
+    r.bind_extensions(&["geolocation"], &[]);
     assert_eq!(now(status), r#"{"state":"module"}"#);
 }
 

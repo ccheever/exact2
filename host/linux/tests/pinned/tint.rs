@@ -35,7 +35,8 @@ fn raster_tint_matches_chrome_in_both_painters() {
 
 /// LLP 1095 D8: an untinted symbol is `AccentColor`, here its fallback pair
 /// (`#0088ff`, iOS 27's measured tint: LLP 1115.000 D3.2; no report on
-/// Linux), not the text colour; a tint row wins.
+/// Linux), not the text colour; a written `color` wins, which lowering
+/// gives the symbol as the tint row `currentcolor`.
 #[test]
 fn an_untinted_symbol_paints_the_accent_fallback() {
     crate::pin_font();
@@ -44,7 +45,7 @@ fn an_untinted_symbol_paints_the_accent_fallback() {
   view
     column width=100 height=100 background-color="#ffffff" color="#000000"
       image "symbol:play-fill" testId="plain" width=48 height=48 font-size=48
-      image "symbol:play-fill" testId="red" width=48 height=48 font-size=48 -exact-tint-color="#ff0000"
+      image "symbol:play-fill" testId="red" width=48 height=48 font-size=48 color="#ff0000"
 "##,
     )
     .unwrap();

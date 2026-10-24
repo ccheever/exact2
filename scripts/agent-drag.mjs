@@ -1,7 +1,7 @@
 // `tap <target> drag …` (LLP 1080.000 §11), the driver's half: validation,
 // the viewport, and the route to the touch runner (`host/apple/touches.mjs`)
 // or to the carrier's own contact phases. `agent.mjs` calls it from `tap`.
-import { MalformedOperation, pointerArguments, tapWords } from './agent-keys.mjs';
+import { MalformedOperation, pointerArguments, tapWords, inputJSON } from './agent-keys.mjs';
 import { DRAG_BOUNDS, REACH_MS } from '../host/apple/touches.mjs';
 import { layoutArgs, perfOp } from './agent-inspect.mjs';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -61,15 +61,58 @@ const still = (r, target) => (Array.isArray(r.scrolledBy) && r.scrolledBy.every(
   ? [`nothing scrolled: the scroller is at the end of its range, or its content fits it; if it should scroll, \`layout ${target}\` shows its height, and one as tall as its content is in a column that grows with it (\`min-height=0\` on that column, the compiler's \`lower-scroll-grows\`)`]
   : []);
 
-export function dragArguments(opts) {
+function dragLeg(opts) {
   const { dx, dy, from, press = 0, over = 250, hold = 0 } = opts, drag = { press, over, hold };
   if (![...(opts.to === undefined ? [dx, dy] : []), press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new MalformedOperation('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
   if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new MalformedOperation('drag: from takes two finite numbers, an offset from the target\'s box');
   const moves = opts.to === undefined && (dx !== 0 || dy !== 0);
   if (moves && over <= 0) throw new MalformedOperation('drag: a drag that moves needs over > 0');
   for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new MalformedOperation(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
-  if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new MalformedOperation(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
+
   if (opts.at !== undefined && !(Array.isArray(opts.at) && opts.at.length === 2 && opts.at.every(Number.isFinite))) throw new MalformedOperation('drag to: at takes two finite numbers, an offset from the target\'s box');
+}
+
+export const dragLegs = (opts) => [opts, ...(opts.path ?? [])].map(({ dx, dy, press = 0, over = 250, hold = 0, during = [] }) => ({ dx, dy, press, over, hold, during }));
+export function dragArguments(opts) {
+  if (opts.path !== undefined && (!Array.isArray(opts.path) || !opts.path.length || opts.path.length > 7 || opts.to !== undefined)) throw new MalformedOperation('drag: path is one to seven further legs, each with dx, dy, over, hold and during; drag to takes no path');
+  dragLeg(opts);
+  for (const leg of opts.path ?? []) {
+    if (!leg || typeof leg !== 'object' || Object.keys(leg).some(k => !['dx', 'dy', 'over', 'hold', 'during'].includes(k))) throw new MalformedOperation('drag: a further leg takes dx, dy, over, hold and during');
+    dragLeg(leg);
+  }
+  for (const leg of dragLegs(opts)) if (!Array.isArray(leg.during) || leg.during.some(op => typeof op !== 'function')) throw new MalformedOperation('drag: during is an array of read functions');
+  if (dragLegs(opts).reduce((sum, l) => sum + (l.dx || l.dy ? l.over : 0), 0) > DRAG_BOUNDS.over) throw new MalformedOperation(`drag: path travel lasts past ${DRAG_BOUNDS.over} ms`);
+  const total = dragLegs(opts).reduce((sum, l) => sum + l.press + l.hold + (l.dx || l.dy ? l.over : 0), 0);
+  if (total > DRAG_BOUNDS.total) throw new MalformedOperation(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
+}
+
+/** Parse the drag portion of one CLI operation; quoted reads belong to the preceding leg. */
+export function parseDrag(s, text) {
+  const words = text.match(/"(?:[^"\\]|\\.)*"|[^\s]+/g) ?? [];
+  const drag = words[0] === 'to' ? { to: words[1] } : { dx: Number(words[0]), dy: Number(words[1]) };
+  let leg = drag;
+  for (let i = 2; i < words.length;) {
+    const key = words[i++];
+    if (key === 'then') {
+      leg = { dx: Number(words[i++]), dy: Number(words[i++]) };
+      (drag.path ??= []).push(leg);
+    } else if (['over', 'hold'].includes(key) || key === 'press' && leg === drag) leg[key] = Number(words[i++]);
+    else if (key === 'from' && leg === drag || key === 'at' && drag.to !== undefined) drag[key] = [Number(words[i++]), Number(words[i++])];
+    else if (key === 'mouse' && leg === drag) drag.mouse = true;
+    else if (key === 'modifiers' && leg === drag) drag.modifiers = words[i++];
+    else if (key === 'during') {
+      const ops = [];
+      while (words[i]?.startsWith('"')) {
+        const op = inputJSON(words[i++]);
+        if (!duringAllowed(op)) throw new MalformedOperation(`tap … drag … during: ${JSON.stringify(op)} is not a read or the clock`);
+        ops.push(() => duringOp(s, op));
+      }
+      if (!ops.length) throw new MalformedOperation('tap … drag … during: each read must be quoted');
+      leg.during = ops;
+    } else throw new MalformedOperation(`tap … drag: unknown option ${key}; from x y, press ms, over ms, hold ms, during "op", then dx dy`);
+  }
+  dragArguments(drag);
+  return drag;
 }
 
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
@@ -86,15 +129,25 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   // `mouse` (files diary F10): the left button, where the carrier's contact
   // is otherwise a finger (the web's); a desktop host's contact is the mouse.
   if (mouse && (carrier.touches || ['ios', 'host-ios'].includes(host))) throw new Error('drag: mouse is a desktop pointer\'s; an iOS contact is a finger');
-  const moves = dx !== 0 || dy !== 0;
+  const legs = dragLegs(opts);
+  if (opts.path && !carrier.touches) throw new Error('drag: a scripted path needs the iOS touch runner (--touch platform)');
+  const moves = legs.some(l => l.dx !== 0 || l.dy !== 0);
   // The touch runner lifts at the end of its scripted hold, and its ops start after the press and the move: without a hold they would find the finger lifted.
-  if (carrier.touches && during.length && !(hold > 0)) throw new Error('drag: under --touch platform, during runs after the press and the move, inside the scripted hold: give hold <ms>, the time the ops run in');
+  if (carrier.touches && legs.some(l => l.during.length && !(l.hold > 0))) throw new Error('drag: under --touch platform, during runs after the press and the move, inside the scripted hold: give hold <ms>, the time the ops run in');
   if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
   const layout = await s.layout(), b = layout.nodes.find((n) => n.id === node.id), vp = layout.viewport;
   const mark = await journalMark(s);
   if (!b) throw new Error(`view ${node.id} has no box on screen`);
   const start = from ? [b.x + from[0], b.y + from[1]] : [b.x + b.w / 2, b.y + b.h / 2], end = [start[0] + dx, start[1] + dy];
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
+  if (opts.path) {
+    let point = [...start];
+    for (const leg of legs) {
+      point = [point[0] + leg.dx, point[1] + leg.dy];
+      if (!inside(point)) throw new Error(`drag: path waypoint (${point}) leaves the viewport (${vp.w} × ${vp.h})`);
+    }
+  }
+
   if (vp && !(inside(start) && inside(end))) {
     // A scroller dragged further than the viewport reaches scrolls the whole way (euxy FRICTION 14). On iOS it is the
     // scroll view's own drag, which a viewport does not bound, under real touches too: a held real stroke scrolls less
@@ -120,7 +173,12 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     // the clock is the wall's already.
     const reach = !moves && during.length ? REACH_MS : 0;
     const tick = hold > 0 && timing !== 'platform' ? heldTick(s, s.now + hold, target) : undefined;
-    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held), ...(tick ? { tick } : {}) } }); }
+    let heldTime = hold;
+    const path = opts.path?.map(l => {
+      heldTime += l.hold ?? 0;
+      return { ...l, during: (l.during ?? []).map(held), ...(timing !== 'platform' && l.hold > 0 ? { tick: heldTick(s, s.now + heldTime, target) } : {}) };
+    });
+    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held), ...(tick ? { tick } : {}), ...(path ? { path } : {}) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
     return noted(await s.landed({ ...r, ...(r.drag ? { drag: { ...r.drag, hold } } : {}), target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
@@ -200,9 +258,9 @@ export const heldTick = (s, to, target) => async (until, down) => {
   try {
     for (let left; s.now < to && (left = Math.floor(Math.min(to - s.now, until - Date.now(), TICK_STEP))) > 0;) {
       if (!await down()) return;
-      await s.clock(`+${left} real`);
+      await s.clock(`+${left} real`, 0, down);
     }
-    if (s.now < to && await down()) await s.clock(`+${to - s.now}`);
+    if (s.now < to && await down()) await s.clock(`+${to - s.now}`, 0, down);
   } finally { s.held = null; }
 };
 

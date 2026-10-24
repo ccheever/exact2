@@ -30,6 +30,7 @@ pub const FIELDS: &[&str] = &[
     "navigationType",
     "persisted",
     "restores",
+    "iframePartition",
 ];
 
 /// `navigationType`'s words, by their wire code (bits 5–6): the web's
@@ -64,6 +65,10 @@ pub struct Page {
     /// have them, Linux, Firefox and Safari do not). Save always works: a
     /// browser without its picker downloads.
     pub can_open_files: bool,
+    /// An `iframe`'s `partition` is honoured: its guest is a top-level page
+    /// with that partition's storage, so the app chooses its fallback before
+    /// a frame mounts (Apple; never the web, LLP 1020.002 D1).
+    pub iframe_partition: bool,
     /// `document.hasFocus()`: the page's window is the one the system's
     /// keyboard focus is in (window `focus` and `blur` move it). A visible
     /// window behind another's has no focus; a hidden page never has it.
@@ -99,6 +104,7 @@ impl Default for Page {
             can_share_files: false,
             can_share_pictures: false,
             can_open_files: false,
+            iframe_partition: false,
             has_focus: true,
             navigation: 0,
             suspended: false,
@@ -114,7 +120,8 @@ impl Page {
     /// bit 3 can open files, bit 4 without focus, bits 5–6 the navigation
     /// type, bit 7 about to be suspended, bit 8 shares files, bit 9 shares
     /// an element's picture, bit 10 put away (`persisted`), bits 11–12 the
-    /// GPU tier (0 high, 1 mid, 2 low), bits 16–31 the restores; other bits
+    /// GPU tier (0 high, 1 mid, 2 low), bit 13 an `iframe`'s `partition`
+    /// honoured, bits 16–31 the restores; other bits
     /// are ignored. Zero is visible, online, focused, no share sheet, no
     /// pickers, no navigation, never put away, a `high` GPU tier.
     pub fn from_bits(bits: u32) -> Self {
@@ -130,6 +137,7 @@ impl Page {
             can_share_pictures: bits & 512 != 0,
             persisted: bits & 1024 != 0,
             gpu_tier: ((bits >> 11) & 3) as u8,
+            iframe_partition: bits & (1 << 13) != 0,
             restores: (bits >> 16) as u16,
         }
     }
@@ -147,6 +155,7 @@ impl Page {
             | (u32::from(self.can_share_pictures) << 9)
             | (u32::from(self.persisted) << 10)
             | (u32::from(self.gpu_tier & 3) << 11)
+            | (u32::from(self.iframe_partition) << 13)
             | (u32::from(self.restores) << 16)
     }
 
@@ -183,6 +192,7 @@ impl Page {
             "navigationType" => Some(Value::str(self.navigation_type())),
             "persisted" => Some(Value::Bool(self.persisted)),
             "restores" => Some(Value::Number(f64::from(self.restores))),
+            "iframePartition" => Some(Value::Bool(self.iframe_partition)),
             _ => None,
         }
     }
@@ -195,7 +205,7 @@ mod tests {
     #[test]
     fn bits_round_trip_and_zero_is_the_default() {
         assert_eq!(Page::from_bits(0), Page::default());
-        for bits in (0..2048).chain([1 << 16, 3 << 16 | 1024, !0xF800]) {
+        for bits in (0..2048).chain([1 << 16, 3 << 16 | 1024, 1 << 13, !0xC000]) {
             assert_eq!(Page::from_bits(bits).bits(), bits);
         }
         // Put away, then back once: bit 10 and the count above bit 16.
@@ -224,6 +234,12 @@ mod tests {
         let files = Page::from_bits(256);
         assert!(files.can_share_files && !files.can_share_pictures && !files.can_share);
         assert!(Page::from_bits(512).can_share_pictures);
+        // LLP 1020.002 D1: bit 13, the web's zero `false`.
+        assert!(Page::from_bits(1 << 13).iframe_partition && !Page::default().iframe_partition);
+        assert_eq!(
+            Page::from_bits(1 << 13).field("iframePartition"),
+            Some(exact_plan::Value::Bool(true))
+        );
         assert_eq!(
             Page::from_bits(2 << 5).field("navigationType"),
             Some(exact_plan::Value::str("reload"))

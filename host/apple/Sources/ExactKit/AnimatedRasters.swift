@@ -159,7 +159,8 @@ final class AnimatedRasters {
         #if os(iOS) || os(tvOS)
         if let layer = view.imageLayer {
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            layer.contents = p.frame ?? p.image.image
+            let bitmap = layer.sublayers?.first ?? layer
+            bitmap.contents = p.frame ?? p.image.image
             CATransaction.commit()
         } else {
             view.setNeedsDisplay()

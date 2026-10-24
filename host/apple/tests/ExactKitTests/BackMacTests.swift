@@ -387,6 +387,47 @@ final class BackMacTests: XCTestCase {
         XCTAssertFalse(p.backSwipe.swiped(deltaX: 1), "nowhere to go back to")
         XCTAssertFalse(p.backSwipe.scroll(began, enabled: true))
     }
+
+    /// While the bar tracks, a batch's removal of Back is written on the
+    /// run loop's next turn (ShortcutsMac.swift), its ⌘[ out of the bar at
+    /// once. Each sync sets Back's state through the removal, so nothing
+    /// shows it again: Back is written once, not on every turn.
+    func testARemovalWhileTheBarTracksWritesBackOnceOnTheNextTurn() throws {
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let p = fixture(selected: "b", control: true)
+        let bar = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: false)
+        let back = try XCTUnwrap(bar.items.first { $0.submenu?.title == "Go" }?.submenu?.items.first)
+        p.shortcuts.sync()
+        XCTAssertFalse(back.isHidden)
+        var writes = 0
+        let observation = back.observe(\.isHidden) { _, _ in writes += 1 }
+        defer { observation.invalidate() }
+        let center = NotificationCenter.default
+        center.post(name: NSMenu.didBeginTrackingNotification, object: bar)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["menuRemove": "back"]]]))
+        XCTAssertFalse(back.isHidden, "not written inside the batch")
+        let command = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+                                       context: nil, characters: "[", charactersIgnoringModifiers: "[", isARepeat: false, keyCode: 33)!
+        XCTAssertFalse(bar.performKeyEquivalent(with: command), "⌘[ leaves with the removal")
+        let turns = { (seconds: TimeInterval) in
+            let end = Date(timeIntervalSinceNow: seconds)
+            while Date() < end { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        }
+        turns(0.2)
+        XCTAssertTrue(back.isHidden)
+        // Batches go on arriving while the bar tracks.
+        for _ in 0..<3 { p.shortcuts.sync(); turns(0.1) }
+        turns(0.5)
+        XCTAssertTrue(back.isHidden)
+        XCTAssertEqual(writes, 1, "Back written once")
+        // Withdrawn while the bar tracks, Back shows on the next turn.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["menuRemove"]]]))
+        turns(0.2)
+        XCTAssertFalse(back.isHidden)
+        XCTAssertEqual(writes, 2)
+        center.post(name: NSMenu.didEndTrackingNotification, object: bar)
+    }
 }
 
 /// The same ways back over a real session: a route of the router that

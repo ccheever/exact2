@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 mod boot;
 mod direct;
+mod longpoll;
 mod overload;
 mod serve;
 mod viewport;

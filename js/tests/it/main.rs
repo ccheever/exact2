@@ -16,12 +16,14 @@ mod inputs;
 mod interrupt;
 mod overlay;
 mod pinned_engines;
+mod presence;
 mod pure;
 mod render;
 mod snapshot;
 mod socket;
 mod storage;
 mod superseded;
+mod walk;
 mod watch;
 mod windows_lean;
 

@@ -1,3 +1,9 @@
+// @ref LLP 1133.013 §10 — tilt to move: while paused, a panel turns tilt on
+// (the press asks for motion on the web), shows the phone's tilt from the
+// level the player set, and sets it; the world takes gravity's samples as
+// input while it runs and tilt is on (data/src/lib.rs, logic/src/lib.rs).
+use motionStatus, requestMotionPermission, startSensorInput, stopSensorInput, gravitySensor, MotionStatus, SensorInput, GravitySensor from "@exact/motion"
+
 shape Hud
   lit: number
   near: string
@@ -6,17 +12,50 @@ component Beacons
   state playing = false
   state again = false
   state paused = false
+  state tilt = false
+  state levelX = 0
+  state levelY = 0
+  state levelZ = 9.80665
   resource hud = exactSurface("world") as shape Hud
+  resource motion = motionStatus() as shape MotionStatus
+  // Contract has no resource of a child or a conditional one: the level's
+  // reading is the root's, read while the game runs.
+  resource g = gravitySensor(referenceFrame="screen", frequency=30, interval=100) as shape GravitySensor
+  resource angles = tiltAngles(g.x, g.y, g.z, levelX, levelY, levelZ) as shape string
+  mutation asked as shape MotionStatus
+  mutation input as shape SensorInput
 
   action play
     playing = true
 
+  // The input follows the pause: a paused world queues no samples, and a
+  // resumed one starts on a fresh grid.
   action togglePause
-    paused = not paused
+    let resuming = paused
+    paused = not resuming
+    if tilt
+      if resuming
+        send input = startSensorInput(surface="world", sensor="gravity", frequency=60, referenceFrame="screen")
+      else
+        send input = stopSensorInput(surface="world", sensor="gravity")
 
   action restart
+    let resuming = paused
     again = not again
     paused = false
+    if resuming and tilt
+      send input = startSensorInput(surface="world", sensor="gravity", frequency=60, referenceFrame="screen")
+
+  action setTilt(on: bool)
+    tilt = on
+    if on
+      send asked = requestMotionPermission()
+
+  action setLevel(x: number, y: number, z: number)
+    levelX = x
+    levelY = y
+    levelZ = z
+    postMessage(`tilt ${x} ${y} ${z}`, "world")
 
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
@@ -25,6 +64,8 @@ component Beacons
           text `Beacons ${hud.lit} / 3` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
           button press=togglePause aria-label=(paused ? "Resume" : "Pause") testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff"
+          if paused and motion.available
+            TiltPanel(tilt=tilt, state=motion.state, x=g.x - levelX, y=g.y - levelY, gx=g.x, gy=g.y, gz=g.z, angles=angles, setTilt=setTilt, setLevel=setLevel)
           if hud.near != ""
             text "Press E or Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
@@ -46,3 +87,32 @@ component Beacons
           text "WASD / arrows to move · Space to jump · E to light" font-size=16 color="#ceddd8"
           button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"
+
+component TiltPanel
+  props
+    tilt: bool
+    state: string
+    x: number
+    y: number
+    gx: number
+    gy: number
+    gz: number
+    angles: string
+    setTilt: action
+    setLevel: action
+  view
+    column testId="tilt-panel" position="absolute" top=76 right=24 padding=12 gap=12 border-radius=8 background-color="#202731"
+      row align-items="center" gap=12
+        text "Tilt to move"
+        input type="checkbox" switch checked=tilt change=setTilt testId="tilt" aria-label="Tilt to move" margin=0
+      if state == "denied"
+        text "Motion access is off for this site in Safari's settings." testId="tilt-denied" max-width="15rem" color="#ceddd8"
+      if tilt and state == "granted"
+        // The level: a dot in a ring at the phone's tilt from the level, gliding
+        // between the reading's polls (LLP 1133.013 D5).
+        row align-items="center" gap=12
+          box width=64 height=64 border-radius=32 border-width=2 border-style="solid" border-color="#ceddd8" position="relative" box-sizing="border-box"
+            box testId="level-dot" position="absolute" left=24 top=24 width=12 height=12 border-radius=6 background-color="#e8ad61" translate=`${min(24, max(-24, x * 2.5))}px ${min(24, max(-24, 0 - y * 2.5))}px` transition="translate 100ms linear"
+          text angles testId="tilt-angles" font-variant-numeric="tabular-nums"
+          button press=setLevel(gx, gy, gz) testId="set-level" padding=12 border-radius=8 background-color="#354751"
+            text "Set level" color="#ffffff"

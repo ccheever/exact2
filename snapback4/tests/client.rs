@@ -1112,6 +1112,15 @@ fn identity_is_available_without_storage_or_partition() {
 }
 
 #[test]
+fn the_apps_device_lines_are_left_to_the_os() {
+    // A bare row (`device.background-sync`, LLP 1133.017 D14) and one with a
+    // purpose, beside the I/O lines the device keeps.
+    let grants = "net.fetch http://127.0.0.1:4400\nsqlite.open app:/data\ndevice.background-sync\ndevice.notifications purpose.notifications";
+    let module = Module::new("test.exact.snapback4", grants).unwrap();
+    assert_eq!(exact_runner::DataSource::grants(&module), grants);
+}
+
+#[test]
 fn upload_transport_passes_raw_bytes_and_device_headers_to_the_native_host() {
     let fetch = exact_snapback4_client::Fetch {
         method: "POST",

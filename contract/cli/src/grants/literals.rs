@@ -125,7 +125,7 @@ fn joined(s: &[char], j: usize, typescript: bool, parens: &mut [Paren], text: &s
         }
         match (s.get(j), s.get(j + 1)) {
             (Some('/'), Some('/')) => {
-                while j < s.len() && !line_terminator(s[j]) {
+                while j < s.len() && !(line_terminator(s[j]) && (typescript || s[j] == '\n')) {
                     j += 1;
                 }
             }
@@ -330,17 +330,19 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     holes.is_empty().then_some(lits)
 }
 
-/// The key each `device.<name> <key>` in `lits` names. A line built
-/// otherwise (joined to more text, its key missing or cut short) is left
-/// out; `None` when no certain key remains and such a line was seen, since
-/// the grant may be in it.
-pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
+/// The key (or target) each `<line> <key>` in `lits` names, for a line such
+/// as `device.camera` or `auth.passkey`. A line built otherwise (joined to
+/// more text, its key missing or cut short) is left out; `None` when no
+/// certain key remains and such a line was seen, since the grant may be in
+/// it.
+pub(super) fn keys(lits: &[Lit], line: &str) -> Option<Vec<String>> {
     let key_char = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
+    let (family, name) = line.split_at(line.find('.').map_or(0, |i| i + 1));
     let mut keys = Vec::new();
     let mut uncertain = false;
     for lit in lits {
         let t = &lit.text;
-        for (at, _) in t.match_indices("device.") {
+        for (at, _) in t.match_indices(family) {
             // A grant line begins the literal, or follows white space or an escape (`\n`).
             let head = &t[..at];
             let begins = head.is_empty()
@@ -350,7 +352,7 @@ pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
             if !begins {
                 continue;
             }
-            let rest = &t[at + "device.".len()..];
+            let rest = &t[at + family.len()..];
             let device: String = rest.chars().take_while(|c| key_char(*c)).collect();
             let after = &rest[device.len()..];
             if after.is_empty() && lit.joined {
@@ -392,7 +394,7 @@ mod tests {
     use super::{keys, literals};
 
     fn read(source: &str, typescript: bool) -> Option<Vec<String>> {
-        keys(&literals(source, typescript)?, "midi")
+        keys(&literals(source, typescript)?, "device.midi")
     }
 
     fn key(k: &str) -> Option<Vec<String>> {
@@ -574,6 +576,20 @@ mod tests {
             ),
             key("purpose.midi")
         );
+    }
+
+    #[test]
+    fn a_join_after_a_line_comment_uses_the_sources_line_terminators() {
+        for terminator in ['\n', '\r', '\u{2028}', '\u{2029}'] {
+            let source = format!("\"device.midi purpose.midi\" // comment{terminator}+ \"x\"\n;");
+            assert_eq!(read(&source, true), None, "TypeScript: {source:?}");
+            let expected = if terminator == '\n' {
+                None
+            } else {
+                key("purpose.midi")
+            };
+            assert_eq!(read(&source, false), expected, "Rust: {source:?}");
+        }
     }
 
     #[test]

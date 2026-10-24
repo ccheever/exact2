@@ -2,6 +2,17 @@ import {test,expect} from 'bun:test';
 import {focusController} from '../navigation.js';
 import {createInputHandlers} from '../input-glue.js';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
+import { readFileSync } from 'node:fs';
+import { glueDeclarations } from './glue-fixture.mjs';
+
+// The wasm host's key wire, and the early queue's copy of it (#140): the chord, its code, repeat and isComposing.
+test('the key wire carries isComposing on its fourth line',()=>{
+  for (const file of ['../glue.js','../document-glue.js']) {
+    const keyChord=Function(`${glueDeclarations(readFileSync(new URL(file,import.meta.url),'utf8'),['keyChord'])}; return keyChord;`)();
+    expect(keyChord({key:'Enter',code:'Enter',repeat:false,isComposing:true})).toBe('Enter\nEnter\nfalse\ntrue');
+    expect(keyChord({key:'b',code:'KeyB',metaKey:true,repeat:true})).toBe('Meta+b\nKeyB\ntrue\nfalse');
+  }
+});
 
 // Production focus transaction, including autofocus during the dispatched commit.
 test('E11 only enclosing canvases receive pointer focus; new autofocus wins',()=>{

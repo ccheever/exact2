@@ -13,3 +13,6 @@ serde_json = "1.0"
 
 [dev-dependencies]
 exact-data-host = { path = "../../../data/host" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }

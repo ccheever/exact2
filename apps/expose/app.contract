@@ -41,18 +41,18 @@ font "Exciting Lilt"
 font "Exciting"
   900 = "assets/Exciting-Black.ttf"
 
-// Expose's palette (LLP 1095 D4): the system's greys, white over the dark
-// lock and home screens, the one warm colour, and the scheme's pairs.
+// The wallpaper screens keep a dark scheme. Their light tiles invert the
+// canvas/label pair; app screens follow the selected appearance.
 theme
-  ink="#0b0b0c" // near-black: the lock and home screens' ground, a light tile's mark
-  paper="#ffffff" // white: text and marks on the dark screens
-  mist="#f5f5f7" // a light tile, a widget's ground
-  fog="#e5e5ea" // a lighter grey tile
-  ash="#6e6e75" // a light widget's secondary text
-  slate="#1c1c20" // a dark tile, a dark widget's ground
-  graphite="#2c2c30" // a dark tile
-  pewter="#48484c" // the mid-grey tile
-  signal="#ff6a2b" // the one warm colour: this needs you
+  ink="Canvas" // the dark wallpaper and a light tile's mark
+  paper="CanvasText" // light ink on the dark wallpaper
+  mist="-exact-label" // the inverted canvas/label pair's light surface
+  fog="-exact-secondary-label" // a grey surface with the same dark ink
+  ash="-exact-secondary-background" // secondary ink on the inverted light widget
+  slate="-exact-secondary-background"
+  graphite="-exact-tertiary-background"
+  pewter="-exact-fill"
+  signal="AccentColor"
   clear="#00000000" // no dot: a read thread's
   lockDusk="#1d1d22" // the top of the lock screen's gradient
   homeDusk="#141418" // the top of the home screen's gradient
@@ -71,12 +71,12 @@ theme
   fore="light-dark(#0b0b0c, #f5f5f7)" // an app's text and marks
   reverse="light-dark(#ffffff, #0b0b0c)" // text on fore
   statusInk="light-dark(#0b0b0c, #ffffff)" // the status bar and home bar in an app
-  muted="light-dark(#6e6e75, #9a9aa0)" // secondary text
-  quiet="light-dark(#8e8e93, #98989d)" // the search field's text and glass
+  muted="-exact-secondary-label" // secondary text
+  quiet="-exact-secondary-label" // the search field's text and glass
   rule="light-dark(#d9d9de, #2a2a2e)" // a hairline
   raised="light-dark(#e9e9ee, #1c1c20)" // a round button, the search field
-  iconWell="light-dark(#2c2c2e, #3a3a3c)" // a settings row's glyph square
-  avatar="light-dark(#3a3a3c, #48484c)" // a person's initials
+  iconWell="CanvasText" // an inverted surface, paired with Canvas ink
+  avatar="CanvasText" // a person's initials use the same pair
   theirBubble="light-dark(#e9e9ee, #202024)" // the other side's message
   fieldRim="light-dark(#c6c6c8, #3a3a3c)" // a text field's border
   radioRim="light-dark(#c6c6c8, #48484c)" // an unchosen model's ring
@@ -255,11 +255,11 @@ component Expose
     send saved = saveModel(value)
 
   view
-    main testId="expose" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" font-family="textFace" font-size=17 color="fore" background-color="page"
+    main testId="expose" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" font-family="textFace" font-size=17 color="fore" background-color="page" accent-color="light-dark(#b83d00, #ff6a2b)"
 
       // ---------------------------------------------------------------- lock
       if screen == "lock"
-        column testId="lock-screen" flex=1 min-height=0 box-sizing="border-box" color="paper" background-color="ink" background-image="linear-gradient(180deg, lockDusk 0%, ink 55%, night 100%)" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
+        column testId="lock-screen" color-scheme="dark" flex=1 min-height=0 box-sizing="border-box" color="paper" background-color="ink" background-image="linear-gradient(180deg, lockDusk 0%, ink 55%, night 100%)" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
           button press=unlock testId="lock-clock" width="100%" display="flex" flex-direction="column" align-items="center" padding-top=26 padding-bottom=6
             text `${clock.weekday}, ${clock.date}` font-size=20 font-weight=500 color="onDark80"
             text clock.time font-family="glyphFace" font-weight=900 font-size=124 line-height="132px" letter-spacing=-2 color="paper"
@@ -298,7 +298,7 @@ component Expose
 
       // ---------------------------------------------------------------- home
       if screen == "home"
-        column testId="home-screen" flex=1 min-height=0 box-sizing="border-box" color="paper" background-color="ink" background-image="linear-gradient(180deg, homeDusk 0%, ink 40%, night 100%)" padding-top="env(safe-area-inset-top)"
+        column testId="home-screen" color-scheme="dark" flex=1 min-height=0 box-sizing="border-box" color="paper" background-color="ink" background-image="linear-gradient(180deg, homeDusk 0%, ink 40%, night 100%)" padding-top="env(safe-area-inset-top)"
           StatusBar(time=clock.time, tone="paper", wifi=wifi, airplane=airplane, press=lock)
           scroll flex=1 min-height=0
             column padding-left=22 padding-right=22 padding-top=10 gap=22
@@ -375,7 +375,7 @@ component Expose
                   button press=openThread(t.id) testId=`thread-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10 text-align="start"
                     box width=8 height=8 border-radius=4 background-color=(t.unread ? "signal" : "clear") flex-shrink=0
                     column width=50 height=50 border-radius=25 background-color=(t.kind == "assistant" ? "fore" : "avatar") align-items="center" justify-content="center" flex-shrink=0
-                      text t.initials font-family="glyphFace" font-weight=900 font-size=(t.kind == "assistant" ? 26 : 20) line-height="30px" color=(t.kind == "assistant" ? "reverse" : "paper")
+                      text t.initials font-family="glyphFace" font-weight=900 font-size=(t.kind == "assistant" ? 26 : 20) line-height="30px" color=(t.kind == "assistant" ? "reverse" : "Canvas")
                     column flex=1 min-width=0 padding-top=11 padding-bottom=11 padding-right=14 margin-left=4 gap=2 class=Hairline
                       row justify-content="space-between" align-items="baseline" gap=8
                         text t.name font-family="liltFace" font-weight=700 font-size=(17 * scale) flex=1 min-width=0 line-clamp=1
@@ -394,7 +394,7 @@ component Expose
                     text inbox.unread.toString() font-size=12 font-weight=600 color="reverse"
               column flex=1 align-items="center" gap=3
                 column width=38 height=38 border-radius=19 background-color=(chat.kind == "assistant" ? "fore" : "avatar") align-items="center" justify-content="center"
-                  text chat.initials font-family="glyphFace" font-weight=900 font-size=(chat.kind == "assistant" ? 21 : 17) line-height="24px" color=(chat.kind == "assistant" ? "reverse" : "paper")
+                  text chat.initials font-family="glyphFace" font-weight=900 font-size=(chat.kind == "assistant" ? 21 : 17) line-height="24px" color=(chat.kind == "assistant" ? "reverse" : "Canvas")
                 text chat.name font-size=11 font-weight=500 line-clamp=1
               if chat.kind == "assistant"
                 button press=clearChat testId="thread-clear" width=76 height=44 display="flex" flex-direction="row" align-items="center" justify-content="flex-end" padding-right=8
@@ -411,7 +411,7 @@ component Expose
                     text `${intelligence.modelName} · via OpenRouter` font-size=12 class=Muted
                     if not intelligence.hasKey
                       button press=openPage("intelligence") testId="thread-add-key" -exact-press-scale=0.97 margin-top=4 height=34 padding-left=14 padding-right=14 border-radius=17 background-color="signal" display="flex" flex-direction="row" align-items="center"
-                        text "Add an OpenRouter key" font-size=14 font-weight=600 color="paper"
+                        text "Add an OpenRouter key" font-size=14 font-weight=600 color="AccentColorText"
                 else
                   text (thread == "mom" ? "Saturday 6:02 PM" : thread == "builds" ? "Yesterday 11:20 PM" : "Today 8:20 AM") font-size=12 font-weight=500 class=Muted text-align="center" padding-bottom=10
                 for m in chat.messages key=m.id
@@ -431,7 +431,7 @@ component Expose
                 if draft.trim() != "" and chat.kind == "assistant"
                   button press=sendDraft testId="send" aria-label="Send" -exact-press-scale=0.9 width=28 height=28 border-radius=14 background-color="signal" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     svg viewBox="0 0 24 24" width=16 height=16
-                      path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="paper" stroke-width=2.6 stroke-linecap="round" stroke-linejoin="round"
+                      path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="AccentColorText" stroke-width=2.6 stroke-linecap="round" stroke-linejoin="round"
             HomeBar(tone="statusInk", press=go("home"))
 
       // -------------------------------------------------------------- reader
@@ -456,7 +456,7 @@ component Expose
                     if a.id != library.lead
                       button press=openArticle(a.id) testId=`article-${a.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding-left=16 text-align="start"
                         column width=44 height=44 border-radius="radiusWideWell" background-color="iconWell" align-items="center" justify-content="center" flex-shrink=0
-                          text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="glyphFace" font-weight=900 font-size=20 line-height="24px" color="paper"
+                          text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="glyphFace" font-weight=900 font-size=20 line-height="24px" color="Canvas"
                         column flex=1 min-width=0 gap=3 padding-top=14 padding-bottom=14 padding-right=16 class=Hairline align-items="flex-start"
                           text `${a.section} · ${a.minutes.toString()} min` font-size=11 font-weight=600 letter-spacing=0.6 text-transform="uppercase" class=Muted
                           text a.title font-family="liltFace" font-weight=700 font-size=(17 * scale) line-height=1.2 line-clamp=2 text-align="left"
@@ -480,7 +480,7 @@ component Expose
                     text a.deck font-size=(19 * scale) font-style="italic" line-height=1.35 class=Muted
                     row align-items="center" gap=10 padding-top=2 padding-bottom=6 class=Hairline
                       column width=30 height=30 border-radius=15 background-color="iconWell" align-items="center" justify-content="center"
-                        text (a.author == "Nico" ? "N" : a.author == "Type Crew" ? "TC" : a.author == "Expose Builds" ? "Ex" : "CC") font-family="glyphFace" font-weight=900 font-size=13 line-height="16px" color="paper"
+                        text (a.author == "Nico" ? "N" : a.author == "Type Crew" ? "TC" : a.author == "Expose Builds" ? "Ex" : "CC") font-family="glyphFace" font-weight=900 font-size=13 line-height="16px" color="Canvas"
                       text `${a.author} · ${a.posted} · ${a.minutes.toString()} min read` font-size=13 font-weight=500 class=Muted
                     for p in a.body key=p
                       text p font-size=(17.5 * scale) line-height=1.5
@@ -555,7 +555,7 @@ component Expose
                     row align-items="center" gap=8
                       input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius="radiusWell" border-style="solid" border-width=1 border-color="fieldRim" font-size=16 color="fore" background-color="reverse"
                       button press=saveKey testId="save-key" disabled=(keyDraft.trim() == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius="radiusWell" background-color=(keyDraft.trim() == "" ? "disabledGround" : "signal") display="flex" flex-direction="row" align-items="center"
-                        text "Save" font-size=15 font-weight=600 color=(keyDraft.trim() == "" ? "disabledInk" : "paper")
+                        text "Save" font-size=15 font-weight=600 color=(keyDraft.trim() == "" ? "disabledInk" : "AccentColorText")
                     if keySaved
                       text "Saved. Expose will use this key from now on." font-size=13 color="signal"
                     if intelligence.keySource == "settings"

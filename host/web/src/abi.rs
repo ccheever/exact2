@@ -506,7 +506,7 @@ impl<D: DataSource> Bridge<D> {
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
     /// 1 = change, 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key,
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
-    /// key's chord with its code and repeat (`KeyboardEvent::parse`), or a
+    /// key's chord with its code, repeat and isComposing (`KeyboardEvent::parse`), or a
     /// guest message — is the input buffer's first `len` bytes, UTF-8).
     /// Kind 43 is `keyup`; 44 is `keycapture`, with the keydown payload (#140).
     /// Kind 45 is `intersect`, `0|1,ratio` (LLP 1005).
@@ -545,8 +545,8 @@ impl<D: DataSource> Bridge<D> {
             // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
             // with its code and repeat, and focusin (46) and focusout (47) with
             // their targets, toggle (50), scrollend (51), a file drag's enter
-            // and leave (55, 56) and a paste with files (57) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=57 => {
+            // and leave (55, 56), a paste with files (57), an iframe's record (58), an atom's press (59) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=59 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),

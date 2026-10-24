@@ -181,3 +181,87 @@ fn an_hr_is_one_device_pixel_of_the_scale_the_presenter_reports() {
     );
     assert!(host.set_display_scale(0.0).contains("display scale"));
 }
+
+#[test]
+fn fractional_borders_use_one_width_for_layout_content_and_paint() {
+    for width in [0.5, 0.9, 1.5] {
+        let source = format!(
+            r#"component App
+  view
+    box width=40 height=20 border-width={width} border-style="solid" testId="box"
+      box width=10 height=10 testId="child"
+"#
+        );
+        let (mut host, mut ops) = boot(&source);
+        for scale in [1.0, 2.0, 3.0, 1.0] {
+            let update: serde_json::Value =
+                serde_json::from_str(&host.set_display_scale(scale)).unwrap();
+            ops.extend(update["ops"].as_array().cloned().unwrap_or_default());
+            let used = (width * scale + 0.001_f64).floor().max(1.0) / scale;
+            let k = host.runner().kernel();
+            let node = k.node(view(&host, "box")).unwrap();
+            let content = exact_kernel::svg::scene::content_box(k, &node);
+            assert!(
+                (content.0 as f64 - used).abs() < 1e-5,
+                "content: {width} at {scale}x: {content:?}"
+            );
+            assert!(
+                (frame(&host, &ops, "child")[0] - used).abs() < 1e-5,
+                "child: {width} at {scale}x"
+            );
+            assert!(
+                (frame(&host, &ops, "box")[2] - (40.0 + 2.0 * used)).abs() < 1e-5,
+                "content-box sizing"
+            );
+            assert!(
+                (style(&host, &ops, "box")["border_width_left"]
+                    .as_f64()
+                    .unwrap()
+                    - used)
+                    .abs()
+                    < 1e-5,
+                "paint: {width} at {scale}x"
+            );
+            assert_eq!(
+                node.style.border_width_left as f64, width as f32 as f64,
+                "authored width survives scale changes"
+            );
+        }
+    }
+}
+
+/// A popover with no authored `position-area` is placed by the web's default
+/// area on the Apple hosts (`PositionArea.painted`), which flips its margin
+/// box: its margins are sent as an authored area's are.
+#[test]
+fn a_popovers_margins_cross_with_no_authored_area() {
+    let (host, ops) = boot(
+        r#"component App
+  view
+    column width=200 testId="root"
+      button popovertarget="pop" testId="open"
+        text "Open"
+      column id="pop" popover="auto" margin-top=12 testId="pop"
+        text "Inside"
+"#,
+    );
+    let pop = style(&host, &ops, "pop");
+    assert_eq!(pop["margin_top"], 12.0, "{pop}");
+    // A dialog used as a popover keeps its insets and sends its margins too.
+    let (host, ops) = boot(
+        r#"component App
+  view
+    column width=200 testId="root"
+      button popovertarget="pop" testId="open"
+        text "Open"
+      dialog id="pop" popover="auto" margin=0 margin-top=12 top=4 testId="pop"
+        text "Inside"
+"#,
+    );
+    let pop = style(&host, &ops, "pop");
+    assert_eq!(
+        (pop["margin_top"].as_f64(), pop["top"].as_f64()),
+        (Some(12.0), Some(4.0)),
+        "{pop}"
+    );
+}

@@ -73,7 +73,7 @@ component MessageRow
         if m.reply != ""
           text m.reply font-size=13 class=Secondary border-left-width=2 border-left-style="solid" border-color="#aeaeb2" padding-left=8 margin-bottom=6 line-clamp=2
         row position="relative" justify-content=(m.outgoing ? "flex-end" : "flex-start") padding-bottom=(tail ? 6.65 : 0)
-          box position="relative" opacity=(hidden ? 0 : 1) contextmenu=select(m.id, m.body, m.outgoing) dblclick=select(m.id, m.body, m.outgoing) swiperight=reply(m.id, m.body) touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)" animation=(arrival and not m.outgoing and not reduced ? "received 220ms ease-out" : "none") aria-label=m.body
+          box id=`message-actions-${m.id}` testId=`message-actions-${m.id}` tabindex=0 retainFocus=true user-select="none" position="relative" opacity=(hidden ? 0 : 1) contextmenu=select(m.id, m.body, m.outgoing) dblclick=select(m.id, m.body, m.outgoing) swiperight=reply(m.id, m.body) touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)" animation=(arrival and not m.outgoing and not reduced ? "received 220ms ease-out" : "none") aria-label=m.body
             Balloon(body=m.preview, outgoing=m.outgoing, tail=tail, maximum=maximum, identifier=`bubble-${m.id}`)
             if m.truncated
               button appearance="none" press=read(m.body) testId=`read-${m.id}` aria-label="Read full message" position="absolute" right=10 bottom=7 width=22 height=22

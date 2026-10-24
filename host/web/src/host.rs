@@ -35,7 +35,7 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
+use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -1340,9 +1340,12 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                if let Some(raw) = props.get("data-decoration-styles") {
-                    let css = crate::css::decoration_styles(raw, &self.font_names);
-                    props.insert("data-decoration-styles".into(), css);
+                // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+                for name in ["data-decoration-styles", "data-atom-styles"] {
+                    if let Some(raw) = props.get(name) {
+                        let css = crate::css::decoration_styles(raw, &self.font_names);
+                        props.insert(name.into(), css);
+                    }
                 }
                 svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
@@ -1405,9 +1408,12 @@ impl<D: DataSource> Host<D> {
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
-        if let Some(raw) = props.get("data-decoration-styles") {
-            let css = crate::css::decoration_styles(raw, &self.font_names);
-            props.insert("data-decoration-styles".into(), css);
+        // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+        for name in ["data-decoration-styles", "data-atom-styles"] {
+            if let Some(raw) = props.get(name) {
+                let css = crate::css::decoration_styles(raw, &self.font_names);
+                props.insert(name.into(), css);
+            }
         }
         element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);

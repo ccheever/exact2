@@ -132,9 +132,21 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
           * `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`). */\n\
          export type Result<S extends Source> = SourceMap[S]['result'];\n\
          export interface Store {\n\
+           /** The value kept under `name`; throws `InvalidAccessError` for a locked presence secret, read with `unlock` (LLP 1133.010). */\n\
            get(name: string): string | null;\n\
+           /** Throws `NotSupportedError` when the name would be kept locked and this device keeps no locked secret. */\n\
            set(name: string, value: string): void;\n\
            forget(name: string): void;\n\
+           /** A value is kept under `name`, locked or not. */\n\
+           has(name: string): boolean;\n\
+           /** `name` is kept under its presence policy, or awaits the move to it. */\n\
+           locked(name: string): boolean;\n\
+           /** The value: after the person's check when `name` is locked, at once when not; `null` when nothing is kept. Rejects with `code` `USER_CANCEL`, `AUTHENTICATION_FAILED`, `LOCKOUT`, `NOT_AVAILABLE`, `PERMISSION_DENIED` or `NotSupportedError`. */\n\
+           unlock(name: string, options?: { reason?: string }): Promise<string | null>;\n\
+           /** Lock an `optional` presence name for good; rejects `NotSupportedError` where no locked secret can be kept. */\n\
+           protect(name: string): Promise<void>;\n\
+           /** After the person's check, unlock an `optional` presence name for good. */\n\
+           unprotect(name: string, options?: { reason?: string }): Promise<void>;\n\
            /** Keep a P-256 pair under the `secret.keep <name>` grant (LLP 1069.005 D1b). */\n\
            keepKey(name: string, pair: CryptoKeyPair): Promise<void>;\n\
            /** The pair kept under `name`, its private key non-extractable. */\n\
@@ -151,7 +163,7 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
          export interface StreamSocket { readonly readyState: number; readonly bufferedAmount: number; send(data: string | ArrayBuffer | ArrayBufferView): void; close(code?: number, reason?: string): void }\n\
          export interface StreamEvent { readonly type: string; readonly data: string | ArrayBuffer; readonly lastEventId: string; readonly coalesced: number; readonly kind?: string; readonly message?: string; readonly status?: number; readonly code?: number; readonly reason?: string; readonly wasClean?: boolean }\n\
          declare global {\n\
-           interface RequestInit { exactStream?: (event: StreamEvent, socket?: StreamSocket) => unknown; exactIndependentHttp?: { maxResponseBytes: number }; /** A deadline for the whole exchange, 1 to 3600000 ms: the request is cancelled and the fetch rejects with a FetchError whose `kind` is \"Timeout\". Not with `exactStream`. */ exactTimeout?: number; /** The body is this app file (`app:/…`), read by the host when it sends the request, under `fs.read`, at most 64 MiB; its bytes never enter JavaScript. Not with `body`, nor on a GET or HEAD; no Content-Type is added. */ exactBodyFrom?: string }\n\
+           interface RequestInit { exactStream?: (event: StreamEvent, socket?: StreamSocket) => unknown; exactIndependentHttp?: { maxResponseBytes: number }; /** A deadline for the whole exchange, 1 to 3600000 ms: the request is cancelled and the fetch rejects with a FetchError whose `kind` is \"Timeout\". Not with `exactStream`. */ exactTimeout?: number; /** The body is this app file (`app:/…`), read by the host when it sends the request, under `fs.read`, at most 64 MiB; its bytes never enter JavaScript. Not with `body`, nor on a GET or HEAD; no Content-Type is added. */ exactBodyFrom?: string; /** The server may hold the reply until something changes (a long poll): no clock waits on it (a jump, `clock settle`, `clock data`), and each reply that leaves it out names it. Its answer must be safe to supersede. Not with `exactStream`. */ exactHeld?: boolean; /** With `exactStream`, a long poll: the host asks again and again, one GET at a time, each JSON reply an event whose `lastEventId` is its cursor (the reply's field `from`, `a` or `a.b`), asked with next in the query parameter `cursor`; a heartbeat (204, 304, an empty body, or by default the same cursor) is asked again with no event; the network, 408, 429, 502, 503 or 504 after `Retry-After` or a backoff of 1 s doubling to 30 s. */ exactLongPoll?: { cursor: string; from: string; sameCursor?: \"heartbeat\" | \"event\" } }\n\
            /** An answer that keeps coming: `exactStream` maps each event, and the end, to the answer. */\n\
            function fetch<T>(input: string | URL, init: RequestInit & { exactStream: (event: StreamEvent, socket?: StreamSocket) => T }): Promise<T>;\n\
          }\n\

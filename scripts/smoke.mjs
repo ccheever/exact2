@@ -10,11 +10,11 @@ import { createHash, randomUUID, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
-import { driveStore } from './agent-launch.mjs';
-import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
-import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, rebooted } from './smoke-inspect.mjs';
+import { driveStore, pollUntil } from './agent-launch.mjs';
+import { HOST_DEV, authoredTests, resolveApp, withAppFixture } from './app.mjs';
+import { agree, explainNode, hostSections, httpFrameSmoke, formControlsSmoke, poolingDrive, messageKeys, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
@@ -345,7 +345,6 @@ if (host === 'deploy') {
   if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
   process.exit(0);
 }
-
 // The sample host (LLP 1031 D10): a native macOS app that is not Exact's,
 // hosting two sessions of the one plan. What the fixture holds, driven
 // through the same carrier with each request routed by session label: two
@@ -354,12 +353,12 @@ if (host === 'deploy') {
 // (unmounted, alive) and pops it (remounted) with both intact; a bad
 // candidate plan is refused and the running apps kept; a session destroyed
 // under the other is refused by name after, and the other still answers.
-// The recorder's sample host (LLP 1067.000 Q6): two sessions, two recorders.
-if ((host === 'host' || host === 'host-ios') && app.modules.tags.includes('waveform-view')) {
+// The recorder's sample host (LLP 1133.009 D6): two sessions over one capture.
+if ((host === 'host' || host === 'host-ios') && app.id === 'com.exact.recorder') {
   const { recorderSessions } = await import('./smoke-recorder.mjs');
   const failures = await recorderSessions({ host, open });
   for (const f of failures) console.log('  ' + f);
-  console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions, each its own recorder, one outliving the other`);
+  console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions, over one capture, one recording on after the other ends`);
   process.exit(failures.length ? 1 : 0);
 }
 if (host === 'host' || host === 'host-ios') {
@@ -453,9 +452,9 @@ component App
         let shown = 0;
         for (let i = 0; i < 40 && !(shown > 0); i++) { await sleep(50); shown = (await s.layout()).env['keyboard-inset-height']; }
         s.session = 'a';
-        // Its ground, a point at its top left: a plain tap names `main`, which has no press, and is refused when its
-        // middle holds a control (LLP 1012 §1) — the departure card a finger there would press.
-        await s.tap('caltrain-main', { at: [2, 2] });
+        // The page's left padding below the host's bar, whose scroll-edge
+        // view covers its top left. The reported inset includes that bar.
+        await s.tap('caltrain-main', { at: [2, laBack.env['safe-area-inset-top'] + 20] });
         s.session = 'b';
         const kept = (await s.layout()).env['keyboard-inset-height'];
         const sb3 = await s.state();
@@ -486,6 +485,8 @@ component App
     s.session = 'b';
     const tbAfter = await s.tree();
     hcheck(byTestId(tbAfter, 'station-search') != null, 'b still answers, its state intact, after a was destroyed');
+    // The blur assertion is complete; leave the editor before pressing the page's header again.
+    if (host === 'host-ios') { await s.type('station-search', { key: 'Tab' }); await s.clock('settle'); }
     await s.tap('scheme-light');
     await s.clock('settle');
     const logs2 = await s.logs();
@@ -498,7 +499,6 @@ component App
   console.log(`${host} smoke: ok in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions of one plan, interleaved, one pushed under a native screen and back, a bad plan refused, one destroyed under the other`);
   process.exit(0);
 }
-
 // Materialize the selected app once, as it ships (the JS target when it takes it, LLP 1071;
 // it stages nothing), into this smoke's private dist before its many sessions. Another
 // build cannot swap a different app under the run; agent.open proves its identity.
@@ -516,7 +516,7 @@ if (host === 'web') {
 }
 
 // A fresh named store admits app storage without sharing another drive's profile or port.
-const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : {};
+const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : app.name === 'messages' ? { storage: `smoke-${randomUUID()}`, touch: host === 'ios' ? 'platform' : 'agent' } : app.name === 'recorder' ? { storage: `smoke-${randomUUID()}` } : {};
 const s = await open({ host, browser: 'chrome', ...appDrive });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
@@ -561,24 +561,21 @@ try {
   }
   await agree(s, `${app.name}: first frame`, { host, check }); // 7a (LLP 1080.001 D5)
   if (byTestId(tree, 'feed-far') && host === 'ios') await poolingDrive(s, { host, check });
-
+  if (apple) await messageKeys(s, { host, check, app: app.name });
   // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
   // and message enter the runner, the guest joins tree/input, and the
   // screenshot carries its pixels. Loading is host I/O, so poll it. The
-  // deck lab is Caltrain's fixture — a driven app without it (EXACT_APP_DIR)
-  // skips these steps instead of dying at the tap; unlike the check()
-  // assertions above, a missing tap target throws.
+  // Caltrain requires the deck entry; apps without the fixture skip it.
+  if (host === 'macos' && caltrainFixture) check(!!byTestId(tree, 'open-deck'), 'Caltrain fixture missing testId open-deck');
   if ((host === 'web' || apple) && byTestId(tree, 'open-deck')) {
     await s.tap('open-deck');
     await s.clock('settle');
-    let frameNode, deckState;
-    for (let i = 0; i < 40; i++) {
-      tree = await s.tree();
-      deckState = await s.state();
-      frameNode = byTestId(tree, 'deck-frame');
-      if (frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready') break;
-      await sleep(50);
-    }
+    const loaded = await pollUntil(async () => {
+      const tree = await s.tree(), deckState = await s.state();
+      return { tree, deckState, frameNode: byTestId(tree, 'deck-frame') };
+    }, ({ frameNode, deckState }) => frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready');
+    tree = loaded.tree;
+    let { frameNode, deckState } = loaded;
     check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html', `the iframe tree node is ${JSON.stringify(frameNode)}`);
     check(frameNode?.loading === false, `the iframe is still loading: ${JSON.stringify(frameNode)}`);
     check(deckState?.slots.deckLoaded === true, `load did not record its flag: ${JSON.stringify(deckState?.slots)}`);
@@ -601,6 +598,7 @@ try {
       let cyan = 0;
       for (let i = 0; i < region.data.length; i += 4) if (region.data[i] < 190 && region.data[i + 1] > 150 && region.data[i + 2] > 190) cyan++;
       check(cyan > 5, `the iframe screenshot has ${cyan} guest-blue pixels in ${region.width}×${region.height}`);
+      if (host === 'macos') console.log(`macos deck: ${cyan} guest-blue pixels in ${region.width}×${region.height}`);
     } catch (error) {
       failures.push(`the iframe parity oracle stopped: ${error.message}`);
     } finally {
@@ -789,7 +787,6 @@ try {
   await s.close();
   if (appDrive.storage) rmSync(driveStore(app, appDrive.storage, appDrive.env).profile, { recursive: true, force: true });
 }
-
 // 8. The nested case (LLP 1010, the scroll fixture): a scroll node that
 // overflows on a page that overflows. A wheel over the node scrolls it; at
 // its edge the wheel chains to the page.
@@ -843,6 +840,7 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
   rmSync(tmp, {recursive:true, force:true});
   console.log(`${host} launch facts: date, defaults, repeated drive, overrides, translation, lang/dir${host === 'web' ? ', reload' : ''}`);
 }
+if (!device) await formControlsSmoke({ host, open, check });
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
 const plan = resolve(tmp, 'scroll.plan');
@@ -954,8 +952,10 @@ if (caltrainFixture) {
       const plainSize = existsSync(plainRef) ? decodePng(readFileSync(plainRef)) : null;
       const reference = !plainSize || (plainSize.width === region.width && plainSize.height === region.height) ? plainRef
         : resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.${region.width}x${region.height}.png`);
+      const references = readdirSync(resolve(ROOT, 'scripts/fixtures')).filter(name => name.startsWith(`canvas-sky.${host}.`) && name.endsWith('.png')).sort().join(', ') || '(none)';
+      console.log(`${host} canvas references: ${references}; selected ${reference.replace(ROOT + '/', '')}`);
       if (recordCanvas) { writeFileSync(reference, encodePng(region)); console.log(`recorded ${reference.replace(ROOT + '/', '')} (${region.width}×${region.height})`); }
-      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}: bun scripts/smoke.mjs ${host} --record-canvas`);
+      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}; available: ${references}; record with bun scripts/smoke.mjs ${host} --record-canvas`);
       else {
         const d = diff(region, decodePng(readFileSync(reference)));
         check(d.differing <= 0.01, `the canvas differs from its reference: ${(d.differing * 100).toFixed(2)}% of pixels beyond the band, mean ${d.mean.toFixed(2)} (${d.size})`);
@@ -1284,16 +1284,16 @@ if (deckFixture) {
       await f.tap('dismiss');
       for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
       check(l.viewport.h === viewport0.h && l.env['safe-area-inset-bottom'] === bottom0 && box(l, 'bar').y === bar0.y, `after the keyboard went everything is back: ${JSON.stringify(l.viewport)}, inset ${l.env['safe-area-inset-bottom']}, the bar at ${box(l, 'bar').y} (was ${bar0.y})`);
-      // A tap on plain text — nothing focusable, nothing pressable — blurs
-      // the field, as a tap on a page's ground does, and the keyboard goes
-      // (the web and iOS; the Linux host's `type` never focused).
+      // Plain text keeps a Mac field's editor. On the web and iOS it blurs
+      // the field and dismisses the keyboard; Linux's `type` never focused.
       if (host !== 'linux') {
         await f.type('note', 'again');
         for (let i = 0; i < 40; i++) { l = await f.layout(); if (host !== 'ios' || l.env['keyboard-inset-height'] > 0) break; await sleep(50); }
         await f.tap('title');
         let st = await f.state();
         for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
-        check(st.slots.focused === false && l.env['keyboard-inset-height'] === 0 && l.viewport.h === viewport0.h, `a tap on the title blurred the field and sent the keyboard away: ${JSON.stringify(st.slots)}, keyboard ${l.env['keyboard-inset-height']}, viewport ${JSON.stringify(l.viewport)}`);
+        const keepsEditor = host === 'macos';
+        check(st.slots.focused === keepsEditor && l.env['keyboard-inset-height'] === 0 && l.viewport.h === viewport0.h, `a title click ${keepsEditor ? 'keeps the Mac editor' : 'blurs the field'} with no keyboard or viewport change: ${JSON.stringify(st.slots)}, keyboard ${l.env['keyboard-inset-height']}, viewport ${JSON.stringify(l.viewport)}`);
       }
     } catch (error) {
       failures.push(`the keyboard-bar fixture stopped: ${error.message}`);
@@ -1316,8 +1316,6 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     try {
       let t = await f.tree();
-      // Apple hosts focus a launch autofocus the turn after the first frame, which may follow `ready`.
-      for (let i = 0; i < 40 && byTestId(t, 'first')?.focused !== true; i++) { await sleep(25); t = await f.tree(); }
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
       const axName = async (id) => { const ax = (await f.tree(null, {ax: true})).ax; return ax.unavailable ? (host === 'linux' ? 'unavailable' : null) : ax.elements.find(e => e.testId === id)?.name; }; // LLP 1080.002
       check(await axName('first') === (host === 'linux' ? 'unavailable' : 'Increment'), 'button name is its text, as the platform exposes it'); check(host === 'linux' || await axName('labelled') === '20 sheckles', 'a label names a text, as the platform exposes it');
@@ -1326,8 +1324,10 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       await f.tap('first');
       t = await f.tree();
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
-      await f.tap('other');
-      check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
+      // AppKit button activation keeps the old responder; Tab moves focus for this autofocus-retention check.
+      if (host === 'macos') { await f.type('first', { key: 'Tab' }); check(byTestId(await f.tree(), 'other')?.focused === true, 'Other owns focus before the update'); }
+      await f.tap('other'); t = await f.tree();
+      check(byTestId(t, 'live-count')?.props.text === 'Count 2', 'Other activates the text update'); check(byTestId(t, 'other')?.focused === true, 'a text update does not steal focus back');
       check(byTestId(t, 'pressed')?.props.accessibilityPressed === 'true' && byTestId(t, 'mixed')?.props.accessibilityPressed === 'mixed', `aria-pressed is in the tree: ${JSON.stringify([byTestId(t, 'pressed')?.props, byTestId(t, 'mixed')?.props])}`); await f.clock('+1000'); check(byTestId(await f.tree(), 'pressed')?.props.accessibilityPressed === 'false', 'aria-pressed follows its bool'); await f.clock('+1000');
       t = await f.tree();
       check(byTestId(t, 'other')?.focused === true, 'remount does not steal focus from Other');
@@ -1417,13 +1417,12 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   rmSync(tmp, {recursive:true, force:true});
 }
 
-// 13. The resolved app's own tests (LLP 1017 P7), when it declares them:
+// 13. The resolved app's own tests (LLP 1017 P7; app.mjs `authoredTests`), when it declares them:
 // its `test` blocks driven through a fresh session by the same operations.
-const appTests = resolve(app.dir, 'app.test.contract');
-if (existsSync(appTests)) {
-  const t = await runTests({ host, file: appTests });
+for (const file of authoredTests(app.dir)) {
+  const t = await runTests({ host, file }).catch((e) => ({ passed: 0, failed: 1, results: [{ name: basename(file), failures: [e.message] }] }));
   for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
-  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/app.test.contract)`);
+  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/${basename(file)})`);
 }
 
 // 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.
@@ -1434,8 +1433,8 @@ if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includ
 // A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
 if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });
 if (app.modules.tags.includes('exact-swatch') && ['macos', 'ios'].includes(host)) await (await import('./smoke-tamber.mjs')).tamberSmoke({ host, open, check }); // LLP 1121 D12
-// 15. The recorder (LLP 1067.000): one native object, a view and functions.
-if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includes(host)) {
+// 15. The recorder (LLP 1133.009 §11): the microphone through the standard packages.
+if (app.id === 'com.exact.recorder' && ['web', 'macos', 'ios'].includes(host)) {
   const { recorderSmoke } = await import('./smoke-recorder.mjs');
   await recorderSmoke({ host, open, check });
 }
@@ -1477,7 +1476,6 @@ if (host === 'macos' && app.manifest.file_handlers?.length && [app.manifest.laun
     console.log(`${host} documents: ${seen?.windows?.map((w) => `${w.session} "${w.title}"`).join(', ')}; the second session's first pixel ${second?.firstPixelMs} ms, footprint ${((seen?.footprint - second?.footprintBefore) / 1048576).toFixed(1)} MB since it was asked for`);
   } catch (error) { check(false, `documents: ${error.message}`); } finally { await d.close(); }
 }
-
 // 17. Answers that keep coming (LLP 1069.004 slice 2): Exact Live's job
 // progress over server-sent events, against the fixture started above.
 if (streamFixture) {

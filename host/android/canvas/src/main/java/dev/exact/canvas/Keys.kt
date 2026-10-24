@@ -20,6 +20,9 @@ import android.view.inputmethod.InputMethodManager
  */
 class Keys(private val view: ExactView) {
     private val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    /** The device is a TV, whose remote's D-pad is exact2's ([remote]); a phone keyboard's arrows send the same key
+     * codes and keep Android's own handling. */
+    private val tv = Device.tv(view.context)
     /** What exact2 last asked for ([show]): 0 none, 1 an input, 3 a textarea. */
     private var shown = 0
 
@@ -47,8 +50,10 @@ class Keys(private val view: ExactView) {
         }
     }
 
-    /** A key down: a character, Enter or Backspace typed at the focused field. Whether it was taken. */
+    /** A key down: a remote's D-pad key ([remote]), or a character, Enter or Backspace typed at the focused field.
+     * Whether it was taken. */
     fun down(e: KeyEvent): Boolean {
+        remote(e.keyCode)?.let { (code, key) -> Exact.namedKey(code, key, true, e.repeatCount > 0); return true }
         when (e.keyCode) {
             KeyEvent.KEYCODE_DEL -> Exact.key(0, true)
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> Exact.key('\n'.code, false)
@@ -60,6 +65,24 @@ class Keys(private val view: ExactView) {
             }
         }
         return true
+    }
+
+    /** A key up: a remote's D-pad key's release ([remote]). Whether it was taken. */
+    fun up(e: KeyEvent): Boolean {
+        val (code, key) = remote(e.keyCode) ?: return false
+        Exact.namedKey(code, key, false, false)
+        return true
+    }
+
+    /** A TV remote's key by the web's `code` and `key` (LLP 1115.001.003 D3): the D-pad's arrows, and Select, which a
+     * `key` handler hears as Enter, as Chrome on Android sends DPAD_CENTER; null for any other key, and on a phone. */
+    private fun remote(keyCode: Int): Pair<String, String>? = if (!tv) null else when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp" to "ArrowUp"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown" to "ArrowDown"
+        KeyEvent.KEYCODE_DPAD_LEFT -> "ArrowLeft" to "ArrowLeft"
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "ArrowRight" to "ArrowRight"
+        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BUTTON_SELECT -> "Select" to "Enter"
+        else -> null
     }
 
     /** Text the IME committed as one event (dummy mode, more than one character). */

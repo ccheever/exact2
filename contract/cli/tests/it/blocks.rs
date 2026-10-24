@@ -141,7 +141,7 @@ fn a_placed_block_keeps_its_place_among_its_siblings() {
     lay_out(&mut r);
     r.place_blocks(&[(
         route,
-        Some(([10.0, 200.0, 300.0, 500.0], view(&r, "panel"))),
+        Some(([10.0, 200.0, 300.0, 500.0], view(&r, "panel"), None)),
     )]);
     r.act("read", vec![]).unwrap();
     assert_eq!(num(&r, "width"), 300.0, "the block's width, not the page's");
@@ -159,7 +159,7 @@ fn a_placed_block_keeps_its_place_among_its_siblings() {
     // Shown at half its size, the subtree is read at half its size
     r.place_blocks(&[(
         route,
-        Some(([10.0, 200.0, 150.0, 250.0], view(&r, "panel"))),
+        Some(([10.0, 200.0, 150.0, 250.0], view(&r, "panel"), None)),
     )]);
     r.act("read", vec![]).unwrap();
     assert_eq!(
@@ -209,7 +209,10 @@ fn a_blocks_rectangle_holds_its_root_by_the_roots_own_frame() {
     block(&mut r, route, 300.0, 500.0);
     lay_out(&mut r);
     // Placed at the panel's origin: the panel's 40-point translation once
-    r.place_blocks(&[(route, Some(([0.0, 0.0, 300.0, 500.0], view(&r, "panel"))))]);
+    r.place_blocks(&[(
+        route,
+        Some(([0.0, 0.0, 300.0, 500.0], view(&r, "panel"), None)),
+    )]);
     r.act("read", vec![]).unwrap();
     assert_eq!(
         (num(&r, "x"), num(&r, "y"), num(&r, "width")),
@@ -225,9 +228,20 @@ fn a_blocks_rectangle_holds_its_root_by_the_roots_own_frame() {
     // An invalid placement leaves the last one
     r.place_blocks(&[(
         route,
-        Some(([f64::NAN, 0.0, 300.0, 500.0], view(&r, "panel"))),
+        Some(([f64::NAN, 0.0, 300.0, 500.0], view(&r, "panel"), None)),
     )]);
-    r.place_blocks(&[(route, Some(([0.0, 0.0, -1.0, 500.0], view(&r, "panel"))))]);
+    r.place_blocks(&[(
+        route,
+        Some(([0.0, 0.0, -1.0, 500.0], view(&r, "panel"), None)),
+    )]);
+    r.place_blocks(&[(
+        route,
+        Some((
+            [0.0, 0.0, 300.0, 500.0],
+            view(&r, "panel"),
+            Some([f64::NAN, 0.0]),
+        )),
+    )]);
     r.act("read", vec![]).unwrap();
     assert_eq!((num(&r, "x"), num(&r, "y")), (20.0, 40.0));
     // In the top layer, the block's rectangle in viewport points
@@ -294,7 +308,10 @@ fn a_block_held_beside_its_parent_is_read_where_its_holder_shows_it() {
         (rect, text("at"), text("all"))
     };
     let near = |a: [f64; 4], b: [f64; 4]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-9);
-    r.place_blocks(&[(route, Some(([0.0, 200.0, 300.0, 500.0], view(&r, "page"))))]);
+    r.place_blocks(&[(
+        route,
+        Some(([0.0, 200.0, 300.0, 500.0], view(&r, "page"), None)),
+    )]);
     let (rect, at, all) = read(&mut r);
     assert!(near(rect, [0.0, 230.0, 100.0, 40.0]), "{rect:?}");
     assert_eq!(at.as_deref(), Some("card"));
@@ -339,7 +356,10 @@ fn a_block_held_beside_its_parent_is_read_where_its_holder_shows_it() {
     );
     assert!(r.intersect_due().is_empty(), "the observer sees no change");
     // In a box that is not above the route, at the block's origin, turned with the panel
-    r.place_blocks(&[(route, Some(([50.0, 50.0, 300.0, 500.0], view(&r, "read"))))]);
+    r.place_blocks(&[(
+        route,
+        Some(([50.0, 50.0, 300.0, 500.0], view(&r, "read"), None)),
+    )]);
     let (unplaced, ..) = read(&mut r);
     r.place_blocks(&[(route, None)]);
     assert!(near(read(&mut r).0, unplaced), "{unplaced:?}");
@@ -371,7 +391,10 @@ fn a_sticky_box_between_moves_no_held_block() {
     let route = view(&r, "route");
     block(&mut r, route, 300.0, 500.0);
     lay_out(&mut r);
-    r.place_blocks(&[(route, Some(([0.0, 0.0, 300.0, 500.0], view(&r, "port"))))]);
+    r.place_blocks(&[(
+        route,
+        Some(([0.0, 0.0, 300.0, 500.0], view(&r, "port"), None)),
+    )]);
     let due = r.intersect_due();
     assert_eq!(due.len(), 1);
     assert!(!due[0].is_intersecting, "above the observed band");
@@ -407,7 +430,10 @@ fn a_held_blocks_observer_is_clipped_by_the_scroller_that_holds_it() {
     let route = view(&r, "route");
     block(&mut r, route, 300.0, 500.0);
     lay_out(&mut r);
-    r.place_blocks(&[(route, Some(([0.0, 200.0, 300.0, 500.0], view(&r, "port"))))]);
+    r.place_blocks(&[(
+        route,
+        Some(([0.0, 200.0, 300.0, 500.0], view(&r, "port"), None)),
+    )]);
     let due = r.intersect_due();
     assert_eq!(
         (due[0].is_intersecting, due[0].intersection_ratio),

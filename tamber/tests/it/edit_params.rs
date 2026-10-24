@@ -199,6 +199,7 @@ fn a_rename_is_proved_with_the_params_and_an_emptied_block_goes_whole() {
         list: vec![param("app.contract#App.face", "family", "system-ui")],
         components: vec!["app.contract#App".into()],
         joined: Vec::new(),
+        joined_icons: Vec::new(),
     };
     let family = "tamber app\n\ntheme\n  serif = 1px\n\nparams\n  App.face = serif, sans-serif\n";
     let rename = Op::RenameToken {
@@ -211,6 +212,7 @@ fn a_rename_is_proved_with_the_params_and_an_emptied_block_goes_whole() {
         list: vec![param("post.contract#PostButton.radius", "length", "4px")],
         components: vec!["post.contract#PostButton".into()],
         joined: Vec::new(),
+        joined_icons: Vec::new(),
     };
     let dialed = "tamber app\n\ndials\n  pad: length = 8px  in 0px..32px\n\ntheme\n  radius.md = 12px\n\nparams\n  PostButton.radius = pad\n";
     let renamed = apply_all_with(

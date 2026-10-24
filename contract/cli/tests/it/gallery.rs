@@ -852,3 +852,95 @@ fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
     assert_eq!(text.matches("  action noop_bool(").count(), 1, "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const PICS: &str = r#"component Pic
+  props
+    src: string
+    label: string
+  parts
+    frame: paint
+  view
+    column part="frame"
+      image src width=20 height=20
+      text label
+
+component Face
+  props
+    avatar: string
+    name: string
+  parts
+    face: paint
+  view
+    column part="face"
+      Pic(src=avatar, label=name)
+      text name
+
+component Banner
+  props
+    banner: string
+    fallback: string
+    backup: string
+    plain: bool
+    icon: string
+  parts
+    band: paint
+  view
+    column part="band"
+      image `${banner}` width=20 height=20
+      image (plain ? fallback : `${backup}`) width=20 height=20
+      image `symbol:${icon}` width=20 height=20
+"#;
+
+const PICS_APP: &str = r#"use Pic, Face, Banner from "@acme/lib"
+
+component App
+  view
+    column
+      Pic(src="a.png", label="a")
+      Face(avatar="b.png", name="b")
+      Banner(banner="c.png", fallback="d.png", backup="e.png", plain=false, icon="star")
+"#;
+
+/// A string prop shown as an image's source, directly or through a
+/// component it is passed to, gets a neutral picture, not its name, which no
+/// image loads (design-tool pass 2, #8); a text prop keeps its name.
+#[test]
+fn a_string_shown_as_an_image_gets_a_neutral_picture_and_text_keeps_its_name() {
+    let dir = fixture("images");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), PICS).unwrap();
+    std::fs::write(dir.join("app.contract"), PICS_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    let neutral = r#""data:image/svg+xml,%3Csvg"#;
+    let pic = text
+        .lines()
+        .find(|l| l.contains("Pic("))
+        .expect("a Pic cell");
+    assert!(pic.contains(&format!("src={neutral}")), "{pic}");
+    assert!(pic.contains(r#"label="label""#), "{pic}");
+    let face = text
+        .lines()
+        .find(|l| l.contains("Face("))
+        .expect("a Face cell");
+    assert!(face.contains(&format!("avatar={neutral}")), "{face}");
+    assert!(face.contains(r#"name="name""#), "{face}");
+    // Through a template of it alone and either branch of a `?:`; a symbol's name is no image.
+    let banner = text
+        .lines()
+        .find(|l| l.contains("Banner("))
+        .expect("a Banner cell");
+    assert!(banner.contains(&format!("banner={neutral}")), "{banner}");
+    assert!(banner.contains(&format!("fallback={neutral}")), "{banner}");
+    assert!(banner.contains(&format!("backup={neutral}")), "{banner}");
+    assert!(!banner.contains(&format!("icon={neutral}")), "{banner}");
+    // Sized by itself, as a browser sizes an SVG without a size, for native readers.
+    assert!(text.contains("width='150' height='150'"), "{banner}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

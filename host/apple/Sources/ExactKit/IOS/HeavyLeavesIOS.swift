@@ -113,8 +113,9 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
     }
     private func make(_ node: NodeView) {
         guard node.kind == "video" || node.kind == "iframe" else { node.embedPlatformView(presenter); return }
+        if node.kind == "video" { node.video = VideoView(owner: node); return }
         let started = CACurrentMediaTime()
-        if node.kind == "video" { node.video = VideoView(owner: node) } else { node.embedPlatformView(presenter) }
+        node.embedPlatformView(presenter)
         Self.record(node.kind, CACurrentMediaTime() - started)
     }
 

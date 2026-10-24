@@ -125,23 +125,51 @@ fn an_unused_an_overridden_and_a_chosen_style_row_are_not_judged() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A style applied under a `for` or a `match` is the build's there (the row's
-/// scope is the region's), and so everywhere: where the build lowers that
-/// element first, its refusal of the row is the build's first, in that
-/// element's words (Grok's round 2). Accepted here, the column's application
-/// beside it too.
+/// A style applied under a `for` or a `match` whose subject is typed is
+/// judged where the element applies it, in the arm's scope (stage 14 E): its
+/// row refused once, at the style row, as the build refuses it.
 #[test]
-fn a_style_row_under_a_for_or_match_is_left_to_the_build() {
+fn a_style_row_under_a_for_or_match_is_judged() {
     let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
+    let written = DESIGN.replace("gap = 8px", "gap = #444444");
     for (name, contract) in [
         ("rows-style-each", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column class=Pad\n      for i in items key=i\n        row class=Pad\n          Card()\n"),
         ("rows-style-each-first", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state items = [1]\n  view\n    column\n      for i in items key=i\n        row class=Pad\n          text \"a\"\n      row class=Pad\n        Card()\n"),
-        ("rows-style-only-match", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state picked: number? = 1\n  view\n    column\n      match picked\n        some p\n          row class=Pad\n            Card()\n        none\n          text \"none\"\n"),
+        ("rows-style-only-match", "use Card from \"@acme/reading\"\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state picked = some(1)\n  view\n    column\n      match picked\n        case some(p)\n          row class=Pad\n            Card()\n        case none\n          text \"none\"\n"),
     ] {
-        let dir = reading(name);
-        assert_eq!(refusals(&dir, DESIGN, contract, op.clone()), None, "{name}");
+        // Refused once, at the style row, however many elements apply it
+        // (Astra's round 1).
+        let dir = reading(&format!("{name}-once"));
+        let refused = refusals(&dir, DESIGN, contract, op.clone()).expect(name);
+        assert_eq!(refused.len(), 1, "{name}: {refused:?}");
         let _ = std::fs::remove_dir_all(&dir);
+        same_words(&reading(name), DESIGN, contract, op.clone(), &written);
     }
+}
+
+/// A style applied under a `for` whose subject isn't typed by its form (a
+/// call's list) is the build's there, and so everywhere: where the build
+/// lowers that element first, its refusal of the row is the build's first,
+/// in that element's words (Grok's round 2). Accepted here, the column's
+/// application beside it too.
+#[test]
+fn a_style_row_under_an_untyped_region_is_left_to_the_build() {
+    let op = json!({"op": "set-token", "name": "gap", "value": "#444444"});
+    let contract = "use Card from \"@acme/reading\"\nfn itemsOf(x: number): number[] = [x]\nstyle Pad\n  padding=\"gap\"\ncomponent App\n  state n = 1\n  view\n    column class=Pad\n      for i in itemsOf(n) key=i\n        row class=Pad\n          Card()\n";
+    let dir = reading("rows-style-each-call");
+    assert_eq!(refusals(&dir, DESIGN, contract, op), None);
+    // The app builds, and the written design is refused by the build at the
+    // style row (Astra's and Grok's round 1).
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        DESIGN.replace("gap = 8px", "gap = #444444"),
+    )
+    .unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!((built.span.line, built.span.col), (4, 11), "{built:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A `button`'s class rows are the build's (`button_appearance` reads them

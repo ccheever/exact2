@@ -94,6 +94,9 @@ mod implementation {
         pub(crate) fn write(self, _data: &[u8]) -> Result<(), HostError> {
             Err(unsupported())
         }
+        pub(crate) fn extended(self, _extension: &str) -> Self {
+            self
+        }
     }
     pub fn resolve_sqlite(
         _grants: &GrantSet,

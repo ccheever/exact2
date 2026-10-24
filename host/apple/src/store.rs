@@ -20,7 +20,7 @@ use ibex2::host::{Bindings, Host, Kv, Secrets};
 /// The kv scope the runner's kept answers live in (LLP 1027 D4): beside the
 /// Keychain, not in it — a cache of settled data, any resource's name a
 /// key, read in one listing at launch.
-const KEPT: &str = "exact.kept";
+pub(crate) const KEPT: &str = "exact.kept";
 
 /// The kv scope persisted states live in where they are not the app's
 /// `UserDefaults` (LLP 1116 D5, [`Prefs`]).
@@ -201,8 +201,9 @@ impl ibex2::secrets::SecretStore for Shared {
 fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
     // Appended, so an error's line number is the app's own.
     let spec = format!(
-        "{}\nstorage.kv {KEPT}\nstorage.kv {STATE}",
-        exact_runner::io_grants(grants)
+        "{}\nstorage.kv {KEPT}\nstorage.kv {STATE}\n{}",
+        exact_runner::io_grants(grants),
+        crate::presence_secrets::scopes(),
     );
     let set = ibex2::grant::GrantSet::parse(&spec)
         .map_err(|e| format!("the app's grants did not parse: {e}"))?;
@@ -221,6 +222,8 @@ pub trait KeptStore {
     }
     /// Write one store change.
     fn write(&self, w: &StoreWrite) -> Result<(), String>;
+    /// Retry asynchronous writes that failed on an earlier turn.
+    fn retry_failed(&self) {}
     /// The kept answers the writer failed to write since the last call.
     fn kept_failures(&self) -> Vec<String>;
 }
@@ -262,6 +265,23 @@ impl KeptStore for Platform {
     fn write(&self, w: &StoreWrite) -> Result<(), String> {
         Platform::write(self, w).map_err(|e| e.to_string())
     }
+    fn retry_failed(&self) {
+        let owed = self.failed.2.lock().expect("kept");
+        let failed = self.failed.1.lock().expect("kept");
+        for key in failed.iter() {
+            if let Some((revision, value)) = owed.values.get(key) {
+                keep(
+                    (std::sync::Arc::as_ptr(&self.failed) as usize, key.clone()),
+                    Kept {
+                        kv: self.kv.clone(),
+                        value: value.clone(),
+                        failed: self.failed.clone(),
+                        revision: *revision,
+                    },
+                );
+            }
+        }
+    }
     fn kept_failures(&self) -> Vec<String> {
         Platform::kept_failures(self)
     }
@@ -279,6 +299,11 @@ pub struct Endowed {
     pub secrets: Option<Box<dyn KeptStore>>,
     /// Why the grants bound nothing.
     pub unbound: Option<String>,
+    /// The presence backend, reconciled before boot (LLP 1133.010 D4), and
+    /// the keychain service the host reads its items from (none under the
+    /// agent): the host installs it in the runner it boots. Its occupancy
+    /// is in the snapshot.
+    pub presence: Option<(exact_runner::presence::Backend, Option<String>)>,
 }
 
 impl Endowed {
@@ -289,6 +314,7 @@ impl Endowed {
             snapshot: Vec::new(),
             secrets: None,
             unbound: None,
+            presence: None,
         }
     }
 }
@@ -298,12 +324,29 @@ impl Endowed {
 pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     let (bindings, unbound) = endow_bound(grants, app_id, fresh);
     let prefs = Prefs::of(app_id);
+    let agent = std::env::var_os("EXACT_AGENT").is_some();
+    // A drive that asks for the platform's stores (`EXACT_STORE=real`) keeps
+    // locked items in the keychain too, behind the platform's check, which it
+    // binds (`--bind local-auth`): the conformance suite's real items.
+    let platform = !agent || std::env::var("EXACT_STORE").as_deref() == Ok("real");
+    let presence = match !platform {
+        true => crate::presence_secrets::agent_backend(bindings.as_ref(), grants, agent)
+            .map(|b| (b, None)),
+        false => crate::presence_secrets::keychain_backend(bindings.as_ref(), grants, app_id)
+            .map(|(b, service)| (b, Some(service))),
+    };
+    let mut snapshot = if fresh {
+        snapshot_in(bindings.as_ref(), &prefs)
+    } else {
+        Vec::new()
+    };
+    if let Some((backend, keystore)) = presence.as_ref().filter(|_| fresh) {
+        let capable = keystore.is_none() || crate::presence_secrets::keychain_capable();
+        snapshot.extend(backend.snapshot_entries(capable));
+    }
     Endowed {
-        snapshot: if fresh {
-            snapshot_in(bindings.as_ref(), &prefs)
-        } else {
-            Vec::new()
-        },
+        snapshot,
+        presence,
         secrets: bindings
             .as_ref()
             .map(|b| Box::new(Platform::of(b).with_prefs(prefs.clone())) as Box<dyn KeptStore>),
@@ -352,10 +395,17 @@ impl Platform {
         }
         match (w.name.strip_prefix(Store::KEPT), &w.value) {
             (Some(key), value) => {
+                let mut owed = self.failed.2.lock().expect("kept");
+                owed.revision += 1;
+                let revision = owed.revision;
+                owed.values
+                    .insert(key.to_owned(), (revision, value.clone()));
+                self.failed.1.lock().expect("kept").remove(key);
                 let write = Kept {
                     kv: self.kv.clone(),
                     value: value.clone(),
                     failed: self.failed.clone(),
+                    revision,
                 };
                 keep(
                     (
@@ -388,7 +438,14 @@ impl Platform {
 struct Failures(
     std::sync::Mutex<Vec<String>>,
     std::sync::Mutex<std::collections::BTreeSet<String>>,
+    std::sync::Mutex<Owed>,
 );
+
+#[derive(Default)]
+struct Owed {
+    revision: u64,
+    values: std::collections::HashMap<String, (u64, Option<Vec<u8>>)>,
+}
 
 static ORPHANED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
@@ -409,6 +466,7 @@ impl Drop for Failures {
 /// written. A launch's snapshot and the process's orderly exit wait for the
 /// writer (`flush_kept`). An answer a crash loses is fetched again.
 struct Kept {
+    revision: u64,
     kv: Kv,
     value: Option<Vec<u8>>,
     failed: std::sync::Arc<Failures>,
@@ -484,9 +542,17 @@ fn write_one(key: &str, write: Kept) {
         Some(v) => write.kv.set(KEPT, key, v),
         None => write.kv.delete(KEPT, key),
     }));
+    let mut owed = write.failed.2.lock().expect("kept");
+    let current = owed
+        .values
+        .get(key)
+        .is_some_and(|(revision, _)| *revision == write.revision);
     let why = match done {
         Ok(Ok(())) => {
-            write.failed.1.lock().expect("kept").remove(key);
+            if current {
+                owed.values.remove(key);
+                write.failed.1.lock().expect("kept").remove(key);
+            }
             return;
         }
         Ok(Err(e)) => e.to_string(),
@@ -494,7 +560,9 @@ fn write_one(key: &str, write: Kept) {
     };
     let line = format!("store {}{key} failed: {why}", Store::KEPT);
     write.failed.0.lock().expect("kept").push(line);
-    write.failed.1.lock().expect("kept").insert(key.to_owned());
+    if current {
+        write.failed.1.lock().expect("kept").insert(key.to_owned());
+    }
 }
 
 /// Wait until nothing is waiting to be written and the writer is idle.
@@ -887,6 +955,77 @@ mod tests {
             platform.snapshot(memory.clone()).values,
             memory,
             "a failed kept write is unreadable even after its journal was drained"
+        );
+    }
+
+    #[test]
+    fn failed_asynchronous_answers_retry_and_newer_values_supersede_them() {
+        struct Refusing {
+            memory: std::sync::Arc<ibex2::kv::MemoryStore>,
+            refusing: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl ibex2::kv::KvStore for Refusing {
+            fn get(&self, scope: &str, key: &str) -> Result<Option<Vec<u8>>, HostError> {
+                self.memory.get(scope, key)
+            }
+            fn keys(&self, scope: &str) -> Result<Vec<String>, HostError> {
+                self.memory.keys(scope)
+            }
+            fn set(&self, scope: &str, key: &str, value: &[u8]) -> Result<(), HostError> {
+                if self.refusing.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(HostError::Failed("injected full disk".into()));
+                }
+                self.memory.set(scope, key, value)
+            }
+            fn delete(&self, scope: &str, key: &str) -> Result<(), HostError> {
+                self.memory.delete(scope, key)
+            }
+        }
+        let memory = std::sync::Arc::new(ibex2::kv::MemoryStore::new());
+        let refusing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let platform = Platform::of(
+            &endow_in(
+                Host::new()
+                    .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+                    .with_kv_store(Box::new(Refusing {
+                        memory: memory.clone(),
+                        refusing: refusing.clone(),
+                    })),
+                "",
+            )
+            .unwrap(),
+        );
+        let write = |value: &str| StoreWrite {
+            name: "exact.kept.feed".into(),
+            value: Some(value.as_bytes().to_vec()),
+        };
+        platform.write(&write("1")).unwrap();
+        flush_kept();
+        assert!(platform
+            .kept_failures()
+            .iter()
+            .any(|s| s.contains("injected full disk")));
+        refusing.store(false, std::sync::atomic::Ordering::SeqCst);
+        platform.retry_failed();
+        flush_kept();
+        use ibex2::kv::KvStore;
+        assert_eq!(
+            memory.get(KEPT, "feed").unwrap(),
+            Some(b"1".to_vec()),
+            "retry does not need a changed answer"
+        );
+        refusing.store(true, std::sync::atomic::Ordering::SeqCst);
+        platform.write(&write("2")).unwrap();
+        flush_kept();
+        assert!(!platform.kept_failures().is_empty());
+        refusing.store(false, std::sync::atomic::Ordering::SeqCst);
+        platform.write(&write("3")).unwrap();
+        platform.retry_failed();
+        flush_kept();
+        assert_eq!(
+            memory.get(KEPT, "feed").unwrap(),
+            Some(b"3".to_vec()),
+            "an old failure cannot replay over a newer write"
         );
     }
 

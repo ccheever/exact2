@@ -86,12 +86,12 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, home, text, source_id, bindable, package }
+    DesignSource { path, home, text, source_id, bindable, package, root }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -100,7 +100,7 @@ structs! {
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
-    ModuleDecl { name, declared, package, extension, kind, options, words, answers, live, request, sync, substitute, span }
+    ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
     PlatformWords { platform, package, words }
     UseDecl { names, path, span }
     UseName { name, alias, span }
@@ -112,7 +112,7 @@ structs! {
     Anatomy { parts, marks }
     PartDecl { name, groups, span }
     Mark { part, span, node, own }
-    Params { identity, list }
+    Params { identity, package, root, list }
     ComponentParam { name, kind, default, default_span, attrs, span }
     ParamAttr { name, value, span }
     Sequence { name, gate, key, tracks, options, ended, span }
@@ -142,13 +142,13 @@ record_variants! {
     Step {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
-        Locale { tag, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
+        Locale { tag, span }, Prefer { name, value, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectRefusal { target, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
-        Midi { step, span },
+        Midi { step, span }, ExpectWakelock { held, span },
     }
 }
 // MIDI's test steps carry no spans of their own.
@@ -269,6 +269,7 @@ impl Step {
             | Step::Epoch { span, .. }
             | Step::TimeZone { span, .. }
             | Step::Locale { span, .. }
+            | Step::Prefer { span, .. }
             | Step::Seed { span, .. }
             | Step::Fresh { span, .. }
             | Step::BeforeData { span }
@@ -290,6 +291,7 @@ impl Step {
             | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
+            | Step::ExpectWakelock { span, .. }
             | Step::ExpectSound { span, .. }
             | Step::Midi { span, .. }
             | Step::ExpectMediaSession { span, .. }

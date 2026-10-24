@@ -545,6 +545,21 @@ component App
         (row.height - wrapped.height).abs() <= 1.5,
         "{row:?} {wrapped:?}"
     );
+    // LLP 1141.001 D5: its texts hyphenate, as the value cell's labels do,
+    // though the row is a custom cell.
+    let straight = under(
+        k,
+        k.node_by_key(k.find_by_test_id("straight")[0]).unwrap().id,
+    );
+    for text in straight.iter().filter(|n| n.node_type == NodeType::Text) {
+        let hyphens = text.computed_style(exact_kernel::StyleMask::ALL).hyphens;
+        assert_eq!(
+            hyphens,
+            exact_kernel::Hyphens::Auto,
+            "{:?}",
+            text.props.str(PropId::Text)
+        );
+    }
 }
 
 /// LLP 1116.020 D5: an `EmptyState` in a list is one of its rows; the
@@ -921,24 +936,20 @@ component App
                 .into_iter()
                 .find(|n| n.node_type == NodeType::Image)
                 .unwrap();
+            // (A symbol draws in its `color`: no tint, `lower-symbol-tint`.)
+            assert_eq!(image.style.tint_color, None);
             (
                 image.props.str(PropId::ImageSource).unwrap().to_owned(),
-                image.style.tint_color,
+                image.style.text_color,
             )
         })
         .collect();
     assert_eq!(
         tints,
         [
-            (
-                "symbol:select-fill".into(),
-                Some(named("-exact-system-green"))
-            ),
-            ("symbol:circle".into(), Some(named("-exact-tertiary-label"))),
-            (
-                "symbol:select-fill".into(),
-                Some(named("-exact-system-green"))
-            ),
+            ("symbol:select-fill".into(), named("-exact-system-green")),
+            ("symbol:circle".into(), named("-exact-tertiary-label")),
+            ("symbol:select-fill".into(), named("-exact-system-green")),
         ]
     );
 }

@@ -84,6 +84,11 @@ let scrubs = sessions();
 const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok ? send({ ok: r.ok }) : send({ error: r.error }, r.status ?? 409);
 // The next poll says it missed events (more than the server keeps).
 let miss = false;
+// The events' GET long poll (tamber/1.17), as a test turns it on (`/__stub/long-poll`): hello says 1.17, and a GET from
+// a cursor is held until there is news (at most `LONG_POLL_MS`, or the test's `heartbeat` ms, then a 204), as the server's is.
+let longPolls = false, skipCursor = false, refuseHello = false; // (`refuseHello`: hello refused, the events still read)
+const LONG_POLL_MS = 25_000;
+let beat = LONG_POLL_MS;
 // Held proposals, as a test holds them (`/__stub/hold`).
 let held: Record<string, unknown>[] = [], holds = 0;
 // Live copies (LLP 1122 T7), as a test turns them on (`/__stub/copies`):
@@ -121,6 +126,8 @@ const save = () => writeFileSync(DB, JSON.stringify(log));
 
 /** One event as a test adds it: logged, and the state it moves. */
 function take(e: Record<string, any>) {
+  // (`pad`: an event this many bytes larger, up to 4 MiB, as a test makes one larger than a stream's default ceiling.)
+  if (typeof e.pad === 'number') { const { pad, ...rest } = e; e = { ...rest, note: 'x'.repeat(Math.min(pad, 4 << 20)) }; }
   // An event's `files` are the digests from then on.
   if (e.files) FILES = { ...FILES, ...e.files };
   // A `builds` event is the list hello gives from then on, and a
@@ -147,7 +154,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -210,7 +217,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (need === null) return send({ error: { message: `\`${request.method}\` has no scope on this wire` } }, 400);
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
       // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
+      if (request.method === 'hello' && refuseHello) return send({ error: { message: 'the design files could not be read' } }, 500);
+      if (request.method === 'hello') return send({ ok: { protocol: longPolls ? 'tamber/1.17' : 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
@@ -265,6 +273,22 @@ Bun.serve({ hostname, port: Number(port), routes: {
         // and moving no inspect mode (ruling 5), as the server answers it.
         if (request.refresh === true && asker.scope !== 'write') return send({ ok: { selections: BUILDS.map(b => log.findLast(e => e.event === 'selection' && e.build === b.id)).filter(Boolean) } });
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
+        // `select: {up}` (tamber/1.16): the build's page selects that ancestor, reported as a click would be: the last
+        // selection again, its source the call site `up` above and its chain what is left above that.
+        if (request.select) {
+          if (refuseSelect) return send({ error: { message: 'inspect is not on for this client on `web-1`: turn it on first' } }, 409);
+          // (`/__stub/page-refuses-select`: sent, and the page answers it can't, as Apple's do.)
+          // (`/__stub/page-select-gone`, once: the page's selection went in a rebuild while the move was on its way.)
+          if (pageSelectGone) { pageSelectGone = false; log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'the selected node is gone in this generation: select it again', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          if (pageRefusesSelect) { log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'this build cannot move its selection up (select): click the node instead', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
+          // (`/__stub/shallow-select`: a page whose tree changed has fewer above, and lands at the root.)
+          const chain = last?.source?.chain ?? [], up = shallowSelect ? chain.length : Math.min(Number(request.select.up), chain.length);
+          if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          // (Another node, as the page's ancestor is: its own view id.)
+          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, seq: seq() + 1 }); save();
+          return send({ ok: { builds: [request.build] } });
+        }
         // A refresh asks a build's page to report again, inspect mode as it is:
         // its last selection again, with the held look a test set (`/__stub/held-answer`).
         if (request.refresh && !('on' in request)) {
@@ -376,6 +400,19 @@ Bun.serve({ hostname, port: Number(port), routes: {
         }
         return send({ ok: { files: FILES, written: ['app.tamber'], client: p.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       }
+      // `edit-held` (1.17): one value of a held proposal, held again in its place as `edited-N` (the server's
+      // `tamber-edit-held.mjs`, by shape: its op's value or `when`th branch's set, `items` kept, the client kept).
+      if (request.method === 'edit-held' && longPolls) {
+        const old = held.find(h => h.proposal === request.proposal);
+        if (!old) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        const ops = old.ops.map((o: any) => ({ ...o, op: { ...o.op, whens: o.op.whens?.map((w: any) => ({ ...w })) } }));
+        const at = ops[request.index]?.op;
+        if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
+        const keep: number[] = request.items ?? ops.map((_: unknown, i: number) => i);
+        const id = `edited-${++holds}`;
+        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), review: { ...old.review, kept: true, from: request.proposal }, replaces: request.proposal, editedBy: request.client }]);
+        return send({ ok: { recomputed: true, replaces: request.proposal, proposal: id, client: old.client, editedBy: request.client } });
+      }
       if (request.method === 'drop') { held = held.filter(h => h.proposal !== request.proposal); return send({ ok: { dropped: request.proposal } }); }
       if (request.method === 'undo') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: null, changed: [], class: 'live', diff: '' } });
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
@@ -428,13 +465,41 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (typeof client === 'string') present.add(client);
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
-      return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held });
+      return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, ...(longPolls ? { held: holds, cursor: `${seq()}.${holds}` } : {}) });
+    },
+    // The GET form (1.17): the same read by cursor (`<seq>.<held revision>`, here the holds made), held until news.
+    GET: async (req) => {
+      const asker = who(req);
+      if (!asker || !longPolls) return asker ? send({ message: 'Not found.' }, 404) : nobody(req);
+      if (!allows(asker.scope, needs({ method: 'events' })!, asker.local)) { const r = refusal('events', asker.scope, 'read'); return send({ error: r.error }, r.status); }
+      // (A first ask, with no `after`, answered at once: from `open`, a read's cursor, if given.)
+      const q = new URL(req.url).searchParams, asked = q.get('after'), epoch = q.get('epoch'), from = asked ?? q.get('open');
+      const [after, revision] = (from ?? `${seq()}.${holds}`).split('.').map(Number);
+      const client = asker.client ?? q.get('client');
+      if (typeof client === 'string') present.add(client);
+      const news = () => miss || (epoch !== null && epoch !== EPOCH) || log.some(e => e.seq > after) || revision !== holds;
+      // (One its client let go, as a new ask replaces it, ends unanswered: it takes no news, nor the skip below.)
+      for (const start = Date.now(); asked !== null && !news() && Date.now() - start < beat && !req.signal.aborted;) await Bun.sleep(20);
+      if (req.signal.aborted || (asked !== null && !news())) return new Response(null, { status: 204 });
+      const missed = (epoch !== null && epoch !== EPOCH) || miss;
+      miss = false;
+      const skipped = skipCursor; skipCursor = false;
+      return send({ events: missed ? [] : log.filter(e => e.seq > after + (skipped ? 1 : 0)), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, held: holds, cursor: `${seq()}.${holds}`, asked: skipped ? `${after + 1}.${revision}` : from });
     },
   },
+  '/__stub/long-poll': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); longPolls = true; const { heartbeat } = await req.json().catch(() => ({})); beat = Number.isSafeInteger(heartbeat) && heartbeat > 0 ? heartbeat : LONG_POLL_MS; return send({ ok: true }); } },
+  // A reply the host folded into a later one (LLP 1016.000 D4's coalescing), as a test makes one: the next GET answer
+  // names a cursor the tool never had (`asked` moved on), so the tool reads the gap once by POST.
+  '/__stub/refuse-hello': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseHello = true; return send({ ok: true }); } },
+  '/__stub/skip-cursor': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); skipCursor = true; return send({ ok: true }); } },
   // A new run of the server: a new epoch, its numbers from 0 again.
   // The tool's canvas check as `tamber tool --via` answers it (scripts/tamber-frame.mjs), as a test sets it
   // (`/__stub/canvas-check`); not found by default, as a tool served without --via.
   '/__tamber/tool/canvas-check': { GET: () => (canvasCheck ? send(canvasCheck) : send({ message: 'Not found.' }, 404)) },
+  '/__stub/page-select-gone': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageSelectGone = true; return send({ ok: true }); } },
+  '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
+  '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
+  '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
   '/__stub/canvas-check': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasCheck = await req.json().catch(() => null); return send({ ok: true }); } },
   '/__stub/restart': {
     POST: (req) => {
@@ -444,6 +509,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       log.length = 0;
       held = [];
       holds = 0;
+      longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
       BUILDS = [];
       reversed = false;
@@ -451,7 +517,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
       copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;

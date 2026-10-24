@@ -2,7 +2,8 @@
      browser and on every operating system. A web build takes this sheet after the shell's browser resets
      (host/web/look.mjs). The browser keeps its system font, the reader's text size and the focus ring.
      Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win, except where
-     a rule says the platform decides whatever is written (a modal sheet's frame, a bar item's symbol).
+     a rule says the platform decides whatever is written (a modal sheet's frame, a bar item's symbol, a sheet bar's
+     word).
 
      The rules the look follows:
      - Colour is Apple's: a build lays Apple's pairs over this sheet's roles (host/web/look.mjs, LLP 1115.000 D4). A
@@ -48,18 +49,29 @@
      the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled` the accent under the ink that
      reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the button's accent, so an outline
      or a grey button takes red ink. */
-  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
-  #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
-  /* A mini or small button writes `--exact-touch-floor: 0px` (LLP 1069.011.001 D8), so on a touch device it keeps the
-     floor it has under a mouse, as UIKit's does. The look takes that answer on Android too, where Material keeps a
-     48 dp target; at a 16 px root the button is 32 px, which meets WCAG 2.5.8's 24 px minimum. */
+  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; --exact-said-line-height: ; }
+  #exact-root button[data-button-style]:has(> img):where(:not(:has(> :not(img, [data-exact-text]:empty)))):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
+  /* Mini and small keep their mouse floor on touch devices (`--exact-touch-floor: 0px`, LLP 1069.011.001 D8).
+     Written padding removes the floor, as UIKit's contentInsets do, and can make targets smaller than WCAG 2.5.8's
+     24 px minimum. This follows UIKit even when adjacent small targets cannot meet the spacing exception. */
   @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: max(2.25em, var(--exact-touch-floor, 44px)); min-width: max(2.25em, var(--exact-touch-floor, 44px)); } }
-  /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
-     wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
-     written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
-     CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
-  #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
-  #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
+  /* Remove the look's minimum and padding on an authored size axis (LLP 1115: author > platform).
+     Otherwise CSS minimums and padding can enlarge the requested box. Literal sizes use `data-exact-said`;
+     the JS writer marks bound sizes with `data-exact-width` and `data-exact-height`. */
+  #exact-root button[data-button-style]:is([data-exact-said~="height"], [data-exact-height]) { min-height: auto; padding-block: 0; }
+  #exact-root button[data-button-style]:is([data-exact-said~="width"], [data-exact-width]):not([navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], [data-exact-text]:empty)))) { min-width: auto; padding-inline: 0; }
+  /* Written padding is UIKit's contentInsets (LLP 1069.011.001 D15): content plus insets, with no minimum; an
+     unsaid side keeps its default inset. Bound sides carry per-side marks from the JS writer. The 1 px edge also
+     yields, except the bordered style's outline (transparent in a bar) and every edge under forced colours.
+     Tabs, segments, menu and chooser rows keep their own boxes, as their native counterparts are not UIButtons. */
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) {
+    &:is([data-exact-said~="padding-block"], [data-exact-padding-top], [data-exact-padding-bottom]) { min-height: auto; }
+    &:is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]) { min-width: auto; }
+    @media (forced-colors: none) {
+      &:not([data-button-style="bordered"]):is([data-exact-said~="padding-block"], [data-exact-padding-top], [data-exact-padding-bottom]) { border-block-width: 0; }
+      &:not([data-button-style="bordered"]):is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]) { border-inline-width: 0; }
+    }
+  }
   /* Symbols. A symbol drawn for an SF Symbol (a role, or an icon with an `sf` source) is SF's size at its font size.
      Its path keeps to about the 20-unit live area of a 24-unit box, and an SF Symbol's glyph fills its point size (a
      circle is 1em across, in a 1.18em image), so its box is 1.2em, as the image is on iOS. On a button's face UIKit
@@ -75,8 +87,8 @@
      built ahead of time sizes the image's source by it (document.rs). */
   :where(#exact-root img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"], button[data-button-style] > *)) { --exact-symbol-scale: 1.2; }
   :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { --exact-symbol-scale: 1.5; margin: calc((1 - var(--exact-symbol-scale)) * .5em); }
-  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { --exact-symbol-away: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0))); --exact-symbol-toward: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0) / 2)); margin-inline: 0; margin-block: var(--exact-symbol-away) var(--exact-symbol-toward); }
-  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > [data-exact-text] ~ img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { margin-block: var(--exact-symbol-toward) var(--exact-symbol-away); }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *):has(> :not(img, [data-exact-text]:empty)) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { --exact-symbol-away: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0))); --exact-symbol-toward: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0) / 2)); margin-inline: 0; margin-block: var(--exact-symbol-away) var(--exact-symbol-toward); }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > [data-exact-text]:not(:empty) ~ img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { margin-block: var(--exact-symbol-toward) var(--exact-symbol-away); }
   /* A button's image and its title are UIKit's image padding apart (`UIButton.Configuration.imagePadding`, which the
      iOS host sets to the system spacing for the title's font: 8 points for 13- to 17-point titles at the default text
      size, measured on iOS 27), beside each other or one over the other, unless the author wrote a gap. A tab, a radio
@@ -88,9 +100,9 @@
      line height under about 1.1, the clip cuts about .03em off either end of a lock. A symbol alone is not clipped,
      as UIButton does not clip its image, but takes no hits, which stay in the button's own box, as UIView's do. A
      sheet bar's word, which takes a symbol's place, is not a symbol. */
-  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))[data-exact-said~="height"]:has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { padding-block: calc(.125em * (1 - var(--exact-button-stacked, 0))); }
-  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child) { overflow: visible; }
-  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child { pointer-events: none; }
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], [data-exact-text]:empty)))):is([data-exact-said~="height"], [data-exact-height]):has(> :not(img, [data-exact-text]:empty)):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { padding-block: calc(.125em * (1 - var(--exact-button-stacked, 0))); }
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], [data-exact-text]:empty)))):where(:not(:has(> :not(img, [data-exact-text]:empty)))):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { overflow: visible; }
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], [data-exact-text]:empty)))):where(:not(:has(> :not(img, [data-exact-text]:empty)))) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]) { pointer-events: none; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }
   #exact-root button[data-button-style="bordered"] { border-color: var(--exact-line); }
   #exact-root button[data-button-style="gray"] { background-color: var(--exact-secondary-fill); }
@@ -101,18 +113,20 @@
     #exact-root, #exact-root * { --exact-accent-text: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
   }
-  /* Hover, and a bordered, gray or tinted button's press: a wash of the button's own ink over its fill, as an image,
-     so the fill beneath is whatever the style or the accent made it. */
+  /* Draw hover and press washes over the fill. Register `--exact-wash` so the release can interpolate its colour.
+     Tinted buttons use the accent even with authored title ink, matching UIKit's `.tinted()` on iOS 27;
+     Chrome cannot interpolate `currentColor` in this custom property. */
+  @property --exact-wash { syntax: "<color>"; inherits: false; initial-value: transparent; }
   @media (hover: hover) {
-    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-quaternary-fill); }
     #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
-    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent) 0 0); }
+    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 8%, transparent); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
   }
   /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. */
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-tertiary-fill); }
   #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
-  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 16%, transparent); }
   /* Held, a plain, borderless, filled or glass button shows UIKit's highlight, whatever its accent (measured on iOS 27):
      - Its face is at 75%, as `UIButton.Configuration` draws a highlighted button's ink. The face is the button's
        children, and the name a sheet's bar draws in place of a symbol (`::after`, below), so the focus ring keeps its
@@ -130,9 +144,20 @@
      row keeps its own look. */
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
     &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 75%, transparent), color-mix(in srgb, var(--exact-accent, AccentColor), #fff 20%)); background-image: none; }
-    &[data-button-style$="glass"] { background-image: linear-gradient(color-mix(in srgb, #fff 20%, transparent) 0 0); }
+    &[data-button-style$="glass"] { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff 20%, transparent); }
     & > :not(img), &::after { opacity: .75; }
     & > img { --exact-tint: color-mix(in srgb, currentColor 75%, transparent); }
+  }
+  /* Ease the highlight back over 250 ms, ease-in-out, matching UIKit on iOS 27. The press starts immediately,
+     so a quick tap still shows. The input glue keeps `data-exact-released` only while these effects run;
+     later state changes, such as enabling a filled button, keep their own timing. */
+  #exact-root button[data-exact-released]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
+    &:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"]), &:is([data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style$="glass"]) { background-image: linear-gradient(var(--exact-wash) 0 0); transition: --exact-wash .25s ease-in-out; }
+    &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { transition: background-color .25s ease-in-out; }
+    &:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) {
+      & > :not(img), &::after { transition: opacity .25s ease-in-out; }
+      & > img { transition: background-color .25s ease-in-out; }
+    }
   }
   /* Disabled, in every style (LLP 1116.005 D8): the grey ink, and the neutral fill where the style filled with the
      accent; an outline fades to a divider. */
@@ -187,10 +212,10 @@
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
      still wins; the ground and ink are the design's Field and FieldText where it overrides them, LLP 1121 D9). */
   #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-field, var(--exact-secondary-grouped-background)); color: var(--exact-field-text); }
-  #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
+  #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; --exact-said-line-height: ; }
   #exact-root input[data-exact-field] { height: 2.25em; }
   #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
-  @media (any-pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
+  @media (any-pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: var(--exact-control-line-height); --exact-control-line-height: 2.625; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); } }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */
   #exact-root select:not([multiple]) { background-image: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%), linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%); }
@@ -217,7 +242,7 @@
   #exact-root input[data-exact-control][type="range"]::-moz-range-thumb { box-sizing: border-box; width: 1.25em; height: 1.25em; border: 2px solid var(--exact-secondary-grouped-background); border-radius: 50%; background-color: var(--exact-accent, AccentColor); }
   /* A file field keeps the browser's words; its button is the outline button. */
   #exact-root input[data-exact-control][type="file"] { color: var(--exact-secondary-label); }
-  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; }
+  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; --exact-said-font-weight: ; }
   @media (hover: hover) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } }
   @media (any-pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
 
@@ -295,7 +320,7 @@
      which it beats by coming later. */
   :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
   #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
-  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; cursor: default; --exact-back-press: 1; }
+  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; --exact-said-font-weight: ; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
   #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); } /* after :hover, which a held pointer matches too */
@@ -310,8 +335,8 @@
      where iOS makes one; an item is a pressable in it, not a tab of its tablist, nor in a popover, a dialog, a
      readout or another item (the title's pressable, around the heading, is no item; one inside it is). A symbol
      beside words (a title's chevron, a chip's) or inside a box of the item's keeps its size (the LLP says how iOS
-     draws those). */
-  #exact-root [navigationkey] > header[data-exact-bar] :is(button, [data-exact-on~="press"]):not(:is([role="tablist"], [role="status"], [popover], dialog, :is(button, [data-exact-on~="press"]):not(:has([data-exact-text][role="heading"]))) *, :has(> :not(img[data-symbol-path]))) {
+     draws those). Only native face text is ignored when empty; custom text can still draw an authored box. */
+  #exact-root [navigationkey] > header[data-exact-bar] :is(button, [data-exact-on~="press"]):not(:is([role="tablist"], [role="status"], [popover], dialog, :is(button, [data-exact-on~="press"]):not(:has([data-exact-text][role="heading"]))) *, :has(> :not(img[data-symbol-path], :where(button[data-button-style]) > [data-exact-text]:empty))) {
     & > img[data-symbol-path] { font-size: 1.2941rem !important; width: calc(var(--exact-symbol-scale, 1) * 1em) !important; height: calc(var(--exact-symbol-scale, 1) * 1em) !important; }
     & > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]) { --exact-symbol-scale: 1.2; }
     &[data-button-style] > img[data-symbol-path] { margin: calc((1rem - var(--exact-symbol-scale, 1) * 1em) / 2); }
@@ -333,10 +358,17 @@
      the shell's heading reset (`margin: 0`) and wins by coming after it. */
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
-  /* LLP 1116.020 D2: a sheet's button whose face is only a symbol says its name instead, padded as a word is (above):
-     iOS draws a Cancel's xmark and a Save's checkmark, and a web dialog's buttons are words. */
-  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img { display: none; }
-  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))::after { content: attr(aria-label); }
+  /* A sheet bar's title is one line, as UIKit's is: it ends in an ellipsis where it does not fit, and where the
+     bar's buttons leave it no room it is clipped away (UIKit hides it then), never spilling over a neighbour.
+     Unsaid only: an author's own `white-space`, `overflow` or `text-overflow` wins. */
+  :where(#exact-root [navigationPresentation="modal"] > header) :where(h1, h2, h3, h4, h5, h6, [role="heading"]) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Replace a sheet bar's symbol-only button with its accessible name (LLP 1116.020 D2). Size it to that word,
+     preserving the look's padding even when the symbol had an authored width. UIKit leaves 16 points on each
+     side (measured on iOS 27), matching 1em at the web's 16 px body. A word that cannot fit ends in an ellipsis,
+     including in an authored block display. */
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], :where(button[data-button-style]) > [data-exact-text]:empty)))) > img { display: none; }
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], :where(button[data-button-style]) > [data-exact-text]:empty))))::after { content: attr(aria-label); display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #exact-root [navigationPresentation="modal"] > header button[data-button-style][aria-label]:is([data-exact-said~="width"], [data-exact-width]):not(:has(> :not(img[data-symbol-source], [data-exact-text]:empty))) { width: max-content !important; }
 
   /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
      the row equally in the order written, a title too long for its share taking a row of its own, and a destructive
@@ -375,7 +407,7 @@
   @position-try --exact-context-start { left: auto; right: calc(100% - var(--exact-context-x)); }
   @position-try --exact-context-up { top: auto; bottom: calc(100% - var(--exact-context-y)); }
   @position-try --exact-context-up-start { left: auto; right: calc(100% - var(--exact-context-x)); top: auto; bottom: calc(100% - var(--exact-context-y)); }
-  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
+  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; --exact-said-font-weight: ; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-destructive="true"] { color: var(--exact-accent); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:disabled { color: var(--exact-gray-text); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:focus-visible { outline-offset: -2px; }

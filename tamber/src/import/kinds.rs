@@ -134,6 +134,8 @@ pub(super) fn refused(
     vocab: &Vocab,
 ) -> Result<Vec<Option<String>>, crate::Diagnostic> {
     let mut why = unfolded(tokens, axes, design, vocab);
+    // (each of `unfolded`'s probes charged as it was built: one the budget ran out in refuses the import)
+    crate::budget::spend(1).map_err(|m| crate::Diagnostic::new("tamber-import-source", m, 1, 1))?;
     let kept: Vec<usize> = (0..tokens.len()).filter(|&i| why[i].is_none()).collect();
     let laid: Vec<Mapped> = kept.iter().map(|&i| tokens[i].clone()).collect();
     let landed = super::landing::landing(&laid, axes, owned, design, vocab)?;
@@ -292,6 +294,10 @@ pub(super) fn unfolded(
             }
             lines.push((start, count, i));
         }
+        // (a probe a pass, each of them all the tokens left: charged by its text; past the budget, stopped)
+        if crate::budget::spend(text.len() as u64).is_err() {
+            return why;
+        }
         let all = match crate::check(&text, vocab) {
             Ok(f) => {
                 let mut kind_of: HashMap<&str, &'static str> = HashMap::new();
@@ -319,7 +325,7 @@ pub(super) fn unfolded(
             {
                 Some(&(_, _, i)) if tokens[i].kind.is_some() => {
                     if why[i].is_none() {
-                        why[i] = Some(d.message.clone());
+                        why[i] = Some(d.message.chars().take(300).collect());
                         refused = true;
                     }
                 }
@@ -334,7 +340,10 @@ pub(super) fn unfolded(
         }
         // Nothing to point at: the rest share the design's refusal.
         if !refused {
-            let message = all.first().map_or_else(String::new, |d| d.message.clone());
+            // (said in every token's why: bounded, one diagnostic no multiplier of them)
+            let message: String = all
+                .first()
+                .map_or_else(String::new, |d| d.message.chars().take(300).collect());
             for &i in included.iter().filter(|&&i| tokens[i].kind.is_some()) {
                 why[i] = Some(message.clone());
             }

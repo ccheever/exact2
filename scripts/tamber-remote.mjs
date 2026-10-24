@@ -175,12 +175,14 @@ function hostOf(req, scheme) {
   } catch { return null; }
 }
 /** An origin-form target, on the admitted host, routed exactly as written:
- * no `//` anywhere, no backslash, no dot segment, no encoded dot, slash or
- * backslash, so the path checked is the path every handler reads (the
- * lead's 05:05Z note from C's round 1). Null when it is not one. */
+ * no `//` anywhere in its path, no backslash, no dot segment, no encoded
+ * dot, slash or backslash, so the path checked is the path every handler
+ * reads (the lead's 05:05Z note from C's round 1); its query, which no
+ * route reads as a path, only as written (the events' GET: a client name
+ * may hold a slash). Null when it is not one. */
 function targetOf(req, scheme, host) {
-  const target = req.url;
-  if (!target.startsWith('/') || target.includes('//') || target.includes('\\') || /%(2e|2f|5c)/i.test(target)) return null;
+  const target = req.url, path = target.split('?', 1)[0];
+  if (!path.startsWith('/') || path.includes('//') || target.includes('\\') || /%(2e|2f|5c)/i.test(path)) return null;
   try {
     const url = new URL(target, `${scheme}://${host}`);
     return url.host === host && url.pathname + url.search === target ? url : null;

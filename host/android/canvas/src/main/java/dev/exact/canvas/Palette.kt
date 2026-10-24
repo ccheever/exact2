@@ -3,6 +3,7 @@ package dev.exact.canvas
 import android.R.color as system
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Resources
 import android.os.Build
 
 /**
@@ -17,7 +18,8 @@ import android.os.Build
  * rest), and nothing is derived. Android 12 and 13 have only the dynamic tonal palettes (`system_accent1_*`,
  * `system_accent2_*`, `system_neutral1_*`, `system_neutral2_*`, a swatch each for tones 100, 99, 95, 90 … 10, 0), so
  * there each role is the tone Material's scheme gives it ([derived]). Before Android 12 there is no dynamic colour, and
- * the roles are Material's baseline scheme ([Legacy.palette]).
+ * the roles are Material's baseline scheme ([Legacy.palette]). Nor is there on Android TV (LLP 1115.001.003): its
+ * images have the resources' ids with no colours behind them, so there too the roles are the baseline's.
  */
 internal object Palette {
     /** How many roles are told for each scheme: every role of Material's `ColorScheme`, in exact2's order
@@ -26,9 +28,18 @@ internal object Palette {
     const val ROLES = 36
 
     /** The roles light, then dark, ARGB. */
-    fun read(context: Context): IntArray {
-        if (Build.VERSION.SDK_INT < 31) return Legacy.palette()
-        if (Build.VERSION.SDK_INT < 34) return derived(context)
+    fun read(context: Context): IntArray = try {
+        when {
+            Build.VERSION.SDK_INT < 31 -> Legacy.palette()
+            Build.VERSION.SDK_INT < 34 -> derived(context)
+            else -> roles(context)
+        }
+    } catch (e: Resources.NotFoundException) {
+        Legacy.palette()
+    }
+
+    /** Android 14's colour roles, each a resource of its own. */
+    private fun roles(context: Context): IntArray {
         val light = intArrayOf(
             system.system_primary_light, system.system_on_primary_light, system.system_secondary_container_light,
             system.system_surface_light, system.system_on_surface_light, system.system_on_surface_variant_light,

@@ -35,7 +35,7 @@ const DRIVE = [
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --format-locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, the locale (the Region\'s format, exactTime().formatLocale), UTC, 1'],
-  ['--fail-fetch <prefix> · --permission <name>=<state>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted)'],
+  ['--fail-fetch <prefix> · --permission <name>=<state> · --notification <entry> · --wake <entry>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted) · a relaunch handed a listed entry, as state.notifications printed it · a cold wake for a registration, as state.backgroundSync printed it'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
@@ -58,7 +58,7 @@ const APPLE = ['--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device',
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
-const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early, then --release waits for it and takes seconds; an iOS agent drive installs over it, saying how to put it back'];
+const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production: it ignores EXACT_AGENT and EXACT_MODULES, so drive the development build; a first is minutes: --prebuild --release early, then --release waits for it and takes seconds; an iOS agent drive installs over it, saying how to put it back'];
 
 export const HELP = {
   backend: {
@@ -118,7 +118,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     example: 'bun exact.mjs web-build',
   },
   test: {
-    line: 'run app.test.contract (or the files named) on a host: web by default',
+    line: 'run *.test.contract (or the files named) on a host: web by default',
     usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
     common: ['test [web|ios] [<file>…] [--size <w>x<h>] [--sim <name>]'],
     flags: DRIVE.filter(naming(['--size', '--sim'], true)),
@@ -154,21 +154,21 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `The development gallery: ios|macos widget|activity <entry> tree|state|screenshot|clock.
+    body: `Gallery: ios|macos widget|activity <entry> tree|state|screenshot|clock · drag: tap <target> drag dx dy [hold ms during "read"] [then dx dy …] (one iOS touch).
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
-  tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
+  tap <target> [contextmenu|hover|drag <dx> <dy>|down|…] · tap up
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
-  clock data|settle|+<ms> [real]    land in-flight work · end transitions
+  clock data|settle|held|+<ms> [real]    replies · transitions · push
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert).
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert). Held contact: "tap <t> down" "screenshot <png>" "tap up". clock held [<target>…] [<n>s] waits for a held reply with the clock frozen, then runs clock data (default bound: 20 s).
 Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
-    line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
+    line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
     usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
@@ -179,7 +179,8 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
     internal: ['--app <name>'],
     body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
 (an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
-fresh scratch store, and runs check light and dark on the screen it opens to. Each test's
+fresh scratch store, and runs check light and dark on the screen it opens to. The tests are
+app.test.contract's, then each other *.test.contract's beside it, as test runs them. Each test's
 last screen is checked the same way in the test's own session (web: at both widths; ios
 runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store
 a passing test left, and says whether its first screen shows what that test stored. One
@@ -217,7 +218,7 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
-      ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone'],
+      ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone; production trust, so with an update store EXACT_UPDATE_RECEIPT or EXACT_UPDATE_GENESIS=1'],
       ['--unsigned', 'with --archive: ad-hoc signed, for a service that re-signs it'],
       ['--tvos', 'an Apple TV simulator instead (with --device, an Apple TV)'],
       ['--url <url>', 'connect the client to that dev server (web\'s URL) for live reload'],
@@ -240,8 +241,8 @@ Ports    none. Runs to completion (--run too); --prebuild returns at once, the b
       ['--run', 'assemble the .app and launch it when built, in the foreground (its log here) until it quits'],
       PREBUILD,
       RELEASE,
-      ['--bundle', 'also assemble the .app bundle (--run does)'],
-      ['--url <url>', 'with --run or --bundle: connect it to that dev server (web\'s URL) for live reload'],
+      ['--bundle', 'assemble the .app bundle (the macOS default)'],
+      ['--url <url>', 'connect the app to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
     ],
     get internal() { return appleRest(this.flags); },
@@ -265,7 +266,8 @@ Ports    none. Runs to completion.`,
     // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
     // which `exact new` does not write yet, or a game (its shell generates one). --release builds the
     // release profile, for measuring.
-    internal: ['--apk', '--release'],
+    // --write-locks writes the Gradle lock and verification files of an app whose modules name Maven libraries.
+    internal: ['--apk', '--release', '--write-locks'],
     body: `Builds for aarch64-linux-android and prints the binary's path; the drive runs it under
 adb shell on the first device or emulator (ANDROID_SERIAL picks one). Needs the NDK
 (ANDROID_NDK_HOME, else the newest under the SDK's ndk/) and, once in this directory,
@@ -332,7 +334,7 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|pen|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there; gen: the directory (else the app\'s .exact/tamber/)'],

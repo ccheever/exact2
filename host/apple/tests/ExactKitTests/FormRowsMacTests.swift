@@ -26,7 +26,7 @@ final class FormRowsMacTests: XCTestCase {
     /// A field in a row has no bezel, no ground and no ring, and is measured
     /// as that: its chrome is nothing round one line, so the row stays 36
     /// points where a bezelled field made it 42. Out of a row it is the
-    /// platform's field again. A text area in a row keeps its box.
+    /// platform's field again. A text area in a row is borderless too.
     func testAFieldInAFormRowIsBorderlessAndMeasuredSo() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "form-row-field")
@@ -63,7 +63,16 @@ final class FormRowsMacTests: XCTestCase {
             XCTAssertLessThan(cell.minimum_height, bezelled.minimum_height)
         }
         let area = chrome(3), areaInRow = chrome(7)
-        XCTAssertEqual([areaInRow.top, areaInRow.left, areaInRow.minimum_height], [area.top, area.left, area.minimum_height])
+        XCTAssertEqual([areaInRow.top, areaInRow.left, areaInRow.minimum_height], [0, 0, 0])
+        XCTAssertGreaterThan(area.left, areaInRow.left)
+
+        let textarea = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+        textarea.applyFieldContent(["rect": [0.0, 0.0, 240.0, 60.0], "cell": true])
+        XCTAssertEqual(textarea.textAreaScroll?.borderType, .noBorder)
+        XCTAssertEqual(textarea.textArea?.textContainerInset, .zero)
+        XCTAssertEqual(textarea.textArea?.drawsBackground, false)
+        textarea.applyFieldContent(["rect": [4.0, 3.0, 232.0, 54.0]])
+        XCTAssertEqual(textarea.textAreaScroll?.borderType, .bezelBorder)
     }
 
     /// A row's switch is the size its sheet names: AppKit's mini, 36 by 16,
@@ -85,13 +94,28 @@ final class FormRowsMacTests: XCTestCase {
         XCTAssertEqual(mini.frame.size, mini.intrinsicContentSize, "the size it reports is the size it is drawn at")
     }
 
+    func testAFormPickerUsesTheInlineMenusEighteenPointHeight() throws {
+        let p = form([
+            ["op": "create", "id": 2, "kind": "list", "props": ["listStyle": "inset-grouped"]],
+            ["op": "create", "id": 3, "kind": "control", "props": ["type": "select"], "handlers": ["change"]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2]],
+        ])
+        let picker = try XCTUnwrap(p.controls.controls[3] as? NSPopUpButton)
+        XCTAssertEqual(picker.bezelStyle, .inline)
+        picker.addItem(withTitle: "One")
+        XCTAssertEqual(p.controls.naturalSize(picker).height, 18, "with 20 points of row padding, the reference's 38-point picker row")
+        p.apply(wireBatch([["op": "children", "id": 2, "ids": []], ["op": "children", "id": 1, "ids": [2, 3]]]))
+        XCTAssertEqual(picker.bezelStyle, .push)
+    }
+
     /// A pressable row whose sheet says `appearance: auto` is a push button
     /// round its parts: from the row's padding edge to as far past its title
     /// as the title is in, as high as the row's content, under the title and
     /// taking no click of its own. A row that says nothing has none, and the
     /// bezel follows its title's width.
     func testADestructiveFormRowIsAPushButtonRoundItsTitle() throws {
-        let row: [String: Any] = ["appearance": "auto", "padding_left": 12.0, "padding_top": 10.0, "padding_bottom": 10.0]
+        let row: [String: Any] = ["appearance": "auto", "padding_left": 12.0, "padding_top": 10.0, "padding_bottom": 10.0, "press_scale": 0.97]
         let p = form([
             ["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "props": ["testId": "remove"], "style": row],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "Remove from Library"]],
@@ -117,6 +141,27 @@ final class FormRowsMacTests: XCTestCase {
         XCTAssertNil(button.hitTest(NSPoint(x: 20, y: 20)), "the row takes the press")
         XCTAssertFalse(button.acceptsFirstResponder)
         XCTAssertEqual((remove.rowBezelObservation?["frame"] as? [Double]) ?? [], [0, 10, 150, 24])
+        XCTAssertNotNil(remove.hitTest(NSPoint(x: 30, y: 20)))
+        XCTAssertNil(remove.hitTest(NSPoint(x: 300, y: 20)), "only the button's bezel takes a click")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        func event(_ type: NSEvent.EventType, _ x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: remove.convert(NSPoint(x: x, y: 20), to: nil), modifierFlags: [],
+                               timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        remove.mouseDown(with: event(.leftMouseDown, 30))
+        XCTAssertEqual(remove.press.to, 0.97)
+        remove.mouseDragged(with: event(.leftMouseDragged, 300))
+        XCTAssertEqual(remove.press.to, 1, "the unused row area releases the bezel's feedback")
+        remove.mouseUp(with: event(.leftMouseUp, 300))
+        XCTAssertTrue(pressed.isEmpty, "releasing outside the visible button cancels its action")
+        pressed.removeAll()
+        remove.mouseDown(with: event(.leftMouseDown, 30))
+        remove.mouseDragged(with: event(.leftMouseDragged, 300))
+        remove.mouseDragged(with: event(.leftMouseDragged, 30))
+        XCTAssertEqual(remove.press.to, 0.97, "returning inside restores feedback")
+        remove.mouseUp(with: event(.leftMouseUp, 30))
+        XCTAssertEqual(pressed, [remove.id])
         // A longer title, and the bezel is as much longer.
         p.apply(wireBatch([["op": "frame", "id": 3, "x": 12.0, "y": 14.0, "w": 160.0, "h": 16.0]]))
         remove.layoutSubtreeIfNeeded()

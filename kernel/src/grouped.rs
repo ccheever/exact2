@@ -495,7 +495,10 @@ impl Kernel {
         // A row that says whether it is selected (`aria-selected`, true or
         // false) is a choice, as a checkmark list's rows are: its title is
         // the label's whether or not its mark shows now, never an action's.
+        // The sheet's word, where it gave one (`groupedAction`), wins over
+        // the shape that shows now: an unpicked choice row is no action.
         out.action = out.pressable
+            && row.props.bool(PropId::GroupedAction) != Some(false)
             && row.props.str(PropId::Href).is_none()
             && !row.props.contains(PropId::AccessibilitySelected)
             && out.accessory == Accessory::None

@@ -24,7 +24,12 @@
 //    "point":[x,y]?,"to":[x,y]?,"seconds":s?,"label":exactLabel?}
 //                                → {"done":true}, {"tree":snapshot} or {"elements":[snapshot,…]}
 //                                snapshot: label, identifier, type, frame [x,y,w,h], children
+//   SpringBoard gestures with `screen` and `display` use the same synthesizer
+//   as app gestures: fixed portrait screen points on the named display.
+//   A swipe also needs `screenTo`; `velocity` (points/s, default 1000) and
+//   `hold` (seconds, default 0) control its move and hold before lifting.
 //   {"op":"quit"}                ends the test
+// `tap {back:true}` locates UIKit's Back button through XCTest and taps it.
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
 // drag's `screen` and `screenTo` send it there too, built as XCTest's own
@@ -76,6 +81,18 @@ final class ExactTouches: XCTestCase {
             case "foreground":
                 session.send(["state": Self.name(target.state)])
             case "tap":
+                if req["back"] as? Bool == true {
+                    guard target.state == .runningForeground else { session.send(["error": "Native Back requires the app in the foreground; reopen its agent session and retry"]); continue }
+                    guard let container = req["container"] as? String, !container.isEmpty else { session.send(["error": "Native Back requires its navigation container; rebuild the app and retry"]); continue }
+                    let containers = target.descendants(matching: .any).matching(identifier: container)
+                    let owners = containers.count
+                    guard owners == 1 else { session.send(["error": "Native Back found \(owners) navigation containers; settle the route and give each container a unique accessibility identifier"]); continue }
+                    let buttons = containers.element.buttons.matching(identifier: "BackButton")
+                    let count = buttons.count
+                    guard count == 1 else { session.send(["error": "Native Back found \(count) Back buttons; settle a pushed route with a native bar and retry"]); continue }
+                    buttons.element.tap()
+                    session.send(["done": true]); continue
+                }
                 guard let p = req["point"] as? [Double], p.count == 2, p.allSatisfy(\.isFinite) else { session.send(["error": "tap needs a finite point"]); continue }
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000
@@ -101,6 +118,20 @@ final class ExactTouches: XCTestCase {
                 // Play the drag through the synthesizer, as a tap, on the app's display; the public call is the fallback
                 let fixed = { (key: String) in (req[key] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil } }
                 let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
+                if let legs = req["path"] as? [[String: Any]] {
+                    guard let from = fixed("screen"), !legs.isEmpty, legs.count <= 8 else { session.send(["error": "path needs a screen start and one to eight legs"]); continue }
+                    var points: [(CGPoint, Double, Double)] = []
+                    for leg in legs {
+                        guard let to = leg["to"] as? [Double], to.count == 2, to.allSatisfy(\.isFinite),
+                              let over = leg["over"] as? Double, let held = leg["hold"] as? Double,
+                              [over, held].allSatisfy({ $0.isFinite && $0 >= 0 }) else { break }
+                        points.append((CGPoint(x: to[0], y: to[1]), over, held))
+                    }
+                    guard points.count == legs.count, press + points.reduce(0, { $0 + $1.1 + $1.2 }) <= 10 else { session.send(["error": "invalid path or duration past 10 s"]); continue }
+                    let outcome = Synthesizer.path(from: from, legs: points, press: press, display: size.flatMap(Displays.showing), bounds: size)
+                    guard outcome == .injected else { session.send(["error": "XCTest's synthesizer did not inject the complete path; no fallback was injected"]); continue }
+                    session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer"]]); continue
+                }
                 if let from = fixed("screen"), let to = fixed("screenTo") {
                     let outcome = Synthesizer.drag(from: from, to: to, press: press, velocity: velocity, hold: hold, display: size.flatMap(Displays.showing), bounds: size)
                     if outcome == .unfinished { session.send(["error": "XCTest's event synthesizer did not finish the drag in time; nothing more was injected"]); continue }
@@ -137,6 +168,41 @@ final class ExactTouches: XCTestCase {
     static func springboard(_ request: [String: Any]) throws -> [String: Any] {
         let spring = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         func refuse(_ why: String) -> NSError { NSError(domain: "ExactTouches", code: 1, userInfo: [NSLocalizedDescriptionKey: why]) }
+        if request["screen"] != nil || request["display"] != nil || request["screenTo"] != nil {
+            func fixed(_ key: String) throws -> CGPoint {
+                guard let xy = request[key] as? [Double], xy.count == 2, xy.allSatisfy(\.isFinite) else { throw refuse("SpringBoard needs a finite \(key) in fixed portrait screen points") }
+                return CGPoint(x: xy[0], y: xy[1])
+            }
+            guard let dimensions = request["display"] as? [Double], dimensions.count == 2,
+                  dimensions.allSatisfy({ $0.isFinite && $0 > 0 }),
+                  let display = Displays.showing(CGSize(width: dimensions[0], height: dimensions[1])) else {
+                throw refuse("SpringBoard display does not match an XCTest display; supply its screen size in points")
+            }
+            let from = try fixed("screen"), started = Date().timeIntervalSince1970 * 1000
+            let outcome: Synthesizer.Outcome
+            switch request["action"] as? String {
+            case "tap": outcome = Synthesizer.tap(from, display: display)
+            case "hold":
+                guard let seconds = request["seconds"] as? Double, seconds.isFinite, seconds > 0, seconds <= 5 else { throw refuse("SpringBoard hold needs seconds in 0...5") }
+                outcome = Synthesizer.drag(from: from, to: from, press: seconds, velocity: 0, hold: 0, display: display, bounds: nil)
+            case "swipe":
+                guard let velocity = (request["velocity"] ?? 1000.0) as? Double, velocity.isFinite, velocity > 0,
+                      let hold = (request["hold"] ?? 0.0) as? Double, hold.isFinite, hold >= 0, hold <= 5 else {
+                    throw refuse("SpringBoard swipe needs a positive velocity and hold in 0...5 seconds")
+                }
+                let to = try fixed("screenTo"), size = CGSize(width: dimensions[0], height: dimensions[1])
+                // Leave the synthesizer's five-second completion allowance within the driver's 15-second request limit
+                let duration = 0.1 + Double(hypot(to.x - from.x, to.y - from.y)) / velocity + hold
+                guard duration.isFinite, duration <= 9 else { throw refuse("SpringBoard swipe exceeds 9 seconds; increase velocity or reduce the distance or hold") }
+                outcome = Synthesizer.drag(from: from, to: to, press: 0.1, velocity: velocity, hold: hold, display: display, bounds: size)
+            default: throw refuse("SpringBoard screen coordinates need tap, hold or swipe")
+            }
+            switch outcome {
+            case .injected: return ["done": true, "injected": ["start": started, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer", "display": display]]
+            case .unfinished: throw refuse("XCTest's event synthesizer did not finish the SpringBoard gesture; nothing more was injected")
+            case .missing, .refused: throw refuse("XCTest's event synthesizer could not inject the SpringBoard gesture on the requested display; no coordinate fallback was sent")
+            }
+        }
         func point(_ key: String) throws -> XCUICoordinate {
             guard let xy = request[key] as? [Double], xy.count == 2, xy.allSatisfy(\.isFinite) else { throw refuse("SpringBoard needs a finite \(key)") }
             return spring.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: xy[0], dy: xy[1]))
@@ -216,18 +282,37 @@ enum Synthesizer {
     /// that stays on the display, `bounds` either way round, taller than wide
     /// as its fixed portrait space is.
     static func drag(from: CGPoint, to: CGPoint, press: Double, velocity: Double, hold: Double, display: Int?, bounds: CGSize?) -> Outcome {
-        let distance = Double(hypot(to.x - from.x, to.y - from.y)), travel = velocity > 0 ? distance / velocity : 0
-        let moved = press + travel, lift = moved + hold, step = 1.0 / 30, still = max(moved, lift - 0.15)
-        var moves = (press > 0 ? [(from, press)] : []) + (distance > 0 ? [(to, moved)] : [])
-        if distance > 0 {
-            var across = CGPoint(x: to.x - (to.y - from.y) / CGFloat(distance), y: to.y + (to.x - from.x) / CGFloat(distance))
-            let fixed = bounds.map { CGSize(width: min($0.width, $0.height), height: max($0.width, $0.height)) }
-            if let fixed, !CGRect(origin: .zero, size: fixed).contains(across) { across = CGPoint(x: 2 * to.x - across.x, y: 2 * to.y - across.y) }
-            if still > moved { moves.append((to, still)) }
-            // Steps while the last one's return to `to` comes half a step or more before the lift (1 ms of slack for rounding)
-            for t in stride(from: still + step, through: lift - 1.5 * step + 0.001, by: 2 * step) { moves += [(across, t), (to, t + step)] }
+        let distance = Double(hypot(to.x - from.x, to.y - from.y))
+        return path(from: from, legs: [(to, velocity > 0 ? distance / velocity : 0, hold)], press: press, display: display, bounds: bounds)
+    }
+
+    /// All legs share one pointer path and one lift. Every hold ends with the same resting samples as a straight drag.
+    static func path(from: CGPoint, legs: [(CGPoint, Double, Double)], press: Double, display: Int?, bounds: CGSize?) -> Outcome {
+        // A stationary leg extends the preceding hold, including its resting samples before the lift.
+        var segments: [(CGPoint, Double, Double)] = []
+        for (to, travel, hold) in legs {
+            if let last = segments.last, to == last.0, travel == 0 { segments[segments.count - 1].2 += hold }
+            else { segments.append((to, travel, hold)) }
         }
-        return touch(from, moves: moves, lift: lift, display: display, within: 5 + lift)
+        var moves: [(CGPoint, Double)] = press > 0 ? [(from, press)] : []
+        var start = from, offset = press
+        for (index, leg) in segments.enumerated() {
+            let (to, travel, hold) = leg
+            let distance = Double(hypot(to.x - start.x, to.y - start.y))
+            let moved = offset + travel, lift = moved + hold, step = 1.0 / 30, still = max(moved, lift - 0.15)
+            if distance > 0 { moves.append((to, moved)) }
+            if distance > 0 {
+                var across = CGPoint(x: to.x - (to.y - start.y) / CGFloat(distance), y: to.y + (to.x - start.x) / CGFloat(distance))
+                let fixed = bounds.map { CGSize(width: min($0.width, $0.height), height: max($0.width, $0.height)) }
+                if let fixed, !CGRect(origin: .zero, size: fixed).contains(across) { across = CGPoint(x: 2 * to.x - across.x, y: 2 * to.y - across.y) }
+                if still > moved { moves.append((to, still)) }
+                for t in stride(from: still + step, through: lift - 1.5 * step + 0.001, by: 2 * step) { moves += [(across, t), (to, t + step)] }
+            }
+            // A following move must start after the hold, rather than stretching back to the previous sample.
+            if hold > 0 && index < segments.count - 1 { moves.append((to, lift)) }
+            start = to; offset = lift
+        }
+        return touch(from, moves: moves, lift: offset, display: display, within: 5 + offset)
     }
 
     /// One touch: down at `at`, moved to each point at its offset in seconds,

@@ -53,6 +53,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// (moved, out of the window, disabled, made inert): a captured agent
     /// press (`PressPath`) ends there too, even if the change is undone.
     var pressEpoch: UInt64 = 0
+    var pressCancellationEpoch: UInt64 = 0
+    weak var recognizedPress: RecognizedPress?
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
     weak var paintParent: PaintView?
@@ -206,8 +208,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         #if os(iOS)
         if gestureRecognizer === contextRecognizer {
-            guard presenter?.menus.eligible(self, contextMenu: true) == true else { return false }
-            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
+            guard presenter?.menus.eligible(self, contextMenu: true) == true,
+                  hasOwnContextMenu || inlineContextTarget(at: touch.location(in: self)) != nil else { return false }
+            if !ExactEnv.agentMode {
+                let run = inlineContextTarget(at: touch.location(in: self))
+                if (run?.props["contextPopover"] ?? (run == nil ? props["contextPopover"] : nil))?.isEmpty == false { return false }
+            }
+            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource(at: touch.location(in: hit)), source !== self { return false }
         }
         #endif
         if hitsNativeEditor(touch.view) { return false }
@@ -236,46 +243,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// takes its own touches (`CanvasInputs`), or a native editor.
     static func nativeInputOwns(_ view: UIView?, below boundary: UIView) -> Bool {
         CanvasInputs.owns(view) || nativeEditor(view, below: boundary)
-    }
-    func updateContextGestures() {
-        if handlers.contains("contextmenu"), contextRecognizer == nil {
-            let g = UILongPressGestureRecognizer(target: self, action: #selector(openContext(_:)))
-            g.delegate = self
-            // Recognition and scroll arbitration remain UIKit's.
-            g.delaysTouchesEnded = false
-            addGestureRecognizer(g)
-            contextRecognizer = g
-        }
-        if !handlers.contains("contextmenu"), let g = contextRecognizer {
-            removeGestureRecognizer(g)
-            contextRecognizer = nil
-        }
-        if handlers.contains("dblclick"), doubleRecognizer == nil {
-            let g = UITapGestureRecognizer(target: self, action: #selector(doubleClicked(_:)))
-            g.delegate = self
-            // The web's order (LLP 1057.001 §1 rule 5): the second tap still presses.
-            g.numberOfTapsRequired = 2; g.delaysTouchesEnded = false; g.cancelsTouchesInView = false
-            addGestureRecognizer(g)
-            doubleRecognizer = g
-        }
-        if !handlers.contains("dblclick"), let g = doubleRecognizer {
-            removeGestureRecognizer(g)
-            doubleRecognizer = nil
-        }
-        syncPointerRecognizer()
-    }
-    @objc func openContext(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, !formDisabled else { return }
-        // Where the press is, as a touch's `PointerEvent` (studio diary R22).
-        let point = gesture.location(in: self), box = contentBox()
-        let client = presenter?.client(gesture.location(in: nil)) ?? .zero
-        let sample = PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2,
-                                   clientX: Double(client.x), clientY: Double(client.y))
-        presenter?.contextmenu(id, line: sample.line); presenter?.menus.agentContext(self) // then, under the agent, its popover (LLP 1021 §5.1)
-    }
-    @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
-        DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     weak package var presenter: Presenter?
     /// The actual scroll port; a native list supplies its collection view.
@@ -393,7 +360,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.accessibilityContainerType = newValue }
     }
     /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
-    private var asksForFocus: Bool { explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
+    private var asksForFocus: Bool { reorderKeys || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
     /// A tap focuses only a node that asked for focus: UIKit's buttons never become first responder from a
     /// touch, though Tab and `focus(id)` reach them
     var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
@@ -540,8 +507,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func loadImage(_ source: String) {
         let previousSource = imageSource, previousGeneration = loadGeneration
         imageSource = source
-        loadGeneration += 1
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        loadGeneration += 1
         clearSymbol(); image = nil
         if previousSource?.hasPrefix("symbol:") == true { presenter?.queueIntrinsicSize(self, generation: loadGeneration, nil) }
         guard let session = presenter?.session else { return }
@@ -557,6 +524,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         raster = lease; AnimatedRasters.shared.attach(self); applyImageLayer()
         self.setNeedsDisplay()
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
+        presenter.boxFilters.changed(self)
         return lease.image.naturalSize
     }
 
@@ -566,14 +534,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
-        isAccessibilityElement = false
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
         let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
-            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolShape(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
@@ -586,8 +553,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B); `nil` inherits UIKit's live tint.
-        symbolView?.tintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk
+        symbolView?.tintColor = drawnSymbolInk
+        symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
@@ -638,6 +605,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         dropTextRaster()
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
+        buttonRasterView = nil
         raster = nil
         imageSource = nil
         clearSymbol()
@@ -779,7 +747,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
         anchoredScrollTop = maximum
         guard sv.contentOffset.y >= maximum - 80, abs(sv.contentOffset.y - maximum) > 0.5 else { return false }
-        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true)
+        sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: maximum), in: sv), animated: true)
         return true
     }
 
@@ -963,7 +931,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
             if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
-            if event?.type == .touches, isParagraph { touchedText() } // selectable text takes its interaction for this touch
+            if event?.type == .touches, isParagraph {
+                touchedText()
+                #if os(iOS)
+                if let surface = presenter?.textSelection.text(for: self)?.document?.surface { return surface }
+                #endif
+            } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
             // reach its effect view. Its content view is the target; the
@@ -1095,7 +1068,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             presenter?.flats.containerChanged(id)
         }
         guard let materialView else { rehomeMaterialChildren(); return }
-        if materialView.effect == nil || materialInteractive != interactive || backdropStale {
+        if cssVisibilityHidden { materialView.effect = nil }
+        else if materialView.effect == nil || materialInteractive != interactive || backdropStale {
             materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
         }
@@ -1104,8 +1078,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let authored = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
-        let radius = (writesCorner ? nil : defaultSurfaceRadius) ?? authored
+        let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: effectiveCornerSizes(in: bounds))
         if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {
@@ -1177,14 +1150,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if #available(iOS 18, tvOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
             }
-        } else if props["accessibilityRole"] == "img" {
-            // `role="img"` (an svg's) is one labelled image, as on the web (habits F16).
-            isAccessibilityElement = authoredLabel != nil
-            if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
         } else if rangeRole != nil {
             // A range role is one element and its value (LLP 1116 D8).
             isAccessibilityElement = true
+            accessibilityTraits.remove(.image)
             accessibilityValue = rangeValueText
+        } else if kind == "image" || props["accessibilityRole"] == "img" {
+            updateImageAccessibility()
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {
@@ -1198,7 +1170,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         updateEmbedded()
         video?.update()
-        setNeedsDisplay()
+        // Paragraph ops publish the new ink separately. A change of words
+        // leaves the box's paint alone; bitmap text still needs its draw.
+        let wordsOnly = isParagraph && set.keys.allSatisfy { $0 == "text" } && clear.allSatisfy { $0 == "text" }
+        if !wordsOnly || !canRasterText { setNeedsDisplay() }
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
@@ -1248,6 +1223,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let old = style
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
+        if old["zoom"] != s["zoom"], kind == "iframe" { updateEmbedded() } // the guest's page zoom (LLP 1020.002 D6)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if old["accent_color"] != s["accent_color"] { applyAccentTint() }
         updateSymbol(); syncDynamicRange(from: old)
@@ -1425,12 +1401,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let uniform = number("border_width")
         // A box Core Animation can say is the layer's (`applyBoxLayer`);
         // the background within its `background-clip` (LLP 1077 D6).
-        paintBackground(ctx, border: path.cgPath, color: boxDrawn && !cssVisibilityHidden)
+        paintBackground(ctx, border: path.cgPath, color: boxDrawn && !cssVisibilityHidden && presenter?.segments.control(of: id) == nil)
         if boxDrawn, !cssVisibilityHidden {
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
             // them (`BorderPaint`).
-            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+            let widths = ["top", "right", "bottom", "left"].map { devicePixels(number("border_width_" + $0, uniform)) }
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)

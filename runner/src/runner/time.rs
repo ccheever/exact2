@@ -192,16 +192,33 @@ impl<D: DataSource> Runner<D> {
     /// call: one commit per topic that anything watches. Announcements
     /// between two calls coalesce, so a fast producer costs one re-ask.
     pub fn apply_announced(&mut self) -> (Vec<CommitReceipt>, Option<RunnerError>) {
+        // A module's reply that carried handles may have left its
+        // implementation for a request no longer in flight (LLP 1133.009 D6).
+        self.dispose_dropped();
         let topics = std::mem::take(&mut *self.announced.lock().unwrap_or_else(|e| e.into_inner()));
         let mut receipts = Vec::new();
         for topic in topics {
+            // An event a bound implementation emitted, said through its
+            // module's `changed` (LLP 1133.004 D6): raised, not a topic.
+            if let Some(event) = topic.strip_prefix(super::modules::EMITTED) {
+                self.raise_emitted(event);
+                continue;
+            }
+            // A wake a bound implementation raised (LLP 1133.017 D8).
+            if let Some(wake) = topic.strip_prefix(super::modules::TOLD) {
+                self.raise_told_wake(wake);
+                continue;
+            }
             match self.changed(&topic) {
                 Ok(Some(receipt)) => receipts.push(receipt),
                 Ok(None) => {}
                 Err(error) => return (receipts, Some(error)),
             }
         }
-        (receipts, None)
+        // Then the module events raised meanwhile (LLP 1133.004 D6).
+        let (events, error) = self.deliver_module_events();
+        receipts.extend(events);
+        (receipts, error)
     }
 
     /// The device says `topic` changed (LLP 1016.002): every resource whose
@@ -237,7 +254,8 @@ impl<D: DataSource> Runner<D> {
                 None => which.push(i),
             }
         }
-        self.recommit(which, "changed")
+        // Each reader asks again under its own last ask's origin (LLP 1133.002 D12).
+        self.reasking(|r| r.recommit(which, "changed"))
     }
 
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {

@@ -121,6 +121,24 @@ final class GlassGroupMacTests: XCTestCase {
         XCTAssertTrue(inner.materialView?.superview === inner)
     }
 
+    func testHiddenMaterialContentFollowsItsGlassIsolation() throws {
+        let p = presenter(box(1, ["glassGroup": "12"], w: 200) + box(2, ["backgroundMaterial": "glass"], w: 160)
+            + box(3, kind: "input", w: 140) + [["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let node = try XCTUnwrap(p.views[2]), material = try XCTUnwrap(node.materialView)
+        let child = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["visibility": "hidden"]]]))
+        XCTAssertTrue(child.superview?.superview === material.superview)
+        present(p, 2, 0.5)
+        XCTAssertNotNil(node.glassIsolation)
+        XCTAssertTrue(child.superview?.superview === material.superview, "the parked content moves with its effect")
+        XCTAssertFalse(child.isHiddenOrHasHiddenAncestor)
+        present(p, 2, 1)
+        XCTAssertNil(node.glassIsolation)
+        XCTAssertTrue(child.superview?.superview === node)
+        p.apply(wireBatch([["op": "style", "id": 2, "style": [:]]]))
+        XCTAssertTrue(child.isDescendant(of: material))
+    }
+
     func testAFieldInAGlassKeepsFocusThroughItsIsolation() throws {
         let p = presenter(box(1, ["glassGroup": "12"], w: 200) + box(2, ["backgroundMaterial": "glass"], w: 160)
             + box(3, kind: "input", w: 140) + [["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])

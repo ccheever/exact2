@@ -1,0 +1,16 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Stream Fixture",
+  "short_name": "Stream Fixture",
+  "id": "com.exact.streamfixture",
+  "start_url": "/",
+  "display": "standalone",
+  "app": { "id": "com.exact.streamfixture", "name": "Stream Fixture" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0", "window": { "width": 440, "height": 560, "minWidth": 320, "minHeight": 400 } },
+    "web": {}
+  },
+  "rust": false,
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0" } }
+}

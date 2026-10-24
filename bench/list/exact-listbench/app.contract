@@ -79,14 +79,14 @@ component ListBench
       column flex-shrink=0 width="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-top=12 padding-bottom=12 gap=12
         row align-items="center" gap=12
           button press=reverse testId="reverse" display="flex" flex-direction="row" align-items="center" gap=8 height=34 box-sizing="border-box" padding-left=14 padding-right=14 padding-top=0 padding-bottom=0 border-width=0 border-radius=17 background-color="#dedee4"
-            image "symbol:sort" font-size=17 -exact-tint-color="#0088ff" flex-shrink=0
+            image "symbol:sort" font-size=17 color="#0088ff" flex-shrink=0
             text (reversed ? "Restore order" : "Reverse order") font-size=17 color="#0088ff"
           box flex=1
           button press=edit testId="edit" display="flex" flex-direction="row" align-items="center" gap=8 height=34 box-sizing="border-box" padding-left=14 padding-right=14 padding-top=0 padding-bottom=0 border-width=0 border-radius=17 background-color=(editing ? "#0088ff" : "#dedee4")
             if editing
               box width=15 height=12 flex-shrink=0 background-color="#ffffff" clip-path="path('M 0.96 6.91 L 5.41 11.37 L 14.05 2.49 L 12.47 0.96 L 5.39 8.23 L 2.51 5.36 Z')"
             else
-              image "symbol:adjust" font-size=17 -exact-tint-color="#0088ff" flex-shrink=0
+              image "symbol:adjust" font-size=17 color="#0088ff" flex-shrink=0
             text (editing ? "Done" : "Edit") font-size=17 font-weight=(editing ? 600 : 400) color=(editing ? "#ffffff" : "#0088ff")
         row align-items="center" gap=12
           column flex=1 min-width=0
@@ -105,11 +105,11 @@ component ListBench
                   row align-items="center" gap=16
                     row align-items="center" gap=12
                       box width=28 height=20 display="flex" align-items="center" justify-content="center"
-                        image "symbol:bookmark" font-size=19 -exact-tint-color="#85858b" flex-shrink=0
+                        image "symbol:bookmark" font-size=19 color="#85858b" flex-shrink=0
                       text `${savedCount} saved` testId="saved-count" font-size=15 line-height="20px" color="#85858b"
                     row align-items="center" gap=12
                       box width=28 height=20 display="flex" align-items="center" justify-content="center"
-                        image "symbol:select" font-size=19 -exact-tint-color="#85858b" flex-shrink=0
+                        image "symbol:select" font-size=19 color="#85858b" flex-shrink=0
                       text `${selectedCount} selected` testId="selected-count" font-size=15 line-height="20px" color="#85858b"
                 text "Save a message, scroll away, and come back. Your bookmarks stay." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8
                 text feed.inboxTitle testId="inbox-title" font-size=17 font-weight=600 line-height="22px" color="#85858b" padding-left=16 padding-top=15 padding-bottom=9
@@ -127,7 +127,7 @@ component ListBench
                 box height=20
                 row background-color="#ffffff" border-radius=24 align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=13 padding-bottom=13
                   box width=28 height=22 display="flex" align-items="center" justify-content="center"
-                    image "symbol:select" font-size=21 -exact-tint-color="#85858b" flex-shrink=0
+                    image "symbol:select" font-size=21 color="#85858b" flex-shrink=0
                   text "You’re all caught up" font-size=17 color="#85858b"
                 text "Fast scrolling may briefly show placeholders while the next rows load." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8
                 box height=40
@@ -165,30 +165,30 @@ component MessageRow
         row width="100%" align-items="center"
           if editing
             if selected
-              image "symbol:select-fill" testId=`check-${message.id}` width=22 height=22 flex-shrink=0 margin-left=16 font-size=23 object-fit="none" -exact-tint-color="#0088ff"
+              image "symbol:select-fill" testId=`check-${message.id}` width=22 height=22 flex-shrink=0 margin-left=16 font-size=23 object-fit="none" color="#0088ff"
             else
               box testId=`check-${message.id}` width=22 height=22 flex-shrink=0 margin-left=16 box-sizing="border-box" border-radius=11 border-style="solid" border-width=1.5 border-color="#c4c4c7"
           column flex=1 min-width=0 box-sizing="border-box" padding-left=16 padding-right=16 padding-top=21 padding-bottom=18 gap=10
             row align-items="center" gap=8
               row align-items="center" gap=12 flex=1 min-width=0
                 box width=28 height=24 display="flex" align-items="center" justify-content="center"
-                  image (message.person ? "symbol:person" : "symbol:messages") font-size=21 font-weight=600 -exact-tint-color="#0088ff" flex-shrink=0
+                  image (message.person ? "symbol:person" : "symbol:messages") font-size=21 font-weight=600 color="#0088ff" flex-shrink=0
                 text message.title font-size=17 font-weight=600 line-height="22px"
               button press=toggle(message.id) testId=`save-${message.id}` aria-label=(saved ? `Unsave message ${message.index + 1}` : `Save message ${message.index + 1}`) display="flex" align-items="center" justify-content="center" min-width=44 min-height=44 box-sizing="border-box" padding=0 border-width=0 background-color="#00000000"
-                image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") font-size=17 -exact-tint-color=(saved ? "#ff8d28" : "#8a8a8e")
+                image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") font-size=17 color=(saved ? "#ff8d28" : "#8a8a8e")
             text message.body font-size=17 line-height="22px" white-space="pre-wrap"
             if saved
               row align-items="center" gap=12
                 box width=28 height=14 display="flex" align-items="center" justify-content="center"
-                  image "symbol:bookmark-fill" font-size=15 -exact-tint-color="#ff8d28" flex-shrink=0
+                  image "symbol:bookmark-fill" font-size=15 color="#ff8d28" flex-shrink=0
                 text "Saved for later" font-size=12 line-height="16px" color="#ff8d28"
             if message.attachment
               row align-self="flex-start" align-items="center" gap=13 padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 border-radius=8 background-color="#7676801f"
                 box width=28 height=15 display="flex" align-items="center" justify-content="center"
-                  image "symbol:document" font-size=15 -exact-tint-color="#8a8a8e" flex-shrink=0
+                  image "symbol:document" font-size=15 color="#8a8a8e" flex-shrink=0
                 text "Weekend itinerary.pdf · 248 KB" font-size=12 line-height="14px" color="#777778"
           if editing
             box reorderFor="messages" touch-action="none" testId=`grip-${message.id}` aria-label=`Reorder message ${message.index + 1}` width=44 min-height=44 align-self="stretch" flex-shrink=0 display="flex" align-items="center" justify-content="center"
-              image "symbol:reorder" font-size=17 -exact-tint-color="#a1a1a6"
+              image "symbol:reorder" font-size=17 color="#a1a1a6"
         if not message.last
           box height=1 margin-left=(editing ? 94 : 56) margin-right=16 background-color="#e8e8e8"

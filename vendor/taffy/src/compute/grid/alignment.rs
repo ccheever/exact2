@@ -13,7 +13,7 @@ use crate::util::sys::f32_max;
 use crate::util::{MaybeMath, MaybeResolve, ResolveOrZero};
 
 #[cfg(feature = "content_size")]
-use crate::compute::common::scrollable_overflow::compute_scrollable_overflow_contribution;
+use crate::compute::common::scrollable_overflow::{compute_scrollable_overflow_contribution, margin_box_contribution};
 use crate::compute::ratio::{floors_height, resolve_through, Ratio};
 use crate::compute::common::sizing_keyword::{resolve_sizing_keyword, SizingKeywordResolution};
 use crate::{AbsoluteAxis, BoxSizing, Direction, LayoutGridContainer};
@@ -96,7 +96,7 @@ pub(super) fn align_and_position_item(
     container_border_box_width: f32,
     container_border: Rect<f32>,
     #[cfg(feature = "content_size")] container_is_scroll_container: bool,
-) -> (Rect<f32>, f32, f32) {
+) -> (Rect<f32>, Rect<f32>, f32, f32) {
     let grid_area_size = Size { width: grid_area.right - grid_area.left, height: grid_area.bottom - grid_area.top };
 
     let style = tree.get_grid_child_style(node);
@@ -431,27 +431,53 @@ pub(super) fn align_and_position_item(
     );
 
     #[cfg(feature = "content_size")]
-    let contribution = {
+    let (contribution, margin_box) = {
         // Contributions to the container's scrollable overflow rect are measured from the
         // container's padding-box origin (mirrored for RTL), matching the scrollable overflow region.
-        let contribution_location = if direction.is_rtl() {
-            Point { x: container_border_box_width - (x + width) - container_border.right, y: y - container_border.top }
-        } else {
-            Point { x: x - container_border.left, y: y - container_border.top }
+        let to_container = |x: f32, y: f32| {
+            if direction.is_rtl() {
+                Point { x: container_border_box_width - (x + width) - container_border.right, y: y - container_border.top }
+            } else {
+                Point { x: x - container_border.left, y: y - container_border.top }
+            }
         };
-        compute_scrollable_overflow_contribution(
-            contribution_location,
-            Size { width, height },
-            layout_output.scrollable_overflow_rect,
-            overflow,
-            contain,
-            container_is_scroll_container,
+        // EXACT PATCH 67: the margin box where the item sits before its relative offset, as
+        // `align_item_within_area` applies it.
+        let relative = if position == Position::Relative {
+            Point {
+                x: if direction.is_rtl() {
+                    inset_horizontal.end.map(|pos| -pos).or(inset_horizontal.start)
+                } else {
+                    inset_horizontal.start.or(inset_horizontal.end.map(|pos| -pos))
+                }
+                .unwrap_or(0.0),
+                y: inset_vertical.start.or(inset_vertical.end.map(|pos| -pos)).unwrap_or(0.0),
+            }
+        } else {
+            Point::ZERO
+        };
+        let size = Size { width, height };
+        (
+            compute_scrollable_overflow_contribution(
+                to_container(x, y),
+                size,
+                layout_output.scrollable_overflow_rect,
+                overflow,
+                contain,
+                container_is_scroll_container,
+            ),
+            margin_box_contribution(
+                to_container(x - relative.x, y - relative.y),
+                size,
+                resolved_margin,
+                direction.is_rtl(),
+            ),
         )
     };
     #[cfg(not(feature = "content_size"))]
-    let contribution = Rect::ZERO;
+    let (contribution, margin_box) = (Rect::ZERO, Rect::ZERO);
 
-    (contribution, y, height)
+    (contribution, margin_box, y, height)
 }
 
 /// Align and size a grid item along a single axis

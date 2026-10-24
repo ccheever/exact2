@@ -39,4 +39,24 @@ impl<D: DataSource> Host<D> {
         }
         reply
     }
+
+    /// The agent's `sensorEvents` (LLP 1133.013 D6): what the substitute's
+    /// canvas inputs owe their surfaces up to `to`, which the Swift agent
+    /// hands each surface before it steps the worlds a frame; `inputs` is
+    /// false when no input runs or has an end still to deliver.
+    pub(crate) fn sensor_events(&mut self, request: &str) -> String {
+        let to = exact_runner::agent::field_num(request, "to").unwrap_or(0.0);
+        let inputs = self.runner.surface_sensor_inputs();
+        let events: Vec<String> = if inputs {
+            (self.runner.surface_sensor_events(to).into_iter())
+                .map(|(surface, event)| {
+                    let surface = serde_json::to_string(&surface).unwrap_or_default();
+                    format!("{{\"surface\":{surface},\"event\":{event}}}")
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        format!("{{\"inputs\":{inputs},\"events\":[{}]}}", events.join(","))
+    }
 }

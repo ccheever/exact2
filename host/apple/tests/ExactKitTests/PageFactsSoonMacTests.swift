@@ -34,6 +34,15 @@ final class PageFactsSoonMacTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         session.tellPage()
         XCTAssertNotNil(session.readsOnLineKnown, "a synchronous tell learns whether the plan reads onLine")
+        // Wait for the activation the first draw starts to finish, so a
+        // system notice the click raises below (the window made key) takes
+        // the synchronous path and can't add to `noticesInFlight`.
+        let calm = Date(timeIntervalSinceNow: 10)
+        while session.dataGeneration != session.generation || session.activationInFlight, Date() < calm {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertEqual(session.dataGeneration, session.generation, "the first draw's activation settles")
+        XCTAssertFalse(session.activationInFlight)
 
         // The owner busy as it is while the data source activates.
         let held = DispatchSemaphore(value: 0)
