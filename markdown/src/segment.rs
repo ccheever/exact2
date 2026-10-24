@@ -41,7 +41,17 @@ pub struct Embed {
     pub provider: Provider,
     /// The provider's identifier for the content.
     pub id: String,
-    /// The URL as written.
+    /// The URL passed to [`embed`]. For angle-bracket figure destinations,
+    /// Markdown escapes have already been decoded.
+    ///
+    /// ```
+    /// use exact_markdown::{segments, Segment};
+    /// let parts = segments(r"[Watch](<https://youtu.be/abc\_123>)", 0);
+    /// let Segment::Embed { embed, .. } = &parts[0] else {
+    ///     panic!("expected an embed");
+    /// };
+    /// assert_eq!(embed.url, "https://youtu.be/abc_123");
+    /// ```
     pub url: String,
     /// What an `iframe` loads; empty when the identifier cannot be framed.
     pub frame: String,
