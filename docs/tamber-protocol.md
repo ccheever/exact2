@@ -1310,8 +1310,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 |---|---|
 | `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
 | `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
-| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked) |
-| `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
+| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked), `editedBy?` (*1.17*: its last editor's client, `edit-held`) |
+| `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `edited` (*1.17*, with `replacedBy` and `editedBy`), `stale`, `expired` or `too many held` (never one an `edit-held` is planning) |
 | `down` | `message`: the design server stopped or never started |
 | `paired` | `client`, `scope` (*1.13*: a client paired) |
 | `revoked` | `client`, `reason`: `revoked` or `expired` (*1.13*) |

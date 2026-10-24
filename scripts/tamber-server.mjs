@@ -940,7 +940,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Its client ended while it was out being accepted: marked as held ones were.
     if (gone(p.client)) p.shown = { ...p.shown, revoked: true };
     proposals.set(id, p); heldRevision++;
-    while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
+    for (let o; proposals.size > HELD && (o = [...proposals].find(([, q]) => !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning)
     send({ event: 'proposal', seq: ++seq, epoch, ...p.shown });
   };
   /** The proposals held now, as a reconnecting client reads them. */
@@ -999,12 +999,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // of its own its hold is refused, decided here, in the same turn as the
     // insert. A `write` client's makes room by the oldest, as before.
     if (proposals.size - +proposals.has(replaces) >= HELD && !allows(scope, 'write')) { // (the one it replaces, still held while an edit plans it, counts as gone)
-      const own = [...proposals].find(([k, p]) => k !== replaces && p.client === client);
+      const own = [...proposals].find(([k, p]) => k !== replaces && !p.busy && p.client === client);
       if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
       forget(own[0], { client, reason: 'too many held' });
     }
     proposals.delete(replaces); proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size, restoring }); heldRevision++;
-    while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
+    for (let o; proposals.size > HELD && (o = [...proposals].find(([, q]) => !q.busy)); ) forget(o[0], { client: null, reason: 'too many held' }); // (never one an edit is planning)
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
   }
@@ -1014,7 +1014,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   async function accept(request) {
     expire();
     const id = request.proposal, p = proposals.get(id);
-    if (!p || p.busy) return { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or expired)` } };
+    if (!p || p.busy) return { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
     const items = request.items;
     if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) {
       return { status: 400, error: { message: `\`items\` lists indices of the proposal's ${p.ops.length} operations` } };
