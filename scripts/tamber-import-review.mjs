@@ -3,6 +3,7 @@
 // dial changes and marked pins, each naming the operations it is. And
 // `bun exact.mjs tamber import`, which plans one on this machine and holds it.
 
+import { realpathSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { designPath } from './tamber-design-path.mjs';
 import { planAlone, sourcesOf } from './tamber-isolate.mjs';
@@ -65,6 +66,10 @@ export async function importTheme(argv) {
   let sources;
   try { sources = sourcesOf(resolve(source)); } catch (e) { console.error(`tamber import: ${e.message}`); return 1; }
   if (kind !== 'astryx') {
+    // The server plans on its own app: one `--app` names elsewhere is refused (Grok's round 1).
+    const hello = await post({ method: 'hello' });
+    const served = hello.ok?.app && realpathSync(resolve(hello.ok.app));
+    if (served && served !== realpathSync(app)) { console.error(`tamber import: ${origin} serves ${served}, not ${app}`); return 1; }
     const held = await post({ method: 'import', kind, client, sources, ...(at('--prefix') !== undefined ? { prefix: at('--prefix') } : {}) });
     if (!held.ok) return fail(held.error);
     say(held.ok.review);

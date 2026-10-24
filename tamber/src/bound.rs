@@ -127,7 +127,7 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
     for t in design.tokens.iter().chain(&design.params) {
         if let Some(w) = t.whens.get(MAX_WHENS) {
             let why = format!(
-                "a token has at most {MAX_WHENS} `when` lines; this one has {}",
+                "a token or param has at most {MAX_WHENS} `when` lines; this one has {}",
                 t.whens.len()
             );
             said(Some(("tamber-whens", why)), (w.line, w.col));
