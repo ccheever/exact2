@@ -139,8 +139,8 @@ impl<'a> App<'a> {
                                 continue;
                             }
                             if let Some((other, body)) = single_when(sibling) {
-                                if self.complementary(cond, other) {
-                                    let pair = vec![(Some(cond), then), (Some(other), body)];
+                                if let Some((a, b)) = self.complementary(cond, other) {
+                                    let pair = vec![(Some(a), then), (Some(b), body)];
                                     if self.swaps(&pair) {
                                         arms = pair;
                                         paired.insert(j);
@@ -179,9 +179,9 @@ impl<'a> App<'a> {
         reads.viewport && !reads.data && !reads.unknown && reads.states.is_empty()
     }
 
-    fn complementary(&self, a: &Expr, b: &Expr) -> bool {
+    fn complementary<'e>(&self, a: &'e Expr, b: &'e Expr) -> Option<(&'e Expr, &'e Expr)> {
         if complements(a, b) {
-            return true;
+            return Some((a, b));
         }
         if let (Expr::Binary(BinOp::Or, av, ap, _), Expr::Binary(BinOp::Or, bv, bp, _)) = (a, b) {
             // Both panes coexist under the same viewport predicate. Different
@@ -189,29 +189,31 @@ impl<'a> App<'a> {
             for (av, ap) in [(av, ap), (ap, av)] {
                 for (bv, bp) in [(bv, bp), (bp, bv)] {
                     if same(av, bv) && self.viewport_only(av) && complements(ap, bp) {
-                        return true;
+                        return Some((ap, bp));
                     }
                 }
             }
         }
-        false
+        None
     }
 
     /// Whether a choice between `arms` swaps the page's screens: two arms
     /// or more are screens, keyed on states a press inside one moves.
     fn swaps(&self, arms: &[(Option<&Expr>, &[Node])]) -> bool {
         // An arm keyed on a resource or a mutation, and a last `else` after
-        // one, is a loading, error or empty view.
+        // one, is a loading, error or empty view. Viewport reads count here too:
+        // only a sibling split has its shared viewport predicate removed first.
         let (mut states, mut data, mut screens) = (BTreeSet::new(), false, Vec::new());
         for &(cond, arm) in arms {
             let keyed = match cond {
                 Some(cond) => {
                     let reads = self.reads(cond);
-                    data |= reads.data;
-                    if !reads.data {
+                    let keyed = reads.data || reads.viewport;
+                    data |= keyed;
+                    if !keyed {
                         states.extend(reads.states);
                     }
-                    reads.data
+                    keyed
                 }
                 None => data,
             };
@@ -334,6 +336,13 @@ fn same(a: &Expr, b: &Expr) -> bool {
         (Expr::Number(a, _), Expr::Number(b, _)) => a == b,
         (Expr::Bool(a, _), Expr::Bool(b, _)) => a == b,
         (Expr::None(_), Expr::None(_)) => true,
+        (Expr::Some(a, _), Expr::Some(b, _)) => same(a, b),
+        (Expr::List(a, _), Expr::List(b, _)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
+        }
+        (Expr::Ternary(ac, at, af, _), Expr::Ternary(bc, bt, bf, _)) => {
+            same(ac, bc) && same(at, bt) && same(af, bf)
+        }
         (Expr::Member(a, af, _), Expr::Member(b, bf, _)) => af == bf && same(a, b),
         (Expr::Unary(ao, a, _), Expr::Unary(bo, b, _)) => ao == bo && same(a, b),
         (Expr::Binary(ao, al, ar, _), Expr::Binary(bo, bl, br, _)) => {
