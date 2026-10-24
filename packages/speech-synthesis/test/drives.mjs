@@ -40,6 +40,9 @@ const word = async (s) => {
   const { nodes } = await s.tree();
   return nodes.find((n) => n.props?.testId === 'spoken-word')?.props?.text ?? null;
 };
+/** Until the sends a tap made are answered: a native host answers them after the tap's op returns, and a clock
+ * moved before then would start the queue at its end. */
+const queued = (s) => s.clock('data');
 const ids = async (s) => new Set((await s.tree()).nodes.map((n) => n.props?.testId).filter(Boolean));
 
 async function each(n, body) {
@@ -57,6 +60,7 @@ async function each(n, body) {
 await each('listen', async (s) => {
   check('listen', 'the fixture is open', (await read(s, 'derives.readable'))?.length === 3, JSON.stringify(await read(s, 'derives.title')));
   await s.tap('listen');
+  await queued(s);
   await s.clock('+1000');
   if (shots) await s.screenshot(resolve(shots, `listen-${host}.png`));
   check('listen', 'the third word of the first paragraph is marked', (await word(s)) === 'paragraph' && (await read(s, 'derives.speakingBlock')) === '0', `${await word(s)} in ${await read(s, 'derives.speakingBlock')}`);
@@ -83,6 +87,7 @@ await each('twice', async (s) => {
 
 await each('stop', async (s) => {
   await s.tap('listen');
+  await queued(s);
   await s.clock('+1000');
   await s.tap('stop');
   await s.clock('settle');
@@ -93,6 +98,7 @@ await each('stop', async (s) => {
 await each('fails', async (s) => {
   // The second paragraph speaks from 7.1 s to 14.1 s: the third, the next to begin, fails.
   await s.tap('listen');
+  await queued(s);
   await s.clock('+10000');
   await s.prefer({ extension: 'speech-synthesis.fail="synthesis-failed"' });
   await s.clock('+20000');

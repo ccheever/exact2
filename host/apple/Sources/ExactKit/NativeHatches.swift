@@ -159,6 +159,21 @@ typealias HatchAudioReleaseFn = @convention(c) (UnsafeMutableRawPointer?, UInt64
 nonisolated(unsafe) private var macClaims: UInt64 = 0
 private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, background, event, context in
     let word = hatchText(mode, length)
+    // `speech-<type>` is a queue's speech claim (LLP 1133.012 D4), not a capture's.
+    if word.hasPrefix("speech-") {
+        let type = String(word.dropFirst("speech-".count))
+        hatchSession(host)?.log("audio session: claimed for speech (\(type))")
+        #if os(iOS) || os(tvOS)
+        guard AudioSession.spokenTypes.contains(type) else { return 0 }
+        let id = AudioSession.claimSpeech(type: type) { code in event(context, code) }
+        if id == 0 { hatchSession(host)?.log("audio session: the speech claim was refused (the session would not activate)") }
+        else if AudioSession.spoken != type { hatchSession(host)?.log("audio session: speech plays in the session as it stands (\(AudioSession.spoken ?? "not a speech configuration")); \(type) waits for a boundary") }
+        return id
+        #else
+        macClaims += 1
+        return macClaims
+        #endif
+    }
     hatchSession(host)?.log("audio session: claimed by a capture\(word.isEmpty ? "" : " (mode \(word))")")
     #if os(iOS) || os(tvOS)
     // Map `AudioClaims.options` in declaration order to `CategoryOptions` raw values.
@@ -181,7 +196,13 @@ private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, 
     #endif
 }
 private let hatchAudioRelease: HatchAudioReleaseFn = { host, id in
-    hatchSession(host)?.log("audio session: a capture's claim released")
+    #if os(iOS) || os(tvOS)
+    if AudioSession.isSpeech(id) {
+        hatchSession(host)?.log("audio session: a speech claim released")
+        return AudioSession.releaseSpeech(id)
+    }
+    #endif
+    hatchSession(host)?.log("audio session: a claim released")
     #if os(iOS) || os(tvOS)
     AudioSession.releaseCapture(id)
     #endif
