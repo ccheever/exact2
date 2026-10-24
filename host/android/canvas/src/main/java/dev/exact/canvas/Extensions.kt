@@ -40,6 +40,10 @@ abstract class ExactExtension(val context: ExtensionContext) {
     /** Handles a reply carried that the runner dropped, never the app's (LLP 1133.009 D10 item 10). */
     open fun dispose(ids: List<String>) {}
 
+    /** The send numbered [request] ([ExtensionContext.request]) was let go: what it started stops (LLP 1133.016 D15
+     * item 2). */
+    open fun cancel(request: Int) {}
+
     /** The app went to the foreground or left it ([ExtensionContext.foreground], LLP 1133.009 D10 item 3). */
     open fun foreground(shown: Boolean) {}
 
@@ -151,6 +155,11 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** Who made the call being answered now, `app`, `tool` or `wake`, read at [ExactExtension.later]'s entry: a
      * capture's first lease is refused to a tool's read (LLP 1133.009 D6). */
     var origin = "app"
+        internal set
+
+    /** The number the runner gave the send being answered now, which a later [ExactExtension.cancel] names; null for
+     * a source (LLP 1133.016 D15 item 2). */
+    var request: Int? = null
         internal set
 
     /** The session's track table, which its implementations share (LLP 1133.009 D10 item 6). */
@@ -315,9 +324,9 @@ internal object Extensions {
      * Request [id]'s call, the runner's body: `{"extension", "source"|"send", "args", "preferred"?}`, `{"extension",
      * "release", "args"?}`, `{"extension", "preferred"}`, `{"extension", "dispose"}`, `{"extension", "foreground"}`, or
      * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2),
-     * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6), or
+     * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6),
      * `{"extension", "picture", "width", "height", "fit", "owned"}` (LLP 1133.019 D11 item 1), answered with its
-     * pixels ([Exact.picture]).
+     * pixels ([Exact.picture]), or `{"extension", "cancel"}` (a send let go, LLP 1133.016 D15 item 2).
      */
     fun call(id: Int, body: String) {
         var answered = false
@@ -357,11 +366,16 @@ internal object Extensions {
                 }
                 declared.isNotEmpty() -> {
                     extension.context.origin = request.optString("origin").ifEmpty { "app" }
+                    extension.context.request = if (request.has("request")) request.getInt("request") else null
                     extension.later(declared, request.optJSONObject("args") ?: JSONObject(), request.opt("preferred"), reply)
                 }
                 request.has("preferred") -> {
                     request.optJSONObject("permissions")?.let { extension.permissions(it) }
                     extension.preferred(request.optJSONObject("preferred") ?: JSONObject())
+                    reply(JSONObject())
+                }
+                request.has("cancel") -> {
+                    extension.cancel(request.getInt("cancel"))
                     reply(JSONObject())
                 }
                 request.has("dispose") -> {

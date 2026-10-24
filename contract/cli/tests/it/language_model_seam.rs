@@ -50,7 +50,13 @@ impl App {
         let _ = std::fs::remove_dir_all(&path);
         let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/language-model");
         let to = path.join("node_modules/@exact/language-model");
-        for file in ["exact.json", "package.json", "apple/exact.json", "web/exact.json"] {
+        for file in [
+            "exact.json",
+            "package.json",
+            "android/exact.json",
+            "apple/exact.json",
+            "web/exact.json",
+        ] {
             std::fs::create_dir_all(to.join(file).parent().unwrap()).unwrap();
             std::fs::copy(from.join(file), to.join(file)).unwrap();
         }
