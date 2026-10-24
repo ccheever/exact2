@@ -151,6 +151,34 @@ pub(super) struct AxesBefore {
     destroyed: Vec<ViewId>,
 }
 
+impl AxesBefore {
+    /// One commit applied in phases (`scrollIntoView`'s), prepared phase by
+    /// phase: `later`, read before its phase, joins what the earlier phases
+    /// read. A row keeps the value presented before the first phase that
+    /// changes it, and a node an earlier phase created (`created`) had none,
+    /// as `prepare_text_axes` skips a node the commit creates.
+    pub(super) fn join(
+        first: Option<Self>,
+        later: Option<Self>,
+        created: &BTreeSet<ViewId>,
+    ) -> Option<Self> {
+        let Some(later) = later else { return first };
+        let mut first = first.unwrap_or(AxesBefore {
+            rows: Vec::new(),
+            own: BTreeSet::new(),
+            destroyed: Vec::new(),
+        });
+        let seen: BTreeSet<_> = first.rows.iter().map(|(v, r, _)| (*v, *r)).collect();
+        first.rows.extend(
+            (later.rows.into_iter())
+                .filter(|(v, r, _)| !created.contains(v) && !seen.contains(&(*v, *r))),
+        );
+        first.own.extend(later.own);
+        first.destroyed.extend(later.destroyed);
+        Some(first)
+    }
+}
+
 impl<D: DataSource> Runner<D> {
     /// Before `ops` apply: the font rows they change, directly or through
     /// inheritance on a watched node, with their presented values. Nothing
