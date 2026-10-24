@@ -162,7 +162,9 @@ final class TextRasterizer {
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
-        if firstPixels {
+        if firstPixels, urgentBatch != nil {
+            urgentBatch?.append(UrgentPaint(node: node, key: key, job: job, namespace: engine.namespace))
+        } else if firstPixels {
             let post = Presenter.signposts.beginInterval("text-raster-urgent")
             let image = job.render()
             node.showTextRaster(image, for: key)
@@ -186,6 +188,55 @@ final class TextRasterizer {
         }
         return true
     }
+    private struct UrgentPaint {
+        let node: NodeView
+        let key: TextRasterKey
+        let job: TextRasterJob
+        let namespace: Int
+    }
+    /// The paragraphs `ensureUrgent` paints together, while it runs.
+    private var urgentBatch: [UrgentPaint]?
+
+    /// How long `ensureUrgent` paints on the main thread alone before it
+    /// paints the rest at once. A paragraph painted on another thread makes
+    /// its glyphs' bitmaps again (each frame of a weight transition is a new
+    /// font): twelve paragraphs painted at once every frame took twice the
+    /// CPU time of the same paragraphs painted in turn.
+    private static let urgentAlone: CFTimeInterval = 0.002
+
+    /// `ensure(urgent: true)` for each of `nodes`. The paragraphs that must
+    /// be painted now are painted in turn on the main thread for up to
+    /// `urgentAlone`, then the rest at once, the main thread among the
+    /// workers. For about ten frames after an idle stretch the CPU runs
+    /// slowly: twelve paragraphs of body text painted in turn then took 4 ms
+    /// of a frame's 5.4, against 1.1 later (iPhone 17 Pro Max, Time
+    /// Profiler), and those were the frames that came late.
+    func ensureUrgent(_ nodes: [NodeView], now: Bool = false) {
+        urgentBatch = []
+        for node in nodes { ensure(node, urgent: true, now: now) }
+        let batch = urgentBatch ?? []
+        urgentBatch = nil
+        guard !batch.isEmpty else { return }
+        let post = Presenter.signposts.beginInterval("text-raster-urgent")
+        var images = [TextRasterImage?](repeating: nil, count: batch.count)
+        images.withUnsafeMutableBufferPointer { slots in
+            let start = CACurrentMediaTime()
+            var next = 0
+            while next < batch.count && CACurrentMediaTime() - start < Self.urgentAlone {
+                slots[next] = batch[next].job.render()
+                next += 1
+            }
+            let first = next
+            guard first < batch.count else { return }
+            DispatchQueue.concurrentPerform(iterations: batch.count - first) { slots[first + $0] = batch[first + $0].job.render() }
+        }
+        Presenter.signposts.endInterval("text-raster-urgent", post)
+        for (paint, image) in zip(batch, images) {
+            paint.node.showTextRaster(image, for: paint.key)
+            if paint.key.clip == nil { keep(image, for: paint.key, namespace: paint.namespace) }
+        }
+    }
+
     /// A worker's pixels for what shows now: its finished result, or the
     /// running one waited for (it has the paragraph partly painted; the main
     /// thread would start over). False when it has not begun: it is dropped
@@ -496,20 +547,20 @@ extension Presenter {
         // (a log's hundred rows, each given its neighbour's words).
         textClips = TextClips(viewport, soon: 0, reach: 0)
         defer { textClips = nil }
-        for id in ids {
-            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { continue }
-            textRasters.ensure(node, urgent: true)
-        }
+        textRasters.ensureUrgent(ids.compactMap { id in
+            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { return nil }
+            return node
+        })
     }
 
     func paintPresentedText() {
         guard !presentedText.isEmpty else { return }
         let ids = presentedText
         presentedText = []
-        for id in ids {
-            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { continue }
-            textRasters.ensure(node, urgent: true, now: true)
-        }
+        textRasters.ensureUrgent(ids.compactMap { id in
+            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { return nil }
+            return node
+        }, now: true)
     }
 
     /// Called after layout/scroll returns. What shows without pixels is
