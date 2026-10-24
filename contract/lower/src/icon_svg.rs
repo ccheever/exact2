@@ -126,20 +126,26 @@ fn decode(v: &str) -> String {
     out
 }
 
-/// A `style` attribute's text with its CSS comments consumed, as CSS's
-/// tokenizer does (an unclosed one runs to the end; C2 round 1, Astra 1).
-fn uncommented(style: &str) -> String {
-    let (mut out, mut rest) = (String::new(), style);
-    while let Some(at) = rest.find("/*") {
-        out.push_str(&rest[..at]);
-        // A comment separates what it sits between, as whitespace.
-        out.push(' ');
-        rest = rest[at + 2..]
-            .find("*/")
-            .map_or("", |end| &rest[at + 2 + end + 2..]);
-    }
-    out.push_str(rest);
-    out
+/// The fix for CSS a template doesn't read (C2 round 2, theme2).
+const FIX_STYLE: &str = "write the paint as attributes (`fill=\"currentColor\"`, `fill-rule=\"evenodd\"`) and drop the `<style>` block, or the offending style text: a template needs neither";
+
+/// What in a `style` attribute's text a template refuses rather than read
+/// (C2 round 2): CSS beyond plain `name: value;` declarations (a quote, an
+/// escape, a comment, a block, an at-rule), which an exporter's
+/// declarations never need, so no tokenizer has to agree with a browser's.
+fn style_refused(style: &str) -> Option<&'static str> {
+    [
+        ("\"", "a quote"),
+        ("'", "a quote"),
+        ("\\", "a backslash"),
+        ("/*", "a comment (`/*`)"),
+        ("{", "a brace"),
+        ("}", "a brace"),
+        ("@", "an at-rule (`@`)"),
+    ]
+    .into_iter()
+    .find(|(text, _)| style.contains(text))
+    .map(|(_, what)| what)
 }
 
 /// A property's value on an element: its `style` declaration first, else
@@ -153,7 +159,6 @@ fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
         .iter()
         .find(|(k, _)| *k == "style")
         .and_then(|(_, s)| {
-            let s = uncommented(s);
             let declared = s.split(';').filter_map(|d| {
                 let (k, v) = d.split_once(':')?;
                 // A property's name in any case, as CSS reads it (round 2, R2-5).
@@ -283,6 +288,26 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .or(inherited_rule);
         let in_defs =
             in_defs || matches!(name, "defs" | "symbol" | "clipPath" | "mask" | "pattern");
+        // A `<style>` block, or a `style` attribute holding more than plain
+        // declarations, anywhere (in `<defs>` too: an exporter's class
+        // rules live there), is no template (C2 round 2).
+        if name == "style" {
+            note(&mut why, || {
+                ("it has a `<style>` block".to_string(), FIX_STYLE)
+            });
+        }
+        if let Some(what) = attrs
+            .iter()
+            .find(|(k, _)| *k == "style")
+            .and_then(|(_, v)| style_refused(v))
+        {
+            note(&mut why, || {
+                (
+                    format!("its `<{name}>` has a `style` with {what}"),
+                    FIX_STYLE,
+                )
+            });
+        }
         // What a template drawn filled, by one rule, at full opacity would lose.
         if !in_defs {
             let lost = [
@@ -392,7 +417,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 paths.push(d);
                 rules.push(rule_here.as_deref() == Some("evenodd"));
             }
-            "path" | "g" | "title" | "desc" | "defs" | "metadata" => {}
+            "path" | "g" | "title" | "desc" | "defs" | "metadata" | "style" => {}
             _ if in_defs => {}
             other => {
                 note(&mut why, || {
@@ -664,27 +689,52 @@ mod tests {
             mixed.not_template.as_deref(),
             Some("its paths mix fill rules (evenodd: drawn path 1, 3; nonzero: drawn path 2)")
         );
-        // A CSS comment is consumed, not part of a declaration (Astra 1):
-        // the style's `nonzero` wins over the attribute's `evenodd`.
-        let commented = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path fill-rule="evenodd" style="/* override */ fill-rule:nonzero" d="M2 2h1"/></svg>"#).unwrap();
-        assert_eq!(
-            commented.not_template.as_deref(),
-            Some("its paths mix fill rules (evenodd: drawn path 1; nonzero: drawn path 2)")
-        );
-        for svg in [
-            r#"<svg viewBox="0 0 24 24"><path style="fill-rule:/* a */evenodd/* b */" d="M0 0h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24"><path style="fill-rule:nonzero; /* fill-rule:nonzero */ fill-rule:evenodd" d="M0 0h1"/></svg>"#,
+        // CSS beyond plain declarations is refused, not read (round 2):
+        // a quoted `/*` in a custom property that would hide an override, an
+        // escaped property name, a comment, a block, an at-rule, a
+        // `<style>` block (an Illustrator export's class rule in `<defs>`).
+        for (svg, reason) in [
+            (
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path fill-rule="evenodd" style="--x:'/*'; fill-rule:nonzero; --y:'*/'" d="M2 2h1"/></svg>"#,
+                "its `<path>` has a `style` with a quote",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path fill-rule="evenodd" style="fill-\72 ule:nonzero" d="M2 2h1"/></svg>"#,
+                "its `<path>` has a `style` with a backslash",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" style="/* x */ fill-rule:nonzero" d="M0 0h1"/></svg>"#,
+                "its `<path>` has a `style` with a comment (`/*`)",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><g style="@media print{fill:red}"><path d="M0 0h1"/></g></svg>"#,
+                "its `<g>` has a `style` with a brace",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path style="@import url(x)" d="M0 0h1"/></svg>"#,
+                "its `<path>` has a `style` with an at-rule (`@`)",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M0 0h4v4H0Z"/></svg>"#,
+                "it has a `<style>` block",
+            ),
         ] {
             let read = read(svg).unwrap();
-            assert_eq!(
-                (read.not_template.as_deref(), read.even_odd),
-                (None, true),
-                "{svg}"
+            let why = read.not_template.clone().unwrap_or_default();
+            assert!(why.starts_with(reason), "{svg}: {why}");
+            assert!(
+                read.fix.contains("`fill=\"currentColor\"`")
+                    && read
+                        .fix
+                        .contains("drop the `<style>` block, or the offending style text"),
+                "{}",
+                read.fix
             );
         }
-        let unclosed = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" style="/* fill-rule:nonzero" d="M0 0h1"/></svg>"#).unwrap();
+        // Plain declarations still read, `!important` and case included.
+        let plain = read(r#"<svg viewBox="0 0 24 24"><path style="fill-rule: EvenOdd; fill: black !important" d="M0 0h1"/></svg>"#).unwrap();
         assert_eq!(
-            (unclosed.not_template.as_deref(), unclosed.even_odd),
+            (plain.not_template.as_deref(), plain.even_odd),
             (None, true)
         );
         // `!important` belongs to a declaration, not to a presentation
@@ -725,5 +775,45 @@ mod tests {
             .unwrap();
             assert!(svg.not_template.is_some(), "{lost}");
         }
+    }
+
+    /// Round 2: refusing CSS beyond plain declarations costs no SVG the repo
+    /// ships: every one under a package's or an app's `assets/` reads with
+    /// no `style` or `<style>` reason (whatever else it is).
+    #[test]
+    fn every_repo_svg_reads_past_the_style_rule() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let (path, name) = (e.path(), e.file_name().to_string_lossy().into_owned());
+                if path.is_dir()
+                    && !matches!(name.as_str(), "node_modules" | "target" | "dist")
+                    && !name.starts_with('.')
+                {
+                    walk(&path, out);
+                } else if name.ends_with(".svg")
+                    && path.components().any(|c| c.as_os_str() == "assets")
+                {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut svgs = Vec::new();
+        walk(&root.join("packages"), &mut svgs);
+        walk(&root.join("apps"), &mut svgs);
+        assert!(svgs.len() > 15, "{svgs:?}");
+        let refused: Vec<String> = svgs
+            .iter()
+            .filter_map(|p| {
+                let text = std::fs::read_to_string(p).ok()?;
+                let why = read(&text).ok()?.not_template?;
+                (why.contains("`style`") || why.contains("`<style>`"))
+                    .then(|| format!("{}: {why}", p.display()))
+            })
+            .collect();
+        assert!(refused.is_empty(), "{refused:#?}");
     }
 }
