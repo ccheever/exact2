@@ -375,6 +375,9 @@ removal ids for Go ▸ Back, Develop (its chords stay), Edit's template items,
 Help's book item and View's zoom; View ▸ Actual Size, Zoom In and Zoom Out
 over the root font size. Take: none; still Mac-only hints other hosts ignore,
 with no dock menu, status item or Windows menu bar.
+**Expanded (Charlie, 2026-10-23, Windows at full speed):** Windows presents
+the declared menu bar as a painted Fluent menu row (LLP 1021 §5.3.2). The
+dock menu and status item stay out.
 
 ## Surfaces
 
@@ -450,6 +453,14 @@ commands, writes on the location (`todo add milk`), and printing a GUI app
   using Contract and an app-local Win32 control presenter. General Windows
   control parity remains behind these two consumers; no additional showcase
   or framework is admitted by this example.
+  **Admitted (Charlie, 2026-10-23, waiver):** "We are no longer deferring
+  Windows. We are going full speed ahead on it right now." Windows is a host
+  for general apps, built to LLP 1115.004: Fluent painted by Exact's presenter,
+  with what Windows owns taken from Windows. First consumers: `apps/shelf` and
+  `apps/excord`, from S1. Floor: Windows 11 build 22621 on x64. Implementer:
+  Claude (Opus 5.5), S0 from 2026-10-23, on the NucBox. It admits a painted
+  Fluent menu bar for an app that declares one (LLP 1021 §5.3.2), and Exact's
+  delivery on Windows (LLP 1115.004 D15).
 - **Android.** Same, until 2026-10-07. **Admitted (Charlie, 2026-10-07,
   waiver):** "admit android. we are working on android now -- it's becoming
   real. amend that." Unblocks Android as a supported host instead of work
