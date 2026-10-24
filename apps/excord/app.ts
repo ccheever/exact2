@@ -15,6 +15,9 @@ export const appId = 'com.exact.excord';
 // `EXACT_BACKEND_ORIGIN=https://discord.com` (or `.exact/backend-origin`) replaces this literal at bake,
 // and the bake takes the grants below for the origin it bakes; only Charlie makes that build, by hand
 // (llp/0001 §2). Such a build has no token until a person signs in, so it makes no request before then.
+// A phone reaches the fixture at this Mac's LAN address (`EXACT_BACKEND_ORIGIN=http://10.0.0.73:4790`, the
+// server run with `--host 10.0.0.73`): a development build takes the loopback entry below for it, and a
+// production build refuses it (`js/bake/src/typescript.mjs`, `keyedGrants`).
 export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
 export const grants = {
@@ -32,9 +35,21 @@ const live: Live = createLive({
   rest: origin,
   gateway: origin === DISCORD ? 'wss://gateway.discord.gg' : origin.replace(/^http/, 'ws'),
   cdn: origin === DISCORD ? 'https://cdn.discordapp.com' : origin,
-  fixture: /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin),
+  fixture: /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin) || privateNetwork(origin),
 });
 const store = live.store;
+
+/** An http origin at an RFC 1918 or link-local IPv4 address, or a unique-local or link-local IPv6 one: only a
+ * development build bakes one, as the fixture's (above). */
+function privateNetwork(o: string): boolean {
+  const host = /^http:\/\/([^/]+?)(?::\d+)?$/.exec(o)?.[1] ?? '';
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  return /^\[(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):/i.test(host);
+}
 
 type Channel = Result<'loadChannel'>;
 type Window = Result<'loadWindow'>;
