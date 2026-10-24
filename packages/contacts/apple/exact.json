@@ -26,7 +26,8 @@
   "sources": {
     "swift": [
       "Contacts.swift",
-      "AgentContacts.swift"
+      "AgentContacts.swift",
+      "ContactStore.swift"
     ]
   },
   "artifacts": [],

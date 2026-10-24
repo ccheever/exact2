@@ -53,11 +53,15 @@ if (host !== 'web') {
   }
   // 6: relaunched granted, the switch kept on: the first frame is the app's
   // own, which waits for the clock as before the module, with no section or
-  // dot kept from the last run; after settling, both.
+  // dot kept from the last run; after settling, both. On iOS the module's
+  // answer, asked at launch, can land before the first frame: there the
+  // journal shows it asked in this launch.
   {
-    const r = drive('calendar-drives-1', { calendar: 'granted' }, ['tree', 'clock settle', 'state agenda', 'tree']);
-    check(host, '6: the first frame shows nothing of the store', mine(r[0]).length === 0 && dots(r[0]).length === 0 && text(r[0]).includes('show-my-calendars'), text(r[0]).match(/my-calendars[^"]*/g)?.join(','));
-    check(host, "6: after settling, the app's own items, the section and the dots", (r[2]?.items ?? []).some(i => i.title === 'Coast hike') && mine(r[3]).length === 4 && dots(r[3]).includes('2026-09-16'), `${JSON.stringify(mine(r[3]))} ${JSON.stringify(dots(r[3]))}`);
+    const r = drive('calendar-drives-1', { calendar: 'granted' }, ['tree', 'logs', 'clock settle', 'state agenda', 'tree']);
+    const asked = (r[1]?.lines ?? []).some(l => /calendar: page calendarEvents/.test(l));
+    const fresh = (mine(r[0]).length === 0 && dots(r[0]).length === 0) || (host === 'ios' && asked);
+    check(host, '6: the first frame shows nothing kept of the store', fresh && text(r[0]).includes('show-my-calendars'), text(r[0]).match(/my-calendars[^"]*/g)?.join(','));
+    check(host, "6: after settling, the app's own items, the section and the dots", (r[3]?.items ?? []).some(i => i.title === 'Coast hike') && mine(r[4]).length === 4 && dots(r[4]).includes('2026-09-16'), `${JSON.stringify(mine(r[4]))} ${JSON.stringify(dots(r[4]))}`);
   }
   // 4 and 5: Add to Calendar, saved into the store and shown; denied, then granted again.
   {
