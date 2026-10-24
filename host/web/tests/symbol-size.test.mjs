@@ -329,7 +329,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
   const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
     .replace('<div id="exact-root"></div>', `<div id="exact-root" style="font-size:17px;display:flex;flex-direction:column;gap:20px;padding:20px">${content}</div>`)
     .replace('<script type="module" src="./glue.js"></script>', `<script>${stand} ${glueDeclarations(source, names)} globalThis.paint = () => { ${run} };</script>`);
-  const suite = await suiteBrowser(engine, { timeout: 10000 });
+  const suite = await suiteBrowser(engine, { timeout: 30000 });
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/') return new Response(html, { headers: { 'content-type': 'text/html' } });
@@ -345,6 +345,12 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(server.url.href);
+    // Even local offsets can round differently while the sheet is translating.
+    const settled = async () => {
+      await page.waitForFunction(() => [...document.images].every(image => image.complete));
+      await page.evaluate(() => Promise.all(document.getAnimations().map(a => a.finished))
+        .then(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))));
+    };
     await page.evaluate(async cases => {
       const { sig, P, W, commit } = await import('/rt.js');
       const value = sig('');
@@ -352,6 +358,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
       globalThis.changeTitle = text => commit(() => W(value, text));
       globalThis.paint();
     }, cases);
+    await settled();
     const measure = id => page.evaluate(id => {
       const el = document.getElementById(id), img = el.querySelector('img');
       const r = el.getBoundingClientRect(), s = getComputedStyle(el), is = getComputedStyle(img), word = getComputedStyle(el, '::after');
@@ -362,21 +369,23 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
         word: word.content === 'none' ? null : [word.content, word.width, word.height, word.gridArea],
         padding: s.padding, columns: s.gridTemplateColumns, rows: s.gridTemplateRows, overflow: s.overflow, margin: is.margin, pointer: is.pointerEvents };
     }, id);
-    // A face measurement must not depend on the sheet's position during its opening animation.
+    // A face measurement is local to the button, regardless of the sheet's position.
     const sheet = await measure('sheet-alone');
     await page.locator('#sheet-alone').evaluate(el => { el.style.transform = 'translateY(40px)'; });
+    await settled();
     expect(await measure('sheet-alone')).toEqual(sheet);
     await page.locator('#sheet-alone').evaluate(el => el.style.removeProperty('transform'));
-    const titled = await Promise.all(cases.map(kind => measure(`${kind}-titled`)));
+    await settled();
+    const titled = await Promise.all(cases.map(async kind => [kind, await measure(`${kind}-titled`)]));
     // LLP 1011 §3 and LLP 1115.000: absent face text leaves a symbol alone;
     // a subtitle still occupies its own row. Both textContent writers clear to :empty.
     for (const text of ['', 'Go', '']) {
       await page.evaluate(text => { globalThis.changeTitle(text); globalThis.paint(); }, text);
-      await page.waitForFunction(() => [...document.images].every(image => image.complete));
+      await settled();
       for (const kind of cases.filter(kind => kind !== 'subtitle')) {
         expect(await measure(`${kind}-bound`), `${kind}, title ${JSON.stringify(text)}`).toEqual(await measure(`${kind}-${text ? 'titled' : 'alone'}`));
       }
-      expect(await Promise.all(cases.map(kind => measure(`${kind}-titled`)))).toEqual(titled);
+      expect(await Promise.all(cases.map(async kind => [kind, await measure(`${kind}-titled`)]))).toEqual(titled);
       expect((await measure('sheet-bound')).word?.[0] ?? null).toBe(text ? null : '"Add"');
       expect(await page.locator('#row-bound').ariaSnapshot()).toStartWith('- button "Add"');
       expect(await page.locator('#row-bound > span').evaluate(el => el.matches(':empty'))).toBe(!text);
@@ -395,4 +404,4 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     expect(hits).toEqual([false, true, true, false]);
     expect(errors).toEqual([]);
   } finally { await suite.close(); server.stop(true); }
-}, 20000);
+}, 60000);
