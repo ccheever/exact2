@@ -519,6 +519,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot,
             secrets,
             unbound,
+            presence,
         } = match self.links.io {
             Some(io) => (io.endow)(data.grants(), data.app_id(), true),
             None => crate::store::Endowed::none(),
@@ -558,6 +559,9 @@ impl<D: DataSource> Bridge<D> {
             Ok((mut host, batch)) => {
                 if let Some(why) = unbound {
                     host.log(&format!("{why}; every request is refused"));
+                }
+                if let Some(backend) = presence {
+                    host.runner_mut().install_presence(backend);
                 }
                 host.commit_boot();
                 let executor = self.links.io.map(|io| {
@@ -846,6 +850,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot,
             secrets,
             unbound,
+            presence,
         } = match self.links.io {
             Some(io) => (io.endow)(data.grants(), data.app_id(), carried.is_none()),
             None => crate::store::Endowed::none(),
@@ -885,6 +890,9 @@ impl<D: DataSource> Bridge<D> {
             Ok((mut host, batch)) => {
                 if let Some(why) = unbound {
                     host.log(&format!("{why}; every request is refused"));
+                }
+                if let Some(backend) = presence {
+                    host.runner_mut().install_presence(backend);
                 }
                 self.output = batch.as_bytes().to_vec();
                 self.prepared = Some(PreparedHost {

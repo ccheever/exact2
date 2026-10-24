@@ -16,6 +16,7 @@ mod inputs;
 mod interrupt;
 mod overlay;
 mod pinned_engines;
+mod presence;
 mod pure;
 mod render;
 mod snapshot;

@@ -84,6 +84,7 @@ mod lint;
 mod list_rows;
 mod lists;
 mod live_time;
+mod local_auth;
 mod locals;
 mod markdown_editing;
 mod media;

@@ -7,6 +7,7 @@ import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
 import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live } from './live';
+import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
 export const appId = 'com.exact.excord';
@@ -18,10 +19,12 @@ export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
-    'secret.keep fixture-token', 'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
+    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock',
+    'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
-    'net.websocket wss://*.discord.gg', 'secret.keep discord-token', 'fs.read app:/data/discord-identifies.json',
+    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock',
+    'fs.read app:/data/discord-identifies.json',
     'fs.write app:/data/discord-identifies.json'],
 };
 
@@ -163,6 +166,10 @@ const sources: Sources = {
   loadSession: (_args, secrets, storage) => loadSession(live, secrets, storage),
   signIn: ([text], secrets) => { const error = signIn(live, secrets, text); return error ? { ok: false, error } : OK; },
   signOut: (_args, secrets) => { signOut(live, secrets); return OK; },
+  unlockSession: (_args, secrets) => unlockSession(live, secrets),
+  protectToken: (_args, secrets) => protectToken(live, secrets),
+  unprotectToken: (_args, secrets) => unprotectToken(live, secrets),
+  signInAgain: (_args, secrets) => signInAgain(live, secrets),
   recordIdentify: async (_args, _secrets, storage) => { await recordIdentify(live, storage); return OK; },
   sendIdentify: () => { sendIdentify(live); return OK; },
   gatewayState: ([ready, epoch], secrets, _storage, native) => connect(live, secrets, native, ready, epoch),

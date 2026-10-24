@@ -238,6 +238,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.module_answered(ticket, answer);
+        self.presence_answered(ticket, answer);
         Ok(hold)
     }
 

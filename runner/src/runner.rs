@@ -1033,36 +1033,7 @@ impl<D: DataSource> Runner<D> {
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
         if !ready {
-            for (i, &taken) in seeded.iter().enumerate() {
-                if !runner.plan.resources[i].reader
-                    || exact_plan::runner_owned_source(
-                        runner.plan.str(runner.plan.resources[i].source),
-                    )
-                {
-                    continue;
-                }
-                // An answer the runtime already has isn't asked again when
-                // the module loads, unless the device's store may change it.
-                if taken && !device_state {
-                    continue;
-                }
-                runner.stale[i] = true;
-                if runner.resources[i].is_some() {
-                    continue;
-                }
-                let seed = runner.kept_seed(i);
-                if let Some((args, value)) = seed {
-                    runner.resources[i] = Some(ResourceState {
-                        args,
-                        value: crate::held::Held::new(value),
-                        store_revision: runner.store.revision(),
-                        placeholder: false,
-                        kept_seed: true,
-                        answered_for: None,
-                        origin: 0,
-                    });
-                }
-            }
+            runner.seed_kept(&seeded, device_state);
         }
         if ready && device_state {
             // … and asked now when it can answer, showing the rendered
@@ -1400,13 +1371,27 @@ impl<D: DataSource> Runner<D> {
     /// The store's writes since the last take, in order, for the host to
     /// persist (LLP 1018 D1) — only from commits that applied.
     pub fn take_store_writes(&mut self) -> Vec<StoreWrite> {
-        self.store.take_writes()
+        let writes = self.store.take_writes();
+        self.presence_writes(writes)
     }
 
     /// The names the store holds a value for — never the values (LLP 1018
     /// D5: a token is not the agent's to see).
+    /// A presence name is listed with its occupancy, `token: locked,
+    /// user-presence`, `pending`, `plain` or `absent` (LLP 1133.010 §7).
     pub fn store_names(&self) -> Vec<String> {
-        self.store.names().into_iter().map(str::to_string).collect()
+        let presence = self.presence_list();
+        let mut names: Vec<String> = (self.store.names().into_iter())
+            .filter(|n| !n.starts_with(Store::PRESENCE) && !presence.iter().any(|(p, _)| p == n))
+            .map(str::to_string)
+            .collect();
+        names.extend(
+            presence
+                .into_iter()
+                .map(|(name, said)| format!("{name}: {said}")),
+        );
+        names.sort();
+        names
     }
 
     /// The store, for a test that reads what an action kept.

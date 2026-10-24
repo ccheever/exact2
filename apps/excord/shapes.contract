@@ -194,10 +194,14 @@ shape Gateway
   attempt: number
 
 // The kept credentials, read into the data module: `ready` once read, and
-// whether there is a token to sign in with.
+// whether there is a token to sign in with. Lock Excord (LLP 1133.010 §9):
+// `lockOn` while the token is kept behind the person's check, and `locked`
+// while this launch has not passed it yet, so nothing of the account shows.
 shape Session
   ready: bool
   signedIn: bool
+  locked: bool
+  lockOn: bool
 
 shape Ack
   ok: bool
