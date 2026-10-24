@@ -714,25 +714,27 @@ export function P(e, name, f) {
  * into spans by the web host's own `renderMarkup`; the pieces come from the
  * web host's Markdown, a wasm fetched at the first such node (a loaded
  * capability). A rendered page's spans stand until the source changes. */
-let Markdown = null;
+let Markdown = null, Atoms = null;
 export function md(e, f) {
-  let first = Adopt && e.childElementCount > 0;
-  effect(() => {
+  let first = Adopt && e.childElementCount > 0 && !e.querySelector("[data-exact-atom]"); // a page rendered at build is drawn again where it has atoms, which it renders as their labels
+  // Its inline atoms (LLP 1045.000 D6): the kinds and faces are attributes, read at each render and followed as they change; a press on one is the node's `atompress`.
+  const render = v => { inflight.n++; Promise.all([Markdown ??= markdown(), e.hasAttribute("data-atoms") && (Atoms ??= import("./atoms.js"))]).then(([pieces]) => { if (e.$source === v) renderMarkup(e, pieces(v, e.getAttribute("data-atoms") ?? "", e.getAttribute("data-atom-faces") ?? "")); }).finally(() => inflight.n--); };
+  if (typeof MutationObserver === "function") new MutationObserver(() => render(e.$source)).observe(e, { attributes: true, attributeFilter: ["data-atoms", "data-atom-faces", "data-atom-styles"] }); effect(() => {
     const v = f() ?? "";
     e.$source = v;
     if (first) { first = false; return; }
     if (!Markdown) e.textContent = v;
-    inflight.n++;
-    (Markdown ??= markdown()).then(pieces => { if (f() === v) renderMarkup(e, pieces(v)); }).finally(() => inflight.n--);
+    render(v);
   });
 }
 async function markdown() {
   const bytes = globalThis.__files ? globalThis.__files("markdown.wasm") : await fetch("./markdown.wasm").then(r => r.arrayBuffer());
   const made = await WebAssembly.instantiate(bytes, {}), x = (made.instance ?? made).exports;
-  return source => {
-    const b = new TextEncoder().encode(source), p = x.alloc(b.length);
+  return (source, atoms, faces) => {
+    const enc = new TextEncoder(), s = enc.encode(source), a = enc.encode(atoms), f = enc.encode(faces), b = new Uint8Array(s.length + a.length + f.length), p = x.alloc(b.length);
+    b.set(s); b.set(a, s.length); b.set(f, s.length + a.length);
     new Uint8Array(x.memory.buffer, p, b.length).set(b);
-    const n = x.pieces(p, b.length);
+    const n = x.pieces(p, b.length, a.length, f.length);
     return new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.output(), n));
   };
 }
@@ -952,6 +954,7 @@ export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isC
 // the nearest handler hears the ClipboardEvent record, a paste's files minted `doc:` handles (files.js); the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pasteWarm?.(); return l(kind, atBody(e, kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? "", kind === "paste" ? OnHooks.pasted?.(ev) ?? [] : []]); } finally { KeyEvent = outer; } })); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState])); export const onFrameNavigation = (e, kind, f) => { inflight.n++; import("./frame-navigation.js").then(m => m.watch(e, (name, r) => { if (name === kind) f(m.positional(r)); })).finally(() => inflight.n--); }; // an iframe's navigation records, the subset a page sees (frame-navigation.js, LLP 1020.002 D2)
+export const onAtompress = (e, kind, f, l) => l(kind, ev => { if (Array.isArray(ev.detail)) f(ev.detail); }); // a press on an inline atom (LLP 1045.000 D7), its `AtomEvent` record the event's detail (atoms.js, markup-editor.js)
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own presence-glue.js, fetched after the first
@@ -1091,7 +1094,7 @@ function geoRead(op, id) {
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
 export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Geo ? Geo.range(liveById(id), start, end, out) : 0;
   return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
-export { decorationRecord } from './shape.js'; import { startDecoration } from './editor.js';
+export { decorationRecord, atomFacesRecord } from './shape.js'; import { startDecoration } from './editor.js';
 export const decorate = e => startDecoration(e, {own:Owner, onEnd, inflight, say});
 /** `elementFromPoint(x,y)` (LLP 1094 D10): nearest front-most untransformed id at a viewport point; none before loading. `elementsFromPoint` returns every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
@@ -1115,13 +1118,13 @@ export function mde(e) {
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
         Object.defineProperties(e, { value: { configurable: true, get: () => n.value, set: v => { n.value = v; } }, ...Object.fromEntries(["selectionStart", "selectionEnd", "selectionDirection"].map(k => [k, { configurable: true, get: () => n[k] }])) });
-        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click", "atompress"]) n.addEventListener(t, ev => {
           const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
           if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
         }, t === "keydown"); // before the editor applies its own key default
         new MutationObserver(ms => { for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? n.removeAttribute(m.attributeName) : n.setAttribute(m.attributeName, v); } n.exactMarkup?.sync(); }).observe(e, { attributes: true });
       },
-      select: (n, p) => { const [formats, mixed, unavailable, link] = p.split("\n"); e.$select?.([formats, mixed === "1", link ?? "", unavailable]); },
+      select: (n, p) => { const [formats, mixed, unavailable, atom, ...link] = p.split("\n"); e.$select?.([formats, mixed === "1", link.join("\n"), unavailable, atom ?? ""]); },
     });
   }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
 }

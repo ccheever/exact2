@@ -730,10 +730,9 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
-// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the item's indent as `padding-left`; its marker
-// (flags 32) is a 40 px box pulled into the gutter by the block's negative `text-indent`, the marker's end at the
-// indent (`flex-end`, overflowing leftwards as the browser's outside marker does): `<ul>`/`<ol>`'s layout, the one
-// native hosts copy with a head indent. 40 is exact-markdown's `LIST_INDENT`.
+// A list item's paragraph (indent > 0, LLP 1045 D4) is a block padded by the item's indent; its marker (flags 32), a 40 px
+// box pulled into the gutter by the block's negative `text-indent`, ends at the indent (`flex-end`, overflowing leftwards as
+// the outside marker does): `<ul>`/`<ol>`'s layout, which native hosts copy with a head indent (exact-markdown's `LIST_INDENT`).
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
@@ -743,7 +742,8 @@ export function renderMarkup(el, json) {
     if (start) { start = false; box = el; if (indent > 0) { box = document.createElement("span"); box.style.display = "block"; box.style.paddingLeft = `${indent}px`; el.appendChild(box); } }
     return box;
   };
-  for (const [text, scale, weight, flags, href, indent = 0] of pieces) {
+  for (const [text, scale, weight, flags, href, indent = 0, atom] of pieces) {
+    if (atom && globalThis.exact?.atoms?.readerAtom) { paragraph(indent).appendChild(globalThis.exact.atoms.readerAtom(el, text, atom, scale, weight, flags)); continue; } // an inline atom's pill (LLP 1045.000 D6, atoms.js); until atoms.js is here, its label
     const destination = flags & 8 && href ? navigableURL(href) : null;
     const make = () => {
       const span = document.createElement(destination ? "a" : "span");
