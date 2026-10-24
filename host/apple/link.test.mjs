@@ -40,6 +40,44 @@ test('ordinary app executables refuse WidgetKit, ActivityKit and SwiftUI, includ
   } finally { rmSync(dir, {recursive:true,force:true}); }
 });
 
+test('remote push opt-in permits app registration while extensions, push-to-start and background delivery stay refused', async () => {
+  const { assertActivityRefusals } = await import('./activities.mjs');
+  const { cpSync, mkdirSync, readFileSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'exact-push-archive-'));
+  const runApple = (cmd, args) => {
+    const result = spawnSync(cmd, args, { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result;
+  };
+  const fixture = (directory, symbol = '', modes = '') => {
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'Info.plist'), `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Probe</string>${modes}</dict></plist>`);
+    cpSync('/bin/ls', join(directory, 'Probe'));
+    if (symbol) writeFileSync(join(directory, 'Probe'), Buffer.concat([readFileSync(join(directory, 'Probe')), Buffer.from(`\0${symbol}\0`)]));
+  };
+  try {
+    fixture(dir);
+    const module = join(dir, 'Frameworks/Module.framework');
+    fixture(module, 'registerForRemoteNotifications');
+    assert.throws(() => assertActivityRefusals(dir, runApple), /registerForRemoteNotifications/);
+    assert.equal(assertActivityRefusals(dir, runApple, { remotePush: true }), 2);
+    fixture(dir, 'registerForRemoteNotifications');
+    assert.equal(assertActivityRefusals(dir, runApple, { remotePush: true }), 2);
+    fixture(dir);
+    fixture(module, 'pushToStartTokenUpdates');
+    assert.throws(() => assertActivityRefusals(dir, runApple, { remotePush: true }), /pushToStartTokenUpdates/);
+    fixture(module);
+    fixture(join(dir, 'PlugIns/Widget.appex'), 'registerForRemoteNotifications');
+    assert.throws(() => assertActivityRefusals(dir, runApple, { remotePush: true }), /registerForRemoteNotifications/);
+    fixture(join(dir, 'PlugIns/Widget.appex'));
+    fixture(join(dir, 'PlugIns/Widget.appex/Frameworks/Module.framework'), 'registerForRemoteNotifications');
+    assert.throws(() => assertActivityRefusals(dir, runApple, { remotePush: true }), /registerForRemoteNotifications/);
+    fixture(dir, '', '<key>UIBackgroundModes</key><array><string>remote-notification</string></array>');
+    assert.throws(() => assertActivityRefusals(dir, runApple, { remotePush: true }), /remote-notification/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 // The async iOS step supplies its just-built bundle. Glue has no assembled iOS fixture yet.
 test.skipIf(!process.env.EXACT_ACTIVITY_APP)('the assembled app and extension refuse push-to-start symbols, remote registration and its background mode (LLP 1126.001 WP9)', async () => {
   const { assertActivityRefusals } = await import('./activities.mjs');
