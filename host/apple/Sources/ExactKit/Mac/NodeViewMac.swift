@@ -988,7 +988,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for (k, v) in set { next[k] = v }
         props = next
         if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
-        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
+            || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }
         applyTextArea()
         remakeFieldIfNeeded()
         if let f = field {
