@@ -1426,9 +1426,8 @@ async function test(args) {
     run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-canvas-vello', '--lib', ...(ios ? ['--target', iosTarget] : []), '--target-dir', modules, '--manifest-path', resolve(root, 'Cargo.toml')],
       { env: { ...cargoEnv, [`CARGO_PROFILE_${HOST_DEV.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
     const canvasGpu = resolve(modules, ...(ios ? [iosTarget] : []), HOST_DEV, 'libexact_canvas_vello.dylib');
-    // Build once for the fixture plans and tests that compile their own source.
     run('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml')]);
-    env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug', 'contract');
+    env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR || resolve(root, 'target'), 'debug', 'contract');
     if (!ios) {
       compileFixtures(root, run, env, paths.namespace, 'EXACT', app.id);
       const swiftEnv = { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' }, scratch = resolve(paths.namespace, 'tests');
