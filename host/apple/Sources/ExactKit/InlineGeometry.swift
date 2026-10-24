@@ -53,7 +53,7 @@ extension Presenter {
                 if view.isHidden { return nil }
                 ancestor = view.superview
             }
-            guard start <= end, node.window != nil, let rect = node.readerAtomFrame(Int(start), Int(end)) else { return nil }
+            guard start <= end, node.window != nil, !node.cssVisibilityHidden, let rect = node.readerAtomFrame(Int(start), Int(end)) else { return nil }
             return Agent.box(rect, of: node, viewport: viewport)
         }
         guard start <= end, let node = views[id], node.window != nil, !node.isHidden, !node.fieldComposing,

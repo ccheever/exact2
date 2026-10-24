@@ -1311,8 +1311,9 @@ component Composer
   Return or Space presses (a link atom, Return only); in the editor it is not.
   `rangeFrame` over its range is its pill, in the editor and the reader alike,
   where a popover anchors; elsewhere in a reader's text it is unavailable, as
-  it is in a macOS paragraph of 64 KB or more, which lays out off the main
-  thread (LLP 1072).
+  it is in a macOS paragraph that lays out off the main thread (LLP 1072): 64
+  KB of text, or 16 KB in 256 runs or more, a Markdown text being one run per
+  piece.
 
 The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
 icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of

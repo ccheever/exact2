@@ -270,8 +270,9 @@ extension NodeView {
     /// of the pills whose source ranges meet `start..<end`; collapsed at a
     /// pill's edge, that edge, on the side the paragraph's direction puts
     /// it. Nil where no pill is, and on the Mac for a paragraph its region
-    /// reader draws (LLP 1072, 64 KB of text or more), which lays out off
-    /// the main thread.
+    /// reader draws (LLP 1072: 64 KB of text, or 16 KB in 256 runs or more,
+    /// a Markdown text being a run per piece), which lays out off the main
+    /// thread.
     func readerAtomFrame(_ start: Int, _ end: Int) -> CGRect? {
         guard props["markup"] == "markdown", let text else { return nil }
         let spec = paragraphSpec(), fit = props["fitScale"].flatMap(Float.init) ?? 1

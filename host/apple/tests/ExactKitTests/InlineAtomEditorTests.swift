@@ -7,6 +7,7 @@
 import XCTest
 @testable import ExactKit
 @testable import ExactMarkdown
+import CExact
 
 private let kinds = #"[{"name":"citation","link":"t3-citation:"},{"name":"mention","prefix":"@","role":"link"}]"#
 private let faces = #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"The quoted passage"}]"#
@@ -377,13 +378,13 @@ final class InlineAtomReaderRangeFrameTests: XCTestCase {
         session?.destroy(); session = nil; window = nil; super.tearDown()
     }
 
-    private func reader(_ text: String = source, width: Double = 400) -> (Presenter, NodeView) {
+    private func reader(_ text: String = source, width: Double = 400, style: [String: Any] = [:]) -> (Presenter, NodeView) {
         let made = ExactApp.shared.makeSession(label: "inline-atom-reader")
         session = made
         let p = made.presenter
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "text", "props": ["id": "reader", "text": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "handlers": ["atompress"]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["id": "reader", "text": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "style": style, "handlers": ["atompress"]],
             ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": width, "h": 120.0],
@@ -422,9 +423,36 @@ final class InlineAtomReaderRangeFrameTests: XCTestCase {
         // Where no pill is, unavailable.
         XCTAssertNil(p.rangeFrame(2, start: 0, end: 2))
         XCTAssertNil(p.rangeFrame(2, start: 1, end: 1))
+        // `visibility: hidden` answers nothing, as the web's (LLP 1114.007).
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["visibility": "hidden"]]]))
+        XCTAssertTrue(node.cssVisibilityHidden)
+        XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "a visibility: hidden text answers nothing")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["visibility": "visible"]]]))
+        XCTAssertNotNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)))
         node.isHidden = true
         XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "a hidden text answers nothing")
     }
+
+    func testInARightToLeftParagraphAnAtomsStartIsItsRightEdge() throws {
+        let (p, _) = reader("שלום " + cite + " עולם", style: ["direction": "rtl"])
+        let s = 5, e = 5 + (cite as NSString).length
+        let pill = try XCTUnwrap(p.rangeFrame(2, start: UInt32(s), end: UInt32(e)))
+        XCTAssertEqual(try XCTUnwrap(p.rangeFrame(2, start: UInt32(s), end: UInt32(s))).minX, pill.maxX, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(p.rangeFrame(2, start: UInt32(e), end: UInt32(e))).minX, pill.minX, accuracy: 0.01)
+    }
+
+    #if os(macOS)
+    func testAParagraphTheRegionReaderDrawsAnswersNothing() throws {
+        let (p, node) = reader()
+        XCTAssertNotNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)))
+        // As the measurer hands a paragraph of 64 KB, or 16 KB in 256 runs, to the region reader.
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        session?.text.readerParagraphs[node.id] = RegionReaderParagraph(request, bytes: 100_000)
+        XCTAssertNotNil(node.readerParagraph)
+        XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "laid out off the main thread: unavailable")
+    }
+    #endif
 
     func testAPillOnALaterLineAnswersThere() throws {
         let long = "Words that fill the first line of this narrow reader before " + cite + " ends"
