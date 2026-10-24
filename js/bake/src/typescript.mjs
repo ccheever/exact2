@@ -1056,13 +1056,14 @@ function usesInterface(i, named) {
 }
 
 /** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
- * its class, and its source directories, which join the APK's Kotlin. */
+ * its class, its source directories, which join the APK's Kotlin, and the Maven coordinates it names, which join the
+ * one locked Gradle graph (LLP 1133.008 D8 item 5). */
 export function androidImplementations(app) {
   const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
   return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
-    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl)}];
+    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : []}];
   });
 }
 
