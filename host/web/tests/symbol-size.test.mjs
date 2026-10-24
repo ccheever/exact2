@@ -354,11 +354,19 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     }, cases);
     const measure = id => page.evaluate(id => {
       const el = document.getElementById(id), img = el.querySelector('img');
-      const r = el.getBoundingClientRect(), i = img.getBoundingClientRect(), s = getComputedStyle(el), is = getComputedStyle(img);
+      const r = el.getBoundingClientRect(), s = getComputedStyle(el), is = getComputedStyle(img), word = getComputedStyle(el, '::after');
+      // A hidden symbol has no box: its zero rect at the viewport origin is not relative to the moving sheet.
+      const i = img.getClientRects().length ? img.getBoundingClientRect() : null;
       const round = n => Math.round(n * 100) / 100;
-      return { box: [r.width, r.height].map(round), image: [i.x - r.x, i.y - r.y, i.width, i.height].map(round),
-        padding: s.padding, columns: s.gridTemplateColumns, overflow: s.overflow, margin: is.margin, pointer: is.pointerEvents };
+      return { box: [r.width, r.height].map(round), image: i ? [i.x - r.x, i.y - r.y, i.width, i.height].map(round) : null,
+        word: word.content === 'none' ? null : [word.content, word.width, word.height, word.gridArea],
+        padding: s.padding, columns: s.gridTemplateColumns, rows: s.gridTemplateRows, overflow: s.overflow, margin: is.margin, pointer: is.pointerEvents };
     }, id);
+    // A face measurement must not depend on the sheet's position during its opening animation.
+    const sheet = await measure('sheet-alone');
+    await page.locator('#sheet-alone').evaluate(el => { el.style.transform = 'translateY(40px)'; });
+    expect(await measure('sheet-alone')).toEqual(sheet);
+    await page.locator('#sheet-alone').evaluate(el => el.style.removeProperty('transform'));
     const titled = await Promise.all(cases.map(kind => measure(`${kind}-titled`)));
     // LLP 1011 §3 and LLP 1115.000: absent face text leaves a symbol alone;
     // a subtitle still occupies its own row. Both textContent writers clear to :empty.
@@ -369,6 +377,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
         expect(await measure(`${kind}-bound`), `${kind}, title ${JSON.stringify(text)}`).toEqual(await measure(`${kind}-${text ? 'titled' : 'alone'}`));
       }
       expect(await Promise.all(cases.map(kind => measure(`${kind}-titled`)))).toEqual(titled);
+      expect((await measure('sheet-bound')).word?.[0] ?? null).toBe(text ? null : '"Add"');
       expect(await page.locator('#row-bound').ariaSnapshot()).toStartWith('- button "Add"');
       expect(await page.locator('#row-bound > span').evaluate(el => el.matches(':empty'))).toBe(!text);
       const subtitle = page.locator('#subtitle-bound > span:last-child');
