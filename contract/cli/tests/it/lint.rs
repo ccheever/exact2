@@ -555,6 +555,18 @@ fn the_style_hint_suggests_only_what_compiles() {
             "font-size: 14px; font-weight: 600; line-height: 1.4",
             "font-size=\"14px\" font-weight=600 line-height=1.4",
         ),
+        // String shorthands keep quotes even when their CSS value is a number.
+        ("border: 0", "border=\"0\""),
+        ("border-top: 0", "border-top=\"0\""),
+        ("border-right: 0", "border-right=\"0\""),
+        ("border-bottom: 0", "border-bottom=\"0\""),
+        ("border-left: 0", "border-left=\"0\""),
+        ("columns: 2", "columns=\"2\""),
+        ("column-rule: 0", "column-rule=\"0\""),
+        (
+            "column-count: 2; column-rule-width: 0; padding: 8",
+            "column-count=2 column-rule-width=0 padding=8",
+        ),
         // A custom property is not an attribute; the others are.
         ("--gap: 8px; padding: 8px", "padding=\"8px\""),
         // A plain number is unquoted, as the lexer wants it.
@@ -612,6 +624,26 @@ fn the_style_hint_suggests_only_what_compiles() {
             message.contains("a look nodes share is a `style Name` block"),
             "{style}: {message}"
         );
+    }
+}
+
+#[test]
+fn the_style_hint_keeps_importance_for_properties_with_shared_rows() {
+    for (a, b) in [
+        ("border-color: red", "border-bottom-color: blue"),
+        ("border-width: 2px", "border-top: 1px solid red"),
+        ("border-top: 1px solid red", "border-color: blue"),
+    ] {
+        for (first, last) in [(a, b), (b, a)] {
+            let style = format!("{first} !important; {last}");
+            let src = format!("component A\n  view\n    text \"a\" style={style:?}\n");
+            let e = contract::compile(&src).unwrap_err();
+            assert_eq!(e.id, "lower-unknown-attr");
+            assert!(!e.message.contains("write "), "{style}: {e}");
+            assert!(e
+                .message
+                .contains("a look nodes share is a `style Name` block"));
+        }
     }
 }
 
