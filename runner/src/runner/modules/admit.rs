@@ -5,7 +5,9 @@
 //! In order: the grant lines the name or its arguments list (LLP 1133.009
 //! D10 item 9; the interface's own lines are the bake's, `grant-missing`);
 //! the name's `origin` (`"app"`: a tool invocation or a wake is refused,
-//! `person-required`, item 8); its `foreground` (refused while the page is
+//! `person-required`, item 8; `{"whenAny", "is": "app"}`, only when the call
+//! gives one of the options named, LLP 1133.012 D12 item 5); its
+//! `foreground` (refused while the page is
 //! hidden, item 3); each conditioned by its `when` where it has one; then the
 //! permission. Every refusal answers `NotAllowedError`.
 //!
@@ -220,9 +222,7 @@ impl<D: DataSource> Runner<D> {
         // device, and its implementation refuses it at once (LLP 1133.009
         // D3).
         let asks = match &self.substitute(row)["nameGrants"] {
-            Json::Object(by_argument) => {
-                (by_argument.keys()).any(|a| !args[a].is_null() && args[a] != false)
-            }
+            Json::Object(by_argument) => (by_argument.keys()).any(|a| given(args, a)),
             _ => true,
         };
         let decision = match decision {
@@ -258,7 +258,7 @@ impl<D: DataSource> Runner<D> {
             return sub["permission"].clone();
         };
         let given: Vec<&Json> = (by.iter())
-            .filter(|(a, _)| !args[a.as_str()].is_null() && args[a.as_str()] != false)
+            .filter(|(a, _)| given(args, a))
             .map(|(_, p)| p)
             .collect();
         let state = |p: &&Json| self.permission_state(p["name"].as_str().unwrap_or_default());
@@ -371,8 +371,7 @@ impl<D: DataSource> Runner<D> {
         match &sub["nameGrants"] {
             Json::Object(by_argument) => {
                 for (argument, line) in by_argument {
-                    let given = &args[argument];
-                    if !given.is_null() && *given != false && !granted(line) {
+                    if given(args, argument) && !granted(line) {
                         return Err(format!("grant-missing ({argument}= needs {})", named(line)));
                     }
                 }
@@ -400,7 +399,14 @@ impl<D: DataSource> Runner<D> {
         let applies = sub["when"]
             .as_object()
             .is_none_or(|when| when.iter().all(|(k, v)| args.get(k) == Some(v)));
-        if applies && sub["origin"] == "app" && origin != CallOrigin::App {
+        // `{"whenAny": [options], "is": "app"}`: only a call giving one of
+        // them is held to `app` (LLP 1133.012 D12 item 5).
+        let app_only = match &sub["origin"] {
+            Json::Object(o) => (o["whenAny"].as_array().into_iter().flatten())
+                .any(|a| a.as_str().is_some_and(|a| given(args, a))),
+            o => o == "app",
+        };
+        if applies && app_only && origin != CallOrigin::App {
             return Err(format!("person-required ({} origin)", origin.word()));
         }
         if applies && sub["foreground"] == true && self.page.hidden {
@@ -424,6 +430,12 @@ impl<D: DataSource> Runner<D> {
         }
         answer
     }
+}
+
+/// Whether a call gave option `argument`: set and not `false`. The grant
+/// key `"*"` is given by every call.
+fn given(args: &Json, argument: &str) -> bool {
+    argument == "*" || (!args[argument].is_null() && args[argument] != false)
 }
 
 /// `over`'s fields laid over `value`'s, record by record.
