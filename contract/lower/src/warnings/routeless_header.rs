@@ -1,4 +1,4 @@
-//! A screen heading at the top of an app with no navigation root stays
+//! A screen heading at the top of an app with no navigation route stays
 //! in the page on iOS. A keyed root alone is not a route: the repair needs
 //! a separately keyed screen whose first child is the header.
 
@@ -11,7 +11,7 @@ use contract_types::Checked;
 
 pub(super) fn check(checked: &Checked<'_>, out: &mut Vec<LowerError>) {
     let view = &checked.expanded.root.view;
-    if has_navigation(view) {
+    if has_route(view, false) {
         return;
     }
     let styles = &checked.file.styles;
@@ -25,6 +25,9 @@ pub(super) fn check(checked: &Checked<'_>, out: &mut Vec<LowerError>) {
         },
     ) = at.first()
     {
+        if has(attrs, "popover") {
+            return;
+        }
         let Some(rows) = rows(attrs, styles) else {
             return;
         };
@@ -35,7 +38,7 @@ pub(super) fn check(checked: &Checked<'_>, out: &mut Vec<LowerError>) {
             if !none_or_computed(&rows, "appearance") && headings(children, styles) == Some(1) {
                 out.push(LowerError {
                     id: "lower-header-routeless",
-                    message: "this app has no `navigationKey`, so on iOS this `header` is drawn in the page, not as the navigation bar. Add a navigation root holding a separately keyed screen (both have `navigationKey`), with this header as the screen's first child, or set `appearance=\"none\"` on the header to keep it drawn as written (docs/recipes/navigation-stack.md)".into(),
+                    message: "this app has no navigation route (a keyed screen inside a keyed navigation root), so on iOS this `header` is drawn in the page, not as the navigation bar. Add a navigation root holding a separately keyed screen (both have `navigationKey`), with this header as the screen's first child, or set `appearance=\"none\"` on the header to keep it drawn as written (docs/recipes/navigation-stack.md)".into(),
                     span: node.span(),
                 });
             }
@@ -48,18 +51,22 @@ pub(super) fn check(checked: &Checked<'_>, out: &mut Vec<LowerError>) {
     }
 }
 
-// Navigation in any branch counts, including one that is initially hidden.
-fn has_navigation(nodes: &[Node]) -> bool {
+// A route in any branch counts, including one that is initially hidden.
+fn has_route(nodes: &[Node], in_root: bool) -> bool {
     nodes.iter().any(|node| match node {
         Node::Element {
             attrs, children, ..
-        } => has(attrs, "navigationKey") || has_navigation(children),
+        } => {
+            let keyed = has(attrs, "navigationKey");
+            (in_root && keyed && !has(attrs, "navigationBack"))
+                || has_route(children, in_root || keyed)
+        }
         Node::When {
             then, otherwise, ..
-        } => has_navigation(then) || has_navigation(otherwise),
-        Node::Match { some, none, .. } => has_navigation(&some.1) || has_navigation(none),
-        Node::Each { body, .. } => has_navigation(body),
-        Node::Use { children, .. } => has_navigation(children),
+        } => has_route(then, in_root) || has_route(otherwise, in_root),
+        Node::Match { some, none, .. } => has_route(&some.1, in_root) || has_route(none, in_root),
+        Node::Each { body, .. } => has_route(body, in_root),
+        Node::Use { children, .. } => has_route(children, in_root),
         Node::Children { .. } => false,
     })
 }
@@ -101,6 +108,20 @@ fn headings(nodes: &[Node], styles: &[StyleDecl]) -> Option<usize> {
         if tag == "dialog" || has(attrs, "popover") {
             continue;
         }
+        let found = if tag == "text" && computed(attrs, "role") {
+            None
+        } else if tag == "text" && literal(attrs, "role") == Some("heading") {
+            Some(1)
+        } else if literal(attrs, "role") == Some("tablist") {
+            Some(0)
+        } else {
+            headings(children, styles)
+        };
+        // Styles cannot supply a role. Unknown presentation cannot change
+        // the heading count of a subtree that cannot contain a heading.
+        if found == Some(0) {
+            continue;
+        }
         let rows = rows(attrs, styles)?;
         match last(&rows, "display").map(|a| &a.value) {
             Some(Expr::Str(value, _)) if value == "none" => continue,
@@ -110,11 +131,7 @@ fn headings(nodes: &[Node], styles: &[StyleDecl]) -> Option<usize> {
         if computed(attrs, "role") {
             return None;
         }
-        if tag == "text" && literal(attrs, "role") == Some("heading") {
-            count += 1;
-        } else if literal(attrs, "role") != Some("tablist") {
-            count += headings(children, styles)?;
-        }
+        count += found?;
     }
     Some(count)
 }
