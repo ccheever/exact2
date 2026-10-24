@@ -71,6 +71,8 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private val history get() = app.getSharedPreferences("exact.media-capture", Context.MODE_PRIVATE)
     private val tracks = LinkedHashMap<String, Track>()
     private var next = 0
+    /** The cameras (VideoCapture.kt, LLP 1133.008). */
+    private val cameras = VideoTracks(context) { ++next }
     private var overlay: String? = null
     private var opened = false
 
@@ -78,8 +80,19 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
 
     override fun later(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         val t = tracks[args.optString("track")]
+        if (cameras.owns(args.optString("track"))) {
+            val id = args.optString("track")
+            when (name) {
+                "applyConstraints" -> return cameras.applyConstraints(args, reply)
+                "stopTrack" -> return reply(cameras.stop(id))
+                "setTrackEnabled" -> return reply(cameras.setEnabled(id, args.optBoolean("enabled", true)))
+                "mediaStreamTrack" -> return reply(cameras.state(id))
+            }
+        }
         when (name) {
-            "getUserMedia" -> getUserMedia(args, reply)
+            "getUserMedia" -> if (args.optBoolean("video", false) || args.has("videoConstraints")) withCamera(args, reply) else getUserMedia(args, reply)
+            "applyConstraints" -> reply(error(if (t == null) "NotFoundError" else "NotSupportedError"))
+            "cameraStatus" -> reply(cameras.status())
             "stopTrack" -> if (t == null) reply(error("NotFoundError")) else { end(t, "stopTrack"); reply(shape(t)) }
             "setTrackEnabled" -> {
                 if (t == null) return reply(error("NotFoundError"))
@@ -92,9 +105,40 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
             // A read of no track (`track=""`): an app reads before it holds one.
             "mediaStreamTrack" -> reply(if (args.optString("track").isEmpty()) JSONObject().put("id", "").put("kind", "audio").put("label", "")
                 .put("enabled", false).put("muted", true).put("readyState", "ended").put("settings", JSONObject()) else t?.let(::shape) ?: error("NotFoundError"))
-            "enumerateDevices" -> reply(devices())
+            "enumerateDevices" -> {
+                val all = devices().getJSONArray("devices")
+                val more = cameras.devices()
+                for (i in 0 until more.length()) all.put(more.get(i))
+                reply(JSONObject().put("devices", all))
+            }
             "microphoneStatus" -> reply(status())
             else -> reply(error("NotSupportedError"))
+        }
+    }
+
+    /** A stream with a camera's track, and the microphone's first where it asks for both (LLP 1133.008 D1). */
+    private fun withCamera(args: JSONObject, reply: (JSONObject) -> Unit) {
+        val stream = "stream-${context.session}-${++next}"
+        val video = { made: List<JSONObject> ->
+            cameras.open(args, stream) { v ->
+                // What opened first is let go when the camera fails (LLP 1133.009 D3).
+                if (v.has("error")) {
+                    made.forEach { m -> tracks[m.optString("id")]?.let { end(it, "the camera failed") } }
+                    reply(v)
+                } else {
+                    val all = made + v
+                    context.tracks.add(TrackEntry(stream, "stream", all.map { it.getString("id") }))
+                    reply(JSONObject().put("id", stream).put("active", true).put("tracks", JSONArray(all)))
+                }
+            }
+        }
+        if (!args.optBoolean("audio", false) && !args.has("audioConstraints")) return video(emptyList())
+        getUserMedia(args) { a ->
+            if (a.has("error")) reply(a)
+            else {
+                val made = a.getJSONArray("tracks")
+                video((0 until made.length()).map { made.getJSONObject(it) })
+            }
         }
     }
 
@@ -210,8 +254,11 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     }
 
     /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (D10 item 11). */
+    override fun foreground(shown: Boolean) = cameras.foreground(shown)
+
     override fun preferred(values: JSONObject) {
         val value = values.optJSONObject("mediaStreamTrack")
+        cameras.preferred(value)
         overlay = if (value?.optBoolean("muted") == true) value.optString("muteReason").ifEmpty { "interrupted" } else null
         for (t in tracks.values) {
             if (t.readyState != "live") continue
@@ -222,12 +269,14 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
 
     override fun dispose(ids: List<String>) {
         for (id in ids) tracks.values.filter { it.id == id || it.stream == id }.forEach { end(it, "disposed") }
+        ids.forEach(cameras::dispose)
     }
 
     override fun resumed() { context.changed("media-capture.microphoneStatus") }
 
     override fun destroy(done: () -> Unit) {
         tracks.values.toList().forEach { end(it, "the session ended") }
+        cameras.endAll("the session ended")
         Capture.listeners -= this
         done()
     }
