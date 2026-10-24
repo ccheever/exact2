@@ -214,7 +214,9 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
       const id = generationOf(dist), at = await buildTreeFileAsync(dist, pathname.slice(base.length - 1) || '/', accept);
       let body = null;
       try { body = at && readFileSync(at.path); } catch { /* moved */ }
-      if (generationOf(dist) === id && realDirectory(dist) && (!at || body)) found = at ? { ...at, body, id } : null;
+      // (No dist and no swap under way: no build yet, or one a killed swap left as `.previous`, served as before.)
+      const settled = realDirectory(dist) || !swapping(dist);
+      if (generationOf(dist) === id && settled && (!at || body)) found = at ? { ...at, body, id } : null;
       else if (Date.now() > end) return { status: 503 };
       else await sleep(10);
     }
