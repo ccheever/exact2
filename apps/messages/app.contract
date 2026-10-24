@@ -369,7 +369,7 @@ component Messages
           if entry.name == "reader"
             column testId="reader" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=44 padding-left=16 padding-right=16 align-items="center" gap=16
-                button press=back testId="reader-back" class=GlassButton backgroundMaterial="glass"
+                button press=back testId="reader-back" aria-label="Back" class=GlassButton backgroundMaterial="glass"
                   image "symbol:back" font-size=20 color="light-dark(#000000, #ffffff)"
                 text "Message" font-size=17 font-weight=600
               scroll flex=1 min-height=0 padding=20
@@ -413,17 +413,17 @@ component Messages
                 button tabindex=0 press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
                 column position="absolute" left=(not selectedOutgoing and thread == "demo" ? 47 : 16) right=16 top=max(76, min(selectedY - 68, viewport.height - selectedHeight - 292)) gap=12 align-items=(selectedOutgoing ? "flex-end" : "flex-start")
                   row border-radius=30 backgroundMaterial="glass" padding=8 gap=4 animation=(viewport.prefersReducedMotion ? "none" : "card 180ms ease-out")
-                    button tabindex=0 press=react("❤️") testId="react-heart" width=40 height=40
+                    button tabindex=0 press=react("❤️") testId="react-heart" aria-label="Heart" width=40 height=40
                       image "assets/tapbacks/heart.png" width=34 height=34 object-fit="contain"
-                    button tabindex=0 press=react("👍") testId="react-like" width=40 height=40
+                    button tabindex=0 press=react("👍") testId="react-like" aria-label="Like" width=40 height=40
                       image "assets/tapbacks/like.png" width=34 height=34 object-fit="contain"
-                    button tabindex=0 press=react("👎") testId="react-dislike" width=40 height=40
+                    button tabindex=0 press=react("👎") testId="react-dislike" aria-label="Dislike" width=40 height=40
                       image "assets/tapbacks/dislike.png" width=34 height=34 object-fit="contain"
-                    button tabindex=0 press=react("😂") testId="react-laugh" width=40 height=40
+                    button tabindex=0 press=react("😂") testId="react-laugh" aria-label="Laugh" width=40 height=40
                       image "assets/tapbacks/laugh.png" width=34 height=34 object-fit="contain"
-                    button tabindex=0 press=react("‼️") testId="react-emphasis" width=40 height=40
+                    button tabindex=0 press=react("‼️") testId="react-emphasis" aria-label="Emphasize" width=40 height=40
                       image "assets/tapbacks/emphasis.png" width=34 height=34 object-fit="contain"
-                    button tabindex=0 press=react("❓") testId="react-question" width=40 height=40
+                    button tabindex=0 press=react("❓") testId="react-question" aria-label="Question" width=40 height=40
                       image "assets/tapbacks/question.png" width=34 height=34 object-fit="contain"
                   column contextTarget=`bubble-${selected}` contextMagnify=true max-height=320 overflow="hidden" padding-bottom=6.65
                     Balloon(body=selectedBody, outgoing=selectedOutgoing, tail=true, maximum=maximum, identifier="context-balloon")
