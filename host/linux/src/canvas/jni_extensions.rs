@@ -103,6 +103,29 @@ macro_rules! canvas_jni_extensions {
             )))
         }
 
+        /// How a presence check the reader made ended (`Presence.kt`, LLP
+        /// 1133.010 D13): on the store's completion path, never journaled.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_presence(
+            env: *mut JNIEnv,
+            _class: jclass,
+            answer: jstring,
+        ) {
+            let answer = $crate::canvas::field::text(env, answer);
+            with(|h| h.presence_reply(&answer));
+        }
+
+        /// The activity started (`false`) or stopped (`true`): the page's
+        /// `visibilityState` (LLP 1133.010 §9).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hidden(
+            _env: *mut JNIEnv,
+            _class: jclass,
+            hidden: jboolean,
+        ) {
+            with(|h| h.page_hidden(hidden == JNI_TRUE));
+        }
+
         /// The extensions the APK carries, one a line, bound at the host's next turn.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_bindExtensions(

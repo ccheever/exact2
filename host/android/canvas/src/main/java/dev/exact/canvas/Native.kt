@@ -185,6 +185,10 @@ object Native {
     /** The extensions the APK carries, one a line ([Extensions]); under the agent, told so unless the drive names them
      * (`--bind`). On the host's thread. */
     @JvmStatic external fun bindExtensions(names: String)
+    /** How a presence check ended ([Presence]), on the store's completion path: never journaled. On the host's thread. */
+    @JvmStatic external fun presence(answer: String)
+    /** The activity stopped (true) or started (false): the page's `visibilityState`. On the host's thread. */
+    @JvmStatic external fun hidden(hidden: Boolean)
     /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent
      * ([ExtensionContext.now]). Any thread. */
     @JvmStatic external fun now(): Double

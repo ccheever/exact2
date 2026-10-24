@@ -580,6 +580,8 @@ internal object Exact {
 
     /** What the extensions tell exact2 ([Native.changed], [Native.bindExtensions]): on exact2's thread, in order. */
     fun changed(topic: String) { val o = owner; if (o != null) o.call { Native.changed(topic) } else Native.changed(topic) }
+    fun presence(answer: String) { val o = owner; if (o != null) o.call { Native.presence(answer) } else Native.presence(answer) }
+    fun hidden(hidden: Boolean) { val o = owner; if (o != null) o.call { Native.hidden(hidden) } else Native.hidden(hidden) }
     fun bindExtensions(names: String) { val o = owner; if (o != null) o.call { Native.bindExtensions(names) } else Native.bindExtensions(names) }
 
     /** Give a GPU canvas its window: on the exact thread, without waiting for it; [done] there with the handle. */
