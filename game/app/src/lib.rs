@@ -120,8 +120,9 @@ fn bake_source<D: contract::DataSource>(
         String::new()
     };
     let windows = format!(
-        "fn main() {{ std::process::exit(exact_windows::run::<AppData>({:?}, PLAN, COMPAT)); }}",
-        manifest.name
+        "fn main() {{ std::process::exit(exact_windows::run::<AppData>({:?}, {}, PLAN, COMPAT)); }}",
+        manifest.name,
+        manifest.windows_window().unwrap_or_else(|e| panic!("app.json: {e}"))
     );
     let host = match platform {
         "web" => "exact_web::host!(AppData, PLAN, COMPAT, app_data);",
