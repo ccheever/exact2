@@ -18,21 +18,25 @@
 //   by −9.80665; rotation rates are rad/s and fields µT as Core Motion gives
 //   them. An absolute orientation is turned from Core Motion's x-north frame
 //   to the W3C's Earth frame (x east, y north, z up).
-// - `referenceFrame: "screen"` turns x and y by the window scene's interface
-//   orientation, as the web's `screen.orientation.angle` (Accelerometer §7.1).
+// - `referenceFrame: "screen"` turns x and y by the session window's angle
+//   (the context's `orientation`, the web's `screen.orientation.angle`;
+//   Accelerometer §7.1).
 // - The streams stop while the app is in the background and start again in
 //   the foreground; each reader's next answer reads `interrupted` (D8).
-// - A canvas input needs the context's surface input, which this host does
-//   not give an implementation yet: `startSensorInput` is `NotSupportedError`.
+// - A canvas input (D6) is a consumer of its stream like a reader, thinned to
+//   its own frequency (60 Hz by default), each sample written into the
+//   surface's input (the context's `surfaces`), which the host drains into
+//   the canvas once a frame. It holds the lease while displayed: hidden, it
+//   pauses; shown by an `app` commit, it resumes; shown by a tool's or a
+//   wake's, it stays paused. The background pauses it too, and the return
+//   resumes one whose canvas stayed displayed. The first sample after a
+//   pause counts the samples the pause lost in its `dropped`.
 // - Tier 3 (D10): `MotionModule.hatch` is given the manager once, when made.
 // - The Mac has none of this (`CMMotionManager` is iOS's); its module answers
 //   the status unavailable.
 import CoreMotion
 import ExactPackage
 import Foundation
-#if os(iOS)
-import UIKit
-#endif
 
 #if os(iOS)
 public final class MotionModule: ExactPackage {
@@ -71,6 +75,26 @@ public final class MotionModule: ExactPackage {
         var history: Int { min(MotionModule.most, Int(args["history"] as? Double ?? 0)) }
     }
 
+    /// A canvas input (D6): `sensor`'s samples, read as source `name` reads
+    /// them, written into `surface`'s input.
+    private final class Feed {
+        let surface: String, sensor: String, name: String, stream: Stream, input: ExactSurfaceInput
+        let period: Double, screen: Bool
+        var next = -Double.infinity
+        /// When it last stopped taking samples, until the next one it takes.
+        var pausedAt: Double?
+        init(surface: String, sensor: String, name: String, stream: Stream, input: ExactSurfaceInput, frequency: Double, screen: Bool) {
+            self.surface = surface; self.sensor = sensor; self.name = name; self.stream = stream; self.input = input
+            period = 1000 / frequency; self.screen = screen
+        }
+        var frequency: Double { 1000 / period }
+    }
+    /// Each canvas input's sensor as the source that reads it.
+    private static let sensors = ["accelerometer": "accelerometer", "linearAcceleration": "linearAccelerationSensor", "gravity": "gravitySensor",
+                                  "gyroscope": "gyroscope", "magnetometer": "magnetometer",
+                                  "absoluteOrientation": "absoluteOrientationSensor", "relativeOrientation": "relativeOrientationSensor"]
+
+    private let context: ExactPackageContext
     private let log: (String) -> Void
     private let now: () -> Double
     private lazy var manager: CMMotionManager = {
@@ -83,8 +107,14 @@ public final class MotionModule: ExactPackage {
     /// What each running stream was started with.
     private var running: [Stream: (frequency: Double, frame: CMAttitudeReferenceFrame?)] = [:]
     private var shown = true
+    /// Canvas inputs by surface and sensor.
+    private var feeds: [String: Feed] = [:]
+    /// The surfaces the runner said are hidden, and those whose inputs wait
+    /// for an app's commit to show them (the lease), while an input feeds them.
+    private var hidden: Set<String> = [], leased: Set<String> = []
 
     public init(context: ExactPackageContext) {
+        self.context = context
         log = context.log
         now = context.now
     }
@@ -94,6 +124,8 @@ public final class MotionModule: ExactPackage {
             switch name {
             // Core Motion asks no permission for these sensors (D11).
             case "motionStatus", "requestMotionPermission": reply(status())
+            case "startSensorInput": reply(startInput(args))
+            case "stopSensorInput": reply(stopInput(args))
             case _ where Self.stream(name, args) != nil: read(name, args, reply)
             default: reply(["error": "NotSupportedError"])
             }
@@ -188,7 +220,52 @@ public final class MotionModule: ExactPackage {
         guard shown != self.shown else { return }
         self.shown = shown
         if !shown { for g in groups.values { g.pauses.append(g.sequence) } }
+        pauseFeeds()
         restart()
+    }
+
+    // MARK: canvas inputs (D6)
+
+    private func startInput(_ args: [String: Any]) -> [String: Any] {
+        let surface = args["surface"] as? String ?? "", sensor = args["sensor"] as? String ?? ""
+        guard let name = Self.sensors[sensor], let stream = Self.stream(name, [:]), available(stream),
+              name != "absoluteOrientationSensor" || CMMotionManager.availableAttitudeReferenceFrames().contains(.xMagneticNorthZVertical)
+        else { return ["error": "NotSupportedError"] }
+        guard let input = context.surfaces.input(surface: surface) else {
+            return ["error": "NotFoundError", "message": "no canvas places surface \(surface)"]
+        }
+        let frequency = (args["frequency"] as? Double).flatMap { $0 > 0 ? $0 : nil } ?? 60
+        feeds["\(surface) \(sensor)"] = Feed(surface: surface, sensor: sensor, name: name, stream: stream, input: input,
+                                             frequency: frequency, screen: args["referenceFrame"] as? String == "screen")
+        // A new start takes the canvas as the runner last said it is.
+        if !hidden.contains(surface) { leased.remove(surface) }
+        restart()
+        log("motion: input \(sensor) on \(surface) at \(frequency) Hz\(active(surface) ? "" : ", paused")")
+        return ["surface": surface, "sensor": sensor]
+    }
+
+    private func stopInput(_ args: [String: Any]) -> [String: Any] {
+        let surface = args["surface"] as? String ?? "", sensor = args["sensor"] as? String ?? ""
+        if let feed = feeds.removeValue(forKey: "\(surface) \(sensor)") { feed.input.end(sensor, at: now()) }
+        if !feeds.values.contains(where: { $0.surface == surface }) { hidden.remove(surface); leased.remove(surface) }
+        restart()
+        return ["surface": surface, "sensor": sensor]
+    }
+
+    public func displayed(surface: String, _ shown: Bool, origin: String) {
+        if shown { hidden.remove(surface) } else { hidden.insert(surface) }
+        if !shown { leased.insert(surface) } else if origin == "app" { leased.remove(surface) }
+        log("motion: surface \(surface) displayed \(shown) (\(origin) origin), its inputs \(active(surface) ? "run" : "paused")")
+        pauseFeeds()
+        restart()
+    }
+
+    /// Whether the inputs on `surface` take samples now.
+    private func active(_ surface: String) -> Bool { shown && !hidden.contains(surface) && !leased.contains(surface) }
+
+    /// Each input that stops taking samples now notes when.
+    private func pauseFeeds() {
+        for f in feeds.values where !active(f.surface) && f.pausedAt == nil { f.pausedAt = now() }
     }
 
     // MARK: the streams
@@ -197,12 +274,14 @@ public final class MotionModule: ExactPackage {
     private func restart() {
         for stream in Stream.allCases {
             let readers = shown ? groups.values.filter { $0.stream == stream } : []
-            guard let frequency = readers.map(\.frequency).max() else {
+            let inputs = feeds.values.filter { $0.stream == stream && active($0.surface) }
+            guard let frequency = (readers.map(\.frequency) + inputs.map(\.frequency)).max() else {
                 if running.removeValue(forKey: stream) != nil { stop(stream) }
                 continue
             }
             let frame: CMAttitudeReferenceFrame? = stream != .deviceMotion ? nil
                 : readers.contains { $0.name == "absoluteOrientationSensor" || ($0.name == "deviceOrientation" && $0.args["absolute"] as? Bool == true) }
+                    || inputs.contains { $0.name == "absoluteOrientationSensor" }
                 ? .xMagneticNorthZVertical : .xArbitraryZVertical
             if let r = running[stream], r.frequency == frequency, r.frame == frame { continue }
             stop(stream)
@@ -279,22 +358,19 @@ public final class MotionModule: ExactPackage {
             group.waiting = []
             waiting.forEach { $0() }
         }
+        for feed in feeds.values where feed.stream == stream && active(feed.surface) {
+            if at < feed.next - feed.period / 2 { continue }
+            feed.next = max(feed.next + feed.period, at + feed.period / 2)
+            guard var v = values(feed.name) as? [Double] else { continue }
+            if feed.screen && deg != 0 { v = v.count == 4 ? Self.turned(v, deg) : Self.screen(v, deg) }
+            let dropped = feed.pausedAt.map { max(0, Int(((at - $0) / feed.period).rounded(.down))) } ?? 0
+            feed.pausedAt = nil
+            feed.input.sample(feed.sensor, v, dropped: dropped, at: at)
+        }
     }
 
-    /// The screen's angle as the web's `screen.orientation.angle`.
-    private func angle() -> Double {
-        #if os(iOS)
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        switch scene?.effectiveGeometry.interfaceOrientation {
-        case .landscapeRight: return 90
-        case .portraitUpsideDown: return 180
-        case .landscapeLeft: return 270
-        default: return 0
-        }
-        #else
-        return 0
-        #endif
-    }
+    /// The session window's angle, as the web's `screen.orientation.angle`.
+    private func angle() -> Double { context.orientation }
 
     /// A device-motion name's values in the device frame: x, y, z; a quaternion; or the event's fields.
     private static func values(_ name: String, _ m: CMDeviceMotion) -> Any {

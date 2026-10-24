@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                144
+//    0  u32 size                160
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -40,6 +40,11 @@
 //        session (LLP 1133.009 D7, AudioSession.swift)
 //  136  picture(host, kind, source, len): a package picture changed (0) or
 //        was revoked (1) (LLP 1133.019 D11 item 1, PackagePictures.swift)
+//  144  surface_has(host, name, len) → 1 when the session places a canvas
+//        of that surface, else 0
+//  152  surface_sensor(host, surface, len, sensor, len, values, count,
+//        dropped, at, ended): a package's sample for that surface's canvas
+//        input, or its end (LLP 1133.013 D6, CanvasesHost's `SensorRings`)
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -210,6 +215,21 @@ private let hatchAudioRelease: HatchAudioReleaseFn = { host, id in
     #endif
 }
 
+/// A package feeds a canvas (LLP 1133.013 D6): whether the session places
+/// one of the surface, and each sample written into its input, which the
+/// canvases drain once a display frame. Main thread.
+typealias HatchSurfaceHasFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
+typealias HatchSurfaceSensorFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32,
+                                                 UnsafePointer<Double>?, UInt32, UInt32, Double, UInt32) -> Void
+private let hatchSurfaceHas: HatchSurfaceHasFn = { host, name, length in
+    hatchSession(host)?.canvases.hasSurface(hatchText(name, length)) == true ? 1 : 0
+}
+private let hatchSurfaceSensor: HatchSurfaceSensorFn = { host, surface, surfaceLength, sensor, sensorLength, values, count, dropped, at, ended in
+    let v = values.map { Array(UnsafeBufferPointer(start: $0, count: Int(min(count, 4)))) } ?? []
+    hatchSession(host)?.canvases.sensorWrite(hatchText(surface, surfaceLength), hatchText(sensor, sensorLength), v,
+                                             dropped: Int(dropped), at: at, ended: ended != 0)
+}
+
 private let hatchLog: HatchLogFn = { host, bytes, length in
     hatchSession(host)?.log("hatch \(hatchText(bytes, length))")
 }
@@ -324,7 +344,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 144
+    let size = 160
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -345,6 +365,8 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchAudioClaim, to: UnsafeRawPointer.self), toByteOffset: 120, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAudioRelease, to: UnsafeRawPointer.self), toByteOffset: 128, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchPicture, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchSurfaceHas, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchSurfaceSensor, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 
