@@ -193,6 +193,35 @@ impl<D: DataSource> Runner<D> {
         (self.extensions.origins.thens.remove(&m)).unwrap_or_default()
     }
 
+    /// Whether work of `origin` is in flight: a request, or an armed
+    /// `then` (LLP 1133.017 D6's owned work).
+    pub(in crate::runner) fn origin_owns(&self, origin: CallOrigin) -> bool {
+        !self.origin_tickets(origin).is_empty()
+            || (self.extensions.origins.thens.iter())
+                .any(|(m, o)| *o == origin && self.then_due[*m].is_finite())
+    }
+
+    /// The requests in flight of `origin`, by ticket.
+    pub(in crate::runner) fn origin_tickets(&self, origin: CallOrigin) -> Vec<u64> {
+        let o = &self.extensions.origins;
+        (self.pending.iter())
+            .filter(|p| o.tickets.get(&p.ticket) == Some(&origin))
+            .map(|p| p.ticket)
+            .collect()
+    }
+
+    /// Drop the `then`s armed by commits of `origin`.
+    pub(in crate::runner) fn drop_origin_thens(&mut self, origin: CallOrigin) {
+        let thens: Vec<usize> = (self.extensions.origins.thens.iter())
+            .filter(|(_, o)| **o == origin)
+            .map(|(m, _)| *m)
+            .collect();
+        for m in thens {
+            self.extensions.origins.thens.remove(&m);
+            self.then_due[m] = f64::INFINITY;
+        }
+    }
+
     /// Forget the origins of requests no longer in flight.
     pub(in crate::runner) fn prune_origins(&mut self) {
         let pending = &self.pending;

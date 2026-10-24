@@ -274,7 +274,7 @@ function command(name, args, origin) {
   const f = Hosts[name];
   say(`command ${name}`);
   if (Sounds.own.has(name)) return;
-  if (f) f.origin ? f(origin, ...args) : f(...args); else say(`refused: ${name} is not a command this runtime carries`);
+  if (Origin.refused?.(name, origin)) return; if (f) f.origin ? f(origin, ...args) : f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
@@ -318,7 +318,7 @@ export function advance(to, wall, stop, timers = true) {
   for (;;) {
     let next = null, then = null, head = null;
     // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) comes after the timers and frame tasks due at the same time.
-    if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
+    if (timers && !clock.stopped) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
     for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
@@ -346,7 +346,7 @@ let driving = 0, start = 0, painting = 0;
 export function drive() {
   clearTimeout(driving);
   let next = Infinity;
-  for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
+  for (const t of [...(clock.stopped ? [] : clock.timers), ...Mutations]) if (!t.frame && t.due < next) next = t.due; // no timer while a wake runs unseen (wakes.js)
   for (const m of Mutations) if (m.next < next) next = m.next;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));

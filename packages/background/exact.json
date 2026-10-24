@@ -1,0 +1,99 @@
+{
+  "kind": "interface",
+  "name": "@exact/background",
+  "version": "1.0.0",
+  "grants": [
+    "device.background-sync",
+    "device.periodic-background-sync"
+  ],
+  "permission": {
+    "name": "background-sync",
+    "status": "backgroundSyncStatus",
+    "field": "state",
+    "denied": "NotAllowedError",
+    "initial": "granted"
+  },
+  "shapes": {
+    "BackgroundSyncStatus": {
+      "available": "bool",
+      "state": "enum<granted|denied|unknown>",
+      "periodic": "bool",
+      "sync": "bool"
+    },
+    "SyncEvent": {
+      "tag": "string",
+      "lastChance": "bool"
+    },
+    "SyncRegistration": {
+      "tag": "string",
+      "minInterval": "option<number>",
+      "lastRun": "option<number>"
+    }
+  },
+  "names": [
+    {
+      "send": "registerSync",
+      "permission": "none",
+      "grants": ["device.background-sync"],
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "backgroundSync",
+          "key": "tag",
+          "kind": "sync",
+          "tap": { "event": "sync", "as": "wake", "args": ["tag", { "tag": "tag", "lastChance": "lastChance" }] }
+        }
+      }
+    },
+    {
+      "send": "registerPeriodicSync",
+      "permission": "none",
+      "grants": ["device.periodic-background-sync"],
+      "options": {
+        "tag": "string",
+        "minInterval": { "type": "number", "min": 900000, "default": 900000 }
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web"],
+        "list": {
+          "state": "backgroundSync",
+          "key": "tag",
+          "kind": "periodicsync",
+          "tap": { "event": "periodicsync", "as": "wake", "args": ["tag"], "due": "minInterval" }
+        }
+      }
+    },
+    {
+      "send": "unregisterPeriodicSync",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": { "unlist": { "key": "tag", "kind": "periodicsync" } }
+    },
+    {
+      "source": "syncTags",
+      "live": true,
+      "answers": "SyncRegistration[]",
+      "substitute": { "listed": { "state": "backgroundSync", "kind": "sync", "fields": ["tag", "minInterval", "lastRun"] } }
+    },
+    {
+      "source": "periodicSyncTags",
+      "live": true,
+      "answers": "SyncRegistration[]",
+      "substitute": { "listed": { "state": "backgroundSync", "kind": "periodicsync", "fields": ["tag", "minInterval", "lastRun"] } }
+    },
+    {
+      "source": "backgroundSyncStatus",
+      "live": true,
+      "answers": "BackgroundSyncStatus",
+      "substitute": {
+        "default": { "available": true, "state": "granted", "periodic": true, "sync": true },
+        "targets": { "web": { "periodic": false } }
+      }
+    },
+    { "event": "sync", "on": "root", "raised": "wake", "args": ["string", "SyncEvent"], "hold": 16, "budget": 30000 },
+    { "event": "periodicsync", "on": "root", "raised": "wake", "args": ["string"], "hold": 16, "budget": 30000 }
+  ]
+}

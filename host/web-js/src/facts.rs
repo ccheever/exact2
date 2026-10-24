@@ -153,7 +153,8 @@ fn modules(plan: &Plan, body: &mut String) -> String {
         .collect();
     // Each event the root hears (LLP 1133.004 D6): its action, taken when
     // the event is heard (the actions are declared after this call), how it
-    // is raised, its hold, its parameters' types and its name.
+    // is raised, its hold, its parameters' types, its name and a wake's
+    // budget (LLP 1133.017 D5).
     let events: Vec<String> = (plan.module_events.iter())
         .map(|e| {
             let action = plan.action(e.action);
@@ -161,7 +162,7 @@ fn modules(plan: &Plan, body: &mut String) -> String {
                 .map(|p| surface_type_json(plan, plan.param(p).ty))
                 .collect();
             format!(
-                "{}:[()=>a_{},{},{},[{}],{}]",
+                "{}:[()=>a_{},{},{},[{}],{},{}]",
                 serde_json::to_string(&format!(
                     "{}.{}",
                     plan.str(e.extension),
@@ -172,7 +173,8 @@ fn modules(plan: &Plan, body: &mut String) -> String {
                 serde_json::to_string(plan.str(e.raised)).unwrap(),
                 e.hold,
                 params.join(","),
-                serde_json::to_string(plan.str(action.name)).unwrap()
+                serde_json::to_string(plan.str(action.name)).unwrap(),
+                e.budget
             )
         })
         .collect();
