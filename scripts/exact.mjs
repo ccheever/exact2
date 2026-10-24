@@ -140,7 +140,8 @@ function build(app, { quiet = false, distribution = false, identity = null } = {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
-    env: { EXACT_UPDATE_TRUST: 'development', ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
+    // What is distributed bakes production trust (host/apple/build.mjs); a local build, development.
+    env: { ...(distribution ? {} : { EXACT_UPDATE_TRUST: 'development' }), ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
   const bundle = bundleOf(app);

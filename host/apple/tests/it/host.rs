@@ -969,7 +969,7 @@ pub(crate) mod handles {
     /// would carry it: the exports hand it to the runner at every boot.
     pub const COMPAT: &str =
         r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"0"}}}"#;
-    pub const ANALYSIS_COMPAT: &str = r#"{"inputs":{"store":{"L":"A"},"trust":"production"},"embedded":{"analysis":true,"seq":null}}"#;
+    pub const ANALYSIS_COMPAT: &str = r#"{"inputs":{"store":{"L":"A"},"trust":"production"},"embedded":{"analysis":true,"seq":null,"trust":"production"}}"#;
     fn compat() -> &'static str {
         ANALYSIS.with(|analysis| {
             if analysis.get() {

@@ -38,11 +38,15 @@ pub fn refuse_analysis(json: &str) -> Result<(), &'static str> {
 }
 
 /// Whether the binary was baked with `EXACT_UPDATE_TRUST=production`: its
-/// `compat.json`'s own `inputs.trust`. Such a build never enters agent mode
-/// (LLP 1069.007 D2, ruled): `EXACT_AGENT` is ignored there, so no clock,
-/// store, fact or request substitute is reachable in a shipped binary.
+/// `compat.json`'s own `embedded.trust`, the build's resolved trust, which
+/// bake records beside the cohort id (an updater-free binary's
+/// `inputs.trust` is null, LLP 1030 D4). Such a build never enters agent
+/// mode (LLP 1069.007 D2, ruled): `EXACT_AGENT` is ignored there, so no
+/// clock, store, fact or request substitute is reachable in a shipped
+/// binary; nor does it take a development override (LLP 1024 D5).
 pub fn production(json: &str) -> bool {
-    member(json, "inputs").and_then(|inputs| member(inputs, "trust")) == Some("\"production\"")
+    member(json, "embedded").and_then(|embedded| member(embedded, "trust"))
+        == Some("\"production\"")
 }
 
 /// Every field the runner can fill, by the name a declared shape gives it.
@@ -271,13 +275,18 @@ mod tests {
     #[test]
     fn only_the_binarys_own_production_trust_is_production() {
         assert!(production(
-            r#"{"id":"a","inputs":{"app":"x","trust":"production"}}"#
+            r#"{"id":"a","inputs":{"app":"x","trust":"production"},"embedded":{"trust":"production"}}"#
+        ));
+        // An updater-free (L=0) production binary: no trust in its cohort.
+        assert!(production(
+            r#"{"id":"a","inputs":{"store":{"L":"0"},"trust":null},"embedded":{"seq":0,"trust":"production"}}"#
         ));
         for json in [
-            r#"{"id":"a","inputs":{"trust":"development"}}"#,
-            r#"{"id":"a","inputs":{"trust":null}}"#,
-            r#"{"id":"a","trust":"production","inputs":{}}"#,
-            r#"{"id":"a","inputs":{"receipt":{"trust":"production"}}}"#,
+            r#"{"id":"a","inputs":{"trust":"production"}}"#,
+            r#"{"id":"a","inputs":{"trust":"production"},"embedded":{"trust":"development"}}"#,
+            r#"{"id":"a","embedded":{"trust":null}}"#,
+            r#"{"id":"a","trust":"production","embedded":{}}"#,
+            r#"{"id":"a","embedded":{"gpu":{"trust":"production"}}}"#,
             "",
             "{}",
         ] {
