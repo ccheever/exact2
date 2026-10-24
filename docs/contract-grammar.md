@@ -1930,19 +1930,28 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   Chrome's mousedown ends one, where AppKit would leave it marked: a Send
   button's action reads committed text, and no syllable stays with the
   input method once the action clears the field. On the web, Chrome hands
-  the `key` handlers every key while composing (`isComposing`, which
-  Contract does not carry) and commits nothing before a chord's handlers.
+  the `key` handlers every key while composing, each `isComposing` (below),
+  and commits nothing before a chord's handlers.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
-  bool }`, the DOM's fields (`altKey` is Option and `metaKey` Command on a
-  Mac). A key typed with Control or Meta held is a shortcut: it types
+  bool, isComposing: bool }`, the DOM's fields (`altKey` is Option and
+  `metaKey` Command on a Mac). A key typed with Control or Meta held is a shortcut: it types
   nothing. `code` is the physical key, whatever the layout or input source
   types there (`"KeyB"`, `"Digit1"`, `"Space"`, `"MetaLeft"`), so a shortcut
   can match the key under a Korean or Russian layout; `""` where the host
   cannot tell (a software keyboard's key). `repeat` is true on the keydowns
   the platform repeats while a key is held, so an action can act once per
   press (iOS reports none: UIKit's presses carry no auto-repeat).
+  `isComposing` is true on a key that comes while an input method composes
+  text, between its `compositionstart` and `compositionend` (UI Events). On
+  the web that is every such key, the Enter that picks a candidate
+  included, so an Enter or Escape handler skips it with `not e.isComposing`,
+  as web code does. On macOS and iOS the only composing keys a handler hears
+  are a modifier's own press and release, which are `isComposing` as
+  Chrome's are; a ⌘ chord is not, since its keydown has committed the text.
+  Linux, Windows, the terminal and Android hand handlers no composing key,
+  and it is always false there.
 - **Release.** `keyup` hears the key coming up, at the focus, bubbling as
   `key` does (`stopPropagation()` stops it the same way), with the same
   name and record (`repeat` is false). A modifier's release is one too

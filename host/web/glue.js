@@ -31,7 +31,7 @@ function syncMedia(el, set = {}, clear = []) {
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
-const keyChord = e => /* a keydown or keyup as kind 6's or 43's payload: the chord `Event::key` reads, then its code and repeat (`KeyboardEvent::parse`, #140) */ (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
+const keyChord = e => /* a keydown or keyup as kind 6's or 43's payload: the chord `Event::key` reads, then its code, repeat and isComposing (`KeyboardEvent::parse`, #140) */ (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat + "\n" + !!e.isComposing;
 let messageListening = false, bodyHeard, keyEvent = null, pointerEvent = null, pointerDepth = 0; // keyEvent: the keydown (or wheel, beforeunload, clipboard event) a handler is running for, which its `preventDefault()` command prevents; pointerEvent: the pointer's down or up, which only its `stopPropagation()` reaches (its default is the browser's), from its own batch alone (`pointerDepth`, `send`)
 let wasm = null, memory = null, inputReady = false, inputHandlers, structuralModalLayers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).

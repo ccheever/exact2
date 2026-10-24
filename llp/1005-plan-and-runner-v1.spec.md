@@ -797,6 +797,32 @@ page's `window` `blur`). Tests: `KeyUpMacTests` (the chord, ⌘Enter and the
 Send button, Shift's release), `FieldCompositionIOSTests`, and
 `contract/cli/tests/it/keyup.rs`'s held-modifier reset.
 
+**`KeyboardEvent.isComposing`** (2026-10-24). The record gains the DOM's
+`isComposing` last: the key came between an input method's
+`compositionstart` and `compositionend` (UI Events), so a handler can skip
+the Enter that picks a candidate, as web code does (`not e.isComposing`).
+Chrome 156 reports it on every key during a composition: the Enter, a
+modifier's own press and release, and a ⌘ chord (CDP's
+`Input.imeSetComposition`, then the keys).
+
+- **ABI:** kinds 6, 43 and 44 take an optional fourth line, `true` or
+  `false` (`KeyboardEvent::parse`); a missing one is false, so a chord alone
+  and the three-line wire keep their meaning.
+- **Web** (`glue.js` and `document-glue.js` `keyChord`; the JS target's
+  `onKey`): `event.isComposing` as Chrome reports it.
+- **macOS and iOS** (`Presenter.composes`, `NodeView.composes`): true on a
+  modifier's own press or release while the field has marked text, the only
+  composing keys that reach handlers there (`passesComposition`). A ⌘ chord
+  is false: its keydown commits the composition before its handlers run
+  (above), where Chrome's arrives still composing.
+- **Linux, Windows, the terminal and Android:** false. No input method's
+  composition reaches their key handlers.
+
+Tests: `runner/src/runner/event/keyboard.rs`, `contract/cli/tests/it/keyup.rs`
+(a composer skipping the candidate's Enter), `KeyUpMacTests` (Shift released
+and ⌘ pressed during a composition), `FieldCompositionIOSTests`, and the web's
+`focus.test.mjs` (the wire) and `js-runtime.test.mjs` (the JS target's record).
+
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
 completed swipe. Move/cancel samples do not enter the runner.

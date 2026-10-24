@@ -12,7 +12,7 @@ const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs r
 
 const IDLE_FALLBACK_MS = 200;
 // A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
-const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
+const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat + "\n" + !!e.isComposing;
 
 // Twin of navigation.js's inertAncestor: this boot entry must stay import-free.
 function inertAncestor(el) {
