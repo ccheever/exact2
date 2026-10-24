@@ -13,8 +13,8 @@ no window, with a 30 s budget. Nothing is shown to the person while it runs.
 
 2. **Register** from data code or an action. A `sync` fires once, at the next
    chance the platform gives the app to run online: on the web while the page
-   is open, on a Mac while it runs, on an iPhone at the next refresh wake or
-   launch, which can be hours.
+   is open, on a Mac while it runs, on an iPhone at the next refresh or
+   processing wake or launch, which can be hours.
    A `periodicsync` fires no sooner than `minInterval` (at least 15 minutes)
    after its last run, when the platform chooses, and never on the web.
 

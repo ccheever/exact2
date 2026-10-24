@@ -27,7 +27,7 @@
 // - `{"extension", "surface", "displayed", "origin"}`: the canvases of a
 //   surface its input feeds were displayed or hidden (LLP 1133.013 D6);
 // - `{"extension", "woke", "outcome"}`: a wake it raised ended (LLP
-//   1133.017 D8);
+//   1133.017 D8), told to the `ended` its `context.wake` gave;
 // - `{"extension", "sync", "args"}`, through `call`: data code's
 //   synchronous form.
 //
@@ -89,7 +89,8 @@ open class ExactExtensionAdapter {
     open func permissions(_ states: [String: String]) {}
     open func displayed(surface: String, _ shown: Bool, origin: String) {}
     open func orientation(_ angle: Double) {}
-    open func woke(_ id: String, _ outcome: String) {}
+    /// The host's wake for this extension's due requests (`ExactWake`'s fields as a dictionary).
+    open func due(_ wake: [String: Any], done: @escaping (Bool) -> Void) { done(true) }
     /// The authenticator entry (ExactPackage.swift's `ExactAuthenticator`),
     /// for the extension `exactAuthenticator` names.
     open func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {
@@ -103,6 +104,32 @@ enum ExactExtensions {
     /// Each session's id, as its adapters' contexts say it.
     private static var sessions: [ObjectIdentifier: String] = [:]
     private static var nextSession = 0
+    /// The `ended` each `context.wake` gave, by module, extension and id.
+    static var ended: [String: (String) -> Void] = [:]
+    /// The live modules, in the order they were made: the first is handed
+    /// a due wake (LLP 1133.017 D7: the app's first session).
+    private static var modules: [WeakModule] = []
+
+    /// A module was made. The first one hears the host's due wakes
+    /// (`exact.wakes.due`, ExactKit's Wakes.swift), each handed to its
+    /// extension's adapter; then the host is told a module is ready, so it
+    /// hands over a wake it holds.
+    static func created(_ m: ExactModule) {
+        modules.append(WeakModule(m))
+        if modules.count == 1 {
+            NotificationCenter.default.addObserver(forName: Notification.Name("exact.wakes.due"), object: nil, queue: .main) { note in
+                guard let offer = note.object as? NSMutableDictionary, let due = offer as? [String: Any],
+                      let name = due["package"] as? String, let token = due["token"] as? String,
+                      let m = modules.lazy.compactMap({ $0.module }).first, let a = adapter(m, name) else { return }
+                offer["taken"] = true
+                a.due(due) { success in
+                    let body: [String: Any] = ["token": token, "package": name, "success": success]
+                    NotificationCenter.default.post(name: Notification.Name("exact.wakes.done"), object: body as NSDictionary)
+                }
+            }
+        }
+        DispatchQueue.main.async { NotificationCenter.default.post(name: Notification.Name("exact.wakes.ready"), object: nil) }
+    }
 
     /// The extensions this artifact composes, for the host to bind.
     static var names: [String] { exactExtensions.keys.sorted() }
@@ -170,7 +197,7 @@ enum ExactExtensions {
             a.foreground(shown)
             reply.send([:])
         } else if let id = request["woke"] as? String {
-            a.woke(id, request["outcome"] as? String ?? "completed")
+            ended.removeValue(forKey: "\(ObjectIdentifier(m).hashValue) \(extensionName) \(id)")?(request["outcome"] as? String ?? "completed")
             reply.send([:])
         } else if let name = (request["source"] ?? request["send"]) as? String, let admit = request["admit"] as? [String: Any],
                   let status = admit["status"] as? String, let field = admit["field"] as? String {
@@ -237,6 +264,7 @@ enum ExactExtensions {
     /// waited for a second at most on the main run loop, and goes with it.
     static func destroy(_ m: ExactModule) {
         let key = ObjectIdentifier(m)
+        modules.removeAll { $0.module == nil || $0.module === m }
         let adapters = made.removeValue(forKey: key) ?? [:]
         sessions[key] = nil
         tables[key] = nil
@@ -354,7 +382,24 @@ extension ExactExtensions {
             activation: { [weak module] event, args, navigate in
                 module?.activation(name, event, args, navigate: navigate) ?? [:]
             },
-            wake: { [weak module] event, args, id in module?.wake(name, event, args, id: id) })
+            wake: { [weak module] event, args, id, done in
+                ended["\(ObjectIdentifier(m).hashValue) \(name) \(id)"] = done
+                module?.wake(name, event, args, id: id)
+            },
+            wakes: ExactWakes { [weak module] key, request in
+                var request = request
+                // The host's store keeps the wall clock; the session's may be the agent's.
+                if let at = request?["at"] as? Double, let now = module?.now() { request?["at"] = at - now + Date().timeIntervalSince1970 * 1000 }
+                let body: [String: Any] = ["package": name, "key": key, "request": request ?? NSNull()]
+                NotificationCenter.default.post(name: Notification.Name("exact.wakes.request"), object: body as NSDictionary)
+            },
+            transfers: ExactTransfers { op, args in
+                let box = NSMutableDictionary(dictionary: args)
+                box["op"] = op
+                box["package"] = name
+                NotificationCenter.default.post(name: Notification.Name("exact.transfers"), object: box)
+                return box["reply"]
+            })
     }
 }
 #endif
@@ -401,6 +446,11 @@ extension ExactModuleContext {
         if let navigate { entry["navigate"] = navigate }
         return ["exact": entry]
     }
+}
+
+private final class WeakModule {
+    weak var module: ExactModule?
+    init(_ module: ExactModule) { self.module = module }
 }
 
 /// An emitted event's arguments on their way to the main thread.

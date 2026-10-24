@@ -18,7 +18,17 @@
       "available": "bool",
       "state": "enum<granted|denied|unknown>",
       "periodic": "bool",
-      "sync": "bool"
+      "sync": "bool",
+      "apple": "option<AppleBackgroundStatus>",
+      "android": "option<AndroidBackgroundStatus>"
+    },
+    "AppleBackgroundStatus": {
+      "backgroundRefreshStatus": "enum<available|denied|restricted>",
+      "lowPowerMode": "bool"
+    },
+    "AndroidBackgroundStatus": {
+      "standbyBucket": "enum<active|working_set|frequent|rare|restricted|unknown>",
+      "backgroundRestricted": "bool"
     },
     "SyncEvent": {
       "tag": "string",

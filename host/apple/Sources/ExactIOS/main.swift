@@ -186,7 +186,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         session = exact.makeSession(delegate: adapter, label: "main")
         #if !os(tvOS)
         exact.installNotificationClicks()
-        exact.installBackgroundRefresh()
+        // A wake that launched the app with no scene boots it with none (LLP 1133.017 D7).
+        exact.installWakes { session.bootForWake() }
         #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
@@ -194,6 +195,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         if ExactEnv.agentFreezes { session.clock = 0 }
         return true
     }
+    #if !os(tvOS)
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        exact.handleTransferEvents(identifier, completion: completionHandler)
+    }
+    #endif
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let c = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         c.delegateClass = SceneDelegate.self
@@ -265,7 +271,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // The view boots the session at its first layout; a file plan is
         // booted here first, at the screen's size the view will take (one
         // with its module was installed as the launch generation instead).
-        if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
+        if !ExactIOS.session.booted, let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size).error
         }
         let c = Controller()
