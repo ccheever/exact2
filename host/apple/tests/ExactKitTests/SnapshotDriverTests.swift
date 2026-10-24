@@ -621,6 +621,26 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertEqual(SnapshotSemantics.traits(HeadlessSession.Node(id: 3, kind: "view", frame: .zero, props: ["accessibilityRole": "button"])), .isButton)
     }
 
+    /// Stage 14 C2: a widget's even-odd icon (`symbolFillRule`) leaves its
+    /// same-wound hole clear; the same path nonzero fills it.
+    func testAnEvenOddIconLeavesItsHoleClearInAWidget() throws {
+        func centre(_ rule: String?) throws -> Int {
+            var props = ["imageSource": "symbol:icon||0 0 24 24|M2 2|icons/frame.svg", "symbolName": "",
+                         "symbolPath": "M 2 2 L 22 2 L 22 22 L 2 22 Z M 8 8 L 16 8 L 16 16 L 8 16 Z", "symbolViewBox": "0 0 24 24"]
+            if let rule { props["symbolFillRule"] = rule }
+            let style: NodeStyle = ["font_size": 48, "text_color": ["sys": "labelColor"]]
+            let image = HeadlessSession.Node(id: 2, kind: "image", frame: CGRect(x: 0, y: 0, width: 48, height: 48), props: props, style: style)
+            let root = HeadlessSession.Node(id: 1, kind: "view", frame: CGRect(x: 0, y: 0, width: 48, height: 48), children: [2])
+            let snapshot = HeadlessSession.Snapshot(size: CGSize(width: 48, height: 48), roots: [1], nodes: [1: root, 2: image])
+            let view = SnapshotDriver.view(snapshot, environment: SnapshotEnvironment(family: .systemSmall, contentMargins: EdgeInsets())).environment(\.colorScheme, .light).background(.white)
+            let rendered = try XCTUnwrap(render(view, size: CGSize(width: 48, height: 48), scale: 1))
+            XCTAssertGreaterThan(try ink(rendered, in: CGRect(x: 22, y: 6, width: 4, height: 4)), 0, "the band is inked")
+            return try ink(rendered, in: CGRect(x: 22, y: 22, width: 4, height: 4))
+        }
+        XCTAssertEqual(try centre("evenodd"), 0, "even-odd: the hole clear")
+        XCTAssertGreaterThan(try centre(nil), 0, "nonzero: the hole filled")
+    }
+
     /// Raster decoding is bounded (D8): a large image decodes to a
     /// thumbnail no larger than the frame's pixels, its natural size kept.
     func testRastersDecodeAsBoundedThumbnails() throws {
