@@ -102,6 +102,7 @@ mod miswiring;
 mod module_events;
 mod module_seam;
 mod module_views;
+mod module_wakes;
 mod modules;
 mod motion;
 mod motion_feel;

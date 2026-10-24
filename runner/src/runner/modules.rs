@@ -50,12 +50,14 @@ mod poll;
 mod presence;
 mod samples;
 mod views;
+mod wakes;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
 pub use declared::AppState;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
+pub use wakes::WakeHow;
 
 /// The continuation tokens the runner keeps for its held module requests:
 /// a data source's count up from zero, far below, and its reserved ones
@@ -88,6 +90,8 @@ pub(super) struct Extensions {
     declared: declared::Declared,
     /// Module events not yet heard (D6).
     pub(super) events: events::Events,
+    /// Wakes, running and to come (LLP 1133.017 D5).
+    wakes: wakes::Wakes,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
     readers: BTreeMap<String, BTreeMap<usize, String>>,
@@ -661,6 +665,9 @@ impl<D: DataSource> Runner<D> {
     /// (`targets`). Its `facts` are the runner's own, over either.
     fn value_of(&self, row: &ModulesRow) -> Option<Json> {
         let sub = self.substitute(row);
+        if let Some(listed) = self.listed_value(&sub) {
+            return Some(listed);
+        }
         let default = (!sub["default"].is_null()).then(|| {
             let mut default = sub["default"].clone();
             if let Some(restricted) = sub["targets"].get(self.host_target()) {

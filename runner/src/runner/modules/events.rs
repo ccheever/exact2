@@ -59,6 +59,11 @@ impl<D: DataSource> Runner<D> {
             return Ok(());
         };
         let declared = &self.plan.module_events[row];
+        if self.plan.str(declared.raised) == "wake" {
+            return Err(format!(
+                "{key}: a wake raises it, at the platform's call (`raise_wake`)"
+            ));
+        }
         // An activation is the host's to raise: a package's own raising of
         // one has the device's origin, the least privileged.
         let origin = match (self.plan.str(declared.raised), origin) {
@@ -142,11 +147,14 @@ impl<D: DataSource> Runner<D> {
                 Err(e) => return (receipts, Some(e)),
             }
         }
-        (receipts, None)
+        // Then a wake's, one invocation at a time (LLP 1133.017 D5).
+        let (woke, error) = self.step_wakes();
+        receipts.extend(woke);
+        (receipts, error)
     }
 
     /// One argument as the action's parameter takes it.
-    fn event_arg(&self, ty: exact_plan::TypesId, json: &Json) -> Result<Value, String> {
+    pub(super) fn event_arg(&self, ty: exact_plan::TypesId, json: &Json) -> Result<Value, String> {
         let shape = exact_js_value::Shape::from_plan(&self.plan, ty)?;
         let mut json = json.clone();
         super::absent_is_none(&mut json, &shape);

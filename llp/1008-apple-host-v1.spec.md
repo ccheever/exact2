@@ -910,11 +910,10 @@ on both hosts, then verified stable content after growth and shrink above the
 reader, plus explicit and automatic end following. This remains an opt-in
 application policy, not the full CSS anchoring selection/suppression algorithm. The iOS transcript may also
 request `keyboardDismissMode="interactive"`; UIKit owns the drag and dismissal.
-Zero-duration keyboard frame changes during that drag bypass the focus-switch
-debounce. Notifications omit intermediate interactive frames, so a zero-size
-dependent on `UIKeyboardLayoutGuide` requests layout as the guide moves; while
-dragging, the viewport uses that local guide edge. Ordinary show/hide changes
-keep the keyboard notification's duration/curve. Real Simulator dragging has
+Notifications omit intermediate interactive frames, so a zero-size dependent
+view constrained to `UIKeyboardLayoutGuide` requests layout as the guide moves.
+Editing content follows the owning container's live guide. A deferred show/hide
+refit keeps the keyboard notification's duration and curve. Real Simulator dragging has
 verified that the composer remains adjacent to the keyboard during the gesture.
 
 **UIKit, where it differs from AppKit.** Nothing flips (UIKit's origin is
@@ -1016,61 +1015,48 @@ embedded plan. Every successful session boot re-sends the view's insets,
 as a dev reload does, even if the new root keeps the same viewport mode
 (2026-09-04: the external cover-root app exposed both initialization gaps).
 
-**The keyboard (2026-08-30).** A software keyboard does not change the
-layout viewport — the web's default (`interactive-widget=resizes-visual`,
-Safari's only mode): the visual viewport shrinks and the focused field is
-scrolled into it. `Presenter.keyboardChanged` hears
-`keyboardWillChangeFrame`/`WillHide`, takes the keyboard's overlap with the
-viewport, and inside `UIView.animate` with the keyboard's own duration and
-curve sets the viewport's `contentInset.bottom` (and the indicators') to it
-and reveals the field being edited (`reveal`: through every scroll container
-above it, each moving only as far as it must, within its edges, with 8 pt of
-air). The keyboard and the content are then one Core Animation transaction —
-the content moves in lockstep, never a frame behind — and nothing is laid
-out again. A field focused while the keyboard is already up is revealed on
-`textFieldDidBeginEditing`. Under the agent (LLP 1012) the inset applies without the animation, as the
-agent's wheel scrolls without one: its world is settled between calls, and
-UIKit hit-tests a scroll view at its *presentation* offset while the
-keyboard's spring is still settling — a `tap` computed from the model
-offset missed the button for half a second (found by the smoke's dismiss
-step). The notification arrives inside `becomeFirstResponder`, so the
-agent's `type` sees the inset in its next `layout`; `layout.env["keyboard-inset-height"]` is the overlap (335 on the
-iPhone 17 Pro simulator). The agent's `tap` now also does what a touch up
-does first — the nearest node that takes the focus takes it — so a tap on a
-node with a `focus` handler resigns the field and the keyboard goes.
-`contract/corpus/insets.contract` and the smoke's step 12 hold all of this
-on every host (the keyboard on iOS only; a simulator device shows one only
-with *Connect Hardware Keyboard* off in Simulator's I/O › Keyboard menu —
-`DevicePreferences.<udid>.ConnectHardwareKeyboard` in
-`com.apple.iphonesimulator`, which the smoke does not set).
+**The keyboard (revised 2026-10-24).** `interactive-widget="resizes-visual"`
+keeps the layout size and adds the keyboard overlap to the editing scrollport's
+bottom content and indicator insets. Each writer removes only its contribution,
+preserving space added for pinned content. The default is `resizes-content`,
+described below.
 
-**`interactive-widget="resizes-content"` (2026-08-30, the same day).** The
-web's opt-in for what the default cannot do — a bar pinned to the bottom
-that rides on the keyboard (Chrome Android's mode; Safari has none): the
-layout viewport ends at the keyboard's top. When the first root's
-`interactiveWidget` prop says so, `keyboardChanged` does not inset; it
-records the keyboard's top and, *inside the keyboard's animation block*,
-has `Controller.fit` frame the viewport to end there with the bottom
-safe-area inset zeroed (the keyboard's edge has none — the web's reading)
-and send `exact_insets` and `exact_resize`; the batch's frame ops are set
-inside that block, so every frame that moves is a Core Animation move with
-the keyboard's own duration and curve, in the keyboard's transaction — the
-bar, the form above it, the shrunken column — one layout, nothing per
-frame. A container whose height animates stretches its own bitmap for the
-duration (`contentMode = .redraw` repaints once, at the new size); a solid
-background does not show it, text nodes keep their size and translate. The
-field being edited is revealed after, through the scroll containers above
-it. `layout` then reports the shrunken viewport (as `innerHeight` shrinks
-under this mode in Chrome) and, as `keyboard-inset-height` still, the
-keyboard's overlap with the viewport the controller would frame without
-one (measured against the shrunken frame it read 0 — the first bug the
-Weird Castle bar found). If removing a focused view announces a keyboard change
-synchronously during a presenter batch, that change waits until the batch ends.
-Otherwise the older batch can overwrite the newer viewport frames while the
-runtime already believes them applied. The deferred change retains the keyboard's
-animation duration and curve; it is independent of the removed view's lifetime.
-The Messages forwarding-cancel/Back drive verifies the inbox's painted search
-position returns to its original full-height position.
+`Presenter.keyboardChanged` observes `keyboardWillChangeFrame` for animation
+timing. `ExactView.fit` reads geometry from the live keyboard layout guide;
+`keyboardDidChangeFrame` requests final reconciliation and editor reveal. Inline
+layout inherits UIKit's animation. A refit deferred by a presenter batch replays
+the duration and curve after the batch, reading the current guide. Agent timing
+can apply the change without animation; platform timing retains it. The agent
+waits for UIKit's announced animation before measuring a press target.
+
+The focused editor is revealed through its scroll ancestors, each moving only
+as far as necessary within its bounds, with 8 pt of clearance. A focus handoff
+also requests layout when the keyboard's frame does not change. Keyboard overlap
+remains available through `layout.env["keyboard-inset-height"]`.
+
+**`interactive-widget="resizes-content"` (revised 2026-10-24).** An ordinary
+page's layout viewport ends at the docked keyboard's top, with no bottom safe-area
+inset at that edge. Native navigation keeps the document and its UIKit container
+full size: only the route containing the live keyboard editor receives a shorter
+layout block. This applies to the default and an explicit `resizes-content`.
+The route's physical scroll view fills its controller and takes a bottom content
+inset. A returning route with no editor keeps its full allocation while UIKit
+moves the outgoing screen and keyboard. The document's safe area and fold regions
+stay unchanged. `resizes-visual` keeps the route's layout and insets its scrollport;
+`overlays-content` keeps layout and lets keyboard toolbars accommodate the overlap.
+
+Ownership comes from the live session-mounted `UIKeyInput` responder, including
+native prompts associated with that session. Geometry comes from the owning
+container's `UIKeyboardLayoutGuide`; notifications supply animation timing only.
+`ExactView.fit` derives the session's top and overlap during layout, with sheets
+reading their own guide. A keyboard change inside a presenter batch refits after
+the batch and rereads the guide, so a queued show cannot restore an obsolete inset
+after dismissal. Text/password handoffs follow the live guide, including transient
+height changes rendered by a constrained UIKit form. Controller-stack reconciliation
+waits while UIKit's stack is a shorter prefix of
+Exact's last write: keyboard guides and blur handlers can run inside a pop before
+`willShow`. The completed pop is recorded before pending work is replayed.
+
 **`resizes-content` is iOS's default (2026-10-10, LLP 1116 D2).** A hand-built
 app keeps a focused field and the content under it above the keyboard (UIKit's
 keyboard layout guide, SwiftUI's keyboard safe area); the web's default left the
@@ -1086,7 +1072,7 @@ the browser's default.
 nothing is resized. Its consumer, the Signal Clone app (an outside app,
 `~/.tuft/projects/signal-exact2`), wanted Signal's own technique: its input
 toolbar pinned to the keyboard's top while the transcript keeps its layout
-and only gains a bottom inset. Under this mode `Presenter.applyKeyboard`
+and only gains a bottom inset. Under this mode `ExactView.fit`
 neither insets the viewport nor has `fit` frame it; `KeyboardToolbars.ride`
 lifts each `role="toolbar" toolbarPlacement="keyboard"` by the keyboard's
 overlap less the gap below the toolbar and its own bottom padding (which
@@ -1115,25 +1101,12 @@ its own action eligibility and identity checks remain. AppKit's existing focus
 checks do not establish complete subtree input/accessibility support. Evidence:
 `/tmp/messages-inert-ownership/verification.json`.
 
-**A focus moving from one field to another** comes
-as a burst of `keyboardWillChangeFrame`s with no duration, over a few
-turns — the height jittering between the two keyboards (335, 308, 335 on
-the simulator; the email keyboard and the default) — and laying out for
-each flashed the page (the second bug it found). No-duration changes now
-wait 80 ms for the last of them (`keyboardDebounce`), which usually
-changes nothing. The agent's `clock settle` waits for this queued resize in
-both timing modes before claiming a settled viewport (LLP 1035.003 D5).
-An animated change — the show, the hide — is applied at
-once, in the keyboard's own transaction. What remains of a hand-off is the
-keyboard's own one-frame blink — its accessory bar torn down for the
-outgoing responder and rebuilt for the incoming one — and it is UIKit's,
-not this host's: a from-scratch UIKit app with two bare `UITextField`s
-produces the same 308 → 335 burst on every switch, programmatic or
-touched, with any traits (identical plain fields included) and even when
-one field is re-traited in place with `reloadInputViews`; a phone shows it
-faintly too (Charlie, 2026-08-30: "bearable"). Safari masks it below the
-responder, in WebKit's own input-assistant handling — how is an open
-question, in the queue. **Dismissing it** is the web's
+**Focus handoffs (revised 2026-10-24).** The keyboard layout guide is the geometry
+source for each layout pass. A plain UIKit form constrained to the guide renders
+transient text/password height changes, including with username/password content
+types. Exact follows those changes directly, without a debounce or retained guide
+sample. The agent waits for UIKit's announced animation before pressing a target.
+**Dismissing it** is the web's
 rule: a tap that lands on nothing that takes the focus blurs the field
 and the keyboard goes — a touch nothing consumed reaching the viewport
 (`ScrollView.touchesEnded`), a press on a node that does not take the

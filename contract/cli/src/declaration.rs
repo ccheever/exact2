@@ -279,12 +279,28 @@ fn module(
             "`{name}` takes or answers a `json<…>`, which only a name for data code alone (`\"contract\": false`) may"
         ));
     }
-    let (raised, hold) = if kind == ModuleKind::Event {
+    let (raised, hold, budget) = if kind == ModuleKind::Event {
         let raised = match entry["raised"].as_str() {
-            Some(r @ ("activation" | "emit")) => r,
+            Some(r @ ("activation" | "emit" | "wake")) => r,
             _ => {
                 return Err(format!(
-                    "the event `{name}` is `raised` by `activation` or `emit`"
+                    "the event `{name}` is `raised` by `activation`, `emit` or `wake`"
+                ))
+            }
+        };
+        // A wake's time is the platform's to give: at least a second, at
+        // most WorkManager's ten minutes (LLP 1133.017 D6).
+        let budget = match (raised, entry["budget"].as_u64()) {
+            ("wake", Some(b @ 1_000..=600_000)) => b as u32,
+            ("wake", _) => {
+                return Err(format!(
+                    "the wake event `{name}` declares its `budget`, from 1000 to 600000 ms"
+                ))
+            }
+            (_, None) => 0,
+            (_, Some(_)) => {
+                return Err(format!(
+                    "only an event a wake raises has a `budget`, not `{name}`"
                 ))
             }
         };
@@ -297,9 +313,9 @@ fn module(
             .as_u64()
             .filter(|h| (1..=256).contains(h))
             .ok_or_else(|| format!("the event `{name}` `hold`s from 1 to 256 deliveries"))?;
-        (raised.to_owned(), hold as u32)
+        (raised.to_owned(), hold as u32, budget)
     } else {
-        (String::new(), 0)
+        (String::new(), 0, 0)
     };
     let args = (entry["args"].as_array().into_iter().flatten())
         .map(|a| {
@@ -334,6 +350,7 @@ fn module(
         args,
         raised,
         hold,
+        budget,
         handler: None,
         live: entry["live"] == true,
         request: request.to_owned(),

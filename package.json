@@ -36,6 +36,7 @@
     "@exact/reading": "workspace:*",
     "@exact/passkeys": "workspace:*",
     "@exact/contacts": "workspace:*",
-    "@exact/calendar": "workspace:*"
+    "@exact/calendar": "workspace:*",
+    "@exact/background": "workspace:*"
   }
 }

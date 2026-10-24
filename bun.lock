@@ -7,6 +7,7 @@
       "dependencies": {
         "@exact/actions": "workspace:*",
         "@exact/browser": "workspace:*",
+        "@exact/background": "workspace:*",
         "@exact/calendar": "workspace:*",
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
@@ -41,6 +42,10 @@
     },
     "packages/browser": {
       "name": "@exact/browser",
+      "version": "1.0.0",
+    },
+    "packages/background": {
+      "name": "@exact/background",
       "version": "1.0.0",
     },
     "packages/calendar": {
@@ -138,6 +143,8 @@
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
     "@exact/browser": ["@exact/browser@workspace:packages/browser"],
+
+    "@exact/background": ["@exact/background@workspace:packages/background"],
 
     "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
 

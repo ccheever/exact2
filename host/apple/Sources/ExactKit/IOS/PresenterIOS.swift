@@ -142,20 +142,12 @@ package final class Presenter {
     /// The first root's `interactiveWidget` prop, as written (`keyboardPolicy`
     /// is what applies).
     private(set) var interactiveWidget: String?
-    /// The keyboard's policy (LLP 1116 D2): `resizes-content` unless the root
-    /// says otherwise, as a hand-built app avoids the keyboard — the layout
-    /// viewport ends at the keyboard's top (the controller lays out again,
-    /// inside the keyboard's animation, so every frame that moves moves with
-    /// it), so a scroller ends above the keys and the focused field is
-    /// revealed in what is left, as UIKit's keyboard layout guide and
-    /// SwiftUI's keyboard safe area do. The root opts out with the web's
-    /// default, `resizes-visual` (the inset below: the page pans, nothing is
-    /// laid out), or with `overlays-content` (nothing moves).
+    /// Keyboard avoidance defaults to resizing the editing route's layout block,
+    /// or the viewport of an ordinary page. Visual resizing instead insets its
+    /// scrollport; overlays-content leaves layout to keyboard toolbars.
     var keyboardPolicy: String { interactiveWidget ?? "resizes-content" }
-    /// The keyboard's top edge in the window while one is shown, else nil.
-    private(set) var keyboardTop: CGFloat?
-    /// The controller's: frame the viewport again (`Controller.fit`).
-    var onKeyboardResize: (() -> Void)?
+    /// The keyboard guide's top in window coordinates for this session's current layout.
+    var keyboardTop: CGFloat?
     /// The safe-area insets the kernel was given (LLP 1008 §9): the
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
@@ -171,32 +163,39 @@ package final class Presenter {
     /// Whether `UIHingeInteraction` has reported once (a hinge or none):
     /// before that, a 27.1 device's fold is unknown (LLP 1078 D7).
     var hingeReported = false
-    /// The keyboard's inset on the viewport: the points of the screen's
-    /// viewport a software keyboard covers. Under `resizes-content` (the
-    /// default) the controller sets it, measured against the viewport it
-    /// would frame without a keyboard. Under `resizes-visual`, the web's
-    /// visual viewport — the layout viewport does not change; the viewport
-    /// insets its content by this and reveals the field being edited, in the
-    /// keyboard's own animation.
+    /// The keyboard's overlap with the viewport before avoidance,
+    /// derived by `ExactView.fit`.
     package var keyboardInset: CGFloat = 0
+    /// The keyboard's own contribution to the viewport's shared insets.
+    private let keyboardViewportInset = KeyboardInset()
     /// What scrollers took below their content to show a field above pinned
     /// content, while the keyboard is up (`PinnedRoom`).
     let pinnedRoom = PinnedRoom()
-    var hasKeyboardEditor: Bool {
-        views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
-            || hasNativeKeyboardEditor
+    /// A native prompt outside the session's mounts, associated by its creator.
+    package weak var keyboardPrompt: UITextField?
+    var keyboardEditor: UIView? {
+        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput,
+              mounts(responder) || responder === keyboardPrompt else { return nil }
+        return responder
     }
-    /// A notification describes the keyboard's target, not its current
-    /// presence: UIKit announces hiding even during a cancelled sideways pop.
-    /// The guide observes the keyboard in its owning container's coordinates.
+    var hasKeyboardEditor: Bool { keyboardEditor != nil }
+
+    /// A route's content or its projected search field currently owns text input.
+    func ownsKeyboard(in container: UIView) -> Bool {
+        guard let editor = keyboardEditor else { return false }
+        if editor.isDescendant(of: container) { return true }
+        let route = ViewPresentation.controller(for: container) as? RouteController
+        return route?.search?.field?.headerField === editor
+    }
+    /// The docked keyboard's occupied geometry in its owning container.
     package func keyboardGuideTop(in container: UIView) -> CGFloat? {
         #if os(tvOS)
-        // tvOS has no keyboard layout guide.
         return nil
         #else
-        guard hasKeyboardEditor || keyboardInset > 0 || menus.promptEditing /* UIKit's field, in a prompt */ else { return nil }
+        guard container.window != nil, hasKeyboardEditor else { return nil }
+        if let view = container as? ExactView, !view.hasKeyboardGuide { return nil }
         let guide = container.keyboardLayoutGuide.layoutFrame
-        return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
+        return guide.height > 0 ? guide.minY : nil
         #endif
     }
 
@@ -218,125 +217,56 @@ package final class Presenter {
     }
 
     func observeKeyboard() {
-        // tvOS has no keyboard frame notifications.
         #if !os(tvOS)
         let c = NotificationCenter.default
         c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-        c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         c.addObserver(self, selector: #selector(keyboardSettled(_:)), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
         #endif
     }
 
     #if !os(tvOS)
-
-    /// The keyboard is about to move: inset the viewport by what it will
-    /// cover and reveal the field, inside an animation with the keyboard's
-    /// own duration and curve — Core Animation runs both in the same
-    /// transaction, so the content moves in lockstep with the keyboard,
-    /// never a frame behind it.
+    /// Use notifications for animation timing; read geometry from the guide at layout.
     @objc func keyboardChanged(_ n: Notification) {
-        guard let info = n.userInfo, let window = viewport.window, viewport.superview != nil else { return }
-        // A keyboard is this session's business only for its own editor, or
-        // while it still holds an inset it applied; another session's editor
-        // in the same window is not (LLP 1035.001 D5, two-session host).
-        let ownEditor = editing != nil || hasKeyboardEditor
-        guard NavigationRules.keyboardConcerns(editing: ownEditor, holdsInset: keyboardTop != nil) else { return }
-        let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
-        let hiding = n.name == UIResponder.keyboardWillHideNotification
-        // The keyboard's frame is the screen's; the viewport's, the window's.
-        let keyboard = window.convert(end, from: window.screen.coordinateSpace)
-        let shown = !hiding && keyboard.minY < window.bounds.maxY
-        let top: CGFloat? = shown ? keyboard.minY : nil
-        let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-        let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        // A focus moving from one field to another comes as a burst of
-        // notifications with no duration, over a few turns — the height
-        // jittering between the two keyboards (335, 308, 335 on the
-        // simulator) — and laying out for each flashed the page. Those wait
-        // 80 ms for the last of them, which usually changes nothing. An
-        // animated change (the show, the hide) is applied at once, in the
-        // keyboard's own transaction, so it stays in step with the keyboard.
-        keyboardDebounce?.cancel()
-        keyboardDebounce = nil
-        if duration > 0 || interactiveKeyboardDrag {
-            applyKeyboard(top: top, duration: duration, curve: curve)
-        } else {
-            let work = DispatchWorkItem { [weak self] in
-                self?.keyboardDebounce = nil
-                self?.applyKeyboard(top: top, duration: 0, curve: curve)
-            }
-            keyboardDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
-        }
+        if let screen = n.object as? UIScreen, screen !== viewport.window?.screen { return }
+        refitKeyboard(duration: n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0,
+                      curve: n.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7)
     }
     #endif
-    /// The last no-duration keyboard change, waiting to be applied.
-    private var keyboardDebounce: DispatchWorkItem?
-    var hasPendingKeyboardResize: Bool { keyboardDebounce != nil || session?.view?.holdsKeyboardGuide == true }
-    /// Apply a pending keyboard change before a back swipe fixes its route frames.
-    func flushKeyboardResize() {
-        session?.view?.releaseKeyboardGuide()
-        guard let work = keyboardDebounce else { return }
-        keyboardDebounce = nil
-        work.perform()
-        work.cancel() // its queued run, not this one
-    }
+
     var interactiveKeyboardDrag: Bool {
         let drags = { (sv: UIScrollView) in sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging) }
         return drags(viewport) || views.values.contains { node in node.scrollView.map(drags) ?? false }
             || navigation.primaryRoutes.contains { $0.contentViewport.map(drags) ?? false }
     }
 
-    /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
-    /// laid out to end there (`resizes-content`, the default: the
-    /// controller's `fit`) or inset by the overlap (`resizes-visual`), the field
-    /// being edited revealed after — inside an animation with the keyboard's
-    /// own duration and curve, so the frames the batch sets are Core
-    /// Animation moves in the keyboard's transaction, never a frame behind.
-    func applyKeyboard(top: CGFloat?, duration: Double, curve: UInt) {
-        // Removing a focused view can synchronously announce keyboard hiding.
-        // Finish its batch before resizing; otherwise that older batch can
-        // overwrite the new viewport's frames after this call returns.
-        if applying {
-            waiting.append((nil, { [weak self] in self?.applyKeyboard(top: top, duration: duration, curve: curve) }))
+    /// Reconcile through UIKit layout in the keyboard's animation, after batches finish.
+    /// Deferred work captures timing only and reads current ownership and geometry.
+    func refitKeyboard(duration: Double = 0, curve: UInt = 7) {
+        guard let view = session?.view, view.window != nil else { return }
+        if Owner.shared.isServingMain {
+            DispatchQueue.main.async { [weak self] in self?.refitKeyboard(duration: duration, curve: curve) }
             return
         }
-        guard let window = viewport.window, let parent = viewport.superview else { return }
-        keyboardTop = top
-        let change = {
-            if self.keyboardPolicy == "resizes-content" {
-                self.onKeyboardResize?()
-            } else if self.keyboardPolicy == "overlays-content" {
-                let frame = parent.convert(self.pageFrame, to: window)
-                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
-                self.keyboardInset = overlap
-                self.keyboardToolbars.ride(overlap: overlap)
-            } else {
-                let frame = parent.convert(self.pageFrame, to: window)
-                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
-                self.setKeyboardInset(overlap); if !self.fold.rects.isEmpty { self.onKeyboardResize?() } // a fold's last row ends at the keys' top
-            }
-            if top == nil { self.pinnedRoom.release() }
-            self.navigation.primaryRoutes.forEach { $0.fitContentViewport() }
-            self.menus.rehostPopovers()
-            self.revealEditorAsTheKeysMove()
+        if applying {
+            afterBatch { [weak self] in self?.refitKeyboard(duration: duration, curve: curve) }
+            return
         }
-        // Under the agent (LLP 1012) the change applies at once, as the
-        // agent's wheel scrolls at once: its world is settled between calls,
-        // and UIKit hit-tests a scroll view at its presentation offset while
-        // the keyboard's spring is still settling — a tap there would miss.
-        if ExactEnv.agentFreezes || duration <= 0 { change(); return }
-        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
+        #if !os(tvOS)
+        view.installKeyboardProbe()
+        #endif
+        let change = {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
+        // Inherit an active animation; apply interactive transition geometry without a separate one
+        if ExactEnv.agentFreezes || duration <= 0 || UIView.inheritedAnimationDuration > 0 || navigation.hasInteractiveTransition { change(); return }
+        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState, .allowUserInteraction], animations: change)
     }
 
-    func setKeyboardInset(_ h: CGFloat) {
-        keyboardInset = h
-        var inset = viewport.contentInset
-        inset.bottom = navigation.pinsPrimaryViewport ? 0 : h
-        if viewport.contentInset != inset { viewport.contentInset = inset }
-        var indicators = viewport.verticalScrollIndicatorInsets
-        indicators.bottom = h
-        if viewport.verticalScrollIndicatorInsets != indicators { viewport.verticalScrollIndicatorInsets = indicators }
+    func setKeyboardInset(_ overlap: CGFloat) {
+        keyboardInset = overlap
+        let amount = keyboardPolicy == "resizes-visual" && !navigation.pinsPrimaryViewport ? overlap : 0
+        keyboardViewportInset.apply(amount, to: viewport)
     }
 
     /// The viewport's size in points: what the kernel lays out under, the
@@ -439,10 +369,12 @@ package final class Presenter {
     var pendingFocusNode: NodeView? { pendingFocus?.node }
 
     func flushPendingFocus() {
-        guard let pending = pendingFocus, !applying, !navigation.defersFocus, !modals.defersFocus else { return }
+        guard let pending = pendingFocus, !applying, !modals.defersFocus else { return }
+        let arriving = navigation.isArriving(pending.node)
+        guard !navigation.defersFocus || arriving else { return }
         guard views[pending.node.id] === pending.node,
               pending.node.props["id"] == pending.name,
-              !navigation.isInactiveRoute(containing: pending.node) else {
+              arriving || !navigation.isInactiveRoute(containing: pending.node) else {
             pendingFocus = nil
             session?.log("pending focus cancelled: its target or route was replaced")
             return
@@ -540,7 +472,7 @@ package final class Presenter {
         // UIKit may not announce its next transition until after the outgoing
         // sheet starts dismissing. The selected route's editor already exists,
         // but cannot receive focus until its controller mounts it in a window.
-        if !deliveringFocus, navigation.defersFocus || modals.defersFocus || shown.window == nil {
+        if !deliveringFocus, (navigation.defersFocus && !navigation.isArriving(target)) || modals.defersFocus || shown.window == nil {
             pendingFocus = (target, target.props["id"], selectText, navigation.defersFocus
                 ? "navigation is still transitioning" : modals.defersFocus
                 ? "the sheet is still presenting" : "the target is not mounted")
@@ -562,7 +494,14 @@ package final class Presenter {
             return
         }
         chooseFocus(target)
-        if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
+        guard responder.canBecomeFirstResponder else {
+            session?.log("focus \"\(name)\" refused: not focusable")
+            return
+        }
+        guard responder.becomeFirstResponder() else {
+            session?.log("focus \"\(name)\" refused: UIKit did not accept first responder")
+            return
+        }
         if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
 
@@ -1012,7 +951,11 @@ package final class Presenter {
         fitDocument(); reachPageEdges()
         paintCanvas()
         let first = root.subviews.first as? NodeView
-        interactiveWidget = first?.props["interactiveWidget"]
+        let widget = first?.props["interactiveWidget"]
+        if widget != interactiveWidget {
+            interactiveWidget = widget
+            session?.view?.setNeedsLayout()
+        }
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()

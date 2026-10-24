@@ -106,7 +106,7 @@ Every case below is one the HIG or Apple's APIs define. Each row gives the behav
 | C26 | Keyboard over a medium sheet | As C25 | UIKit grows the sheet; only the residual overlap after that is accommodated. | D7 | `sheet-detents` with a field |
 | C27 | Floating or split keyboard (iPad) | [`followsUndockedKeyboard`](https://developer.apple.com/documentation/uikit/uikeyboardlayoutguide/followsundockedkeyboard) | The keyboard is a rectangle: the caret is revealed, no bottom inset is added. | D7 | `keyboard` on iPad |
 | C28 | Hardware keyboard with the shortcuts bar | As C25 | Only the bar's overlap counts; a dismissed keyboard counts as zero. | D7 | `keyboard` |
-| C29 | `interactive-widget="resizes-content"` | [CSS Viewport 1](https://drafts.csswg.org/css-viewport/#interactive-widget-section) | The document viewport shrinks, as in a browser; owners follow. | D1, D7 | `keyboard-resize` |
+| C29 | `interactive-widget="resizes-content"` | [CSS Viewport 1](https://drafts.csswg.org/css-viewport/#interactive-widget-section) | The editing native route's layout block shrinks; the document and UIKit container stay full size. An ordinary page resizes its document viewport. | D1, D7 | `keyboard-resize` |
 
 ### Content and authoring
 
@@ -562,7 +562,7 @@ Each stage builds on LLP 1115.002 D8.2's host block, which the kernel and the Ma
 5. **Keyboard per owner (D7).** Stage 1's containing-block resize of a sheet's route gives way to D7's single executor, which must answer the keyboard design review of stage 1 (2026-10-13):
    - The owner's physical allocation stays separate from keyboard accommodation: a bottom-reaching primary scroller takes an inset, and only otherwise does the wrapper shorten, so percentage content and rows do not reflow for scrolling clearance.
    - Occupancy is owner-local. Focus reveal, geometry-change reveal and the keyboard toolbar read the consuming owner's occupancy, never the document's `keyboardInset`, which a sheet's keyboard need not change.
-   - Policy precedence: whether a sheet's keyboard leaves the document's viewport alone (as UIKit leaves the presenting screen) applies to the implicit native default only; an explicit root `interactive-widget` and an owner's `keyboardAvoidance="none"` are honored. Stage 1 keeps the document resizing as before under every policy.
+   - Native policy scope (2026-10-24): a root's `interactive-widget` applies to the editing route's local layout or scrollport, including an explicit `resizes-content`. The document and UIKit container keep their allocation so returning screens remain full size. An ordinary page keeps the document-level policy. The future owner-level `keyboardAvoidance="none"` remains an opt-out from that owner's accommodation.
    - An undocked, floating or split keyboard, or a hardware keyboard's assistant bar, is a rectangle: the caret is revealed against it in the owner's coordinates on both axes, with no bottom padding or shortening; a notification's frame is converted only from its own screen.
    - Reveal covers every editor: a fixed-position field with no scrolling ancestor, a native module's editor, and a caret inside a large text area under a floating keyboard.
    - Keyboard insets compose with the keyboard toolbar's lift and `PinnedRoom`'s saved baseline per scroll backend, each removing only its own contribution.
