@@ -1,7 +1,7 @@
 // What scripts/design-tool*.test.mjs and design-tool-pair.test.mjs share: the
 // tool on this checkout's own port (EXACT_TOOL_PORT), taken in turn; a drive
 // of it; and the tool through a proxy in front of an app's design server.
-import { afterEach, beforeEach } from 'bun:test';
+import { afterEach, beforeAll, beforeEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,6 +35,9 @@ export const STUB_APP = readFileSync(resolve(ROOT, 'apps/design-tool/stub/app.co
 // children end with it (test-children.mjs).
 export function toolTurns() {
 let givePort = () => {};
+// The tool built for this port before any test starts a server for it to go through: a cold build (minutes, several
+// workers' at once) once left the server a test had started first unanswering by the time the tool asked it.
+beforeAll(toolBuilt, 25 * 60_000);
 beforeEach(async () => {
   const port = Number(new URL(TOOL_ORIGIN).port);
   // (A port this run claimed is its own already: no turn to wait for.)
@@ -63,6 +66,28 @@ export const timed = knobs => (SLOW ? process.env : { ...process.env, EXACT_TAMB
 export function signals(name) {
   const dir = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-signals-`));
   return { pause: (ms, n) => `clock +${ms} real until ${join(dir, String(n))}`, fire: n => writeFileSync(join(dir, String(n)), ''), drop: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/** This port's tool built once in this process, as `tamber tool` builds it (a run on a copy of the theme fixture, its
+ * URL said once built, then stopped); nothing when its build is current (`tamber tool`'s own check, tamber-server.mjs
+ * buildTool) or the port is not this run's own. */
+let built = null;
+export function toolBuilt() {
+  return built ??= (async () => {
+    if (!claimed) return;
+    const staged = stageTool(), caller = process.env.EXACT_APP_DIR;
+    process.env.EXACT_APP_DIR = staged.dir;
+    let tool;
+    try { tool = (await import('./app.mjs')).resolveApp(); } finally { if (caller === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = caller; }
+    const [{ builtAppMatches, jsTargetBuild }, { webChanges }] = await Promise.all([import('../host/web/serve.mjs'), import('./agent-launch.mjs')]);
+    if (await builtAppMatches(TOOL_DIST, tool) && jsTargetBuild(TOOL_DIST) && !webChanges(TOOL_DIST, tool).all.length) return;
+    const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-build-'));
+    try {
+      for (const f of ['app.contract', 'app.tamber', 'app.json']) writeFileSync(join(app, f), readFileSync(resolve(ROOT, 'apps/theme-fixture', f)));
+      const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+      try { await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 20 * 60_000); } finally { await stop(tool); }
+    } finally { rmSync(app, { recursive: true, force: true }); }
+  })();
 }
 
 /** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
