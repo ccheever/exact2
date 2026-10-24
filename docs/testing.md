@@ -165,6 +165,34 @@ release they assert the route, draft, focus and scroll position. UIKit owns the
   fails there first. `document.fullscreenElement` is set before the
   display-mode media changes are sent; `fullscreenchange` comes after them.
 
+## Windows: the NucBox
+
+Windows's oracle and its consumers' drives run on the NucBox, `nucbox-evo-x2`
+on the tailnet (LLP 1115.004 D13). As recorded on 2026-10-23:
+
+- **The machine.** Windows 11 Pro 25H2, build 26200, x64; an AMD Ryzen AI
+  Max+ 395 with Radeon 8060S graphics. It has Rust's `x86_64-pc-windows-msvc`,
+  Bun 1.4.2, and the .NET SDKs 9.0.313 and 10.0.203.
+- **The display and input.** One display, a Samsung C49RG9x at 5120×1440, with
+  no display scale or text scale set. It has no precision touchpad; D8 needs
+  one added.
+- **Reaching it.** SSH as `charlie cheever`, whose shell is PowerShell:
+  `ssh -l "charlie cheever" nucbox-evo-x2`. `scp` refuses a space in
+  `user@host`, so name the user in a config file (`User "charlie cheever"`)
+  and pass it with `-F`. An SSH session has no GitHub credentials, so send
+  commits as a bundle: `git bundle create`, copy it, then
+  `git fetch <bundle> main:refs/remotes/origin/main` and `git merge --ff-only`.
+- **SSH is not the desktop.** An SSH session sees one 1024×768 stand-in
+  display (`WinDisc`), so a window it opens is never shown. Headless drives
+  work (`bun scripts/agent.mjs windows --app shelf --storage <name> …`); a
+  real window must open in the signed-in console session.
+- **The drive's font.** The agent pins DejaVu Sans on Windows as on Linux
+  (`scripts/agent-stdio.mjs`), so a drive draws the fixture font, not Segoe UI
+  Variable. Set `EXACT_FONT` to a family to draw another, or to a name that
+  is not installed (`EXACT_FONT=unpinned`) to draw the system's own. In
+  PowerShell, `$env:EXACT_FONT = ""` removes the variable, and the pin
+  returns.
+
 ## Pixels
 
 - **Downsample and crop.** Compare at 1x or lower, cropped to the region the
