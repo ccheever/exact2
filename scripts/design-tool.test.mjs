@@ -4,16 +4,16 @@
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/*.test.contract.
-// Its heaviest drives are files of their own, so a lane runs them side by side (design-tool-ops, -canvas and
-// -scrub.test.mjs); each claims its own port and temp dirs (design-tool-harness.mjs).
+// Its heaviest drives are files of their own, so a lane runs them side by side (design-tool-ops, -canvas, -inspect,
+// -scrub, -kinds, -commit and -fields.test.mjs); each claims its own port and temp dirs (design-tool-harness.mjs).
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnOwned } from './test-children.mjs';
-import { DRIVEN, ROOT, STUB_APP, TOOL_ORIGIN, drive, edit, lines, proxied, repo, stop, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, ROOT, STUB_APP, TOOL_ORIGIN, drive, edit, lines, proxied, stop, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -354,193 +354,6 @@ test('T3: Reset gives a param\'s line back byte for byte in one undo; a param ed
   }
 }, 900_000);
 
-/** An app with the fixture design in a git repository of its own: `app`,
- * and git in it. */
-test('commit takes the session\'s writes, leaves other staging and never pushes; history reads it as edits, and revert holds a past commit\'s inverse', async () => {
-  const { app, git } = repo('commit');
-  // A past design commit to revert, other staging to leave alone, and a
-  // remote that must not move.
-  writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('surface.inset = light-dark(#f8f9fa, #101214)', 'surface.inset = light-dark(#f8f9fb, #101214)'));
-  git('commit', '-q', '-am', 'a warmer inset');
-  const past = git('rev-parse', 'HEAD').stdout.trim();
-  writeFileSync(join(app, 'notes.txt'), 'one\n'); git('add', 'notes.txt'); git('commit', '-q', '-m', 'notes');
-  writeFileSync(join(app, 'notes.txt'), 'two\n'); git('add', 'notes.txt');
-  const staged = git('ls-files', '-s', 'notes.txt').stdout;
-  const remote = mkdtempSync(join(tmpdir(), 'exact-design-tool-remote-'));
-  spawnSync('git', ['init', '-q', '--bare', remote]);
-  git('remote', 'add', 'origin', remote); git('push', '-q', 'origin', 'HEAD:main');
-  const pushed = spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout;
-  // A hand edit, just before history is read: its row says what moved.
-  const tool = await proxied(app, request => {
-    if (request.method === 'history') writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
-  });
-  try {
-    const replies = await drive(tool.url, `design-tool-commit-${process.pid}`, [
-      'type name Ada', 'tap save-name', 'clock data',
-      'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data',
-      'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
-      'tap commit', 'clock data', 'state',
-      'tap toggle-history', 'clock data', 'state',
-      `tap revert-${past.slice(0, 12)}`, 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
-    ]);
-    const states = replies.filter(r => r.resources);
-    const entry = states[0].resources.changeset.entries[0];
-    expect(entry).toMatchObject({ who: 'design-tool:Ada', mine: true, committed: false });
-    expect(entry.text).toMatch(/^app\.tamber: tone\.base oklch\(.+\) → oklch\(.+\) · design-tool:Ada$/);
-    expect(entry.diff).toContain('+  hue: number = 210');
-    const made = git('log', '-1', '--format=%H%n%B').stdout;
-    expect(made).toContain('design: 1 change by design-tool:Ada');
-    expect(made).toContain(entry.text);
-    expect(git('show', '--name-only', '--format=', 'HEAD').stdout.trim()).toBe('app.tamber');
-    expect(git('ls-files', '-s', 'notes.txt').stdout).toBe(staged);
-    expect(spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout).toBe(pushed);
-    expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [{ n: 0, text: entry.text }] });
-    expect(states[1].resources.changeset.entries[0].committed).toBe(true);
-    // Nothing left to commit: Commit is off.
-    expect(states[1].resources.scope).toEqual({ open: 0, refused: false, unavailable: false });
-    const history = states[2].resources.history;
-    expect(history.commits[0]).toMatchObject({ subject: 'design: 1 change by design-tool:Ada', files: [{ file: 'app.tamber', refused: '', edits: ['hue 200 → 210'] }] });
-    expect(history.commits.find(c => c.commit === past).files[0].edits).toEqual(['surface.inset light-dark(#f8f9fa, #101214) → light-dark(#f8f9fb, #101214)']);
-    expect(states[3].slots.reverted).toMatchObject({ ok: true, commit: past });
-    // Held, not written: in the inbox, the file as it was.
-    expect(states[3].resources.changes.held.map(h => h.proposal)).toContain(states[3].slots.reverted.proposal);
-    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('surface.inset = light-dark(#f8f9fb, #101214)');
-    const hand = states[3].resources.changeset.entries.find(e => e.who === 'changed on disk');
-    expect(hand.text).toBe('app.tamber: tone.warm oklch(0.7 0.1 20) → oklch(0.71 0.1 20) · changed on disk');
-  } finally {
-    await tool.close();
-    rmSync(app, { recursive: true, force: true });
-    rmSync(remote, { recursive: true, force: true });
-  }
-}, 900_000);
-
-test('commit refuses a file dirty or staged at its baseline, or edited by hand between two writes, saying why', async () => {
-  const cases = [
-    ['dirty', ({ app }) => writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)')), 'it differed from HEAD when the session first wrote it'],
-    ['staged', ({ app, git }) => { writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)')); git('add', 'app.tamber'); }, 'it was staged when the session first wrote it'],
-    ['hand', () => {}, 'it was changed by someone other than this server'],
-  ];
-  for (const [name, before, why] of cases) {
-    const r = repo(name);
-    before(r);
-    // Between the two writes, a hand edit: just before the tool proposes
-    // the second.
-    let proposals = 0;
-    const tool = await proxied(r.app, request => {
-      if (name === 'hand' && request.method === 'propose' && request.ops?.[0]?.op === 'set-token' && ++proposals === 1) writeFileSync(join(r.app, 'app.tamber'), readFileSync(join(r.app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
-    });
-    try {
-      const head = r.git('rev-parse', 'HEAD').stdout;
-      const replies = await drive(tool.url, `design-tool-refuse-${name}-${process.pid}`, [
-        'type name Ada', 'tap save-name', 'clock data',
-        'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
-        'tap cell-surface.page-2-dark', 'clock data', 'type branch-value light-dark(#ffffff, #101820)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
-        'tap commit', 'clock data', 'tree commit-refused', 'state',
-      ]);
-      expect(tool.writes.map(w => [w.method, w.ok]), name).toEqual([['transaction', true], ['transaction', true]]);
-      expect(replies.at(-1).slots.committed, name).toMatchObject({ ok: false, refused: [{ file: 'app.tamber', why }] });
-      expect(JSON.stringify(replies.at(-2)), name).toContain(`app.tamber: ${why}`);
-      expect(r.git('rev-parse', 'HEAD').stdout, name).toBe(head);
-    } finally {
-      await tool.close();
-      rmSync(r.app, { recursive: true, force: true });
-    }
-  }
-}, 900_000);
-
-test('T1a: an import reviewed through the file picker, overrides off until ticked, every unmapped value listed, accepted as one transaction and undone in one step', async () => {
-  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-import-'));
-  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
-  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
-  const fixtures = resolve(ROOT, 'tamber/tests/import');
-  const figma = readdirSync(join(fixtures, 'figma')).map(n => join(fixtures, 'figma', n));
-  const tool = await proxied(app);
-  try {
-    const replies = await drive(tool.url, `design-tool-import-${process.pid}`, [
-      'type name Ada', 'tap save-name', 'clock data',
-      // shadcn's default theme, picked as a person would.
-      'type import-kind shadcn', 'tap import-choose', `type @import-file ${join(fixtures, 'shadcn-neutral.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
-    ]);
-    const states = replies.filter(r => r.resources);
-    const review = states[0].resources.changes.held.find(h => h.importer === 'shadcn');
-    expect(review.counted).toBe('47 source values = 47 mapped + 0 reported');
-    expect(review.countOk).toBe(true);
-    // 23 colours, `--radius` a length and its derived `lg` (stage 6 H).
-    expect(review.mapped).toHaveLength(25);
-    expect(review.mapped[0]).toMatchObject({ name: 'shadcn.background', modes: [{ label: 'default', light: 'oklch(1 0 0)', dark: 'oklch(0.145 0 0)' }] });
-    // Every override off until ticked, every unmapped value with its reason.
-    expect(review.offers.map(o => [o.role, o.on])).toEqual([['-exact-background', false], ['-exact-label', false], ['-exact-secondary-background', false], ['-exact-separator', false], ['AccentColor', false]]);
-    expect(states[0].slots.picked).toEqual([]);
-    expect(review.unmapped.map(u => u.name)).toEqual(['--radius-sm', '--radius-md', '--radius-xl']);
-    expect(review.unmapped.every(u => u.derived && u.why.startsWith('derived from --radius, and not a length Tamber folds'))).toBe(true);
-    const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
-    const [edited, kept] = [nth(1), nth(2)];
-    // Tick AccentColor, leave shadcn.foreground out, and edit one value: the
-    // edit holds again what the card had chosen, with the edit, its
-    // AccentColor on. Untick it there and Accept: the server recomputes
-    // without it (nothing written), and that is accepted as one
-    // transaction; one Undo gives the bytes back.
-    const more = await drive(tool.url, `design-tool-import-${process.pid}`, [
-      'clock data', 'clock +1', 'clock data',
-      `tap override-${id}-AccentColor`, `tap take-${id}-1`,
-      `type mapped-value-${id}-0-0 light-dark(oklch(0.99 0 0), oklch(0.145 0 0))`, `type mapped-value-${id}-0-0 key Enter`, 'clock data', 'clock +1', 'clock data', 'state',
-      `tap override-${edited}-AccentColor`, `tap accept-${edited}`, 'clock data', 'clock +1', 'clock data', 'state',
-      `tap accept-${kept}`, 'clock data', 'clock +1', 'clock data', 'state',
-      'tap undo', 'clock data', 'clock +1', 'clock data', 'state',
-      // Tailwind's default theme, and Figma's export (a file a mode).
-      'type import-kind tailwind', 'tap import-choose', `type @import-file ${join(fixtures, 'tailwind-theme.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
-      'type import-kind dtcg', 'tap import-choose', `type @import-file ${figma.join('\n')}`, 'clock data', 'clock +1', 'clock data', 'state',
-    ], { keepStorage: true });
-    const later = more.filter(r => r.resources);
-    const after = later[0].resources.changes.held.find(h => h.proposal === edited);
-    expect(after).toMatchObject({ from: id, kept: true });
-    expect(after.mapped[0].modes[0].value).toBe('light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
-    expect(after.mapped.map(m => m.name)).not.toContain('shadcn.foreground');
-    expect(after.offers.filter(o => o.items !== '').map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
-    expect(after.diff).toContain('AccentColor = shadcn.primary');
-    expect(later[1].slots.written.note).toContain(`as ${kept}`);
-    expect(later[1].resources.changes.held.find(h => h.proposal === kept)).toMatchObject({ replaces: edited });
-    expect(later[2].slots.written.note).toBe(`Accepted ${kept}.`);
-    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['undo', true]]);
-    // The partial accept wrote nothing; the accept wrote what was chosen.
-    expect(tool.writes[0].after).toBe(original);
-    const written = tool.writes[1].after;
-    expect(written).not.toContain('AccentColor = shadcn.primary');
-    expect(written).toContain('shadcn.background = light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
-    expect(written).not.toContain('shadcn.foreground =');
-    expect(written).not.toContain('-exact-background = shadcn.background');
-    // One step back: the bytes as they were.
-    expect(tool.writes[2].after).toBe(original);
-    const tailwind = later[4].resources.changes.held.find(h => h.importer === 'tailwind');
-    expect(tailwind.countOk).toBe(true);
-    expect(tailwind.mapped.length).toBeGreaterThan(200);
-    const dtcg = later[5].resources.changes.held.find(h => h.importer === 'dtcg');
-    // Its numbers are tokens too (stage 6 H): only the strings and booleans
-    // are reported.
-    expect(dtcg.counted).toBe('104 source values = 101 mapped + 3 reported');
-    expect(dtcg.unmapped).toHaveLength(3);
-    // Its axis is said as an axis; a reference is painted as the token it
-    // names, in the same mode.
-    expect(dtcg.mapped[0]).toMatchObject({ kind: 'axis', modes: [] });
-    const byName = new Map(dtcg.mapped.map(m => [m.name, m]));
-    const ref = dtcg.mapped.find(m => m.kind === 'token' && byName.has(m.modes[0].value));
-    expect(ref.modes[0].light).toBe(byName.get(ref.modes[0].value).modes[0].light);
-    // A colour token's other mode, edited and accepted, is written.
-    const moded = dtcg.mapped.find(m => m.modes.length > 1 && m.modes[1].light);
-    const figmaId = dtcg.proposal, figmaEdited = figmaId.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`);
-    const last = await drive(tool.url, `design-tool-import-${process.pid}`, [
-      'clock data', 'clock +1', 'clock data',
-      `type mapped-value-${figmaId}-${moded.index}-1 #123457`, `type mapped-value-${figmaId}-${moded.index}-1 key Enter`, 'clock data', 'clock +1', 'clock data',
-      `tap accept-${figmaEdited}`, 'clock data', 'clock +1', 'clock data', 'state',
-    ], { keepStorage: true });
-    expect(last.filter(r => r.resources).at(-1).slots.written.note).toBe(`Accepted ${figmaEdited}.`);
-    expect(tool.writes.at(-1).after).toContain(`when ${moded.modes[1].label}: #123457`);
-  } finally {
-    await tool.close();
-    rmSync(app, { recursive: true, force: true });
-  }
-}, 900_000);
-
 test('controls from metadata that does not fit, steps, select values, column labels, branches, inputs and contrast over a background', async () => {
   const { controlOf, columnsOf, branchOf, inputsOf, cellText } = await import('../apps/design-tool/app.ts');
   const { contrast } = await import('../apps/design-tool/contrast.ts');
@@ -677,38 +490,3 @@ test('typed fields: every value joins back byte for byte, and a field edits only
     'shadow 2 inset', 'shadow 2 x', 'shadow 2 y', 'shadow 2 blur', 'shadow 2 spread', 'shadow 2 colour',
   ]);
 });
-
-test('typed fields write one line through set-token for each kind: a length, a number, a shadow list with inset and a token colour, a text shadow, a type longhand', async () => {
-  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
-  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
-  writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), STUB_APP);
-  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
-  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
-  // Each: the cell, its field edits, the line before and after.
-  const edits = [
-    ['space.edge', ['type part-amount-field 16'], '  space.edge = 12px', '  space.edge = 16px'],
-    ['opacity.muted', ['type part-amount-field 0.25'], '  opacity.muted = 0.5', '  opacity.muted = 0.25'],
-    ['shadow.ring', ['type part-0.spread-field 1px', 'type part-0.inset-field inset'], '  shadow.ring: box-shadow = 0px 1px 2px #00000033, inset 0px 0px 0px 1px surface.inset', '  shadow.ring: box-shadow = inset 0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset'],
-    ['shadow.text', ['type part-0.blur-field 3px'], '  shadow.text: text-shadow = 0px 1px 2px #00000080', '  shadow.text: text-shadow = 0px 1px 3px #00000080'],
-    ['type.title', ['type part-style-field italic'], '  type.title: type = 600 1.25rem/1.25', '  type.title: type = italic 600 1.25rem/1.25'],
-  ];
-  const tool = await proxied(app, () => {});
-  try {
-    const replies = await drive(tool.url, `design-tool-typed-${process.pid}`, [
-      'type name Ada', 'tap save-name', 'clock data',
-      ...edits.flatMap(([cell, ops]) => ['clock +1', 'clock data', `tap cell-${cell}-0-light`, 'clock data', ...ops.flatMap(o => [o, 'clock data']), 'state', 'tap apply', 'clock data']),
-    ]);
-    const states = replies.filter(r => r.resources);
-    for (const st of states) expect(st.resources.proposal).toMatchObject({ ok: true, active: true });
-    expect(tool.writes.map(w => [w.method, w.ok])).toEqual(edits.map(() => ['transaction', true]));
-    let before = original;
-    for (const [k, [, , from, to]] of edits.entries()) {
-      expect(edit(before, tool.writes[k].after)).toEqual({ at: original.split('\n').indexOf(from), removed: [from], added: [to] });
-      before = tool.writes[k].after;
-    }
-  } finally {
-    await tool.close();
-    rmSync(app, { recursive: true, force: true });
-  }
-}, 900_000);
