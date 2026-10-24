@@ -110,7 +110,10 @@ diagnostics, including related locations, before making the next repair. Each ha
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
 bar hides (`lower-header-unplaced`), a route's `header` a box below the route,
-which iOS leaves in the page (`lower-header-nested`), a content heading that says the bar's title
+which iOS leaves in the page (`lower-header-nested`), a heading header at the head of
+an app with no `navigationKey` (`lower-header-routeless`: add a navigation root holding
+a separately keyed screen whose first child is the header, or give the header
+`appearance="none"` to keep it drawn as written on iOS), a content heading that says the bar's title
 again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
