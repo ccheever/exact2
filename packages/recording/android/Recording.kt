@@ -16,6 +16,10 @@
 //   recorder's file is WAV of a tone that follows it, answered as `audio/wav`.
 package exact.recording
 
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -23,6 +27,8 @@ import android.media.MediaMuxer
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.view.Choreographer
+import android.view.View
 import dev.exact.canvas.AudioSource
 import dev.exact.canvas.ExactExtension
 import dev.exact.canvas.ExtensionContext
@@ -129,6 +135,59 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         if (name != "audioLevel") return
         meters.values.forEach { it.stop() }
         meters.clear()
+    }
+
+    /** `<audio-waveform>` (D13): the track's levels as bars, newest at the right, drawn each frame from a meter of its
+     * own, so no level crosses into Contract; a reader of the track that never starts it. */
+    override fun view(tag: String, session: String, id: String, context: Context, props: JSONObject, emit: (String, String) -> Unit): View {
+        require(tag == "audio-waveform") { "no view $tag" }
+        return Waveform(context).also { update(it, props) }
+    }
+
+    override fun update(view: View, props: JSONObject) {
+        val w = view as? Waveform ?: return
+        props.optString("tint").takeIf { it.isNotEmpty() }?.let { c -> runCatching { Color.parseColor(c) }.getOrNull()?.let { w.paint.color = it } }
+        val track = props.optString("track")
+        if (track == w.track) return
+        w.meter?.stop()
+        w.track = track
+        w.meter = if (track.isEmpty()) null else Meter(50.0, 1000, this.context.now()).also { m ->
+            try { m.leave = this.context.tracks.subscribe(track, m, false, this.context.origin) } catch (e: TrackError) { return }
+        }
+        w.bars = emptyList()
+    }
+
+    override fun destroyView(view: View) { (view as? Waveform)?.let { it.gone = true; it.meter?.stop() } }
+
+    private inner class Waveform(context: Context) : View(context), Choreographer.FrameCallback {
+        val paint = Paint().apply { color = Color.rgb(209, 36, 47) }
+        var track = ""
+        var meter: Meter? = null
+        var bars: List<Double> = emptyList()
+        var gone = false
+        private val density = context.resources.displayMetrics.density
+
+        init { Choreographer.getInstance().postFrameCallback(this) }
+
+        override fun doFrame(frameTimeNanos: Long) {
+            if (gone) return
+            val fit = ((width + GAP * density) / ((BAR + GAP) * density)).toInt()
+            bars = meter?.levelsNow(this@RecordingModule.context.now())?.takeLast(fit) ?: emptyList()
+            invalidate()
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val bar = BAR * density
+            val gap = GAP * density
+            bars.forEachIndexed { i, level ->
+                val x = w - (bars.size - i) * (bar + gap) + gap
+                val half = maxOf(density, (level * (h / 2 - 2 * density)).toFloat())
+                canvas.drawRect(x, h / 2 - half, x + bar, h / 2 + half, paint)
+            }
+        }
     }
 
     override fun dispose(ids: List<String>) { ids.mapNotNull { recorders[it] }.forEach { it.finish("requested", null) {} } }
@@ -357,6 +416,9 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         override fun ended() { running = false; untap?.invoke(); untap = null }
         fun stop() { untap?.invoke(); untap = null; leave?.invoke(); leave = null }
 
+        /** The rolling levels, read up to [now]. */
+        fun levelsNow(now: Double): List<Double> { read(now); return levels }
+
         fun read(now: Double): JSONObject {
             val steps = floor((now - at) / interval).toInt()
             val fresh = ArrayList<Double>()
@@ -376,6 +438,9 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 }
+
+private const val BAR = 3f
+private const val GAP = 2f
 
 /** A WAV header for [length] bytes of 16-bit mono PCM at [rate]. */
 private fun header(length: Int, rate: Int): ByteArray {

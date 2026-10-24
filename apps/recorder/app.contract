@@ -1,7 +1,7 @@
 // The recorder (LLP 1133.009 §11): the microphone through the standard
 // packages, as any app's would be. `getUserMedia` opens a track and
 // `startMediaRecorder` records it to a file at app:/data/takes; the waveform
-// is the level's last 200 intervals drawn as bars, and the elapsed time is
+// is @exact/recording's view of the track's level, and the elapsed time is
 // the recorder's own. app.ts lists the takes and keeps each one's length and
 // level.
 use getUserMedia, stopTrack, microphoneStatus, MediaStream, MediaStreamTrack, MicrophoneStatus from "@exact/media-capture"
@@ -23,7 +23,8 @@ component Recorder
   state recorderId = ""
   resource mic = microphoneStatus() as shape MicrophoneStatus else empty()
   resource library = takes() as shape Takes else empty()
-  resource level = audioLevel(track=trackId, history=200) as shape AudioLevel else empty()
+  // Once a second, for the take's level: the bars are the waveform view's own, read below the runner (D13).
+  resource level = audioLevel(track=trackId, interval=1000) as shape AudioLevel else empty()
   resource rec = mediaRecorderState(recorder=recorderId, interval=100) as shape MediaRecorderInfo else empty()
   mutation opened as shape MediaStream then arm
   mutation started as shape MediaRecorderInfo then begun
@@ -63,7 +64,7 @@ component Recorder
   action filed
     match saved
       case some(m)
-        send kept = keepTake(m.path, m.duration, level.levels.length == 0 ? 0 : sum(level.levels) / level.levels.length)
+        send kept = keepTake(m.path, m.duration, level.totalAudioEnergy, level.totalSamplesDuration)
         send stopped = stopTrack(track=trackId)
         trackId = ""
         recorderId = ""
@@ -74,9 +75,7 @@ component Recorder
   view
     column testId="recorder" width="100%" height="100%" gap=16 padding=20 box-sizing="border-box" background-color="-exact-background" color="-exact-label" accent-color="light-dark(#0b66d6, #68a5fe)" font-family="system-ui"
       text "Recorder" font-size=24 font-weight=600
-      row testId="waveform" width="100%" height=140 flex-shrink=0 gap=2 padding=8 box-sizing="border-box" align-items="center" justify-content="flex-end" overflow="hidden" border-radius=12 background-color="-exact-secondary-background"
-        for v, i in level.levels key=i
-          box width=3 flex-shrink=0 height=(2 + v * 116) border-radius=1 background-color=(recording ? "light-dark(#d1242f, #ff4245)" : "AccentColor")
+      audio-waveform track=trackId tint=(recording ? "#d1242f" : "#0b66d6") testId="waveform" width="100%" height=140 flex-shrink=0 padding=8 box-sizing="border-box" border-radius=12 background-color="-exact-secondary-background"
       row gap=12 align-items="center"
         // System red and AccentColorText do not guarantee 4.5:1 on every host.
         button press=toggle disabled=(busy or denied or not mic.available) testId="toggle" padding=12 border-radius=24 background-color=(recording ? "light-dark(#b91c1c, #ff4245)" : "AccentColor")
