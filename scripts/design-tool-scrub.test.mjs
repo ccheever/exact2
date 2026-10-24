@@ -5,7 +5,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned } from './test-children.mjs';
-import { DRIVEN, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, HEARTBEAT_RACE, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -111,7 +111,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     const states = replies.filter(r => r.resources);
     const trees = replies.filter(r => r.nodes);
     const [before, during, kept, cancelling, after] = seen;
-    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'live' });
+    expect(states[0].resources.proposal, HEARTBEAT_RACE).toMatchObject({ ok: true, active: true, chip: 'live' });
     expect(states[1].resources.scrub).toMatchObject({ ok: true, live: true, ready: true });
     expect(states[1].resources.scrub.open).toMatch(/^scrub-/);
     expect(trees[1].nodes.some(n => n.props.text === 'Previewing: the running copies show this value, and the files are unchanged until Keep.')).toBe(true);

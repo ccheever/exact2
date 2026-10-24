@@ -90,6 +90,11 @@ export function toolBuilt() {
   })();
 }
 
+/** What a wait after a signal says when the event it waited for is missing: a heartbeat the server sent before the
+ * event, landed after the signal, can release `clock held` first (Astra, dt/dtt round 2; QUEUE.md, "A heartbeat in
+ * transit"). Left open by theme2's ruling: a gate it fails in closes it, one more `clock held` after the signal. */
+export const HEARTBEAT_RACE = 'the event the drive waited for is missing: if a heartbeat sent before it landed after the signal (QUEUE.md, "A heartbeat in transit can release a signalled wait"), close that race: one more `clock held changes` after the signal';
+
 /** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
 export function lines(child) {
   const seen = [];
