@@ -58,6 +58,7 @@ impl Lowerer<'_> {
             }
             let mut seen = BTreeMap::new();
             let mut faces = Vec::new();
+            let mut variable = Vec::new();
             for face in &font.faces {
                 if seen.insert((face.weight, face.italic), ()).is_some() {
                     let weight = match face.weight {
@@ -188,7 +189,9 @@ impl Lowerer<'_> {
                     stretch,
                     italic: face.italic,
                 });
+                variable.push(axes.wght.is_some());
             }
+            join_pinned_weights(&mut faces, &variable);
             let family = self.b.font_family(&font.name, &faces);
             let stack = self
                 .b
@@ -584,4 +587,51 @@ fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
             )
         })
         .collect()
+}
+
+/// Several pinned weights of one variable file become one face over their
+/// span, so the web declares one `@font-face` and fetches the file once.
+/// Every host draws a request inside a range at its own `wght` (LLP 1019
+/// D2), so a weight between two of them is drawn as asked rather than at
+/// the nearer one; the declared weights draw as before. A span another face
+/// of the same style overlaps stays apart, since matching would then choose
+/// between them.
+fn join_pinned_weights(faces: &mut Vec<exact_plan::builder::Face<'_>>, variable: &[bool]) {
+    let pinned =
+        |i: usize, f: &exact_plan::builder::Face<'_>| variable[i] && f.weight[0] == f.weight[1];
+    let mut keep = vec![true; faces.len()];
+    for i in 0..faces.len() {
+        if !keep[i] || !pinned(i, &faces[i]) {
+            continue;
+        }
+        let group: Vec<usize> = (i..faces.len())
+            .filter(|&j| {
+                keep[j]
+                    && pinned(j, &faces[j])
+                    && faces[j].source == faces[i].source
+                    && faces[j].italic == faces[i].italic
+            })
+            .collect();
+        if group.len() < 2 {
+            continue;
+        }
+        let low = group.iter().map(|&j| faces[j].weight[0]).min().unwrap();
+        let high = group.iter().map(|&j| faces[j].weight[1]).max().unwrap();
+        let overlapped = (0..faces.len()).any(|k| {
+            !group.contains(&k)
+                && keep[k]
+                && faces[k].italic == faces[i].italic
+                && faces[k].weight[0] <= high
+                && faces[k].weight[1] >= low
+        });
+        if overlapped {
+            continue;
+        }
+        faces[i].weight = [low, high];
+        for &j in &group[1..] {
+            keep[j] = false;
+        }
+    }
+    let mut keep = keep.into_iter();
+    faces.retain(|_| keep.next().unwrap());
 }

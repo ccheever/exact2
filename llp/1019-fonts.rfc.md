@@ -806,6 +806,12 @@ descriptor does.
   "…"` covers. Its width range is always the file's, as `auto`.
 - **No host infers a range.** The plan holds them, so web emits them as
   descriptors and native hosts read the same rows.
+- **One variable file pinned at several weights is one face** over their
+  span (`400 = "Inter.ttf"` and `700 = "Inter.ttf"` declare `400 700`), so
+  the web writes one `@font-face` and fetches the file once; an uncached
+  page otherwise fetched it again for each weight's first use, too late for
+  an `optional` face. A weight between them draws at its own `wght` on every
+  host. A span another face of the same style overlaps stays as declared.
 
 ### D8 — `font-stretch`
 
