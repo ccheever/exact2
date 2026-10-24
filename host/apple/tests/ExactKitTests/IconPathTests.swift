@@ -145,9 +145,52 @@ final class IconPathTests: XCTestCase {
         XCTAssertEqual(try inked(two, at: [12]), [true], "the overlap is filled, not cut")
     }
 
+    /// Stage 14 C2: an even-odd icon (`symbolFillRule`) leaves the hole of
+    /// two squares wound the same way clear, as one path; nonzero fills it.
+    func testAnEvenOddIconLeavesItsSameWoundHoleClear() throws {
+        XCTAssertEqual(IconPath.rule("evenodd"), .evenOdd)
+        XCTAssertEqual(IconPath.rule(nil), .winding)
+        XCTAssertEqual(IconPath.rule("nonzero"), .winding)
+        XCTAssertEqual(try inked(Self.frame, at: [4, 12], rule: .evenOdd), [true, false], "the band inked, the hole clear")
+        XCTAssertEqual(try inked(Self.frame, at: [4, 12], rule: .winding), [true, true], "nonzero fills the hole")
+    }
+
+    /// Two squares wound the same way, as one path: a frame even-odd, a block nonzero.
+    static let frame = "M 2 2 L 22 2 L 22 22 L 2 22 Z M 8 8 L 16 8 L 16 16 L 8 16 Z"
+
+    /// The same, on a node: its image (iOS's leaf, the Mac's face image) and,
+    /// on the Mac, its shape layers take the node's `symbolFillRule`.
+    @MainActor func testAnEvenOddIconNodeDrawsItsRule() throws {
+        var ops = icon(2, [:]) + icon(3, [:])
+        for (i, rule) in [(0, "evenodd"), (2, nil)] as [(Int, String?)] {
+            var props = ops[i]["props"] as! [String: Any]
+            props["symbolPath"] = Self.frame
+            if let rule { props["symbolFillRule"] = rule }
+            ops[i]["props"] = props
+        }
+        let p = presenter(ops)
+        let even = try XCTUnwrap(p.views[2]), plain = try XCTUnwrap(p.views[3])
+        XCTAssertEqual(try Self.inked(try XCTUnwrap(even.iconPathImage(side: 24)), at: [4, 12]), [true, false])
+        XCTAssertEqual(try Self.inked(try XCTUnwrap(plain.iconPathImage(side: 24)), at: [4, 12]), [true, true])
+        #if os(iOS)
+        XCTAssertEqual(try Self.inked(try XCTUnwrap(even.image), at: [4, 12]), [true, false], "the leaf's image")
+        #else
+        XCTAssertEqual(even.symbolShape?.shapes.map(\.fillRule), [.evenOdd], "C1's shape layer fills even-odd")
+        XCTAssertEqual(plain.symbolShape?.shapes.map(\.fillRule), [.nonZero])
+        // The rule changes in place: the same source, its rule said again.
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["symbolFillRule"]]]))
+        even.updateSymbol()
+        XCTAssertEqual(even.symbolShape?.shapes.map(\.fillRule), [.nonZero], "back to nonzero")
+        #endif
+    }
+
     /// Whether the image at 24 points inks the middle column at each row.
-    private func inked(_ commands: String, at rows: [Int]) throws -> [Bool] {
-        let image = try XCTUnwrap(IconPath.image(commands, viewBox: "0 0 24 24", size: CGSize(width: 24, height: 24)))
+    private func inked(_ commands: String, at rows: [Int], rule: CGPathFillRule = .winding) throws -> [Bool] {
+        try Self.inked(try XCTUnwrap(IconPath.image(commands, viewBox: "0 0 24 24", size: CGSize(width: 24, height: 24), rule: rule)), at: rows)
+    }
+
+    /// Whether `image`, drawn 24 pixels square, inks the middle column at each row.
+    static func inked(_ image: IconImage, at rows: [Int]) throws -> [Bool] {
         let side = 24
         #if os(iOS)
         let cg = try XCTUnwrap(image.cgImage)

@@ -535,7 +535,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
-        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
+        let key = "\(source):\(name):\(points):\(weight):\(props["symbolFillRule"] ?? ""):\(symbolLookKey)"
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration

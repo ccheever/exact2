@@ -19,7 +19,7 @@ extension NodeView {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         updateRoleAccessibility()
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
-        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
+        let key = "\(source):\(name):\(points):\(weight):\(props["symbolFillRule"] ?? ""):\(symbolLookKey)"
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
@@ -37,7 +37,7 @@ extension NodeView {
                 symbolView?.removeFromSuperview(); symbolView = nil
                 let leaf = symbolShape ?? IconShapeView()
                 if symbolShape == nil { symbolShape = leaf; clip.addSubview(leaf) }
-                leaf.show(image == nil ? [] : IconPath.paths(commands)); leaf.setAccessibilityElement(false)
+                leaf.show(image == nil ? [] : IconPath.paths(commands), rule: IconPath.rule(props["symbolFillRule"])); leaf.setAccessibilityElement(false)
             } else {
                 symbolShape?.removeFromSuperview(); symbolShape = nil
                 let leaf = symbolView ?? NSImageView()
