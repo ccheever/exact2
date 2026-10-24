@@ -171,6 +171,17 @@ impl Store {
         Ok(())
     }
 
+    /// A plain write of an absent presence name reads plain at once, as its
+    /// value does, before the backend's occupancy is adopted.
+    pub(super) fn written_plain(&mut self, name: &str) {
+        if self.occupancy(name) == Some(Occupancy::Absent) {
+            let key = entry_name(name);
+            self.remember(&key);
+            self.values
+                .insert(key, Occupancy::Plain.word().as_bytes().to_vec());
+        }
+    }
+
     /// A forgotten presence name reads absent.
     pub(super) fn absent(&mut self, name: &str) {
         if self.presence_of(name).is_some() {
@@ -386,5 +397,25 @@ mod tests {
         // A value gone from under the app does.
         assert!(store.adopt_occupancy("token", Occupancy::Absent, || None));
         assert!(!store.has("token") && store.revision() > revision);
+    }
+
+    #[test]
+    fn a_plain_write_of_an_absent_optional_name_reads_plain_at_once() {
+        // Where nothing can be kept locked (a Mac without a profile), as where it can.
+        for capable in [false, true] {
+            let flag = (
+                Store::PRESENCE.into(),
+                if capable {
+                    b"1".to_vec()
+                } else {
+                    b"0".to_vec()
+                },
+            );
+            let mut store = Store::new(LINES, [occupancy("token", Occupancy::Absent), flag]);
+            store.set("token", "open").unwrap();
+            assert!(store.has("token") && !store.locked("token"));
+            assert_eq!(store.occupancy("token"), Some(Occupancy::Plain));
+            assert_eq!(store.get("token"), Some("open"));
+        }
     }
 }

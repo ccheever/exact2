@@ -44,6 +44,7 @@ mod presence;
 mod views;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
+pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
 
 /// The continuation tokens the runner keeps for its held module requests:
@@ -346,6 +347,7 @@ impl<D: DataSource> Runner<D> {
         let json: Json = serde_json::from_slice(&body)
             .map_err(|e| DataError::Unavailable(format!("{key}: {e}")))?;
         let json = self.overlaid(&row, json);
+        let json = self.presence_status(&row, json);
         self.note_poll_answer(&row, error_code(&json).is_some());
         self.answer_json(ty, &key, &json).map(Answer::Now)
     }

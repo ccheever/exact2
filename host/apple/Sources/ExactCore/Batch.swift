@@ -110,6 +110,7 @@ public struct BatchOp {
         case fieldContent, flow, surface, surfaceWork, command, hold, collections, region, router, title, language, unknown
         case activity
         case auth // LLP 1069.006 D3: open or cancel an authentication session
+        case presence // LLP 1133.010 D13: the platform's check for a presence call
         case svg, animations // LLP 1055 D4/D7: an `svg`'s scene; a view's CSS animations
         case canvas2d // LLP 1056 D7: a 2D canvas's stamped lists
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion", reorder, exit

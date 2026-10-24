@@ -490,6 +490,7 @@ impl Store {
         }
         self.remember(name);
         self.values.insert(name.to_string(), value.into());
+        self.written_plain(name);
         self.revision += 1;
         self.writes.push(StoreWrite {
             name: name.to_string(),

@@ -97,7 +97,7 @@ mod apply;
 mod live_time;
 pub mod midi;
 mod modules;
-pub use modules::CallOrigin;
+pub use modules::{CallOrigin, PresenceAnswer, PresenceAsk};
 mod split;
 mod surface_record;
 mod text_axes;

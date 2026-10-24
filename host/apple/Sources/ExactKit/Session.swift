@@ -484,6 +484,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        PresenceKeychain.install() // before the first boot reads the backend (LLP 1133.010 D6)
         if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
@@ -1101,9 +1102,9 @@ public final class ExactSession {
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound || op.op == .midi { if op.op == .sound { sound.apply(op.payload) } else { midi.apply(op.payload) } } } // LLP 1096 D8, LLP 1125 D7: the voice table's and the MIDI queue's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
-        for op in batch.ops where op.op == .auth {
-            let payload = op.payload
-            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
+        for op in batch.ops where op.op == .auth || op.op == .presence {
+            let (payload, auth) = (op.payload, op.op == .auth)
+            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { if auth { authOp(payload) } else { presenceOp(payload) } } }
         }
         // Each presenter takes its boot's table, a second one with the same too.
         ThemeRoles.apply(batch, root: presenter.root); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }

@@ -20,7 +20,7 @@ use ibex2::host::{Bindings, Host, Kv, Secrets};
 /// The kv scope the runner's kept answers live in (LLP 1027 D4): beside the
 /// Keychain, not in it — a cache of settled data, any resource's name a
 /// key, read in one listing at launch.
-const KEPT: &str = "exact.kept";
+pub(crate) const KEPT: &str = "exact.kept";
 
 /// The kv scope persisted states live in where they are not the app's
 /// `UserDefaults` (LLP 1116 D5, [`Prefs`]).
@@ -299,10 +299,11 @@ pub struct Endowed {
     pub secrets: Option<Box<dyn KeptStore>>,
     /// Why the grants bound nothing.
     pub unbound: Option<String>,
-    /// The presence backend, reconciled before boot (LLP 1133.010 D4): the
-    /// host installs it in the runner it boots. Its occupancy is in the
-    /// snapshot.
-    pub presence: Option<exact_runner::presence::Backend>,
+    /// The presence backend, reconciled before boot (LLP 1133.010 D4), and
+    /// the keychain service the host reads its items from (none under the
+    /// agent): the host installs it in the runner it boots. Its occupancy
+    /// is in the snapshot.
+    pub presence: Option<(exact_runner::presence::Backend, Option<String>)>,
 }
 
 impl Endowed {
@@ -324,14 +325,24 @@ pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     let (bindings, unbound) = endow_bound(grants, app_id, fresh);
     let prefs = Prefs::of(app_id);
     let agent = std::env::var_os("EXACT_AGENT").is_some();
-    let presence = crate::presence_secrets::agent_backend(bindings.as_ref(), grants, agent);
+    // A drive that asks for the platform's stores (`EXACT_STORE=real`) keeps
+    // locked items in the keychain too, behind the platform's check, which it
+    // binds (`--bind local-auth`): the conformance suite's real items.
+    let platform = !agent || std::env::var("EXACT_STORE").as_deref() == Ok("real");
+    let presence = match !platform {
+        true => crate::presence_secrets::agent_backend(bindings.as_ref(), grants, agent)
+            .map(|b| (b, None)),
+        false => crate::presence_secrets::keychain_backend(bindings.as_ref(), grants, app_id)
+            .map(|(b, service)| (b, Some(service))),
+    };
     let mut snapshot = if fresh {
         snapshot_in(bindings.as_ref(), &prefs)
     } else {
         Vec::new()
     };
-    if let Some(backend) = presence.as_ref().filter(|_| fresh) {
-        snapshot.extend(backend.snapshot_entries(true));
+    if let Some((backend, keystore)) = presence.as_ref().filter(|_| fresh) {
+        let capable = keystore.is_none() || crate::presence_secrets::keychain_capable();
+        snapshot.extend(backend.snapshot_entries(capable));
     }
     Endowed {
         snapshot,

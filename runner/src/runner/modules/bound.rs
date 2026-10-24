@@ -35,6 +35,7 @@ impl<D: DataSource> Runner<D> {
             .filter(|e| !real.contains(e))
             .map(|e| e.to_string())
             .collect();
+        self.presence_rebound();
         if real.is_empty() && agent.is_empty() {
             return;
         }
@@ -129,6 +130,24 @@ impl<D: DataSource> Runner<D> {
         // An option the call omits is left out, so it stays the platform's (D2).
         let mut args = args;
         written(&mut args);
+        // The options its declaration names strings keys are sent as their
+        // text, which the platform shows (a sheet's reason, LLP 1133.010 D1).
+        let strings = self.substitute(row)["strings"].clone();
+        for path in strings
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Json::as_str)
+        {
+            let pointer = format!("/{}", path.replace('.', "/"));
+            let key = args
+                .pointer(&pointer)
+                .and_then(Json::as_str)
+                .map(str::to_owned);
+            if let (Some(key), Some(at)) = (key, args.pointer_mut(&pointer)) {
+                *at = Json::String(self.strings_text(&key));
+            }
+        }
         let key = self.key(row);
         let mut body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
         if self.route(row) == Route::Agent {

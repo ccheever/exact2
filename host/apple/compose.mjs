@@ -10,7 +10,8 @@ export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactN
  * that names them, each view a package serves (`views`) made by that session's adapter (LLP 1133.008 D8 item 1), and,
  * for an app with no module of its own, an empty one. */
 export function composedModule(packages, ownModule) {
-  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...(packages.length ? ['import ExactPackage'] : []), ...packages.map(p => `import ${p.module}`)];
+  const authenticator = packages.find(p => p.authenticator);
+  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...(packages.length ? ['import ExactPackage'] : []), ...(authenticator ? ['import Security'] : []), ...packages.map(p => `import ${p.module}`)];
   for (const p of packages) lines.push(
     `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
     `    let impl: ${p.className}, context: ExactPackageContext`,
@@ -32,6 +33,13 @@ export function composedModule(packages, ownModule) {
     '    }',
     '    override func displayed(_ id: String, _ shown: Bool, origin: String) { impl.displayed(id, shown, origin: origin) }',
     '    override func bound(_ id: String, _ prop: String, origin: String) { impl.bound(id, prop, origin: origin) }',
+    // The authenticator entry (LLP 1133.010 D13): the class must conform, which compiling this checks.
+    ...(p.authenticator ? [
+      '    override func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {',
+      '        let origin = request["origin"] as? String ?? "app"',
+      '        context.origin = origin',
+      '        impl.evaluate(accessControl: accessControl, reason: request["reason"] as? String ?? "", policy: request["policy"] as? String ?? "", origin: origin, reply: reply)',
+      '    }'] : []),
     '}');
   if (packages.length) lines.push(
     '/// A package\'s view as the table holds an instance.',
@@ -42,6 +50,7 @@ export function composedModule(packages, ownModule) {
     '    override func setProps(_ props: [String: String]) throws { try made.setProps(props) }',
     '    override func destroy() { made.destroy() }',
     '}');
+  lines.push(`let exactAuthenticator: String? = ${authenticator ? JSON.stringify(authenticator.extension) : 'nil'}`);
   lines.push(`let exactExtensions: [String: (ExactModule, String) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0, session: $1) }`).join(', ') || ':'}]`);
   const views = packages.flatMap(p => (p.views ?? []).map(tag => `${JSON.stringify(tag)}: ExactNativeFactory(package: { try ExactExtensions.view($0, ${JSON.stringify(p.extension)}, ${JSON.stringify(tag)}, id: $1, props: $2, events: $3) })`));
   lines.push(`let exactPackageViews: [String: ExactNativeFactory] = [${views.join(', ') || ':'}]`);

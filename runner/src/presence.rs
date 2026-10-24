@@ -17,6 +17,7 @@
 //! step, as a crash would (`exact-presence:<op>.<step>`), or hold it there
 //! (`exact-presence:hold.<op>.<step>`) until the fault is passed.
 
+pub use crate::runner::{PresenceAnswer, PresenceAsk};
 pub use exact_grants::{Policy, Presence};
 use std::collections::{BTreeMap, VecDeque};
 
@@ -357,6 +358,11 @@ impl Backend {
         let entry = self.names.get(name)?;
         entry.presence.as_ref()?;
         Some(entry.occupancy)
+    }
+
+    /// The newest locked item's generation of `name`; 0 when none.
+    pub fn generation(&self, name: &str) -> u64 {
+        self.names.get(name).map_or(0, |e| e.generation)
     }
 
     /// Every presence name and its occupancy.

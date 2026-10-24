@@ -25,6 +25,11 @@
   "hatches": [
     "context"
   ],
-  "sources": {},
-  "artifacts": []
+  "sources": {
+    "swift": [
+      "LocalAuth.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "LocalAuthModule"
 }

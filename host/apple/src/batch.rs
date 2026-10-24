@@ -444,6 +444,17 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"presence","call":N,"name":…,"account":…,"service":…,"policy":…,
+    /// "reason":…,"origin":…}`: the platform's check for a presence call
+    /// (LLP 1133.010 D13), and, with a `service`, the item the host reads
+    /// after it. Nothing secret: the value comes back by `exact_presence`.
+    pub fn presence(&mut self, ask: &exact_runner::presence::PresenceAsk) {
+        let op = serde_json::json!({ "op": "presence", "call": ask.id, "name": ask.name,
+            "account": format!("{}#{}", ask.name, ask.generation), "service": ask.keystore,
+            "policy": ask.policy, "reason": ask.reason, "origin": ask.origin.word() });
+        self.ops.push(op.to_string());
+    }
+
     /// A reserved activity send, dispatched to the demand-loaded arm.
     pub fn activity(&mut self, ticket: u64, request: &str) {
         self.ops.push(format!(
