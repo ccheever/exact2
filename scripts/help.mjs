@@ -118,7 +118,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     example: 'bun exact.mjs web-build',
   },
   test: {
-    line: 'run app.test.contract (or the files named) on a host: web by default',
+    line: 'run *.test.contract (or the files named) on a host: web by default',
     usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
     common: ['test [web|ios] [<file>…] [--size <w>x<h>] [--sim <name>]'],
     flags: DRIVE.filter(naming(['--size', '--sim'], true)),
