@@ -35,6 +35,9 @@ pub struct Device {
     pub hardened: Option<&'static str>,
     /// The web `Permissions-Policy` feature, where the feature is policy-controlled.
     pub web: Option<&'static str>,
+    /// Further `Permissions-Policy` features the row turns on beside `web`:
+    /// motion's three sensors are three features (LLP 1133.013 D11).
+    pub policy: &'static [&'static str],
     /// iOS signing entitlements the device needs beside its usage strings
     /// (LLP 1069.008.000 D2): HealthKit authorizes nothing without its own.
     pub ios_entitlements: &'static [&'static str],
@@ -62,6 +65,7 @@ const ROW: Device = Device {
     macos: &[],
     hardened: None,
     web: None,
+    policy: &[],
     ios_entitlements: &[],
     companion: None,
     tvos: true,
@@ -206,6 +210,18 @@ pub const DEVICES: &[Device] = &[
         tvos: false,
         ..ROW
     },
+    // @ref LLP 1133.013 D11 — `@exact/motion`. A declared deviation: the
+    // Registry has three names and one line grants all three, the
+    // magnetometer's whatever the app reads. iOS and Android ask nothing for
+    // these sensors (`NSMotionUsageDescription` is the activity and
+    // pedometer APIs'), and tvOS has none of Core Motion's streams.
+    Device {
+        name: "motion",
+        web: Some("accelerometer"),
+        policy: &["gyroscope", "magnetometer"],
+        tvos: false,
+        ..ROW
+    },
 ];
 
 /// One `device.<name> <key>` line.
@@ -296,7 +312,8 @@ pub fn permissions_policy(spec: &str) -> String {
     let granted = device_grants(spec).unwrap_or_default();
     // A feature two rows share (`geolocation`) is named once: on when either is granted.
     let mut features: Vec<&str> = Vec::new();
-    for feature in DEVICES.iter().filter_map(|d| d.web) {
+    let of = |d: &'static Device| d.web.into_iter().chain(d.policy.iter().copied());
+    for feature in DEVICES.iter().flat_map(of) {
         if !features.contains(&feature) {
             features.push(feature);
         }
@@ -304,7 +321,7 @@ pub fn permissions_policy(spec: &str) -> String {
     features
         .into_iter()
         .map(|feature| {
-            let on = granted.iter().any(|g| g.device.web == Some(feature));
+            let on = granted.iter().any(|g| of(g.device).any(|f| f == feature));
             format!("{feature}=({})", if on { "self" } else { "" })
         })
         .collect::<Vec<_>>()
@@ -385,11 +402,21 @@ mod tests {
     fn the_policy_allows_what_is_granted_and_denies_the_rest() {
         assert_eq!(
             permissions_policy("device.microphone p\ndevice.speech-recognition q"),
-            "microphone=(self), camera=(), geolocation=(), midi=()"
+            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
         assert_eq!(
             permissions_policy(""),
-            "microphone=(), camera=(), geolocation=(), midi=()"
+            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
+    }
+
+    /// LLP 1133.013 D11: one line turns on the three sensors' features.
+    #[test]
+    fn motion_is_one_line_for_three_policy_features() {
+        let policy = permissions_policy("device.motion purpose.motion");
+        for feature in ["accelerometer", "gyroscope", "magnetometer"] {
+            assert!(policy.contains(&format!("{feature}=(self)")), "{policy}");
+        }
+        assert!(policy.contains("microphone=()"), "{policy}");
     }
 }

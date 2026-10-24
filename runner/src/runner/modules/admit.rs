@@ -9,7 +9,8 @@
 //! gives one of the options named, LLP 1133.012 D12 item 5); its
 //! `foreground` (refused while the page is
 //! hidden, item 3); each conditioned by its `when` where it has one; then the
-//! permission. Every refusal answers `NotAllowedError`.
+//! permission. Every refusal answers `NotAllowedError`, an origin's with the
+//! `message` `person-required`.
 //!
 //! **Routes.** A name is answered by its implementation as in production
 //! where the host bound it so (outside the agent, or `--bind`), and the
@@ -132,6 +133,11 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// The origin of resource `i`'s last ask, when it was not the app's.
+    pub(in crate::runner) fn origin_asked(&self, i: usize) -> Option<CallOrigin> {
+        self.extensions.origins.asked.get(&i).copied()
+    }
+
     /// The origin of request `ticket`'s answer, the commit it lands in.
     pub(in crate::runner) fn ticket_origin(&self, ticket: u64) -> CallOrigin {
         let o = &self.extensions.origins;
@@ -208,6 +214,11 @@ impl<D: DataSource> Runner<D> {
         }
         if let Err(why) = self.admit(row, args, origin) {
             self.log(format!("{}: refused, {why}", self.key(row)));
+            if why.starts_with("person-required") {
+                return Decision::Now(
+                    json!({ "error": "NotAllowedError", "message": "person-required" }),
+                );
+            }
             return Decision::Now(json!({ "error": "NotAllowedError" }));
         }
         let decision = match self.route(row) {
@@ -406,7 +417,11 @@ impl<D: DataSource> Runner<D> {
                 .any(|a| a.as_str().is_some_and(|a| given(args, a))),
             o => o == "app",
         };
-        if applies && app_only && origin != CallOrigin::App {
+        // A sampled source's tool or wake reader joins a stream the app's own
+        // consumers run, as it runs; one that would start it is refused
+        // (LLP 1133.013 D4, D11).
+        let joins = (sub["samples"]["stream"].as_str()).is_some_and(|s| self.app_rate(s).is_some());
+        if applies && app_only && origin != CallOrigin::App && !joins {
             return Err(format!("person-required ({} origin)", origin.word()));
         }
         if applies && sub["foreground"] == true && self.page.hidden {

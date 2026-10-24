@@ -1094,6 +1094,7 @@ impl<D: DataSource> Runner<D> {
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
+        runner.samples_stood();
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
