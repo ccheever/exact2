@@ -50,6 +50,24 @@ pub fn under_agent(name: &str) -> bool {
     agent() && !bound.split(',').any(|b| b == name)
 }
 
+/// A package's sample for a canvas input (`Native.sensorInput`, LLP 1133.013
+/// D6): whether none waited before it.
+pub fn sensor_input(
+    surface: &str,
+    sensor: &str,
+    values: &[f64],
+    dropped: i32,
+    at: f64,
+    ended: bool,
+) -> bool {
+    crate::surfaces::sensors::write(surface, sensor, values, dropped.max(0) as u32, at, ended)
+}
+
+/// Whether the page places a canvas of surface `name` (`Native.surfaceHas`).
+pub fn surface_has(name: &str) -> bool {
+    crate::surfaces::sensors::has(name)
+}
+
 /// `Native.changed` and `Native.bindExtensions`, expanded inside
 /// `canvas_jni!`'s module, whose `with` and `string` they use.
 #[macro_export]
@@ -124,6 +142,44 @@ macro_rules! canvas_jni_extensions {
             hidden: jboolean,
         ) {
             with(|h| h.page_hidden(hidden == JNI_TRUE));
+        }
+
+        /// Whether the page places a canvas of surface `name`. Any thread.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_surfaceHas(
+            env: *mut JNIEnv,
+            _class: jclass,
+            name: jstring,
+        ) -> jboolean {
+            flag($crate::canvas::jni::jni_extensions::surface_has(&string(
+                env, name,
+            )))
+        }
+
+        /// A package's sample for surface `surface`'s canvas input, or its
+        /// end: x, y, z and w of `values`. Any thread; whether none waited.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_sensorInput(
+            env: *mut JNIEnv,
+            _class: jclass,
+            surface: jstring,
+            sensor: jstring,
+            values: $crate::canvas::jni_sys::jdoubleArray,
+            dropped: jint,
+            at: jdouble,
+            ended: jboolean,
+        ) -> jboolean {
+            let mut v = [0f64; 4];
+            let n = ((**env).GetArrayLength.expect("jni"))(env, values).clamp(0, 4);
+            ((**env).GetDoubleArrayRegion.expect("jni"))(env, values, 0, n, v.as_mut_ptr());
+            flag($crate::canvas::jni::jni_extensions::sensor_input(
+                &string(env, surface),
+                &string(env, sensor),
+                &v[..n as usize],
+                dropped,
+                at,
+                ended == JNI_TRUE,
+            ))
         }
 
         /// The extensions the APK carries, one a line, bound at the host's next turn.

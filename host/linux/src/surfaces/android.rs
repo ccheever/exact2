@@ -13,6 +13,9 @@ use std::{
     sync::OnceLock,
 };
 
+#[path = "sensors.rs"]
+pub(crate) mod sensors;
+
 /// The module's native library directory: `current_exe` is the zygote's.
 pub(super) fn library_dir() -> Option<PathBuf> {
     std::env::var_os("EXACT_NATIVE_LIBS").map(|d| PathBuf::from(d).join("app"))
@@ -397,6 +400,10 @@ impl<D: DataSource> Presenter<D> {
     /// Render every attached canvas at `now` and present them; whether any
     /// wants another frame.
     pub(crate) fn render_surfaces(&mut self, now: f64) -> bool {
+        for surface in self.surfaces.drain_sensors() {
+            let line = format!("sensor input {surface}: no live canvas took its samples");
+            self.host_mut().log(line);
+        }
         let scale = self.brush.scale;
         let views: Vec<_> = self.surfaces.windows.keys().copied().collect();
         for view in views {
