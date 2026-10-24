@@ -1055,8 +1055,10 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--reset-on-identify') { options.resetOnIdentify = true; continue; }
-    if (!['--port', '--seed', '--world', '--clock'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (!['--port', '--seed', '--world', '--clock', '--host'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (args[i + 1] === undefined) throw new Error(`Missing value for ${flag}`);
+    // The address it listens on and names itself by (READY's gateway, asset URLs): a phone's, this Mac's LAN address.
+    if (flag === '--host') { options.hostname = args[++i]; continue; }
     if (flag === '--world') {
       const world = args[++i];
       if (world !== 'default' && world !== 'transcript') throw new Error('world must be default or transcript');
