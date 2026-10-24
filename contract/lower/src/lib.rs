@@ -39,6 +39,7 @@ pub mod expr;
 mod fields;
 mod font_axes;
 mod fonts;
+mod frames;
 mod grouped;
 mod handlers;
 mod headings;

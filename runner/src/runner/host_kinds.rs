@@ -64,6 +64,10 @@ impl Event {
                 })
                 .ok_or("invalid drag event"),
             57 => Event::paste_files_payload(payload).ok_or("invalid clipboard event"),
+            // @ref LLP 1020.002 D2 — an iframe's guest: its event, then the record.
+            58 => super::event::frame_navigation::FrameNavigation::parse(payload)
+                .map(|(kind, n)| Event::FrameNavigation(kind, Box::new(n)))
+                .ok_or("invalid frame navigation"),
             45 => {
                 let (hit, ratio) = payload
                     .split_once(',')
