@@ -362,11 +362,57 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
         })
         .map(|host| format!("webcredentials:{host}"))
         .collect();
+    let passkeys = passkey_rp_ids(ceiling)?;
+    let mut webcredentials = webcredentials;
+    for rp in passkeys.iter().filter(|rp| *rp != "localhost") {
+        let domain = format!("webcredentials:{rp}");
+        if !webcredentials.contains(&domain) {
+            webcredentials.push(domain);
+        }
+    }
     Ok(json!({
         "sessions": sessions,
         "callbacks": callbacks,
+        "passkeys": passkeys,
         "associatedDomains": if matches!(platform, "ios" | "macos") { webcredentials } else { Vec::new() },
     }))
+}
+
+/// The RP IDs `auth.passkey <rp id>` grants (LLP 1133.011 D6): each a
+/// domain (`example.com`, `login.example.com`) or `localhost`, which only the
+/// web admits. A scheme, port, path, IP address or uppercase letter refuses,
+/// since WebAuthn compares the RP ID with the origin's effective domain as
+/// written (§5.1.3 step 7).
+fn passkey_rp_ids(ceiling: &str) -> Result<Vec<String>, String> {
+    let mut ids = Vec::new();
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("auth.passkey") {
+            continue;
+        }
+        let (Some(rp), None) = (words.next(), words.next()) else {
+            return Err(format!("grant-auth: `{line}`: `auth.passkey` takes one RP ID, a domain such as `example.com`, or `localhost` (LLP 1133.011 D6)"));
+        };
+        let label = |l: &str| {
+            !l.is_empty()
+                && l.len() <= 63
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        };
+        let labels: Vec<&str> = rp.split('.').collect();
+        let numeric = labels
+            .last()
+            .is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()));
+        if rp != "localhost" && (labels.len() < 2 || numeric || !labels.iter().all(|l| label(l))) {
+            return Err(format!("grant-auth: `{line}`: an RP ID is a domain in lowercase with no scheme, port or path (`example.com`, `login.example.com`), or `localhost`; an IP address is not one (LLP 1133.011 D6)"));
+        }
+        if !ids.iter().any(|i| i == rp) {
+            ids.push(rp.to_owned());
+        }
+    }
+    Ok(ids)
 }
 
 /// Who enforces a device line: the OS's prompt (from the key the build
@@ -391,6 +437,9 @@ fn family_enforcement(line: &str) -> &'static str {
         "surface.read" | "surface.write" => "presenter",
         "auth.session" | "auth.callback" => {
             "the host's exact-auth: arm (Apple, web; Linux answers 501)"
+        }
+        "auth.passkey" => {
+            "the runner's admission (the RP ID); the platform's association check (Apple, Android)"
         }
         "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
         _ => "runtime",
@@ -724,6 +773,31 @@ mod tests {
         let mut web = compat(grants);
         derive(&dir.0, "web", &mut web).unwrap();
         assert_eq!(web.reach["auth"]["associatedDomains"], json!([]));
+        let passkeys = format!(
+            "{grants}\nauth.passkey app.example\nauth.passkey login.test\nauth.passkey localhost"
+        );
+        let mut ios = compat(&passkeys);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(
+            ios.reach["auth"]["associatedDomains"],
+            json!(["webcredentials:app.example", "webcredentials:login.test"])
+        );
+        assert_eq!(
+            ios.reach["auth"]["passkeys"],
+            json!(["app.example", "login.test", "localhost"])
+        );
+        for bad in [
+            "https://a.test",
+            "a.test:443",
+            "127.0.0.1",
+            "A.test",
+            "test",
+            "a.test b",
+        ] {
+            let error =
+                derive(&dir.0, "ios", &mut compat(&format!("auth.passkey {bad}"))).unwrap_err();
+            assert!(error.starts_with("grant-auth: "), "{bad}: {error}");
+        }
         web.inputs["typescriptPlacement"] = json!("worker");
         assert!(derive(&dir.0, "web", &mut web)
             .unwrap_err()

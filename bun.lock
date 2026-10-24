@@ -13,6 +13,7 @@
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
+        "@exact/passkeys": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
@@ -65,6 +66,10 @@
     },
     "packages/motion": {
       "name": "@exact/motion",
+      "version": "1.0.0",
+    },
+    "packages/passkeys": {
+      "name": "@exact/passkeys",
       "version": "1.0.0",
     },
     "packages/reading": {
@@ -120,6 +125,8 @@
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
 
     "@exact/motion": ["@exact/motion@workspace:packages/motion"],
+
+    "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 

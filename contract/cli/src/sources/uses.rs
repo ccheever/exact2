@@ -41,6 +41,23 @@ pub(crate) struct UseFix {
 }
 
 impl Loader<'_> {
+    /// The module name for data code alone (`"contract": false`, LLP
+    /// 1133.011 D12) that a `use` would bring, if one of `found` is.
+    pub(super) fn data_only(
+        &self,
+        unique: &[HashMap<(Kind, String), String>],
+        found: &[(Kind, String)],
+    ) -> Option<&contract_syntax::ModuleDecl> {
+        let brought = |u: usize, m: &contract_syntax::ModuleDecl| {
+            let to = unique[u].get(&(Kind::Call, m.name.clone()));
+            to.is_some_and(|to| found.iter().any(|(k, f)| *k == Kind::Call && f == to))
+        };
+        (self.units.iter().enumerate())
+            .flat_map(|(u, unit)| unit.file.modules.iter().map(move |m| (u, m)))
+            .find(|&(u, m)| m.data_only && brought(u, m))
+            .map(|(_, m)| m)
+    }
+
     /// The fix for unit `index`, whose references `misses` name declarations
     /// of other files, in the order written.
     pub(super) fn use_fix(&self, index: usize, misses: Vec<(Missing, Elsewhere)>) -> UseFix {

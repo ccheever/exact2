@@ -13,7 +13,10 @@
 //! to dispose of every handle it carries, `{"extension", "dispose": [id,
 //! …]}`, so no device stays open with no id in the app. A data-code call's
 //! reply reaches its answer outside the runner, which cannot see it
-//! dropped; the session's end (`destroy`) still ends what it made.
+//! dropped, except where the runner answers it (a ceremony's substitute,
+//! `ceremony.rs`) or the implementation does (a bound route, watched here):
+//! a data-code call is tied to its request by its body. The session's end
+//! (`destroy`) still ends what any call made.
 
 use super::super::{DataSource, Runner};
 use super::{Json, Release, TOKENS};
@@ -27,6 +30,9 @@ pub(super) struct Provisional {
     source: String,
     body: Vec<u8>,
     dispatched: bool,
+    /// A data-code call's request, which its admission claims
+    /// ([`Runner::claim_request`]), never [`Runner::handled_work`].
+    data: bool,
 }
 
 /// The requests let go and not yet run whose replies are still watched for.
@@ -40,17 +46,53 @@ impl<D: DataSource> Runner<D> {
     /// Request `ticket` of `source` went out with `body`: a reply to a name
     /// that declares handles is provisional until it lands.
     pub(in crate::runner) fn note_handles(&mut self, ticket: u64, source: &str, body: &[u8]) {
-        let Some(row) = self.plan.module_named(source) else {
-            return;
+        let (row, data) = match self.plan.module_named(source) {
+            Some(row) => (row.clone(), false),
+            // Data code's call of a module's name: the body names it.
+            None => match self.called(body) {
+                Some(row) => (row, true),
+                None => return,
+            },
         };
-        if self.substitute(row)["handles"].is_object() {
+        if self.substitute(&row)["handles"].is_object() {
+            let source = self.plan.str(self.plan.sources[row.source.0 as usize].name);
             let provisional = Provisional {
                 source: source.to_owned(),
                 body: body.to_vec(),
                 dispatched: false,
+                data,
             };
             self.extensions.provisional.insert(ticket, provisional);
         }
+    }
+
+    /// The module name a data-code call's body names, `{"extension",
+    /// "send"|"source"}`.
+    fn called(&self, body: &[u8]) -> Option<super::ModulesRow> {
+        let v: Json = serde_json::from_slice(body).ok()?;
+        let extension = v.get("extension")?.as_str()?;
+        let declared = v["send"].as_str().or(v["source"].as_str())?;
+        (self.plan.modules.iter())
+            .find(|m| {
+                self.plan.str(m.extension) == extension && self.plan.str(m.declared) == declared
+            })
+            .cloned()
+    }
+
+    /// The request of the data-code call whose body is `body`, the oldest
+    /// such not yet claimed: its reply is provisional (module doc).
+    pub(in crate::runner) fn claim_request(&mut self, body: &[u8]) -> Option<u64> {
+        let (&ticket, p) = (self.extensions.provisional.iter_mut())
+            .find(|(_, p)| p.data && !p.dispatched && p.body == body)?;
+        p.dispatched = true;
+        Some(ticket)
+    }
+
+    /// Request `ticket`'s reply carried `ids` of `extension`: provisional
+    /// until it lands, disposed of if it is dropped.
+    pub(in crate::runner) fn arrive(&mut self, ticket: u64, extension: String, ids: Vec<String>) {
+        let mut arrived = (self.extensions.arrived.lock()).unwrap_or_else(|e| e.into_inner());
+        arrived.push((ticket, extension, ids));
     }
 
     /// The host runs a module request whose reply carries handles, the
@@ -59,7 +101,7 @@ impl<D: DataSource> Runner<D> {
     /// host may run one the runner has let go). `None` for any other body.
     pub(in crate::runner) fn handled_work(&mut self, body: &[u8]) -> Option<Dispatch> {
         let (&ticket, p) = (self.extensions.provisional.iter_mut())
-            .find(|(_, p)| !p.dispatched && p.body == body)?;
+            .find(|(_, p)| !p.data && !p.dispatched && p.body == body)?;
         p.dispatched = true;
         let body = p.body.clone();
         Some(self.watched(body, ticket))
@@ -83,7 +125,7 @@ impl<D: DataSource> Runner<D> {
 
     /// `body` for the implementation, its reply's handles noted as it
     /// leaves, and the host woken to look at them.
-    fn watched(&self, body: Vec<u8>, ticket: u64) -> Dispatch {
+    pub(super) fn watched(&self, body: Vec<u8>, ticket: u64) -> Dispatch {
         let source = &self.extensions.provisional[&ticket].source;
         let row = self.module_row(source);
         let extension = self.plan.str(row.extension).to_owned();

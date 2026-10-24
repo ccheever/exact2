@@ -330,17 +330,19 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     holes.is_empty().then_some(lits)
 }
 
-/// The key each `device.<name> <key>` in `lits` names. A line built
-/// otherwise (joined to more text, its key missing or cut short) is left
-/// out; `None` when no certain key remains and such a line was seen, since
-/// the grant may be in it.
-pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
+/// The key (or target) each `<line> <key>` in `lits` names, for a line such
+/// as `device.camera` or `auth.passkey`. A line built otherwise (joined to
+/// more text, its key missing or cut short) is left out; `None` when no
+/// certain key remains and such a line was seen, since the grant may be in
+/// it.
+pub(super) fn keys(lits: &[Lit], line: &str) -> Option<Vec<String>> {
     let key_char = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
+    let (family, name) = line.split_at(line.find('.').map_or(0, |i| i + 1));
     let mut keys = Vec::new();
     let mut uncertain = false;
     for lit in lits {
         let t = &lit.text;
-        for (at, _) in t.match_indices("device.") {
+        for (at, _) in t.match_indices(family) {
             // A grant line begins the literal, or follows white space or an escape (`\n`).
             let head = &t[..at];
             let begins = head.is_empty()
@@ -350,7 +352,7 @@ pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
             if !begins {
                 continue;
             }
-            let rest = &t[at + "device.".len()..];
+            let rest = &t[at + family.len()..];
             let device: String = rest.chars().take_while(|c| key_char(*c)).collect();
             let after = &rest[device.len()..];
             if after.is_empty() && lit.joined {
@@ -392,7 +394,7 @@ mod tests {
     use super::{keys, literals};
 
     fn read(source: &str, typescript: bool) -> Option<Vec<String>> {
-        keys(&literals(source, typescript)?, "midi")
+        keys(&literals(source, typescript)?, "device.midi")
     }
 
     fn key(k: &str) -> Option<Vec<String>> {

@@ -14,7 +14,9 @@
 //                                   with Accept: application/json it answers
 //                                   {location} instead, for a drive's `type @t`
 //   GET /fixture/log                 what the server checked, for a smoke
+//   POST /passkey/…                  the passkey relying party (relying-party.mjs)
 import { createServer } from 'node:http';
+import { relyingParty } from './relying-party.mjs';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1] || 4331) || 4331;
@@ -30,6 +32,7 @@ const requests = new Map(), codes = new Map(), tokens = new Map(), jtis = new Se
 const nonce = () => crypto.randomUUID();
 let authNonce = nonce(), resourceNonce = nonce(), coop = false, auto = false;
 const log = { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] };
+const passkeys = relyingParty(log);
 
 const b64 = s => Buffer.from(s, 'base64url');
 const sha64 = text => Buffer.from(Bun.CryptoHasher.hash('sha256', text)).toString('base64url');
@@ -149,6 +152,12 @@ export const server = createServer(async (req, res) => {
       log.resource++;
       return send(res, 200, { did: held.sub, handle: HANDLE });
     }
+    const passkey = req.method === 'POST' && passkeys.route(url.pathname);
+    if (passkey) {
+      let text = '';
+      for await (const chunk of req) text += chunk;
+      return send(res, 200, await passkey(JSON.parse(text || '{}')));
+    }
     if (url.pathname === '/fixture/log') return send(res, 200, log);
     // `/fixture/auto?on=1`: approve without a page (a real session driven
     // with no hands on the sheet, `EXACT_DEVICE=real`).
@@ -157,6 +166,7 @@ export const server = createServer(async (req, res) => {
     if (url.pathname === '/fixture/reset') {
       requests.clear(); codes.clear(); tokens.clear(); jtis.clear(); authNonce = nonce(); resourceNonce = nonce(); coop = false; auto = false;
       Object.assign(log, { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] });
+      passkeys.reset();
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: 'not_found' });
