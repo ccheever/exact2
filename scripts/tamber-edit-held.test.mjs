@@ -153,6 +153,7 @@ test('an edit racing an accept: the edit holds it while it plans, so the accept 
   await post({ method: 'drop', client: 'agent', proposal: edit.ok.proposal });
   // A value the design can't take: the plan fails, and the proposal is held as it was: the same record, no event.
   const kept = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#080808' }], review: { importer: 'css', tokens: 1 } });
+  await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === kept.ok.proposal));
   const before = (await heldList()).find(p => p.proposal === kept.ok.proposal);
   const seen = stream.events.length;
   const bad = await post({ method: 'edit-held', client: 'person', proposal: kept.ok.proposal, index: 0, value: 'not a colour (' });
@@ -241,5 +242,28 @@ test('while an edit plans, its proposal is held and counted but no one else\'s: 
     expect(after.map(q => q.proposal)).not.toContain(p);
     expect(after.find(q => q.proposal === edit.ok.proposal)).toMatchObject({ client: 'agent', editedBy: 'person', replaces: p });
     expect(after.length).toBe(64);
+  } finally { await wire.close(); }
+}, 60_000);
+
+test('with every held proposal being edited, a new hold is refused, never held and dropped at once', async () => {
+  const serve = barrierServe();
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: () => serve.child, log: () => {} });
+  const call = async (body, path = '/__tamber') => {
+    let text = '', status = 0;
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': wire.token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify(body)));
+    await wire.handle(req, Object.assign(new EventEmitter(), { writeHead(s) { status = s; }, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }), new URL(`http://127.0.0.1${path}`), { allowed: true, local: true });
+    return { status, ...JSON.parse(text) };
+  };
+  try {
+    const ids = [];
+    for (let i = 0; i < 64; i++) ids.push((await call({ method: 'propose', hold: true, client: `c-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] })).ok.proposal);
+    const edits = ids.map(id => call({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#barrier' }));
+    await Bun.sleep(30);
+    const refused = await call({ method: 'propose', hold: true, client: 'late', ops: [{ op: 'set-token', name: 'a', value: '#000002' }] });
+    expect([refused.status, refused.error?.message]).toEqual([409, '64 proposals are held and each is being edited: try again shortly']);
+    serve.release();
+    expect((await Promise.all(edits)).map(e => e.status)).toEqual(ids.map(() => 200));
+    expect((await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals).toHaveLength(64);
   } finally { await wire.close(); }
 }, 60_000);

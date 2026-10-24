@@ -1020,7 +1020,8 @@ pushes.
 ### Held proposals (LLP 1122 D10)
 
 **`propose` with `hold: true`** and a `client` keeps the plan for 15 minutes, 64 at most (the
-oldest goes; below `write`, only the client's own, else 409: see Scopes), and announces it.
+oldest goes, never one an `edit-held` is planning; below `write`, only the client's own, else 409: see Scopes;
+with every one held being edited, 409), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
