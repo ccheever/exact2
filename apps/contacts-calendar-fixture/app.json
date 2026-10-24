@@ -1,0 +1,22 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Contacts and Calendar Fixture",
+  "short_name": "Contacts",
+  "id": "com.exact.contactscalendarfixture",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.contactscalendarfixture",
+    "name": "Contacts and Calendar Fixture"
+  },
+  "deploy": {
+    "store": {
+      "android": "0"
+    }
+  },
+  "host": {
+    "android": {
+      "minimumOS": "10"
+    }
+  }
+}
