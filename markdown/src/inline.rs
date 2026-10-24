@@ -379,37 +379,18 @@ impl Scanner<'_> {
         if !linked {
             return None;
         }
-        // Index raw parentheses once. Code ticks are literal in destinations;
-        // escaped parentheses do not balance, exactly as in the old scan.
-        let destinations = self.destinations.get_or_insert_with(|| {
-            let mut ends = vec![usize::MAX; self.cs.len()];
-            let mut opens = Vec::new();
-            let mut at = 0;
-            while at < self.cs.len() {
-                match self.cs[at].1 {
-                    '\\' => at += 1,
-                    '(' => opens.push(at),
-                    ')' => {
-                        if let Some(open) = opens.pop() {
-                            ends[open] = at;
-                        }
-                    }
-                    _ => {}
-                }
-                at += 1;
-            }
-            ends
-        });
-        let k = destinations[j + 1];
-        if k >= hi {
-            return None;
+        let mut start = j + 2;
+        while start < hi && matches!(self.ch(start), ' ' | '\t' | '\n' | '\r') {
+            start += 1;
         }
-        let target = self.source[self.pos(j + 2)..self.pos(k)].trim();
-        let target = target.split_whitespace().next().unwrap_or("");
-        let href = target
-            .strip_prefix('<')
-            .and_then(|t| t.strip_suffix('>'))
-            .unwrap_or(target);
+        let (k, href) = if start < hi && self.ch(start) == '<' {
+            let (k, target) = self.angle_destination(start, hi)?;
+            (k, &self.source[target])
+        } else {
+            let k = self.destination_end(j + 1, hi)?;
+            let target = self.source[self.pos(j + 2)..self.pos(k)].trim();
+            (k, target.split_whitespace().next().unwrap_or(""))
+        };
         let mut decoded = String::with_capacity(href.len());
         let mut chars = href.chars().peekable();
         while let Some(c) = chars.next() {
@@ -432,6 +413,82 @@ impl Scanner<'_> {
             Some(href),
         );
         Some(k + 1)
+    }
+
+    fn destination_end(&mut self, open: usize, hi: usize) -> Option<usize> {
+        // Index raw parentheses once. Code ticks are literal in destinations;
+        // escaped parentheses do not balance. Failed links must not rescan the suffix.
+        let destinations = self.destinations.get_or_insert_with(|| {
+            let mut ends = vec![usize::MAX; self.cs.len()];
+            let mut opens = Vec::new();
+            let mut at = 0;
+            while at < self.cs.len() {
+                match self.cs[at].1 {
+                    '\\' => at += 1,
+                    '(' => opens.push(at),
+                    ')' => {
+                        if let Some(open) = opens.pop() {
+                            ends[open] = at;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 1;
+            }
+            ends
+        });
+        let close = destinations[open];
+        (close < hi).then_some(close)
+    }
+
+    fn angle_destination(&self, start: usize, hi: usize) -> Option<(usize, B)> {
+        // CommonMark 0.31.2 §6.3: parentheses and spaces inside <…> are literal.
+        // Stopping at the next unescaped '<' also bounds failed scans across links.
+        let mut end = start + 1;
+        while end < hi {
+            match self.ch(end) {
+                '<' | '\n' | '\r' => return None,
+                '>' => break,
+                '\\' if end + 1 < hi && self.ch(end + 1).is_ascii_punctuation() => end += 1,
+                _ => {}
+            }
+            end += 1;
+        }
+        if end == hi {
+            return None;
+        }
+        let target = self.pos(start + 1)..self.pos(end);
+        let mut close = end + 1;
+        while close < hi && matches!(self.ch(close), ' ' | '\t' | '\n' | '\r') {
+            close += 1;
+        }
+        if close < hi && close > end + 1 && self.ch(close) != ')' {
+            let delimiter = match self.ch(close) {
+                '\'' => '\'',
+                '"' => '"',
+                '(' => ')',
+                _ => return None,
+            };
+            close += 1;
+            while close < hi && self.ch(close) != delimiter {
+                match self.ch(close) {
+                    '(' if delimiter == ')' => return None,
+                    '\\' if close + 1 < hi && self.ch(close + 1).is_ascii_punctuation() => {
+                        close += 1;
+                    }
+                    _ => {}
+                }
+                close += 1;
+            }
+            if close == hi {
+                return None;
+            }
+            close += 1;
+            while close < hi && matches!(self.ch(close), ' ' | '\t' | '\n' | '\r') {
+                close += 1;
+            }
+        }
+        (close < hi && self.ch(close) == ')').then_some((close, target))
     }
 
     fn delimiter(&self, i: usize, len: usize, lo: usize, hi: usize) -> Delim {
