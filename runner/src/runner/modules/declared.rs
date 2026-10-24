@@ -33,6 +33,8 @@ use serde_json::{json, Map};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+mod wake_list;
+
 /// The host's app-wide state: one per app, shared by its sessions.
 pub type AppState = Arc<Mutex<BTreeMap<String, Json>>>;
 
@@ -48,6 +50,8 @@ pub(in crate::runner) struct Declared {
     held: Vec<HeldEffect>,
     /// What a bound implementation's refusals said, for the journal.
     lines: Arc<Mutex<Vec<String>>>,
+    /// What a registration a wake runs for keeps beside its options, by `ref`.
+    wake_meta: BTreeMap<u64, wake_list::Meta>,
 }
 
 /// One entry of a keyed list.
@@ -243,11 +247,25 @@ impl<D: DataSource> Runner<D> {
             let state = list["state"].as_str().unwrap_or("listed").to_owned();
             let key = list["key"].as_str().unwrap_or_default();
             let value = fields.get(key).cloned().unwrap_or(Json::Null);
+            // A registration's kind keys it beside its key (LLP 1133.017 §10).
+            let kind = list.get("kind").cloned();
+            if let Some(kind) = &kind {
+                fields.insert("kind".into(), kind.clone());
+            }
             let reference = self.next_ticket;
             self.next_ticket += 1;
-            let entries = self.extensions.declared.lists.entry(state).or_default();
+            let entries = self
+                .extensions
+                .declared
+                .lists
+                .entry(state.clone())
+                .or_default();
+            let same = |e: &Listed| {
+                e.fields.get(key) == Some(&value) && e.fields.get("kind") == kind.as_ref()
+            };
+            let replaced = entries.iter().find(|e| same(e)).map(|e| e.reference);
             if !value.is_null() {
-                entries.retain(|e| e.fields.get(key) != Some(&value));
+                entries.retain(|e| !same(e));
             }
             entries.push(Listed {
                 reference,
@@ -262,14 +280,27 @@ impl<D: DataSource> Runner<D> {
                 .map(|v| format!(" ({v})"))
                 .unwrap_or_default();
             self.log(format!("{declared}: listed{named} @{reference}"));
+            if kind.is_some() {
+                self.registered(reference, replaced.filter(|_| !value.is_null()));
+            }
+            self.announce_listed(&state);
         }
-        if let Some(key) = sub["unlist"].as_str() {
+        // `"unlist": key`, or `{"key", "kind"}` for the entries of one kind.
+        let (unlist, unkind) = match &sub["unlist"] {
+            Json::Object(u) => (u.get("key").and_then(Json::as_str), u.get("kind")),
+            u => (u.as_str(), None),
+        };
+        if let Some(key) = unlist {
             let value = fields.get(key).cloned().unwrap_or(Json::Null);
             let lists = self.lists_of(row);
             for state in lists {
                 if let Some(entries) = self.extensions.declared.lists.get_mut(&state) {
-                    entries.retain(|e| e.fields.get(key) != Some(&value));
+                    entries.retain(|e| {
+                        e.fields.get(key) != Some(&value)
+                            || unkind.is_some_and(|k| e.fields.get("kind") != Some(k))
+                    });
                 }
+                self.announce_listed(&state);
             }
             self.log(format!("{declared}: unlisted"));
         }
@@ -433,6 +464,7 @@ impl<D: DataSource> Runner<D> {
                     let mut v = e.fields.clone();
                     v.insert("delivered".into(), json!(self.delivered(e)));
                     v.insert("ref".into(), json!(e.reference));
+                    self.wake_fields(e, &mut v);
                     Json::Object(v)
                 })
                 .collect();
@@ -484,6 +516,17 @@ impl<D: DataSource> Runner<D> {
     pub fn listed_op(&mut self, op: &str, request: &str) -> Option<Result<String, String>> {
         let v: Json = serde_json::from_str(request).ok()?;
         match op {
+            "launchEntry" if v["launch"] == "wake" => {
+                let entry = match &v["entry"] {
+                    Json::String(text) => serde_json::from_str(text).unwrap_or(Json::Null),
+                    entry => entry.clone(),
+                };
+                Some(if entry.is_object() {
+                    self.launch_wake(&entry)
+                } else {
+                    Err("--wake: the entry is a JSON object, as `state` printed it".into())
+                })
+            }
             "launchEntry" => {
                 let entry = v["entry"]
                     .as_str()
@@ -520,6 +563,11 @@ impl<D: DataSource> Runner<D> {
             return Err(format!(
                 "@{reference} is not delivered yet: advance the clock past its time"
             ));
+        }
+        // A registration's tap is a wake, and leaves it listed.
+        let row = self.module_row(&entry.source);
+        if self.substitute(&row)["list"]["tap"]["as"] == "wake" {
+            return self.tap_wake(&state, at);
         }
         let entry = self
             .extensions
@@ -571,20 +619,7 @@ impl<D: DataSource> Runner<D> {
         let Some(event) = tap["event"].as_str() else {
             return Ok(json!({ "ref": reference, "delivery": "substituted" }).to_string());
         };
-        let args: Vec<Json> = (tap["args"].as_array().into_iter().flatten())
-            .map(|a| match a {
-                Json::String(field) => entry.get(field).cloned().unwrap_or(Json::Null),
-                Json::Object(map) => Json::Object(
-                    map.iter()
-                        .map(|(k, f)| {
-                            let v = f.as_str().and_then(|f| entry.get(f)).cloned();
-                            (k.clone(), v.unwrap_or(Json::Null))
-                        })
-                        .collect(),
-                ),
-                other => other.clone(),
-            })
-            .collect();
+        let args = entry_args(&tap, entry);
         let extension = self.plan.str(row.extension).to_owned();
         self.raise_module_event(
             &extension,
@@ -594,6 +629,25 @@ impl<D: DataSource> Runner<D> {
         )?;
         Ok(json!({ "ref": reference, "event": event, "delivery": "substituted" }).to_string())
     }
+}
+
+/// The event's arguments a listed entry's tap declares: each a field of the
+/// entry, an object of its fields, or a literal.
+fn entry_args(tap: &Json, entry: &Json) -> Vec<Json> {
+    (tap["args"].as_array().into_iter().flatten())
+        .map(|a| match a {
+            Json::String(field) => entry.get(field).cloned().unwrap_or(Json::Null),
+            Json::Object(map) => Json::Object(
+                map.iter()
+                    .map(|(k, f)| {
+                        let v = f.as_str().and_then(|f| entry.get(f)).cloned();
+                        (k.clone(), v.unwrap_or(Json::Null))
+                    })
+                    .collect(),
+            ),
+            other => other.clone(),
+        })
+        .collect()
 }
 
 /// A number the plan holds as a float, written as JSON writes a whole

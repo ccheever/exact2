@@ -6,6 +6,7 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/background": "workspace:*",
         "@exact/calendar": "workspace:*",
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
@@ -37,6 +38,10 @@
     "packages/actions": {
       "name": "@exact/actions",
       "version": "0.1.0",
+    },
+    "packages/background": {
+      "name": "@exact/background",
+      "version": "1.0.0",
     },
     "packages/calendar": {
       "name": "@exact/calendar",
@@ -131,6 +136,8 @@
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
+
+    "@exact/background": ["@exact/background@workspace:packages/background"],
 
     "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
 
