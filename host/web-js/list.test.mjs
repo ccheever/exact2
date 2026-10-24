@@ -429,3 +429,35 @@ test('a jump reports the row it put at the start, not a sliver above it', async 
   expect(result.key).toBe('18');
   expect(result.offset).toBe(0);
 }, 60_000);
+
+// Rows 150 px tall under an estimate of 100: lists opened at their ends
+// are first placed at the ends their estimates give; each one's rows are
+// measured, and the port moved to their end, before the next frame, whose
+// scroll events therefore hear the ends (collection-glue.js `commit`).
+// Three open at once, as one budget a frame would not reach them all.
+test('lists opened at their ends report only their ends while their rows measure', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = Array.from({length:3}, () => {
+      const port = document.createElement('div');
+      port.style.cssText = 'height:300px;width:200px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const heard = [];
+      rt.onScroll(port, 'scroll', (x, y, e) => { heard.push(Math.round(e[3] - e[1] - e[5])); }, (kind, f) => port.addEventListener(kind, f));
+      const own = rt.scope(() => list.vl(port, () => Array.from({length:100}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '150px'; w.append(row);
+      }, {est:100, pw:[], ph:[300], atEnd:true}));
+      return {port, heard, own};
+    });
+    rt.settled();
+    for (let f = 0; f < 10; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    const out = lists.map(({port, heard}) => ({heard, gap: port.scrollHeight - port.scrollTop - port.clientHeight}));
+    for (const {port, own} of lists) { rt.end(own); port.remove(); }
+    rt.settled();
+    return out;
+  })()`);
+  for (const {heard, gap} of result) {
+    expect(gap).toBe(0);
+    expect(heard.length).toBeGreaterThan(0);
+    expect(heard).toEqual(heard.map(() => 0));
+  }
+}, 60_000);

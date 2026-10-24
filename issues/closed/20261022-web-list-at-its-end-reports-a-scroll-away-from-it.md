@@ -1,6 +1,7 @@
 # On the web, a list opened at its end reports one scroll away from the end
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: the web's collection glue measures and reports rows built at rest before the next frame (collection-glue.js commit), so no scroll event reads the port at the rows' estimates.
 **Systems:** the virtualized `list` on the web (`scroll-start="end"`, `scrollFollowEnd`), its `scroll` event
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's wiring lane (`apps/excord/llp/0001-excord.rfc.md` §3.1)
