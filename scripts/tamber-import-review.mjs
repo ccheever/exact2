@@ -26,9 +26,15 @@ export function importReview(imported) {
 /** A re-import's dial changes and marked pins (stage 10b), when it has any,
  * each naming the operations it is (`items`), as an offer does. */
 export function marked(ops, dials = [], pins = []) {
-  const same = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []), at = test => ops.flatMap((op, i) => (test(op) ? [i] : []));
-  dials = dials.map(d => ({ ...d, items: at(op => op.op === 'set-dial' && op.name === d.dial) }));
-  pins = pins.map(p => ({ ...p, items: at(op => op.op === 'set-token' && op.name === p.token && same(op.when, p.when)) }));
+  // Each operation's place by what it sets, found once (round 3 of the checker sweep: a scan a pin).
+  const places = new Map();
+  ops.forEach((op, i) => {
+    const key = op.op === 'set-dial' ? JSON.stringify(['dial', op.name]) : op.op === 'set-token' ? JSON.stringify(['token', op.name, op.when ?? []]) : null;
+    if (key !== null) (places.get(key) ?? places.set(key, []).get(key)).push(i);
+  });
+  const at = key => places.get(key) ?? [];
+  dials = dials.map(d => ({ ...d, items: at(JSON.stringify(['dial', d.dial])) }));
+  pins = pins.map(p => ({ ...p, items: at(JSON.stringify(['token', p.token, p.when ?? []])) }));
   return { ...(dials.length ? { dials } : {}), ...(pins.length ? { pins } : {}) };
 }
 
