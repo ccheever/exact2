@@ -1372,7 +1372,7 @@ fn a_line_feed_in_a_footer_or_title_follows_its_white_space() {
 #[test]
 fn the_sheets_symbol_and_checkmark_take_the_accent() {
     let r = boot(&SETTINGS.replace("    button press=go testId=\"dark\"\n      text \"Dark\"\n      if dark\n        image \"symbol:checkmark\"",
-        "    button press=go testId=\"dark\"\n      text \"Dark\"\n      image \"symbol:checkmark\" testId=\"check\"\n    row\n      image \"symbol:sf/star\" -exact-tint-color=\"AccentColor\" testId=\"accent\"\n      text \"Accent\""));
+        "    button press=go testId=\"dark\"\n      text \"Dark\"\n      image \"symbol:checkmark\" testId=\"check\"\n    row\n      image \"https://example.com/star.png\" -exact-tint-color=\"AccentColor\" testId=\"accent\" alt=\"Star\"\n      text \"Accent\""));
     let k = r.kernel();
     let tint = |t: &str| {
         k.node(id(&r, t))
@@ -1380,6 +1380,7 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
             .computed_style(StyleMask::ALL)
             .tint_color
     };
+    // (The accent, as a raster's tint paints it: a symbol's own tint is its `color`, symbol_ink.rs.)
     let accent = tint("accent");
     assert!(accent.is_some());
     assert_eq!(tint("check"), accent, "the checkmark: the accent");

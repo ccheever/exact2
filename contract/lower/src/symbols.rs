@@ -6,8 +6,10 @@
 use crate::{err, LowerError};
 use contract_syntax::{Expr, Span, TemplatePart};
 
+mod ink;
 mod tint;
 use exact_kernel::generated::{symbol_role, SYMBOL_ROLES};
+pub(crate) use ink::symbol_ink;
 pub(crate) use tint::tints;
 
 /// The role whose Apple name an SF Symbol is, exactly (LLP 1121 D10: `symbol:sf/chevron.backward`
