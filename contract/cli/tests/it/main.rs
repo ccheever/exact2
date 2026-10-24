@@ -38,6 +38,7 @@ mod collection_start;
 mod color_scheme;
 mod color_spaces;
 mod compose;
+mod contacts_calendar;
 mod control_roles;
 mod controls;
 mod corpus;
