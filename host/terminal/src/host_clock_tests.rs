@@ -25,3 +25,114 @@ fn a_loop_back_from_a_stop_fires_a_missed_repeat_once() {
     let ticks = host.runner.slot("ticks").and_then(Value::as_number);
     assert_eq!(ticks, Some(1.0), "three missed beats, one fire");
 }
+
+#[test]
+fn input_clock_runs_due_timer_before_routing_key_and_keeps_focus_events_together() {
+    let source = r#"component App
+  state order = ""
+  state armed = false
+  action timer
+    order = order + "timer;"
+    focus("second")
+  action key(event)
+    order = order + "key;"
+    armed = true
+  action blur
+    order = order + "blur;"
+  action focused
+    order = order + "focus;"
+  action later
+    order = order + "after;"
+  task first mount
+    after(150, timer)
+  task second when armed
+    after(1, later)
+  view
+    column
+      button "First" id="first" testId="first" focus=focused
+      button "Second" id="second" testId="second" key=key blur=blur
+"#;
+    let mut host = Host::boot(
+        contract::compile(source).unwrap(),
+        (),
+        Mode::Fullscreen,
+        80,
+        40,
+    )
+    .unwrap();
+    host.arm = false;
+    host.tick(100.);
+    host.live_from(Instant::now() - Duration::from_millis(200));
+    host.key(Key::Named("Tab"));
+    assert_eq!(
+        host.runner.slot("order"),
+        Some(&Value::str("timer;key;blur;focus;"))
+    );
+    assert_eq!(host.focus, host.by_test_id("first"));
+    host.tick(host.runner.now_ms() + 100.);
+    assert_eq!(
+        host.runner.slot("order"),
+        Some(&Value::str("timer;key;blur;focus;after;"))
+    );
+}
+
+#[test]
+fn paste_and_pointer_input_clock_run_due_timers_before_routing() {
+    let source = r#"component App
+  state first = ""
+  state second = ""
+  state expired = false
+  state pressed = false
+  action timer
+    expired = true
+    focus("second")
+  action editFirst(value)
+    first = value
+  action editSecond(value)
+    second = value
+  action press
+    pressed = expired
+  task expiry mount
+    after(150, timer)
+  view
+    column
+      input id="first" testId="first" value=first input=editFirst
+      input id="second" testId="second" value=second input=editSecond
+      button "Go" testId="go" press=press
+"#;
+    for input in ["paste", "click", "wheel"] {
+        let mut host = Host::boot(
+            contract::compile(source).unwrap(),
+            (),
+            Mode::Fullscreen,
+            80,
+            40,
+        )
+        .unwrap();
+        host.arm = false;
+        host.focus(host.by_test_id("first"));
+        host.frame();
+        let go = host.cells_of(host.by_test_id("go").unwrap()).unwrap();
+        host.tick(100.);
+        host.live_from(Instant::now() - Duration::from_millis(200));
+        match input {
+            "paste" => host.paste("hello"),
+            "click" => host.click(go.x, go.y),
+            _ => host.wheel(go.x, go.y, 1),
+        }
+        assert_eq!(
+            host.runner.slot("expired"),
+            Some(&Value::Bool(true)),
+            "{input}"
+        );
+        assert_eq!(
+            host.runner.slot("pressed"),
+            Some(&Value::Bool(input == "click")),
+            "{input}"
+        );
+        if input == "paste" {
+            assert_eq!(host.runner.slot("first"), Some(&Value::str("")));
+            assert_eq!(host.runner.slot("second"), Some(&Value::str("hello")));
+        }
+    }
+}
