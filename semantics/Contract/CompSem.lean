@@ -16,9 +16,10 @@ Names are read in a *frame*. The root's frame reads the root's own
 declarations as `Contract.Eval` does. An instance's frame reads, in this
 order, its component's derives (the body, evaluated in the frame at every
 read: a child's derive is not settled), its states (the store at the
-instance's path), its injects and props. A prop or inject is a thunk: the
-expression the use (or the providing component) wrote, with the frame and
-the locals where it was written, evaluated at each read. A `slot`
+instance's path), its injects and props, and its device resources (shared
+by all instances in the root's resource environment). A prop or inject is
+a thunk: the expression the use (or the providing component) wrote, with
+the frame and the locals where it was written, evaluated at each read. A `slot`
 component's fill is rendered where its `children` node stands, in the use
 site's frame, locals, providers and fill. A handler names an action of its
 component or an `action` prop, resolved through the props to the action
@@ -30,7 +31,7 @@ in the same commit, reading the same state.
 
 The root's own declarations — slots, settlement of derives and resources,
 root actions, timers — mean what `Contract.Runtime` says of a program made
-of the root alone (`rootProgram`): no component is involved there.
+of the root with the children's shared device resources (`rootProgram`).
 -/
 import Contract.Runtime
 import Contract.Observe
@@ -77,15 +78,14 @@ def lookupBind (x : String) : List (String × Expr × Frame × Locals) → Optio
   | [] => .none
   | (y, e, f, ls) :: rest => if x == y then .some (e, f, ls) else lookupBind x rest
 
-/-- The root alone, as a program of the flat semantics: its states (the
-router's slot first, as the compiler puts it), derives, resources,
-mutations, actions and tasks. -/
+/-- The root as a flat program, including every child's shared device
+resources. Its states put the router's slot first, as the compiler does. -/
 def rootProgram (p : CProgram) : Program :=
   { shapes := p.shapes, fns := p.fns,
     states := (match p.router with
       | .some x => [{ name := x, ty := .record "Router", init := .none }]
       | .none => []) ++ p.localeStates ++ p.root.states,
-    derives := p.root.derives, resources := p.root.resources,
+    derives := p.root.derives, resources := p.resources,
     mutations := p.root.mutations, actions := (ownCallsComponent p.root).actions, tasks := p.root.tasks,
     routes := p.routes, router := p.router, strings := p.strings, locale := p.locale }
 
@@ -208,7 +208,7 @@ def ceval : Nat → CEnv → Frame → Locals → Expr → Result Value
 
 /-- A name an instance's frame reads that no local binds: a derive (its
 body, in the frame, with no locals), a state (the store), an inject or a
-prop (its thunk). -/
+prop (its thunk), or a device resource (the shared root resource). -/
 def cvar : Nat → CEnv → String → InstId → List (String × Expr × Frame × Locals) → String →
     Result Value
   | 0, _, _, _, _, _ => .error outOfFuel
@@ -224,7 +224,9 @@ def cvar : Nat → CEnv → String → InstId → List (String × Expr × Frame 
       else
         match lookupBind x binds with
         | .some (e, f', ls') => ceval fuel ce f' ls' e
-        | .none => .error (.unbound x)
+        | .none =>
+          if C.deviceResources.any (·.name == x) then ce.root.global (hoisted C.name x)
+          else .error (.unbound x)
 
 /-- What `pending(x)`, `failed(x)` (`false`) or `failure(x)` (`none`) says
 of a name that is no resource. -/
@@ -251,7 +253,7 @@ def cpending : Nat → CEnv → Frame → Locals → String → String → Resul
         match lookupBind x binds with
         | .some (.var y, f', ls') => cpending fuel ce f' ls' which y
         | .some _ => .error (.unsupported s!"roster entry `{which}`")
-        | .none => eval fuel ce.root false [] (.call which [.var x])
+        | .none => eval fuel ce.root false [] (.call which [.var (C.resourceName x)])
 
 def cevalList : Nat → CEnv → Frame → Locals → List Expr → Result (List Value)
   | 0, _, _, _, _ => .error outOfFuel
@@ -389,7 +391,9 @@ def cexec : Nat → CEnv → Frame → Locals → List Stmt → CEffects → Res
     | .send t src args => do
       let vs ← cevalList fuel ce f ls args
       cexec fuel ce f ls rest { fx with flat := { fx.flat with sends := fx.flat.sends ++ [(t, src, vs)] } }
-    | .refresh t => cexec fuel ce f ls rest { fx with flat := { fx.flat with refreshes := fx.flat.refreshes ++ [t] } }
+    | .refresh t =>
+      let target := if (lookup t ls).isSome then t else C.resourceName t
+      cexec fuel ce f ls rest { fx with flat := { fx.flat with refreshes := fx.flat.refreshes ++ [target] } }
     | .call a args => do
       let vs ← cevalList fuel ce f ls args
       match ce.prog.actionIn f a with
