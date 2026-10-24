@@ -19,6 +19,8 @@ pub use byte_arrays::{bytes, utf8};
 pub mod jni_extensions;
 #[path = "jni_keys.rs"]
 mod jni_keys;
+#[path = "jni_picture.rs"]
+pub mod jni_picture;
 #[path = "jni_pad.rs"]
 mod pad;
 

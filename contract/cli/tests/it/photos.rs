@@ -347,6 +347,7 @@ fn pictures_are_admitted_only_while_the_read_is_granted() {
     let (_app, mut r, _calls) = boot("pictures", BOTH, false);
     let mut parked = Vec::new();
     pump(&mut r, &mut parked);
+    assert_eq!(r.picture_schemes(), ["photos"]);
     assert_eq!(r.admit_picture("https://example.test/a.jpg", "ios"), None);
     let refused = r.admit_picture("photos:agent-1", "ios").unwrap();
     assert_eq!(refused["error"], "NotAllowedError");

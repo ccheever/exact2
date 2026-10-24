@@ -27,6 +27,9 @@ mod crop;
 mod decode_tests;
 #[path = "image/jpeg.rs"]
 mod jpeg_decode;
+#[path = "image/package.rs"]
+mod package;
+pub use package::Ask as PackageAsk;
 #[path = "image/png.rs"]
 mod png_decode;
 #[path = "image/svg.rs"]
@@ -106,6 +109,8 @@ pub struct Images {
     /// for the painted boxes of a serial and the order of an epoch: one walk
     /// of the boxes a paint, not one a pass.
     pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
+    /// Pictures of a package's scheme, which no file holds (`package.rs`).
+    package: package::Pictures,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -135,10 +140,13 @@ impl Images {
             painter: None,
             order: None,
             box_index: None,
+            package: package::Pictures::default(),
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
-        Self::make(assets, self.backend.clone())
+        let mut images = Self::make(assets, self.backend.clone());
+        images.package.inherit(&self.package);
+        images
     }
     /// Size the decoded-image budget to the screen, as the Apple host does
     /// (`RasterLoader.viewportBudget`): eight viewport-sized RGBA bitmaps,
@@ -204,6 +212,7 @@ impl Images {
         self.deferred = 0;
         self.pictures = false;
         self.scale = scale;
+        self.package.begin(kernel.epoch());
         for id in live {
             let Some(node) = kernel.node(*id) else {
                 continue;
@@ -273,6 +282,20 @@ impl Images {
             view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
+            }
+            // A package's picture is asked of its implementation, never
+            // opened as a file; it keeps its pixels out of view, as it has
+            // no cache to come back from.
+            if self.package.serves(source) {
+                if let Some((request, _)) = view.request.take() {
+                    self.backend.cancel(request);
+                }
+                (view.source_id, view.lease, view.refusal) = (None, None, None);
+                self.package
+                    .want(*id, source, view.desired, view.object_fit, view.visible);
+                view.source = source.to_owned();
+                view.displayed_source = view.source.clone();
+                continue;
             }
             if !view.visible {
                 // A decode under way finishes into the cache (`poll` lets go
@@ -360,6 +383,7 @@ impl Images {
             self.backend.session.retire_view(view.key);
         }
         self.bitmaps.remove(&id);
+        self.package.forget(id);
     }
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
@@ -370,7 +394,10 @@ impl Images {
         let mut reports = Vec::new();
         let scale = self.scale;
         for (id, view) in &mut self.views {
-            if view.source.is_empty() || view.symbol_size.is_some() {
+            if view.source.is_empty()
+                || view.symbol_size.is_some()
+                || self.package.serves(&view.source)
+            {
                 continue;
             }
             if view.source_id.is_none() {
@@ -567,8 +594,11 @@ impl Images {
     }
     /// Pending work, including capacity waits; this is not an animation request.
     pub fn pending(&self) -> bool {
+        // A package's picture is answered through the host's turn, not the
+        // workers: nothing here to wait on.
         self.views.values().any(|v| {
             !v.source.is_empty()
+                && !self.package.serves(&v.source)
                 && match v
                     .source_id
                     .as_ref()
@@ -613,6 +643,7 @@ impl Images {
             self.poll();
             if self.views.values().all(|v| {
                 v.source.is_empty()
+                    || self.package.serves(&v.source)
                     || matches!(
                         v.source_id
                             .as_ref()
@@ -673,6 +704,7 @@ impl Images {
     pub fn reset(&mut self) {
         self.backend.retire(self.generation);
         self.views.clear();
+        self.package = std::mem::take(&mut self.package).reset();
         self.bitmaps.clear();
         self.loaded.clear();
         self.generation = self.backend.generation();

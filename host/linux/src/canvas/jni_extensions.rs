@@ -182,6 +182,38 @@ macro_rules! canvas_jni_extensions {
             ))
         }
 
+        /// A package's picture for request `id` (`Exact.picture`, LLP
+        /// 1133.019 D11 item 1): `bitmap`, or `error` when it is null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_picture(
+            env: *mut JNIEnv,
+            _class: jclass,
+            id: jint,
+            bitmap: jobject,
+            error: jstring,
+        ) {
+            let answer = if bitmap.is_null() {
+                Err($crate::canvas::field::text(env, error))
+            } else {
+                $crate::canvas::jni::jni_picture::pixels(env, bitmap)
+                    .ok_or_else(|| "EncodingError".to_owned())
+            };
+            with(|h| h.picture_answer(id as u32, answer));
+        }
+
+        /// Picture `source` changed (asked again) or was revoked
+        /// (`ExtensionContext.changedPicture`, `revokePicture`).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_pictureChanged(
+            env: *mut JNIEnv,
+            _class: jclass,
+            source: jstring,
+            revoked: jboolean,
+        ) {
+            let source = string(env, source);
+            with(|h| h.picture_changed(&source, revoked == JNI_TRUE));
+        }
+
         /// The extensions the APK carries, one a line, bound at the host's next turn.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_bindExtensions(
