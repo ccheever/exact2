@@ -2006,19 +2006,24 @@ coordinates; comparisons allow Chrome's 1/64px layout quantization.
 
 ## Patch 64: retain transferred height caps in ratio leaf content probes
 
-A non-replaced ratio leaf's `ContentSize` probe with no known width keeps
-its height bounds and uses `container_sizes_through_ratio`. Its preferred
-sizes and width bounds remain ignored. With no supplied height, the
-transferred maximum caps the intrinsic width, as it does for containers.
+A non-replaced ratio leaf's horizontal `ContentSize` probe with no known
+width keeps its height bounds and uses `container_sizes_through_ratio`
+when its height is unknown or its available width is min-content.
+Its preferred sizes and width bounds remain ignored. With no supplied
+height, the transferred maximum caps the intrinsic width, as it does for
+containers.
 The flex basis then agrees with the hypothetical size instead of exceeding
 it and freezing growth under [Flexbox §9.7](https://www.w3.org/TR/css-flexbox-1/#resolve-flexible-lengths).
 The flexible-length freeze rule is unchanged.
 
 `minimum_ratio_width` now supplies the clamped height to leaves as well as
-containers. The shared helper makes its width transfer a floor and removes
-the transferred width cap, so wider text is still measured independently.
-This replaces Patch 57's leaf-only unknown-height probe. Replaced leaves
-and probes with a known width retain their existing sizing path.
+containers. For this min-content probe, the shared helper makes the width
+transfer a floor and removes the transferred width cap, so wider text is
+still measured independently. This replaces Patch 57's leaf-only
+unknown-height probe: omitting the height would now cap the text minimum.
+Cross-size resolution with a supplied height keeps the ratio-derived
+preferred width so text wraps at that width. Replaced leaves, vertical
+probes and probes with a known width retain their existing sizing path.
 
 **Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
 18 literal `Chrome 151 ratio text growth` cases, measured with Chrome
@@ -2030,6 +2035,14 @@ a width cap, ratio 2, both box-sizing modes, definite heights, stretch,
 a growing sibling, and no ratio or height cap. The existing block
 growth, definite-height inline minima, replaced-element, percentage-height
 and exclusion-height tests remain passing.
+
+23 `Chrome 151 ratio text wrapping` cases use the same version and date,
+normalizing both letters and spaces to 10px. Seven failed when the helper
+also handled column cross-size resolution: the reported leaf measured
+130×100 instead of 100×100. They cover flexed and percentage heights,
+ratios and box sizing, with stretch, overflow, inline bounds, row, block
+and absolute controls. The auto-height column with a 100px height cap
+already measured 60×60 before Patch 64; it remains an owed case in `QUEUE.md`.
 
 ## Cargo workspace boundary
 

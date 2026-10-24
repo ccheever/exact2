@@ -73,6 +73,11 @@
 //! width caps, ratios, box sizing, definite heights and stretch. Controls
 //! include equal height bounds, a growing sibling and leaves without a ratio
 //! or height cap.
+//! `Chrome 151 ratio text wrapping` uses the same version and date. Letter
+//! and word spacing were normalized separately: `aaaaaa aaaaaa` measures
+//! 130px at max-content and 60px at min-content. Cases cover column cross
+//! sizing with definite, flexed and percentage heights, height caps, stretch,
+//! box sizing, ratios and inline bounds, with row, block and absolute controls.
 //! `Chrome 151 grid ratio maximum` was measured on 2026-10-19 with Chrome
 //! 151.0.7922.34. It covers grid item content minima and track contributions
 //! under maximum sizes, implicit and explicit auto columns, alignment,
@@ -234,7 +239,11 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 #[test]
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
-    check(failures(fixture, true), &[]);
+    // QUEUE: the auto-height column shrinks to 60px instead of its 100px cap.
+    check(
+        failures(fixture, true),
+        &["Chrome 151 ratio text wrapping column height cap"],
+    );
 }
 
 /// The same Chrome frames hold when the ratio container is the root in a

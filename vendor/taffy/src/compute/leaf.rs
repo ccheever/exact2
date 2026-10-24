@@ -4,7 +4,7 @@
 use crate::geometry::Rect;
 use crate::geometry::Size;
 use crate::style::{AvailableSpace, Overflow, Position};
-use crate::tree::{Baselines, CollapsibleMarginSet, RunMode};
+use crate::tree::{Baselines, CollapsibleMarginSet, RequestedAxis, RunMode};
 use crate::tree::{LayoutInput, LayoutOutput, SizingMode};
 use crate::util::debug::debug_log;
 use crate::compute::ratio::{container_sizes_through_ratio, floors_height, Ratio};
@@ -59,11 +59,15 @@ where
     // (`compute::ratio`); the authored minimum is kept for the table below.
     let ratio = Ratio::of(style, pb_sum);
     let ratio_content_width = sizing_mode == SizingMode::ContentSize
-        && ratio.is_some() && !style.is_compressible_replaced() && known_dimensions.width.is_none();
+        && inputs.axis == RequestedAxis::Horizontal
+        && ratio.is_some() && !style.is_compressible_replaced() && known_dimensions.width.is_none()
+        && (known_dimensions.height.is_none() || available_space.width == AvailableSpace::MinContent);
     let (given, raw_min_size, raw_max_size) = match sizing_mode {
         // EXACT PATCH 64: an unsized non-replaced ratio leaf keeps height
         // bounds for its intrinsic width, as containers do. Dropping the
         // transferred cap inflates its flex basis and freezes growth.
+        // With a supplied height, only min-content needs the independent
+        // content floor. Cross-size resolution keeps the preferred ratio width.
         SizingMode::ContentSize if ratio_content_width => (
             known_dimensions,
             Size {
