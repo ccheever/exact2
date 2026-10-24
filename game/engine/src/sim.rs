@@ -1003,6 +1003,25 @@ impl<G: Game> Sim<G> {
             player: 0,
         });
     }
+    /// Queue a sample of `sensor` at the current clock, as a canvas input
+    /// (`startSensorInput`) delivers one: `values` are x, y, z and w.
+    pub fn sensor(&mut self, sensor: crate::SensorKind, values: [f32; 4]) {
+        self.input(InputEvent::Sensor {
+            sensor,
+            values,
+            dropped: 0,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            player: 0,
+        });
+    }
+    /// Queue the end of `sensor`'s input at the current clock.
+    pub fn sensor_ended(&mut self, sensor: crate::SensorKind) {
+        self.input(InputEvent::SensorEnded {
+            sensor,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            player: 0,
+        });
+    }
     /// Queue both key edges at the current clock.
     pub fn tap(&mut self, code: &str) {
         self.key_down(code);
