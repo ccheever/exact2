@@ -58,6 +58,7 @@ pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
 pub use wakes::WakeHow;
+pub(super) use wakes::TOLD;
 
 /// The continuation tokens the runner keeps for its held module requests:
 /// a data source's count up from zero, far below, and its reserved ones

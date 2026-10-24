@@ -420,3 +420,75 @@ fn a_one_shot_its_handler_registers_again_backs_off() {
     let wait = e["due"].as_f64().unwrap() - (r.now_ms() + epoch);
     assert_eq!(wait, 3_600_000.0, "{e}");
 }
+
+/// A bound implementation the platform ran raises a wake through its
+/// module's `changed` (LLP 1133.017 D8) and is told how it ended; one the
+/// substitute answers raises nothing.
+#[test]
+fn an_implementation_raises_a_wake_and_is_told_its_end() {
+    use std::sync::{Arc, Mutex};
+    let app = App::new("told");
+    let mut r = boot(&app);
+    r.listen(Arc::new(|| {}));
+    let told = |r: &Runner<Later>, id: &str| {
+        let body =
+            serde_json::json!({ "extension": "tide", "event": "tide", "args": [id], "id": id });
+        r.native_slot().changed(&format!("exact-wake:{body}"));
+    };
+    told(&r, "w0");
+    r.apply_announced();
+    assert!(
+        logs(&r).contains("a wake raised, but the substitute answers"),
+        "{}",
+        logs(&r)
+    );
+    let heard: Arc<Mutex<Vec<serde_json::Value>>> = Default::default();
+    let seen = heard.clone();
+    r.native_slot().host(Some(Arc::new(
+        move |body: Vec<u8>, reply: exact_runner::Reply| {
+            seen.lock()
+                .unwrap()
+                .push(serde_json::from_slice(&body).unwrap());
+            reply.send(exact_runner::Outcome::Response(exact_runner::Response {
+                status: 200,
+                headers: Vec::new(),
+                body: b"{}".to_vec(),
+            }));
+        },
+    )));
+    r.bind_extensions(&["tide"], &[]);
+    let woke = |heard: &Arc<Mutex<Vec<serde_json::Value>>>| {
+        (heard.lock().unwrap().iter())
+            .filter(|v| v.get("woke").is_some())
+            .map(|v| format!("{} {}", v["woke"], v["outcome"]))
+            .collect::<Vec<_>>()
+    };
+    told(&r, "w1");
+    r.apply_announced();
+    assert!(slot(&r, "heard").contains("w1"), "{}", logs(&r));
+    assert_eq!(state(&r)["wake"]["invocations"][0]["state"], "running");
+    assert!(woke(&heard).is_empty());
+    // Bound, the listed source asks the implementation too; each answered.
+    for out in r.take_requests() {
+        let ok = exact_runner::Outcome::Response(exact_runner::Response {
+            status: 200,
+            headers: Vec::new(),
+            body: b"7".to_vec(),
+        });
+        r.fulfill(out.ticket, ok).unwrap();
+    }
+    by(&mut r, 0.0);
+    assert_eq!(woke(&heard), [r#""w1" "completed""#], "{}", logs(&r));
+    // Its budget passes with the request still out: expired.
+    told(&r, "w2");
+    r.apply_announced();
+    by(&mut r, 6_000.0);
+    assert_eq!(woke(&heard)[1], r#""w2" "expired""#, "{}", logs(&r));
+    // An event no handler hears is still a wake, ended at once.
+    let body =
+        serde_json::json!({ "extension": "tide", "event": "nothing", "args": [], "id": "w3" });
+    r.native_slot().changed(&format!("exact-wake:{body}"));
+    r.apply_announced();
+    by(&mut r, 0.0);
+    assert_eq!(woke(&heard)[2], r#""w3" "unheard""#, "{}", logs(&r));
+}

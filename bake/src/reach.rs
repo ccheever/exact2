@@ -145,6 +145,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
     let mut flags: Vec<&str> = Vec::new();
+    // iOS's background modes and task identifiers (LLP 1133.017 D14).
+    let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
     let keys_of = |device: &Device| match platform {
@@ -180,6 +182,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             "ios" => {
                 entitlements.extend(grant.device.ios_entitlements);
                 flags.extend(grant.device.ios_flags);
+                modes.extend(grant.device.ios_modes);
+                tasks.extend(grant.device.ios_tasks);
             }
             "linux" => android.extend(grant.device.android),
             _ => {}
@@ -213,6 +217,10 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     }
     entitlements.sort_unstable();
     entitlements.dedup();
+    for list in [&mut modes, &mut tasks] {
+        list.sort_unstable();
+        list.dedup();
+    }
     // tvOS bakes the iOS plan; what a row not on TV derives there, the tvOS
     // build drops (D5): every key and entitlement no TV row also needs.
     let tv_omits = if platform == "ios" {
@@ -256,6 +264,10 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "tvOmits": tv_omits,
         "auth": auth,
     });
+    if !modes.is_empty() {
+        compat.reach["backgroundModes"] = json!(modes);
+        compat.reach["tasks"] = json!(tasks);
+    }
     if !shared.is_empty() {
         compat.reach["sharedKeys"] = Value::Object(shared);
     }
@@ -594,6 +606,21 @@ mod tests {
             json!({"NSSpeechRecognitionUsageDescription": {"en": "Transcribes."}})
         );
         assert_eq!(ios.reach["entitlements"], json!([]));
+    }
+
+    #[test]
+    fn background_lines_derive_ios_modes_and_the_refresh_identifier() {
+        // LLP 1133.017 D14: one mode and one identifier for both lines; the Mac needs neither.
+        let dir = app(&[("en", "{}")]);
+        let grants = "device.background-sync\ndevice.periodic-background-sync";
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(ios.reach["backgroundModes"], json!(["fetch"]));
+        assert_eq!(ios.reach["tasks"], json!(["refresh"]));
+        assert_eq!(ios.reach["usage"], json!({}));
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", &mut mac).unwrap();
+        assert!(mac.reach.get("backgroundModes").is_none());
     }
 
     #[test]

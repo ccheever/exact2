@@ -128,7 +128,7 @@ impl<D: DataSource> Presenter<D> {
             self.scroll.insert(id, next);
             self.scroll_end_input(id, off, Completion::Instant);
             self.dirty = true;
-            self.collection_scrolled(id);
+            self.collection_scroll_input(id, off);
         }
     }
 
@@ -247,7 +247,7 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll_end_input(a, off, Completion::Instant);
                 }
                 self.dirty = true;
-                self.collection_scrolled(a);
+                self.collection_scroll_input(a, off);
             }
         }
         if let Some(target) = self.box_of(id) {
