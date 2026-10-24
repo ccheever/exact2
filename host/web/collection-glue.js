@@ -69,6 +69,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   // A `scrollIntoView` under way (LLP 1070.000 §2.5): the port's moves are
   // its own and the browser's clamps, never travel, until the reader's input.
   const authored = s => s.seeking && !s.input;
+  // The port still moving on the browser's own momentum (a fling's), or
+  // under a finger that came down before the request: it moved by itself
+  // within `REST` ms. UIKit does not move a decelerating list, and Chrome's
+  // fling outlives an instant `scrollTo` and would carry the port off the
+  // request's destination. A request's correction waits in `s.deferred` and
+  // lands when the port rests, `REST` ms with no move, even if the request
+  // ended meanwhile (two reports found the fling passing its destination).
+  // Not at `scrollend`: in drives with CDP's touch input, Chrome sent one
+  // while a fling still ran. The reader's input drops it (`touched`).
+  const REST = 100;
+  const coasting = s => authored(s) && s.animating == null && s.movedAt != null && now() - s.movedAt < REST;
   // Nor while a smooth correction animates (LLP 1070.000 §11).
   const velocity = s => !authored(s) && s.animating == null && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
@@ -199,6 +210,39 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     s.animating = s.owed = null; s.travel = null;
     place(s, s.port[AXES[s.axis].offset], false);
   }
+  // A request's correction where the port is now: by its offset from the
+  // port's start (`g.raw`), which also handles a list below siblings in its port.
+  function land(s, correction, g) {
+    const name = AXES[s.axis].offset, to = s.port[name] + correction.offset - g.raw;
+    if (correction.smooth === true && !agent) animate(s, to);
+    else {
+      stopAnimation(s);
+      place(s, to, false);
+      s.offset = s.port[name]; // consume the programmatic scroll echo
+    }
+    s.travel = null; // a correction is not the reader's travel (LLP 1070.000 §2.5)
+  }
+  // The port came to rest with a request's correction waiting: it lands now,
+  // and the next report judges it. A hidden list keeps it until it shows.
+  function rested(s) {
+    const correction = s.deferred, g = correction == null ? null : geometry(s);
+    if (correction == null || s.input || !states.has(s.snapshot.view)) { s.deferred = null; return; }
+    if (!g) { awaitRest(s); return; }
+    s.deferred = null;
+    scrollChanged(s);
+    land(s, correction, g);
+    enqueue(s, true);
+  }
+  function awaitRest(s) {
+    if (s.restFrame != null) return;
+    const tick = () => {
+      s.restFrame = null;
+      if (s.deferred == null) return;
+      if (now() - (s.movedAt ?? -Infinity) >= REST) rested(s);
+      else s.restFrame = requestFrame(tick);
+    };
+    s.restFrame = requestFrame(tick);
+  }
   function scrollChanged(s) {
     const A = AXES[s.axis], at = s.port[A.offset];
     if (at === s.offset) return false;
@@ -217,7 +261,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       s.clamp = { from: s.clamp?.from ?? s.offset, at }; s.offset = s.clampAt = at;
       return false;
     }
-    s.clamp = s.clampAt = null; s.offset = at; s.sequence++; s.exact = null; // the reader's own scroll
+    s.clamp = s.clampAt = null; s.offset = at; s.sequence++; s.exact = null; s.movedAt = now(); // the reader's own scroll
     return true;
   }
   function desired(s) {
@@ -340,6 +384,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     s.port.removeEventListener('scroll', s.scrolled);
     s.ackTarget?.removeEventListener('scroll', s.acked, { capture: true });
     s.port.removeEventListener('scrollend', s.scrollEnded);
+    if (s.restFrame != null) { cancelFrame(s.restFrame); s.restFrame = null; }
+    s.deferred = null;
     s.el.style.overflowAnchor = s.anchor;
     for (const name of INPUT) s.port.removeEventListener(name, s.touched);
     states.delete(s.snapshot.view);
@@ -439,7 +485,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           // A smooth correction's ticks are never sampled as travel.
           s.scrolled = () => { const animated = s.animating != null, changed = scrollChanged(s); if (!animated) sample(s); if (changed) enqueue(s, true); };
-          s.touched = () => { s.input = true; stopAnimation(s); };
+          // A held correction is dropped; a report asks the runner where the
+          // port is now, whose correction lands as an ordinary one.
+          s.touched = () => { s.input = true; if (s.deferred != null) { s.deferred = null; s.signature = null; enqueue(s, true); } stopAnimation(s); };
           for (const name of INPUT) port.addEventListener(name, s.touched, { passive: true });
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
@@ -502,6 +550,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         scrollChanged(s); // catches new user scroll before its scroll event runs
         if (snapshot.seeking && !s.seeking) s.input = false;
         s.seeking = snapshot.seeking === true;
+        if (s.input) s.deferred = null;
         const correction = snapshot.correction;
         // An anchor's correction (`from`) is relative: the rows before the
         // anchor moved by `offset - from` in this commit, so the port moves
@@ -551,7 +600,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         if (correction && s.corrected !== snapshot.revision
             && (BigInt(correction.scrollSequence) === s.sequence || authored(s))
             && Number.isFinite(correction.offset)) {
-          const g = geometry(s), name = AXES[axis].offset;
+          const g = geometry(s);
           // H4: a row list moving under the user's hand is not corrected;
           // its next report carries the uncorrected offset and the runner
           // re-anchors from that. Vertical lists correct as before.
@@ -564,15 +613,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           const planned = BigInt(correction.scrollSequence) === s.sequence;
           if (g && !moving && (planned || s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
-            // Relative conversion also handles a list below siblings in its port.
-            const to = port[name] + correction.offset - g.raw;
-            if (correction.smooth === true && !agent) animate(s, to);
-            else {
-              stopAnimation(s);
-              place(s, to, false);
-              s.offset = port[name]; // consume the programmatic scroll echo
-            }
-            s.travel = null; // a correction is not the reader's travel (LLP 1070.000 §2.5)
+            if (s.deferred != null || coasting(s)) { s.deferred = correction; awaitRest(s); }
+            else land(s, correction, g);
           }
         }
         observe(s);
@@ -649,7 +691,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     // settle waits for those frames before it says settled.
     owedScrolls() {
       let n = 0;
-      for (const s of states.values()) if (s.owesScroll) n++;
+      // A correction waiting for the port to rest is a move still owed.
+      for (const s of states.values()) if (s.owesScroll || s.deferred != null) n++;
       return n;
     },
     scrollsFired: () => scrollsFired,
