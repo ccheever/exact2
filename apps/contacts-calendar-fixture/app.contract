@@ -1,0 +1,63 @@
+// @exact/contacts' and @exact/calendar's fixture on Android (LLP 1133.018
+// stage 3): the Calendar example has no Android crate, so this is the
+// packages' consumer there. Both statuses, a page of contacts, the calendars
+// and two months of occurrences are read at launch (each read asks
+// permission while `prompt`); Pick, Save, Add with the editor and Full access
+// send the rest.
+use contactsStatus, queryContacts, selectContacts, ContactsStatus, ContactPage, ContactSelection, ContactInfo from "@exact/contacts"
+use calendarStatus, calendars, calendarEvents, saveEvent, showEventEditor, requestFullCalendarAccess, CalendarStatus, CalendarList, EventPage, CalendarEvent, EventEditorResult from "@exact/calendar"
+
+// 08:00 to 08:30 UTC on 16 September 2026.
+fn sample(): CalendarEvent = CalendarEvent(id=none, uid=none, calendarId=none, title="Fixture event", description=some("Written by the fixture."), start="2026-09-16T08:00:00", timeZone=some("UTC"), duration="PT30M", showWithoutTime=false, location=none, url=none, status="confirmed", freeBusyStatus="busy", recurrenceId=none, utcStart=none, utcEnd=none, apple=none)
+
+fn named(c: ContactInfo): string = match c.name { case some(n) => n.join(" "), case none => "-" }
+
+component Fixture
+  resource people = contactsStatus() as shape ContactsStatus else empty()
+  resource days = calendarStatus() as shape CalendarStatus else empty()
+  resource found = queryContacts(properties=["name", "email"]) as shape ContactPage else empty()
+  resource list = calendars() as shape CalendarList else empty()
+  // September and October 2026, UTC.
+  resource events = calendarEvents(start=1788220800000, end=1793491200000) as shape EventPage else empty()
+  mutation chosen as shape ContactSelection
+  mutation saved as shape CalendarEvent
+  mutation edited as shape EventEditorResult
+  mutation raised as shape CalendarStatus
+  action pick
+    send chosen = selectContacts(properties=["name", "email"], multiple=true)
+  action save
+    send saved = saveEvent(event=sample())
+  action edit
+    send edited = showEventEditor(event=sample())
+  action raise
+    send raised = requestFullCalendarAccess()
+  view
+    column gap=8 padding=16
+      text `${people.state} ${people.access}` testId="contacts-status"
+      text `${days.state} ${days.access}` testId="calendar-status"
+      text found.contacts.map((c) => named(c)).join(", ") testId="contacts"
+      text list.calendars.map((c) => c.title).join(", ") testId="calendars"
+      text events.events.map((e) => e.title).join(", ") testId="events"
+      button press=pick testId="pick"
+        text "Pick"
+      button press=save testId="save"
+        text "Save"
+      button press=edit testId="edit"
+        text "Add with the editor"
+      button press=raise testId="raise"
+        text "Full access"
+      match chosen
+        case some(s)
+          text s.contacts.map((c) => named(c)).join(", ") testId="chosen"
+        case none
+          text "none" testId="chosen"
+      match saved
+        case some(e)
+          text `${e.title} ${match e.timeZone { case some(z) => z, case none => "floating" }}` testId="saved"
+        case none
+          text "" testId="saved"
+      match edited
+        case some(r)
+          text r.action testId="edited"
+        case none
+          text "" testId="edited"

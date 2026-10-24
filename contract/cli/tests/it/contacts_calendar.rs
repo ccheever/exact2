@@ -438,3 +438,84 @@ fn the_bake_names_a_store_name_without_its_line() {
     let said = warned(&App::new("bake-pick", CONTACTS));
     assert!(!said.contains("selectContacts"), "{said}");
 }
+
+/// Android's `WRITE_CALENDAR` follows a name that writes, under a line the
+/// app grants (D11): an app that only reads its calendar derives none.
+#[test]
+fn a_writing_name_derives_android_s_write_permission() {
+    const READS: &str = r#"use calendarStatus, calendars, CalendarStatus, CalendarList from "@exact/calendar"
+
+component App
+  resource status = calendarStatus() as shape CalendarStatus
+  resource list = calendars() as shape CalendarList
+  view
+    column
+      text status.access
+"#;
+    let plan = |name: &str, source: &str| {
+        let app = App::new(name, source);
+        contract::compile_path_all(&app.0.join("app.contract"), false)
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .0
+    };
+    // The plan holds every name of a module used; what the app calls is its source's.
+    let reads = plan("writes-none", READS);
+    let writes = plan("writes", CALENDAR);
+    let used = |source: &'static str| move |name: &str| source.contains(name);
+    let derive = contract::native::android_write_permissions;
+    let full = Some("device.calendar calendarPurpose");
+    assert!(derive(&reads, full, used(READS)).is_empty());
+    assert_eq!(
+        derive(&writes, full, used(CALENDAR)),
+        ["android.permission.WRITE_CALENDAR"]
+    );
+    assert_eq!(
+        derive(&writes, None, used(CALENDAR)),
+        ["android.permission.WRITE_CALENDAR"]
+    );
+    // The write-only line derives both itself; no granted line, nothing.
+    let write_only = Some("device.calendar-write-only calendarPurpose");
+    assert!(derive(&writes, write_only, used(CALENDAR)).is_empty());
+    assert!(derive(&writes, Some(""), used(CALENDAR)).is_empty());
+}
+
+/// The Android entry finds a writing name in the app's source, the
+/// Contract's or the data crate's binding call, and writes what it derives.
+#[test]
+fn the_android_entry_writes_what_the_names_derive() {
+    let entry = |name: &str, source: &str, rust: Option<&str>| {
+        let app = App::new(name, source);
+        if let Some(rust) = rust {
+            std::fs::create_dir_all(app.0.join("data/src")).unwrap();
+            std::fs::write(app.0.join("data/src/lib.rs"), rust).unwrap();
+        }
+        let manifest = r#"{"name":"C","app":{"id":"test.cc","name":"C"}}"#;
+        std::fs::write(app.0.join("app.json"), manifest).unwrap();
+        let (plan, _) = contract::compile_path_all(&app.0.join("app.contract"), false)
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let out = app.0.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let compat = r#"{"inputs":{"grantCeiling":"device.calendar calendarPurpose"}}"#;
+        std::fs::write(out.join("compat.json"), compat).unwrap();
+        let manifest = contract::Manifest::read(&app.0).unwrap();
+        contract::native::android_entry(&app.0, &manifest, &plan, &out).unwrap();
+        std::fs::read_to_string(out.join("permissions.txt")).unwrap()
+    };
+    let reads = CALENDAR
+        .lines()
+        .filter(|l| !l.contains("saveEvent(") && !l.contains("action save"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("use calendarStatus, saveEvent,", "use calendarStatus,")
+        .replace("  mutation saved as shape CalendarEvent\n", "");
+    assert_eq!(entry("entry-reads", &reads, None), "");
+    assert_eq!(
+        entry("entry-contract", CALENDAR, None),
+        "android.permission.WRITE_CALENDAR"
+    );
+    let rust = "fn f() { calendar::save_event(&options); }";
+    assert_eq!(
+        entry("entry-rust", &reads, Some(rust)),
+        "android.permission.WRITE_CALENDAR"
+    );
+}

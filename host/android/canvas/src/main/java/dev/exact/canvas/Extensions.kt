@@ -222,6 +222,14 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
         return PermissionState(if (granted) "granted" else if (permanent) "denied" else "prompt", rationale, permanent)
     }
 
+    /**
+     * Start [intent] for its result (`Activity.startActivityForResult`), then [done] on the main thread with the
+     * result code and the result's data (LLP 1133.018 D13 item 2): a picker's or an editor's answer. A result that
+     * reaches an activity made again meanwhile settles the call, since the call is the process's. With no activity in
+     * front, or no app that handles [intent], nothing starts and [done] has `Activity.RESULT_CANCELED`.
+     */
+    fun startActivityForResult(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(intent, done)
+
     /** [requestPermissions] for [name], keeping the history [permission] reads. */
     fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) {
         val a = activity
@@ -272,6 +280,7 @@ class PermissionState(val state: String, val shouldShowRationale: Boolean, val p
 /** The process's extensions: made at their first call, they outlive the activities that show the app. */
 internal object Extensions {
     private const val CODE = 0x45584154 and 0xffff
+    private const val RESULTS = 0x5000
     private val written: ExtensionRoster? by lazy {
         val type = try { Class.forName("exact.app.ExactExtensions") } catch (e: ClassNotFoundException) { return@lazy null }
         type.getDeclaredConstructor().newInstance() as ExtensionRoster
@@ -456,6 +465,27 @@ internal object Extensions {
         asking = true
         activity.requestPermissions(permissions, CODE)
     }
+
+    /** The calls waiting on an activity's result ([ExtensionContext.startActivityForResult]), by request code. */
+    private val results = HashMap<Int, (Int, android.content.Intent?) -> Unit>()
+    private var started = 0
+
+    fun start(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) {
+        val activity = Exact.reader?.get()
+        if (activity == null || !foreground) return done(Activity.RESULT_CANCELED, null)
+        // Request codes of their own range, apart from the permission request's [CODE].
+        val code = RESULTS + (started++ % 0x1000)
+        results[code] = done
+        try {
+            activity.startActivityForResult(intent, code)
+        } catch (e: android.content.ActivityNotFoundException) {
+            results.remove(code)
+            done(Activity.RESULT_CANCELED, null)
+        }
+    }
+
+    /** [Activity.onActivityResult]: the answer of the call that started it, if this process made one. */
+    fun activityResult(code: Int, result: Int, data: android.content.Intent?) { results.remove(code)?.invoke(result, data) }
 
     private fun settle() {
         asking = false
