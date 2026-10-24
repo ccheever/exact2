@@ -580,7 +580,8 @@ impl<D: DataSource> Runner<D> {
                     break;
                 }
                 input.next += 1;
-                if self.hidden_at(t) {
+                // The page hidden, or the canvas by its lease (`fed.rs`): a gap.
+                if self.hidden_at(t) || self.fed_paused(&input.surface) {
                     input.dropped += 1;
                     continue;
                 }

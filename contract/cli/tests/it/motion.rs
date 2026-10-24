@@ -376,3 +376,103 @@ fn each_source_s_readers_keep_their_cursors() {
         );
     }
 }
+
+/// D6's lease, under the substitute and to a bound implementation: a canvas
+/// hidden pauses its input, which counts the gap; shown again by a tool's
+/// commit it stays paused; shown by the app's, it resumes. A bound
+/// implementation is told each change with its commit's origin.
+#[test]
+fn a_canvas_input_is_leased_while_its_canvas_is_displayed() {
+    let src = APP
+        .replace(
+            "  state rate = 200",
+            "  state rate = 200\n  state hidden = false",
+        )
+        .replace(
+            "  action retune",
+            "  action hide\n    hidden = true\n  action show\n    hidden = false\n  action retune",
+        )
+        .replace(
+            "canvas surface=world()",
+            r#"canvas surface=world() display=(hidden ? "none" : "block")"#,
+        );
+    let app = App::new("lease", &src);
+    let mut r = boot(&app);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    r.act("tilt", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(r.surface_sensor_events(0.0).len(), 1);
+    let world = |r: &Runner<Granted>| {
+        let state: Json = serde_json::from_str(&r.extensions_json().unwrap()).unwrap();
+        state["motion"]["surfaces"]["world"].clone()
+    };
+    let sensors = |events: &[(String, String)]| {
+        (events.iter())
+            .map(|(_, e)| serde_json::from_str::<Json>(e).unwrap())
+            .filter(|e| e["t"] == "sensor")
+            .collect::<Vec<_>>()
+    };
+    r.act("hide", Vec::new()).unwrap();
+    r.advance(500.0).unwrap();
+    assert!(sensors(&r.surface_sensor_events(500.0)).is_empty());
+    let paused = json!({ "displayed": false, "origin": "app", "paused": true });
+    assert_eq!(world(&r), paused, "{}", logs(&r));
+    r.act_from(CallOrigin::Tool, "show", Vec::new()).unwrap();
+    r.advance(500.0).unwrap();
+    let shown = sensors(&r.surface_sensor_events(1000.0));
+    assert!(
+        shown.is_empty(),
+        "shown by a tool, it stays paused: {shown:?}"
+    );
+    let by_tool = json!({ "displayed": true, "origin": "tool", "paused": true });
+    assert_eq!(world(&r), by_tool);
+    r.act("hide", Vec::new()).unwrap();
+    r.act("show", Vec::new()).unwrap();
+    r.advance(500.0).unwrap();
+    let resumed = sensors(&r.surface_sensor_events(1500.0));
+    assert_eq!(resumed.len(), 30, "{resumed:?}");
+    assert_eq!(resumed[0]["dropped"], 60, "the paused second's samples");
+    assert_eq!(world(&r)["paused"], false);
+
+    // Bound, the implementation keeps the lease; it is told each change.
+    let mut r = boot(&app);
+    type Told = std::sync::Arc<std::sync::Mutex<Vec<Json>>>;
+    let told: Told = Default::default();
+    let seen = told.clone();
+    r.native_slot().host(Some(std::sync::Arc::new(
+        move |body: Vec<u8>, reply: Reply| {
+            let body = serde_json::from_slice(&body).unwrap();
+            seen.lock().unwrap().push(body);
+            drop(reply);
+        },
+    )));
+    r.bind_extensions(&["motion"], &[]);
+    let reports = || {
+        (told.lock().unwrap().drain(..))
+            .filter(|b| b["surface"].is_string())
+            .map(|b| {
+                let origin = b["origin"].as_str().unwrap_or_default();
+                format!(
+                    "{} {} {origin}",
+                    b["surface"].as_str().unwrap(),
+                    b["displayed"]
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    r.act("hide", Vec::new()).unwrap();
+    r.act("tilt", Vec::new()).unwrap();
+    assert_eq!(reports(), ["world false app"], "a start on a hidden canvas");
+    r.act_from(CallOrigin::Tool, "show", Vec::new()).unwrap();
+    r.act("hide", Vec::new()).unwrap();
+    r.act("show", Vec::new()).unwrap();
+    let told = reports();
+    assert_eq!(
+        told,
+        ["world true tool", "world false app", "world true app"]
+    );
+    r.act("untilt", Vec::new()).unwrap();
+    r.act("hide", Vec::new()).unwrap();
+    assert!(reports().is_empty(), "no input, no report");
+}
