@@ -2987,8 +2987,9 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   So the `font` shorthand lowers to only `font-style` and `font-size`. That is what lets C's type
   tokens write only the longhands they name.
 - **`layout` and inspect** name a row's source `style` or `heading`.
-- **Headings** keep an implied emphasized weight through one switch, `HEADING_BOLD` (final,
-  Charlie 2026-10-19: 700 for levels 1 and 2, 600 for level 3).
+- **Headings** keep their platform text style's weight on native hosts. Web, neutral and terminal
+  looks emphasize title headings through the schema's metrics: 700 for levels 1 and 2,
+  600 for level 3. An authored weight wins.
 - **Bold Text** weights the system font by UIKit's measured step (400→600, 600→800, 700 and above
   →900), and leaves a bundled family alone. iOS and Android read the setting; the Mac and the web
   have none. Android's toggle is compiled and unit-tested but not observed on the emulator.
