@@ -1168,9 +1168,10 @@ module facade, the app's generated data keys, every file in `modules/apple/` (th
 `composer`, `menus` and `panels-native` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
-directory's sources, and every one Exact's `host/apple/modules/ExactTamber.swift` and
-`ExactExtensions.swift` with an empty extension table (`ExactComposed.swift`, as
-`host/apple/build.mjs` composes it for an app that uses no package's extension).
+directory's sources, and every one the rest of Exact's module seam
+(`host/apple/compose.mjs`'s `moduleSeam`: `ExactNativeViews.swift`, `ExactTamber.swift`,
+`ExactExtensions.swift`) with empty extension and view tables (`ExactComposed.swift`, as
+`host/apple/build.mjs` composes it for an app that uses no package).
 `EXACT_ASSETS` must be an absolute path: the modules resolve their bundled assets under that
 root. Run from the repository root:
 
@@ -1178,12 +1179,12 @@ root. Run from the repository root:
 X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
 R="$PWD/target/t3-tests"; mkdir -p "$R"; export T3_APP_DIR="$PWD/examples/t3-code"
 T3_DK="$R" bun -e 'import { writeDataKeys } from "./host/apple/data-keys.mjs"; import manifest from "./examples/t3-code/app.json"; writeDataKeys({ manifest }, process.env.T3_DK + "/ExactDataKeys.swift");'
-echo 'let exactExtensions: [String: (ExactModuleContext) -> ExactExtensionAdapter] = [:]' > "$R/ExactComposed.swift"
+T3_DK="$R" bun -e 'import { composedModule } from "./host/apple/compose.mjs"; await Bun.write(process.env.T3_DK + "/ExactComposed.swift", composedModule([], true));'
 for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
   M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|panels-native) M=$(echo "$M" | grep -v /T3Module);; esac
-  T="host/apple/modules/ExactTamber.swift host/apple/modules/ExactExtensions.swift $R/ExactComposed.swift"
+  T="host/apple/modules/ExactNativeViews.swift host/apple/modules/ExactTamber.swift host/apple/modules/ExactExtensions.swift $R/ExactComposed.swift"
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue

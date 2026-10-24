@@ -367,7 +367,7 @@ component PrdBody
               PrdTimeline(timeline=detail.timeline, order=timelineOrder, pending=detail.activityPending, error=detail.activityError, choices=detail.writes.reactionChoices, scope=scrollId, documents=documents, code=detail.code, env=detail.md, still=still, local=textLocal, act=act, retry=act("activity-retry", "timeline"), openCommit=openCommit)
           if detail.guide.enabled
             column position="absolute" left=0 top=0 width="100%" height="100%" visibility=(current == "guide" ? "visible" : "hidden") role="tabpanel" aria-label="Guide" testId="pull-request-guide-panel"
-              GuideTour(guide=detail.guide, width=width, scheme=scheme, still=still, navigate=guideNavigate, write=act("guide-write", ""), ask=guideAsk, finish=guideFinish, documents=documents, code=detail.code, env=detail.md, local=textLocal)
+              GuideTour(guide=detail.guide, width=width, scheme=scheme, still=still, showStop=guideNavigate, write=act("guide-write", ""), ask=guideAsk, finish=guideFinish, documents=documents, code=detail.code, env=detail.md, local=textLocal)
                 GuideDiffs(view=detail.guideDiff, ref=detail.ref, width=width, surface=surface, scheme=detail.diffScheme, env=detail.md, handoffs=detail.handoffs, choices=detail.writes.reactionChoices, documents=documents, highlights=detail.code, still=still, local=local, act=act, reveal=guideReveal)
           // Mounted once opened, so its slices, offset and draft survive a visit to another tab.
           if current == "code" or detail.codeTab.mounted
