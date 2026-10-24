@@ -430,6 +430,7 @@ test "a 1.17 server edits a held import's value in place (edit-held): no ops sen
   expect tree has "held-edited-1"
   expect text "held-title-edited-1" == "agent:codex imports a shadcn theme"
   expect text "held-edited-edited-1" == "Edited by design-tool:Ada"
+  expect text "held-replaces-edited-1" == "Held again from imp with your edit, on the files as they are now: review its diff, then accept it."
   request POST "/__stub/restart" {} as ada
 test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
   type "name" "Ada"
