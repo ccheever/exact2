@@ -461,3 +461,94 @@ test('lists opened at their ends report only their ends while their rows measure
     expect(heard).toEqual(heard.map(() => 0));
   }
 }, 60_000);
+
+// A touch fling outlives an instant `scrollTo` in Chrome: a jump to the end
+// made while the reader's fling still runs waits for the fling to end, then
+// lands, as UIKit's deceleration does (collection-glue.js `coasting`).
+test('a jump that meets a touch fling lands at the end once the fling ends', async () => {
+  const at = await evaluate(`(async () => {
+    const port = document.createElement('div'); port.id = 'fling-feed';
+    port.style.cssText = 'position:fixed;top:0;left:0;height:400px;width:300px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    const own = rt.scope(() => list.vl(port, () => Array.from({length:300}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '60px'; w.append(row);
+    }, {est:60, pw:[], ph:[400]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    rt.Hosts.scrollIntoView('fling-feed', 299, null, null, 'instant', null, 1000000);
+    await exact.lists.settle();
+    for (let f = 0; f < 4; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    globalThis.fling = {port, own};
+    return {top: port.scrollTop};
+  })()`);
+  expect(at.top).toBeGreaterThan(0);
+  // A finger dragging the content down 500 px in 60 ms, then lifting: Chrome
+  // flings on toward the start.
+  const t0 = Date.now() / 1000, x = 150, y = 100;
+  await call('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:[{x, y}], timestamp:t0});
+  for (let i = 1; i <= 4; i++) {
+    await call('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:[{x, y: y + 125 * i}], timestamp:t0 + 0.015 * i});
+    await new Promise(r => setTimeout(r, 15));
+  }
+  await call('Input.dispatchTouchEvent', {type:'touchEnd', touchPoints:[], timestamp:t0 + 0.068});
+  const result = await evaluate(`(async () => {
+    const {port, own} = fling;
+    const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    for (let f = 0; f < 3; f++) await frame();
+    const moving = port.scrollTop, gaps = [];
+    port.addEventListener('scroll', () => gaps.push(port.scrollHeight - port.scrollTop - port.clientHeight));
+    rt.Hosts.scrollIntoView('fling-feed', 299, null, null, 'instant', null, 1000000);
+    // Until the request ends and the port stops: no move in 20 frames.
+    let last = NaN, still = 0;
+    for (let f = 0; f < 600 && still < 20; f++) {
+      await frame();
+      const status = exact.lists.intoView().find(s => s.key === 'n:299')?.status;
+      still = status !== 'pending' && port.scrollTop === last ? still + 1 : 0;
+      last = port.scrollTop;
+    }
+    const status = exact.lists.intoView().find(s => s.key === 'n:299')?.status;
+    const gap = port.scrollHeight - port.scrollTop - port.clientHeight;
+    rt.end(own); port.remove(); rt.settled(); delete globalThis.fling;
+    // The scroll events' distances from the end: the fling's, moving away,
+    // then the landing, after which nothing moves the port off the end.
+    const landing = gaps.indexOf(0), coast = gaps.slice(0, landing);
+    return {moving, status, gap, landing, receding: coast.every((g, i) => i === 0 || g >= coast[i - 1]),
+      pulled: gaps.slice(landing).filter(g => g !== 0), gaps: gaps.join(' ')};
+  })()`);
+  expect(result.moving).toBeLessThan(at.top - 500);
+  expect(result.status).toBe('done');
+  expect(result.gap).toBe(0);
+  expect(result.landing).toBeGreaterThan(0);
+  expect({receding: result.receding, gaps: result.gaps}).toEqual({receding: true, gaps: result.gaps});
+  expect(result.pulled).toEqual([]);
+}, 60_000);
+
+// The glue alone, its clock and frames in the test's hands: a request's
+// correction meeting a port that moved by itself within 100 ms waits, a newer
+// one replacing it, and lands once the port has rested that long. It
+// outlives the request two reports ended as a fling passed its destination,
+// and a hidden list (it lands once shown); the reader's input drops it and
+// asks the runner again.
+test('a held correction lands at rest, after its request ended or its list showed again, and input drops it', async () => {
+  const result = await evaluate(`import('/collection-glue.js').then(({ collectionController }) => {
+    let clock = 1000; const root = document.getElementById('exact-root'), frames = [], seen = [];
+    root.insertAdjacentHTML('beforeend', '<div id="hold" data-view="1" style="height:180px;width:320px;overflow:auto"><div data-view="2" style="height:40px"></div><div data-view="4" style="height:60px"></div><div style="height:5000px"></div></div>');
+    const list = document.getElementById('hold'), views = new Map([[1, list], [2, list.children[0]], [4, list.children[1]]]);
+    const controller = collectionController({ root, views, now: () => clock, requestFrame: fn => frames.push(fn), cancelFrame() {}, report: (b, facts) => { seen.push(facts.offset); } });
+    const snapshot = (revision, extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 5100, count: 100, correction: null,
+      rows: [{ view: 2, root: 2, index: 0, start: 0, size: 40, epoch: '1' }, { view: 4, root: 4, index: 1, start: 40, size: 60, epoch: '1' }], ...extra });
+    const run = () => frames.splice(0).forEach(fn => fn()), move = top => { list.scrollTop = top; list.dispatchEvent(new Event('scroll')); run(); };
+    const hold = (revision, offset) => controller.commit([snapshot(String(revision), { seeking: true, correction: { scrollSequence: String(revision), offset } })]);
+    controller.commit([snapshot('1')]); run();
+    move(300); hold(2, 900); const held = list.scrollTop, owed = controller.owedScrolls();
+    clock += 50; move(280); hold(3, 950); clock += 50; run(); const moving = list.scrollTop;
+    clock += 50; run(); const landed = list.scrollTop; list.dispatchEvent(new Event('scroll')); const after = controller.owedScrolls();
+    move(320); hold(4, 600); controller.commit([snapshot('5')]); clock += 200; run(); const ended = list.scrollTop;
+    move(340); hold(6, 700); list.style.display = 'none'; clock += 200; run(); const hidden = controller.owedScrolls();
+    list.style.display = ''; run(); const shown = list.scrollTop;
+    move(360); hold(7, 1200); const reports = seen.length; list.dispatchEvent(new KeyboardEvent('keydown')); run();
+    clock += 200; run(); const dropped = list.scrollTop, asked = seen.length > reports;
+    controller.dispose(); list.remove();
+    return { held, owed, moving, landed, after, ended, hidden, shown, dropped, asked };
+  })`);
+  expect(result).toEqual({ held: 300, owed: 1, moving: 280, landed: 950, after: 0, ended: 600, hidden: 1, shown: 700, dropped: 360, asked: true });
+}, 60_000);

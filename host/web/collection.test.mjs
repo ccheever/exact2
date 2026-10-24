@@ -506,12 +506,12 @@ test('a reply that leaves rows pending continues one report a frame, then goes i
     return {reports:f.reports.length,peak,pending:f.frames.size}; })()`);
   expect(result).toEqual({ reports: 4, peak: 1, pending: 0 });
 });
-function jumpFixture() {
+function jumpFixture(now) {
   const root = document.getElementById('root');
   root.innerHTML = `<div data-view="1" style="height:180px;width:320px;overflow:auto"><div data-view="2" style="height:40px"></div><div data-view="4" style="height:60px"></div><div style="height:5000px"></div></div>`;
   const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
   const list = views.get(1), frames = [], seen = [];
-  const controller = createController({ root, views, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
+  const controller = createController({ root, views, ...(now ? { now } : {}), requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
     report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       seen.push({ reported: d.getFloat64(24, true), sequence: String(d.getBigUint64(16, true)), limit: d.getUint32(88, true), velocity: d.getFloat64(80, true), shown: list.scrollTop });
@@ -562,9 +562,9 @@ test('an anchor correction after the extent shrank under the port moves from whe
   expect(result.top).toBe(1000);
 });
 test('a scrollIntoView correction applies across the browser\'s own moves until the reader\'s input', async () => {
-  const result = await evaluate(`(() => { const f=(${jumpFixture})();
+  const result = await evaluate(`(() => { globalThis.clock=1000; const f=(${jumpFixture})(() => globalThis.clock);
     f.list.scrollTop=300; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
-    f.controller.commit([f.snapshot('2',{seeking:true,correction:{scrollSequence:'0',offset:900}})]); const authored=f.list.scrollTop;
+    globalThis.clock=1200; f.controller.commit([f.snapshot('2',{seeking:true,correction:{scrollSequence:'0',offset:900}})]); const authored=f.list.scrollTop;
     f.list.dispatchEvent(new WheelEvent('wheel')); f.list.scrollTop=700; f.list.dispatchEvent(new Event('scroll'));
     f.controller.commit([f.snapshot('3',{seeking:true,correction:{scrollSequence:'0',offset:950}})]);
     return {authored,taken:f.list.scrollTop}; })()`);

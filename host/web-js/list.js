@@ -720,7 +720,7 @@ class Collection {
     const p = this.index.pos.get(key), g = this.geometry;
     const offset = this.aligned(p, align, g ? g.offset : this.startOffset, within);
     this.restoredAt = null; this.atEnd = false;
-    this.target = { key, align, offset: within, reports: 0, travelling: 0, aligned: 0 };
+    this.target = { key, align, offset: within, reports: 0, travelling: 0, aligned: 0, planned: offset, held: 0 };
     this.status = [key, "pending"];
     if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
     else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
@@ -737,7 +737,12 @@ class Collection {
   }
   /** After a report's measurements: where the target now aligns, judged
    * where the host says the port is; done when it holds for two reports
-   * with every row up to it measured, else corrected, six times at most. */
+   * with every row up to it measured, else corrected, six times at most.
+   * A correction counts when the port is where the last one put it (to a
+   * pixel, as WebKit rounds): elsewhere, the host has not landed it (it
+   * holds one while the port coasts on the reader's momentum); 240 such
+   * reports in all, about two seconds of frames, end it too (a destination
+   * the host cannot reach, as it clamps, is never landed). */
   settleIntoView(reported) {
     const t = this.target, g = this.geometry;
     if (!t) return;
@@ -752,10 +757,12 @@ class Collection {
       return;
     }
     t.aligned = 0;
-    if (t.reports >= 6) return this.end("unconverged");
+    const counts = Math.abs(reported - t.planned) <= 1;
+    if (counts ? t.reports >= 6 : t.held >= 240) return this.end("unconverged");
     g.offset = desired;
     this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
-    t.reports++;
+    if (counts) t.reports++; else t.held++;
+    t.planned = desired;
   }
   edge() {
     const reached = [false, false], g = this.geometry;
