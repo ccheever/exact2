@@ -545,6 +545,20 @@ impl<D: DataSource> Runner<D> {
                 self.force_refresh(r);
             }
         }
+        // What this commit replaces in flight leaves `pending` before the
+        // settlement, whose flags follow the tickets: a derive or gate reads
+        // it as no longer pending, as above. The checkpoint puts it back.
+        let replacing: Vec<usize> = (assigned.iter().chain(&landed_now).chain(&replaced))
+            .chain(&failed_now)
+            .copied()
+            .filter(|m| !self.plan.mutations[*m].queue)
+            .collect();
+        let mut let_go = Vec::new();
+        for m in replacing {
+            if let Some(pos) = (self.pending.iter()).position(|p| p.target == Target::Mutation(m)) {
+                let_go.push((self.pending.remove(pos).ticket, m));
+            }
+        }
         // A refusal from here is put back by the checkpoint (run_action);
         // row slots live in the tree, so they are undone here. The gate
         // step joins this path (LLP 1092 D8): before `enqueue` and
@@ -570,6 +584,13 @@ impl<D: DataSource> Runner<D> {
                 };
             }
             return Err(e);
+        }
+        for (ticket, m) in let_go {
+            self.forgot = true;
+            self.log(super::lines::forgot(
+                ticket,
+                &self.target_name(Target::Mutation(m)),
+            ));
         }
         for (rows, slot, _) in &row_undo {
             self.row_writes.record(frames, rows, *slot);

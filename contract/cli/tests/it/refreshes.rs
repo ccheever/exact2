@@ -307,3 +307,59 @@ fn a_mutation_answered_at_once_forces_its_network_resource_in_that_commit() {
     assert_eq!(sent[0].target, "feed");
     assert!(sent[0].forced && !r.holds(loading));
 }
+
+/// A send answered at once replaces the request in flight before the
+/// settlement its refresh asks for: the derives and gates of that commit
+/// read the mutation as no longer pending, though the settlement hands out
+/// a request (LLP 1092 D8 runs the gate step once per commit).
+#[test]
+fn a_send_answered_at_once_is_not_pending_to_the_gates_of_its_commit() {
+    let src = r#"
+shape Msg
+  text: string
+
+component App
+  state token = "a"
+  state n = 0
+  mutation fav as shape Msg refreshes feed
+  resource feed = feed(0, token) as shape Msg[]
+  action favor
+    send fav = like()
+  action settle
+    send fav = star()
+  action tick
+    n = n + 1
+  task t when not pending(fav)
+    after(1000, tick)
+
+  view
+    text (pending(fav) ? "pending" : "idle") testId="fav"
+"#;
+    let baked = contract::bake(contract::compile(src).unwrap(), Chat::default()).unwrap();
+    let data = Chat {
+        live: true,
+        ..Chat::default()
+    };
+    let mut r = Runner::boot(
+        baked,
+        data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.take_requests();
+    r.act("favor", vec![]).unwrap();
+    let like = r.take_requests()[0].ticket;
+    assert_eq!(text(&r, "fav"), "pending");
+    assert_eq!(r.timer_due_ms(), None);
+    r.act("settle", vec![]).unwrap();
+    let asked = r.take_requests();
+    assert!(asked.iter().any(|q| q.target == "feed"), "{asked:?}");
+    assert!(!r.holds(like), "the newer send replaced it");
+    assert_eq!(text(&r, "fav"), "idle");
+    assert!(
+        r.timer_due_ms().is_some(),
+        "the gate turned true in this commit"
+    );
+}
