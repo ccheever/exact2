@@ -577,14 +577,23 @@ impl<D: DataSource> Presenter<D> {
             self.host.runner().delivery(),
             let_go,
         )?;
-        let (mut host, error) = Host::boot_with(
-            plan,
-            data,
-            Box::new(Measurer(candidate_text.clone())),
-            self.viewport.0,
-            self.viewport.1,
-            Some(&carried),
-            Some(self.host.runner().delivery().clone()),
+        let (mut host, error) = exact_runner::time::launching_with(
+            exact_runner::time::Launch {
+                time: Some(self.host.runner().wall_time()),
+                place: Some(self.host.runner().place().clone()),
+                ..exact_runner::time::Launch::NONE
+            },
+            || {
+                Host::boot_with(
+                    plan,
+                    data,
+                    Box::new(Measurer(candidate_text.clone())),
+                    self.viewport.0,
+                    self.viewport.1,
+                    Some(&carried),
+                    Some(self.host.runner().delivery().clone()),
+                )
+            },
         )?;
         if let Some(error) = error {
             return Err(HostError::Layout(error));
