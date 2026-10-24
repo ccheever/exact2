@@ -3,7 +3,7 @@
 // of it; and the tool through a proxy in front of an app's design server.
 import { afterEach, beforeEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkoutPort, claimPort, takePort } from './port-lock.mjs';
@@ -51,6 +51,20 @@ beforeEach(async () => {
 afterEach(() => { stopAll(); givePort(); });
 }
 
+/** The slow lane (EXACT_SLOW_TESTS=1): the design server's real clocks, where other runs shorten them. */
+export const SLOW = process.env.EXACT_SLOW_TESTS === '1';
+/** The environment for a design server whose clocks a test shortens (tamber-timing.mjs: `{ POLL: 6000 }` is
+ * EXACT_TAMBER_POLL_MS), under the test switch; the slow lane's keeps the real clocks. */
+export const timed = knobs => (SLOW ? process.env : { ...process.env, EXACT_TAMBER_TEST_TIMING: '1', ...Object.fromEntries(Object.entries(knobs).map(([k, v]) => [`EXACT_TAMBER_${k}_MS`, String(v)])) });
+
+/** Signals a drive waits on (`clock +N real until <path>`, a real wait ended early once the file exists): files in a
+ * temp directory of this test's own, so no two runs share one. `pause(ms, n)` is the op for the n-th wait (N its
+ * bound, today's wait); `fire(n)` writes its file at the event; `drop()` removes the directory. */
+export function signals(name) {
+  const dir = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-signals-`));
+  return { pause: (ms, n) => `clock +${ms} real until ${join(dir, String(n))}`, fire: n => writeFileSync(join(dir, String(n)), ''), drop: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
 /** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
 export function lines(child) {
   const seen = [];
@@ -89,9 +103,10 @@ export async function drive(url, storage, ops, { keepStorage = false } = {}) {
  * the app's design server: the proxy records each write's file as the
  * server left it (read once its reply is in, so in the order written), and
  * calls `before(request)` before forwarding a request, so a hand edit lands
- * exactly between two of the tool's requests, with no timing. */
-export async function proxied(app, before = () => {}) {
-  const serve = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', app], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+ * exactly between two of the tool's requests, with no timing. `env` is the
+ * design server's (`timed(…)` for shortened clocks). */
+export async function proxied(app, before = () => {}, { env = process.env } = {}) {
+  const serve = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', app], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const origin = new URL(await lines(serve).until(l => /^http:\/\/127\.0\.0\.1:\d+\/__tamber$/.test(l), 600_000)).origin;
   const writes = [];
   const proxy = Bun.serve({ hostname: '127.0.0.1', port: 0, idleTimeout: 0, fetch: async req => {
