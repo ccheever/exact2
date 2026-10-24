@@ -161,11 +161,17 @@ private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, 
     let word = hatchText(mode, length)
     hatchSession(host)?.log("audio session: claimed by a capture\(word.isEmpty ? "" : " (mode \(word))")")
     #if os(iOS) || os(tvOS)
-    // `AudioClaims.options`' names, in order, as `CategoryOptions`' raw values; unsaid, the speaker and a headset's microphone.
+    // Map `AudioClaims.options` in declaration order to `CategoryOptions` raw values.
+    // Default to a headset microphone and, on iOS, the speaker.
     let raw: [UInt] = [0x1, 0x2, 0x4, 0x20, 0x8, 1 << 19, 1 << 18, 0x80]
     let chosen = raw.indices.filter { options & (1 << UInt64($0)) != 0 }.reduce(UInt(0)) { $0 | raw[$1] }
     let modes: [String: AVAudioSession.Mode] = ["default": .default, "measurement": .measurement, "voiceChat": .voiceChat, "videoChat": .videoChat, "videoRecording": .videoRecording]
-    let id = AudioSession.claimCapture(mode: modes[word] ?? .default, options: options == 0 ? [.defaultToSpeaker, .allowBluetoothHFP] : AVAudioSession.CategoryOptions(rawValue: chosen),
+    #if os(iOS)
+    let defaults: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
+    #else
+    let defaults: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
+    #endif
+    let id = AudioSession.claimCapture(mode: modes[word] ?? .default, options: options == 0 ? defaults : AVAudioSession.CategoryOptions(rawValue: chosen),
                                        background: background != 0) { code in event(context, code) }
     if id == 0 { hatchSession(host)?.log("audio session: the capture's claim was refused (the session would not activate)") }
     return id
