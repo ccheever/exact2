@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                160
+//    0  u32 size                168
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -45,6 +45,9 @@
 //  152  surface_sensor(host, surface, len, sensor, len, values, count,
 //        dropped, at, ended): a package's sample for that surface's canvas
 //        input, or its end (LLP 1133.013 D6, CanvasesHost's `SensorRings`)
+//  160  invoke(host, body, len, reply, ctx): a package's call of the app's
+//        handler (LLP 1133.016 D15 item 1), answered once through
+//        `reply(ctx, answer, len)` with the runner's JSON
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -229,6 +232,16 @@ private let hatchSurfaceSensor: HatchSurfaceSensorFn = { host, surface, surfaceL
     hatchSession(host)?.canvases.sensorWrite(hatchText(surface, surfaceLength), hatchText(sensor, sensorLength), v,
                                              dropped: Int(dropped), at: at, ended: ended != 0)
 }
+/// A package's call of the app's handler: the runner admits and runs it, and
+/// answers through `reply` once.
+typealias HatchInvokeFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, ExactInvokeReply, UnsafeMutableRawPointer?) -> Void
+private let hatchInvoke: HatchInvokeFn = { host, bytes, length, reply, context in
+    guard let session = hatchSession(host) else {
+        let ended = Array("{\"error\":\"InvalidStateError\",\"message\":\"the session has ended\"}".utf8)
+        return ended.withUnsafeBufferPointer { reply(context, $0.baseAddress, UInt32($0.count)) }
+    }
+    session.runtime.invokeModule(hatchText(bytes, length), reply: reply, ctx: context)
+}
 
 private let hatchLog: HatchLogFn = { host, bytes, length in
     hatchSession(host)?.log("hatch \(hatchText(bytes, length))")
@@ -344,7 +357,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 160
+    let size = 168
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -367,6 +380,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchPicture, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchSurfaceHas, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchSurfaceSensor, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchInvoke, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 

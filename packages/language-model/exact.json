@@ -29,7 +29,8 @@
       "contextWindow": "option<number>",
       "leavesDevice": "bool",
       "structuredOutput": "enum<enforced|validated|none>",
-      "tools": "bool"
+      "tools": "bool",
+      "apple": "option<AppleLanguageModelStatus>"
     },
     "LanguageModelInfo": {
       "id": "string",
@@ -65,7 +66,8 @@
       "contextUsage": "option<number>",
       "error": "option<string>",
       "reason": "option<string>",
-      "message": "option<string>"
+      "message": "option<string>",
+      "apple": "option<AppleLanguageModelResponse>"
     },
     "LanguageModelSessionInfo": {
       "id": "string",

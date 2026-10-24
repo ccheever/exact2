@@ -91,7 +91,9 @@ export function implementation({ changed, agent, now, foreground, log, invoke })
   const usage = s => s.platform?.contextUsage ?? s.platform?.inputUsage ?? counted(s);
   /** Evict the oldest whole turns until `extra` more fits (D6); false when even then it does not. */
   function fit(s, extra) {
+    const had = s.turns.length;
     while (counted(s) + extra > windowOf(s) && s.turns.length) { s.turns.shift(); s.overflowed = true; s.stale = true; }
+    if (s.turns.length < had) say(`${s.id}: evicted ${had - s.turns.length} turns, overflowed, ${counted(s)} of ${windowOf(s)} tokens`);
     return counted(s) + extra <= windowOf(s);
   }
   /** `initialPrompts` as the system message and turns: a user message and the assistant messages after it are one. */

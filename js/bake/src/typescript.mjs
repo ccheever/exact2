@@ -1019,7 +1019,8 @@ function rustSources(app) {
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
- * its class, and its source files. */
+ * its class, its source files, and the system frameworks it needs from an OS
+ * version (`frameworks`, LLP 1133.016 D15). */
 export function appleImplementations(app, target) {
   const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
   return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
@@ -1039,7 +1040,7 @@ export function appleImplementations(app, target) {
     }).filter(p=>p.keys.length);
     // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
     const authenticator=!!i.declaration?.authenticator?.apple;
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator}];
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,frameworks:impl.json.frameworks??{}}];
   });
 }
 

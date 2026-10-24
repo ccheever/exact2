@@ -36,6 +36,8 @@ component Fixture
     send started = promptStreaming(session=session, input=draft)
   action stop
     send stopped = abortLanguageModelResponse(response=responseId)
+  action edit(v: string)
+    draft = v
   action again
     tick = tick + 1
     send asked = ask(tick)
@@ -80,6 +82,7 @@ component Fixture
         text "Create"
       button press=title testId="make-title"
         text "Title"
+      input value=draft input=edit testId="draft"
       button press=stream testId="stream"
         text "Stream"
       button press=stop testId="stop"

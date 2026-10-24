@@ -18,8 +18,9 @@ let met: string[] = [];
 
 // The model's tools (LLP 1133.016 D9): a handler per name a session lists, given the model's arguments.
 export const tools = {
+  // A note that has any word of the query.
   findNotes: async ({ query }: { query: string }, _store: Store, _storage: Storage) =>
-    NOTES.filter((n) => `${n.title} ${n.excerpt}`.toLowerCase().includes(String(query).toLowerCase())),
+    NOTES.filter((n) => String(query).toLowerCase().split(/\W+/).some((w) => w && `${n.title} ${n.excerpt}`.toLowerCase().includes(w))),
   // Reentry (D9): a handler prompting the session whose response called it waits on itself, so it fails at once.
   promptOwn: async () => {
     try { await prompt({ session: own, input: 'Again.' }); met.push('promptOwn answered'); } catch (e) { met.push(`promptOwn ${code(e)}`); }
