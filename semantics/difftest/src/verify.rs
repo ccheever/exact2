@@ -1,8 +1,9 @@
 //! `difftest verify <file.contract>`: one app against the semantics, for
 //! its author (`contract verify` runs it).
 //!
-//! The program's `test` blocks (its own, and those of an
-//! `<stem>.test.contract` beside it) and an explore script run on the
+//! The program's `test` blocks (its own, those of an `<stem>.test.contract`
+//! beside it and, for an `app.contract`, those of every other
+//! `*.test.contract` beside it) and an explore script run on the
 //! runner and the Lean semantics; a divergence names the step where the
 //! two first differ, where that step is written, the element it reached
 //! and the declaration whose line differs. `--types` runs the Lean type
@@ -49,8 +50,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     let mut ok = true;
 
     let mut located = Vec::new();
-    let tests_file = file.with_extension("test.contract");
-    for test_file in [file.clone(), tests_file] {
+    for test_file in test_files(&file) {
         let Ok(text) = std::fs::read_to_string(&test_file) else {
             continue;
         };
@@ -156,6 +156,30 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         ok &= prove(&file, module)?;
     }
     Ok(ok)
+}
+
+/// The files whose `test` blocks run: the program, `<stem>.test.contract`
+/// beside it, and for an app's `app.contract` every other
+/// `*.test.contract` beside it in name order (an app's tests split by area
+/// under the line cap; scripts/app.mjs `authoredTests`).
+fn test_files(file: &Path) -> Vec<PathBuf> {
+    let own = file.with_extension("test.contract");
+    let mut others = Vec::new();
+    if let (Some("app.contract"), Some(dir)) =
+        (file.file_name().and_then(|n| n.to_str()), file.parent())
+    {
+        others = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.to_str().is_some_and(|p| p.ends_with(".test.contract")) && *p != own)
+            .collect();
+        others.sort();
+    }
+    [file.to_path_buf(), own]
+        .into_iter()
+        .chain(others)
+        .collect()
 }
 
 /// Where a divergence is: the step (and the test line that wrote it), the
@@ -356,4 +380,43 @@ fn prove(file: &Path, module: &str) -> Result<bool, String> {
     }
     println!("prove: {target} builds; every proof checked");
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_files;
+
+    #[test]
+    fn an_app_runs_every_test_file_beside_it_and_another_program_its_own() {
+        let dir = std::env::temp_dir().join(format!("difftest-verify-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in [
+            "app.contract",
+            "b.test.contract",
+            "app.test.contract",
+            "a.test.contract",
+        ] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let names = |program: &str| -> Vec<String> {
+            test_files(&dir.join(program))
+                .iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(
+            names("app.contract"),
+            [
+                "app.contract",
+                "app.test.contract",
+                "a.test.contract",
+                "b.test.contract"
+            ]
+        );
+        assert_eq!(
+            names("other.contract"),
+            ["other.contract", "other.test.contract"]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

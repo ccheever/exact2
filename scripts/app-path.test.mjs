@@ -5,10 +5,10 @@
 // app's own directory.
 import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { resolveApp } from './app.mjs';
+import { authoredTests, resolveApp } from './app.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
 const before = process.env.EXACT_APP_DIR;
@@ -52,3 +52,15 @@ test('the JS build given a path writes its module crate under the target, none i
     rmSync(out, { recursive: true, force: true });
   }
 }, 600_000);
+
+test('an app\'s authored tests are app.test.contract, then each other *.test.contract beside it by name', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-authored-tests-'));
+  try {
+    expect(authoredTests(dir)).toEqual([]);
+    mkdirSync(join(dir, 'nested'));
+    for (const f of ['b.test.contract', 'app.contract', 'nested/c.test.contract', 'a.test.contract']) writeFileSync(join(dir, f), '');
+    expect(authoredTests(dir)).toEqual([join(dir, 'a.test.contract'), join(dir, 'b.test.contract')]);
+    writeFileSync(join(dir, 'app.test.contract'), '');
+    expect(authoredTests(dir)).toEqual(['app', 'a', 'b'].map((n) => join(dir, `${n}.test.contract`)));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

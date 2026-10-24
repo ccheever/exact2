@@ -118,7 +118,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   cd ${quote(destination)}
   bun exact.mjs test-rust     the hostless Rust tests (logic/tests) and determinism lints
   bun exact.mjs web           the web dev loop
-  bun exact.mjs test web      build (wasm), then run app.test.contract
+  bun exact.mjs test web      build (wasm), then run *.test.contract
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
   bun exact.mjs windows --run build and launch on Windows
@@ -970,7 +970,7 @@ exact_web::host!(
   cd '${dir.replaceAll("'", "'\\''")}'
   ${run} pattern      start from a working app: ${patterns().map(p => p.name).join(', ')}
   ${run} web          the web dev loop
-  ${run} test web     build, then run app.test.contract, or the files named (web, ios or macos)
+  ${run} test web     build, then run the app's *.test.contract, or the files named (web, ios or macos)
   ${run} verify       build, the tests, check where each ends, relaunch: done when clean
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
@@ -1078,7 +1078,7 @@ you name where you are, else here):
 | \`bun exact.mjs test-rust\` | the hostless Rust tests (\`logic/tests\`) and the determinism lints |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (a game builds the wasm target) |
-| \`bun exact.mjs test web\` | build the web game if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
+| \`bun exact.mjs test web\` | build the web game if needed, then run its \`*.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web "tap play" "type world key ArrowRight for 800" "screenshot out.png"\` | drive the game as a person would |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
