@@ -356,3 +356,121 @@ fn alert_prefix_is_the_same_first_child_in_fresh_trial_and_adopted_trees() {
     assert_eq!(trial.taffy.children(holder).unwrap()[0], trial_prefix);
     assert_eq!(trial.node_count(), arena.live_count() + 2);
 }
+
+fn flow_proof_across_offers(display: &str, width: taffy::Dimension) {
+    let measurer = MonospaceMeasurer {
+        advance_em: 1.,
+        line_height_em: 2.,
+        ..MonospaceMeasurer::default()
+    };
+    let mut k = Kernel::new(Box::new(measurer));
+    let mut ops = Vec::new();
+    for (id, node_type) in [
+        (1, NodeType::View),
+        (2, NodeType::Text),
+        (3, NodeType::View),
+    ] {
+        ops.push(Op::CreateView { id, node_type });
+    }
+    ops.extend([
+        style(
+            1,
+            &[
+                (StyleId::Display, t(display)),
+                (StyleId::Height, n(200.)),
+                (StyleId::AlignContent, t("start")),
+                (StyleId::PositionType, t("relative")),
+            ],
+        ),
+        style(
+            2,
+            &[(StyleId::FontSize, n(10.)), (StyleId::MaxWidth, n(120.))],
+        ),
+        Op::SetProp {
+            id: 2,
+            prop: PropId::Text,
+            value: PropValue::Str("aaaaaaaaaaaa".into()),
+        },
+        style(
+            3,
+            &[
+                (StyleId::PositionType, t("absolute")),
+                (StyleId::WrapFlow, t("both")),
+                (StyleId::Width, n(40.)),
+                (StyleId::Height, n(40.)),
+                (StyleId::Left, n(0.)),
+                (StyleId::Top, n(0.)),
+            ],
+        ),
+        Op::SetChildren {
+            id: 1,
+            children: vec![3, 2],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 0, &ops).unwrap();
+    // Size keywords reach Taffy here; the authoring parser does not accept them yet.
+    let set_width = |k: &mut Kernel| {
+        let root = k.arena().taffy(k.arena().slot_of(1).unwrap()).unwrap();
+        let mut style = k.tree().taffy.style(root).unwrap().clone();
+        style.size.width = width;
+        k.tree_mut().set_style(root, style);
+    };
+    set_width(&mut k);
+    for offered_width in [500., 600., 550., 500., 600.] {
+        let offer = Offer::definite(offered_width, 400.);
+        let mut fresh = k.rehydrate(Box::new(measurer));
+        set_width(&mut fresh);
+        let expected = fresh.compute_layout(1, offer).unwrap();
+        assert_eq!(
+            fresh.node(2).unwrap().flow_refusal(),
+            Some(crate::FlowRefusal::Context)
+        );
+        assert!(fresh.node(2).unwrap().flow_shapes().is_empty());
+        for _ in 0..2 {
+            let receipt = k.compute_layout(1, offer).unwrap();
+            let leaf = k.node(2).unwrap();
+            let reference = fresh.node(2).unwrap();
+            assert_eq!(leaf.frame, reference.frame, "offer {offer:?}");
+            assert_eq!(
+                leaf.flow_refusal(),
+                reference.flow_refusal(),
+                "offer {offer:?}"
+            );
+            assert_eq!(
+                leaf.flow_shapes(),
+                reference.flow_shapes(),
+                "offer {offer:?}"
+            );
+            assert_eq!(
+                receipt.flow_skipped, expected.flow_skipped,
+                "offer {offer:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_proof_survives_changed_offers_in_fit_content_block() {
+    flow_proof_across_offers("block", taffy::Dimension::fit_content());
+}
+
+#[test]
+fn flow_proof_survives_changed_offers_in_min_content_block() {
+    flow_proof_across_offers("block", taffy::Dimension::min_content());
+}
+
+#[test]
+fn flow_proof_survives_changed_offers_in_max_content_block() {
+    flow_proof_across_offers("block", taffy::Dimension::max_content());
+}
+
+#[test]
+fn flow_proof_survives_changed_offers_in_flex() {
+    flow_proof_across_offers("flex", taffy::Dimension::auto());
+}
+
+#[test]
+fn flow_proof_survives_changed_offers_in_grid() {
+    flow_proof_across_offers("grid", taffy::Dimension::auto());
+}
