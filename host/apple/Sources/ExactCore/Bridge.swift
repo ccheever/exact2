@@ -601,6 +601,17 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    package func visitLocation(_ key: String) -> String? {
+        guard let id = UInt64(key) else { return nil }
+        return on(busy: nil) {
+            let len = exact_visit_location(rt, id)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
+    package func hostBack(from source: String, to destination: String, now: Double) -> Batch? {
+        guard let source = UInt64(source), let destination = UInt64(destination) else { return nil }
+        return on { read(exact_host_back_to(rt, source, destination, now)) }
+    }
     package func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     package func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
         return on {
