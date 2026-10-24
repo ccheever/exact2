@@ -31,21 +31,35 @@ Agents is the app throughout; "On this device" is in New Conversation
 4. Turn Apple Intelligence off in System Settings and return to Agents:
    "On this device" is greyed and reads "Turn on Apple Intelligence in
    Settings to use this model." Turn it back on: it is offered again.
+5. `bun packages/language-model/test/apple.mjs` runs the conformance
+   suite against the Mac's model: every line must read PASS.
 
 ## An iPhone with Apple Intelligence on (iOS 26 or later)
 
 1. `bun host/apple/build.mjs --ios agents-apple --device --run` (a
    connected iPhone, signed with the team profile on this Mac).
 2. The Mac's steps 2 to 4, with Settings › Apple Intelligence & Siri.
+   Background the app mid-reply and return: the reply has finished, since
+   Apple's model generates in the background, or, when the system
+   rate-limits it there, ended with the text it had.
 3. On an iPhone below iOS 26 the app opens and "On this device" is not
    offered.
 
 ## A Pixel 9 or later (Gemini Nano through AICore)
 
-Agents has no Android build yet (stage 4). With it:
-
-1. New Conversation › On this device; Download if offered; Start.
-2. A reply streams. Press the Home button mid-reply and return: the
+1. `bun scripts/agent-android.mjs build agents --apk`, then install and
+   open it: `bun scripts/agent.mjs android --reader --app agents tree`
+   (with ANDROID_NDK_HOME naming NDK 27.1 and JAVA_HOME a JDK 17).
+2. New Conversation › On this device; Download if offered; the line counts
+   up "Downloading… N%" and the conversation opens when it ends.
+3. A reply streams. Press the Home button mid-reply and return: the
    reply has ended with the text it had.
-3. No "Searched your conversations" line ever shows: Android runs no
+4. The list row's title changes to a short title: Android asks for the
+   JSON in the prompt and checks it (structured output is validated).
+5. No "Searched your conversations" line ever shows: Android runs no
    tools.
+6. Under the agent on the same phone, `bun
+   packages/language-model/test/drives.mjs` cannot run yet (it drives
+   web, macOS and iOS); drive by hand with `agent.mjs android --reader
+   --app agents` and the `prefer extension language-model.…` lines that
+   `drives.mjs` sends, all but drive 4.
