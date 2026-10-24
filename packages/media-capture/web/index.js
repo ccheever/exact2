@@ -24,6 +24,8 @@
 import { video } from './video.js';
 
 const GRACE = 1000; // ms a fresh browser track waits for its first consumer
+/** What a read of no track (`track=""`) answers: an app reads before it holds one. */
+const NO_TRACK = { id: '', kind: 'audio', label: '', enabled: false, muted: true, muteReason: null, readyState: 'ended', settings: {}, apple: null, android: null };
 
 /** The written constraints, and only those (D2). */
 function constraints(args) {
@@ -230,6 +232,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       return shape(t);
     },
     async mediaStreamTrack({ track }) {
+      if (!track) return NO_TRACK;
       if (cameras.owns(track)) return cameras.track(track);
       const t = own.get(track);
       return t ? shape(t) : { error: 'NotFoundError' };

@@ -261,7 +261,9 @@ impl<D: DataSource> Runner<D> {
                 Ok(Answer::Later(self.bound_request(&row, args, reader)))
             }
             Decision::Now(json) => {
-                let how = if route == Route::Substitute {
+                // The runner's own answer (an implementation's permission status
+                // under the agent) is the substitute's, not a refusal.
+                let how = if route == Route::Substitute || error_code(&json).is_none() {
                     "substituted"
                 } else {
                     "refused"
@@ -762,7 +764,7 @@ impl<D: DataSource> Runner<D> {
                 Some(self.to_implementation(body))
             }
             Decision::Now(answer) => {
-                let how = if route == Route::Substitute {
+                let how = if route == Route::Substitute || error_code(&answer).is_none() {
                     "substituted"
                 } else {
                     "refused"

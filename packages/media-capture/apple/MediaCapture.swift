@@ -97,7 +97,10 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
             if t.enabled, !t.active, !t.consumers.isEmpty, t.readyState == "live" { activate(t) }
             announce()
             reply(shape(t))
-        case "mediaStreamTrack": reply(track(args).map(shape) ?? ["error": "NotFoundError"])
+        case "mediaStreamTrack":
+            // A read of no track (`track=""`): an app reads before it holds one.
+            if args["track"] as? String ?? "" == "" { return reply(["id": "", "kind": "audio", "label": "", "enabled": false, "muted": true, "readyState": "ended", "settings": [:]]) }
+            reply(track(args).map(shape) ?? ["error": "NotFoundError"])
         case "enumerateDevices":
             let microphones = devices()["devices"] as? [[String: Any]] ?? []
             reply(["devices": microphones + cameras.devices])

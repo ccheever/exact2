@@ -29,9 +29,28 @@ impl<D: DataSource> Runner<D> {
     /// its default; `None` when it is not polled now.
     fn poll_period(&self, row: &ModulesRow) -> Option<f64> {
         let (option, default) = self.poll_of(row)?;
-        let readers = self.extensions.readers.get(&self.key(row));
-        (readers.into_iter().flat_map(|r| r.values()))
-            .filter_map(|args| serde_json::from_str::<Json>(args).ok()?[&option].as_f64())
+        let readers: Vec<Json> = (self.extensions.readers.get(&self.key(row)).into_iter())
+            .flat_map(|r| r.values())
+            .filter_map(|args| serde_json::from_str::<Json>(args).ok())
+            .collect();
+        // A reader that names no handle (every handle option empty) reads
+        // nothing a poll would change.
+        let sub = self.substitute(row);
+        let handles: Vec<&str> = (sub["handleOptions"].as_array().into_iter().flatten())
+            .filter_map(Json::as_str)
+            .collect();
+        let names = |args: &Json| {
+            handles.is_empty()
+                || handles
+                    .iter()
+                    .any(|h| args[h].as_str().is_some_and(|id| !id.is_empty()))
+        };
+        let polling: Vec<&Json> = readers.iter().filter(|args| names(args)).collect();
+        if !readers.is_empty() && polling.is_empty() {
+            return None;
+        }
+        (polling.into_iter())
+            .filter_map(|args| args[&option].as_f64())
             .filter(|ms| *ms > 0.0)
             .reduce(f64::min)
             .or(default.filter(|ms| *ms > 0.0))

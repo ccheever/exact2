@@ -65,7 +65,9 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
                 reply(r.info())
             }
             "stopMediaRecorder" -> if (r == null) reply(error("NotFoundError")) else r.finish("requested", null, reply)
-            "mediaRecorderState" -> reply(r?.info() ?: error("NotFoundError"))
+            // A read of no recorder (`recorder=""`): an app reads before it holds one.
+            "mediaRecorderState" -> reply(if (args.optString("recorder").isEmpty()) JSONObject().put("id", "").put("state", "inactive")
+                .put("mimeType", "").put("path", "").put("duration", 0) else r?.info() ?: error("NotFoundError"))
             "isTypeSupported" -> {
                 val type = args.optString("type")
                 reply(JSONObject().put("type", type).put("supported", if (context.agent) type == "audio/wav" else type in listOf("audio/mp4", "audio/wav")))
@@ -107,6 +109,8 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun level(args: JSONObject): JSONObject {
         val track = args.optString("track")
+        // A read of no track (`track=""`) is silence: an app reads before it holds one.
+        if (track.isEmpty()) return JSONObject().put("audioLevel", 0).put("totalAudioEnergy", 0).put("totalSamplesDuration", 0).put("levels", JSONArray())
         val key = "$track ${args.optDouble("interval", 0.0)} ${args.optDouble("history", 0.0)}"
         val m = meters[key] ?: Meter(args.optDouble("interval", 50.0).takeIf { it > 0 } ?: 50.0,
             args.optDouble("history", 100.0).takeIf { it > 0 }?.toInt() ?: 100, context.now()).also { m ->
