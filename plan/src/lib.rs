@@ -122,8 +122,24 @@ pub struct StrId(pub u32);
 ///     let _ = plan.strings.get(path.0 as usize);
 /// }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+///
+/// Nor by printing it:
+///
+/// ```
+/// let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+/// b.icon("icon.a", "", "0 0 24 24", "M0 0h1Z", "icons/a.svg");
+/// let plan = b.finish().unwrap();
+/// assert_eq!(format!("{:?}", plan.icons[0].path), "IconPathId(..)");
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IconPathId(pub(crate) u32);
+
+/// Its index stays inside: a debug print shows none (C2 round 3).
+impl std::fmt::Debug for IconPathId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("IconPathId(..)")
+    }
+}
 
 impl IconPathId {
     /// The path's string id, for `exact_runner::icon_of` to hand
