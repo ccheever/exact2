@@ -103,14 +103,14 @@ import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { earlyAnswer, readBody, parseRequest as parse, tooDeep, upstream, viaDoor } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs';
+import { earlyAnswer, readBody, parseRequest as parse, tooDeep, upstream, viaDoor } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
 const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
-const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
+const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
 const GONE = 'this paired client was revoked or its token expired';
@@ -291,7 +291,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // the wire. A client no longer present loses its pins on every build. The
   // same timer expires a polled build that stopped polling.
   const presence = new Map(); // client -> { open, answered, long }
-  const PRESENT_MS = 35_000;
+  const PRESENT_MS = TIMING.present;
   // A paired client revoked or expired is never present again (its streams'
   // closes come after); one past its deadline is gone before its end runs.
   const ended = new Set();
@@ -305,7 +305,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     presence.set(client, p);
   };
   const absent = () => { pairs.expire(); channel.sweep(); scrubs.absent(present); for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
-  const absence = setInterval(absent, 5_000);
+  const absence = setInterval(absent, TIMING.sweep);
   absence.unref?.();
   /** Announce `files` (path → digest): the paths whose digest moved, and
    * any `gone`. */
