@@ -45,7 +45,8 @@ inductive CNode where
   | children (id : Nat)
   deriving Repr, Inhabited
 
-/-- A component. Only the root holds resources, mutations and tasks. -/
+/-- A component. Children may hold device-fact resources; only the root
+holds other resources, mutations and tasks. -/
 structure CComponent where
   name : String
   props : List PropDecl := []
@@ -62,6 +63,17 @@ structure CComponent where
   tasks : List TaskDecl := []
   view : List CNode := []
   deriving Repr, Inhabited
+
+/-- The device facts a child may declare (`inline.rs` `reads_device`). -/
+def CComponent.deviceResources (c : CComponent) : List ResourceDecl :=
+  c.resources.filter fun r =>
+    (r.source == "exactViewport" || r.source == "exactPage") && r.args.isEmpty
+
+/-- One root resource for a child declaration, shared by all its instances. -/
+def hoisted (component name : String) : String := s!"{name}@{component}"
+
+def CComponent.resourceName (c : CComponent) (name : String) : String :=
+  if c.deviceResources.any (·.name == name) then hoisted c.name name else name
 
 /-- A whole file, unexpanded. The router's slot is not among the root's
 states: it is the compiler's (the expander puts it first). -/
@@ -81,6 +93,15 @@ structure CProgram where
   strings : List (String × List (String × String)) := []
   locale : Option String := .none
   deriving Repr, Inhabited
+
+/-- Root resources followed by every child's device facts in declaration
+order, including unused components (`inline.rs` `expand`). The emitter's
+synthetic placeholder rows come after all authored resources. -/
+def CProgram.resources (p : CProgram) : List ResourceDecl :=
+  let (root, placeholders) := p.root.resources.partition fun r => !r.name.endsWith "#else"
+  let children := p.components.flatMap fun c =>
+    c.deviceResources.map fun r => { r with name := hoisted c.name r.name }
+  root ++ children ++ placeholders
 
 /-- The resolved locale's slot, as `contract lean` writes it: a root state
 of the base locale (the first table's), after the router's. -/
