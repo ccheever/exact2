@@ -12,8 +12,10 @@
     <!-- Back reaches the reader's OnBackInvokedCallback from Android 13 (ExactActivity.Back, LLP 1115.001 D6). Before
          Android 16 the platform calls it only when the app opts in; without this, Back on Android 13 to 15 finished
          the activity from any screen. -->
+    <!-- Locked secrets' files stay out of backups and transfers (res/xml/exact_backup.xml, LLP 1133.010 D6). -->
     <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true"
-        android:banner="@drawable/banner" android:enableOnBackInvokedCallback="true">
+        android:banner="@drawable/banner" android:enableOnBackInvokedCallback="true"
+        android:fullBackupContent="@xml/exact_backup" android:dataExtractionRules="@xml/exact_data_extraction">
         <profileable android:shell="true" />
         <!-- The changes the host takes in place (LLP 1115.001 D15.1), so that none of them makes the activity again:
              a rotation or a resize, night mode, font scale and bold text, the locale and its direction, the display's

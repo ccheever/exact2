@@ -449,10 +449,8 @@ impl Batch {
     /// (LLP 1133.010 D13), and, with a `service`, the item the host reads
     /// after it. Nothing secret: the value comes back by `exact_presence`.
     pub fn presence(&mut self, ask: &exact_runner::presence::PresenceAsk) {
-        let op = serde_json::json!({ "op": "presence", "call": ask.id, "name": ask.name,
-            "account": format!("{}#{}", ask.name, ask.generation), "service": ask.keystore,
-            "policy": ask.policy, "reason": ask.reason, "origin": ask.origin.word() });
-        self.ops.push(op.to_string());
+        self.ops
+            .push(format!("{{\"op\":\"presence\",{}", &ask.json()[1..]));
     }
 
     /// A reserved activity send, dispatched to the demand-loaded arm.

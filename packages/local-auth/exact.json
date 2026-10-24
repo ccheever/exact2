@@ -18,7 +18,7 @@
   },
   "authenticator": {
     "apple": "evaluate(accessControl: SecAccessControl, reason: String, policy: String, origin: String, reply: @escaping (AnyObject?, [String: Any]?) -> Void)",
-    "android": "authenticate(crypto: BiometricPrompt.CryptoObject, authenticators: Int, reason: String, origin: Origin): CryptoObject",
+    "android": "authenticate(crypto: BiometricPrompt.CryptoObject?, authenticators: Int, reason: String, origin: String, done: (BiometricPrompt.CryptoObject?, JSONObject?) -> Unit)",
     "android-key": "configure(builder: KeyGenParameterSpec.Builder)",
     "substitute": {
       "ticket": "presence",
