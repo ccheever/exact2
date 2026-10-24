@@ -49,6 +49,7 @@ and look. Each step says what to run and what you should see.
   camera shows in the viewfinder; Shutter: the shot line names
   `app:/tmp/camera/1.jpg` with a size; the shutter sound plays; Toggle hides
   the viewfinder and the camera's indicator goes out, Toggle again brings it
-  back; Front opens the front camera; denying in Settings reads `denied` on
-  return. Tap and pinch do nothing on Android yet (hosted views take a click
+  back; Front opens the front camera; denying in Settings reads `prompt` on
+  return, since Android may still ask, and `denied` once Open's ask was
+  refused without a dialog. Tap and pinch do nothing on Android yet (hosted views take a click
   only).
