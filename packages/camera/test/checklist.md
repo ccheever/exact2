@@ -41,5 +41,14 @@ and look. Each step says what to run and what you should see.
   9. The restart time (D11): with the viewfinder hidden and shown again,
      note how long the camera takes to return (the journal's
      `capture started` beside the view's `displayed true`).
-- Android: waits for its stage (`rules/DEFERRED.md`: the photo editor's
-  Android port waits); the fixture app's drives are `android.mjs`'s.
+- Android: the photo editor's port waits (`rules/DEFERRED.md`); the fixture
+  app is the Android acceptance (§14 question 5). Build it as
+  `packages/camera/test/android.mjs` does (it builds and deletes it; keep its
+  app directory to install the APK), install it on a phone, and with
+  `--bind media-capture --bind camera`: Open, allow the dialog: the back
+  camera shows in the viewfinder; Shutter: the shot line names
+  `app:/tmp/camera/1.jpg` with a size; the shutter sound plays; Toggle hides
+  the viewfinder and the camera's indicator goes out, Toggle again brings it
+  back; Front opens the front camera; denying in Settings reads `denied` on
+  return. Tap and pinch do nothing on Android yet (hosted views take a click
+  only).
