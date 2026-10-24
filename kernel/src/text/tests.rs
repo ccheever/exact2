@@ -70,6 +70,7 @@ fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
     let mut p = paragraph();
     let mut m = MonospaceMeasurer::default();
     let plain = m.measure(&TextMeasureRequest {
+        atoms: Default::default(),
         runs: &runs,
         paragraph: p,
         width: AxisOffer::MaxContent,
@@ -80,6 +81,7 @@ fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
     p.text_box_trim = crate::TextBoxTrim::TrimBoth;
     p.text_box_edge = crate::TextBoxEdge::CapAlphabetic;
     let cut = m.measure(&TextMeasureRequest {
+        atoms: Default::default(),
         runs: &runs,
         paragraph: p,
         width: AxisOffer::MaxContent,
@@ -90,6 +92,7 @@ fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
     assert!((cut.first_baseline.unwrap() - 7.0).abs() < 1e-4, "{cut:?}");
     p.text_box_trim = crate::TextBoxTrim::TrimStart;
     let start = m.measure(&TextMeasureRequest {
+        atoms: Default::default(),
         runs: &runs,
         paragraph: p,
         width: AxisOffer::MaxContent,
@@ -116,6 +119,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     p.text_box_trim = crate::TextBoxTrim::TrimBoth;
     p.text_box_edge = crate::TextBoxEdge::CapAlphabetic;
     let request = TextMeasureRequest {
+        atoms: Default::default(),
         runs: &runs,
         paragraph: p,
         width: AxisOffer::MaxContent,
@@ -145,6 +149,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
         style: style(20.0),
     }];
     let empty = m.measure(&TextMeasureRequest {
+        atoms: Default::default(),
         runs: &empty,
         ..request
     });
@@ -159,6 +164,7 @@ fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {
     let mut p = paragraph();
     p.line_clamp = lines;
     MonospaceMeasurer::default().measure(&TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: p,
@@ -204,6 +210,7 @@ fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> T
     let mut p = paragraph();
     p.white_space = white_space;
     MonospaceMeasurer::default().measure(&TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: p,
@@ -295,6 +302,7 @@ fn runs_take_the_tallest_line_height() {
         },
     ];
     let m = MonospaceMeasurer::default().measure(&TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: paragraph(),
@@ -312,6 +320,7 @@ fn overflow_wrap_changes_emergency_breaks_and_only_anywhere_changes_min_content(
         style: style(10.0),
     }];
     let mut request = TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: paragraph(),

@@ -184,11 +184,15 @@ package final class TextArea: UITextView {
     /// comes with a new length is an edit's.
     var markupSelection: NSRange?
     var markupLength = 0
+    /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
+    var atomElements: [AtomElement] = []
+    var atomTap: (AnyObject, UITapGestureRecognizer)?
+    var atomLook: (any UITraitChangeRegistration)?
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
-        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; super.typingAttributes = shown }
+        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; shown[.markupAtom] = nil; super.typingAttributes = shown }
     }
     // VoiceOver reads the text without hidden link destinations (LLP 1045 D1).
     package override var accessibilityValue: String? {
@@ -344,7 +348,7 @@ package final class TextArea: UITextView {
     @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain((text as NSString).substring(with: selectedRange)) else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
         UIPasteboard.general.string = plain
         #endif
     }
@@ -486,6 +490,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            f.atomsChanged()
         }
     }
     func applyTextArea() {

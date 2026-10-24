@@ -352,6 +352,20 @@ pub struct TextMeasureRequest<'a> {
     /// Resolved exclusions in content coordinates; empty during box layout.
     /// @ref LLP 1043.000 §3 D5 — hosts answer from their flowed layout.
     pub exclusions: &'a [exact_textflow::FlowShape],
+    /// A Markdown paragraph's inline atoms (LLP 1045.000 D2): its `atoms`
+    /// and `atomFaces`, which a label's width depends on; empty otherwise.
+    pub atoms: MarkupAtoms<'a>,
+}
+
+/// A Markdown node's `atoms` and `atomFaces` JSON, as the kernel holds them
+/// (LLP 1045.000 D3): a host that draws atoms expands the source with them,
+/// for measure and paint alike. Empty strings are none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MarkupAtoms<'a> {
+    /// The compiled kinds (`atoms`).
+    pub kinds: &'a str,
+    /// The app's faces (`atomFaces`).
+    pub faces: &'a str,
 }
 
 /// A measurement.
