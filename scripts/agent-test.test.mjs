@@ -151,7 +151,8 @@ component Day
   expect text "day" == "2026-03-16"
 `);
   const root = new URL('..', import.meta.url).pathname;
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
   expect(build.status, build.stderr).toBe(0);
