@@ -70,7 +70,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // encloses it, and the id that root's `navigationBack` names, when it is a literal:
     // an element with a `navigationKey` inside a root is a route.
     crate::menu_rows::notes(&root.view, &mut out);
-    crate::symbols::tints(&root.view, &mut out); // `lower-symbol-tint`
+    crate::symbols::tints(&root.view, &checked.file.styles, lowered, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
     let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());
