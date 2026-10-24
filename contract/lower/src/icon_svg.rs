@@ -126,284 +126,46 @@ fn decode(v: &str) -> String {
     out
 }
 
-/// The fix for CSS a template doesn't read (C2 round 2, theme2).
-const FIX_STYLE: &str = "write the paint as attributes (`fill=\"currentColor\"`, `fill-rule=\"evenodd\"`) and drop the `<style>` block, or the offending style text: a template needs neither";
+/// The fix for a template's `style` (C2, closed): a template reads only
+/// its presentation attributes.
+const FIX_STYLE: &str = "write the paint as attributes (`fill=\"currentColor\"`, `fill-rule=\"evenodd\"`) and drop the `style` attribute or the `<style>` block: a template reads neither";
 
-/// The properties a template's `style` (or presentation attribute) may set
-/// and be read (C2 round 3, an allowlist): `fill`, `fill-rule` and `color`
-/// (what `currentColor` paints). The survey behind it: no SVG under the
-/// repo's packages' or apps' `assets/` has a `style` attribute at all, and
-/// the lint's own cases use these three; so the list is what the template
-/// rule reads, nothing more.
-const STYLE_READ: &[&str] = &["fill", "fill-rule", "color"];
+/// The fix for a presentation value a template doesn't read.
+const FIX_VALUE: &str = "write `fill` as `currentColor`, `none`, `#rgb` or `#rrggbb`, and `fill-rule` as `nonzero` or `evenodd`, exactly";
 
-/// Properties a template is refused for by their own reasons (a transform,
-/// an opacity, a stroke, a clip, a mask, a filter, hiding): accepted as
-/// syntax here, so that reason, not this one, names them.
-const STYLE_REFUSED_ELSEWHERE: &[&str] = &[
-    "transform",
-    "opacity",
-    "fill-opacity",
-    "stroke",
-    "clip-path",
-    "mask",
-    "filter",
-    "display",
-    "visibility",
-];
+/// The fix for `color`: what `currentColor` paints is the host's.
+const FIX_COLOR: &str =
+    "remove `color`: a template is drawn in the host's colour; write `fill=\"currentColor\"`";
 
-/// CSS's named colours (and `transparent`), the one word a colour may be.
-const NAMED_COLOURS: &[&str] = &[
-    "aliceblue",
-    "antiquewhite",
-    "aqua",
-    "aquamarine",
-    "azure",
-    "beige",
-    "bisque",
-    "black",
-    "blanchedalmond",
-    "blue",
-    "blueviolet",
-    "brown",
-    "burlywood",
-    "cadetblue",
-    "chartreuse",
-    "chocolate",
-    "coral",
-    "cornflowerblue",
-    "cornsilk",
-    "crimson",
-    "cyan",
-    "darkblue",
-    "darkcyan",
-    "darkgoldenrod",
-    "darkgray",
-    "darkgreen",
-    "darkgrey",
-    "darkkhaki",
-    "darkmagenta",
-    "darkolivegreen",
-    "darkorange",
-    "darkorchid",
-    "darkred",
-    "darksalmon",
-    "darkseagreen",
-    "darkslateblue",
-    "darkslategray",
-    "darkslategrey",
-    "darkturquoise",
-    "darkviolet",
-    "deeppink",
-    "deepskyblue",
-    "dimgray",
-    "dimgrey",
-    "dodgerblue",
-    "firebrick",
-    "floralwhite",
-    "forestgreen",
-    "fuchsia",
-    "gainsboro",
-    "ghostwhite",
-    "gold",
-    "goldenrod",
-    "gray",
-    "green",
-    "greenyellow",
-    "grey",
-    "honeydew",
-    "hotpink",
-    "indianred",
-    "indigo",
-    "ivory",
-    "khaki",
-    "lavender",
-    "lavenderblush",
-    "lawngreen",
-    "lemonchiffon",
-    "lightblue",
-    "lightcoral",
-    "lightcyan",
-    "lightgoldenrodyellow",
-    "lightgray",
-    "lightgreen",
-    "lightgrey",
-    "lightpink",
-    "lightsalmon",
-    "lightseagreen",
-    "lightskyblue",
-    "lightslategray",
-    "lightslategrey",
-    "lightsteelblue",
-    "lightyellow",
-    "lime",
-    "limegreen",
-    "linen",
-    "magenta",
-    "maroon",
-    "mediumaquamarine",
-    "mediumblue",
-    "mediumorchid",
-    "mediumpurple",
-    "mediumseagreen",
-    "mediumslateblue",
-    "mediumspringgreen",
-    "mediumturquoise",
-    "mediumvioletred",
-    "midnightblue",
-    "mintcream",
-    "mistyrose",
-    "moccasin",
-    "navajowhite",
-    "navy",
-    "oldlace",
-    "olive",
-    "olivedrab",
-    "orange",
-    "orangered",
-    "orchid",
-    "palegoldenrod",
-    "palegreen",
-    "paleturquoise",
-    "palevioletred",
-    "papayawhip",
-    "peachpuff",
-    "peru",
-    "pink",
-    "plum",
-    "powderblue",
-    "purple",
-    "rebeccapurple",
-    "red",
-    "rosybrown",
-    "royalblue",
-    "saddlebrown",
-    "salmon",
-    "sandybrown",
-    "seagreen",
-    "seashell",
-    "sienna",
-    "silver",
-    "skyblue",
-    "slateblue",
-    "slategray",
-    "slategrey",
-    "snow",
-    "springgreen",
-    "steelblue",
-    "tan",
-    "teal",
-    "thistle",
-    "tomato",
-    "transparent",
-    "turquoise",
-    "violet",
-    "wheat",
-    "white",
-    "whitesmoke",
-    "yellow",
-    "yellowgreen",
-];
-
-/// Whether `value` (lowercase, `!important` gone) is one a template reads
-/// for `name` (round 3's grammar): a keyword, or a colour (`#rgb`, `#rgba`,
-/// `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()`/`hsl()`/`hsla()` of plain
-/// numbers and `%`, a named colour), and for `fill` a `url(#id)`, which the
-/// gradient reason refuses.
-fn value_read(name: &str, value: &str) -> bool {
-    let colour = |v: &str| {
-        let hex = v.strip_prefix('#').is_some_and(|h| {
-            matches!(h.len(), 3 | 4 | 6 | 8) && h.chars().all(|c| c.is_ascii_hexdigit())
-        });
-        let function = ["rgb(", "rgba(", "hsl(", "hsla("].iter().any(|f| {
-            v.strip_prefix(f)
-                .and_then(|r| r.strip_suffix(')'))
-                .is_some_and(|args| {
-                    args.chars()
-                        .all(|c| c.is_ascii_digit() || " .,%/+-".contains(c))
-                        || args
-                            .trim_end_matches("deg")
-                            .chars()
-                            .all(|c| c.is_ascii_digit() || " .,%/+-deg".contains(c))
-                })
-        });
-        hex || function || NAMED_COLOURS.contains(&v)
-    };
-    match name {
-        "fill-rule" => matches!(value, "nonzero" | "evenodd" | "inherit"),
-        "fill" => {
-            matches!(value, "none" | "currentcolor" | "inherit")
-                || colour(value)
-                || value
-                    .strip_prefix("url(#")
-                    .and_then(|r| r.strip_suffix(')'))
-                    .is_some_and(|id| {
-                        !id.is_empty()
-                            && id
-                                .chars()
-                                .all(|c| c.is_alphanumeric() || "-_.:".contains(c))
-                    })
-        }
-        "color" => matches!(value, "currentcolor" | "inherit") || colour(value),
-        _ => false,
-    }
-}
-
-/// What in a `style` attribute's text a template refuses rather than read
-/// (C2 rounds 2-3, an allowlist): only `name: value` declarations parted by
-/// `;`, each name one [`STYLE_READ`] reads (its value in [`value_read`]'s
-/// grammar, `!important` allowed) or one refused by its own reason. A quote,
-/// an escape, a comment, a brace, an at-rule or a bracket, an unknown name
-/// (a custom property, `all`) or a value outside the grammar is refused,
-/// named, so no tokenizer has to agree with a browser's.
-fn style_refused(style: &str) -> Option<String> {
-    let token = [
-        ("\"", "a quote"),
-        ("'", "a quote"),
-        ("\\", "a backslash"),
-        ("/*", "a comment (`/*`)"),
-        ("{", "a brace"),
-        ("}", "a brace"),
-        ("@", "an at-rule (`@`)"),
-        ("[", "a bracket"),
-        ("]", "a bracket"),
-    ]
-    .into_iter()
-    .find(|(text, _)| style.contains(text));
-    if let Some((_, what)) = token {
-        return Some(what.to_string());
-    }
-    for declaration in style.split(';').map(str::trim).filter(|d| !d.is_empty()) {
-        let Some((name, value)) = declaration.split_once(':') else {
-            return Some(format!(
-                "`{declaration}`, which is no `name: value` declaration"
-            ));
-        };
-        let name = name.trim().to_ascii_lowercase();
-        if name == "all" {
-            return Some("`all`, which resets `fill-rule`".to_string());
-        }
-        if STYLE_REFUSED_ELSEWHERE.contains(&name.as_str()) {
-            continue;
-        }
-        if !STYLE_READ.contains(&name.as_str()) {
-            return Some(format!("`{name}`, not a property a template may set"));
-        }
-        let value = importance(value).1;
-        if !value_read(&name, &value) {
-            return Some(format!("`{name}: {value}`, not a value a template reads"));
-        }
-    }
-    None
-}
-
-/// A presentation attribute a template reads ([`STYLE_READ`]) whose value
-/// is outside the grammar (round 3, theme2's condition 3): `fill-rule="evenodd !important"`.
-fn attribute_refused(attrs: &[(&str, String)]) -> Option<String> {
+/// A presentation attribute a template reads, and its value refused unless
+/// it is one of the few a template takes, exactly (C2, closed): `fill` is
+/// `currentColor`, `none`, `#rgb` or `#rrggbb`; `fill-rule` is `nonzero` or
+/// `evenodd`; case as before, ASCII whitespace trimmed, no other character,
+/// keyword (`inherit`) or function. `color` is refused whatever it says. The
+/// survey behind the list: the repo's template SVGs write `fill` as
+/// `currentColor` or `none` (and an avatar picture `#999`), and no
+/// `fill-rule`, `color` or `black`.
+fn attribute_refused(attrs: &[(&str, String)]) -> Option<(String, &'static str)> {
     attrs.iter().find_map(|(k, v)| {
-        let value = v.trim().to_ascii_lowercase();
-        (STYLE_READ.contains(k) && !value_read(k, &value))
-            .then(|| format!("`{k}=\"{v}\"`, not a value a template reads"))
+        let value = v.trim_matches(|c: char| c.is_ascii_whitespace());
+        let lower = value.to_ascii_lowercase();
+        let hex = |h: &str| matches!(h.len(), 3 | 6) && h.chars().all(|c| c.is_ascii_hexdigit());
+        let read = match *k {
+            "color" => return Some((format!("`color=\"{v}\"`"), FIX_COLOR)),
+            "fill" => {
+                value.is_ascii()
+                    && (matches!(lower.as_str(), "currentcolor" | "none")
+                        || lower.strip_prefix('#').is_some_and(hex))
+            }
+            "fill-rule" => value.is_ascii() && matches!(lower.as_str(), "nonzero" | "evenodd"),
+            _ => true,
+        };
+        (!read).then(|| {
+            (
+                format!("`{k}=\"{v}\"`, not a value a template reads"),
+                FIX_VALUE,
+            )
+        })
     })
 }
 
@@ -555,23 +317,16 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 ("it has a `<style>` block".to_string(), FIX_STYLE)
             });
         }
-        if let Some(what) = attrs
-            .iter()
-            .find(|(k, _)| *k == "style")
-            .and_then(|(_, v)| style_refused(v))
-        {
+        // Any `style` attribute, anywhere: a template reads only its
+        // presentation attributes (C2, closed).
+        if attrs.iter().any(|(k, _)| *k == "style") {
             note(&mut why, || {
-                (
-                    format!("its `<{name}>` has a `style` with {what}"),
-                    FIX_STYLE,
-                )
+                (format!("its `<{name}>` has a `style`"), FIX_STYLE)
             });
         }
-        // A presentation attribute a template reads takes the same grammar.
-        if let Some(what) = (!in_defs).then(|| attribute_refused(&attrs)).flatten() {
-            note(&mut why, || {
-                (format!("its `<{name}>` has {what}"), FIX_STYLE)
-            });
+        // A presentation value a template reads, exactly.
+        if let Some((what, fix)) = (!in_defs).then(|| attribute_refused(&attrs)).flatten() {
+            note(&mut why, || (format!("its `<{name}>` has {what}"), fix));
         }
         // What a template drawn filled, by one rule, at full opacity would lose.
         if !in_defs {
@@ -772,7 +527,7 @@ mod tests {
         let svg = read(r##"<svg viewBox="0 0 24 24"><g fill="#000"><path d="M0 0h1"/><path d="m2 2h1"/></g></svg>"##).unwrap();
         assert_eq!(svg.path, "M0 0h1;m2 2h1");
         assert_eq!(svg.not_template, None);
-        let two = read(r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#).unwrap();
+        let two = read(r##"<svg viewBox="0 0 24 24"><path fill="#f00" d="M0 0h1"/><path fill="#0000ff" d="M2 2h1"/></svg>"##).unwrap();
         assert_eq!(
             two.not_template.as_deref(),
             Some("it fills in more than one colour")
@@ -781,54 +536,32 @@ mod tests {
             read(r#"<svg viewBox="0 0 24 24"><linearGradient id="a"/><path d="M0 0h1"/></svg>"#)
                 .unwrap();
         assert!(gradient.not_template.unwrap().contains("linearGradient"));
-        // `currentColor` paints the element's `color` (round 3, R3-1): two
-        // fills under red and blue are two colours, in a style or any case
-        // of its name (R2-5) too.
+        // One colour is a template: `currentColor`, a hex fill, the default.
         for svg in [
-            r#"<svg viewBox="0 0 24 24"><path fill="currentColor" color="red" d="M0 0h1"/><path fill="currentColor" color="blue" d="M2 2h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24"><g style="Color: red"><path style="FILL: currentColor" d="M0 0h1"/></g><path fill="currentColor" style="COLOR: blue" d="M2 2h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#,
-        ] {
-            let two = read(svg).unwrap();
-            assert_eq!(
-                two.not_template.as_deref(),
-                Some("it fills in more than one colour"),
-                "{svg}"
-            );
-        }
-        // One colour is a template, as on main: no `color` at all, a `color`
-        // nothing paints in, one `currentColor` under it (Astra's R3-1
-        // case), and `currentColor` under red beside an explicit red fill.
-        for svg in [
-            r#"<svg viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h1"/><path fill="currentColor" d="M2 2h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24" color="red"><path fill="black" d="M0 0h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24" style="COLOR: red"><path d="M0 0h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path d="M0 0h4v4H0Z"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
-            // `inherit` and `currentColor` keep the parent's (RE-2).
-            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path color="inherit" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24" color="red" fill="currentColor"><path style="color: currentColor" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h1"/><path fill="CurrentColor" d="M2 2h1"/></svg>"#,
+            r##"<svg viewBox="0 0 24 24"><path fill="#000" d="M0 0h1"/><path fill="#000" d="M2 2h1"/></svg>"##,
+            r#"<svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 0h4v4H0Z"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#,
         ] {
             assert_eq!(read(svg).unwrap().not_template, None, "{svg}");
         }
-        // `!important` in any case, a space after its `!` too (R3-2): the
-        // paint is read without it (a translucent fill, no fill) and wins
-        // over a later declaration.
-        let translucent = read(r#"<svg viewBox="0 0 24 24"><path style="fill: #ff000080 !IMPORTANT" d="M0 0h1"/></svg>"#).unwrap();
-        assert_eq!(
-            translucent.not_template.as_deref(),
-            Some("it fills in a translucent colour")
-        );
-        let unfilled = read(
-            r#"<svg viewBox="0 0 24 24"><path style="fill: none ! Important" d="M0 0h1"/></svg>"#,
+        // `color` is refused whatever it says (C2, closed): a template is
+        // drawn in the host's colour.
+        let color = read(
+            r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/></svg>"#,
         )
         .unwrap();
         assert_eq!(
-            unfilled.not_template.as_deref(),
-            Some("a path is not filled")
+            color.not_template.as_deref(),
+            Some("its `<svg>` has `color=\"red\"`")
         );
-        let important = read(r#"<svg viewBox="0 0 24 24"><path style="fill: blue !Important; fill: red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#).unwrap();
-        assert_eq!(important.not_template, None);
+        assert!(
+            color.fix.contains(
+                "a template is drawn in the host's colour; write `fill=\"currentColor\"`"
+            ),
+            "{}",
+            color.fix
+        );
         assert!(read(r#"<svg viewBox="0 0 0 24"><path d="M0 0"/></svg>"#).is_err());
         assert!(read(r#"<svg><path d="M0 0"/></svg>"#).is_err());
     }
@@ -846,16 +579,14 @@ mod tests {
         assert_eq!(svg.fix.matches("Stroke to Path").count(), 1);
     }
 
-    /// Review round 1: comments and CDATA draw nothing; the style beats the
-    /// attribute; an inherited fill is the path's; a transform, a stroke and
-    /// an unfilled path are no template; `|` is no path data; `defs` draw
-    /// nothing; entities are decoded; attributes are apart.
+    /// Review round 1: comments and CDATA draw nothing; an inherited fill is
+    /// the path's; a transform, a stroke and an unfilled path are no
+    /// template; `|` is no path data; `defs` draw nothing; entities are
+    /// decoded; attributes are apart.
     #[test]
     fn the_svg_is_read_as_xml_and_its_cascade() {
         let commented = read(r#"<svg viewBox="0 0 24 24"><!-- > <path d="M9 9"/> --><![CDATA[<path d="M8 8"/>]]><path d="M0 0h1"/></svg>"#).unwrap();
         assert_eq!(commented.path, "M0 0h1");
-        let styled = read(r#"<svg viewBox="0 0 24 24"><path fill="red" style="fill:none;stroke:black" d="M0 0h1"/></svg>"#).unwrap();
-        assert!(styled.not_template.is_some());
         let gradient = read(r#"<svg viewBox="0 0 24 24"><defs><linearGradient id="g"/></defs><path fill="url(#g)" d="M0 0h1"/></svg>"#).unwrap();
         assert!(gradient.not_template.is_some());
         for hidden in [
@@ -864,7 +595,7 @@ mod tests {
             r##"fill="#ff000080""##,
             r#"fill="rgba(0,0,0,.5)""#,
             r#"fill="transparent""#,
-            r#"style="opacity:.5 !important; opacity:1""#,
+            r#"opacity="0.5""#,
         ] {
             let svg = read(&format!(
                 r#"<svg viewBox="0 0 24 24"><path {hidden} d="M0 0h1"/></svg>"#
@@ -874,20 +605,13 @@ mod tests {
         }
         let nested = read(r#"<svg viewBox="0 0 24 24"><svg x="12" viewBox="0 0 10 10"><path d="M0 0h1"/></svg></svg>"#).unwrap();
         assert!(nested.not_template.is_some());
-        let important = read(r#"<svg viewBox="0 0 24 24"><path style="fill : red !important" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#).unwrap();
-        assert_eq!(important.not_template, None);
-        let nested = read(r#"<svg viewBox="0 0 24 24"><g fill="red"><g fill="blue"><path d="M0 0h1"/><path d="M2 2h1"/></g></g></svg>"#).unwrap();
+        let nested = read(r##"<svg viewBox="0 0 24 24"><g fill="#f00"><g fill="#00f"><path d="M0 0h1"/><path d="M2 2h1"/></g></g></svg>"##).unwrap();
         assert_eq!(nested.not_template, None);
         let moved =
             read(r#"<svg viewBox="0 0 24 24"><path transform="scale(2)" d="M0 0h1"/></svg>"#)
                 .unwrap();
         assert!(moved.not_template.unwrap().contains("transform"));
-        for lost in [
-            r#"fill-rule="winding""#,
-            r#"style="opacity:0.5""#,
-            r#"clip-path="url(#a)""#,
-            r#"style="transform:scale(2)""#,
-        ] {
+        for lost in [r#"fill-rule="winding""#, r#"clip-path="url(#a)""#] {
             let svg = read(&format!(
                 r#"<svg viewBox="0 0 24 24"><path {lost} d="M0 0h1"/></svg>"#
             ))
@@ -917,18 +641,16 @@ mod tests {
         assert!(read(r#"<svg viewBox="0 0 24 24"><path d="M0 0"fill="red"/></svg>"#).is_err());
     }
 
-    /// Stage 14 C2: a path's `fill-rule` through the cascade (attribute,
-    /// `style`, `!important`, inherited from `<g>` and `<svg>`, `inherit`);
-    /// even-odd is a template, one rule for the icon; a mix is refused naming
-    /// the paths, and any other value by its reason.
+    /// Stage 14 C2: a path's `fill-rule` from its attribute or inherited from
+    /// `<g>` and `<svg>`; even-odd is a template, one rule for the icon; a mix
+    /// is refused naming the drawn paths.
     #[test]
     fn a_fill_rule_is_read_through_the_cascade_one_for_the_icon() {
         for svg in [
             r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24"><path style="fill-rule: EvenOdd" d="M0 0h1"/></svg>"#,
-            r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" style="fill-rule:evenodd !important; fill-rule:nonzero" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path fill-rule=" EvenOdd " d="M0 0h1"/></svg>"#,
             r#"<svg viewBox="0 0 24 24"><g fill-rule="evenodd"><path d="M0 0h1"/><path d="M2 2h1"/></g></svg>"#,
-            r#"<svg viewBox="0 0 24 24" fill-rule="evenodd"><g><path fill-rule="inherit" d="M0 0h1"/></g></svg>"#,
+            r#"<svg viewBox="0 0 24 24" fill-rule="evenodd"><g><path d="M0 0h1"/></g></svg>"#,
         ] {
             let read = read(svg).unwrap();
             assert_eq!(
@@ -949,146 +671,12 @@ mod tests {
                 "{svg}"
             );
         }
-        let mixed = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path d="M2 2h1"/><g style="fill-rule:evenodd"><path d="M4 4h1"/></g></svg>"#).unwrap();
+        let mixed = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path d="M2 2h1"/><g fill-rule="evenodd"><path d="M4 4h1"/></g></svg>"#).unwrap();
         assert_eq!(
             mixed.not_template.as_deref(),
             Some("its paths mix fill rules (evenodd: drawn path 1, 3; nonzero: drawn path 2)")
         );
-        // CSS beyond plain declarations is refused, not read (round 2):
-        // a quoted `/*` in a custom property that would hide an override, an
-        // escaped property name, a comment, a block, an at-rule, a
-        // `<style>` block (an Illustrator export's class rule in `<defs>`).
-        for (svg, reason) in [
-            (
-                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path fill-rule="evenodd" style="--x:'/*'; fill-rule:nonzero; --y:'*/'" d="M2 2h1"/></svg>"#,
-                "its `<path>` has a `style` with a quote",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path fill-rule="evenodd" style="fill-\72 ule:nonzero" d="M2 2h1"/></svg>"#,
-                "its `<path>` has a `style` with a backslash",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" style="/* x */ fill-rule:nonzero" d="M0 0h1"/></svg>"#,
-                "its `<path>` has a `style` with a comment (`/*`)",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><g style="@media print{fill:red}"><path d="M0 0h1"/></g></svg>"#,
-                "its `<g>` has a `style` with a brace",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path style="@import url(x)" d="M0 0h1"/></svg>"#,
-                "its `<path>` has a `style` with an at-rule (`@`)",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M0 0h4v4H0Z"/></svg>"#,
-                "it has a `<style>` block",
-            ),
-        ] {
-            let read = read(svg).unwrap();
-            let why = read.not_template.clone().unwrap_or_default();
-            assert!(why.starts_with(reason), "{svg}: {why}");
-            assert!(
-                read.fix.contains("`fill=\"currentColor\"`")
-                    && read
-                        .fix
-                        .contains("drop the `<style>` block, or the offending style text"),
-                "{}",
-                read.fix
-            );
-        }
-        // Round 3: a `;` inside parentheses or brackets, and the `all`
-        // shorthand (which resets or inherits `fill-rule`), are refused.
-        for (svg, reason) in [
-            (
-                r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" style="--x:(;fill-rule:evenodd;)" d="M0 0h1"/></svg>"#,
-                "its `<path>` has a `style` with `--x`, not a property a template may set",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" style="--x:[;fill-rule:evenodd;]" d="M0 0h1"/></svg>"#,
-                "its `<path>` has a `style` with a bracket",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" style="all:initial" d="M0 0h4v4H0Z M1 1h2v2H1Z"/></svg>"#,
-                "its `<path>` has a `style` with `all`, which resets `fill-rule`",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24" fill-rule="evenodd"><g style="all:initial"><path d="M0 0h4v4H0Z"/></g></svg>"#,
-                "its `<g>` has a `style` with `all`, which resets `fill-rule`",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path style="fill-rule:evenodd; all:initial" d="M0 0h1"/></svg>"#,
-                "its `<path>` has a `style` with `all`, which resets `fill-rule`",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><path style="ALL : unset" d="M0 0h1"/></svg>"#,
-                "its `<path>` has a `style` with `all`, which resets `fill-rule`",
-            ),
-            (
-                r#"<svg viewBox="0 0 24 24"><g style="all:inherit"><path d="M0 0h1"/></g></svg>"#,
-                "its `<g>` has a `style` with `all`, which resets `fill-rule`",
-            ),
-            // The allowlist (round 3): an unknown property, a value outside
-            // the grammar (a wide keyword, a function), in a style or an attribute.
-            (r#"<svg viewBox="0 0 24 24"><path style="--x: 1; fill: black" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `--x`, not a property a template may set"),
-            (r#"<svg viewBox="0 0 24 24"><path style="paint-order: stroke" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `paint-order`, not a property a template may set"),
-            (r#"<svg viewBox="0 0 24 24"><path style="fill-rule: initial" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `fill-rule: initial`, not a value a template reads"),
-            (r#"<svg viewBox="0 0 24 24"><path style="fill: var(--ink)" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `fill: var(--ink)`, not a value a template reads"),
-            (r#"<svg viewBox="0 0 24 24"><path style="fill-rule evenodd" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `fill-rule evenodd`, which is no `name: value` declaration"),
-            (r#"<svg viewBox="0 0 24 24"><path fill="var(--ink)" d="M0 0h1"/></svg>"#, "its `<path>` has `fill=\"var(--ink)\"`, not a value a template reads"),
-            (r#"<svg viewBox="0 0 24 24"><g fill-rule="unset"><path d="M0 0h1"/></g></svg>"#, "its `<g>` has `fill-rule=\"unset\"`, not a value a template reads"),
-        ] {
-            let read = read(svg).unwrap();
-            let why = read.not_template.clone().unwrap_or_default();
-            assert!(why.starts_with(reason), "{svg}: {why}");
-            assert!(
-                read.fix
-                    .contains("drop the `<style>` block, or the offending style text"),
-                "{}",
-                read.fix
-            );
-        }
-        // What the grammar reads: colours of every form, the keywords.
-        for style in [
-            "fill: #000; fill-rule: evenodd",
-            "fill: rgb(0, 0, 0)",
-            "fill: RGBA(0 0 0 / 100%)",
-            "fill: hsl(0deg 0% 0%)",
-            "fill: Black",
-            "fill: currentColor; color: rebeccapurple",
-            "fill-rule: inherit; fill: #000F",
-        ] {
-            let svg =
-                format!(r#"<svg viewBox="0 0 24 24"><path style="{style}" d="M0 0h1"/></svg>"#);
-            let why = read(&svg).unwrap().not_template;
-            assert!(
-                why.as_deref().is_none_or(|w| !w.contains("`style`")),
-                "{style}: {why:?}"
-            );
-        }
-        // Plain declarations still read, `!important` and case included.
-        let plain = read(r#"<svg viewBox="0 0 24 24"><path style="fill-rule: EvenOdd; fill: black !important" d="M0 0h1"/></svg>"#).unwrap();
-        assert_eq!(
-            (plain.not_template.as_deref(), plain.even_odd),
-            (None, true)
-        );
-        // `!important` belongs to a declaration, not to a presentation
-        // attribute (Astra 6): the attribute's value is invalid.
-        let important = read(
-            r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd !important" d="M0 0h1"/></svg>"#,
-        )
-        .unwrap();
-        assert_eq!(
-            important.not_template.as_deref(),
-            Some("its `<path>` has `fill-rule=\"evenodd !important\"`, not a value a template reads; its `<path>` has a `fill-rule`")
-        );
         assert!(mixed.fix.contains("the same `fill-rule`"), "{}", mixed.fix);
-        let wrong =
-            read(r#"<svg viewBox="0 0 24 24"><path fill-rule="winding" d="M0 0h1"/></svg>"#)
-                .unwrap();
-        assert_eq!(
-            wrong.not_template.as_deref(),
-            Some("its `<path>` has `fill-rule=\"winding\"`, not a value a template reads; its `<path>` has a `fill-rule`")
-        );
         // A rule written in `<defs>` paints nothing; `clip-rule` outside a
         // `<clipPath>` paints nothing either.
         let defs = read(r#"<svg viewBox="0 0 24 24"><defs><path fill-rule="evenodd" d="M9 9h1"/></defs><path clip-rule="evenodd" d="M0 0h1"/></svg>"#).unwrap();
@@ -1111,9 +699,127 @@ mod tests {
         }
     }
 
-    /// Round 2: refusing CSS beyond plain declarations costs no SVG the repo
-    /// ships: every one under a package's or an app's `assets/` reads with
-    /// no `style` or `<style>` reason (whatever else it is).
+    /// C2, closed (theme2): a template reads no `style` at all and its
+    /// presentation values exactly. Every bypass from every round is refused,
+    /// each naming what it found.
+    #[test]
+    fn every_bypass_from_every_round_is_refused() {
+        let cases = [
+            // Round 1: the comment override; attribute `!important`.
+            (
+                r#"<path fill-rule="evenodd" style="/* x */ fill-rule:nonzero" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<path fill-rule="evenodd !important" d="M0 0h1"/>"#,
+                "its `<path>` has `fill-rule=\"evenodd !important\"`, not a value a template reads",
+            ),
+            // Round 2: a quoted `/*`; an escaped name.
+            (
+                r#"<path fill-rule="evenodd" style="--x:'/*'; fill-rule:nonzero; --y:'*/'" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<path fill-rule="evenodd" style="fill-\72 ule:nonzero" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            // Round 3: parentheses, brackets, `all`.
+            (
+                r#"<path fill-rule="nonzero" style="--x:(;fill-rule:evenodd;)" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<path fill-rule="nonzero" style="--x:[;fill-rule:evenodd;]" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<path fill-rule="evenodd" style="all:initial" d="M0 0h4v4H0Z M1 1h2v2H1Z"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<g style="all:initial"><path d="M0 0h4v4H0Z"/></g>"#,
+                "its `<g>` has a `style`",
+            ),
+            (
+                r#"<path style="fill-rule:evenodd; all:initial" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<g style="all:inherit"><path d="M0 0h1"/></g>"#,
+                "its `<g>` has a `style`",
+            ),
+            // Round 4.
+            (
+                r#"<path style="display:(;fill-rule:evenodd;display:)" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                "<path fill-rule=\"evenodd\u{a0}\" d=\"M0 0h1\"/>",
+                "its `<path>` has `fill-rule=\"evenodd\u{a0}\"`, not a value a template reads",
+            ),
+            (
+                "<path fill=\"\u{a0}none\" d=\"M0 0h1\"/>",
+                "its `<path>` has `fill=\"\u{a0}none\"`, not a value a template reads",
+            ),
+            (
+                "<path style=\"fill\u{a0}-rule:evenodd\" d=\"M0 0h1\"/>",
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<path style="fill:none;fill:rgb()" d="M0 0h1"/>"#,
+                "its `<path>` has a `style`",
+            ),
+            (
+                r#"<path fill="rgb(0,0,0,0)" d="M0 0h1"/>"#,
+                "its `<path>` has `fill=\"rgb(0,0,0,0)\"`, not a value a template reads",
+            ),
+            (
+                r#"<path fill="hsl(0,0%,0%,0)" d="M0 0h1"/>"#,
+                "its `<path>` has `fill=\"hsl(0,0%,0%,0)\"`, not a value a template reads",
+            ),
+            (
+                r#"<g fill="none"><g fill="inherit"><path d="M0 0h1"/></g></g>"#,
+                "its `<g>` has `fill=\"inherit\"`, not a value a template reads",
+            ),
+            // The exact lists themselves: `black` (no template writes it),
+            // a named colour, `inherit` on a rule, a four-digit hex, an
+            // Illustrator export's `<style>` block.
+            (
+                r#"<path fill="black" d="M0 0h1"/>"#,
+                "its `<path>` has `fill=\"black\"`, not a value a template reads",
+            ),
+            (
+                r#"<path fill-rule="inherit" d="M0 0h1"/>"#,
+                "its `<path>` has `fill-rule=\"inherit\"`, not a value a template reads",
+            ),
+            (
+                r##"<path fill="#000f" d="M0 0h1"/>"##,
+                "its `<path>` has `fill=\"#000f\"`, not a value a template reads",
+            ),
+            (
+                r#"<defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M0 0h4v4H0Z"/>"#,
+                "it has a `<style>` block",
+            ),
+        ];
+        for (body, reason) in cases {
+            let svg = format!(r#"<svg viewBox="0 0 24 24">{body}</svg>"#);
+            let read = read(&svg).unwrap();
+            let why = read.not_template.clone().unwrap_or_default();
+            assert!(why.starts_with(reason), "{svg}: {why}");
+            assert!(
+                read.fix
+                    .contains("drop the `style` attribute or the `<style>` block")
+                    || read.fix.contains("exactly"),
+                "{svg}: {}",
+                read.fix
+            );
+        }
+    }
+
+    /// Refusing `style` and inexact values costs no SVG the repo ships:
+    /// every one under a package's or an app's `assets/` reads with no
+    /// `style`, `<style>` or value reason (whatever else it is: an avatar
+    /// picture's rectangle is no template anyway).
     #[test]
     fn every_repo_svg_reads_past_the_style_rule() {
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -1144,8 +850,11 @@ mod tests {
             .filter_map(|p| {
                 let text = std::fs::read_to_string(p).ok()?;
                 let why = read(&text).ok()?.not_template?;
-                (why.contains("`style`") || why.contains("`<style>`"))
-                    .then(|| format!("{}: {why}", p.display()))
+                (why.contains("`style`")
+                    || why.contains("`<style>`")
+                    || why.contains("not a value a template reads")
+                    || why.contains("`color="))
+                .then(|| format!("{}: {why}", p.display()))
             })
             .collect();
         assert!(refused.is_empty(), "{refused:#?}");

@@ -778,7 +778,7 @@ fn a_style_block_is_no_template_but_the_web_draws_the_file() {
         e.message.contains("it has a `<style>` block")
             && e.message.contains("`fill=\"currentColor\"`")
             && e.message
-                .contains("drop the `<style>` block, or the offending style text"),
+                .contains("drop the `style` attribute or the `<style>` block"),
         "{}",
         e.message
     );

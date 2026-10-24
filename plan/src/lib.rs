@@ -80,7 +80,7 @@ pub struct StrId(pub u32);
 /// string on the wire, as any `str` field (format.json and its digest are
 /// unchanged), but no [`StrId`], so `plan.str()` and the string pool don't
 /// take it. An even-odd icon's path starts `evenodd:`, which only
-/// `exact_kernel::Icon` strips; [`IconPathId::raw_for_icon`] is the one way
+/// `exact_kernel::Icon` strips; its one method (below) is the one way
 /// out, called by `exact_runner::icon_of` alone (a guard test holds that).
 ///
 /// Every way a row's path could be read as a string fails to compile (C2
