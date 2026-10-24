@@ -1045,7 +1045,8 @@ mod writer_tests {
         assert_eq!(
             names.join(" "),
             "opacity 1s ease 0s,stroke-dashoffset r color background-color fill stroke cx cy x y \
-             rx ry border-color --exact-tint box-shadow font-weight font-stretch d "
+             rx ry border-color --exact-tint box-shadow font-weight font-stretch \
+             font-variation-settings d "
         );
     }
 }

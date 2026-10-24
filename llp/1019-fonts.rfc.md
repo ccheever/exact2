@@ -891,36 +891,60 @@ A repeated tag keeps its last value; a tag the face lacks does nothing.
 
 ### Not here
 
-`font-variation-settings` takes no transition (D10 is the weight and the
-width alone); its eight pairs would interpolate axis by axis.
+Transitions and keyframes on the settings: D10, below.
 
-### D10 — `font-weight` and `font-stretch` transition (2026-10-20)
+### D10 — The font rows move: `transition` and `@keyframes` (2026-10-20, 2026-10-24)
 
-`transition` takes both rows, as CSS does: `font-weight 300ms ease-out`, a
-spring, `all`. Each is a layout property: a weight's glyphs are wider, so
-every frame of the transition lays its text out again. That is admitted for
-these two rows alone (`rules/DEFERRED.md` §Motion). Measured first on an
+`transition` takes `font-weight`, `font-stretch` and
+`font-variation-settings`, as CSS does: `font-weight 300ms ease-out`, a
+spring, `all`; `@keyframes` take all three (`from font-weight=100`). Each is
+a layout property: a weight's glyphs are wider, so every frame lays its text
+out again. That is admitted for these three rows alone (`rules/DEFERRED.md`
+§Motion). Measured first on an
 iPhone 17 Pro Max with the weight set every frame: the poster and a title
 hold 119 fps and as few late frames as the same screens built in UIKit;
 twelve paragraphs of body text hold the rate with more late frames (QUEUE).
 
 - **The runner plays them** (`runner/src/runner/text_axes.rs`): no
   compositor can draw a weight it was not given, so no host's engine takes
-  their targets. A commit that changes one under a matching declaration
-  writes the value presented now and starts the transition in an
-  `exact-motion` engine of the runner's own; each frame writes the next
-  value as a presentation-only commit, and layout follows. CSS's
-  before-change value (the computed one, inherited included), interruption
-  and reversing shortening are the engine's, as for every other property.
+  their targets. After a commit that changes one under a matching
+  declaration, or a node's animation of one, the runner starts it in an
+  `exact-motion` engine of its own and writes the value presented now in
+  the same apply; each frame writes the next value as a presentation-only
+  commit, and layout follows. Interruption, reversing shortening and an
+  animation's iterations, direction, fill, delay and play state are the
+  engine's, as for every other property.
+- **A change is CSS Transitions §3's.** The before-change value is the
+  computed one presented before the commit, inherited included; the
+  after-change value leaves transitions out, so a node whose own
+  `transition` covers a row it inherits starts one when an ancestor's value
+  changes, from what it showed to the ancestor's new target. While that
+  row moves the runner writes it on the node, and at rest it clears the
+  write, so the node inherits again. A node without a transition follows a
+  moving ancestor frame by frame.
+- **The settings move axis by axis** (CSS Fonts 4 §7.2): the engine keys
+  each axis as a node of its own. Two values naming the same axes
+  interpolate each; two naming different ones change at once, as a
+  discrete property does under `transition-behavior: normal`. A keyframe's
+  axis is one value on the wire (its number, and its tag in two 16-bit
+  halves, which an `f32` carries exactly), and every keyframe that sets the
+  settings names the same axes, or the rule is refused. An axis the node's
+  own settings do not name has no underlying value to fill a keyframe the
+  rule leaves out; it takes its first keyframe's value there, and leaves
+  the settings when the animation ends.
+- **Apple links it by use**, when the plan declares any transition or
+  animation.
 - **A spring is its curve from rest**, a `linear()` over its settle time, as
   for paint (LLP 1062 D3): nothing carries a weight's velocity.
 - **A weight moves in whole steps** of 1 in 1000, the row's own encoding.
-- **The web links none of it.** The row emits as CSS `transition`, and the
-  browser plays it (`RunnerLinks::text_axes` is `None` there); Apple links it
-  by use, when the plan declares any transition.
+- **The web links none of it.** The rows emit as CSS `transition` and
+  `@keyframes`, and the browser plays them (`RunnerLinks::text_axes` is
+  `None` there).
 - **Settle** folds the runner's end time into each native host's `settle`,
   and the seekable clock steps its virtual frames while an axis moves.
-- **Not here:** a child that inherits a transitioning parent's weight follows
-  each frame's commit, but a child's own `transition` does not start when
-  only its inherited value changes, which CSS would do.
+- **Not here:** CSS's after-change value includes an ancestor's running
+  animation, so a child's own transition would restart at each of its
+  frames; here it moves toward the ancestor's own target. Two animations
+  of the settings naming different axes each move theirs, where CSS's later
+  one replaces the whole list.
 
