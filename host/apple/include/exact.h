@@ -454,6 +454,13 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
  * for a route with no authored Back control. Not a batch. */
 uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1133.016 D15 item 1: a package's call of the app's handler, the JSON
+ * {"extension","handle","handler","args"} in the input buffer. The runner's
+ * answer, JSON ({"text"} or {"error","message"}), goes to reply(ctx, answer,
+ * len) once: during this call, or when the handler's own requests land on
+ * the runner's thread. Not a batch. */
+typedef void (*ExactInvokeReply)(void *ctx, const uint8_t *answer, uint32_t len);
+void exact_module_invoke(ExactRuntime rt, size_t len, ExactInvokeReply reply, void *ctx);
 /* LLP 1115 D5: the platform's own Back from visit `id` for a route with no
  * authored Back control under a root with no `navigate` handler: the
  * router's `back` as a commit of its own. A batch. */

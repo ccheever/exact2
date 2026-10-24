@@ -813,6 +813,7 @@ impl<D: DataSource> Runner<D> {
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
+        self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
         self.pending.push(PendingReq {
             refusal: None,
@@ -970,6 +971,7 @@ impl<D: DataSource> Runner<D> {
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
         );
+        out.extend(self.tool_tickets());
         out
     }
 
@@ -982,6 +984,7 @@ impl<D: DataSource> Runner<D> {
     /// 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
+            || !self.tool_tickets().is_empty()
             || self
                 .pending
                 .iter()
@@ -1045,6 +1048,7 @@ impl<D: DataSource> Runner<D> {
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
         );
+        out.extend(self.tool_tickets());
         out
     }
 
@@ -1076,7 +1080,9 @@ impl<D: DataSource> Runner<D> {
     /// commit and lets go of the work for any it holds that isn't (LLP 1016
     /// D5): a superseded or forgotten reply would only be dropped here.
     pub fn holds(&self, ticket: u64) -> bool {
-        self.is_background(ticket) || self.pending.iter().any(|p| p.ticket == ticket)
+        self.is_background(ticket)
+            || self.is_tool(ticket)
+            || self.pending.iter().any(|p| p.ticket == ticket)
     }
 
     /// The host brought back the outcome of request `ticket`: the source
@@ -1117,6 +1123,11 @@ impl<D: DataSource> Runner<D> {
             self.background_landed(outcome);
             return Ok(None);
         }
+        if self.is_tool(ticket) {
+            // A handler's request (LLP 1133.016 D9): its turn resumes, no commit.
+            self.tool_landed(ticket, outcome);
+            return Ok(None);
+        }
         let mut summary = outcome.summary();
         if let Some(ms) = elapsed_ms {
             exact_num::push_text!(&mut summary, "; wall {} ms", ms);
@@ -1129,6 +1140,7 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         };
         let handles = self.landed_handles(ticket);
+        self.landed_send(ticket);
         if let (Some(_), Outcome::Message(m)) = (self.pending[pos].stream, &outcome) {
             // A long poll's reply that is no event (LLP 1016.000 D8): it holds.
             if self.pending[pos].long_poll && m.event == crate::LONG_POLL_REPLY {

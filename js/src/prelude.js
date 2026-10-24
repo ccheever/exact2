@@ -1219,13 +1219,13 @@
     try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
     catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
   };
-  // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
-  // (a value given at once too: see its end) — then it drains microtasks and asks
-  // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
-  // fetch the answer is waiting on (0: its storage; 0 and `waiting`: another
-  // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
-  // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an
-  // answer still waiting on nothing of its own.
+  // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id (a value given at once too: see its end) — then
+  // it drains microtasks and asks `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the fetch the answer is
+  // waiting on (0: its storage; 0 and `waiting`: another answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
+  // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an answer still waiting on nothing of its own.
+  // A handler a module calls back (LLP 1133.016 D9): the `tools` export's, its value as JSON text.
+  function tool(name, args) { var f = global.exact.tools && global.exact.tools[name], text = function (v) { return JSON.stringify(v === undefined ? null : v); }, e, r;
+    if (typeof f !== "function") { e = new Error("the data module's `tools` has no `" + name + "`"); e.kind = "UnknownSource"; throw e; } r = f(args, store, storage); return r && typeof r.then === "function" ? r.then(text) : text(r); }
   global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
@@ -1262,7 +1262,7 @@
         },
       });
       call.sync = true;
-      try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
+      try { result = mutation === "tool" ? tool(source.slice(5), JSON.parse(JSON.parse(argsJson)[0])) : global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
       finally { call.sync = false; }
       // Staged socket operations go out with no fetch, a stream answer's included (D7); a source that answers with a promise is
       // an answer in flight from its call on, and what it staged is that turn's (the amendment of 2026-10-18).

@@ -41,6 +41,7 @@ mod bound;
 mod ceremony;
 mod fed;
 mod handles;
+mod invoke;
 mod permits;
 mod pictures;
 mod poll;
@@ -108,6 +109,17 @@ pub(super) struct Extensions {
     pictures: pictures::Pictures,
     /// The canvases packages feed, and their leases (`fed.rs`).
     fed: fed::Fed,
+    /// The handles whose work may call the app's handlers, and the handlers
+    /// running (`invoke.rs`).
+    invocations: invoke::Invocations,
+    /// The last number a forwarded send was given, and each send in flight
+    /// by ticket: its `extension.send` and number, which a `cancel` names
+    /// when it is let go (`bound.rs`).
+    requests: u64,
+    sent: BTreeMap<u64, (String, u64)>,
+    /// Each polled source's Contract readers whose last answer is within
+    /// its `while`, by resource (`poll.rs`).
+    within: BTreeMap<String, BTreeMap<usize, bool>>,
 }
 
 /// A Contract read or send of a module's name, as admission saw it.
@@ -436,7 +448,7 @@ impl<D: DataSource> Runner<D> {
             .map_err(|e| DataError::Unavailable(format!("{key}: {e}")))?;
         let json = self.overlaid(&row, json);
         let json = self.presence_status(&row, json);
-        self.note_poll_answer(&row, error_code(&json).is_some());
+        self.note_poll_answer(&row, target, &json);
         if let (Target::Resource(i), None) = (target, error_code(&json)) {
             self.extensions.samples.asking = Some((samples::Reader::Resource(i), CallOrigin::App));
             self.sampled_answered(&row, &json);
@@ -940,10 +952,17 @@ impl<D: DataSource> Runner<D> {
                     self.bound_read(&key);
                 }
                 let sampled = self.samples_of(&row);
-                let body = self.forward_body(&row, args, None);
+                // The implementation hears the origin admission read, and a
+                // Contract send keeps the number it went out with (`bound.rs`).
+                let mut body = self.as_origin(origin, |r| r.forward_body(&row, args, None));
+                if let Some(n) = v["request"].as_u64() {
+                    body = numbered(&body, n);
+                }
+                // A reply carrying handles grants them the handlers its call
+                // listed (`invoke.rs`); a watched one's `watched` grants them.
                 let work = match request {
                     Some(ticket) => self.watched(body, ticket),
-                    None => self.to_implementation(body),
+                    None => self.granting(&row, &body.clone(), self.to_implementation(body)),
                 };
                 Some(match (sampled, reader) {
                     (Some(decl), samples::Reader::Data(id)) => {
@@ -1272,6 +1291,7 @@ impl<D: DataSource> Runner<D> {
         self.release_idle();
         self.release_sampled();
         self.dispose_dropped();
+        self.cancel_let_go();
         self.prune_origins();
         let gone: Vec<u64> = (self.extensions.held.iter())
             .filter(|h| h.reply.is_none())
@@ -1335,6 +1355,13 @@ fn error_code(json: &Json) -> Option<&str> {
     let only =
         (object.keys()).all(|k| matches!(k.as_str(), "error" | "message" | "apple" | "android"));
     only.then(|| object.get("error")?.as_str())?
+}
+
+/// A forwarded body with the send's number `n`.
+fn numbered(body: &[u8], n: u64) -> Vec<u8> {
+    let mut v: Json = serde_json::from_slice(body).unwrap_or_default();
+    v["request"] = json!(n);
+    v.to_string().into_bytes()
 }
 
 /// The choices a `check` ticket's tap takes besides `cancel`: `allow`, and

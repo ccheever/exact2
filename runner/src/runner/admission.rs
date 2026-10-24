@@ -84,6 +84,8 @@ impl<D: DataSource> Runner<D> {
             // completion, so its ticket is let go and, if ordered, the host's
             // fence lifts once it has (a host would otherwise wait on it).
             self.background.refusal = Some((ticket, reason, ordered));
+        } else if self.is_tool(ticket) {
+            self.refuse_tool(ticket, reason);
         }
     }
 
@@ -96,6 +98,16 @@ impl<D: DataSource> Runner<D> {
         // reported by the host, rides the same path.
         if let Some(settled) = crate::auth::take_any_settled(self) {
             return Some(settled);
+        }
+        if let Some((ticket, reason)) = self.tool_refusal() {
+            let message = reason.into();
+            return Some((
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    message,
+                },
+            ));
         }
         let at = self.pending.iter().position(|p| {
             p.refusal

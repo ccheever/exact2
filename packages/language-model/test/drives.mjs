@@ -3,14 +3,16 @@
 // show. Drives 7 and 8 are the fixture's (`web.mjs --agent`) and the
 // runner's tests.
 //
-// usage: bun packages/language-model/test/drives.mjs [web|macos|ios] [--sim <udid>] [1 2 …]
-//   web builds Agents first; macos and ios drive the build `host/apple/build.mjs` made.
+// usage: bun packages/language-model/test/drives.mjs [web|macos|ios|android] [--sim <udid>] [1 2 …]
+//   web builds Agents first; macos and ios drive the build `host/apple/build.mjs` made, android the APK
+//   `scripts/agent-android.mjs build agents --apk` made, on the device ANDROID_SERIAL names. Android runs no
+//   tools (D9), so drive 4 is not its.
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { checker, root } from './fixture.mjs';
 
 const args = process.argv.slice(2);
-const host = ['web', 'macos', 'ios'].includes(args[0]) ? args.shift() : 'web';
+const host = ['web', 'macos', 'ios', 'android'].includes(args[0]) ? args.shift() : 'web';
 const sim = args[0] === '--sim' ? (args.shift(), args.shift()) : null;
 const only = args.map(Number);
 
@@ -33,14 +35,15 @@ const drives = {
   2: {
     name: 'a reply streams on the session clock, and a reload restores the conversation',
     ops: [script([{ text: 'Lifetimes say how long a borrow may live.' }, { value: { title: 'Rust lifetimes' } }]), ...open, ...send('What are lifetimes?'),
-      'clock +130', 'tree msg-m3', 'clock +1000', 'clock data', 'tree msg-m3', 'tree title-c1',
+      'clock +130', 'clock data', 'tree msg-m3', 'clock +1000', 'clock data', 'tree msg-m3', 'tree title-c1',
       ...(host === 'web' ? ['reload', 'clock data', 'clock +1000', 'clock data', 'tree msg-m3'] : [])],
-    want: ['"Lifetimes say how long "', '"Lifetimes say how long a borrow may live."', '[title-c1] "Rust lifetimes"'],
+    // Part of the reply at +130 ms: where the session clock stood when the response began differs by host.
+    want: [/"Lifetimes say how long (a )?"/, '"Lifetimes say how long a borrow may live."', '[title-c1] "Rust lifetimes"'],
   },
   3: {
     name: 'stop keeps the text so far, and the response reads aborted',
-    ops: [script([{ text: 'A held reply that waits for stop', hold: true }]), ...open, ...send('Hold on.'), 'clock +2000', 'tap stop', 'clock data', 'clock +200', 'clock data', 'tree msg-m3', 'state extensions'],
-    want: ['"A held reply that waits for "', '"state":"aborted"'],
+    ops: [script([{ text: 'A held reply that waits for stop', hold: true }]), ...open, ...send('Hold on.'), 'clock +2000', 'tap stop', 'clock data', 'clock +200', 'clock data', 'tree msg-m3', 'logs'],
+    want: ['"A held reply that waits for "', ': aborted (AbortError)'],
   },
   4: {
     name: 'the tool finds an earlier conversation',
@@ -53,9 +56,9 @@ const drives = {
     name: 'a 256-token window evicts, and a reload’s create trims the history',
     ops: ['prefer extension language-model.contextWindow=256', 'prefer extension language-model.rate=0', ...open,
       ...send(LONG), 'clock +300', 'clock data', ...send(`${LONG} Again.`), 'clock +300', 'clock data', ...send(`${LONG} Once more.`), 'clock +300', 'clock data',
-      'tree turn-m7', 'state extensions',
+      'tree turn-m7', 'logs',
       ...(host === 'web' ? ['reload', 'prefer extension language-model.contextWindow=256', 'prefer extension language-model.rate=0', 'clock data', 'clock +1000', 'clock data', ...send('And one more.'), 'clock +300', 'clock data', 'tree turn-m9', 'logs'] : [])],
-    want: ['[forgot-m7] "Earlier messages no longer fit in the on-device model’s memory"', '"overflowed":true', ...(host === 'web' ? ['[forgot-m9]', 'earlier turns evicted'] : [])],
+    want: ['[forgot-m7] "Earlier messages no longer fit in the on-device model’s memory"', 'turns, overflowed,', ...(host === 'web' ? ['[forgot-m9]', 'earlier turns evicted'] : [])],
   },
   6: {
     name: 'a title by structured output',
@@ -71,10 +74,13 @@ if (host === 'web') {
 const { check, failed } = checker();
 for (const [n, d] of Object.entries(drives)) {
   if (only.length && !only.includes(Number(n))) continue;
-  const flags = ['--app', 'agents', '--size', '1100x720', ...(host === 'web' ? ['--storage', `lm-drive-${n}-${process.pid}`] : []), ...(sim ? ['--sim', sim] : [])];
+  if (host === 'android' && n === '4') continue;
+  // Each drive on a store of its own, empty: a native host keeps one across launches. A phone is its device's size,
+  // its header's buttons in UIKit's navigation bar as the app shows them.
+  const flags = [...(host === 'android' ? ['--reader'] : []), '--app', 'agents', ...(host === 'ios' ? ['--chrome', 'platform'] : host === 'android' ? [] : ['--size', '1100x720']), '--storage', `lm-drive-${n}-${process.pid}`, ...(host === 'web' ? [] : ['--reset-storage']), ...(sim ? ['--sim', sim] : [])];
   const r = spawnSync('bun', [resolve(root, 'scripts/agent.mjs'), host, ...flags, ...d.ops], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
   const out = `${r.stdout}\n${r.stderr}`;
-  const missing = d.want.filter(w => !out.includes(w));
+  const missing = d.want.filter(w => w instanceof RegExp ? !w.test(out) : !out.includes(w)).map(String);
   check(host, `drive ${n}: ${d.name}`, r.status === 0 && !missing.length, `${r.status !== 0 ? `exit ${r.status}; ` : ''}missing ${JSON.stringify(missing)}\n${out.split('\n').slice(-40).join('\n')}`);
 }
 console.log(failed() ? `${failed()} failed` : 'all passed');
