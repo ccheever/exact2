@@ -86,7 +86,7 @@ test("the local token's body may be 16 MiB (a CLI import's sources); a paired cl
   await post({ method: 'revoke', client: p.client });
 }, 300_000);
 
-test("a paired client below write scope may not re-hold another client's held proposal past 1024 operations (tamber-ops-size), as it may not replace it today", async () => {
+test("a paired client's request past 1024 operations is refused (tamber-ops-size), whatever held proposal it names", async () => {
   const css = `@theme {\n${Array.from({ length: 1500 }, (_, k) => `  --color-r${k}: #${(k + 0x200000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
   const imported = await post({ method: 'import', kind: 'tailwind', client: 'owner', source: css });
   expect(imported.status, JSON.stringify(imported).slice(0, 300)).toBe(200);

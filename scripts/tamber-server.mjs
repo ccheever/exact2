@@ -554,7 +554,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request && who.client) request.client = who.client;
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
     // A client's operations, at most OPS_LIMIT (scripts/tamber-ops-limit.mjs), refused before any is read.
-    if (request && overOps(request, scope, proposals)) { json(res, 400, { error: opsRefusal(request) }); return true; }
+    if (request && overOps(request)) { json(res, 400, { error: opsRefusal(request) }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       const snapshot = namedPaths({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() }, appDir);

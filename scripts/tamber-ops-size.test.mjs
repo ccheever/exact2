@@ -1,7 +1,7 @@
 // A client's operations in one request (tamber/1.17, `tamber-ops-size`,
 // scripts/tamber-ops-limit.mjs) against a held import past the limit: its
-// accept and revert are the server's own, and a re-hold of it passes only
-// within it (theme2's ruling).
+// accept and revert are the server's own; a client sending as many is
+// refused (theme2's ruling: no re-hold exemption, after edit-held).
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { developmentGate } from './install-page.mjs';
 import { tamberServer } from './tamber-server.mjs';
-import { target } from './tamber-ops-limit.mjs';
 
 let dir, server, tamber, origin, headers;
 const gitIn = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' });
@@ -40,35 +39,20 @@ const post = async request => {
   return { status: res.status, ...(await res.json()) };
 };
 
-test("past 1024 operations: a held import's accept and revert are the server's own, and a re-hold of a held proposal passes only within it (theme2's ruling on tamber-ops-size)", async () => {
+test("past 1024 operations: a held import's accept and revert are the server's own; a client sending as many is refused", async () => {
   const n = 3000;
   const css = `@theme {\n${Array.from({ length: n }, (_, k) => `  --color-c${k}: #${(k + 0x100000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
   const imported = await post({ method: 'import', kind: 'tailwind', client: 'big', source: css });
   expect(imported.status, JSON.stringify(imported).slice(0, 400)).toBe(200);
   const held = imported.ok;
   expect(held.ops.length).toBeGreaterThan(1024);
+  // A client sending them is refused, whatever it names (a value edited in a
+  // held proposal is edit-held's, which sends no operations).
   const ops = held.ops.map(o => o.op);
-  const rehold = (body, client = 'big') => post({ method: 'propose', hold: true, client, review: { ...held.review, from: held.proposal }, ...body });
-  // One value edited, the rest as held: the server planned this size, so it passes the count.
-  const edited = ops.map((op, i) => (i === 0 ? { ...op, value: '#010203' } : op));
-  const one = await rehold({ ops: edited });
-  expect(one.error?.id).not.toBe('tamber-ops-size');
-  expect(one.status, JSON.stringify(one).slice(0, 400)).toBe(200);
-  // A target the held proposal doesn't have, past 1024: refused.
-  const added = await rehold({ ops: [...ops.slice(0, 1100), { op: 'add-token', name: 'stranger', value: '#000000' }] });
-  expect([added.status, added.error?.id]).toEqual([400, 'tamber-ops-size']);
-  // An operation of the same kind and name on another target (another
-  // file, or an axis value's other axis), past 1024: refused (Astra's round 1).
-  const moved = await rehold({ ops: ops.map((op, i) => (i === 0 ? { ...op, file: 'other.tamber' } : op)) });
-  expect([moved.status, moved.error?.id]).toEqual([400, 'tamber-ops-size']);
-  // More operations than the held proposal: refused.
-  const more = await rehold({ ops: [...ops, ops[0]] });
-  expect([more.status, more.error?.id]).toEqual([400, 'tamber-ops-size']);
-  // Naming no held proposal: refused.
-  const none = await post({ method: 'propose', hold: true, client: 'big', review: { ...held.review, from: 'nope' }, ops });
-  expect([none.status, none.error?.id]).toEqual([400, 'tamber-ops-size']);
+  const again = await post({ method: 'propose', hold: true, client: 'big', review: { ...held.review, from: held.proposal }, ops });
+  expect([again.status, again.error?.id]).toEqual([400, 'tamber-ops-size']);
   // The held import accepted whole: the server applies its 3000 operations.
-  const accepted = await post({ method: 'accept', client: 'person', proposal: one.ok.proposal });
+  const accepted = await post({ method: 'accept', client: 'person', proposal: held.proposal });
   expect(accepted.status, JSON.stringify(accepted).slice(0, 400)).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('tw.c2999 = ');
   // And reverted: the server holds the revert's operations, past 1024 too.
@@ -79,16 +63,3 @@ test("past 1024 operations: a held import's accept and revert are the server's o
   expect(reverted.ok.ops.length).toBeGreaterThan(1024);
   gitIn('reset', '-q', '--hard', 'HEAD~1');
 }, 300_000);
-
-test("an operation's target is all of it but the values a re-hold may edit", () => {
-  const set = { op: 'set-token', name: 'ink', when: [{ axis: 'tone', value: 'b' }], value: '#111111' };
-  expect(target({ ...set, value: '#222222' })).toBe(target(set));
-  expect(target({ ...set, when: [] })).not.toBe(target(set));
-  expect(target({ ...set, file: 'other.tamber' })).not.toBe(target(set));
-  const add = { op: 'add-token', name: 'new', value: '#111111', whens: [{ when: [{ axis: 'tone', value: 'b' }], value: '#000000' }] };
-  expect(target({ ...add, whens: [{ ...add.whens[0], value: '#ffffff' }] })).toBe(target(add));
-  expect(target({ ...add, whens: [{ ...add.whens[0], when: [] }] })).not.toBe(target(add));
-  const axis = { op: 'add-axis-value', axis: 'theme', value: 'x' };
-  expect(target({ ...axis, axis: 'density' })).not.toBe(target(axis));
-  expect(target({ ...axis, value: 'y' })).not.toBe(target(axis));
-});
