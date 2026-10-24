@@ -235,3 +235,41 @@ fn a_transitioning_d_morphs_the_path() {
     p.tick(500.);
     assert_eq!(ink(&mut p), rest, "settled the other way");
 }
+
+/// Stage 14 C2: an even-odd icon's form (`evenodd:` before its path) fills
+/// its path even-odd, so a ring of two squares wound alike has its hole; the
+/// same path as a nonzero icon is filled through, as before.
+#[test]
+fn an_even_odd_icon_draws_its_hole() {
+    const RINGS: &str = "component App\n  view\n    column\n      image \"symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z|\" testId=\"odd\" width=48 height=48 object-fit=\"contain\" color=\"#ff0000\"\n      image \"symbol:icon||0 0 24 24|M2 2H22V22H2Z M8 8H16V16H8Z|\" testId=\"nonzero\" width=48 height=48 object-fit=\"contain\" color=\"#ff0000\"\n";
+    let plan = contract::compile(RINGS).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (48., 96.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let red = |p: &mut Presenter<()>, id: &str, x: u32, y: u32| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id;
+        let b = *p.boxes().iter().find(|b| b.id == node).unwrap();
+        let c = p
+            .frame()
+            .pixel(b.rect.0 as u32 + x, b.rect.1 as u32 + y)
+            .unwrap()
+            .demultiply();
+        c.red() > 200 && c.green() < 80 && c.alpha() > 200
+    };
+    // (8, 8) is on the ring (viewBox 4, 4); (24, 24) its middle (12, 12).
+    assert!(red(&mut p, "odd", 8, 8), "the even-odd ring is drawn");
+    assert!(!red(&mut p, "odd", 24, 24), "its hole is clear");
+    assert!(red(&mut p, "nonzero", 8, 8), "the nonzero ring is drawn");
+    assert!(
+        red(&mut p, "nonzero", 24, 24),
+        "and filled through, as before"
+    );
+}

@@ -149,17 +149,12 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
             .find(|i| !sf.is_empty() && s(i.sf.0) == sf),
         None => plan.icons.iter().find(|i| s(i.name.0) == name),
     };
-    match icon {
-        Some(i) => PropValue::Str(
-            format!(
-                "symbol:icon|{}|{}|{}|{}",
-                s(i.sf.0),
-                s(i.view_box.0),
-                s(i.path.0),
-                s(i.svg.0)
-            )
-            .into(),
-        ),
+    // The row read through the one reader of it, which keeps an even-odd
+    // icon's rule (stage 14 C2); a row it doesn't read leaves the value.
+    match icon.and_then(|i| {
+        exact_kernel::Icon::of_row(s(i.sf.0), s(i.view_box.0), s(i.path.0), s(i.svg.0))
+    }) {
+        Some(icon) => PropValue::Str(format!("symbol:{}", icon.form()).into()),
         None => value,
     }
 }
@@ -870,6 +865,58 @@ impl KeyframesTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stage 14 C2: a computed `symbol:` source naming an icon is written
+    /// from its row through `exact_kernel::Icon`, so an even-odd icon's
+    /// source keeps its `evenodd:` marker and a nonzero one is as before.
+    #[test]
+    fn a_computed_icon_source_keeps_its_fill_rule() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.icon(
+            "icon.ring",
+            "",
+            "0 0 24 24",
+            "evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z",
+            "icons/ring.svg",
+        );
+        b.icon(
+            "icon.dot",
+            "circle",
+            "0 0 24 24",
+            "M0 0h1Z",
+            "icons/dot.svg",
+        );
+        b.icon(
+            "icon.odd",
+            "",
+            "0 0 24 24",
+            "winding:M0 0h1Z",
+            "icons/odd.svg",
+        );
+        let plan = b.finish().unwrap();
+        let source =
+            |v: &str| match icon_source(&plan, PropId::ImageSource, PropValue::Str(v.into())) {
+                PropValue::Str(s) => s.to_string(),
+                other => panic!("{other:?}"),
+            };
+        assert_eq!(
+            source("symbol:icon.ring"),
+            "symbol:icon||0 0 24 24|evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z|icons/ring.svg"
+        );
+        assert_eq!(
+            source("symbol:icon.dot"),
+            "symbol:icon|circle|0 0 24 24|M0 0h1Z|icons/dot.svg"
+        );
+        assert_eq!(
+            source("symbol:sf/circle"),
+            "symbol:icon|circle|0 0 24 24|M0 0h1Z|icons/dot.svg"
+        );
+        assert_eq!(
+            source("symbol:icon.odd"),
+            "symbol:icon.odd",
+            "a row no reader reads is left as named"
+        );
+    }
 
     #[test]
     fn runtime_css_family_members_keep_quoted_commas_and_order() {
