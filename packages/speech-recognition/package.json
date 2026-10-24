@@ -1,0 +1,20 @@
+{
+  "name": "@exact/speech-recognition",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Web Speech API's SpeechRecognition: speech to text from a media-capture track, the microphone or a file (LLP 1133.012).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  },
+  "peerDependencies": {
+    "@exact/media-capture": "1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@exact/media-capture": {
+      "optional": true
+    }
+  }
+}

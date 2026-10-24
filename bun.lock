@@ -16,6 +16,8 @@
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
+        "@exact/speech-recognition": "workspace:*",
+        "@exact/speech-synthesis": "workspace:*",
       },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
@@ -82,6 +84,20 @@
       "name": "@exact/scale-fixture-notes",
       "version": "0.1.0",
     },
+    "packages/speech-recognition": {
+      "name": "@exact/speech-recognition",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
+    "packages/speech-synthesis": {
+      "name": "@exact/speech-synthesis",
+      "version": "1.0.0",
+    },
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
@@ -105,6 +121,10 @@
     "@exact/scale-fixture-cards": ["@exact/scale-fixture-cards@workspace:packages/scale-fixture-cards"],
 
     "@exact/scale-fixture-notes": ["@exact/scale-fixture-notes@workspace:packages/scale-fixture-notes"],
+
+    "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
+
+    "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 

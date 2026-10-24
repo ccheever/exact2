@@ -131,6 +131,12 @@ impl<D: DataSource> Runner<D> {
             return refuse("prefer extension: an object of `extension.source`".into());
         };
         for (key, value) in group {
+            if let Some(ty) = self.agent_word(key) {
+                if value != "clear" && !word_fits(&ty, value) {
+                    return refuse(format!("prefer extension: `{key}` is a {ty}"));
+                }
+                continue;
+            }
             let Some(row) = self
                 .plan
                 .modules
@@ -192,7 +198,12 @@ impl<D: DataSource> Runner<D> {
             }
             self.log(format!("prefer extension {key}"));
             self.announce(key);
-            let row = (self.plan.modules.iter()).find(|m| self.key(m) == *key);
+            // An agent word is its extension's: any of its names stands for it.
+            let extension = key.split_once('.').map_or("", |(e, _)| e);
+            let row = (self.plan.modules.iter()).find(|m| {
+                self.key(m) == *key
+                    || (self.plan.str(m.extension) == extension && self.agent_word(key).is_some())
+            });
             if let Some(row) = row.filter(|r| self.route(r) == Route::Agent) {
                 told.insert(self.plan.str(row.extension).to_owned());
             }
@@ -215,6 +226,33 @@ impl<D: DataSource> Runner<D> {
         let ty = self.plan.sources[row.source.0 as usize].ty;
         let shape = exact_js_value::Shape::from_plan(&self.plan, ty)?;
         partial(&self.key(row), value, &shape)
+    }
+
+    /// The type of `key` (`speech-recognition.heard`) where it is one of the
+    /// words its interface declares for the agent path alone (`agent`, LLP
+    /// 1133.012 §9) and is no name of the interface.
+    fn agent_word(&self, key: &str) -> Option<String> {
+        let (extension, word) = key.split_once('.')?;
+        if (self.plan.modules.iter()).any(|m| self.key(m) == key) {
+            return None;
+        }
+        let row = (self.plan.modules.iter()).find(|m| self.plan.str(m.extension) == extension)?;
+        self.substitute(row)["agent"][word]
+            .as_str()
+            .map(str::to_owned)
+    }
+}
+
+/// Whether `value` is one of `ty`'s: a string, number or bool by its kind,
+/// a list of them, and anything else as JSON.
+fn word_fits(ty: &str, value: &Json) -> bool {
+    match ty.trim() {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "bool" => value.is_boolean(),
+        list if list.ends_with("[]") => (value.as_array())
+            .is_some_and(|a| a.iter().all(|v| word_fits(&list[..list.len() - 2], v))),
+        _ => true,
     }
 }
 

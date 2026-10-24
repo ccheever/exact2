@@ -203,7 +203,8 @@ fn module(
 /// (D6); `implementation` where the interface is its own substitute
 /// (`"substitute": "implementation"`, LLP 1133.006 D8); and the name's own
 /// `origin`, `foreground` and the `when` that conditions them, its grant
-/// lines (`nameGrants`: a list, or a line per argument), the answer's
+/// lines (`nameGrants`: a list, or a line per argument, `"*"` for every
+/// call), the answer's
 /// `handles`, the option a polled source's period is (`poll`), and its path
 /// options (`paths`). An `origin` of `"person"` refuses a tool or a wake
 /// `PERMISSION_DENIED`, `person-required`, in every state (LLP 1133.010 D12).
@@ -219,10 +220,20 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     };
     // An interface's `authenticator` is the entry a data capability calls in
     // process, with the store's operations' substitute (LLP 1133.010 D13, §7):
-    // the runner reads it from any name of the interface.
-    for field in ["permission", "grants", "authenticator"] {
+    // the runner reads it from any name of the interface. Its `agent` names
+    // the words a drive may prefer for its implementation's agent path alone
+    // (LLP 1133.012 §9: `speech-recognition.heard`), each with its type.
+    for field in ["permission", "grants", "authenticator", "agent"] {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
+        }
+    }
+    if let Some(words) = interface["agent"].as_object() {
+        if !words.values().all(|t| {
+            t.as_str()
+                .is_some_and(|t| type_expr(t, Span::default()).is_ok())
+        }) {
+            return Err("an interface's `agent` names each word's type".into());
         }
     }
     if let Value::Array(permissions) = &interface["permission"] {
@@ -277,9 +288,20 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     }
     for (field, value) in object(entry) {
         match field.as_str() {
+            // `{"whenAny": [options], "is": "app"}` holds a call to `app`
+            // only when it gives one of those options (LLP 1133.012 D12
+            // item 5): a recognition of a track is a capture start, of a
+            // file not.
             "origin" => check(
-                matches!(value.as_str(), Some("app" | "person")),
-                "`origin` is \"app\" or \"person\"",
+                matches!(value.as_str(), Some("app" | "person"))
+                    || (value["is"] == "app"
+                        && value["whenAny"].as_array().is_some_and(|any| {
+                            (any.iter()).all(|o| {
+                                o.as_str()
+                                    .is_some_and(|o| !object(&entry["options"])[o].is_null())
+                            })
+                        })),
+                "`origin` is \"app\", \"person\", or {\"whenAny\": [its options], \"is\": \"app\"}",
             )?,
             "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
             "when" => check(value.is_object(), "`when` is an object of argument values")?,

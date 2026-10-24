@@ -497,13 +497,25 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A source's preferred value, completed by its `fill`; else its
-    /// default. Its `facts` are the runner's own, over either.
+    /// default. An interface that is its own substitute takes a partial
+    /// preferred value (LLP 1133.009 D10 item 11), laid over the default
+    /// where the runner answers itself (a status). Its `facts` are the
+    /// runner's own, over either.
     fn value_of(&self, row: &ModulesRow) -> Option<Json> {
         let sub = self.substitute(row);
-        let mut value = self.preferred(row).or_else(|| {
-            let default = &sub["default"];
-            (!default.is_null()).then(|| default.clone())
-        })?;
+        let default = &sub["default"];
+        let mut value = match self.preferred(row) {
+            Some(p)
+                if sub["implementation"] == true
+                    && default.is_object()
+                    && error_code(&p).is_none() =>
+            {
+                let mut v = default.clone();
+                admit::overlay(&mut v, &p);
+                Some(v)
+            }
+            p => p.or_else(|| (!default.is_null()).then(|| default.clone())),
+        }?;
         for (field, fact) in sub["facts"].as_object().into_iter().flatten() {
             let known = match fact.as_str() {
                 // The host keeps locked secrets (LLP 1133.010 D7).
