@@ -47,6 +47,20 @@ abstract class ExactExtension(val context: ExtensionContext) {
     open fun resumed() {}
 
     /**
+     * Picture [source] of the interface's `img` scheme (`photos:<id>`, LLP 1133.019 D2, D11 item 1) for a box of
+     * [width] by [height] device pixels at `object-fit` [fit], once the runner admitted it: [reply] once, from any
+     * thread, with the picture upright and no larger than the box needs, or null and an error code (`NotFoundError`),
+     * which empties the box. [owned]: admitted as the app's own item alone (D6), drawn only where the platform says it
+     * is.
+     */
+    open fun picture(source: String, width: Int, height: Int, fit: String, owned: Boolean, reply: (android.graphics.Bitmap?, String?) -> Unit) =
+        reply(null, "NotSupportedError")
+
+    /** The state the runner holds of each permission this extension's interfaces declare, by name, told with
+     * [preferred] under the agent (LLP 1133.019 §10). */
+    open fun permissions(states: JSONObject) {}
+
+    /**
      * The session ends: finish what must be finished, then [done] (LLP 1133.009 D10 item 1). Android's session lives
      * as long as its process, which ends without calling this.
      */
@@ -167,6 +181,13 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
 
     /** The readers of [topic] are asked again (LLP 1016.002). */
     fun changed(topic: String) = Exact.changed(topic)
+
+    /** Every `img` showing picture [source] is emptied and fires `error`, and no reply in flight draws (LLP 1133.019
+     * D2): the photo left what the app may read. */
+    fun revokePicture(source: String) = Exact.pictureChanged(source, true)
+
+    /** Picture [source] is asked for again: the photo was edited. */
+    fun changedPicture(source: String) = Exact.pictureChanged(source, false)
 
     fun log(line: String) { Log.i("exact", line) }
 
@@ -293,8 +314,10 @@ internal object Extensions {
     /**
      * Request [id]'s call, the runner's body: `{"extension", "source"|"send", "args", "preferred"?}`, `{"extension",
      * "release", "args"?}`, `{"extension", "preferred"}`, `{"extension", "dispose"}`, `{"extension", "foreground"}`, or
-     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2), or
-     * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6).
+     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2),
+     * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6), or
+     * `{"extension", "picture", "width", "height", "fit", "owned"}` (LLP 1133.019 D11 item 1), answered with its
+     * pixels ([Exact.picture]).
      */
     fun call(id: Int, body: String) {
         var answered = false
@@ -316,6 +339,17 @@ internal object Extensions {
                     extension.displayed(request.getString("surface"), request.getBoolean("displayed"), request.optString("origin", "app"))
                     reply(JSONObject())
                 }
+                request.has("picture") -> {
+                    val source = request.getString("picture")
+                    val (width, height) = request.getInt("width") to request.getInt("height")
+                    extension.picture(source, width, height, request.optString("fit", "fill"), request.optBoolean("owned")) { bitmap, error ->
+                        if (!answered) {
+                            answered = true
+                            val pixels = bitmap?.let(::software)
+                            Exact.picture(id, pixels, if (pixels == null) error ?: "UnknownError" else null)
+                        }
+                    }
+                }
                 released.isNotEmpty() -> {
                     val args = request.optJSONObject("args")
                     if (args != null) extension.release(released, args) else extension.release(released)
@@ -326,6 +360,7 @@ internal object Extensions {
                     extension.later(declared, request.optJSONObject("args") ?: JSONObject(), request.opt("preferred"), reply)
                 }
                 request.has("preferred") -> {
+                    request.optJSONObject("permissions")?.let { extension.permissions(it) }
                     extension.preferred(request.optJSONObject("preferred") ?: JSONObject())
                     reply(JSONObject())
                 }
@@ -346,6 +381,18 @@ internal object Extensions {
             Log.e("exact", "extension call $id: $e")
             reply(JSONObject().put("error", "NotSupportedError"))
         }
+    }
+
+    /** [bitmap] as the host copies it: software `ARGB_8888` in sRGB, drawn into one when it is not. */
+    private fun software(bitmap: android.graphics.Bitmap): android.graphics.Bitmap? {
+        val argb = android.graphics.Bitmap.Config.ARGB_8888
+        val srgb = android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB)
+        // A hardware bitmap's pixels are the GPU's: copied out first.
+        val soft = if (bitmap.config == android.graphics.Bitmap.Config.HARDWARE) bitmap.copy(argb, false) ?: return null else bitmap
+        if (soft.config == argb && soft.colorSpace?.let { it == srgb } != false) return soft
+        val out = android.graphics.Bitmap.createBitmap(soft.width, soft.height, argb, true, srgb)
+        android.graphics.Canvas(out).drawBitmap(soft, 0f, 0f, null)
+        return out
     }
 
     /** Whether the activity is resumed ([resumed], [paused]). */

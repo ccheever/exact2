@@ -187,6 +187,12 @@ object Native {
     @JvmStatic external fun bindExtensions(names: String)
     /** How a presence check ended ([Presence]), on the store's completion path: never journaled. On the host's thread. */
     @JvmStatic external fun presence(answer: String)
+    /** A package's picture for request [id] (LLP 1133.019 D11 item 1): [bitmap], software `ARGB_8888`, or why there is
+     * none ([error]) when it is null. On the host's thread. */
+    @JvmStatic external fun picture(id: Int, bitmap: android.graphics.Bitmap?, error: String?)
+    /** Picture [source] changed, so it is asked for again, or was [revoked]: every box showing it is emptied. On the
+     * host's thread. */
+    @JvmStatic external fun pictureChanged(source: String, revoked: Boolean)
     /** The activity stopped (true) or started (false): the page's `visibilityState`. On the host's thread. */
     @JvmStatic external fun hidden(hidden: Boolean)
     /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent

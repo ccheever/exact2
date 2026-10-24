@@ -106,9 +106,24 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let under_agent = crate::canvas::jni::jni_extensions::under_agent;
         let (under, real): (Vec<&str>, Vec<&str>) =
             (names.lines().filter(|n| !n.is_empty())).partition(|n| under_agent(n));
-        self.p
-            .host_mut()
-            .runner_mut()
-            .bind_extensions(&real, &under);
+        let runner = self.p.host_mut().runner_mut();
+        // An interface's `owned` and `images.owned` are by target (LLP
+        // 1133.019 D11 item 4).
+        runner.set_module_target("android");
+        runner.bind_extensions(&real, &under);
+        self.p.bind_pictures();
+    }
+
+    /// A package's picture for request `id` (`Native.picture`): its pixels,
+    /// or the implementation's error.
+    pub fn picture_answer(&mut self, id: u32, answer: Result<tiny_skia::Pixmap, String>) {
+        self.force |= self.p.picture_answered(id, answer);
+    }
+
+    /// An extension announced picture `source` changed or revoked it
+    /// (`ExtensionContext.changedPicture`, `revokePicture`).
+    pub fn picture_changed(&mut self, source: &str, revoked: bool) {
+        self.p.picture_changed(source, revoked);
+        self.force = true;
     }
 }
