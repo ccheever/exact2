@@ -463,6 +463,13 @@ commands, writes on the location (`todo add milk`), and printing a GUI app
   No take was named; the ruling stands as its own waiver until Charlie names
   one.
 
+  **Expanded (Charlie, 2026-10-23, LLP 1115.001.003 §5):** Android TV is
+  admitted as a variant of the Android phone host, as tvOS is of the iOS
+  presenter: the same APK, Canvas reader and presenter, which tell a TV by
+  its UI mode at run time; no second artifact or build flag. Unblocks Caltrain
+  on an Android TV, driven by the remote's D-pad, Select and Back. No take was
+  named; the ruling stands as its own waiver until Charlie names one.
+
 Every surface multiplies the sweep, the presenter count, and the number of ways one
 change can break.
 
