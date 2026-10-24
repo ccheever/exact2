@@ -5,7 +5,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned } from './test-children.mjs';
-import { DRIVEN, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, HEARTBEAT_RACE, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -126,7 +126,7 @@ async function kindsOnTheJsLoop() {
     const [before, during, kept] = seen;
     // Each look found the frame running the design the loop serves.
     expect(seen.map(l => l.synced)).toEqual([true, true, true]);
-    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'live' });
+    expect(states[0].resources.proposal, HEARTBEAT_RACE).toMatchObject({ ok: true, active: true, chip: 'live' });
     expect(trees[0].nodes.some(n => n.props.testId === 'part-amount-field')).toBe(true);
     expect(states[1].resources.scrub).toMatchObject({ ok: true, live: true, ready: true });
     // While it previews: the frame runs the scrubbed design, the same build,
