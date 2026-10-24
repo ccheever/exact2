@@ -74,6 +74,7 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                 }
                 file.modules.push(decl);
             }
+            groups(&json, &file).map_err(refuse)?;
         }
         "implementation" => {
             // Its platform-only names (D2) are read when one is first
@@ -91,6 +92,39 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
         }
     }
     Ok(file)
+}
+
+/// The binding's groups (LLP 1133.011 D10 item 3): each object the binding
+/// exports, its members by the name the binding gives them, each a declared
+/// name, or a function over a source's field (`{"over": source, "field":
+/// f}`, which answers whether it is `true`). A list names its members as
+/// they are declared. The binding reads them; Contract names no group.
+fn groups(json: &Value, file: &File) -> Result<(), String> {
+    let declared = |name: &str| file.modules.iter().any(|m| m.declared == name);
+    for (group, members) in object(&json["groups"]) {
+        let members: Vec<(String, Value)> = match members {
+            Value::Array(names) => (names.iter())
+                .map(|n| (n.as_str().unwrap_or_default().to_owned(), n.clone()))
+                .collect(),
+            Value::Object(by) => by.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            _ => return Err(format!("group `{group}` is a list of names or an object")),
+        };
+        for (member, of) in members {
+            let ok = match &of {
+                Value::String(name) => declared(name),
+                Value::Object(o) => {
+                    o["over"].as_str().is_some_and(declared) && o["field"].is_string()
+                }
+                _ => false,
+            };
+            if !ok {
+                return Err(format!(
+                    "group `{group}`'s `{member}` is a declared name, or {{\"over\": a source, \"field\"}}"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The implementations an interface's own package carries, by subpath, from
@@ -184,6 +218,25 @@ fn module(
         Value::Null | Value::Bool(false) => "never",
         other => return Err(format!("`{name}`'s `request` is `{other}`")),
     };
+    // A WebAuthn dictionary passed whole (`json<T>`, LLP 1133.011 D10) is a
+    // string to Contract, which may not call a name that takes or answers one.
+    let data_only = match &entry["contract"] {
+        Value::Null => false,
+        Value::Bool(false) => true,
+        other => {
+            return Err(format!(
+                "`{name}`'s `contract` is false or absent, not `{other}`"
+            ))
+        }
+    };
+    let takes_json = std::iter::once(&entry["answers"])
+        .chain(object(&entry["options"]).values())
+        .any(is_json);
+    if takes_json && !data_only {
+        return Err(format!(
+            "`{name}` takes or answers a `json<…>`, which only a name for data code alone (`\"contract\": false`) may"
+        ));
+    }
     Ok(ModuleDecl {
         name: name.to_owned(),
         declared: name.to_owned(),
@@ -196,6 +249,7 @@ fn module(
         live: entry["live"] == true,
         request: request.to_owned(),
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
+        data_only,
         substitute: substitute(entry, interface)?,
         span,
     })
@@ -328,6 +382,20 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         name.as_str()
             .is_some_and(|o| !object(&entry["options"])[o].is_null())
     };
+    // The options, and whether the answer, that are WebAuthn's dictionaries
+    // passed whole: the Rust binding takes `serde_json::Value` for them.
+    let json_options: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| is_json(ty))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !json_options.is_empty() || is_json(&entry["answers"]) {
+        let json =
+            serde_json::json!({ "options": json_options, "answers": is_json(&entry["answers"]) });
+        out.insert("json".into(), json);
+    }
+    if entry["contract"] == false {
+        out.insert("dataOnly".into(), Value::Bool(true));
+    }
     for (field, value) in object(entry) {
         match field.as_str() {
             // `{"whenAny": [options], "is": "app"}` holds a call to `app`
@@ -348,8 +416,13 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
             "when" => check(value.is_object(), "`when` is an object of argument values")?,
             "grants" => check(
-                value.is_array() || value.is_object(),
-                "`grants` is a list of lines, or a line per argument",
+                value.is_array()
+                    || (value.as_object()).is_some_and(|by| by.values().all(argument_grant)),
+                "`grants` is a list of lines, or a line per argument: a line, a list of them, or {\"line\", \"matches\": \"target\"} with the code it `refuse`s and what an `omitted` argument stands for (\"page\")",
+            )?,
+            "withhold" => check(
+                (value.as_array()).is_some_and(|paths| paths.iter().all(Value::is_string)),
+                "`withhold` is a list of the answer's field paths",
             )?,
             "handles" => check(value.is_object(), "`handles` names each id field's kind")?,
             // A polled source's batch (LLP 1133.013 D12 item 1): the options
@@ -388,6 +461,33 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         out.insert(key.into(), value.clone());
     }
     Ok(Value::Object(out).to_string())
+}
+
+/// One argument's grant: a line (or any of a list) the app writes when the
+/// argument is given, or a line whose target must be the argument's value
+/// (`{"line": "auth.passkey", "matches": "target"}`, LLP 1133.011 D6), with
+/// the code a refusal answers (`refuse`) and what an omitted argument stands
+/// for (`"omitted": "page"`: the page's host on the web; none elsewhere).
+fn argument_grant(spec: &Value) -> bool {
+    match spec {
+        Value::String(_) => true,
+        Value::Array(lines) => lines.iter().all(Value::is_string),
+        Value::Object(o) => {
+            o.get("line").is_some_and(Value::is_string)
+                && o.get("matches").is_none_or(|m| m == "target")
+                && o.get("refuse").is_none_or(Value::is_string)
+                && o.get("omitted").is_none_or(|m| m == "page")
+                && (o.keys())
+                    .all(|k| matches!(k.as_str(), "line" | "matches" | "refuse" | "omitted"))
+        }
+        _ => false,
+    }
+}
+
+/// Whether a declaration's type is `json<T>`.
+fn is_json(ty: &Value) -> bool {
+    ty.as_str()
+        .is_some_and(|t| t.trim().starts_with("json<") && t.trim().ends_with('>'))
 }
 
 /// The permission a name asks, where an interface declares several, each
@@ -444,8 +544,9 @@ fn permission_of(
 /// A declaration's type (LLP 1133.002 D13): `number`, `string`, `bool`,
 /// `option<T>`, `T[]`, `enum<a|b>`, a shape's name, `strings-key`, a key of
 /// the app's strings table, `handle<kind>`, the id of a native object the
-/// session holds (LLP 1133.009 D10 item 10), or `surface`, a canvas's surface
-/// name (LLP 1133.013 D12 item 3); each is a string here.
+/// session holds (LLP 1133.009 D10 item 10), `surface`, a canvas's surface
+/// name (LLP 1133.013 D12 item 3), or `json<T>`, a WebAuthn dictionary passed
+/// whole (LLP 1133.011 D10); each is a string here. `unit` answers nothing.
 fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     let ty = ty.trim();
     if let Some(inner) = ty.strip_suffix("[]") {
@@ -461,12 +562,12 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         }
         return Ok(TypeExpr::Enum(members, span));
     }
-    if ty.starts_with("handle<") && ty.ends_with('>') {
+    if (ty.starts_with("handle<") || ty.starts_with("json<")) && ty.ends_with('>') {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
     let named = match ty {
         "strings-key" | "surface" => "string",
-        "number" | "string" | "bool" => ty,
+        "number" | "string" | "bool" | "unit" => ty,
         shape
             if shape.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
                 && shape.starts_with(|c: char| c.is_ascii_uppercase()) =>

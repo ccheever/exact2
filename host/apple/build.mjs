@@ -52,7 +52,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam } from './compose.mjs';
-import { macPresence } from './presence.mjs';
+import { associatedDomains, macPresence, macPasskeys } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
@@ -361,7 +361,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
   // @ref LLP 1069.006 D2 — a claimed https auth callback needs `webcredentials:`
   // (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
-  const linked = [...domains, ...(reach?.auth?.associatedDomains ?? [])];
+  const linked = [...domains, ...associatedDomains(reach?.auth, debuggable)];
   // An App Clip is invoked from its `appclips:` domains, which its parent's entitlements list too (Apple,
   // "Associating your App Clip with your website"): each `applinks:` host, in the clip in place of the `applinks:`.
   const clips = appClip(app) && !app.widgetTV ? linked.filter((d) => d.startsWith('applinks:')).map((d) => `appclips:${d.slice('applinks:'.length)}`) : [];
@@ -948,6 +948,7 @@ async function main(args, lockHeld = false) {
   // What this Apple destination derives from the grants: the bake's, less what tvOS has not.
   const appleReach = modulePlist(app, tv ? tvReach(bakedCompat.reach) : bakedCompat.reach, tv ? 'tvos' : ios ? 'ios' : 'macos');
   if (!ios) macPresence(app, bakedCompat.inputs?.grantCeiling, { release: production || distribution, distribution }); // LLP 1133.010 D7
+  if (!ios) macPasskeys(app, bakedCompat.inputs?.grantCeiling, { release: production || distribution }); // LLP 1133.011 D6
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';

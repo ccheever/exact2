@@ -196,7 +196,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         let has = |key: &str| strings.is_some_and(|s| s.base_table().contains_key(key));
         // A grant built otherwise cannot be read, so it is not warned about;
         // granted with its purpose anywhere settles it; else the first key written.
-        let Some(keys) = literals::keys(&lits, device.name) else {
+        let Some(keys) = literals::keys(&lits, &line) else {
             continue;
         };
         if keys.iter().any(|k| has(k)) {
@@ -237,7 +237,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
     for (grants, span, call) in modules {
         let Some(found) = grants
             .iter()
-            .map(|g| literals::keys(&lits, g.trim_start_matches("device.")))
+            .map(|g| literals::keys(&lits, g))
             .collect::<Option<Vec<_>>>()
         else {
             continue;
@@ -247,11 +247,15 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         }
         let lines: Vec<String> = grants.iter().map(|g| format!("`{g}`")).collect();
         let last = grants.last().cloned().unwrap_or_default();
-        let key = format!("purpose.{}", last.trim_start_matches("device."));
+        // A device line names its purpose key; any other its target (`auth.passkey <rp id>`).
+        let add = match last.strip_prefix("device.") {
+            Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
+            None => format!("`{last} <its target>` to the app's grants"),
+        };
         out.push(CompileError {
             id: "grant-missing".into(),
             ..warn(span, format!(
-                "{call} answers only under one of {}, and no file of the app's data module names one: add `{last} {key}` to the app's grants, with its purpose in strings/{base}.json",
+                "{call} answers only under one of {}, and no file of the app's data module names one: add {add}",
                 lines.join(" or ")
             ))
         });
