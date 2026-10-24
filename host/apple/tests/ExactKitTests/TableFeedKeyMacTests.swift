@@ -57,6 +57,22 @@ final class TableFeedKeyMacTests: XCTestCase {
         pump { up }
         f.settle()
     }
+    /// Why a held click on `view` shows no press on `row`: TableHost.pointer's
+    /// guards for the mouse-down, read again at `view`'s middle (QUEUE,
+    /// 2026-10-24: this test's held asserts failed once in a full Mac run).
+    private func pressGuards(_ view: NSView, _ row: NodeView, in f: TableFixture) -> String {
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        guard let content = f.window.contentView else { return "no content view" }
+        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        guard let table = hit as? RunnerTableView else { return "the hit view is \(hit.map { String(describing: type(of: $0)) } ?? "nil"), not the table" }
+        guard let feed = table.feed else { return "the table has no feed" }
+        let index = table.row(at: table.convert(point, from: nil))
+        guard let fed = feed.row(at: index) else { return "the feed has no row at table row \(index)" }
+        guard let node = feed.pressing(fed) else { return "feed.pressing(row \(index)) is nil: no mounted, pressable root for that row" }
+        if node !== row { return "feed.pressing(row \(index)) is node \(node.id), not row-1's \(row.id)" }
+        if !node.authorsPress || node.disabled || node.inert { return "the row refuses a press (authorsPress \(node.authorsPress), disabled \(node.disabled), inert \(node.inert))" }
+        return "every guard passes now (read again at the held moment): at the mouse-down one may have missed and since recovered, TableHost.pointer may not have seen the event (another local event monitor in this process?), or something let the press go before the release"
+    }
     private func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], in f: TableFixture) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             NSApp.sendEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
@@ -625,8 +641,8 @@ final class TableFeedKeyMacTests: XCTestCase {
         var observed = false
         click(try f.node("title-1"), in: f) {
             observed = true
-            XCTAssertTrue(row.pressed)
-            XCTAssertTrue(row.pressPaint.down)
+            XCTAssertTrue(row.pressed, self.pressGuards(title, row, in: f))
+            XCTAssertTrue(row.pressPaint.down, self.pressGuards(title, row, in: f))
             XCTAssertEqual(row.pressPaint.depth, 0.6, accuracy: 0.001)
             XCTAssertEqual(f.table.selectedRow, -1, "AppKit still selects on release")
         }
@@ -639,9 +655,9 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertTrue(try f.node("title-1").inEmphasizedRow)
         let cell = try XCTUnwrap(f.table.rowView(atRow: 1, makeIfNecessary: false)?.view(atColumn: 0) as? TableRowCell)
         click(title, in: f) {
-            XCTAssertTrue(row.pressed)
-            XCTAssertFalse(cell.paintsSelection)
-            XCTAssertFalse(title.inEmphasizedRow)
+            XCTAssertTrue(row.pressed, self.pressGuards(title, row, in: f))
+            XCTAssertFalse(cell.paintsSelection, self.pressGuards(title, row, in: f))
+            XCTAssertFalse(title.inEmphasizedRow, self.pressGuards(title, row, in: f))
         }
         XCTAssertGreaterThan(chroma(try fill(1, in: f)), 0.08)
         down(in: f)
