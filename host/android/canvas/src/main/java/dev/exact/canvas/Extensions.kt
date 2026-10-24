@@ -75,6 +75,13 @@ abstract class ExactExtension(val context: ExtensionContext) {
 
     /** Prop [prop] of view [id], which binds a device, changed, by the origin of the commit that changed it. */
     open fun bound(session: String, id: String, prop: String, origin: String) {}
+
+    /**
+     * A text field whose `autocomplete` ends in `webauthn` was made ([present]) or went (LLP 1133.011 D10 item 4):
+     * the real view, on which a conditional credential request is set. Every live one is told to an extension when it
+     * is made.
+     */
+    open fun webauthnField(view: android.widget.EditText, present: Boolean) {}
 }
 
 /**
@@ -262,7 +269,15 @@ internal object Extensions {
 
     /** Extension [name], made at its first call or view. */
     private fun extension(name: String): ExactExtension? = made[name]
-        ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it }
+        ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it; webauthn.forEach { f -> it.webauthnField(f, true) } }
+
+    /** The live fields whose `autocomplete` ends in `webauthn` ([Fields]). */
+    private val webauthn = LinkedHashSet<android.widget.EditText>()
+
+    fun webauthnField(view: android.widget.EditText, present: Boolean) {
+        if (if (present) !webauthn.add(view) else !webauthn.remove(view)) return
+        made.values.forEach { it.webauthnField(view, present) }
+    }
 
     /** The app's module views with each package's beside them, each made by its extension (LLP 1133.001 D1). */
     fun withViews(modules: Map<String, NativeModule>): Map<String, NativeModule> {

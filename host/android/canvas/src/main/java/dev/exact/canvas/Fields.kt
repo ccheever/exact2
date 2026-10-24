@@ -475,6 +475,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
         if (focused === f) focused = null
         removeView(f.port)
         f.node.discardDisplayList()
+        Extensions.webauthnField(f.text, false)
     }
 
     /** The field's look and its keyboard, from the look's words ([Native.fields]) and its four strings. */
@@ -523,6 +524,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
         val hints = hints(autocomplete)
         text.importantForAutofill = if (autocomplete == "off") View.IMPORTANT_FOR_AUTOFILL_NO else View.IMPORTANT_FOR_AUTOFILL_AUTO
         text.setAutofillHints(*hints)
+        Extensions.webauthnField(text, autocomplete.trim().substringAfterLast(' ') == "webauthn")
         f.dirty = true
     }
 
@@ -849,9 +851,10 @@ internal class Fields(context: Context) : FrameLayout(context) {
             return t
         }
 
-        /** Autofill's hints for HTML's `autocomplete`: its last token, as the platform names it. */
+        /** Autofill's hints for HTML's `autocomplete`: its last token but `webauthn` (HTML's passkey marker, which
+         * names no field: `username webauthn` is a username), as the platform names it. */
         private fun hints(autocomplete: String): Array<String> {
-            val hint = when (autocomplete.trim().substringAfterLast(' ')) {
+            val hint = when (autocomplete.trim().removeSuffix("webauthn").trim().substringAfterLast(' ')) {
                 "email" -> View.AUTOFILL_HINT_EMAIL_ADDRESS; "username" -> View.AUTOFILL_HINT_USERNAME
                 "current-password" -> View.AUTOFILL_HINT_PASSWORD; "new-password" -> "newPassword"
                 "one-time-code" -> "smsOTPCode"; "name" -> View.AUTOFILL_HINT_NAME
