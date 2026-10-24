@@ -1,7 +1,9 @@
 //! @ref LLP 1121 D10 (stage 6 F) — an icon token's SVG, read at build: for
-//! v1 one monochrome shape, its `<path>`s each filled (nonzero) under its own
-//! viewBox, as a template, as the roles' paths are drawn; their `d`s travel
-//! joined by `;`, which no path data holds.
+//! v1 one monochrome shape, its `<path>`s each filled under its own viewBox,
+//! as a template, as the roles' paths are drawn; their `d`s travel joined by
+//! `;`, which no path data holds. Each is filled nonzero, or (stage 14 C2)
+//! even-odd where its `fill-rule` says so: one rule for the whole icon, so
+//! paths that mix rules are no template.
 //! Anything else (several colours, a gradient, an image, text, a stroke, a
 //! transform, a shape that is not a path) is no template: the web may draw
 //! it as the file, and a shipped target that is not the web refuses it.
@@ -13,6 +15,9 @@ pub(crate) struct Svg {
     pub view_box: String,
     /// Its paths' `d`, joined by `;`.
     pub path: String,
+    /// Its paths are filled even-odd (every one: [`read`] refuses a mix),
+    /// else nonzero.
+    pub even_odd: bool,
     /// Why it is no one-colour shape, when it is not.
     pub not_template: Option<String>,
     /// What to change in the file so that it is one, beside `not_template`.
@@ -23,7 +28,7 @@ pub(crate) struct Svg {
 fn fix_lost(property: &str) -> &'static str {
     match property {
         "transform" => "apply the transform to the path's coordinates and remove it (an editor's Object to Path, or SVGO's `convertTransform`, does)",
-        "fill-rule" => "remove it: a template fills nonzero, so a hole is drawn in the opposite direction to its outline (an editor's path union or Combine makes it so)",
+        "fill-rule" => "write `nonzero` or `evenodd`, the same on every path: a template fills its paths by one rule (for nonzero, a hole is drawn in the opposite direction to its outline; an editor's path union or Combine makes it so)",
         "opacity" | "fill-opacity" => "remove it: the host paints the shape opaque, in the text's colour",
         "display" | "visibility" => "delete the hidden element",
         _ => "remove it, cutting the shape itself instead (an editor's Intersect or Difference)",
@@ -33,11 +38,15 @@ fn fix_lost(property: &str) -> &'static str {
 /// The fix for an element that is not a path.
 const FIX_SHAPE: &str = "convert it to a `<path>` (an editor's Object to Path; `<rect x=\"2\" y=\"2\" width=\"20\" height=\"20\"/>` is `<path d=\"M2 2h20v20H2Z\"/>`)";
 
-/// Each open element's fill and stroke, inherited, and whether it is inside
-/// something that draws nothing itself (`defs`).
-/// What an element passes its children: its fill, stroke and `color`, and
-/// whether it is inside `<defs>` (or a mask, a pattern …).
-type Open = (Option<String>, Option<String>, Option<String>, bool);
+/// What an element passes its children: its fill, stroke, `color` and
+/// `fill-rule`, and whether it is inside `<defs>` (or a mask, a pattern …).
+type Open = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    bool,
+);
 
 /// A tag's name and attributes, entities decoded; `None` for a closing tag.
 #[allow(clippy::type_complexity)]
@@ -190,6 +199,8 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
     // Every reason it is no template, so one build names each fix.
     let (mut view_box, mut paths, mut fill, mut why) =
         (None, Vec::<String>::new(), None::<String>, Why::new());
+    // Each path's fill rule after the cascade, in order: `true` even-odd.
+    let mut rules: Vec<bool> = Vec::new();
     let mut stack: Vec<Open> = Vec::new();
     let mut rest = text;
     while let Some(open) = rest.find('<') {
@@ -234,8 +245,10 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             stack.pop();
             continue;
         };
-        let (inherited_fill, inherited_stroke, inherited_color, in_defs) =
-            stack.last().cloned().unwrap_or((None, None, None, false));
+        let (inherited_fill, inherited_stroke, inherited_color, inherited_rule, in_defs) = stack
+            .last()
+            .cloned()
+            .unwrap_or((None, None, None, None, false));
         let fill_here = property(&attrs, "fill").or(inherited_fill);
         let stroke_here = property(&attrs, "stroke").or(inherited_stroke);
         // What `currentColor` is here: the nearest `color` (round 3, R3-1);
@@ -243,9 +256,14 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
         let color_here = property(&attrs, "color")
             .filter(|c| c != "inherit" && c != "currentcolor")
             .or(inherited_color);
+        // Its fill rule (stage 14 C2): its own, or its parent's (`inherit`
+        // keeps the parent's, as CSS reads it); nonzero at the root.
+        let rule_here = property(&attrs, "fill-rule")
+            .filter(|r| r != "inherit")
+            .or(inherited_rule);
         let in_defs =
             in_defs || matches!(name, "defs" | "symbol" | "clipPath" | "mask" | "pattern");
-        // What a template drawn filled, nonzero, at full opacity would lose.
+        // What a template drawn filled, by one rule, at full opacity would lose.
         if !in_defs {
             let lost = [
                 "transform",
@@ -260,7 +278,8 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .chain(["display", "visibility"])
             .find(|p| {
                 property(&attrs, p).is_some_and(|v| match *p {
-                    "fill-rule" => v != "nonzero",
+                    // Either rule, or the parent's (stage 14 C2); no other value.
+                    "fill-rule" => !matches!(v.as_str(), "nonzero" | "evenodd" | "inherit"),
                     "opacity" | "fill-opacity" => v.parse::<f64>().map_or(true, |o| o < 1.0),
                     "display" => v == "none",
                     "visibility" => v != "visible",
@@ -351,6 +370,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     fill = Some(painted);
                 }
                 paths.push(d);
+                rules.push(rule_here.as_deref() == Some("evenodd"));
             }
             "path" | "g" | "title" | "desc" | "defs" | "metadata" => {}
             _ if in_defs => {}
@@ -361,7 +381,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             }
         }
         if !raw.ends_with('/') {
-            stack.push((fill_here, stroke_here, color_here, in_defs));
+            stack.push((fill_here, stroke_here, color_here, rule_here, in_defs));
         }
     }
     let view_box = view_box.ok_or("it has no `<svg>` with a viewBox (or a width and height)")?;
@@ -379,6 +399,27 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
     if paths.is_empty() && why.is_empty() {
         return Err("it has no `<path>`".into());
     }
+    // One rule for the icon (stage 14 C2, theme2's Q1): paths that mix them
+    // are named, by their place in the file.
+    let even_odd = rules.first().copied().unwrap_or(false);
+    if rules.iter().any(|r| *r != even_odd) {
+        let named = |odd: bool| {
+            rules
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| **r == odd)
+                .map(|(i, _)| (i + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let (odd, nonzero) = (named(true), named(false));
+        note(&mut why, || {
+            (
+                format!("its paths mix fill rules (evenodd: path {odd}; nonzero: path {nonzero})"),
+                "give every path the same `fill-rule`, or none (nonzero): a template fills its paths by one rule",
+            )
+        });
+    }
     let mut fixes: Vec<&str> = Vec::new();
     for (_, fix) in &why {
         if !fixes.contains(fix) {
@@ -392,6 +433,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .collect::<Vec<_>>()
             .join(" "),
         path: paths.join(";"),
+        even_odd,
         fix: fixes.join("; "),
         not_template: (!why.is_empty()).then(|| {
             why.into_iter()
@@ -530,7 +572,7 @@ mod tests {
                 .unwrap();
         assert!(moved.not_template.unwrap().contains("transform"));
         for lost in [
-            r#"fill-rule="evenodd""#,
+            r#"fill-rule="winding""#,
             r#"style="opacity:0.5""#,
             r#"clip-path="url(#a)""#,
             r#"style="transform:scale(2)""#,
@@ -562,5 +604,72 @@ mod tests {
             ("0 0 24 24", "M0 0h1")
         );
         assert!(read(r#"<svg viewBox="0 0 24 24"><path d="M0 0"fill="red"/></svg>"#).is_err());
+    }
+
+    /// Stage 14 C2: a path's `fill-rule` through the cascade (attribute,
+    /// `style`, `!important`, inherited from `<g>` and `<svg>`, `inherit`);
+    /// even-odd is a template, one rule for the icon; a mix is refused naming
+    /// the paths, and any other value by its reason.
+    #[test]
+    fn a_fill_rule_is_read_through_the_cascade_one_for_the_icon() {
+        for svg in [
+            r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path style="fill-rule: EvenOdd" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" style="fill-rule:evenodd !important; fill-rule:nonzero" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><g fill-rule="evenodd"><path d="M0 0h1"/><path d="M2 2h1"/></g></svg>"#,
+            r#"<svg viewBox="0 0 24 24" fill-rule="evenodd"><g><path fill-rule="inherit" d="M0 0h1"/></g></svg>"#,
+        ] {
+            let read = read(svg).unwrap();
+            assert_eq!(
+                (read.not_template.as_deref(), read.even_odd),
+                (None, true),
+                "{svg}"
+            );
+        }
+        for svg in [
+            r#"<svg viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><g fill-rule="evenodd"><path fill-rule="nonzero" d="M0 0h1"/></g></svg>"#,
+        ] {
+            let read = read(svg).unwrap();
+            assert_eq!(
+                (read.not_template.as_deref(), read.even_odd),
+                (None, false),
+                "{svg}"
+            );
+        }
+        let mixed = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path d="M2 2h1"/><g style="fill-rule:evenodd"><path d="M4 4h1"/></g></svg>"#).unwrap();
+        assert_eq!(
+            mixed.not_template.as_deref(),
+            Some("its paths mix fill rules (evenodd: path 1, 3; nonzero: path 2)")
+        );
+        assert!(mixed.fix.contains("the same `fill-rule`"), "{}", mixed.fix);
+        let wrong =
+            read(r#"<svg viewBox="0 0 24 24"><path fill-rule="winding" d="M0 0h1"/></svg>"#)
+                .unwrap();
+        assert_eq!(
+            wrong.not_template.as_deref(),
+            Some("its `<path>` has a `fill-rule`")
+        );
+        // A rule written in `<defs>` paints nothing; `clip-rule` outside a
+        // `<clipPath>` paints nothing either.
+        let defs = read(r#"<svg viewBox="0 0 24 24"><defs><path fill-rule="evenodd" d="M9 9h1"/></defs><path clip-rule="evenodd" d="M0 0h1"/></svg>"#).unwrap();
+        assert_eq!((defs.not_template, defs.even_odd), (None, false));
+        // The other reasons are refused as before, beside an even-odd rule.
+        for lost in [
+            r#"transform="scale(2)""#,
+            r#"opacity="0.5""#,
+            r#"stroke="black""#,
+            r#"fill="none""#,
+            r#"clip-path="url(#a)""#,
+            r#"mask="url(#a)""#,
+            r#"filter="url(#a)""#,
+        ] {
+            let svg = read(&format!(
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" {lost} d="M0 0h1"/></svg>"#
+            ))
+            .unwrap();
+            assert!(svg.not_template.is_some(), "{lost}");
+        }
     }
 }

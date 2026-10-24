@@ -150,8 +150,16 @@ fn library_gate_keeps_every_moved_icon_its_path_the_same_d() {
                         .collect::<Vec<_>>()
                 )
             });
-        assert_eq!(plan.str(row.path), d, "{full}");
+        assert_eq!(icon_path(&plan, row), d, "{full}");
         assert_eq!(plan.str(row.sf), "", "{full}");
         assert_eq!(plan.str(row.view_box), "0 0 24 24", "{full}");
     }
+}
+
+/// A kept icon's path, read through `exact_kernel::Icon` (stage 14 C2: the
+/// one reader of an `icons` row, which strips an even-odd icon's marker).
+fn icon_path<'a>(plan: &'a exact_plan::Plan, row: &exact_plan::IconsRow) -> &'a str {
+    let s = |id| plan.strings.get(id as usize).unwrap_or("");
+    exact_kernel::Icon::of_row(s(row.sf.0), s(row.view_box.0), s(row.path.0), s(row.svg.0))
+        .map_or("", |i| i.path)
 }

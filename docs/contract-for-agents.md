@@ -3990,8 +3990,9 @@ alerts), and `@exact/actions`' `actions.reply`, `actions.repost`,
 has no `sf`, so Apple draws the same path as the web. Still paths, as no
 template can draw them yet (QUEUE): ComposeFrame's gallery, camera and GIF,
 `BarItem`'s and `HeaderButton`'s icons and AtCard's Attie mark fill even-odd
-(a template fills nonzero), and the verified and verifier badges are two
-colours (a template is one).
+(a template takes `fill-rule="evenodd"` since stage 14 C2; they move to tokens
+in a later change), and the verified and verifier badges are two colours (a
+template is one).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

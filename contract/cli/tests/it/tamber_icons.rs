@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 /// The SVG every host but the web draws (`contract_lower`'s `icons::TEMPLATE`).
-const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, all by one `fill-rule` (nonzero or evenodd), with no stroke, transform, opacity or other element";
 
 const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M760-200v-160H200Z"/></svg>"#;
 const TWO: &str =
@@ -674,5 +674,83 @@ fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
         .unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("tamber-icon-svg"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Stage 14 C2: an SVG whose paths fill even-odd is a template; its plan row
+/// and its literal source form carry `evenodd:` before the path (the kernel
+/// reads it back as the icon's rule); a nonzero icon's row and form are as
+/// before; an SVG that mixes rules on Linux's and the web's targets is
+/// refused naming its paths.
+#[test]
+fn an_even_odd_icon_carries_its_rule_in_the_row_and_the_form() {
+    let path = app(
+        "evenodd",
+        "\"ios\": {}, \"web\": {}, \"linux\": {}",
+        "  icon.ring = icon(svg \"icons/ring.svg\")\n  icon.reply = icon(svg \"icons/reply.svg\")\n",
+        "component App\n  view\n    column\n      image \"symbol:icon.ring\"\n      image \"symbol:icon.reply\"\n",
+    );
+    let dir = path.parent().unwrap();
+    std::fs::write(
+        dir.join("assets/icons/ring.svg"),
+        r#"<svg viewBox="0 0 24 24"><g fill-rule="evenodd"><path d="M2 2H22V22H2Z M8 8H16V16H8Z"/><path d="M0 0h1v1H0Z"/></g></svg>"#,
+    )
+    .unwrap();
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let form =
+        "symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z;M0 0h1v1H0Z|icons/ring.svg";
+    assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
+    let row = |name: &str| {
+        plan.icons
+            .iter()
+            .find(|i| plan.str(i.name) == name)
+            .unwrap()
+    };
+    let ring = row("icon.ring");
+    let icon = exact_kernel::Icon::of_row(
+        plan.str(ring.sf),
+        plan.str(ring.view_box),
+        plan.str(ring.path),
+        plan.str(ring.svg),
+    )
+    .unwrap();
+    assert_eq!(
+        (icon.path, icon.even_odd),
+        ("M2 2H22V22H2Z M8 8H16V16H8Z;M0 0h1v1H0Z", true)
+    );
+    assert!(
+        exact_kernel::symbol_path(&form["symbol:".len()..])
+            .unwrap()
+            .even_odd
+    );
+    let reply = "symbol:icon||0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
+    assert!(
+        plan.strings.iter().any(|s| s == reply),
+        "a nonzero icon's form is as before: {:?}",
+        plan.strings
+    );
+    let nonzero = row("icon.reply");
+    let icon = exact_kernel::Icon::of_row(
+        plan.str(nonzero.sf),
+        plan.str(nonzero.view_box),
+        plan.str(nonzero.path),
+        plan.str(nonzero.svg),
+    )
+    .unwrap();
+    assert_eq!((icon.path, icon.even_odd), ("M760-200v-160H200Z", false));
+    // Rules mixed across the paths: no template, so Linux has no source.
+    std::fs::write(
+        dir.join("assets/icons/ring.svg"),
+        r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M2 2H22V22H2Z M8 8H16V16H8Z"/><path d="M0 0h1v1H0Z"/></svg>"#,
+    )
+    .unwrap();
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message
+            .contains("its paths mix fill rules (evenodd: path 1; nonzero: path 2)"),
+        "{}",
+        e.message
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
