@@ -49,6 +49,22 @@ final class FaceSymbolTests: XCTestCase {
         XCTAssertEqual(json(["button": true, "symbol": "", "symbolPath": Self.square, "symbolIcon": "icon.reply"]).symbolIcon, "icon.reply")
     }
 
+    /// Stage 14 C2: an even-odd icon's token says its rule and draws it; a
+    /// nonzero icon's token is as it was, so its equality and caches hold.
+    func testAnEvenOddFacesTokenCarriesItsRule() throws {
+        XCTAssertEqual(FaceSymbol.token(path: Self.square, viewBox: "0 0 24 24", rule: nil), Self.token, "nonzero: today's token")
+        XCTAssertEqual(FaceSymbol.token(path: Self.square, viewBox: "0 0 24 24", rule: "nonzero"), Self.token)
+        let face = ButtonFace(json: try JSONSerialization.data(withJSONObject: ["button": true, "symbol": "", "symbolPath": IconPathTests.frame,
+                                                                                 "symbolViewBox": "0 0 24 24", "symbolFillRule": "evenodd"]))
+        let token = try XCTUnwrap(face.symbol)
+        XCTAssertEqual(token, "icon-path:evenodd|0 0 24 24|" + IconPathTests.frame)
+        XCTAssertTrue(FaceSymbol.isPath(token))
+        XCTAssertEqual(FaceSymbol.observed(token, icon: "icon.gallery"), "icon.gallery")
+        XCTAssertEqual(try IconPathTests.inked(try XCTUnwrap(FaceSymbol.pathImage(token, points: 24)), at: [4, 12]), [true, false], "the hole clear")
+        let plain = try XCTUnwrap(FaceSymbol.token(path: IconPathTests.frame, viewBox: "0 0 24 24"))
+        XCTAssertEqual(try IconPathTests.inked(try XCTUnwrap(FaceSymbol.pathImage(plain, points: 24)), at: [4, 12]), [true, true], "nonzero fills it")
+    }
+
     #if os(macOS)
     private var window: NSWindow?
     private var session: ExactSession?

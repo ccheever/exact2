@@ -18,10 +18,15 @@ package enum FaceSymbol {
     /// What a path token starts with; no SF Symbol or role name holds a `:`.
     static let prefix = "icon-path:"
 
-    /// The token of an icon's path and viewBox; nil when there is no path.
-    package static func token(path: String?, viewBox: String?) -> String? {
+    /// What follows the prefix in an even-odd icon's token (stage 14 C2); a
+    /// nonzero icon's token is as it was. No viewBox starts with a letter.
+    static let evenOdd = "evenodd|"
+
+    /// The token of an icon's path, viewBox and fill rule (`symbolFillRule`);
+    /// nil when there is no path.
+    package static func token(path: String?, viewBox: String?, rule: String? = nil) -> String? {
         guard let path, !path.isEmpty else { return nil }
-        return prefix + (viewBox ?? "") + "|" + path
+        return prefix + (rule == "evenodd" ? evenOdd : "") + (viewBox ?? "") + "|" + path
     }
 
     /// A face's symbol from its JSON: the name, else the path's token where
@@ -29,7 +34,7 @@ package enum FaceSymbol {
     package static func of(_ json: [String: Any]) -> String? {
         guard let name = json["symbol"] as? String else { return nil }
         guard name.isEmpty else { return name }
-        return token(path: json["symbolPath"] as? String, viewBox: json["symbolViewBox"] as? String) ?? name
+        return token(path: json["symbolPath"] as? String, viewBox: json["symbolViewBox"] as? String, rule: json["symbolFillRule"] as? String) ?? name
     }
 
     /// Whether `symbol` is a path's token, not a name.
@@ -46,11 +51,13 @@ package enum FaceSymbol {
     /// side (the point size the site gives an SF Symbol); nil for a name.
     package static func pathImage(_ symbol: String, points: CGFloat) -> IconImage? {
         guard isPath(symbol) else { return nil }
-        let body = symbol.dropFirst(prefix.count)
+        var body = symbol.dropFirst(prefix.count)
+        let rule: CGPathFillRule = body.hasPrefix(evenOdd) ? .evenOdd : .winding
+        if rule == .evenOdd { body = body.dropFirst(evenOdd.count) }
         guard let bar = body.firstIndex(of: "|") else { return nil }
         let side = max(1, points.rounded(.up))
         return IconPath.image(String(body[body.index(after: bar)...]), viewBox: String(body[..<bar]),
-                              size: CGSize(width: side, height: side))
+                              size: CGSize(width: side, height: side), rule: rule)
     }
 
     #if os(macOS)
@@ -117,6 +124,6 @@ extension NodeView {
     /// name, else its icon path's token (A1's `symbolPath`); nil for neither.
     var faceSymbol: String? {
         if let name = props["symbolName"], !name.isEmpty { return name }
-        return FaceSymbol.token(path: props["symbolPath"], viewBox: props["symbolViewBox"])
+        return FaceSymbol.token(path: props["symbolPath"], viewBox: props["symbolViewBox"], rule: props["symbolFillRule"])
     }
 }
