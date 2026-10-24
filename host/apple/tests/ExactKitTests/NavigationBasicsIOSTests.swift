@@ -129,6 +129,28 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(presenter.mounts(root))
     }
 
+    func testALiftedHeadersProvisionalOverflowKeepsNavigationOutsideThePageScroller() throws {
+        let session = try fixture("rail-overflow", plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let p = session.presenter
+        session.apply(session.runtime.hostGo("/rows", now: session.now()))
+        until("Rows is shown") { p.navigation.activeRoute?.node.props["testId"] == "route-rows" && !p.navigation.changing }
+        XCTAssertTrue(p.root.superview === p.documentMount)
+        let covers = p.onCovers
+        var enteredScroller = false
+        p.onCovers = { changes in
+            enteredScroller = enteredScroller || p.root.superview === p.viewport
+            covers?(changes)
+        }
+        defer { p.onCovers = covers }
+        session.apply(session.runtime.hostGo("/rail", now: session.now()))
+        until("the narrow header is lifted") {
+            p.navigation.activeRoute?.node.props["testId"] == "route-rail" && !p.navigation.changing
+                && (try? self.node(session, "header-rail"))?.isHidden == true
+        }
+        XCTAssertFalse(enteredScroller, "a header's pre-projection button widths must not move native bars into a scroll view")
+        XCTAssertTrue(p.root.superview === p.documentMount)
+    }
+
     /// A popover over a stationary document is in the document's mount, above
     /// the document, and follows it into the viewport and back with its field's focus.
     func testAPopoverFollowsTheDocumentBetweenItsMounts() throws {

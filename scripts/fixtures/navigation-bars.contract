@@ -57,6 +57,7 @@ routes nav
     named "/named"
     bare "/bare"
     rows "/rows"
+    rail "/rail"
 
 component NavigationBars
   state backs = 0
@@ -118,6 +119,14 @@ component NavigationBars
                   image "symbol:forward-chevron"
                 button press=stay testId="rows-stay"
                   text `Stayed ${stays}`
+          else if e.name == "rail"
+            header testId="header-rail" position="absolute" top=104 right=0 width=48
+              text "" role="heading" aria-level=2
+              button press=stay aria-label="Share"
+                image "symbol:share"
+              button press=stay aria-label="More options"
+                image "symbol:filter"
+            text "Vertical actions"
           else
             if e.name == "detail"
               header testId="header-detail" display="flex" align-items="center" padding="8px 16px"

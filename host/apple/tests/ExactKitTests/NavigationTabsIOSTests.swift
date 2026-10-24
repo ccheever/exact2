@@ -913,6 +913,20 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(container.tabBar.selectedItem, container.tabBar.items?[container.selectedIndex])
     }
 
+    func testAnEagerTabContainerTakesTheLiveStacks() throws {
+        setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
+        setenv("EXACT_FIXTURE_EAGER_TABS", "1", 1)
+        defer { unsetenv("EXACT_FIXTURE_CONTAINER"); unsetenv("EXACT_FIXTURE_EAGER_TABS"); NativeViews.uninstallTable() }
+        let session = try fixture("tabs-eager", module: true)
+        let navigation = session.presenter.navigation
+        until("the eager container holds the tabs") { navigation.tabController == nil && navigation.tabOwner != nil }
+        let owner = try XCTUnwrap(navigation.tabOwner)
+        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        XCTAssertEqual(stacks.count, 2)
+        XCTAssertTrue(stacks.allSatisfy { $0.parent === owner })
+        XCTAssertNotNil(owner.view.window)
+    }
+
     func testSharePresentsOverAnAppOwnedTabContainer() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else {
             throw missing("scene", "sharing needs a hosted window scene")
