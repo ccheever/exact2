@@ -299,7 +299,8 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         }) || words.iter().any(|(_, w)| *w == "in");
         if lex::split_comment(v).1.is_some() || clause || v.trim().is_empty() {
             return Err(refuse(format!(
-                "`{v}`: a value alone, with no comment, metadata or range after it"
+                "`{}`: a value alone, with no comment, metadata or range after it",
+                v.trim()
             )));
         }
         Ok(())
@@ -504,6 +505,25 @@ fn run(
             while k < ops.len() {
                 // A run of new tokens (an import's) with one parse, and one
                 // restore that takes them all out (round 1 of the sweep).
+                // An import's values and new tokens, in its tokens' order:
+                // the new tokens first, then the values, each kind in one
+                // parse (`batch::mixed`), when no value is a new token's.
+                let seg = ops[k..]
+                    .iter()
+                    .take_while(|op| {
+                        matches!(
+                            op,
+                            Op::SetToken { .. }
+                                | Op::SetDial { .. }
+                                | Op::AddToken { before: None, .. }
+                        )
+                    })
+                    .count();
+                if let Some(next) = batch::mixed(&text, &ops[k..k + seg], vocab) {
+                    inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                    (text, k) = (next, k + seg);
+                    continue;
+                }
                 if let Some((next, taken)) = batch::added(&text, &ops[k..], vocab) {
                     inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
                     (text, k) = (next, k + taken);

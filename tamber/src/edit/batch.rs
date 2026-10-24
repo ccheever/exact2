@@ -109,6 +109,48 @@ pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<(String, usi
     Some((doc.text(), taken))
 }
 
+/// An import's values and new tokens interleaved (`set-token`s on the
+/// tokens it has, `add-token`s with no `before` for those it lacks, in its
+/// tokens' order): the new tokens with one parse ([`added`]), then the values
+/// with one ([`stepped`]). The same text as stepping them in order: a value
+/// edits only its own token's or dial's lines, all above where a new token
+/// lands, and a new token lands after the last token's lines whatever a value
+/// did to them. `None` when either kind is missing, when a value names a new
+/// token (by its name or its role), or on any refusal: the caller steps them.
+pub(super) fn mixed(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
+    let (adds, sets): (Vec<Op>, Vec<Op>) = ops
+        .iter()
+        .cloned()
+        .partition(|op| matches!(op, Op::AddToken { .. }));
+    if adds.len() < 2 || sets.len() < 2 {
+        return None;
+    }
+    let roles: Vec<(String, bool)> = vocab
+        .roles
+        .iter()
+        .map(|r| (r.name.clone(), r.system))
+        .collect();
+    let key = |n: &str| role_key(&roles, n).unwrap_or_else(|| n.to_string());
+    let new: HashSet<String> = adds
+        .iter()
+        .filter_map(|op| match op {
+            Op::AddToken { name, .. } => Some(key(name)),
+            _ => None,
+        })
+        .collect();
+    let names_new = sets
+        .iter()
+        .any(|op| matches!(op, Op::SetToken { name, .. } if new.contains(&key(name))));
+    if names_new {
+        return None;
+    }
+    let (text, taken) = added(src, &adds, vocab)?;
+    if taken != adds.len() {
+        return None;
+    }
+    stepped(&text, &sets, vocab)
+}
+
 /// `ops` stepped on `src` with one parse, or `None` for the caller to step
 /// them one at a time (an operation that is neither kind, or any refusal:
 /// which one, and its words, are the stepping's).
@@ -468,5 +510,62 @@ mod tests {
             stepped.ends_with("  first = #111111\n    when tone=b: #222222\n  second = #333333\n"),
             "{stepped}"
         );
+    }
+
+    /// Values and new tokens interleaved (an import's, in its tokens' order)
+    /// give stepping's text when the new tokens go first (Astra's round 3).
+    #[test]
+    fn interleaved_values_and_new_tokens_land_as_stepping_puts_them() {
+        let designs = [
+            "tamber t\n\ndials\n  d: number = 0.1  in 0..1\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n    when tone=b: #222222\n  t2 = calc(d * 2)\n",
+            "tamber t\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n  t2 = #111111\n  // closing\n",
+            "tamber t\n\naxes\n  tone = a | b\n\ntheme\n  t0 = #111111\n  t1 = #111111\n  t2 = #111111",
+        ];
+        let mut seed = 0x1234_5678_9abc_def1_u64;
+        let mut next = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let mut batched = 0;
+        for design in designs {
+            for _ in 0..60 {
+                let mut ops = Vec::new();
+                for k in 0..(4 + next(8)) {
+                    ops.push(match next(3) {
+                        0 => Op::AddToken {
+                            name: format!("new.n{k}"),
+                            kind: None,
+                            value: format!("#{:06x}", next(0xffffff)),
+                            meta: Vec::new(),
+                            whens: Vec::new(),
+                            comment: None,
+                            before: None,
+                        },
+                        1 => Op::SetToken {
+                            name: format!("t{}", next(3)),
+                            when: match next(2) {
+                                0 => vec![("tone".into(), "b".into())],
+                                _ => Vec::new(),
+                            },
+                            value: format!("#{:06x}", next(0xffffff)),
+                            at: None,
+                            comment: None,
+                        },
+                        _ => Op::SetDial {
+                            name: "d".into(),
+                            value: format!("0.{}", next(9)),
+                        },
+                    });
+                }
+                let stepped = one_at_a_time(design, &ops, &vocab()).ok();
+                if let Some(text) = super::mixed(design, &ops, &vocab()) {
+                    batched += 1;
+                    assert_eq!(Some(text), stepped, "{design:?} {ops:?}");
+                }
+            }
+        }
+        assert!(batched >= 40, "{batched}");
     }
 }

@@ -379,3 +379,63 @@ fn mixed_runs_and_long_axes_apply_in_moments() {
     });
     assert!(refused.is_err());
 }
+
+/// An import's values and new tokens alternating (its tokens' order) are
+/// applied with two parses, the new tokens first (Astra's round 3: 6,000
+/// alternating operations were 12,000 parses).
+#[test]
+fn alternating_values_and_new_tokens_apply_in_moments() {
+    let n = 20_000;
+    let src = theme((0..n).map(|k| format!("  t{k} = #111111")));
+    let ops: Vec<Op> = (0..6000)
+        .map(|k| match k % 2 {
+            0 => Op::SetToken {
+                name: format!("t{k}"),
+                when: Vec::new(),
+                value: "#333333".into(),
+                at: None,
+                comment: None,
+            },
+            _ => Op::AddToken {
+                name: format!("new.t{k}"),
+                kind: None,
+                value: "#222222".into(),
+                meta: Vec::new(),
+                whens: Vec::new(),
+                comment: None,
+                before: None,
+            },
+        })
+        .collect();
+    let edited = within(10, "alternating", || {
+        exact_tamber::apply_all(&src, &ops, &vocab()).unwrap()
+    });
+    assert_eq!(edited.text.matches("#333333").count(), 3000);
+    assert_eq!(edited.text.matches("#222222").count(), 3000);
+    let undone = exact_tamber::undo(&edited.text, &edited.inverse, &vocab()).unwrap();
+    assert_eq!(undone.text, src);
+}
+
+/// DTCG themes in many groups are grouped by a map, and sets ranked by
+/// precomputed places (Astra's round 3).
+#[test]
+fn many_dtcg_theme_groups_group_in_moments() {
+    use exact_tamber::import::dtcg;
+    let themes: Vec<serde_json::Value> = (0..20_000)
+        .map(|k| serde_json::json!({"name": format!("t{k}"), "group": format!("g{k}"), "selectedTokenSets": {"core": "enabled"}}))
+        .collect();
+    let files = vec![
+        (
+            "core.json".to_string(),
+            serde_json::json!({"ink": {"$type": "color", "$value": "#111111"}}).to_string(),
+        ),
+        (
+            "$themes.json".to_string(),
+            serde_json::Value::Array(themes).to_string(),
+        ),
+    ];
+    let imported = within(20, "dtcg groups", || {
+        dtcg::import(&files, "dt", &parse("tamber app\n").unwrap()).map(|i| i.ops.len())
+    });
+    assert_eq!(imported.ok(), Some(1));
+}
