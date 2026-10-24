@@ -18,6 +18,18 @@ import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInput
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
+/** Poll host I/O until ready; a bound only ends a hung load. Return its last observation for diagnostics. */
+export async function pollUntil(read, ready, { bound = 60_000, interval = 50, now = Date.now, pause = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const until = now() + bound;
+  while (true) {
+    const value = await read();
+    if (ready(value)) return value;
+    const remaining = until - now();
+    if (remaining <= 0) return value;
+    await pause(Math.min(interval, remaining));
+  }
+}
+
 // The compiler's warnings in a build's output, and the lines a drive says for them: app-cli.mjs, which runs a
 // drive's build first, has them; verify, the dev loop and agent-build.mjs read them from here.
 export { compilerWarnings, warningLines } from './app-cli.mjs';
@@ -471,12 +483,18 @@ export function parseFlags(argv) {
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
     else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A relaunch whose platform hands it a listed entry (LLP 1133.004 §7): `--notification '<entry>'`, the
+    // entry as `state.notifications` printed it, delivered as its tap would be before the first op.
+    else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
+    // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
+    else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if (['ios', 'host-ios'].includes(rest[0]) && flags.phone !== undefined && !flags.device) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
   if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
@@ -1174,4 +1192,14 @@ export function proofProductChanges(receipt, bin, app, root = ROOT) {
   for (const [path,hash] of Object.entries(record.products))
     if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
   return changed;
+}
+
+/** Each `--notification '<entry>'` (LLP 1133.004 §7): the entry handed to the relaunched app, as the platform hands a
+ * closed app its click, before the drive's first op; each `--wake '<entry>'` (LLP 1133.017 §10) likewise, raised as a
+ * cold wake. */
+export async function launchEntries(s, flags) {
+  for (const entry of flags.launchEntries ?? []) {
+    const r = await s.op({ op: 'launchEntry', ...entry });
+    if (r?.error) throw new Error(r.error);
+  }
 }

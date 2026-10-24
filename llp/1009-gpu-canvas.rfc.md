@@ -1,7 +1,7 @@
 # LLP 1009: The GPU canvas
 
 **Type:** RFC
-**Status:** Review (super-refine loop 2026-08-29: two rounds on r2, both families NOT READY on in-delta findings only — dispositions in `llp/reviews/1009-gpu-canvas.{codex,grok}.md`; r4 is Charlie's requested simplification; round 3 reviewed r4 at his request — both families NOT READY, neither on architecture (codex: "the core direction … is feasible"); r5 folds round 3 and is unreviewed. `rules/DEFERRED.md` §Process forbids refine loops; this one ran on his in-session instruction, and the trades it owes are in §5.)
+**Status:** Accepted (as built; Charlie, 2026-10-22: D6/D7 landed; §5 records the applied gradient take and the shader and review rulings. This document carries its as-built sections; no 1009.000 transcription spec.)
 **Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
@@ -119,11 +119,10 @@ line and column. That is the build-declared set; a surface holds a raw
 cannot see and does not claim to — wgpu validates it then, and it fails
 that surface, not the app. At runtime wgpu compiles it on first use — which by D4 is after
 the first pixel, so the measured 115 ms cold cost (§3) lands on a canvas's
-first frame and never on boot. `rules/DEFERRED.md` says the built door
-"compiles no shaders at runtime"; this decision does not meet that
-wording and asks for it to be amended (§5) rather than met with a
-precompilation pipeline whose feasibility with bind groups is unproven.
-Precompilation is a later, measured trade.
+first frame and never on boot. `rules/DEFERRED.md` carries this rule
+(Charlie, 2026-10-22; §5).
+Canvas 2D's Apple module ships compiled shaders (LLP 1056 §8.5); the
+Linux host's GPU painter has its own first-launch exception (LLP 1015 §7).
 
 **D6 — More than one artifact, each loaded by the surface names it
 registers** (amended 2026-09-23, the split lane; LLP 1046.003 records it).
@@ -501,7 +500,8 @@ and camera. The Linux host's use of this device is that lane's decision.
    link, device-after-first-pixel with its phase reported; the fixture
    held natively.
 
-The spec (1009.000) transcribes the landing.
+This document carries the as-built sections (Charlie, 2026-10-22); no
+1009.000 transcription spec is wanted.
 
 ## 3. Costs, measured 2026-08-29
 
@@ -602,30 +602,24 @@ The spec (1009.000) transcribes the landing.
 2. Whether the module's C ABI stays hand-written (as `exact.h` is) or is
    generated from a table — hand-written until a second consumer.
 
-## 5. The DEFERRED trades this RFC owes (Charlie's, before Acceptance)
+## 5. The DEFERRED trades
 
-The rule: name what it unblocks, and take something off the doing-list
-in the same PR.
+**Ruled (Charlie, 2026-10-22):** accepted as built.
 
 - **§Runtime "GPU / WebGPU substrate" and §Components `canvas`** (one
-  trade). Unblocks everything an app draws that is not a box or text —
-  the Caltrain line map first. **Proposed take, in the same PR: the three
-  gradient style rows** (`gradient_type`, `gradient_angle`,
-  `gradient_colors`) leave `schema.json` — declared in v1, implemented by
-  no host, and a canvas draws a gradient; they return when a host earns
-  them. *(Applied 2026-08-29 under LLP 1014 §5, the same door widened.)*
-  them. (Round 3 held that deferring iOS is a reorder and dropping the
-  agent's screenshot an alias; both withdrawn.)
-- **§Runtime, the wording "compiles no shaders at runtime"** — amend to
-  "compiles nothing on the boot path; a canvas compiles its shaders at
-  first use" (D5), or refuse, in which case D5 waits for a proven
-  precompilation path and this RFC waits with it.
-- **§Process: refine loops** (this loop). Unblocks building the canvas on
-  text two families have read three times; the take is the same one as
-  LLP 1004's, Charlie's to name.
+  trade). The three gradient style rows (`gradient_type`, `gradient_angle`,
+  `gradient_colors`) left `schema.json` under LLP 1014 §5 on 2026-08-29.
+- **§Runtime, shaders.** D4/D5 stand: a GPU module compiles at a canvas's
+  first use, after first pixel. Canvas 2D's Apple module ships compiled
+  shaders (LLP 1056 §8.5). The Linux painter's first-launch compilation is
+  the accepted exception (LLP 1015 §7); `rules/DEFERRED.md` records both.
+- **§Process, refine loops.** Blind review by two model families is allowed
+  within `rules/RULES.md` §Loop shape's three-fix-round limit. Repeating
+  until every reviewer says READY, a verdict deciding whether work lands,
+  revision ledgers and review-driven scope growth remain banned. This
+  answers the refine-loop question; no further take is owed.
 
 ## Ratification note
 
-Review. Three rounds: two on r2, one on r4; r5 folds round 3 and is
-unreviewed (see the artifacts). Charlie may say Accepted on this text,
-apply §5, or ask for another round.
+Accepted as built (Charlie, 2026-10-22), with §5 recorded in
+`rules/DEFERRED.md`. The as-built sections stay here.

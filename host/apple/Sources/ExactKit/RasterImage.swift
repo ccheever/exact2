@@ -394,6 +394,14 @@ final class RasterImage: @unchecked Sendable {
         return nil
         #endif
     }
+    /// A package's decoded picture (LLP 1133.019 D11 item 1), drawn into the
+    /// plan's storage, which the budget charges as any decode's.
+    static func picture(_ image: CGImage, metadata: RasterMetadata, plan: RasterDecodePlan,
+                        charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) throws -> RasterImage {
+        guard let drawn = normalized(image, plan: plan, adopt: false) else { throw RasterFailure.decode }
+        let owner = RasterOwner(charge: charge, sourceOwner: sourceOwner)
+        return RasterImage(image: owner.own(drawn), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil)
+    }
     private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0) {
         self.image = image; naturalSize = natural; residentBytes = bytes; self.animation = animation; self.headroom = headroom
     }
@@ -564,15 +572,16 @@ final class RasterImage: @unchecked Sendable {
     }
 }
 
-/// Whether drawing the thumbnail into the planned bitmap would change
-/// nothing but its bytes' layout: the planned size (no resample), 8-bit
-/// opaque pixels already in the storage space (no conversion; the skipped
-/// alpha byte reads as opaque), rows no wider than the plan's. A deep plan
+/// Keep ImageIO's one-pixel rounding within the reservation. Object fit
+/// uses the source's natural size, so the layer scales these pixels to the
+/// same rectangle without an intermediate resample. Only opaque 8-bit
+/// pixels in the storage space qualify. A deep plan
 /// always draws: ImageIO hands back 16-bit integers, and Core Animation
 /// shares half floats. Otherwise the caller draws.
 private func isAdoptable(_ thumbnail: CGImage, plan: RasterDecodePlan, space: CGColorSpace) -> Bool {
     !plan.deep
-        && thumbnail.width == plan.width && thumbnail.height == plan.height
+        && (plan.width - 1...plan.width).contains(thumbnail.width)
+        && (plan.height - 1...plan.height).contains(thumbnail.height)
         && thumbnail.bitsPerComponent == 8 && thumbnail.bitsPerPixel == 32
         && thumbnail.bytesPerRow <= plan.stride
         && thumbnail.bitmapInfo.subtracting(.alphaInfoMask).subtracting(.byteOrderMask).isEmpty

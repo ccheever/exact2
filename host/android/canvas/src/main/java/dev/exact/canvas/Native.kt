@@ -20,7 +20,7 @@ object Native {
      * with them, and again on the host's thread whenever one changes. */
     @JvmStatic external fun configure(
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
-        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float, dates: String,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, tv: Boolean, touchSlop: Float, dates: String,
     )
     /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
      * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
@@ -165,6 +165,8 @@ object Native {
     /** A gamepad's state for the canvas a key would reach (LLP 1127.003 D2): [values] its 17 standard buttons, then
      * its 4 axes; [connected] false when it went away. */
     @JvmStatic external fun pad(index: Int, connected: Boolean, values: FloatArray)
+    /** A remote's key, down or up, by the web's `code` and `key` (LLP 1115.001.003 D3): a D-pad arrow, or Select. */
+    @JvmStatic external fun namedKey(code: String, key: String, down: Boolean, repeat: Boolean)
     /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
      * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
      * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the
@@ -180,8 +182,34 @@ object Native {
     @JvmStatic external fun answer(id: Int, answer: String?)
     /** A topic an extension announced ([ExtensionContext.changed]): its readers are asked again. On the host's thread. */
     @JvmStatic external fun changed(topic: String)
-    /** The extensions the APK carries, one a line ([Extensions]): bound outside the agent. On the host's thread. */
+    /** The extensions the APK carries, one a line ([Extensions]); under the agent, told so unless the drive names them
+     * (`--bind`). On the host's thread. */
     @JvmStatic external fun bindExtensions(names: String)
+    /** How a presence check ended ([Presence]), on the store's completion path: never journaled. On the host's thread. */
+    @JvmStatic external fun presence(answer: String)
+    /** A package's picture for request [id] (LLP 1133.019 D11 item 1): [bitmap], software `ARGB_8888`, or why there is
+     * none ([error]) when it is null. On the host's thread. */
+    @JvmStatic external fun picture(id: Int, bitmap: android.graphics.Bitmap?, error: String?)
+    /** Picture [source] changed, so it is asked for again, or was [revoked]: every box showing it is emptied. On the
+     * host's thread. */
+    @JvmStatic external fun pictureChanged(source: String, revoked: Boolean)
+    /** The activity stopped (true) or started (false): the page's `visibilityState`. On the host's thread. */
+    @JvmStatic external fun hidden(hidden: Boolean)
+    /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent
+     * ([ExtensionContext.now]). Any thread. */
+    @JvmStatic external fun now(): Double
+
+    /** The file an `app:/data|cache|tmp/…` path names, or null (`ExtensionContext.file`). */
+    @JvmStatic external fun appFile(path: String): String?
+    /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
+    @JvmStatic external fun underAgent(name: String): Boolean
+    /** Whether the page places a canvas of surface [name], as of the host's last turn ([ExtensionSurfaces]). Any
+     * thread. */
+    @JvmStatic external fun surfaceHas(name: String): Boolean
+    /** A package's sample for surface [surface]'s canvas input (LLP 1133.013 D6), or with [ended] its end: kept until
+     * the host's next display frame delivers it to the canvas. [values] x, y, z and w; [at] the session clock's ms.
+     * Any thread; it waits for nothing. Whether none waited before it: the host is then woken for a frame. */
+    @JvmStatic external fun sensorInput(surface: String, sensor: String, values: DoubleArray, dropped: Int, at: Double, ended: Boolean): Boolean
     /** What the app's Kotlin hatches ask, for node [node] or 0 for their module (LLP 1115.001.000 D4; the kinds are
      * `hatches::reader::act`'s): its answer, a ticket for a registration, -1 when refused. */
     @JvmStatic external fun hatchAct(node: Int, kind: Int, text: String?): Long

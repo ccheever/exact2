@@ -23,6 +23,21 @@ impl Drop for Dir {
     }
 }
 
+/// `from`'s files copied into `to`, its directories (a package's `assets/`)
+/// too.
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let from = entry.unwrap().path();
+        let into = to.join(from.file_name().unwrap());
+        if from.is_dir() {
+            copy_tree(&from, &into);
+        } else {
+            std::fs::copy(&from, into).unwrap();
+        }
+    }
+}
+
 /// A temporary app with the repository's `packages/<name>` copied into its
 /// `node_modules/@exact/<name>`.
 fn app_with(name: &str, packages: &[&str], design: &str, contract: &str) -> (Dir, PathBuf) {
@@ -31,12 +46,10 @@ fn app_with(name: &str, packages: &[&str], design: &str, contract: &str) -> (Dir
     let _ = std::fs::remove_dir_all(&dir.0);
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
     for package in packages {
-        let to = dir.0.join("app/node_modules/@exact").join(package);
-        std::fs::create_dir_all(&to).unwrap();
-        for entry in std::fs::read_dir(repo.join(package)).unwrap() {
-            let from = entry.unwrap().path();
-            std::fs::copy(&from, to.join(from.file_name().unwrap())).unwrap();
-        }
+        copy_tree(
+            &repo.join(package),
+            &dir.0.join("app/node_modules/@exact").join(package),
+        );
     }
     std::fs::write(dir.0.join("app/app.tamber"), design).unwrap();
     let app = dir.0.join("app/app.contract");
@@ -120,13 +133,9 @@ fn a_list_rows_symbol_takes_its_tint_but_a_destructive_rows_is_its_red() {
     let r = boot(&app);
     let k = r.kernel();
     let node = |test_id: &str| k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
-    let symbol_tint = |row: &str| {
-        let first = node(row).children()[0];
-        match k.node(first).unwrap().computed(StyleId::TintColor) {
-            exact_kernel::style::RowValue::ColorValue(c) => c,
-            other => panic!("{row}: {other:?}"),
-        }
-    };
+    // A symbol is drawn in its `color` (LLP 1081 stage 2): the param's on a
+    // plain row, the row's red, inherited, on a destructive one.
+    let symbol_tint = |row: &str| k.node(node(row).children()[0]).unwrap().text_color();
     let ink = |row: &str| k.node(node(row).children()[1]).unwrap().text_color();
     assert_ne!(symbol_tint("red"), symbol_tint("plain"), "not the param's");
     assert_eq!(

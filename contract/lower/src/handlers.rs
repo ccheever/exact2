@@ -59,11 +59,7 @@ impl Lowerer<'_> {
         // prop names the real action here: its arity is checked now,
         // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
         let valid = contract_analyze::handler_accepts(
-            if event == "selectionchange" && contract_syntax::edits_text(control) {
-                "beforeinput"
-            } else {
-                event
-            },
+            contract_syntax::typed_event(event, control),
             args.len(),
             &self.types.components[0].actions[ai],
         );

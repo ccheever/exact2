@@ -318,7 +318,7 @@ impl Lowerer<'_> {
             self.declared_fonts.clone(),
             self.font_files.clone(),
         ));
-        let mut said = Said::of(file, root, &design, &declared, &typing, &scope);
+        let mut said = Said::of(file, root, &design, &declared, &typing);
         // The rows a design server's write check reads again (`rows`).
         rows::note(std::mem::take(&mut said.rows));
         // D7's retention, left for the design server before the design is
@@ -415,9 +415,13 @@ impl Lowerer<'_> {
                         .as_ref()
                         .is_none_or(|e| e.iter().any(|x| x.value == name))
         };
+        // Each SVG under the assets of the root whose file writes it (stage 13).
+        let home = |icon: &tamber::Icon| {
+            crate::icons::Home::of(icon, asset_root, &file.package_designs, &kinded)
+        };
         let refused = crate::icons::declare(
             &folding.icons,
-            asset_root,
+            &home,
             &|line, col| self.token_span(&origin, line, col),
             &exported,
         );

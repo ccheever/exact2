@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@fixture/swatch@^1.0",
+  "platform": "apple",
+  "targets": ["ios", "macos"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": ["swatch-box"],
+  "hatches": [],
+  "sources": { "swift": ["Swatch.swift"] },
+  "artifacts": [],
+  "class": "SwatchModule"
+}

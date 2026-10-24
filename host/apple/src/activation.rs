@@ -126,6 +126,14 @@ impl<D: DataSource> Host<D> {
     }
 
     fn store_read_finished(&mut self, read: crate::store::StoreRead) {
+        // An accepted peer value supersedes the local value still owed to disk.
+        self.pending_store_writes.retain(|write| {
+            read.values
+                .iter()
+                .find(|(name, _)| name == &write.name)
+                .map(|(_, value)| value.as_slice())
+                == write.value.as_deref()
+        });
         self.store_refresh_pending = !read.complete || !read.omitted.is_empty();
         self.store_retry_names = if read.complete {
             read.omitted
@@ -158,4 +166,11 @@ impl<D: DataSource> Host<D> {
             .collect();
         self.commit_into(&receipts, error, batch)
     }
+}
+
+/// The process's app-wide module state, which every session shares: an
+/// embedder's sessions are one app (LLP 1133.004 §7, `"scope": "app"`).
+pub(super) fn app_state() -> exact_runner::AppState {
+    static STATE: std::sync::OnceLock<exact_runner::AppState> = std::sync::OnceLock::new();
+    STATE.get_or_init(Default::default).clone()
 }

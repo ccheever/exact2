@@ -17,6 +17,9 @@ typealias ChromeFallbackCase = (String, CGFloat, CGFloat, CGFloat)
 /// (line-height, size, height, baseline) for "Hxg" in `system-ui`.
 typealias ChromeExplicitCase = (String, CGFloat, CGFloat, CGFloat)
 /// (text, size, weight, width): a `nowrap` span's width, in 1/64 px layout units.
+/// At 600 Exact draws the platform's semibold where Chrome sets `wght` 600
+/// (LLP 1019 §13 D11, a declared deviation): that text is the named
+/// instance's width, within 0.4% of Chrome's.
 let chromeWidths: [(String, CGFloat, Int, CGFloat)] = [
     ("2", 13, 600, 8.125), ("33", 13, 600, 16.875), ("Heavy list", 17, 600, 77.890625),
     ("Live: off", 13, 400, 48.734375), ("20d ago", 13, 400, 49.921875),
@@ -66,8 +69,16 @@ extension XCTestCase {
     func assertChromeWidths(file: StaticString = #filePath, line: UInt = #line) {
         let engine = TextEngine(resolve: { _ in nil })
         for (text, size, weight, width) in chromeWidths {
-            XCTAssertEqual(paragraph(engine, text, size: size, weight: weight).width, width, accuracy: 1.0 / 64 + 1e-9,
-                           "width of \(text)", file: file, line: line)
+            let ours = paragraph(engine, text, size: size, weight: weight).width
+            guard weight != 400 else {
+                XCTAssertEqual(ours, width, accuracy: 1.0 / 64 + 1e-9, "width of \(text)", file: file, line: line)
+                continue
+            }
+            let named = PlatformFont.systemFont(ofSize: size, weight: TextEngine.namedWeight(weight))
+            let typeset = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: named]))
+            let platform = (CGFloat(CTLineGetTypographicBounds(typeset, nil, nil, nil)) * 64).rounded(.up) / 64
+            XCTAssertEqual(ours, platform, accuracy: 1.0 / 64 + 1e-9, "width of \(text), the platform's weight", file: file, line: line)
+            XCTAssertEqual(ours, width, accuracy: width * 0.004, "width of \(text) against Chrome's", file: file, line: line)
         }
     }
 }

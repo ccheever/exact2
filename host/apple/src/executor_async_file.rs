@@ -3,7 +3,7 @@
 use super::*;
 
 #[cfg(test)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(in super::super) enum ReaderPhase {
     Spawn,
     Size,

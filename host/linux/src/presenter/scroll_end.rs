@@ -319,7 +319,7 @@ impl<D: DataSource> Presenter<D> {
     fn scroll_end_frame_blocked(&self, view: ViewId) -> bool {
         self.deferred_collections
             .as_ref()
-            .is_some_and(|ids| ids.contains(&view))
+            .is_some_and(|ids| ids.iter().any(|(id, _)| *id == view))
     }
 
     pub(super) fn deliver_scroll_ends(&mut self) -> Option<String> {

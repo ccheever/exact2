@@ -34,6 +34,7 @@ package struct RegisteredFace {
     /// Once a descriptor carries a variation (these, or a pinned weight)
     /// CoreText no longer sets `opsz` from the size, so it is set here, as
     /// `font-optical-sizing: auto` sets it; CoreText clamps it to the axis.
+    /// Under `none` (`FontAxis.ownOpticalSize`) the face keeps its own.
     /// `variations` (`font-variation-settings`) are set last, each axis the
     /// file has winning over the weight's and width's (CSS Fonts 4 §7.2).
     package func drawn(weight: Int, stretch: CGFloat, size: CGFloat, variations: [FontAxis] = []) -> CTFontDescriptor {
@@ -44,10 +45,12 @@ package struct RegisteredFace {
         }
         let current = CTFontDescriptorCopyAttribute(descriptor, kCTFontVariationAttribute) as? [NSNumber: NSNumber] ?? [:]
         guard !axes.isEmpty || !current.isEmpty || !variations.isEmpty else { return descriptor }
-        if opticalSize { axes[0x6f70737a] = size as NSNumber } // 'opsz'
-        for v in variations { axes[v.tag as NSNumber] = v.value as NSNumber }
-        return CTFontDescriptorCreateCopyWithAttributes(
-            descriptor, [kCTFontVariationAttribute: current.merging(axes) { $1 }] as CFDictionary)
+        let own = variations.first == FontAxis.ownOpticalSize
+        if opticalSize && !own { axes[FontAxis.opsz as NSNumber] = size as NSNumber }
+        for v in variations where v != FontAxis.ownOpticalSize { axes[v.tag as NSNumber] = v.value as NSNumber }
+        var attributes: [CFString: Any] = [kCTFontVariationAttribute: current.merging(axes) { $1 }]
+        if own { attributes[kCTFontOpticalSizeAttribute] = "none" }
+        return CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes as CFDictionary)
     }
 }
 

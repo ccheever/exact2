@@ -93,6 +93,31 @@ impl<D: DataSource> Presenter<D> {
         if editing && name != "Escape" && !held.meta && !held.ctrl {
             return false;
         }
+        let declared = self.shortcut_buttons(name);
+        // Shown: a box, not hidden or inert by its route or an ancestor.
+        let Some(button) = declared.into_iter().find(|&id| {
+            self.host.route_visibility(id) == (false, false) && self.box_of(id).is_some()
+        }) else {
+            return false;
+        };
+        let disabled = self
+            .host
+            .kernel()
+            .node(button)
+            .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
+        if !repeat && !disabled {
+            self.press_shortcut(button, now_ms);
+        }
+        true
+    }
+
+    /// The buttons that declare a chord taking the key `name` with the
+    /// modifiers held now, in tree order: within the frontmost shown
+    /// `aria-modal` view and what an alert allows, and for a plain Enter or
+    /// Space only the focused one, whose own activation it is.
+    pub(super) fn shortcut_buttons(&mut self, name: &str) -> Vec<ViewId> {
+        let held = self.modifiers();
+        let kernel = self.host.kernel();
         let plain = !(held.meta || held.ctrl || held.alt || held.shift);
         let activates = plain
             && matches!(name, "Enter" | " ")
@@ -116,7 +141,7 @@ impl<D: DataSource> Presenter<D> {
                 && self.host.route_visibility(id) == (false, false)
                 && self.display.allows(kernel, id)
         });
-        let declared: Vec<ViewId> = preorder
+        preorder
             .into_iter()
             .filter(|&id| self.alert_allows(id))
             .filter(|&id| {
@@ -146,40 +171,31 @@ impl<D: DataSource> Presenter<D> {
                     false
                 })
             })
-            .collect();
-        // Shown: a box, not hidden or inert by its route or an ancestor.
-        let Some(button) = declared.into_iter().find(|&id| {
-            self.host.route_visibility(id) == (false, false) && self.box_of(id).is_some()
-        }) else {
-            return false;
-        };
-        let disabled = self
-            .host
-            .kernel()
-            .node(button)
-            .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
-        if !repeat && !disabled {
-            self.note_press(button, true);
-            if self.control_target(button) == Some(button) {
-                let (x, y, _, _) = self.rect_of(button).unwrap_or_default();
-                for phase in ["down", "up"] {
-                    let contact = crate::surfaces::controls::ASSISTIVE_CONTACT;
-                    self.control_input(button, phase, x, y, contact, now_ms);
-                }
-                // Then its authored `press`, as the web's click runs both.
-                if self
-                    .host
-                    .runner()
-                    .handlers_of(button)
-                    .contains(&EventKind::Press)
-                {
-                    self.activate_with(button, now_ms, false);
-                }
-            } else {
+            .collect()
+    }
+
+    /// Press `button` as its shortcut does: a control's assistive down and
+    /// up, then its authored `press`, as the web's click runs both.
+    pub(super) fn press_shortcut(&mut self, button: ViewId, now_ms: f64) {
+        self.note_press(button, true);
+        if self.control_target(button) == Some(button) {
+            let (x, y, _, _) = self.rect_of(button).unwrap_or_default();
+            for phase in ["down", "up"] {
+                let contact = crate::surfaces::controls::ASSISTIVE_CONTACT;
+                self.control_input(button, phase, x, y, contact, now_ms);
+            }
+            // Then its authored `press`, as the web's click runs both.
+            if self
+                .host
+                .runner()
+                .handlers_of(button)
+                .contains(&EventKind::Press)
+            {
                 self.activate_with(button, now_ms, false);
             }
+        } else {
+            self.activate_with(button, now_ms, false);
         }
-        true
     }
 }
 

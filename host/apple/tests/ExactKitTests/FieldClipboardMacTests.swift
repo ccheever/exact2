@@ -157,6 +157,44 @@ final class FieldClipboardMacTests: XCTestCase {
         XCTAssertFalse(line.validateMenuItem(item(#selector(NSText.paste(_:)))), "no handler: AppKit's")
     }
 
+    func testASheetWithNothingFocusedHearsTheRootsEditActions() throws {
+        let page = """
+        component App
+          state edits = 0
+          action edited
+            edits = edits + 1
+          view
+            column copy=edited cut=edited paste=edited testId="root"
+              button commandfor="sheet" command="show-modal" testId="open"
+                text "Open"
+              dialog id="sheet" width=300 padding=20
+                input testId="field" placeholder="Title" width=240 height=24
+                button commandfor="sheet" command="close" testId="close"
+                  text "Close"
+
+        """
+        let f = try SheetFixture(page: page)
+        defer { f.close() }
+        try f.press("open")
+        let sheet = try XCTUnwrap(f.window.attachedSheet)
+        XCTAssertTrue(sheet.makeFirstResponder(nil))
+        let chain = sequence(first: sheet as NSResponder, next: \.nextResponder)
+        let edits = try XCTUnwrap(chain.compactMap { $0 as? RootEdits }.first, "the sheet joins the root responder")
+        let root = try f.node("root")
+        var events: [UInt32] = []
+        f.presenter.onClipboard = { id, kind, _ in XCTAssertEqual(id, root.id); events.append(kind) }
+        pasteboard("from the sheet")
+        for action in [#selector(NSText.copy(_:)), #selector(NSText.cut(_:)), #selector(NSText.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:))] {
+            XCTAssertTrue(edits.validateMenuItem(item(action)))
+            XCTAssertTrue(sheet.tryToPerform(action, with: nil))
+        }
+        XCTAssertEqual(events, [32, 33, 34, 34])
+        XCTAssertTrue(sheet.makeFirstResponder(try XCTUnwrap(f.node("field").field)))
+        XCTAssertFalse(edits.validateMenuItem(item(#selector(NSText.paste(_:)))), "the field editor handles its own paste")
+        try f.press("close")
+        XCTAssertFalse(sequence(first: sheet as NSResponder, next: \.nextResponder).contains { $0 === edits })
+    }
+
     /// With nothing focused the DOM sends a cut, copy or paste to `<body>`:
     /// the root's handler hears it, and Edit's item is enabled while it does.
     func testWithNothingFocusedTheRootHearsAPaste() throws {

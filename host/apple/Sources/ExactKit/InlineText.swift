@@ -30,7 +30,7 @@ extension InlineText {
                       lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                       numeric: Int(number("font_variant_numeric")),
                       stretch: CGFloat(Float(number("font_stretch", 100))),
-                      variations: FontAxis.of(style["font_variation_settings"]),
+                      variations: FontAxis.of(style),
                       color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
@@ -90,6 +90,7 @@ extension Presenter {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
         #if os(iOS)
+        node.updateContextGestures()
         textSelection.remove(node) // its text interaction and selection go with it
         #endif
     }
@@ -117,6 +118,9 @@ extension Presenter {
         node.invalidateText()
         node.updateInlineInteraction()
         node.updateTextAccessibility()
+        #if os(iOS)
+        node.updateContextGestures()
+        #endif
         #if os(macOS)
         // Its `href` runs' pointing hand (`resetCursorRects`).
         if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
@@ -196,6 +200,7 @@ extension NodeView {
         return url
     }
     func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
+        if pressReaderAtom(url) { return true }
         guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
         if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
@@ -209,7 +214,18 @@ extension NodeView {
     }
     func activateInline(_ id: UInt32) -> Bool {
         guard canActivateInline(id), let presenter, let run = presenter.inlineText(id) else { return false }
-        if run.handlers.contains("press") { presenter.press(id); return true }
+        if run.handlers.contains("press") {
+            #if os(iOS)
+            if presenter.activationButton(from: self, inline: id) != nil {
+                presenter.menus.activating(from: self, pressing: nil) { presenter.press(id) }
+            } else { presenter.press(id) }
+            #elseif os(macOS)
+            presenter.menus.activating(from: self, pressing: nil, inline: id) { presenter.press(id) }
+            #else
+            presenter.press(id)
+            #endif
+            return true
+        }
         // A route in the note navigates; anything else is the app's to open
         // (session.follow). A button's own `href` uses `activateLink`.
         guard let url = run.props["href"], let session = presenter.session else { return false }

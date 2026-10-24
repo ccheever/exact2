@@ -1,0 +1,43 @@
+use tideOnce, tideEvery, untide, everyTides, tide, TideEntry from "@fixture/tide"
+
+shape Pulled
+  n: number
+
+component App
+  state heard = ""
+  state runs = 0
+  state ticks = 0
+  mutation pulled as shape Pulled
+  resource every = everyTides() as shape TideEntry[]
+  action ebbed(tag: string)
+    heard = tag
+    runs = runs + 1
+    copyText(tag)
+    send pulled = pull(tag)
+  action once
+    tideOnce(tag="o1")
+  action periodic
+    tideEvery(tag="e1", every=60000)
+  action stop
+    untide(tag="e1")
+  action tick
+    ticks = ticks + 1
+  task ticker mount
+    every(1000, tick)
+  view
+    column tide=ebbed
+      text testId="heard" heard
+      text testId="runs" `${runs}`
+      text testId="ticks" `${ticks}`
+      text testId="every" `${every.length}`
+      match pulled
+        case some(p)
+          text testId="pulled" `${p.n}`
+        case none
+          text testId="pulled" "none"
+      button testId="once" press=once
+        text "Once"
+      button testId="periodic" press=periodic
+        text "Every minute"
+      button testId="stop" press=stop
+        text "Stop"

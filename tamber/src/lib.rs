@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod bound;
 mod budget;
 mod check;
 mod color_fn;
@@ -31,14 +32,17 @@ mod measure;
 mod motion;
 pub mod params;
 mod residual;
+mod selectors;
 mod session;
 mod shadow;
 mod syntax;
 mod trace;
 mod typeface;
 
+pub use bound::MAX_REFERENCE_DEPTH;
 pub use check::{Checked, MAX_TUPLES};
 pub use component::{Component, Param};
+pub use css::{MAX_VALUE_BYTES, MAX_VALUE_DEPTH};
 pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
@@ -46,7 +50,7 @@ pub use icon::Icon;
 pub use ir::FORMAT;
 pub use lex::is_name;
 pub use measure::{Kind, Length, Value};
-pub use residual::{Atom, Residual};
+pub use residual::{Atom, Residual, MAX_RESIDUAL_ATOMS};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
 pub use shadow::{Shadow, ShadowLength, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
@@ -75,11 +79,30 @@ impl Diagnostic {
     ) -> Diagnostic {
         Diagnostic {
             id,
-            message: message.into(),
+            message: bounded_words(message.into()),
             line,
             col,
         }
     }
+}
+
+/// The most a diagnostic's words may be, in bytes: a refusal quotes what it
+/// refuses, and a design may hold text of any length a parser or a check
+/// names before the checker's bounds see it (a malformed range, an unknown
+/// kind), so past this the words keep their start and say their length.
+const MAX_WORDS: usize = 1024;
+
+/// `words` within [`MAX_WORDS`]: a diagnostic's, or a refusal's a caller
+/// words itself (the wire's).
+pub fn bounded_words(words: String) -> String {
+    if words.len() <= MAX_WORDS {
+        return words;
+    }
+    let mut cut = MAX_WORDS - 64;
+    while !words.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}… ({} bytes in all)", &words[..cut], words.len())
 }
 
 impl std::fmt::Display for Diagnostic {
@@ -175,6 +198,21 @@ pub struct Folding {
     dials: Vec<String>,
 }
 
+/// Whether `text` is within the design checker's bounds on a value (its
+/// bytes and nesting): a caller that rewrites values before the check (the
+/// compiler's profile colours) leaves one past them as written, so the
+/// check refuses it in the same words the design server's does.
+pub fn within_bounds(text: &str) -> bool {
+    css::over_limit(text).is_none()
+}
+
+/// A name past the checker's bound (`tamber-value-size`), in the words a
+/// design's or an edit's name is refused in: for a caller that reads a name
+/// before the checker does (the wire's param names).
+pub fn over_name(name: &str) -> Option<(&'static str, String)> {
+    css::over_bytes("a name", name)
+}
+
 /// Parse, check and fold a `.tamber` source.
 pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
     check_design(parse(src)?, vocab)
@@ -183,6 +221,12 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
 pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    // The checker's own bounds first: a value past them is refused where it
+    // is written, before anything reads it (`bound::preflight`).
+    let over = bound::preflight(&design);
+    if !over.is_empty() {
+        return Err(over);
+    }
     // An icon naming another is read as that one, whoever folds the design
     // (`params::laid` did this alone, so `check` and an export refused it).
     icon::aliased(&mut design.icons);

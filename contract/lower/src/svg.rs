@@ -389,13 +389,7 @@ impl Lowerer<'_> {
                     };
                     let known = a.name == "animation-timing-function"
                         || names.iter().all(|n| {
-                            // A font axis moves by `transition` alone (LLP 1019 §13 D10).
-                            Property::from_author_name(n).is_some_and(|p| {
-                                !matches!(
-                                    p,
-                                    Property::Height | Property::FontWeight | Property::FontStretch
-                                )
-                            })
+                            Property::from_author_name(n).is_some_and(|p| p != Property::Height)
                         });
                     if let (false, Some(new)) = (known, crate::tags::renamed(&a.name)) {
                         ok = false;
@@ -411,7 +405,7 @@ impl Lowerer<'_> {
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke, font-weight, font-stretch, font-variation-settings and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9; LLP 1019 §13 D10)",
                                 a.name
                             ),
                             span: a.span,
@@ -507,7 +501,18 @@ impl Lowerer<'_> {
                 }
                 Err(e) => errors.push(LowerError {
                     id: "lower-keyframes",
-                    message: format!("`keyframes {}`: {e:?}", decl.name),
+                    message: match e {
+                        // @ref LLP 1019 §13 D10 — the axes interpolate one by one.
+                        exact_motion::ParseError::InvalidAnimation(
+                            exact_motion::AnimationError::NotAnimatable(
+                                Property::FontVariationSettings,
+                            ),
+                        ) => format!(
+                            "`keyframes {}`: every keyframe that sets `font-variation-settings` names the same axes, which interpolate one by one",
+                            decl.name
+                        ),
+                        e => format!("`keyframes {}`: {e:?}", decl.name),
+                    },
                     span: decl.span,
                 }),
             }

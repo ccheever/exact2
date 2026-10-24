@@ -103,11 +103,14 @@ pub fn launch_place(
             // POSIX's category for dates and times (`LC_TIME`) beside the
             // messages' language; none of its variables set, none apart
             // from the locale.
-            format_locale: ["LC_ALL", "LC_TIME", "LANG"]
+            format_locale: if ["LC_ALL", "LC_TIME", "LANG"]
                 .iter()
                 .any(|key| env(key).is_some_and(|s| !s.is_empty()))
-                .then(|| locale(&env, "LC_TIME"))
-                .unwrap_or_default(),
+            {
+                locale(&env, "LC_TIME")
+            } else {
+                Default::default()
+            },
         }
     };
     place

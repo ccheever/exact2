@@ -448,8 +448,10 @@ fn morphology(img: Img, dilate: bool, rx: f32, ry: f32) -> Img {
     if rx < 0.0 || ry < 0.0 {
         return Img::clear(img.w, img.h, img.linear);
     }
-    let (rx, ry) = (rx.round() as isize, ry.round() as isize);
     let (w, h) = (img.w as isize, img.h as isize);
+    // A window wider than the image sees past both edges from every pixel
+    // as one exactly as wide does: the same picture, bounded work.
+    let (rx, ry) = ((rx.round() as isize).min(w), (ry.round() as isize).min(h));
     let pick = |a: f32, b: f32| if dilate { a.max(b) } else { a.min(b) };
     let start = if dilate { 0.0 } else { 1.0 };
     let mut mid = Img::clear(img.w, img.h, img.linear);

@@ -406,7 +406,7 @@ fn a_list_at_its_start_shows_rows_inserted_above() {
     prepended.insert(0, "new".into());
     index.replace_keys(prepended).unwrap();
     assert_eq!(index.restore_anchor(&top, 20.0).unwrap(), 0.0);
-    assert!(!index.kept_row(&top, 20.0, 0.0), "the start stays absolute");
+    assert!(!index.kept_row(&top, 20.0), "the start stays absolute");
     short.replace_keys(keys(6)).unwrap();
     assert!(short.restore_anchor(&transcript, 20.0).unwrap() > 0.0);
     assert_eq!(
@@ -1008,4 +1008,109 @@ fn a_short_list_ends_in_the_padding_before_its_rows() {
     i.set_leading(92.);
     i.set_trailing(83.);
     near(i.max_offset(600.), -92.);
+}
+
+#[test]
+fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible() {
+    for (offset, port, expected) in [
+        (200., 100., 180.),
+        (207., 100., 187.),
+        (200., 20., 200.),
+        (207., 10., 207.),
+        (0., 100., 0.),
+    ] {
+        let mut i = index(&[20.; 30]);
+        let a = i
+            .capture_anchor_excluding(offset, port, false, Some("k10"))
+            .unwrap();
+        let mut order = keys(30);
+        let source = order.remove(10);
+        order.insert(14, source);
+        i.replace_keys(order).unwrap();
+        assert_eq!(i.restore_anchor(&a, port).unwrap(), expected);
+    }
+    let mut i = index(&[20.; 30]);
+    let a = i
+        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .unwrap();
+    i.replace_keys(vec![
+        "k11".into(),
+        "k12".into(),
+        "k13".into(),
+        "k14".into(),
+        "k15".into(),
+        "k16".into(),
+    ])
+    .unwrap();
+    assert_eq!(i.restore_anchor(&a, 100.).unwrap(), 0.);
+    assert!(!i.kept_row(&a, 100.));
+    let mut i = index(&[20., 20., 0., 20., 20., 20.]);
+    let a = i
+        .capture_anchor_excluding(20., 40., false, Some("k1"))
+        .unwrap();
+    i.replace_keys(vec![
+        "k0".into(),
+        "k2".into(),
+        "k3".into(),
+        "k4".into(),
+        "k1".into(),
+        "k5".into(),
+    ])
+    .unwrap();
+    assert_eq!(i.restore_anchor(&a, 40.).unwrap(), 0.);
+}
+
+#[test]
+fn drop_anchor_requires_a_move_among_surviving_keys() {
+    let mut i = index(&[20.; 30]);
+    let a = i
+        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .unwrap();
+    let mut order = keys(30);
+    order.insert(10, "new".into());
+    i.replace_keys(order.clone()).unwrap();
+    assert!(!i.moved_since(&a, "k10"));
+    order.remove(9);
+    i.replace_keys(order).unwrap();
+    assert!(!i.moved_since(&a, "k10"));
+}
+
+#[test]
+fn pending_drop_with_unchanged_order_does_not_scan_keys() {
+    let i = index(&vec![20.; 10_000]);
+    let a = i.capture_anchor(199_800., 100., false).unwrap();
+    assert!(!i.moved_since(&a, "k9990"));
+    assert_eq!(i.anchor_key_visits.get(), 0);
+}
+
+#[test]
+fn anchor_at_exact_start_keeps_a_relative_correction() {
+    let mut i = index(&[20.; 30]);
+    let a = i.capture_anchor(200., 100., false).unwrap();
+    i.replace_keys(keys(30).into_iter().skip(10).collect())
+        .unwrap();
+    let restored = i.restore_anchor(&a, 100.).unwrap();
+    assert_eq!(restored, 0.);
+    assert!(i.kept_row(&a, 100.));
+}
+
+#[test]
+fn relative_anchor_corrections_include_boundaries_but_exclude_clamping() {
+    let mut i = index(&[20.; 30]);
+    i.set_leading(20.);
+    for (offset, kept, restored) in [
+        (-21., false, -20.),
+        (-20., true, -20.),
+        (0., true, 0.),
+        (500., true, 500.),
+        (501., false, 500.),
+    ] {
+        let anchor = i.anchor_at("k0", offset).unwrap();
+        assert_eq!(i.restore_anchor(&anchor, 100.).unwrap(), restored);
+        assert_eq!(i.kept_row(&anchor, 100.), kept, "offset={offset}");
+    }
+    let end = i.capture_anchor(500., 100., true).unwrap();
+    assert!(!i.kept_row(&end, 100.));
+    let start = i.capture_anchor(0., 100., false).unwrap();
+    assert!(!i.kept_row(&start, 100.));
 }

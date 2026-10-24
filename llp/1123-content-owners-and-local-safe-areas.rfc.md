@@ -1,10 +1,10 @@
 # LLP 1123: Content owners — one viewport per session, local geometry and safe areas per native container
 
 **Type:** RFC
-**Status:** Review (revised on LLP 1115.002 D8.2's host blocks); stage 2 (D3, D4, D9) accepted (Charlie, 2026-10-18)
+**Status:** Review (revised on LLP 1115.002 D8.2's host blocks); stage 2 (D3, D4, D9) accepted (Charlie, 2026-10-18); D7's `navigationSizing` `page` and `form` accepted ahead of stage 6 (Charlie, 2026-10-23, #854)
 **Systems:** Kernel (what a host block gains for an owner: local insets, the primary scroller; clearance inside the block; rendering ancestry for public geometry; `var(--exact-safe-area-inset-*)` as a term of a calculation tree); Runner (`client_rect`, `elementFromPoint`, `exactSurface` `container:` records); Apple host (iOS, iPadOS, tvOS: `ExactViewIOS.fit`, `ModalHost`, `NavigationHost`, `NavigationBarIOS.reportCovers`, keyboard ownership; macOS windows and dialogs); Web host and JS target (owners for emulated chrome, `nav-chrome.js`; registered custom properties in `index.html`); Linux, Windows (flat hosts); Contract (`-exact-safe-area`, `navigationSizing`, `keyboardAvoidance`, `--exact-safe-area-inset-*`, the layout regions' `env(-exact-<region>-inset-*)`); Agent (coordinates, hit testing, screenshots of presented content)
 **Author:** Claude (Opus 5.5) for ide
-**Implementer:** stage 2: Krzysztof Magiera, from 2026-10-18, reworking #618 into D4's `-exact-safe-area` with the top and bottom executors first; the rest to be assigned on acceptance
+**Implementer:** stage 2: Krzysztof Magiera, from 2026-10-18, reworking #618 into D4's `-exact-safe-area` with the top and bottom executors first; D7's `page` and `form`: Nathan Schroeder, from 2026-10-23; the rest to be assigned on acceptance
 **Date:** 2026-10-08
 **Revised:** 2026-10-13
 **Related:**
@@ -106,7 +106,7 @@ Every case below is one the HIG or Apple's APIs define. Each row gives the behav
 | C26 | Keyboard over a medium sheet | As C25 | UIKit grows the sheet; only the residual overlap after that is accommodated. | D7 | `sheet-detents` with a field |
 | C27 | Floating or split keyboard (iPad) | [`followsUndockedKeyboard`](https://developer.apple.com/documentation/uikit/uikeyboardlayoutguide/followsundockedkeyboard) | The keyboard is a rectangle: the caret is revealed, no bottom inset is added. | D7 | `keyboard` on iPad |
 | C28 | Hardware keyboard with the shortcuts bar | As C25 | Only the bar's overlap counts; a dismissed keyboard counts as zero. | D7 | `keyboard` |
-| C29 | `interactive-widget="resizes-content"` | [CSS Viewport 1](https://drafts.csswg.org/css-viewport/#interactive-widget-section) | The document viewport shrinks, as in a browser; owners follow. | D1, D7 | `keyboard-resize` |
+| C29 | `interactive-widget="resizes-content"` | [CSS Viewport 1](https://drafts.csswg.org/css-viewport/#interactive-widget-section) | The editing native route's layout block shrinks; the document and UIKit container stay full size. An ordinary page resizes its document viewport. | D1, D7 | `keyboard-resize` |
 
 ### Content and authoring
 
@@ -298,6 +298,8 @@ The block is the owner's untransformed bounds; in what follows, the owner's **al
 - **An ordinary owner** (a route in a stack, a tab panel, a split's pane) keeps its place among its siblings: a toast written after the routes is above them, in UIKit and to the runner alike. Its host reports a **placement**, the block's rectangle where it shows it, in the local coordinates of an ancestor that holds the block in the host's hierarchy as in the document: the ancestor's border box before its own transform. That is the root's parent when the host shows the block in it; UIKit's tab container holds a tab's route beside its panel, so on iOS it is the routes' owner, which holds the native container, and the rectangle is UIKit's conversion into the owner's view. That conversion crosses only UIKit's containers, which neither turn nor skew what they hold, so the rectangle is exact, where one converted into a turned panel would be its bounding box. The runner keeps the root in its ordinary walk and steps from the root through the placement instead of the root's frame, straight to that ancestor, leaving out the boxes between, which move nothing the host shows, as the host's own hierarchy does: `client_rect` maps the subtree through it, the transform and scrolling of that ancestor and of every box above it applied once, and `elementFromPoint` reaches the root in its tree and rank order and tests its subtree there. The placement rides the block's own entry in `exact_host_covers` and is sent when it changes. Only the runner reads it; it is never a layout input. A block with no placement is mapped at its block's origin.
 
 In both, the root sits in its block by its own frame (its margins, a width narrower than the block), and a rectangle of another size than the block's used size is a scale: the host's own transform (a sheet scaled at a lower detent), never the difference between the block and the root. A route under another route of its stack, or under a modal one, is inactive to the runner's walk (`head::inactive`), so hit testing passes it, as UIKit does. The agent's coordinates, taps and screenshots follow the same mapping.
+
+On iOS, a primary route under native chrome scrolls its document inside the fixed native allocation. Its placement identifies a scrollport and carries its offset in block points, including zero: the root and its descendants move while the allocation's clip stays fixed. A fixed pane's placement has no content offset. This scrolling changes no session viewport facts or layout allocation. A kernel-implied popover block supplies layout space and adds no clip.
 
 **What an owner's block carries beyond D8.2.** Two facts the kernel lays out with, published in the same commit as the block:
 
@@ -560,7 +562,7 @@ Each stage builds on LLP 1115.002 D8.2's host block, which the kernel and the Ma
 5. **Keyboard per owner (D7).** Stage 1's containing-block resize of a sheet's route gives way to D7's single executor, which must answer the keyboard design review of stage 1 (2026-10-13):
    - The owner's physical allocation stays separate from keyboard accommodation: a bottom-reaching primary scroller takes an inset, and only otherwise does the wrapper shorten, so percentage content and rows do not reflow for scrolling clearance.
    - Occupancy is owner-local. Focus reveal, geometry-change reveal and the keyboard toolbar read the consuming owner's occupancy, never the document's `keyboardInset`, which a sheet's keyboard need not change.
-   - Policy precedence: whether a sheet's keyboard leaves the document's viewport alone (as UIKit leaves the presenting screen) applies to the implicit native default only; an explicit root `interactive-widget` and an owner's `keyboardAvoidance="none"` are honored. Stage 1 keeps the document resizing as before under every policy.
+   - Native policy scope (2026-10-24): a root's `interactive-widget` applies to the editing route's local layout or scrollport, including an explicit `resizes-content`. The document and UIKit container keep their allocation so returning screens remain full size. An ordinary page keeps the document-level policy. The future owner-level `keyboardAvoidance="none"` remains an opt-out from that owner's accommodation.
    - An undocked, floating or split keyboard, or a hardware keyboard's assistant bar, is a rectangle: the caret is revealed against it in the owner's coordinates on both axes, with no bottom padding or shortening; a notification's frame is converted only from its own screen.
    - Reveal covers every editor: a fixed-position field with no scrolling ancestor, a native module's editor, and a caret inside a large text area under a floating keyboard.
    - Keyboard insets compose with the keyboard toolbar's lift and `PinnedRoom`'s saved baseline per scroll backend, each removing only its own contribution.

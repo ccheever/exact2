@@ -42,8 +42,12 @@ pub struct Line {
     pub flags: u8,
     /// What its paragraph draws before it, on its first line.
     pub deco: Option<Deco>,
-    /// `(start, end, style)`: covering `start..end` in order, no gaps.
+    /// `(start, end, style)`: covering `start..end` in order, no gaps. An
+    /// atom's source is one [`HIDDEN`] segment, drawn as its box.
     pub segments: Vec<(u32, u32, u8)>,
+    /// The line's atoms (LLP 1045.000): `(start, end, kind, style)`, the
+    /// style the span flags its whole label takes.
+    pub atoms: Vec<(u32, u32, usize, u8)>,
 }
 
 impl Editor {
@@ -94,11 +98,22 @@ impl Editor {
                 .take_while(|r| r.start <= b)
                 .filter(|r| r.end > a)
                 .collect();
+            let boxes: Vec<_> = st
+                .atoms
+                .iter()
+                .filter(|x| x.range.start >= a && x.range.end <= b)
+                .collect();
             let mut cuts = vec![a];
             let edges = here
                 .iter()
+                .filter(|s| {
+                    !boxes
+                        .iter()
+                        .any(|x| x.range.start < s.range.end && s.range.start < x.range.end)
+                })
                 .flat_map(|s| [s.range.start, s.range.end])
-                .chain(hidden.iter().flat_map(|r| [r.start, r.end]));
+                .chain(hidden.iter().flat_map(|r| [r.start, r.end]))
+                .chain(boxes.iter().flat_map(|x| [x.range.start, x.range.end]));
             for x in edges.chain([b]).map(|x| x.clamp(a, b)) {
                 if let Err(k) = cuts.binary_search(&x) {
                     cuts.insert(k, x);
@@ -108,7 +123,8 @@ impl Editor {
                 .windows(2)
                 .map(|w| (w[0], w[1]))
                 .map(|(s, e)| {
-                    let style = if hidden.iter().any(|r| r.start <= s && e <= r.end) {
+                    let boxed = boxes.iter().any(|x| x.range.start <= s && e <= x.range.end);
+                    let style = if boxed || hidden.iter().any(|r| r.start <= s && e <= r.end) {
                         HIDDEN
                     } else {
                         here.iter()
@@ -127,6 +143,21 @@ impl Editor {
                 flags: 0,
                 deco: None,
                 segments,
+                atoms: boxes
+                    .iter()
+                    .map(|x| {
+                        // The formats every span over the atom shares.
+                        let style = here
+                            .iter()
+                            .filter(|sp| {
+                                sp.range.start < x.range.end && x.range.start < sp.range.end
+                            })
+                            .map(|sp| sp.style)
+                            .reduce(|f, g| f & g)
+                            .unwrap_or(0);
+                        (x.range.start, x.range.end, x.kind, style)
+                    })
+                    .collect(),
             };
             if let Some(p) = para[i] {
                 match p.kind {

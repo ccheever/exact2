@@ -138,22 +138,25 @@ package final class Runtime {
     package static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     package func on(_ body: () -> Batch) -> Batch {
         let (open, modal) = topLayer?() ?? ([], nil)
+        return Owner.shared.sync({
+            installTopLayer(open, modal: modal)
+            return body()
+        }, busy: Runtime.busy)
+    }
+    private func installTopLayer(_ open: [TopLayerFrame], modal: Int?) {
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
         let clips = open.flatMap { entry -> [Double] in
             guard let clip = entry.2 else { return [.nan, 0, 0, 0] }
             return [Double(clip.minX), Double(clip.minY), Double(clip.width), Double(clip.height)]
         }
-        return Owner.shared.sync({
-            ids.withUnsafeBufferPointer { ids in
-                rects.withUnsafeBufferPointer { rects in
-                    clips.withUnsafeBufferPointer { clips in
-                        exact_top_layer(rt, ids.baseAddress, rects.baseAddress, clips.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
-                    }
+        ids.withUnsafeBufferPointer { ids in
+            rects.withUnsafeBufferPointer { rects in
+                clips.withUnsafeBufferPointer { clips in
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, clips.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
                 }
             }
-            return body()
-        }, busy: Runtime.busy)
+        }
     }
     package func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
     package func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
@@ -174,6 +177,11 @@ package final class Runtime {
     package func setFonts(_ fonts: ExactFontsFn?, ctx: UnsafeMutableRawPointer?) {
         let ctx = UInt(bitPattern: ctx)
         on { exact_set_fonts(rt, fonts, UnsafeMutableRawPointer(bitPattern: ctx)) }
+    }
+    /// The host's clock in the runner's milliseconds, or nil for the seekable one that
+    /// tests and the agent move (the timers RFC, D1); later boots take it too.
+    package func setLiveClock(_ wall: (@convention(c) () -> Double)?) {
+        on { () -> Void in _ = exact_set_live_clock(rt, wall) }
     }
     /// The wake for a request's reply (LLP 1016 D2), on the executor's thread.
     package func setWake(_ wake: ExactWakeFn?, ctx: UnsafeMutableRawPointer?) {
@@ -282,6 +290,20 @@ package final class Runtime {
         }
     }
     package func commitPlan() -> Batch { islands(on { read(exact_commit_plan(rt)) }) }
+    /// The owner excludes replies between the final freshness check and every
+    /// commit. The durable callback runs on main through the usual T5 door.
+    package static func commitTogether(_ runtimes: [Runtime], commit: () -> Bool) -> (batches: [Batch]?, pending: Bool, requests: Bool) {
+        let result: (batches: [Batch]?, pending: Bool, requests: Bool) = Owner.shared.sync({
+            let checks = runtimes.map { $0.read(exact_check_prepared($0.rt)) }
+            guard checks.allSatisfy({ $0.error == nil && !$0.pending }) else {
+                return (nil, checks.contains { $0.pending || $0.requests }, checks.contains { $0.requests })
+            }
+            guard Owner.shared.callMain(commit) else { return (nil, false, false) }
+            return (runtimes.map { $0.read(exact_commit_plan($0.rt)) }, false, false)
+        }, busy: (nil, false, false))
+        guard let batches = result.batches else { return result }
+        return (zip(runtimes, batches).map { $0.islands($1) }, false, false)
+    }
     /// `letGo`: the dev loop's, past its settle window: requests in flight do not refuse it (LLP 1007 §6).
     package func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat, letGo: Bool = false) -> Batch {
         return on {
@@ -301,6 +323,15 @@ package final class Runtime {
 
     /// Every queued reply into the runner: the batch of their commits.
     package func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
+    /// Capture native presentation on the caller before parsing replies on the owner.
+    package func pumpAsync(now: Double, done: @escaping (Batch?) -> Void) {
+        let (open, modal) = topLayer?() ?? ([], nil)
+        Owner.shared.post { [self] in
+            guard !destroyed else { done(nil); return }
+            installTopLayer(open, modal: modal)
+            done(read(exact_pump(rt, now)))
+        }
+    }
     package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
     package func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
         return on {
@@ -473,6 +504,11 @@ package final class Runtime {
         }
     }
     package func load(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 8, 0, now)) } }
+    /// An iframe's `navigate`, `currententrychange`, `navigatesuccess` or
+    /// `navigateerror` (58) with its `FrameNavigation` record as JSON (@ref LLP 1020.002 D2).
+    package func frameNavigation(_ view: UInt32, event: String, record: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 58, write(event + "\n" + record), now)) }
+    }
     package func surfaceRecord(_ name: String, _ json: String?) -> Batch {
         return on {
             let n = write(name + (json.map { "\0" + $0 } ?? ""))
@@ -531,7 +567,9 @@ package final class Runtime {
                   let mixed = state["mixed"] as? Bool,
                   let link = state["link"] as? String,
                   let unavailable = state["unavailable"] as? String else { return nil }
-            let n = write(formats + "\n" + (mixed ? "1" : "0") + "\n" + unavailable + "\n" + link)
+            // The selected atom's source (LLP 1045.000 D3) before the link, which may hold a line break.
+            let atom = state["atom"] as? String ?? ""
+            let n = write(formats + "\n" + (mixed ? "1" : "0") + "\n" + unavailable + "\n" + atom + "\n" + link)
             return read(exact_dispatch(rt, view, 21, n, now))
         }
     }
@@ -574,6 +612,19 @@ package final class Runtime {
     package func hostBack(_ key: String, now: Double) -> Batch? {
         guard let id = UInt64(key) else { return nil }
         return on { read(exact_host_back(rt, id, now)) }
+    }
+    package func hostGo(_ location: String, now: Double) -> Batch {
+        on { read(exact_host_go(rt, write(location), now)) }
+    }
+    /// A package's call of the app's handler (LLP 1133.016 D15 item 1),
+    /// `{"extension", "handle", "handler", "args"}`: the runner's answer,
+    /// JSON, goes to `reply(ctx, …)` once, now or when the handler's work lands.
+    package func invokeModule(_ body: String, reply: ExactInvokeReply, ctx: UnsafeMutableRawPointer?) {
+        let ran = on(busy: false) { () -> Bool in exact_module_invoke(rt, write(body), reply, ctx); return true }
+        if !ran {
+            let busy = Array("{\"error\":\"InvalidStateError\",\"message\":\"the runtime is busy\"}".utf8)
+            busy.withUnsafeBufferPointer { reply(ctx, $0.baseAddress, UInt32($0.count)) }
+        }
     }
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
@@ -629,7 +680,19 @@ package final class Runtime {
     /// A MIDI message (LLP 1125 D6–D8): the arm's ports or inputs, or the agent's `prefer midi` and `tap midi`.
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
     package func preferExtension(_ json: String) -> Batch { on { read(exact_extension(rt, write(json))) } }
+    /// A module event the platform reported (LLP 1133.004 D6), heard now.
+    package func moduleEvent(_ json: String) -> Batch { on { read(exact_module_event(rt, write(json))) } }
     package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
+    /// A package picture's admission (LLP 1133.019 D11 item 1): nil for a
+    /// source of no package's scheme.
+    package func picture(_ source: String) -> [String: Any]? {
+        on(busy: ["error": "NotAllowedError", "message": "busy"]) {
+            let len = exact_picture(rt, write(source))
+            guard len > 0 else { return nil }
+            let data = Data(bytes: exact_out(rt), count: Int(len))
+            return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "NotAllowedError"]
+        }
+    }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     package func setPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale)) ) } }
@@ -752,6 +815,14 @@ package final class Runtime {
         on {
             guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
             _ = exact_auth(rt, write(String(decoding: json, as: UTF8.self)))
+        }
+    }
+    /// How a presence check ended (LLP 1133.010 D13): on the store's
+    /// completion path, which carries an unlocked value to its call alone.
+    package func presence(_ answer: [String: Any]) {
+        on {
+            guard let json = try? JSONSerialization.data(withJSONObject: answer) else { return }
+            _ = exact_presence(rt, write(String(decoding: json, as: UTF8.self)))
         }
     }
     /// A line for the runner's journal (LLP 1012 §3): what this host refused, and why.

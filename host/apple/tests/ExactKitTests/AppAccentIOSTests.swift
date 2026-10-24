@@ -196,16 +196,16 @@ final class AppAccentIOSTests: XCTestCase {
         XCTAssertEqual(rgb(try XCTUnwrap(p.controls.controls[3]).tintColor), [232, 28, 36], "the app's accent is back")
     }
 
-    func testASymbolsOwnTintIsItsTintAsTheAccentIs() throws {
+    func testASymbolsComputedColorUsesATemplateImage() throws {
         func symbol(_ id: Int, _ style: [String: Any]) -> [[String: Any]] {
             [["op": "create", "id": id, "kind": "image", "props": ["imageSource": "symbol:lock", "symbolName": "lock.fill"], "handlers": [],
               "style": ["font_size": 17].merging(style) { $1 }],
              ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0]]
         }
-        let p = presenter(view(1) + symbol(2, ["tint_color": [52, 199, 89, 255]]) + symbol(3, [:])
+        let p = presenter(view(1) + symbol(2, ["text_color": [52, 199, 89, 255]]) + symbol(3, ["text_color": ["sys": "@tint"]])
                           + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
         let own = try XCTUnwrap(p.views[2]?.image), accent = try XCTUnwrap(p.views[3]?.image)
-        XCTAssertNotEqual(own.renderingMode, .alwaysOriginal, "an authored tint-color is the symbol's tint, which UIKit greys behind an alert")
+        XCTAssertNotEqual(own.renderingMode, .alwaysOriginal, "an authored color uses a template, which UIKit greys behind an alert")
         XCTAssertNotEqual(accent.renderingMode, .alwaysOriginal, "the accent follows the tint, which UIKit greys")
     }
 

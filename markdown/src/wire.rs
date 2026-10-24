@@ -75,7 +75,8 @@ pub fn styled(styled: &crate::Styled) -> String {
     json
 }
 
-fn json_string(out: &mut String, s: &str) {
+/// `s` as a JSON string.
+pub fn json_string(out: &mut String, s: &str) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -151,13 +152,42 @@ pub fn edit(source: &str, selection: Range, name: &str, argument: &str) -> Strin
 
 /// Serialize the toolbar facts carried by the `select` event.
 pub fn selection(source: &str, range: Range) -> String {
-    let state = crate::selection(source, range);
+    selection_with(source, range, &crate::Atoms::default())
+}
+
+/// The toolbar facts with `atoms` recognized (LLP 1045.000 D3): a selection
+/// that is exactly one atom reports its source as `atom`, a link atom's
+/// destination as `link`, and no `link` command.
+pub fn selection_with(source: &str, range: Range, atoms: &crate::Atoms) -> String {
+    let mut state = crate::selection(source, range);
+    let mut atom = String::new();
+    if !atoms.is_empty() && range.start < range.end {
+        if let Some(a) = crate::style_with(source, None, atoms)
+            .atoms
+            .into_iter()
+            .find(|a| a.range == range)
+        {
+            if !a.href.is_empty() {
+                state.link = a.href.clone();
+                state.mixed = false;
+            }
+            if !state.unavailable.split(' ').any(|c| c == "link") {
+                if !state.unavailable.is_empty() {
+                    state.unavailable.push(' ');
+                }
+                state.unavailable.push_str("link");
+            }
+            atom = a.source;
+        }
+    }
     let mut json = String::from("{\"formats\":");
     json_string(&mut json, &state.formats);
     json.push_str(&format!(",\"mixed\":{},\"link\":", state.mixed));
     json_string(&mut json, &state.link);
     json.push_str(",\"unavailable\":");
     json_string(&mut json, &state.unavailable);
+    json.push_str(",\"atom\":");
+    json_string(&mut json, &atom);
     json.push('}');
     json
 }

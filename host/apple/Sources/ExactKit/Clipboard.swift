@@ -142,6 +142,14 @@ extension NodeView {
         return super.canPerformAction(action, withSender: sender)
     }
     #if os(iOS)
+    /// A paste listener can receive images or file URLs that a plain editor cannot insert.
+    func pastesFiles(_ action: Selector) -> Bool {
+        guard [#selector(UIResponderStandardEditActions.paste(_:)), #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))].contains(action),
+              clipboardHearer(#selector(paste(_:))) != nil else { return false }
+        let board = UIPasteboard.general
+        // UIKit writes both web and file URLs as public.url.
+        return board.hasImages || (board.hasURLs && board.urls?.contains(where: \.isFileURL) == true)
+    }
     private var hasSelectedText: Bool { presenter?.textSelection.text(for: self)?.selected.length ?? 0 > 0 }
     private func copySelectedText() { presenter?.textSelection.copy(self) }
     #else
@@ -161,6 +169,7 @@ extension NodeView {
 /// takes none while a node or another session has the focus.
 final class RootEdits: NSResponder, NSMenuItemValidation {
     weak var presenter: Presenter?
+    private weak var joinedWindow: NSWindow?
     private static let events: [Selector: Selector] = [
         #selector(NodeView.copy(_:)): #selector(NodeView.copy(_:)), #selector(NodeView.cut(_:)): #selector(NodeView.cut(_:)),
         #selector(NodeView.paste(_:)): #selector(NodeView.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:)): #selector(NodeView.paste(_:)),
@@ -168,9 +177,9 @@ final class RootEdits: NSResponder, NSMenuItemValidation {
     /// The event `action` is and the root that hears it, while nothing is focused.
     func hearer(_ action: Selector?) -> (event: Selector, root: NodeView)? {
         guard let action, let event = Self.events[action], let presenter, let root = presenter.keyRoot,
-              let window = root.window, presenter.windowHoldsFocus(window), root.clipboardHearer(event)?.node === root else { return nil }
+              let window = joinedWindow ?? root.window, presenter.windowHoldsFocus(window), root.clipboardHearer(event)?.node === root else { return nil }
         // Of several sessions in one window, the one whose keys these are (`ExactView.ownsShortcutFocus`).
-        if let view = presenter.session?.view, !view.ownsShortcutFocus() { return nil }
+        if let view = presenter.session?.view, !view.ownsShortcutFocus(in: window) { return nil }
         return (event, root)
     }
     /// Delivers `action` at the root: whether it heard it.
@@ -191,6 +200,7 @@ final class RootEdits: NSResponder, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool { hearer(item.action) != nil }
     /// Follows `window` in its responder chain, once.
     func join(_ window: NSWindow) {
+        joinedWindow = window
         var at: NSResponder? = window.nextResponder
         while let r = at { if r === self { return }; at = r.nextResponder }
         nextResponder = window.nextResponder
@@ -204,6 +214,7 @@ final class RootEdits: NSResponder, NSMenuItemValidation {
             at = r.nextResponder
         }
         nextResponder = nil
+        joinedWindow = nil
     }
 }
 #endif

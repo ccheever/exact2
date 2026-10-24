@@ -11,50 +11,91 @@
 //   plain list of sixty rows (its rows are built in slices, off the main
 //   thread on iOS);
 // - `find`, a level-1 heading and a search field, which is the bar's search
-//   controller;
+//   controller, and `seek`, a level-2 one whose search field says
+//   `autofocus`, which the bar's search field takes once the push settles;
 // - `swap`, a level-1 heading whose scroller is replaced in place, and a
 //   reason that comes between the two (LLP 1116.005 D4).
 //
+// `edit` opens a focused field under the native Back control, with and without
+// document overflow in the Duo smoke.
+// `viewport` exercises native scrolling, anchored popovers and deferred reveals.
 // `long` offers each of the others, pushed over it or in its place.
 routes nav
   tab home "/"
     long "/long"
     short "/short"
+    edit "/edit"
+    viewport "/viewport"
     inline "/inline"
     rows "/rows"
     plain "/plain"
     find "/find"
+    seek "/seek"
     swap "/swap"
   tab other "/other"
 
 component PushedTitle
   state rows = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60"]
   state query = ""
+  state searchBlurs = 0
+  state searchChanges = 0
+  state committedQuery = ""
+  state searching = false
   state swapped = false
   state failed = false
+  state pageOverflow = false
+  state visualEditor = false
   action pick(name: string)
     nav = select(nav, name)
   action open(name: string)
+    pageOverflow = false
+    visualEditor = false
     nav = push(nav, "/" + name)
+  action openOverflowingEditor
+    pageOverflow = true
+    visualEditor = false
+    nav = push(nav, "/edit")
+  action openVisualEditor
+    pageOverflow = false
+    visualEditor = true
+    nav = push(nav, "/edit")
+  action openViewport
+    pageOverflow = true
+    visualEditor = false
+    nav = push(nav, "/viewport")
   action change(name: string)
     nav = replace(nav, "/" + name)
   action search(v: string)
     query = v
+  action searchBegan
+    searching = true
+  action searchEnded
+    searching = false
+    searchBlurs = searchBlurs + 1
+    if query == "redirect"
+      nav = push(back(nav), "/find")
+    else if query == "replace"
+      nav = replace(nav, "/find")
+  action searchCommitted(v: string)
+    committedQuery = v
+    searchChanges = searchChanges + 1
   action swapContent
     swapped = not swapped
   action fail
     failed = not failed
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" interactive-widget=(visualEditor ? "resizes-visual" : "resizes-content") width="100%" height=(pageOverflow ? "1600px" : "100%") display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header testId=`header-${e.name}` display="flex" align-items="center" padding="8px 16px"
-                  text e.name role="heading" aria-level=(e.name == "inline" ? 2 : 1)
+                  text (e.name.slice(0, 1).toUpperCase() + e.name.slice(1)) role="heading" aria-level=(e.name == "inline" or e.name == "seek" ? 2 : 1)
                   if e.name == "find"
                     input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="find-search"
+                  else if e.name == "seek"
+                    input type="search" value=query input=search change=searchCommitted placeholder="Search" aria-label="Search" testId="seek-search" autofocus=true focus=searchBegan blur=searchEnded
                 if e.name == "rows"
                   list appearance="auto" listStyle="inset-grouped" testId="rows-scroll" flex=1 min-height=0
                     section
@@ -69,6 +110,43 @@ component PushedTitle
                 else if e.name == "short"
                   scroll testId="short-scroll" flex=1 min-height=0
                     text "short top" testId="short-top"
+                else if e.name == "edit"
+                  if visualEditor
+                    input value=query input=search autofocus=true testId="edit-draft" aria-label="Draft" position="absolute" left=0 right=0 bottom=0 height=44
+                  else
+                    list appearance="auto" listStyle="inset-grouped" testId="edit-scroll" flex=1 min-height=0
+                      section
+                        input value=query input=search autofocus=true testId="edit-draft" aria-label="Draft"
+                else if e.name == "viewport"
+                  column height=1200 flex-shrink=0
+                    box height=100 flex-shrink=0
+                    button appearance="none" popovertarget=`viewport-info-${e.id}` testId="viewport-info-open" width=160 height=44
+                      text "Details"
+                    box height=800 flex-shrink=0
+                    text "Reveal target" id="viewport-target" testId="viewport-target"
+                    box popover="auto" id=`viewport-info-${e.id}` testId="viewport-info" width=160 height=60
+                      text "Viewport details"
+                else if e.name == "home"
+                  list appearance="auto" listStyle="inset-grouped" testId="home-scroll" flex=1 min-height=0
+                    section
+                      text "Examples" testId="home-top"
+                      button press=open("edit") testId="home-open-edit"
+                        text "Open Edit"
+                      button press=openOverflowingEditor testId="home-open-edit-overflow"
+                        text "Open Overflowing Editor"
+                      button press=openVisualEditor testId="home-open-edit-visual"
+                        text "Open Visual Editor"
+                      button press=openViewport testId="home-open-viewport"
+                        text "Open Viewport"
+                      for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap"] key=l
+                        button press=open(l) testId=`home-open-${l}`
+                          text ("Open " + l.slice(0, 1).toUpperCase() + l.slice(1))
+                      button press=change("short") testId="home-replace-short"
+                        text "Replace with Short"
+                    section
+                      for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] key=i
+                        button press=open("long")
+                          text `Scrolling Example ${i}`
                 else if e.name == "swap"
                   if failed
                     text "Can’t reach the server." testId="swap-reason" padding="8px 16px 0"
@@ -89,11 +167,11 @@ component PushedTitle
                 else
                   scroll testId=`${e.name}-scroll` flex=1 min-height=0
                     text `${e.name} top` testId=`${e.name}-top`
-                    for l in ["long", "short", "inline", "rows", "plain", "find", "swap"] key=l
+                    for l in ["long", "short", "inline", "rows", "plain", "find", "seek", "swap", "edit"] key=l
                       button press=open(l) testId=`${e.name}-open-${l}`
-                        text `Open ${l}`
+                        text ("Open " + l.slice(0, 1).toUpperCase() + l.slice(1))
                     button press=change("short") testId=`${e.name}-replace-short`
-                      text "Replace with short"
+                      text "Replace with Short"
                     column height=1600
       row role="tablist" testId="tabs"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") testId="tab-home" flex=1

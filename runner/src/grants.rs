@@ -23,6 +23,14 @@ impl<'a> Grants<'a> {
                 .flatten()
         })
     }
+
+    /// The `secret.keep` names that carry a presence policy (LLP 1133.010
+    /// D4), in declaration order.
+    pub fn presence(&self) -> impl Iterator<Item = (&'a str, exact_grants::Presence)> + '_ {
+        self.lines
+            .iter()
+            .filter_map(|line| exact_grants::line_presence(line))
+    }
 }
 
 /// How the runner reads an I/O grant line (`net.fetch …`, `secret.keep …`),
@@ -200,10 +208,14 @@ fn quote(text: &str, out: &mut String) {
 fn grant_json(grant: &exact_grants::Grant, out: &mut String) {
     use exact_grants::Grant;
     match grant {
-        Grant::Fetch(origin) | Grant::FetchSubdomains(origin) | Grant::WebSocket(origin) => {
+        Grant::Fetch(origin)
+        | Grant::FetchSubdomains(origin)
+        | Grant::WebSocket(origin)
+        | Grant::WebSocketSubdomains(origin) => {
             let kind = match grant {
                 Grant::Fetch(_) => "fetch",
                 Grant::FetchSubdomains(_) => "fetch-subdomains",
+                Grant::WebSocketSubdomains(_) => "websocket-subdomains",
                 _ => "websocket",
             };
             out.push('[');
@@ -381,6 +393,30 @@ mod tests {
             super::admitting(spec, Some("net.websocket ws://a"), "ws://a/"),
             None
         );
+    }
+
+    #[test]
+    fn websocket_subdomains_normalize_and_name_the_admitting_line() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../host/web/tests/fixtures/grants.json"))
+                .unwrap();
+        for case in cases.as_array().unwrap() {
+            let spec = case["spec"].as_str().unwrap();
+            if !spec.starts_with("net.websocket ") || !spec.contains("://*.") {
+                continue;
+            }
+            let json: serde_json::Value = serde_json::from_str(&normalized_json(spec)).unwrap();
+            let valid = case["ok"].as_bool().unwrap();
+            assert_eq!(json["error"].is_null(), valid, "{spec}");
+            if valid {
+                assert_eq!(json["entries"][0][2][0], "websocket-subdomains", "{spec}");
+            }
+            for probe in case["websocket"].as_array().into_iter().flatten() {
+                let url = probe[0].as_str().unwrap();
+                let expected = probe[1].as_bool().unwrap().then_some(spec);
+                assert_eq!(super::admitting(spec, None, url), expected, "{spec}: {url}");
+            }
+        }
     }
 
     #[test]

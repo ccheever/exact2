@@ -36,7 +36,7 @@ impl<D: DataSource> Presenter<D> {
         self.scroll.insert(id, (off.0, ny));
         self.scroll_end_input(id, off, Completion::Instant);
         self.dirty = true;
-        self.collection_scrolled(id);
+        self.collection_scroll_input(id, off);
         if let Some(error) = self.refresh_transform_geometry() {
             self.host.log(error);
         }

@@ -45,9 +45,9 @@ final class FixedGradientIOSTests: XCTestCase {
         let first = try XCTUnwrap(p.views[2]), second = try XCTUnwrap(p.views[3])
         for n in [first, second] { n.layer.displayIfNeeded() }
         let top = try XCTUnwrap(first.boxGradient, "a fixed gradient is a layer")
-        let joinedLayer = try XCTUnwrap(second.boxGradient, "over a drawn box too")
-        XCTAssertTrue(second.drawsPaint, "corners of different radii draw")
-        XCTAssertNotNil(joinedLayer.mask as? CAShapeLayer, "masked to the drawn outline")
+        let joinedLayer = try XCTUnwrap(second.boxGradient, "an uneven-corner box keeps its gradient layer")
+        XCTAssertFalse(second.drawsPaint, "uneven corners use a shape mask")
+        XCTAssertNotNil(joinedLayer.mask as? CAShapeLayer, "masked to the corner outline")
         // One gradient over the 300-point viewport: the first bubble (y 0,
         // 100 tall) shows its top third, the second (y 200) its bottom third.
         XCTAssertEqual(top.startPoint.y, 0, accuracy: 0.01)

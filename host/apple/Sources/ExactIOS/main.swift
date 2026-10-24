@@ -138,6 +138,9 @@ func agentReady() {
 let launchColor = launchScreenColor ?? .platformBackground(in: nil)
 
 final class Controller: UIViewController {
+    // Native children own their scroll edges. UIKit's root heuristic can
+    // bind the page viewport and place Duo's Back under the status capsule.
+    override func contentScrollView(for edge: NSDirectionalRectEdge) -> UIScrollView? { nil }
     #if os(tvOS)
     // The session's view decides where focus returns (`ExactView`).
     override var preferredFocusEnvironments: [any UIFocusEnvironment] { [exactView] }
@@ -183,6 +186,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         session = exact.makeSession(delegate: adapter, label: "main")
         #if !os(tvOS)
         exact.installNotificationClicks()
+        exact.installBackgroundRefresh()
         #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true

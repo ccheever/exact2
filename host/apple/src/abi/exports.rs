@@ -225,6 +225,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
         }
 
+        /// The first root's literal viewport-fit, read before boot. Zero len selects the bake.
+        #[no_mangle]
+        pub extern "C" fn exact_plan_covers_viewport(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.plan_covers_viewport(len, $plan)), |_| 0)
+        }
+
         /// Derive a declared protocol handler location from href, scheme and template.
         #[no_mangle]
         pub extern "C" fn exact_protocol_location_of(rt: u32, len: usize) -> u32 {
@@ -237,6 +243,17 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_matches(len), |_| 0)
         }
 
+        /// A package's call of the app's handler, answered once through
+        /// `reply`. @ref LLP 1133.016 D15 item 1
+        #[no_mangle]
+        pub extern "C" fn exact_module_invoke(rt: u32, len: usize, reply: extern "C" fn(*mut std::ffi::c_void, *const u8, u32), ctx: *mut std::ffi::c_void) {
+            let refused = |_| {
+                let text = r#"{"error":"InvalidStateError","message":"the runtime is busy or gone"}"#;
+                reply(ctx, text.as_ptr(), text.len() as u32);
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.module_invoke(len, reply, ctx), refused)
+        }
+
         /// The location beneath a visit, UTF-8; empty for none. @ref LLP 1115 D5
         #[no_mangle]
         pub extern "C" fn exact_location_beneath(rt: u32, id: u64) -> u32 {
@@ -247,6 +264,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_back(rt: u32, id: u64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back(id, now_ms), |n| n)
+        }
+
+        /// Follow a UTF-8 location with the runner's own go.
+        #[no_mangle]
+        pub extern "C" fn exact_host_go(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
         }
 
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
@@ -383,6 +406,12 @@ macro_rules! host {
                 if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
                 b.prepare_module_with_delivery([plan, receipt, module], ($new)(), hooks, width, height, facts, let_go != 0)
             }, |n| n)
+        }
+
+        /// Refuse a candidate whose source changed after preparation.
+        #[no_mangle]
+        pub extern "C" fn exact_check_prepared(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.check_prepared(), |n| n)
         }
 
         /// Commit an accepted prepared plan.
@@ -734,10 +763,26 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.bind_extensions(len), |_| ())
         }
 
+        /// An `img` source of a package's scheme, admitted (LLP 1133.019 D11
+        /// item 1): the source in the input buffer; the output is
+        /// `{"extension", "agent", "owned"?}`, `{"error", "message"}`, or
+        /// empty for a source of no package's scheme.
+        #[no_mangle]
+        pub extern "C" fn exact_picture(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.picture(len), |n| n)
+        }
+
         /// The agent's `prefer extension` in the input buffer (LLP 1124 D7).
         #[no_mangle]
         pub extern "C" fn exact_extension(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.extension(len), |n| n)
+        }
+
+        /// A module event the platform reported (LLP 1133.004 D6): `{"extension",
+        /// "event", "args", "activation"}` in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_module_event(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.module_event(len), |n| n)
         }
 
         /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
@@ -991,6 +1036,22 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_auth(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.auth(len), |_| 0)
+        }
+
+        /// How a presence check the host made ended (LLP 1133.010 D13), JSON
+        /// in the input buffer, on the store's completion path.
+        #[no_mangle]
+        pub extern "C" fn exact_presence(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.presence(len), |_| 0)
+        }
+
+        /// The keychain the presence backend keeps locked items in (LLP
+        /// 1133.010 D6), ExactKit's; once a process, before the first boot.
+        #[no_mangle]
+        pub extern "C" fn exact_on_presence_keychain(
+            keychain: Option<$crate::presence_secrets::KeychainFn>,
+        ) {
+            $crate::presence_secrets::on_keychain(keychain);
         }
 
         /// A native button's title and symbol (LLP 1069.011 D5), JSON;

@@ -1,0 +1,42 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/speech-synthesis@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleVoice": {
+      "quality": "enum<default|enhanced|premium>",
+      "gender": "enum<unspecified|male|female>",
+      "isPersonalVoice": "bool",
+      "isNoveltyVoice": "bool"
+    },
+    "AppleSynthesisStatus": {
+      "personalVoiceAuthorizationStatus": "enum<notDetermined|denied|unsupported|authorized>"
+    }
+  },
+  "options": {
+    "speak": {
+      "preUtteranceDelay": "number",
+      "postUtteranceDelay": "number",
+      "prefersAssistiveTechnologySettings": "bool",
+      "ssml": "bool",
+      "mixToTelephonyUplink": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "synthesizer",
+    "utterance"
+  ],
+  "sources": {
+    "swift": [
+      "SpeechSynthesis.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "SpeechSynthesisModule"
+}

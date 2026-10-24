@@ -9,8 +9,11 @@
 //! `until <text>` (wait up to 15 s for the screen to show it), `tree`,
 //! `screenshot <file.txt|file.ans>`, `print [--all]` (the screen; `--all`
 //! puts the scrollback above it), `document` (the whole laid-out document),
-//! `layout` (every node's box as JSON: px, cells, testId, corner radii) and
-//! `plan` (the running plan's SHA-256, as JSON).
+//! `layout` (every node's box as JSON: px, cells, testId, corner radii),
+//! `plan` (the running plan's SHA-256, as JSON), and the runner's own reads
+//! the agent's `tree` and `layout <id>` make elsewhere: `runner-tree` (every
+//! node, its id, parent, children and props, as JSON) and `node <id>` (one
+//! node's every row with its value, token and source, as `{"node":…}`).
 //!
 //! Headless, frames go into a terminal emulator, and those verbs read its
 //! screen: what a person would see (LLP 1101.002 §0 P1). `tap`, `type` and
@@ -400,6 +403,9 @@ fn run_plan<D: DataSource>(
     while let Some(op) = ops.next() {
         let mut arg = || ops.next().unwrap_or_default();
         host.read_at = host.frames;
+        if matches!(op.as_str(), "tap" | "type" | "wheel") {
+            host.advance_for_input();
+        }
         match op.as_str() {
             "tap" => {
                 let id = arg();
@@ -422,14 +428,18 @@ fn run_plan<D: DataSource>(
             "type" => {
                 let (id, text) = (arg(), arg());
                 match host.by_test_id(&id) {
-                    Some(v) if host.on_screen(v) => {
+                    Some(v) if !host.on_screen(v) => {
+                        eprintln!("type: #{id} is not on the screen");
+                        return ExitCode::FAILURE;
+                    }
+                    Some(v) if host.input_eligible(v) => {
                         host.press(v);
                         for c in text.chars() {
                             host.key(Key::Char(c));
                         }
                     }
                     Some(_) => {
-                        eprintln!("type: #{id} is not on the screen");
+                        eprintln!("type: #{id} is not available for input");
                         return ExitCode::FAILURE;
                     }
                     None => {
@@ -501,6 +511,18 @@ fn run_plan<D: DataSource>(
             }
             "document" => print!("{}", document(&mut host)),
             "layout" => print!("{}", layout(&host)),
+            "runner-tree" => println!("{}", exact_runner::agent::tree(&host.runner)),
+            "node" => {
+                let id = arg();
+                let Ok(id) = id.parse::<u32>() else {
+                    eprintln!("node: {id:?} is not a view id");
+                    return ExitCode::FAILURE;
+                };
+                println!(
+                    "{{\"node\":{}}}",
+                    exact_runner::agent::node(&host.runner, id)
+                );
+            }
             "plan" => println!("{{\"plan\":\"{}\"}}", host.plan_digest()),
             "screenshot" => {
                 let file = arg();

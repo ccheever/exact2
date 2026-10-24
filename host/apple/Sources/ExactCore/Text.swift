@@ -185,6 +185,8 @@ package struct Spec: Hashable {
     /// CSS `hyphens`: 0 manual (the initial value), 1 none (soft hyphens
     /// already arrive as U+034F), 2 auto.
     package var hyphens = 0
+    /// Synthetic emergency opportunities affect line choice even when shaped text matches authored soft hyphens.
+    package var emergencyBreaks: [Int] = []
     /// The document language whose hyphenation points `auto` takes; empty
     /// for `none` and `manual`, which need none.
     package var language = ""
@@ -287,20 +289,10 @@ package struct SourceMap: Hashable {
     }
 }
 
-/// A face's CSS line box. macOS follows Chrome, the parity oracle (the web
-/// host's smoke and `browser_cases.rs` run in it), on the same faces: Blink
-/// keeps ascent, descent and line gap as whole pixels, rounded to the
-/// nearest; `line-height: normal` puts the gap's floor half above and the
-/// rest below, and a set height centres the content area with the baseline
-/// floored. Chrome 154 on macOS 26.6 at device scale 1 (the web smoke's),
-/// captured with getBoundingClientRect for SF 10-40 px and the fallback
-/// faces; TextParityMacTests pins it.
-///
-/// iOS keeps CoreText's unrounded metrics, the paragraph's height rounded up
-/// once. Chrome's rule cannot be applied there: iOS's SF has other vertical
-/// metrics (15.23 + 3.86 at 16 px against the Mac's 15.47 + 3.38), so
-/// rounding each gives 16 at 14 px where Chrome has 17, and the scroll
-/// fixture's cross-host 652 (smoke.mjs) would move. See QUEUE.
+/// CSS line heights use the web host's metrics and Chrome's rounding at scale 1.
+/// UIKit positions glyphs at its face's ascent within that height.
+/// On iOS PresentedText.measure returns nil; FieldChromeIOS keeps UIFont.lineHeight
+/// for native editors. Reader line boxes do not change those control metrics.
 package enum CSSLineBox {
     /// A text advance as the browser's layout holds it: rounded up to its
     /// 1/64 px layout unit, never to a whole point (a chip's width).
@@ -308,17 +300,21 @@ package enum CSSLineBox {
 
     /// The content area (an inline background's extent) above and below the baseline.
     package static func content(_ font: CTFont) -> (CGFloat, CGFloat) {
-        #if os(macOS)
-        (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
-        #else
-        (CTFontGetAscent(font), CTFontGetDescent(font))
+        #if canImport(UIKit)
+        // Chrome system-ui uses SFNS's hhea metrics (1980/-432 at 2048 units/em).
+        // SFUI paints the same UI family with different vertical metrics; keep
+        // its glyphs, but use the web's line box for author-laid-out text.
+        if (CTFontCopyPostScriptName(font) as String).hasPrefix(".SFUI-") {
+            let size = CTFontGetSize(font)
+            return ((size * 1980 / 2048).rounded(), (size * 432 / 2048).rounded())
+        }
         #endif
+        return (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
     }
 
     /// Above and below the baseline: `line-height: normal` when `height` is
     /// nil, else the authored line height.
     package static func extents(_ font: CTFont, height: CGFloat?) -> (CGFloat, CGFloat) {
-        #if os(macOS)
         let (ascent, descent) = content(font)
         guard let height else {
             let gap = CTFontGetLeading(font).rounded()
@@ -327,11 +323,6 @@ package enum CSSLineBox {
         guard height.isFinite else { return (ascent, descent) }
         let above = ascent + floor((height - ascent - descent) / 2)
         return (above, height - above)
-        #else
-        let ascent = CTFontGetAscent(font), below = CTFontGetDescent(font) + CTFontGetLeading(font)
-        let half = ((height ?? ascent + below) - ascent - below) / 2
-        return (ascent + half, below + half)
-        #endif
     }
 }
 
@@ -530,7 +521,7 @@ package enum FontRegistry {
 /// This one paints, on main; its `measurer` answers the kernel's
 /// measurements on the owner thread. Each keeps its own fonts, shaped text
 /// and caches; what painting reuses from measuring crosses as plain values
-/// (`TextAnswers`): each measured paragraph's metrics and line breaks.
+/// (`TextAnswers`): metrics, line breaks and optional glyph copies with immutable fonts.
 package final class TextEngine {
     package let presentation: TextPresentation?
     /// The engine the kernel measures with, on the owner thread; nil in the
@@ -554,9 +545,9 @@ package final class TextEngine {
     package func accepted(_ paragraph: Paragraph) { residency.accepted(paragraph) }
     /// Under memory pressure, shaped text no view holds is dropped, as the
     /// raster loader drops its cold images.
-    package func dropCold() { residency.dropCold() }
+    package func dropCold() { residency.dropCold(); answers?.discardGlyphs() }
     /// At rest (`ExactSession.rest`): shaped text no view holds goes.
-    package func dropColdShaped() { residency.dropColdShaped() }
+    package func dropColdShaped() { residency.dropColdShaped(); answers?.discardGlyphs() }
     /// A screen shows about `visibleParagraphs` paragraphs: cold shaped
     /// text is held to two screens of them (`TextResidency.fitShaped`).
     package func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
@@ -771,28 +762,31 @@ package final class TextEngine {
                                                       size, nil) as PlatformFont
             }
             let base = candidate(face)
-            var seen = Set<String>(), cascade: [CTFontDescriptor] = []
+            // The other families fall back in stack order; a one-family stack
+            // is its face alone.
+            var seen: Set<String> = [face.family], cascade: [CTFontDescriptor] = []
             for member in faces where seen.insert(member.family).inserted {
                 let group = faces.filter { $0.family == member.family }
                 cascade.append(CTFontCopyFontDescriptor(candidate(TextEngine.matched(group, weight: weight, italic: italic, stretch: stretch)) as CTFont))
             }
+            guard !cascade.isEmpty else { fonts[key] = base; return base }
             let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: cascade] as CFDictionary)
             let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
             fonts[key] = f
             return f
         }
-        let w: PlatformFont.Weight
-        switch weight {
-        case ..<200: w = .ultraLight
-        case 200..<300: w = .thin
-        case 300..<400: w = .light
-        case 400..<500: w = .regular
-        case 500..<600: w = .medium
-        case 600..<700: w = .semibold
-        case 700..<800: w = .bold
-        case 800..<900: w = .heavy
-        default: w = .black
-        }
+        // Each hundred's named instance is kept under its own key, so a
+        // weight between two (a transition's frame) makes one font.
+        var f = weight % 100 == 0 && (100...900).contains(weight)
+            ? namedSystemFace(size: size, weight: TextEngine.namedWeight(weight), family: family, italic: italic)
+            : TextEngine.cssWeight(weight, size: size) { self.font(size: size, weight: $0, family: family, italic: italic) }
+        f = TextEngine.cssAxes(f, stretch: stretch, variations: variations, size: size)
+        fonts[key] = f
+        return f
+    }
+
+    /// A platform generic at a named weight, as UIKit (AppKit) makes it.
+    private func namedSystemFace(size: CGFloat, weight w: PlatformFont.Weight, family: Int, italic: Bool) -> PlatformFont {
         var f = (family == 5 || family == 6)
             ? PlatformFont.monospacedSystemFont(ofSize: size, weight: w)
             : PlatformFont.systemFont(ofSize: size, weight: w)
@@ -805,35 +799,21 @@ package final class TextEngine {
             if let d = f.fontDescriptor.withDesign(design), let designed = NSFont(descriptor: d, size: size) { f = designed }
             #endif
         }
-        // A declared stack returned above with one of its real descriptors.
+        // A declared stack is drawn from its real descriptors (`font` above).
         // This trait resolver is only for a platform generic, never a shear
         // applied to custom bytes (LLP 1019 §5).
         if italic {
             #if canImport(UIKit)
-            if let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) { f = UIFont(descriptor: d, size: size) }
+            // Its bold trait kept: semibold and heavier would be regular italic.
+            if let d = f.fontDescriptor.withSymbolicTraits(f.fontDescriptor.symbolicTraits.union(.traitItalic)) { f = UIFont(descriptor: d, size: size) }
             #else
             // AppKit's font manager is main's (LLP 1072 §8.1): a variant first
-            // met while the owner thread measures is resolved there, once.
+            // met while the owner thread measures is resolved there.
             let upright = f
             f = Owner.shared.callMain { NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask) }
             #endif
         }
-        f = TextEngine.cssWeight(f, weight: weight, size: size)
-        f = TextEngine.cssAxes(f, stretch: stretch, variations: variations, size: size)
-        fonts[key] = f
         return f
-    }
-
-    /// CSS `font-weight` on a variable system face is its `wght` axis at
-    /// that number, as Chrome and WebKit set it: UIKit's semibold is `wght`
-    /// 590 and its medium 510, so `600` text measured 0.2% narrower than
-    /// Chrome's ("Heavy list" at 17 px: 77.67 against 77.87).
-    package static func cssWeight(_ font: PlatformFont, weight: Int, size: CGFloat) -> PlatformFont {
-        let tag = 0x77676874 as NSNumber // 'wght'
-        guard let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let current = axes[tag],
-              current.intValue != weight else { return font }
-        let d = CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: [tag: weight as NSNumber]] as CFDictionary)
-        return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
     /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
@@ -852,6 +832,13 @@ package final class TextEngine {
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
+        }
+        if spec.lineClamp > 0, s.length > 0, var block = spec.strut ?? spec.runs.first {
+            if block.shadow == spec.shadow { block.shadow = nil }
+            var a: [NSAttributedString.Key: Any] = [.font: font(block)]
+            if block.letterSpacing != 0 { a[.kern] = block.letterSpacing }
+            presentation?.attributes(block, color: spec.color, attributes: &a)
+            s.addAttribute(.exactClampStyle, value: a, range: NSRange(location: 0, length: s.length))
         }
         TextEngine.setBaseDirection(s, direction: spec.direction)
         presentation?.finish(s)
@@ -885,14 +872,15 @@ package final class TextEngine {
         s.addAttribute(.paragraphStyle, value: paragraph, range: range)
     }
 
-    /// CSS `direction: rtl` as the paragraph's base writing direction (LLP
-    /// 1053). Under `ltr` CoreText's natural direction (the first strong
-    /// character) stays, as on Linux; LLP 1001 §1 declares it.
+    /// CSS direction sets the paragraph base; normal Unicode bidi still
+    /// orders each run. The first strong character never selects the base.
     package static func setBaseDirection(_ s: NSMutableAttributedString, direction: Int) {
-        guard direction == 1, s.length > 0 else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.baseWritingDirection = .rightToLeft
-        s.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: s.length))
+        let range = NSRange(location: 0, length: s.length)
+        s.enumerateAttribute(.paragraphStyle, in: range) { value, range, _ in
+            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            paragraph.baseWritingDirection = direction == 1 ? .rightToLeft : .leftToRight
+            s.addAttribute(.paragraphStyle, value: paragraph, range: range)
+        }
     }
 
     /// Urgent raster work stays on the text engine's owning thread and uses
@@ -960,7 +948,13 @@ package final class TextEngine {
 
     /// The measurer's answer for `identity` at an offer, for both engines.
     private func publish(_ identity: TextIdentity, offer: UInt64, _ p: Paragraph, lines: LineGeometry?) {
-        publish(identity, offer: offer, ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)), lines: lines)
+        guard publishes, let answers else { return }
+        let hash = TextAnswerKey.write(identity.geometry, into: &answerKey)
+        guard answers.metrics(hash: hash, key: answerKey, offer: offer) == nil else { return }
+        let width = CGFloat(Double(bitPattern: offer))
+        answers.put(hash: hash, key: answerKey, offer: offer,
+                    metrics: ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)),
+                    lines: lines, glyphs: MeasuredGlyphs(p, spec: identity.geometry, width: width))
     }
     private func publish(_ identity: TextIdentity, offer: UInt64, _ metrics: ExactMetrics, lines: LineGeometry?) {
         guard publishes, let answers else { return }
@@ -972,6 +966,12 @@ package final class TextEngine {
         guard let answers else { return nil }
         let hash = TextAnswerKey.write(identity.geometry, into: &answerKey)
         return answers.lines(hash: hash, key: answerKey, width: width)
+    }
+
+    package func measuredGlyphs(_ spec: Spec, width: CGFloat) -> MeasuredGlyphs? {
+        guard spec.reusesMeasuredGlyphs, let answers else { return nil }
+        let hash = TextAnswerKey.write(spec, into: &answerKey)
+        return answers.takeGlyphs(hash: hash, key: answerKey, width: width)
     }
 
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
@@ -1022,10 +1022,10 @@ package final class TextEngine {
         let spec = shape.spec, typesetter = shape.typesetter, insets = shape.lineInsets
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
-        let minimum = strut.map(extents) ?? (0, 0)
+        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
+        let minimum = strut.map(extents) ?? TextLineBox()
         var explicit = false
-        func authoredExtents(_ run: Run) -> (CGFloat, CGFloat) {
+        func authoredExtents(_ run: Run) -> TextLineBox {
             // Reuse only this layout's exact strut metrics. Font keys preserve
             // signed zero; nonfinite inputs keep their original computation.
             guard let strut, let height = run.lineHeight, let strutHeight = strut.lineHeight,
@@ -1062,7 +1062,7 @@ package final class TextEngine {
                 shape.lineBreakBoundaries = plan.boundaries
                 residency.refresh(shape)
             }
-            plan.prepare(text, length: length)
+            plan.prepare(text, length: length, emergency: spec.emergencyBreaks)
         }
         func next(_ plan: inout LineBreakPlan, _ start: Int, _ room: Double) -> Int {
             plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
@@ -1123,14 +1123,7 @@ package final class TextEngine {
             }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
-            var above = minimum.0, below = minimum.1
-            var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
-            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-                if a > above { above = a; aboveExplicit = explicit }
-                else if a == above { aboveExplicit = aboveExplicit && explicit }
-                if b > below { below = b; belowExplicit = explicit }
-                else if b == below { belowExplicit = belowExplicit && explicit }
-            }
+            var box = minimum
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 var first = 0, last = runEnds.count
@@ -1150,15 +1143,13 @@ package final class TextEngine {
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
-                        let (a, b) = authoredExtents(authored)
-                        include(a, b, explicit: true)
+                        box.include(authoredExtents(authored))
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, let strut, strut.lineHeight != nil {
-                    let (a, b) = extents(strut)
-                    include(a, b, explicit: true)
+                    box.include(extents(strut))
                     continue
                 }
                 if matched && !includesNormal { continue }
@@ -1166,12 +1157,11 @@ package final class TextEngine {
                 let shapedFont = attributes[kCTFontAttributeName] as! CTFont
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
-                let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
-                include(a, d, explicit: false)
+                box.include(TextLineBox(shapedFont, height: nil))
             }
-            explicit = explicit || aboveExplicit || belowExplicit
-            baselines.append(y + above)
-            y += above + below
+            explicit = explicit || box.explicit
+            baselines.append(y + box.baseline)
+            y += box.height
             lineBottoms.append(y)
             maxWidth = max(maxWidth, w)
             glyphCount += CTLineGetGlyphCount(line)
@@ -1179,8 +1169,8 @@ package final class TextEngine {
             start += count
         }
         // An authored CSS line height fixes the line box, including fractions;
-        // a `normal` one is whole pixels on macOS and CoreText's sum, rounded
-        // up once, on iOS (CSSLineBox). A width rounds up to the browser's
+        // a `normal` one rounds each font metric to whole pixels (CSSLineBox).
+        // A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
         // Balancing moves breaks, never the box: it measures as its greedy lines do.
@@ -1235,8 +1225,8 @@ package final class TextEngine {
     }
 
     /// A `line-clamp`'s last line: its text as it broke, then "…", truncated
-    /// to `width`. Pure over `source`, so painting (a raster worker, the
-    /// region worker) makes the same line layout made.
+    /// to `width`, with the block container's style (CSS Overflow 4 §5.2).
+    /// Pure over `source`, so raster workers make the same line as layout.
     package static func clampedLine(_ source: NSAttributedString, range: NSRange, width: Double) -> CTLine? {
         let string = source.string as NSString
         var end = NSMaxRange(range)
@@ -1244,7 +1234,9 @@ package final class TextEngine {
         // CoreText to make room for it, removing the line's trailing break/space.
         while end > range.location && [9, 10, 13, 32, 0x2028, 0x2029].contains(Int(string.character(at: end - 1))) { end -= 1 }
         let candidate = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
-        candidate.append(NSAttributedString(string: "…", attributes: truncation(source.attributes(at: max(range.location, end - 1), effectiveRange: nil))))
+        let block = source.attribute(.exactClampStyle, at: 0, effectiveRange: nil) as? [NSAttributedString.Key: Any]
+            ?? source.attributes(at: 0, effectiveRange: nil)
+        candidate.append(NSAttributedString(string: "…", attributes: truncation(block)))
         let typesetter = CTTypesetterCreateWithAttributedString(candidate)
         let line = CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: end - range.location + 1))
         // Keep paragraph-global indices, including the token, for AppKit hits.
@@ -1292,11 +1284,13 @@ package final class TextEngine {
         let typesetter = resident?.typesetter ?? CTTypesetterCreateWithAttributedString(source)
         var indent = spec.textIndent
         var offset = 0
+        let emergencyEnds = Set(spec.emergencyBreaks.map { $0 + 1 })
         for r in spec.runs {
             let text = r.text as NSString
             defer { offset += text.length }
             guard !r.hang else { continue }
-            for piece in Self.pieceRanges(text, boundaries: lineBoundaries(text, length: text.length)) {
+            let boundaries = lineBoundaries(text, length: text.length).filter { !emergencyEnds.contains(offset + $0) }
+            for piece in Self.pieceRanges(text, boundaries: boundaries) {
                 let range = CFRange(location: offset + piece.range.location, length: piece.range.length)
                 var line = CTTypesetterCreateLine(typesetter, range)
                 if piece.hyphenated { line = Self.inkedSoftHyphen(line, source: source, range: range) }
@@ -1388,6 +1382,11 @@ package final class TextEngine {
         if intrinsic {
             if publishes { publish(identity, offer: offer, metrics, lines: nil) } else { residency.put(identity, kind: kind, metrics: metrics) }
         }
+        if spec.emergencyHyphens, publishes, request.markup == 0, let answers {
+            // Raw callbacks reuse scalar answers; prepared keys retain their synthetic line offsets.
+            let hash = TextAnswerKey.write(request, into: &answerKey)
+            answers.put(hash: hash, key: answerKey, offer: offer, metrics: metrics, lines: nil)
+        }
         measureSeconds += lookupSeconds + (ProcessInfo.processInfo.systemUptime - started)
         return metrics
     }
@@ -1401,7 +1400,8 @@ package final class TextEngine {
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {
-            if let expanded = presentation?.markdown(self, source: source) { runs = expanded }
+            let utf8 = { (p: UnsafePointer<UInt8>?, n: Int) in p.map { String(decoding: UnsafeBufferPointer(start: $0, count: n), as: UTF8.self) } ?? "" }
+            if let expanded = presentation?.markdown(self, source: source, atoms: utf8(request.atoms, request.atoms_len), faces: utf8(request.faces, request.faces_len)) { runs = expanded }
             else if requiresMarkdownExpansion { refusedMarkdown = request.view; runs = [] }
         }
         // Metric-only keys match the geometry used by the colored presenter.
@@ -1409,10 +1409,10 @@ package final class TextEngine {
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
         made.textBoxTrim = Int(request.text_box_trim); made.textBoxOver = Int(request.text_box_over); made.textBoxUnder = Int(request.text_box_under)
         made.balance = request.text_wrap_style == 1
-        if made.hyphens == 2, let lang = request.lang {
+        if made.automaticHyphens, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }
-        made.hyphenateAuto()
+        made.hyphenateAuto(allowEmergency: request.exclusion_count == 0)
         return made
     }
 

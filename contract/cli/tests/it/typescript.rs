@@ -75,6 +75,12 @@ async function storageTypes() {
   const shrunk: {path: string; type: 'image/jpeg'; size: number; width: number; height: number} = image;
   // @ts-expect-error the engine's positional binding is not the app interface
   await storage.fs.compressImage(path, path, 1024, 1_000_000);
+  // `fs.transformImage` (LLP 1133.019 D14): the edit in, what was written out.
+  const edit = await storage.fs.transformImage(path, storage.fs.directories.temporary + '/edit', {rotate: 90, crop: {x: 0, y: 0, width: 10, height: 10}, metadata: 'no-location'});
+  const kept: {path: string; type: string; colorSpace: 'srgb' | 'display-p3' | 'other'; hdr: boolean; metadata: 'keep' | 'no-location' | 'none'} = edit;
+  await storage.fs.compressImage(path, path, {maxDimension: 512, maxBytes: 100_000, rotate: 90, flip: 'horizontal'});
+  // @ts-expect-error flip is a word, not a boolean
+  await storage.fs.transformImage(path, path, {flip: true});
 }
 // @ts-expect-error store.set has no success value
 const success: boolean = store.set('token', 'value');
@@ -148,6 +154,10 @@ fn compress_image_is_declared_as_the_docs_give_it() {
         "readonly height: number;",
         "readonly size: number;",
         "readonly path: string;",
+        "transformImage(from: string, to: string, options?: TransformImageOptions): Promise<TransformedImage>;",
+        "readonly resizeQuality?: \"pixelated\" | \"low\" | \"medium\" | \"high\";",
+        "readonly colorSpace: \"srgb\" | \"display-p3\" | \"other\";",
+        "readonly metadata: \"keep\" | \"no-location\" | \"none\";",
     ] {
         assert!(declared.contains(line), "storage.d.ts lost `{line}`");
     }
@@ -157,6 +167,7 @@ fn compress_image_is_declared_as_the_docs_give_it() {
     assert!(
         reference.contains("`storage.fs.compressImage(from, to, {maxDimension, maxBytes, type})`")
     );
+    assert!(reference.contains("`storage.fs.transformImage(from, to, options)`"));
 }
 
 #[test]

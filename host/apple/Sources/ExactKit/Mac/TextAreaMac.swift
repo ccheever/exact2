@@ -33,11 +33,28 @@ package final class TextArea: NSTextView {
     /// The source's length at the last selection change: a change that
     /// comes with a new length is an edit's.
     var markupLength = 0
+    /// Its inline atoms' accessibility children, and the window and colour
+    /// changes their pills are drawn again for (FieldAtoms.swift, LLP 1045.000 D8).
+    var atomElements: [AtomElement] = []
+    var atomLook: (window: ObjectIdentifier?, tokens: [NSObjectProtocol]) = (nil, [])
+    package override func accessibilityChildren() -> [Any]? { atomElements.isEmpty ? super.accessibilityChildren() : (super.accessibilityChildren() ?? []) + atomElements }
+    // A press on a pill is the atom's (D7); the arrow over one, as over a token.
+    package override func hitTest(_ point: NSPoint) -> NSView? { atomHit(point) ?? super.hitTest(point) }
+    package override func resetCursorRects() { super.resetCursorRects(); addAtomCursorRects() }
+    // A pill is a picture drawn for one appearance: drawn again for another.
+    package override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); if markup != nil { owner?.restyleMarkup() } }
+    package override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); observeAtomLook(!atomElements.isEmpty) }
+    // A new width rewraps the text: the pills' tooltip and cursor rectangles follow.
+    package override func setFrameSize(_ size: NSSize) {
+        let rewraps = size.width != frame.width
+        super.setFrameSize(size)
+        if rewraps, !atomElements.isEmpty { atomsChanged() }
+    }
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
-        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; super.typingAttributes = shown }
+        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; shown[.markupAtom] = nil; super.typingAttributes = shown }
     }
     // AppKit asks the first responder for the mask: the native bezel's
     // scroll view, or the bare node's whole authored box.
@@ -90,8 +107,13 @@ package final class TextArea: NSTextView {
         guard markup != nil, let storage = textStorage, let full, full.length == range.length, NSMaxRange(range) <= storage.length,
               storage.hidesSource(in: range) else { return full }
         let shown = NSMutableAttributedString(attributedString: full)
-        storage.enumerateAttribute(.markupHidden, in: range, options: .reverse) { value, run, _ in
-            if value != nil { shown.deleteCharacters(in: NSRange(location: run.location - range.location, length: run.length)) }
+        // Hidden runs read as nothing, an atom as its label (LLP 1045.000 D8).
+        storage.enumerateAttributes(in: range, options: .reverse) { attributes, run, _ in
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            if let atom = attributes[.markupAtom] as? MarkupAtom {
+                let label = storage.atomRange(at: run.location)?.location == run.location ? atom.label : ""
+                shown.replaceCharacters(in: local, with: label)
+            } else if attributes[.markupHidden] != nil { shown.deleteCharacters(in: local) }
         }
         return shown
     }
@@ -264,7 +286,7 @@ package final class TextArea: NSTextView {
 
     @objc package func copyPlainText(_ sender: Any?) {
         guard markup != nil, selectedRange().length > 0,
-              let plain = MarkdownLink.installed?.plain((string as NSString).substring(with: selectedRange())) else { return }
+              let plain = MarkdownLink.installed?.plain(string, range: selectedRange(), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(plain, forType: .string)
     }
@@ -396,6 +418,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            f.atomsChanged()
         }
     }
     func applyTextArea() {
@@ -415,11 +438,11 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style["font_variation_settings"]))
+            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
         f.textColor = fieldInk
         f.insertionPointColor = caretColor
         (f as? TextArea)?.placeholderColor = placeholderColor
-        let native = isNativeTextControl
+        let native = isNativeTextControl && !fieldInCell
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
@@ -559,11 +582,15 @@ final class Field: NSTextField {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    /// Once overridden, this is the role another process (VoiceOver) is
-    /// served, and `super`'s is `NSView`'s `AXUnknown`: an `NSTextField`'s
-    /// role is its cell's (`AXTextField`), so that is the answer for any
-    /// field but a number's.
-    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole() }
+    /// AppKit serves the field's protocol role and its cell's legacy attributes.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        if comboOwner != nil { return .comboBox }
+        return numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole()
+    }
+    override func isAccessibilityExpanded() -> Bool {
+        guard let node = comboOwner else { return super.isAccessibilityExpanded() }
+        return node.props["accessibilityExpanded"] == "true"
+    }
     override func accessibilityMinValue() -> Any? {
         guard let owner = numberOwner else { return super.accessibilityMinValue() }
         return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }
@@ -665,8 +692,30 @@ final class SecureField: NSSecureTextField {
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
+extension NSTextField {
+    var comboOwner: NodeView? {
+        guard let node = delegate as? NodeView, node.props["accessibilityRole"] == "combobox" else { return nil }
+        return node
+    }
+    func comboboxAttribute(_ attribute: NSAccessibility.Attribute) -> Any? {
+        guard comboOwner != nil else { return nil }
+        switch attribute {
+        case .role: return NSAccessibility.Role.comboBox.rawValue
+        case .roleDescription: return NSAccessibility.Role.comboBox.description(with: nil)
+        case .expanded: return isAccessibilityExpanded()
+        default: return nil
+        }
+    }
+}
 /// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
 final class SearchField: NSSearchField {
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        comboOwner != nil ? .comboBox : cell?.accessibilityRole() ?? super.accessibilityRole()
+    }
+    override func isAccessibilityExpanded() -> Bool {
+        guard let node = comboOwner else { return super.isAccessibilityExpanded() }
+        return node.props["accessibilityExpanded"] == "true"
+    }
     override class var cellClass: AnyClass? { get { SearchFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }

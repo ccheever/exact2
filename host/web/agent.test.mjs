@@ -4,18 +4,21 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, grantOrigins, launchLocation } from './navigation.js';
-import { viewBox, layoutBoxes, scrollRange } from './input-glue.js';
+import { placeReporter, timeReporter, pageReporter, appRootFontSize, grantOrigins } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 import { nodeNamed } from '../../scripts/agent-test.mjs';
 import { browserMissing } from '../../scripts/agent-playwright.mjs'; import { required } from '../../scripts/coverage.mjs';
+import { declaration, deferred, fixture, requestClock, source, timedRequests } from './glue-fixture.mjs';
+
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../target', import.meta.url)), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -198,74 +201,6 @@ test('retained development source maps survive later generations and refuse mism
   } finally { rmSync(cache, {recursive: true, force: true}); }
 });
 
-// Like http-body/request-refusal.test.mjs, run the actual glue with host doubles.
-// Include the real public object and nodeDetail so registration and flow facts
-// are covered too. No browser geometry or scheduling is simulated as evidence.
-const source = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
-// A one-line declaration is the whole line (with any state it declares first).
-const declaration = name => (source.match(new RegExp(`^(?:let [^;\\n]+; )?(?:async )?function ${name}\\(.*\\}$`, 'm'))
-  ?? source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`)))[0];
-const publicObject = source.match(/globalThis.exact = \{[^]*?\n\};/)[0];
-function deferred() {
-  let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
-}
-function fixture(agentMode = true) {
-  const events = [], state = { slots: { backPresses: 3, navigatePresses: 4 } };
-  const outline = { roots: [1], nodes: [{ id: 1, type: 'Text' }] };
-  const logs = { next: 1, from: 0, lines: ['boot'] };
-  const box = { x: 0, y: 0, width: 100, height: 50, left: 0, top: 0, right: 100, bottom: 50 };
-  const el = { isConnected: true, localName: 'p', dataset: {}, clientWidth: 100, clientHeight: 50,
-    // A real element's client rects: one box, as an unfragmented node has (glue.js reads them for column_fragments, LLP 1093 D12).
-    getBoundingClientRect: () => box, getClientRects: () => [box], hasAttribute: () => false };
-  const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
-  // glue.js: `agentKeepsStore = !agentMode || ?storage`; the fixture's drive names no store.
-  const context = vm.createContext({ events, agentMode, agentKeepsStore: !agentMode, root, views: new Map([[1, el]]),
-    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
-    Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
-    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
-    foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
-    document: { activeElement: null, body: {}, querySelector: () => null, getElementById: () => null, documentElement: { scrollWidth: 0, clientWidth: 0, scrollHeight: 0, clientHeight: 0 } }, // boot's last plan's theme: none; a page with nothing to scroll
-    innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
-    INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
-    viewBox: element => element.getBoundingClientRect(),
-    navigation: { observation: () => ({ location: '/' }), reset() {} },
-    presence: { live: null, pending: () => null, landed: async () => true },
-    ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
-      : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
-    tree: () => outline, now: () => 0, environment: () => ({}),
-    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, REPLACE_SETTLE_MS: 1000, inflight: new Set(), mediaAttaching: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
-    // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
-    waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
-    memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
-    wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
-      exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
-      exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
-    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
-    focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, afterPaint: fn => context.requestAnimationFrame(() => context.requestAnimationFrame(fn)), writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null, decorationsModule: null, liveTimeModule: null,
-    prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, appRootFontSize() {} /* no app root rule to drop (LLP 1069.000 D3) */, incarnation: 0,
-    // Ordinary boot tests model an already-loaded post-paint scheduler.
-    timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),
-    ticker: null, motion: { reset() {} }, arrange: { reset() {} }, pieces: { pending: () => null }, retiredViews: new WeakSet(), followedScrolls: new Map(),
-    pendingScrolls: new Set(), collections: { reset() {} }, messageFrames: new Map(),
-    storageRequests: null, controllers: new Set(), grants: [],
-    commitTurns: [],
-    applyBatch: batch => { events.push('batch'); context.agentClock = batch.clock ?? 0;
-      queueMicrotask(() => context.commitTurns.push([...events])); return { timers: batch.timers, batch }; },
-    activateData: () => events.push('activate'), setInterval: () => { events.push('ticker'); return 1; },
-    requestAnimationFrame: () => events.push('raf'), clearInterval() {},
-    ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
-    page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
-    loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
-    preferences: () => '{}', localAssetURL: source => source, pageFacts: {} /* `globalThis.exact` exposes it (LLP 1139.003 D2) */, sizes: new Set(), mediaAttached: (deadline, set = context.mediaAttaching) => Promise.all(set).then(() => true) /* glue.js's, unbounded */,
-    launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
-  });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes}; const scrollRange = ${scrollRange};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
-  context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
-  context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
-  return context;
-}
 function plain(reply) {
   expect(reply).toBeDefined();
   expect(typeof reply).toBe('object');
@@ -403,26 +338,67 @@ test('a clock waits for an animated image to land on the clock it moved to (LLP 
   expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
 });
 
-// A timer every 300 ms whose action sends a request: the runner keeps one
-// request per target, so a jump that fired every due tick at once would
-// drop each reply but the last (runner/src/runner/commit.rs `enqueue`).
-// Advancing until a request, the runner stops after the tick that sent.
-function timedRequests(f, { stuck = false } = {}) {
-  let due = 300;
-  f.flowDue = due; // the boot batch's `timer_due_ms`
-  f.wasm.exact_advance = (to, untilRequest) => {
-    let clock = to;
-    while (due <= to) {
-      const at = due, p = stuck ? new Promise(() => {}) : new Promise(resolve => setTimeout(() => { f.events.push(`reply ${at}`); resolve(); }, 0));
-      p.stuck = stuck; f.inflight.add(p); p.finally(() => f.inflight.delete(p));
-      due += 300;
-      if (untilRequest) { clock = at; break; }
+test('a clock waits for runner requests with no host promise, through release or the deadline', async () => {
+  for (const request of [{ settle: true }, { data: true }]) {
+    for (const release of [false, true]) {
+      const f = fixture(), elapsed = requestClock(f);
+      f.SETTLE_DEADLINE_MS = 100;
+      f.requestsPending = 1;
+      f.pollRequests = () => { if (release) { f.requestsPending = 0; f.events.push('release'); } };
+      f.wasm.exact_advance = to => { f.events.push('advance'); return JSON.stringify({ ops: [], clock: to }); };
+      const reply = await f.exact.agent({ op: 'clock', ...request });
+      expect(f.inflight.size).toBe(0);
+      if (release) {
+        expect(f.events[0]).toBe('release');
+        expect(reply.settled).toBe(true);
+      } else {
+        expect(elapsed()).toBe(100);
+        expect(reply).toMatchObject({ settled: false, reason: 'requests' });
+      }
     }
-    f.events.push(`advance ${to}${untilRequest ? ' until a request' : ''} → ${clock}`);
-    return JSON.stringify({ ops: [], clock, timers: true, timer_due_ms: due });
-  };
-  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; return { timers: true, batch }; };
-}
+  }
+});
+
+test('a runner request started by the final commit prevents a settled clock reply', async () => {
+  for (const request of [{ settle: true }, { data: true }]) {
+    const f = fixture(); requestClock(f);
+    let pending = false;
+    f.wasm.exact_requests_pending = () => Number(pending);
+    f.waitForInflight = async () => !pending;
+    f.wasm.exact_advance = to => { pending = true; return JSON.stringify({ ops: [], clock: to }); };
+    expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: false, reason: 'requests' });
+  }
+});
+
+test('a declared server hold stays named without holding settle or data', async () => {
+  const f = fixture(), elapsed = requestClock(f);
+  f.state.pending = [{ name: 'changes', ticket: 7, held: true }];
+  f.requestsPending = 0; // has_pending() excludes this hold; pending() still contains its ticket.
+  f.heldAsks.set(7, { target: 'changes', owner: 0 });
+  for (const request of [{ settle: true }, { data: true }]) {
+    expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: true, held: 1, heldTargets: ['changes'] });
+  }
+  expect(elapsed()).toBe(0);
+  f.state.pending.push({ name: 'library', ticket: 8 }); f.requestsPending = 1;
+  for (const request of [{ settle: true }, { data: true }]) {
+    expect(await f.exact.agent({ op: 'clock', ...request })).toMatchObject({ settled: false, reason: 'requests', held: 1, heldTargets: ['changes'] });
+  }
+});
+
+test('a clock jump stops at each intermediate timer when a runner request is parked', async () => {
+  for (const pending of [0, 1]) {
+    const f = fixture(), elapsed = requestClock(f);
+    f.requestsPending = pending;
+    f.heldAsks.set(7, { target: 'changes', owner: 0 });
+    timedRequests(f, { parked: true });
+    expect(await f.exact.agent({ op: 'clock', to: 1000 })).toMatchObject({ clock: 1000, held: 1, heldTargets: ['changes'] });
+    expect(f.events).toEqual(['advance 1000 until a request → 300', 'advance 1000 until a request → 600', 'advance 1000 until a request → 900', 'advance 1000 → 1000']);
+    expect(elapsed()).toBe(0);
+    expect(f.inflight.size).toBe(0);
+    expect(f.requestsPending).toBe(1);
+  }
+});
+
 test('a clock jump lands what is in flight before each timer fires', async () => {
   const f = fixture();
   timedRequests(f);
@@ -436,6 +412,17 @@ test('a clock jump lands what is in flight before each timer fires', async () =>
   f.events.length = 0;
   expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply 600', 'advance 900 until a request → 900', 'advance 900 → 900']);
+});
+test('a jump does not wait on a request the server holds, and names it', async () => {
+  const f = fixture();
+  timedRequests(f);
+  // A held ask (`exactHeld`, LLP 1016.000 D9) is listed, never tracked: it would never land in this test.
+  f.heldAsks.set(7, { target: 'changes', owner: 0 });
+  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1, inflight: 1, held: 1, heldTargets: ['changes'] });
+  expect(f.events).toEqual(['advance 700 until a request → 300', 'reply 300', 'advance 700 until a request → 600', 'advance 700 → 700']);
+  // Let go by the runner (a send to its target superseded it), it is no longer named.
+  f.letGoTickets = new Set([7]);
+  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1, inflight: 1 });
 });
 test('a jump that stops at its target still fires the other timers due there', async () => {
   const f = fixture();
@@ -510,7 +497,7 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
         column height=600
           text "Long"
 `);
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding:'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
   expect(build.status, build.stderr).toBe(0);
@@ -627,7 +614,7 @@ test('agent launch facts never read the platform locale, zone or entropy', async
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
   const date = [Date.UTC(2026, 0, 1), 0];
-  expect(reported).toEqual([date, ['en-US', 'UTC', 1].join('\0'), date, ['en-US', 'UTC', 1].join('\0')]);
+  expect(reported).toEqual([date, ['en-US', 'UTC', 1, ''].join('\0'), date, ['en-US', 'UTC', 1, ''].join('\0')]); // no formatLocale given (#952)
   expect(draws).toBe(0);
 });
 
@@ -640,7 +627,7 @@ test('ordinary web reloads keep the launch seed', async () => {
   f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
-  expect(reported).toEqual([['fr-FR', 'Europe/Paris', 1].join('\0'), ['fr-FR', 'Europe/Paris', 1].join('\0')]);
+  expect(reported).toEqual([['fr-FR', 'Europe/Paris', 1, ''].join('\0'), ['fr-FR', 'Europe/Paris', 1, ''].join('\0')]); // no formatLocale given (#952)
   expect(draws).toBe(1);
 });
 
@@ -682,8 +669,16 @@ test('non-flow operation transcripts remain byte-for-byte equal to the existing 
   expect(actual).toBe(expected);
 });
 
-// Exercise the moved module through the real attach() adapter, with browser
-// scheduling under the test's control. Geometry remains a browser concern.
+// Run the input adapter with controlled scheduling; browser tests cover geometry.
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+for (const name of ['prompt-glue', 'alert-message']) {
+  const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
+  if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
+  inputSource = stripped;
+}
+const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputScript = new vm.Script(inputCode + '\n' + declaration('attach'), { filename: 'input-glue.js' });
+
 function inputFixture() {
   const listeners = new Map(), windowListeners = new Map(), frames = new Map(), sent = [], captured = [];
   let serial = 0;
@@ -702,16 +697,13 @@ function inputFixture() {
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
     cancelAnimationFrame(id) { frames.delete(id); },
-    wasm: { exact_dispatch: (...args) => args }, writeIn: value => value, now: () => 0,
+    wasm: { exact_dispatch: (...args) => args }, writeIn: value => value, now: () => 0, performance: { now: () => 0 }, // (a pressable's press dims from a key too: its start, bf527d835f)
     send: value => sent.push(value),
     // The window's capture listeners: they hear a contact's events wherever they land.
     addEventListener(kind, fn) { const list = windowListeners.get(kind) ?? []; list.push(fn); windowListeners.set(kind, list); },
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
-  const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, module);
-  const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
-  vm.runInContext(tested + '\n' + declaration('attach'), f);
+  inputScript.runInContext(f);
   f.attach(el, 7, ['pan']);
   function event(extra = {}) {
     return { isPrimary: true, button: 0, pointerId: 1, clientX: 0, clientY: 0,
@@ -777,10 +769,10 @@ test('pan rejects foreign and editable contacts and drops cancelled or stale que
 
 test('a pan under a nested button hears its contact on the window until it begins, and a release anywhere ends it (kanban F6)', () => {
   const nested = { target: { closest: s => s.startsWith('button') ? {} : null }, pointerType: 'mouse', buttons: 1 };
-  const watching = h => ['pointermove', 'pointerup', 'pointercancel'].map(k => h.windowListeners.get(k)?.length ?? 0);
+  const count = h => ['pointermove', 'pointerup', 'pointercancel'].map(k => h.windowListeners.get(k)?.length ?? 0), fixture = () => { const h = inputFixture(); h.load(); h.base = count(h); return h; }, watching = h => count(h).map((n, i) => n - h.base[i]); // the contact's own, beyond those kept from load (a press's dim fade, bf527d835f)
   // Released outside the node inside the slop: the contact ends, and a later
   // buttonless move back over the node pans nothing (it did, stale, before).
-  let h = inputFixture(); h.load();
+  let h = fixture();
   const down = h.pointer('pointerdown', nested);
   expect([down.prevented, down.stopped, h.captured]).toEqual([false, false, []]); // a tap stays the button's
   expect(watching(h)).toEqual([1, 1, 1]);
@@ -789,19 +781,19 @@ test('a pan under a nested button hears its contact on the window until it begin
   h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
   expect(h.sent).toEqual([]);
   // Dragged out past the slop and released there: the pan begins and ends once.
-  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h = fixture(); h.pointer('pointerdown', nested);
   h.outside('pointermove', { ...nested, clientX: 60 });
   h.outside('pointerup', { ...nested, clientX: 60, buttons: 0 });
   expect(h.sent).toEqual([[7, 20, '60,0', 0]]);
   h.pointer('pointermove', { ...nested, clientX: 90, buttons: 0 }); h.tick();
   expect(h.sent.length).toBe(1);
   // An up no one heard (outside the window): the next move without the button ends it.
-  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h = fixture(); h.pointer('pointerdown', nested);
   h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
   expect([h.sent, watching(h)]).toEqual([[], [0, 0, 0]]);
   // Dragged inside: once the pan begins it captures, the window stops
   // watching, and each later event is handled once.
-  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h = fixture(); h.pointer('pointerdown', nested);
   h.pointer('pointermove', { ...nested, clientX: 10 }); h.tick();
   expect([h.sent, h.captured, watching(h)]).toEqual([[[7, 20, '10,0', 0]], [1], [0, 0, 0]]);
   h.pointer('pointermove', { ...nested, clientX: 15 }); h.tick();
@@ -974,6 +966,22 @@ test('initial flow loading cannot hold the first frame or module activation', as
   await checkpoint();
   expect(f.logs.lines.at(-1)).toContain('textflow module: Error: flow unavailable');
   await boot;
+});
+
+for (const letGo of [false, true]) test(`module replacement reaches the runner without waiting on a parked ticket (letGo=${letGo})`, async () => {
+  const f = fixture(), elapsed = requestClock(f), calls = [];
+  f.requestsPending = 1;
+  f.setInputReady = value => { f.inputReady = value; };
+  f.wasm.exact_boot_module = (...args) => {
+    calls.push(args[3]);
+    return letGo ? '{"ops":[]}' : '{"error":"runner still has a pending request"}';
+  };
+  const candidate = { realm: { id: 1 }, receipt: new Uint8Array([1]), letGo };
+  const result = f.boot(new Uint8Array([1]), null, () => true, candidate);
+  if (letGo) { await result; expect(f.activeModule).toBe(candidate); }
+  else await expect(result).rejects.toThrow('runner still has a pending request');
+  expect(calls).toEqual([Number(letGo)]);
+  expect(elapsed()).toBe(0);
 });
 
 test('module replacement waits for requests, rechecks supersession; the dev loop swaps after its settle window, an update refuses', async () => {
@@ -1191,7 +1199,6 @@ test('tree --ax renders each element with its join and frame, then its findings'
   expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');
 });
 
-// Astra's review of a6d847f1 (llp/reviews/code-2026-10-03-1080.002-ax-tree.astra.md): 2, 5, 8, 11, 12.
 const fakeChrome = ({ nodes, stamps, plain }) => {
   const order = [];
   const snapshot = { strings: ['data-agent-view', '1'], documents: [{ nodes: { backendNodeId: [100], attributes: [[0, 1]], parentIndex: [-1], nodeType: [1], nodeName: [0] }, layout: { nodeIndex: [], bounds: [] } }] };
@@ -1248,14 +1255,13 @@ test('tree --ax: parity reports a state one side can observe and does not, befor
 });
 
 test('tree --ax: an aria-pressed toggle is a button on every source', () => {
-  const web = axReply([el(0, 'button', 'Shown', { testId: 'pressed', states: {} })]);
-  const mac = axReply([el(0, 'checkbox', 'Shown', { testId: 'pressed', native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], { source: 'appkit' });
+  const web = axReply([el(0, 'button', 'Shown', { testId: 'pressed', states: { pressed: true } })]);
+  const mac = axReply([el(0, 'checkbox', 'Shown', { testId: 'pressed', states: { pressed: true }, native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], { source: 'appkit' });
   const ios = axReply([el(0, 'toggleButton', 'Shown', { testId: 'pressed', value: '1', native: { role: ['toggleButton'] } })], { source: 'uikit' });
   expect(axParity(web, mac).findings).toEqual([]);
   expect(axParity(web, ios).findings).toEqual([]);
 });
 
-// Astra's round 2 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r2.astra.md): 3 and 4.
 test('tree --ax: parity compares expanded where a side reports it, and AppKit\'s true-only report', () => {
   const web = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: true } }), el(1, 'button', 'Other', { testId: 'other', states: { expanded: false } })]);
   const ios = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: false }, native: { role: ['button'] } }), el(1, 'button', 'Other', { testId: 'other', states: { expanded: false }, native: { role: ['button'] } })], { source: 'uikit' });
@@ -1289,7 +1295,6 @@ test('tree --ax: sixty long guest-frame URLs still leave a reply within 256 KB, 
   expect(h.ax.truncated.excluded).toBe(60);
 });
 
-// Astra's round 3 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r3.astra.md): 1, 2 and 4.
 test('tree --ax: the host resolves the target (the active route\'s view first), and the reply is scoped by that id', async () => {
   const plain = { epoch: 1, incarnation: 1, roots: [1], nodes: [
     { id: 1, parent: null, props: {}, children: [2, 3] }, { id: 2, parent: 1, props: { testId: 'dup' }, inactive: true, children: [] }, { id: 3, parent: 1, props: { testId: 'dup' }, children: [] }] };
@@ -1321,8 +1326,7 @@ test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded
   expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
 });
 
-// files F11: a held device request is named by the node its answer arrives at
-// or by its capability, whatever ticket the host's counter gave it.
+// A held request is addressed by node or capability, independently of its ticket.
 test('a hold is addressed by its node or capability, and an unclear name is refused', () => {
   const pending = [{ name: 'notes', ticket: 4 }, { name: 'folder-input', ticket: 7, device: { capability: 'open-directory', args: { id: 'folder-input' } } },
     { name: 'share', ticket: 9, device: { capability: 'share', args: {} } }, { name: 'export-input', ticket: 11, device: { capability: 'export', args: { id: 'export-input' } } }];
@@ -1340,8 +1344,6 @@ test('a pick answer keeps a path with a space when it comes one per line', () =>
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
 });
 
-// Review A1: `tap … drag … mouse` (an authored test's `drag … from x y mouse`) holds the left button on the web: the
-// page hears a mouse's pointerdown and pointerup, where `tap` itself refuses `mouse` beside `down` (its click form).
 test('a mouse drag presses and releases the left button on the web', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, `component MouseDrag
@@ -1353,7 +1355,7 @@ test('a mouse drag presses and releases the left button on the web', async () =>
       column testId="pad" width=300 height=100 touch-action="none" pointerdown=at("down") pointerup=at("up") background-color="#dddddd"
       text log testId="log"
 `);
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding:'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
   expect(build.status, build.stderr).toBe(0);
@@ -1375,8 +1377,6 @@ test('a mouse drag presses and releases the left button on the web', async () =>
   }
 }, 120000);
 
-// Review A1 delta: a native contact's held left button ends with its lift, its cancel, or a down that failed — an
-// error reply or a request that threw — so a later finger is not sent as a mouse.
 test('a native mouse contact holds the button until it lifts or its down fails', async () => {
   const { mouseContact } = await import('../../scripts/agent.mjs');
   const sent = [], c = mouseContact(), send = (reply) => (button) => { sent.push(button.mouse === true); if (reply instanceof Error) throw reply; return reply; };

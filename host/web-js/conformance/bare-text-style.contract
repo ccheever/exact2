@@ -1,0 +1,83 @@
+// Bare styles fill only rows no ancestor says (LLP 1115.000 D12.2).
+shape TextRow
+  id: string
+  styled: bool
+  bold: bool
+  leading: bool
+
+component App
+  state weighted = false
+  state styled = false
+  state bold = false
+  state leading = false
+  derive items = [TextRow(id="item", styled=styled, bold=bold, leading=leading)]
+  action flip
+    weighted = not weighted
+  action styleItem
+    styled = not styled
+  action boldItem
+    bold = not bold
+  action leadItem
+    leading = not leading
+  view
+    column testId="root" padding=8 gap=4
+      button testId="flip" press=flip "Flip"
+      text testId="alone" font-size="-exact-headline" "Bare headline"
+      column font-weight=(weighted ? 700 : none) line-height=(weighted ? "40px" : none)
+        text testId="bound" font-size="-exact-headline" "Bound ancestor"
+      column font-weight="unset" line-height="unset"
+        text testId="clear-above" font-size="-exact-headline" "Clear above"
+      text testId="clear-own" font-size="-exact-headline" font-weight="unset" line-height="unset" "Own clear"
+      column font-size="-exact-headline"
+        text testId="nested" font-size="-exact-body" "Nested bare body"
+      column font-size=20 line-height="2em" font-weight=700
+        text testId="relative" font-size="-exact-caption1" "Computed inherited leading"
+      column font="-exact-headline"
+        text testId="shorthand-child" font-size="-exact-body" "Shorthand ancestor"
+      text role="heading" aria-level=1
+        text testId="heading-child" font-size="-exact-headline" "Heading ancestor"
+      button
+        text testId="control-child" font-size="-exact-headline" "Control ancestor"
+      button testId="control-own" font-size="-exact-headline" "Control start"
+      text testId="dynamic" font-size=(weighted ? "-exact-body" : "-exact-headline") "Bound bare style"
+      text testId="dynamic-own" font-size=(weighted ? "-exact-body" : "-exact-headline") font-weight=(weighted ? 700 : none) line-height=(weighted ? "40px" : none) "Bound style and rows"
+      column font=(weighted ? "-exact-body" : "-exact-headline") font-weight=(weighted ? 700 : none) line-height=(weighted ? "40px" : none)
+        text testId="dynamic-shorthand-child" font-size="-exact-body" "Bound shorthand ancestor"
+      column font="-exact-headline" font-weight=(weighted ? "unset" : none) line-height=(weighted ? "unset" : none)
+        text testId="cleared-shorthand-child" font-size="-exact-body" "Cleared shorthand ancestor"
+      column font-weight=700 line-height="40px"
+        column font=(weighted ? none : "-exact-body") font-weight=(weighted ? none : 300) line-height=(weighted ? none : 1.5)
+          text testId="removed-style-inherits" font-size="-exact-headline" "Removed shorthand inherits"
+      column font=(weighted ? none : "-exact-body") font-weight=(weighted ? none : 300) line-height=(weighted ? none : 1.5)
+        text testId="removed-style-fills" font-size="-exact-headline" "Removed shorthand fills"
+      row gap=4
+        button testId="style-item" press=styleItem "Style"
+        button testId="bold-item" press=boldItem "Weight"
+        button testId="lead-item" press=leadItem "Leading"
+      column
+        for item in items key=item.id
+          column font=(item.styled ? "-exact-headline" : none) font-weight=(item.bold ? 700 : none) line-height=(item.leading ? "48px" : none)
+            text testId="keyed-child" font-size="-exact-body" "Independent item fields"
+      column font-weight=600 line-height="40px"
+        text testId="no-style" font-size=(weighted ? "18px" : none) font-weight=(weighted ? 700 : none) line-height=(weighted ? "48px" : none) "No named style"
+      column line-height="40px"
+        column font="-exact-headline" font-weight=(weighted ? "" : none) line-height=(weighted ? "  " : none)
+          text testId="blank-child" font-size="-exact-body" "Blank clears the shorthand"
+      row line-height="48px" gap=4
+        select testId="select-said" value="Static" font-size="-exact-body"
+          option "Static"
+        select testId="select-bound-said" multiple=false value="Bound" font-size=(weighted ? "-exact-caption1" : "-exact-body")
+          option "Bound"
+        input type="date" testId="date-said" font-size="-exact-body"
+        input type="time" testId="time-bound-said" font-size=(weighted ? "-exact-caption1" : "-exact-body")
+      row line-height="48px" gap=4
+        select testId="select-removed" multiple=false value="Removed" font-size=(weighted ? none : "-exact-body") line-height=(weighted ? none : 1.5)
+          option "Removed"
+        input type="datetime-local" testId="datetime-removed" font-size=(weighted ? none : "-exact-body") line-height=(weighted ? none : 1.5)
+      row gap=4
+        select testId="select-unsaid" value="Static" font-size="-exact-body"
+          option "Static"
+        select testId="select-bound-unsaid" value="Bound" font-size=(weighted ? "-exact-caption1" : "-exact-body")
+          option "Bound"
+        input type="date" testId="date-unsaid" font-size="-exact-body"
+        input type="time" testId="time-bound-unsaid" font-size=(weighted ? "-exact-caption1" : "-exact-body")

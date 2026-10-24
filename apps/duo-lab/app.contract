@@ -150,7 +150,7 @@ component DuoLab
                 column navigationKey=`${entry.id}` navigationScroll="image-list" class=Screen testId="screen-images"
                   header class=Head
                     text "Images" role="heading" aria-level=1 testId="images-title"
-                    text `${rows.length} rows over four pictures; fold mid-scroll.`
+                    text `${rows.length} ${rows.length == 1 ? "row" : "rows"} over four pictures; fold mid-scroll.`
                   list id="image-list" appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-safe-area-corners-inset-left)" padding-right="env(-exact-safe-area-corners-inset-right)" overflow-x="hidden" testId="image-list"
                     for row in rows key=row.id
                       column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`

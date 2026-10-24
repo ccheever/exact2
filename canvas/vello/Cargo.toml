@@ -1,6 +1,6 @@
 # Canvas 2D replayed on the GPU with vello (LLP 1056 §8.4; the bake-off's
 # vello candidate, bake/canvas-vello). A loaded module: the Apple host dlopens
-# `libexact_canvas_vello.dylib` (as `libexact_canvas_gpu.dylib`, ABI v2) and no
+# `libexact_canvas_vello.dylib` (as `libexact_canvas_gpu.dylib`, ABI v3) and no
 # host links it. Every shader is Metal AIR compiled at build time
 # (`build.rs`); nothing compiles WGSL or MSL at run time.
 [package]
@@ -8,7 +8,7 @@ name = "exact-canvas-vello"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Canvas 2D lists replayed into a vello scene on the GPU (ABI v2 module)"
+description = "Canvas 2D lists replayed into a vello scene on the GPU (ABI v3 module)"
 publish = false
 
 [lib]

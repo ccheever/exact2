@@ -188,7 +188,8 @@ export function published(selected, params) {
 // (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path, a
 // row's own and its source's)
 const bare = ({ library: _host, ...r }) => (r.source && typeof r.source === 'object' ? { ...r, source: (({ library: _said, ...at }) => at)(r.source) } : r);
-const scrubbed = (rows, params) => (rows ?? []).map(bare).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// (`fromSite`, a page's word to the server, never leaves: the join names it as `fromAt`.)
+const scrubbed = (rows, params) => (rows ?? []).map(bare).map(({ fromSite: _site, ...r }) => (r.token ? { ...r, token: named(r.token, params).token } : r));
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
 const heldOf = ({ library: _host, ...held }, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
@@ -359,7 +360,7 @@ export function editable(row, origin, params = new Map(), unread = false, state 
   const isParam = n => [...params.values()].some(p => p.param === n);
   const link = names.find(n => declared(n) || isParam(n)) ?? null;
   if (unread) return { rung: null, reason: 'it reads a component param this server has not read yet: inspect it again', link };
-  if (row.source === 'inherited') return { rung: null, reason: `inherited from #${row.from}: the token is that node's to edit`, link };
+  if (row.source === 'inherited') return { rung: null, reason: `inherited from ${row.fromAt ? `${row.fromAt.component ?? 'a node'} (${String(row.fromAt.file).split('/').pop()}:${row.fromAt.line})` : `#${row.from}`}: the token is that node's to edit`, link };
   if (row.source === 'dynamic') return { rung: null, reason: 'a dynamic expression: read-only here', link };
   if (row.source === 'initial') return { rung: null, reason: 'its initial value: nothing sets it' };
   if (row.source !== 'authored') return { rung: null, reason: `a row whose source is ${row.source ?? 'not known'}: read-only here`, link };
@@ -411,9 +412,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
   // (a `library` is the map's to say, never the host report's: dropped from what the host sent)
   const rows = (selected.rows ?? []).map(bare).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
-  if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
+  if (!map) return { ...base, source: null, rows: rows.map(({ unread, fromSite: _site, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
-  if (!node) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
+  if (!node) return { ...base, source: null, rows: rows.map(({ unread, fromSite: _site, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
   const bound = new Map((node.bindings ?? []).map(b => [b.row, b]));
   // The node a state is held on, named on this one inside it (stage 9 E): its rows' places are its own.
   const owner = base.held && Number.isSafeInteger(base.held.site) ? map.nodes[base.held.site] ?? null : node;
@@ -465,7 +466,10 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const sha = f => (map.sources ?? []).find(s => s.file === f)?.sha256;
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
       const part = b?.state ? { state: b.state, ...(b.at ? { at: b.at } : {}) } : written;
-      const { unread, ...row } = r;
+      // An inherited row's ancestor, named by its source (tamber/1.16 `fromAt`) where the page gave its plan site.
+      const { unread, fromSite, ...given } = r;
+      const fromNode = given.source === 'inherited' && Number.isSafeInteger(fromSite) ? map.nodes?.[fromSite] : null;
+      const row = fromNode?.file ? { ...given, fromAt: { file: fromNode.file, line: fromNode.line, component: fromNode.component ?? null } } : given;
       // A folded `:disabled` or `:checked` row (queue item (2)) is the runtime's choice over its base and its parts,
       // so `dynamic`: where the map says both, it is read as its base, its rung the base's, each part beside it in
       // `states` with its own (theme2's and review2's 04:24). One the map can't explain stays dynamic, read-only.
@@ -633,4 +637,21 @@ export function staleMap(map, read = readFileSync, app = null) {
     if (now !== digest) return `${shown} changed since the running plan: outline once it has reloaded`;
   }
   return '';
+}
+
+/** The plan sites a move `n` call sites up from `site` may land on (tamber/1.16 `inspect` `select`), as levels, nearest
+ * first: the nodes of each enclosing copy from the `n`th call out to the app's own, whose call-site chain is the
+ * site's with its innermost calls taken off, each level that owns a node. A page selects in the first level that has a
+ * node above its selection, by its own tree: a component that only renders another, or one whose nodes are beside the
+ * selection, is passed over, and past the outermost call it lands on the root. */
+export function levelsUp(map, site, n) {
+  const chain = map.nodes?.[site]?.chain;
+  if (!Array.isArray(chain)) return [];
+  const key = c => `${c.file}:${c.line}:${c.col}`, chainOf = node => (node?.chain ?? []).map(key).join('>');
+  const levels = [];
+  for (let k = Math.min(n, chain.length); k <= chain.length; k++) {
+    const want = chain.slice(k).map(key).join('>'), found = map.nodes.flatMap((node, i) => (chainOf(node) === want ? [i] : []));
+    if (found.length) levels.push(found);
+  }
+  return levels;
 }

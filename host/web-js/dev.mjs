@@ -18,7 +18,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathS
 import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
-import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFileAsync as buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
@@ -28,6 +28,7 @@ import { serveCommands, serveReport, streamFrame } from '../../scripts/tamber-bu
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 import { galleryLoop } from './dev-gallery.mjs';
+import { inlineWhy as inlineWhyOf } from './dev-inline.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -351,7 +352,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         return;
       }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
-      if (tool.ready) console.log('design reader ready');
+      if (tool.ready) console.log('design reader ready'); // (until then a live proposal is taken as a rebuild, dev-inline.mjs)
     });
   };
   // Ready, and built from the compiler's sources as they are (a compiler
@@ -714,7 +715,7 @@ const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Ob
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
 const children=e=>[...(e?.children??[])].filter(x=>x.hasAttribute('data-carry-type')||x.hasAttribute('data-listitemkey'));
 const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:[...x.state[0],...[...(globalThis.__exactDevPanels?.live??[])].filter(s=>!s.n.gone)].map(s=>[s.n.devName,s.n.devType,encode(s())]).concat(globalThis.__exactDevPanels?.left()??[]),answers:logic?[]:x.resources.filter(r=>!r.owned&&!r.failed&&!r.ticket&&!r.waiting&&!r.ov&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,modes:ch.before?.mode??x.modes?.read()??null,focus}};
-const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
+const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','formatLocale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('${base}/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
 let liveQ=Promise.resolve(),liveStatus=null;const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;let sc=m.scrub;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('${base}/design',{cache:'no-store'});if(r.status===200){const f=await r.json();sc=f.scrub;x.design(f)}}if(x?.designDigest!==was&&ch.nonce){clearTimeout(liveStatus);if(sc)liveStatus=setTimeout(status,150);else status()}}).catch(e=>console.error('exact dev:',e))};
@@ -822,21 +823,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     }
     return {};
   }
-  /** Why a live proposal's texts would not apply in place on these pages:
-   * a token they write inline (the design read says which: a font-weight
-   * number, an SVG attribute's) whose value moves, or null.
-   * Only with the design reader built, so a proposal never waits on a
-   * compile; with none, the session's class stands and the release rebuilds. */
-  async function inlineWhy(texts) {
-    const file = relative(app.dir, designPath(app.dir));
-    if (!(file in texts) || !toolReady()) return null;
-    const next = await scrubDesign(texts[file], { readOnly: true });
-    // The design the pages run once it is read (a build may land meanwhile).
-    const from = scrubbed ?? design;
-    if (next.error || !from || next.tokens.length !== from.tokens.length) return null;
-    const inline = next.tokens.find((t, i) => t.inline && t.name === from.tokens[i].name && !same(t, from.tokens[i]));
-    return inline ? `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'})` : null;
-  }
+  /** Why a live proposal's texts would not apply in place on these pages
+   * (dev-inline.mjs): the built reader only, so a proposal never waits on a
+   * compile; with none yet, a rebuild is assumed. */
+  const inlineWhy = (texts) => inlineWhyOf({ texts, file: relative(app.dir, designPath(app.dir)), ready: toolReady,
+    read: (text) => scrubDesign(text, { readOnly: true }), pages: () => scrubbed ?? design, same });
   /** A scrub ended without its write: the pages back on the committed design. */
   function scrubRestore(frame) {
     released = false;
@@ -982,7 +973,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // to it (below), started at the first such request.
     if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
       || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
-    const found = buildTreeFile(dist, url.pathname, req.headers.accept);
+    const found = await buildTreeFile(dist, url.pathname, req.headers.accept);
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }

@@ -328,10 +328,8 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         let small = ["get-app", "try-demo", "subscriptions", "sign-out", "clear"].contains(name)
         let fontSize = small ? 13 : NSFont.systemFontSize(for: b.controlSize)
         if small || name == "sign-in" {
-            // CSS 600 is the SF variable axis, not AppKit's approximate named weight.
-            let base = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: [0x77676874: 600]] as CFDictionary)
-            b.font = CTFontCreateCopyWithAttributes(base as CTFont, fontSize, nil, descriptor) as NSFont
+            // CSS 600 is AppKit's semibold (LLP 1019 §13 D11).
+            b.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
         } else { b.font = NSFont.systemFont(ofSize: fontSize) }
         let green = NSColor(red: 52.0 / 255, green: 199.0 / 255, blue: 89.0 / 255, alpha: 1)
         let tint = name.hasPrefix("a-") || name == "wide" ? green : NSColor.controlAccentColor

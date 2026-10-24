@@ -40,6 +40,7 @@ theme
   warnInk="light-dark(#8a1c12, #f0a89c)" // its text
 
 use Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
+use speak, cancelSpeech, pauseSpeech, resumeSpeech, speechSynthesisState, speechUtterance, SpeechUtteranceInfo, SpeechSynthesisState, SpeechUtterance from "@exact/speech-synthesis"
 
 shape Entry
   id: string
@@ -87,10 +88,89 @@ component Markdown
   // The recent document a context menu was opened on.
   state aimed = ""
 
+  // Listen (LLP 1133.012 §10): the document read aloud, one utterance a block
+  // of prose, queued one after another as each id is answered; the word being
+  // spoken is marked in its block. The queue's ids in order, and the block
+  // each one speaks.
+  state listening = false
+  state spokenIds: string[] = []
+  state spokenBlocks: string[] = []
+  // Which Listen is reading (each starts over), and which one each mutation's
+  // speak was sent for: an answer for an earlier one is not kept.
+  state run = 0
+  state evenRun = 0
+  state oddRun = 0
+  resource voice = speechSynthesisState() as shape SpeechSynthesisState else empty()
+  resource last = speechUtterance(utterance=lastId) as shape SpeechUtterance else empty()
+  mutation cleared as shape SpeechSynthesisState then queueFirst
+  // An answer's `then` may not send its own mutation, so the queue alternates two.
+  mutation queuedEven as shape SpeechUtteranceInfo then keptEven
+  mutation queuedOdd as shape SpeechUtteranceInfo then keptOdd
+  mutation held as shape SpeechSynthesisState
+  derive readable = doc.blocks.filter(b => b.kind == "paragraph" or b.kind == "heading" or b.kind == "item" or b.kind == "quote")
+  derive lastId = match spokenIds.at(-1) { case some(i) => i, case none => "" }
+  derive speakingAt = match voice.utterance { case some(u) => spokenIds.indexOf(u), case none => -1 }
+  derive speakingBlock = speakingAt < 0 ? "" : match spokenBlocks.at(speakingAt) { case some(b) => b, case none => "" }
+  derive finished = listening and last.state == "ended" and spokenIds.length == readable.length
+  derive failure = match last.error { case some(e) => e == "canceled" or e == "interrupted" ? "" : e, case none => "" }
+
   // What the host delivers, what the field shows, and what a followed link
   // does are one action, because they are one thing.
   action openFile(value)
     asked = value
+    stopListening()
+  // A second Listen starts over: its cancel ends the first queue.
+  action listen
+    listening = true
+    run = run + 1
+    spokenIds = []
+    spokenBlocks = []
+    send cleared = cancelSpeech()
+  action queueFirst
+    queueEven(0)
+  action queueEven(at: number)
+    match readable.at(at)
+      case some(b)
+        evenRun = run
+        send queuedEven = speak(text=b.runs.map(r => r.text).join(""), audioSessionType="playback")
+      case none
+        listening = listening
+  action queueOdd(at: number)
+    match readable.at(at)
+      case some(b)
+        oddRun = run
+        send queuedOdd = speak(text=b.runs.map(r => r.text).join(""), audioSessionType="playback")
+      case none
+        listening = listening
+  action keptEven
+    match queuedEven
+      case some(u)
+        if listening and evenRun == run
+          let next = spokenIds.length + 1
+          keep(u.id)
+          queueOdd(next)
+      case none
+        listening = listening
+  action keptOdd
+    match queuedOdd
+      case some(u)
+        if listening and oddRun == run
+          let next = spokenIds.length + 1
+          keep(u.id)
+          queueEven(next)
+      case none
+        listening = listening
+  action keep(id: string)
+    spokenBlocks = spokenBlocks.concat([match readable.at(spokenIds.length) { case some(b) => b.id, case none => "" }])
+    spokenIds = spokenIds.concat([id])
+  action pauseListening
+    if voice.paused
+      send held = resumeSpeech()
+    else
+      send held = pauseSpeech()
+  action stopListening
+    listening = false
+    send held = cancelSpeech()
   action toggleFolder
     folder = not folder
   action aim(path: string)
@@ -133,6 +213,9 @@ component Markdown
               text "Open…" font-size=12 font-weight=600 color="ink"
             button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color="control"
               text "Folder…" font-size=12 font-weight=600 color="ink"
+            // Listen again starts over from the top.
+            button press=listen aria-label="Read the document aloud" disabled=(readable.length == 0) testId="listen" padding=6 border-radius=6 background-color="control"
+              text "Listen" font-size=12 font-weight=600 color="ink"
             text doc.name font-size=12 font-weight=600 color="softInk" testId="document-name"
             // Appearance: system, light, dark — the icons exact1's blog used
             // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
@@ -143,6 +226,18 @@ component Markdown
             SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
             SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
             SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
+        // Listen's controls, on a bar of their own so a phone's narrow header keeps them in reach.
+        if listening
+          row width="100%" padding=8 gap=8 align-items="center" background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box" testId="listen-bar"
+            if finished
+              text "Finished" font-size=12 color="softInk" testId="listen-finished"
+            else
+              button press=pauseListening testId="pause" padding=6 border-radius=6 background-color="control"
+                text (voice.paused ? "Resume" : "Pause") font-size=12 font-weight=600 color="ink"
+            button press=stopListening testId="stop" padding=6 border-radius=6 background-color="control"
+              text (finished ? "Close" : "Stop") font-size=12 font-weight=600 color="ink"
+            if failure != ""
+              text `Could not read aloud: ${failure}` font-size=12 color="warnInk" testId="listen-error"
         // A file that would not open never replaces the one being read: the
         // reader says so and keeps the page (LLP 1033's milestone).
         if doc.failed
@@ -181,7 +276,7 @@ component Markdown
           list appearance="none" virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" user-select="text" testId="document" box-sizing="border-box"
             for b in doc.blocks key=`${doc.path}:${b.id}`
               view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
-                Blocks(block=b)
+                Blocks(block=b, spoken=(b.id == speakingBlock), at=voice.charIndex, length=voice.charLength)
 
 component FolderRow
   props
@@ -195,6 +290,20 @@ component FolderRow
       else
         row width="100%" box-sizing="border-box" padding=6 border-radius=6
           text entry.name font-size=12 color="ink"
+
+// A block Listen is speaking: its plain text, the word at `at` marked as a
+// search hit is. The word's offsets are UTF-16 code units, as `slice` takes them.
+component Marked
+  props
+    words: string
+    at: number
+    length: number
+    size: number
+    weight: number
+  view
+    text words.slice(0, at) font-size=size font-weight=weight
+    text words.slice(at, at + length) font-size=size font-weight=weight background-color="pill" color="pillInk" testId="spoken-word"
+    text words.slice(at + length) font-size=size font-weight=weight
 
 // One block. A document is a flat list of these — Contract inlines
 // components syntactically and cannot recurse, and a flat list is also what
@@ -210,20 +319,33 @@ component FolderRow
 component Blocks
   props
     block: Block
+    // Whether Listen is speaking this block, and the word it is at.
+    spoken: bool
+    at: number
+    length: number
   view
     if block.kind == "heading"
       text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
-        Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+        if spoken
+          Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+        else
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
       if block.kind == "paragraph"
         text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box" color="ink" line-height=1.625
-          Runs(runs=block.runs, size=16, weight=400)
+          if spoken
+            Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
+          else
+            Runs(runs=block.runs, size=16, weight=400)
       else
         if block.kind == "item"
           row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" box-sizing="border-box" padding-top=2 padding-bottom=4 padding-left=(36 + block.depth * 22) padding-right=32
             text block.marker font-size=16 line-height=1.625 color="softInk" width=26
             text flex=1 min-width=0 color="ink" line-height=1.625
-              Runs(runs=block.runs, size=16, weight=400)
+              if spoken
+                Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
+              else
+                Runs(runs=block.runs, size=16, weight=400)
         else
           if block.kind == "code"
             // `pre-wrap` and not a horizontal scroll: a code block inside a
@@ -237,7 +359,10 @@ component Blocks
               row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box"
                 view width=3 background-color="quoteEdge" border-radius=2
                 text flex=1 min-width=0 padding-left=16 color="quoteInk" line-height=1.625
-                  Runs(runs=block.runs, size=16, weight=400)
+                  if spoken
+                    Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
+                  else
+                    Runs(runs=block.runs, size=16, weight=400)
             else
               if block.kind == "rule"
                 view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=24 box-sizing="border-box"

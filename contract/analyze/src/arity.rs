@@ -351,12 +351,17 @@ impl Graph<'_> {
         for node in nodes {
             match node {
                 Node::Element {
-                    attrs, children, ..
+                    tag,
+                    attrs,
+                    children,
+                    ..
                 } => {
+                    let control = contract_syntax::payload_control(tag, attrs);
                     for attr in attrs {
                         if !HANDLERS.contains(&attr.name.as_str()) {
                             continue;
                         }
+                        let event = contract_syntax::typed_event(&attr.name, control);
                         let (name, given) = match &attr.value {
                             Expr::Ident(name, _) => (name, 0),
                             Expr::Call(name, args, _) => (name, args.len()),
@@ -371,7 +376,7 @@ impl Graph<'_> {
                         let declaration = self.interfaces[id]
                             .declaration
                             .expect("authored action parameter");
-                        let Some(range) = handler_arity(&attr.name, given) else {
+                        let Some(range) = handler_arity(event, given) else {
                             return Err(refusal(
                                 format!(
                                     "`{}=` does not accept explicitly bound arguments",
@@ -392,7 +397,7 @@ impl Graph<'_> {
                             Need {
                                 min: *range.start(),
                                 max: *range.end(),
-                                record: contract_types::event_record(&attr.name),
+                                record: contract_types::event_record(event),
                                 low: origin.clone(),
                                 high: origin,
                             },

@@ -1,5 +1,6 @@
 //! The abstract syntax tree.
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
+pub use crate::tap::TapForm;
 use crate::Span;
 use std::collections::BTreeMap;
 /// Identifier ranges that are distinct from their AST construct's diagnostic span.
@@ -39,6 +40,10 @@ pub struct File {
     pub decorations: Vec<StyleDecl>,
     /// Loaded files' visible decoration aliases, by source identity.
     pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
+    /// `atom` declarations: the inline atoms' source forms (LLP 1045.000 D3).
+    pub atoms: Vec<StyleDecl>,
+    /// Loaded files' visible atom aliases, by source identity.
+    pub atom_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
     /// scoped to their file as in CSS Modules (LLP 1091 D5).
     pub keyframes: Vec<KeyframesDecl>,
@@ -249,11 +254,17 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `before data`: the test's first step does not wait for the app's
-    /// data. Without it the driver waits, as `clock data` does, so a store
-    /// opened at launch is open before the first step (habits, pomodoro).
-    /// What has landed without the wait is the host's: a native app runs on
-    /// real time before the driver connects, the web page on the agent's.
+    /// A media preference, before observations or between steps.
+    Prefer {
+        /// CSS media feature name.
+        name: String,
+        /// The driver's value.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `before data` skips the initial `clock data` wait. A native app runs
+    /// on real time before the driver connects; the web uses the agent's.
     BeforeData {
         /// Where.
         span: Span,
@@ -498,45 +509,20 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect wakelock held|released`: the displayed elements requesting
+    /// the lock, not whether the OS granted it (LLP 1125 D11).
+    ExpectWakelock {
+        /// Whether the holder record is nonempty.
+        held: bool,
+        /// Where.
+        span: Span,
+    },
     /// MIDI's steps (LLP 1125 §4): `prefer midi.…`, `tap midi`, `expect midi`.
     Midi {
         /// Which.
         step: crate::MidiStep,
         /// Where.
         span: Span,
-    },
-}
-/// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
-#[derive(Debug, Clone, PartialEq)]
-pub enum TapForm {
-    /// A press: down and up at the node's middle.
-    Press,
-    /// `hover`: a pointer over it.
-    Hover,
-    /// `dblclick`: two presses, the second a double click (feed F10).
-    Dblclick,
-    /// `contextmenu`: a secondary press.
-    Contextmenu,
-    /// `into "key"`: a virtualized list's row brought into view by its key
-    /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
-    Into(String),
-    /// `pinch <scale> [at x y]`: two fingers about the node's middle, or
-    /// about `at` in its box (stocks: the agent's pinch, in a test file).
-    Pinch {
-        /// How far the fingers spread, greater than 0. `1` is no change.
-        scale: f64,
-        /// Where the pinch is centred, in the node's box; its middle when `None`.
-        at: Option<(f64, f64)>,
-    },
-    /// `mediasession "action" [seconds]`: the media element's session
-    /// action, as the platform's handler would call it (LLP 1098 D10);
-    /// never a press.
-    MediaSession {
-        /// `play`, `pause`, or one of the six actions.
-        action: String,
-        /// A seek's `seekOffset` (else the element's own), `seekto`'s
-        /// `seekTime` (required there).
-        seconds: Option<f64>,
     },
 }
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -1197,10 +1183,10 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// `none`), whose `select` carries the field's `InputEvent`; or
 /// `Some("markdown")` for a textarea that may be the editor, whose `select`
 /// carries its `MarkdownSelection` and whose other field events are a text
-/// field's, over its source (LLP 1045 D6). What a handler's payload is
-/// typed by.
+/// field's, over its source (LLP 1045 D6). What a handler's payload is typed by.
 pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
     match tag {
+        "iframe" => Some("iframe"), // its `navigate=` is the guest's (LLP 1020.002 D2)
         "input" if input_control(tag, attrs).is_none() => Some("field"),
         "textarea" => Some(match attrs.iter().find(|a| a.name == "markup") {
             Some(a) if !matches!(&a.value, Expr::Str(m, _) if m == "none") => "markdown",

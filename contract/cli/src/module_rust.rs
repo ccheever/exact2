@@ -29,11 +29,24 @@ pub fn module_rust(plan: &Plan) -> Result<String, String> {
     );
     for (extension, rows) in extensions {
         let mut records = BTreeMap::new();
+        // The options each call's record takes whole as JSON (`json<T>`).
+        let mut whole: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for row in &rows {
             let source = &plan.sources[row.source.0 as usize];
             reach(plan, source.ty, &mut records)?;
             for p in params(plan, row) {
                 reach(plan, p, &mut records)?;
+                let json = json_of(plan, row)["options"].clone();
+                let fields = json
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|f| f.as_str());
+                let name = record_name(plan.str(plan.types[p.0 as usize].name));
+                whole
+                    .entry(name)
+                    .or_default()
+                    .extend(fields.map(str::to_owned));
             }
         }
         writeln!(
@@ -44,7 +57,8 @@ pub fn module_rust(plan: &Plan) -> Result<String, String> {
         .unwrap();
         out.push_str("    #![allow(clippy::all, dead_code)]\n    use exact_data::modules::{self as m, ModuleValue};\n");
         for (name, ty) in &records {
-            record(plan, name, *ty, &mut out)?;
+            let json = whole.get(name).map(Vec::as_slice).unwrap_or_default();
+            record(plan, name, *ty, json, &mut out)?;
         }
         for row in rows {
             call(plan, extension, row, &mut out)?;
@@ -114,24 +128,49 @@ fn rust_type(plan: &Plan, ty: TypesId) -> Result<String, String> {
         TypeKind::Option => format!("Option<{}>", elem()?),
         TypeKind::List => format!("Vec<{}>", elem()?),
         TypeKind::Record => record_name(plan.str(row.name)),
-        TypeKind::Unit => return Err("a module's value has no unit".into()),
+        // A signal answers nothing (LLP 1133.011 D1).
+        TypeKind::Unit => "()".into(),
     })
 }
 
+/// What the declaration reader noted of `row`'s WebAuthn dictionaries
+/// (`json<T>`, which the plan holds as strings): `{"options": [...],
+/// "answers": bool}`, or null.
+fn json_of(plan: &Plan, row: &ModulesRow) -> serde_json::Value {
+    let substitute: serde_json::Value =
+        serde_json::from_str(plan.str(row.substitute)).unwrap_or_default();
+    substitute["json"].clone()
+}
+
+/// A dictionary passed whole keeps its option: `Option<Value>` for
+/// `option<json<T>>`, which the plan holds as `option<string>`.
+fn whole_type(plan: &Plan, ty: TypesId) -> &'static str {
+    match plan.types[ty.0 as usize].kind {
+        TypeKind::Option => "Option<m::serde_json::Value>",
+        _ => "m::serde_json::Value",
+    }
+}
+
 /// A struct and its wire form: each field under its declared name, an
-/// enum's value checked both ways.
-fn record(plan: &Plan, name: &str, ty: TypesId, out: &mut String) -> Result<(), String> {
+/// enum's value checked both ways; the fields in `json` are WebAuthn
+/// dictionaries the module passes whole.
+fn record(
+    plan: &Plan,
+    name: &str,
+    ty: TypesId,
+    json: &[String],
+    out: &mut String,
+) -> Result<(), String> {
     let shape = plan.str(plan.types[ty.0 as usize].name);
     writeln!(out, "\n    /// `{shape}`.\n    #[derive(Debug, Clone, PartialEq, Default)]\n    pub struct {name} {{").unwrap();
     let mut checks = String::new();
     for f in fields(plan, ty) {
         let (key, rust) = (plan.str(f.name), field_name(plan.str(f.name)));
-        writeln!(
-            out,
-            "        /// `{key}`.\n        pub {rust}: {},",
-            rust_type(plan, f.ty)?
-        )
-        .unwrap();
+        let rust_ty = match json.iter().any(|j| j == key) {
+            true => whole_type(plan, f.ty).to_owned(),
+            false => rust_type(plan, f.ty)?,
+        };
+        writeln!(out, "        /// `{key}`.\n        pub {rust}: {rust_ty},").unwrap();
         // An enum, or an option of one.
         let inner = match plan.types[f.ty.0 as usize].kind {
             TypeKind::Option => plan.types[f.ty.0 as usize]
@@ -194,7 +233,16 @@ fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Res
         ("source", "a source")
     };
     let (f, at) = (field_name(declared), format!("{extension}.{declared}"));
-    let answer = rust_type(plan, plan.sources[row.source.0 as usize].ty)?;
+    let ty = plan.sources[row.source.0 as usize].ty;
+    // A send that answers nothing (LLP 1133.004 D5): its reply is `()`.
+    let nothing = plan.types[ty.0 as usize].kind == TypeKind::Unit;
+    let answer = if nothing {
+        "()".to_owned()
+    } else if json_of(plan, row)["answers"] == true {
+        "m::serde_json::Value".to_owned()
+    } else {
+        rust_type(plan, ty)?
+    };
     match params(plan, row).next() {
         Some(options) => {
             let options = rust_type(plan, options)?;
@@ -215,6 +263,16 @@ fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Res
              m::request({extension:?}, {verb:?}, {declared:?}, m::serde_json::json!({{}}))\n    }}"
         )
         .unwrap(),
+    }
+    if nothing {
+        writeln!(
+            out,
+            "    /// The reply to [`{f}`]'s request: done, or the module's error.\n    \
+             pub fn {f}_reply(outcome: &exact_runner::Outcome) -> Result<(), m::ModuleError> {{\n        \
+             m::reply({at:?}, outcome).map(|_| ())\n    }}"
+        )
+        .unwrap();
+        return Ok(());
     }
     writeln!(
         out,

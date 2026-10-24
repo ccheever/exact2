@@ -95,6 +95,7 @@ impl<D: DataSource> Runner<D> {
         let answer =
             self.data
                 .answer_for(super::Target::Resource(i), &mut self.store, &source, args);
+        let answer = self.refuse_locked(answer);
         // What its turn sent on its module's sockets (LLP 1016.000 D7, the
         // amendment of 2026-10-18), whatever it answered.
         self.stage_answer(super::Target::Resource(i));

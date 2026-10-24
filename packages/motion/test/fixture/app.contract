@@ -1,0 +1,47 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/motion's names read and
+// sent as an app would, each answer shown by testId for the suite.
+use gravitySensor, accelerometer, gyroscope, motionStatus, requestMotionPermission, MotionStatus, GravitySensor, Accelerometer, Gyroscope from "@exact/motion"
+
+shape Line
+  text: string
+
+component Fixture
+  state screen = false
+  resource status = motionStatus() as shape MotionStatus else empty()
+  resource gravity = gravitySensor(referenceFrame=(screen ? "screen" : "device"), interval=100) as shape GravitySensor else empty()
+  // A batch: every sample at 60 Hz since the last answer, polled each 100 ms.
+  resource batch = accelerometer(frequency=60, interval=100, history=64) as shape Accelerometer else empty()
+  resource spin = gyroscope(interval=100) as shape Gyroscope else empty()
+  // Data code's 64-sample batch (app.ts).
+  resource counted = counted() as shape Line
+  mutation asked as shape MotionStatus
+  action ask
+    send asked = requestMotionPermission()
+  action turn
+    screen = not screen
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state}` testId="status"
+      text `${gravity.x} ${gravity.y} ${gravity.z}` testId="gravity"
+      match failure(gravity)
+        case some(f)
+          text f.code testId="gravity-error"
+        case none
+          text "" testId="gravity-error"
+      text `${batch.sequence} ${batch.samples.length} ${batch.dropped} ${batch.interrupted}` testId="batch"
+      text `${spin.x} ${spin.y} ${spin.z}` testId="spin"
+      text counted.text testId="counted"
+      match asked
+        case some(s)
+          text s.state testId="asked"
+        case none
+          text "" testId="asked"
+      match failure(asked)
+        case some(f)
+          text f.code testId="asked-error"
+        case none
+          text "" testId="asked-error"
+      button press=ask testId="ask"
+        text "Ask"
+      button press=turn testId="frame"
+        text (screen ? "Device frame" : "Screen frame")

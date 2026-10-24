@@ -152,6 +152,9 @@ pub mod agent;
 #[path = "canvas/clip.rs"]
 mod clip;
 #[cfg(target_os = "android")]
+#[path = "canvas/codec.rs"]
+mod codec;
+#[cfg(target_os = "android")]
 #[path = "canvas/colors.rs"]
 mod colors;
 #[cfg(target_os = "android")]
@@ -169,6 +172,9 @@ mod gradient;
 #[cfg(target_os = "android")]
 #[path = "canvas/input.rs"]
 mod input;
+#[cfg(target_os = "android")]
+#[path = "canvas/presence.rs"]
+pub mod presence;
 #[cfg(target_os = "android")]
 #[path = "canvas/time.rs"]
 pub mod time;
@@ -1352,6 +1358,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             // An act a hatch's moment queued runs at the next turn.
             || self.p.hatch_in_flight() > 0
             || self.surfaces
+            || crate::surfaces::sensors::waiting()
     }
 
     fn owed_at(&self, now: f64) -> bool {

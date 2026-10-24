@@ -329,3 +329,25 @@ test('open_url declares the schemes openURL may hand to the system, and refuses 
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('foreground update intervals are positive seconds and reach both Apple bundles', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-checks-'));
+  const manifest = { name: 'Checks', app: { id: 'test.checks', name: 'Checks' }, deploy: { activate: 'app-decides', check: { interval: 3 } } };
+  const save = () => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
+  try {
+    save();
+    assert.equal(readManifest(dir, 'checks').deploy.check.interval, 3);
+    const app = { id: 'test.checks', displayName: 'Checks', manifest };
+    for (const plist of [macInfoPlist(app), infoPlist(app)]) {
+      assert.match(plist, /<key>ExactUpdateCheckInterval<\/key>\s*<integer>3<\/integer>/);
+      assert.match(plist, /<key>ExactUpdateActivate<\/key>\s*<string>app-decides<\/string>/);
+    }
+    for (const interval of [0, -1, '3']) {
+      manifest.deploy.check.interval = interval;
+      save();
+      assert.throws(() => readManifest(dir, 'checks'), /interval/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

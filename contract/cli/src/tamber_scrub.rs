@@ -266,8 +266,10 @@ impl Server {
         // A role that varied before this write is the file's own,
         // already refused by the build; only what the write makes vary.
         // Folded beside its packages' tokens (LLP 1121 D11), which an app token may name.
+        let (joined, joined_icons) = contract::tamber_params::joined_all(&self.app_params());
         let joined = exact_tamber::params::Params {
-            joined: contract::tamber_params::joined(&self.app_params()),
+            joined,
+            joined_icons,
             ..exact_tamber::params::Params::default()
         };
         let varies = |text: &str| -> Vec<(String, u32, u32)> {

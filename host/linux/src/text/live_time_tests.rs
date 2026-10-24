@@ -85,6 +85,7 @@ fn standalone_time_reserves_its_box_at_the_real_font() {
             assert_eq!(runs[0].text, "9 min. ago");
             runs[0].text = "59 min, 59 sec ago".into();
             let request = TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &runs,
                 paragraph: node.paragraph(),
                 width: AxisOffer::MaxContent,

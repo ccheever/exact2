@@ -6,6 +6,7 @@
 // app.ts answers every source through Snapback4; six development personas
 // stand in for accounts and the You tab switches between them.
 use Badge, EmptyState from "exact:content"
+use registerPeriodicSync, unregisterPeriodicSync, backgroundSyncStatus, periodicSyncTags, sync, periodicsync, BackgroundSyncStatus, SyncEvent, SyncRegistration from "@exact/background"
 
 routes nav
   tab channels "/"
@@ -138,6 +139,21 @@ shape Ack
   ok: bool
   id: string
 
+// A wake's work (LLP 1133.017 §11): the outbox's round, and a catch-up's
+// newest mention, `count` 0 when there was none.
+shape Flushed
+  ok: bool
+  sent: bool
+
+shape Caught
+  count: number
+  roomId: string
+  title: string
+  body: string
+
+shape Page
+  visibilityState: string
+
 fn hueToken(h: number): string = h == 1 ? "hue.rose" : h == 2 ? "hue.sky" : h == 3 ? "hue.moss" : h == 4 ? "hue.amber" : h == 5 ? "hue.violet" : "hue.teal"
 // A token named by data (a custom emoji's fill) is spelled out here, so the
 // native hosts see each brand token as a literal and resolve it.
@@ -170,6 +186,7 @@ component Harmony
   state emojiFill = "hue.sky"
   state statusDraft = ""
   resource time = exactTime() as shape Clock
+  resource page = exactPage() as shape Page
   derive now = time.epochAtZero + sampledAt
   derive roomId = (top(nav).name == "room" or top(nav).name == "dm") ? top(nav).params.id : ""
   // The clock and zone ride after `with`: the kept answer then shows at the
@@ -216,6 +233,14 @@ component Harmony
   mutation profileSaved as shape Ack refreshes world
   mutation emojiCreated as shape Ack refreshes world then afterEmoji
   mutation emojiRemoved as shape Ack refreshes world
+  // Background work (LLP 1133.017 §11): a failed round's outbox goes out at
+  // the next chance (`sync`), and while Harmony is closed a catch-up now and
+  // then posts a mention as a notification (`periodicsync`).
+  resource background = backgroundSyncStatus() as shape BackgroundSyncStatus
+  resource catchUps = periodicSyncTags() as shape SyncRegistration[]
+  derive notifying = catchUps.filter(r => r.tag == "catch-up").length > 0
+  mutation flushed as shape Flushed refreshes world
+  mutation caught as shape Caught then notifyMention
   derive writing = pending(sent) or pending(edited) or pending(removed) or pending(reacted) or pending(pinToggled) or pending(typed) or pending(readMarked) or pending(channelCreated) or pending(dmOpened) or pending(profileSaved) or pending(emojiCreated) or pending(emojiRemoved)
 
   // Changes arrive through `live`; the clock still moves every ten seconds,
@@ -412,8 +437,27 @@ component Harmony
   action removeEmoji(id: string)
     send emojiRemoved = deleteEmoji(persona, id)
 
+  // A wake's outbox round, in the partition the tag names; with the window
+  // shown, only the open persona's (the view holds its partition).
+  action outboxDue(tag: string, e: SyncEvent)
+    send flushed = flushOutbox(tag, page.visibilityState == "visible" ? persona : "")
+  action caughtUp(tag: string)
+    send caught = catchUpMentions(persona)
+  action notifyMention
+    match caught
+      case some(c)
+        if c.count > 0
+          showNotification(title=c.title, body=c.body, tag=c.roomId, navigate=`/c/${c.roomId}`)
+      case none
+        sampledAt = sampledAt
+  action setMentions(on: bool)
+    if on
+      registerPeriodicSync(tag="catch-up", minInterval=1800000)
+    else
+      unregisterPeriodicSync(tag="catch-up")
+
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow interactive-widget="resizes-content" testId="app"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow sync=outboxDue periodicsync=caughtUp interactive-widget="resizes-content" testId="app"
       width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
@@ -573,6 +617,13 @@ component Harmony
                             image "symbol:checkmark" aria-label="Current" color="AccentColor" testId="current-account"
                       footer
                         text "Harmony has no sign-in yet: choose who you are. Each person keeps their own copy of every room on this device, unread marks included."
+                    if background.periodic
+                      section
+                        row
+                          text "Notify Me of Mentions"
+                          input type="checkbox" switch checked=notifying change=setMentions aria-label="Notify me of mentions" testId="notify-mentions"
+                        footer
+                          text "While Harmony is closed, it checks for mentions now and then, when the system allows."
                     section
                       header
                         text "Custom Emoji"
@@ -740,7 +791,7 @@ component RoomScreen
         EmptyState(symbol=(isDm ? "symbol:messages" : "symbol:hashtag"), title=(isDm ? `This is the beginning of your conversation with ${thread.title}.` : `Welcome to #${thread.title}`), message=(thread.topic != "" ? thread.topic : "Say something to get it started."))
       else
         list id=`transcript-${routeKey}` appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
-          keyboardDismissMode="on-drag" padding-bottom=8
+          keyboardDismissMode="none" padding-bottom=8
           for m in thread.messages key=m.id
             MessageRow(m=m, now=now, offset=offset, hovered=(hovered == m.id), aim=aim, react=react, pickFor=pickFor, hover=hover, reply=reply)
       column padding="6px 12px 10px" gap=6 flex-shrink=0
@@ -773,7 +824,7 @@ component RoomScreen
       column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto"
         text "Pinned Messages" role="heading" aria-level=3 font="-exact-headline"
         if thread.pins.length == 0
-          text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-secondary-label" font="-exact-footnote"
+          text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-label" font="-exact-footnote"
         for p in thread.pins key=p.id
           column gap=2 padding=10 border-radius=10 background-color="-exact-secondary-background" testId=`pin-${p.id}`
             row gap=8 align-items="baseline"

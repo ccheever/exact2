@@ -22,6 +22,8 @@ pub enum Kind {
     Style,
     /// `decoration`.
     Decoration,
+    /// `atom` (LLP 1045.000).
+    Atom,
     /// `keyframes`.
     Keyframes,
     /// `timeline`.
@@ -36,6 +38,7 @@ impl Kind {
             Kind::Call => "shape or function",
             Kind::Style => "style",
             Kind::Decoration => "decoration",
+            Kind::Atom => "atom",
             Kind::Keyframes => "keyframes",
             Kind::Timeline => "timeline",
         }
@@ -209,6 +212,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         styles,
         decorations,
         decoration_scopes: _,
+        atoms,
+        atom_scopes: _,
         keyframes,
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
@@ -231,7 +236,9 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         for field in m.options.iter_mut().chain(words) {
             r.ty(&mut field.ty)?;
         }
-        r.ty(&mut m.answers)?;
+        for ty in m.answers.iter_mut().chain(&mut m.args) {
+            r.ty(ty)?;
+        }
     }
     for shape in shapes {
         r.scope.rename(Kind::Call, &mut shape.name, shape.span)?;
@@ -247,6 +254,10 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         r.scope
             .rename(Kind::Decoration, &mut decoration.name, decoration.span)?;
         r.attrs(&mut decoration.attrs)?;
+    }
+    for atom in atoms {
+        r.scope.rename(Kind::Atom, &mut atom.name, atom.span)?;
+        r.attrs(&mut atom.attrs)?;
     }
     for k in keyframes {
         r.scope.rename(Kind::Keyframes, &mut k.name, k.span)?;
@@ -485,7 +496,11 @@ impl Rewriter<'_> {
                     self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
-                Stmt::Command { args, .. } => self.exprs(args)?,
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
+                Stmt::Command { name, args, .. } => {
+                    self.scope.rename_source(name);
+                    self.exprs(args)?
+                }
                 Stmt::Send { source, args, .. } => {
                     self.scope.rename_source(source);
                     self.exprs(args)?

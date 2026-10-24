@@ -1,4 +1,4 @@
-use Name, Avatar, VerifiedBadge, Glyph, iconBan, iconEyeSlash, iconWarning, iconCircleInfo from "./common.contract"
+use Name, Avatar, VerifiedBadge from "./common.contract"
 
 // A moderation pill on a profile (the clone's ProfileHeaderAlerts): its
 // name, its icon, and its id for the details its press opens.
@@ -7,7 +7,9 @@ shape ProfileAlert
   label: string
   icon: enum<"warning", "eyeslash", "ban", "info">
 
-fn alertIcon(icon: string): string = (icon == "warning" ? iconWarning() : (icon == "eyeslash" ? iconEyeSlash() : (icon == "ban" ? iconBan() : iconCircleInfo())))
+// Its icon token: a computed `symbol:` source over the enum, which keeps
+// every alert's icon in the plan (D7).
+fn alertIcon(icon: string): string = (icon == "warning" ? "symbol:cards.warning" : (icon == "eyeslash" ? "symbol:cards.eye-slash" : (icon == "ban" ? "symbol:cards.ban" : "symbol:cards.circle-info")))
 
 // A profile's header (the clone's ProfileHeader, narrowed by theme2's 23:51
 // ruling): its banner, the avatar overlapping it, the name with its badge,
@@ -161,7 +163,12 @@ component ProfileHeader
               border-radius="cards.pill-corner"
               background-color="param.alertGround"
               -exact-press-scale=1
-              Glyph(d=alertIcon(a.icon), size="cards.alert-icon", color="param.alert")
+              image alertIcon(a.icon)
+                width="cards.alert-icon"
+                height="cards.alert-icon"
+                flex-shrink=0
+                aria-hidden=true
+                color="param.alert"
               text a.label font-size="cards.small-size" font-weight=600 color="param.alert"
         // The counts, or a note in their place; across a block, neither.
         column part="counts" display=(blocked ? "none" : "flex")

@@ -78,6 +78,20 @@ impl Painter {
             self.row_refuse();
         }
         walk.text.insert(node.key, paragraph.clone());
+        if let Some(inline) = inline_frame::Captured::new(kernel, node, &paragraph, &palette) {
+            let origin = (
+                content.0,
+                content.1
+                    + if frags.is_empty() {
+                        kernel.text_line_offset(node)
+                    } else {
+                        0.
+                    },
+            );
+            let inline = inline.place(origin, frags, ts);
+            self.row_inline(node.id, &inline);
+            walk.inline.insert(node.id, inline);
+        }
         // The canvas recorder leases the same paragraph the paint drew.
         self.row_text(node.key, &paragraph);
         // CSS `text-overflow: ellipsis` in a clipping box: an over-wide line

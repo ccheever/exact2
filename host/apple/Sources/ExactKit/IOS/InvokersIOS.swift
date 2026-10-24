@@ -1,5 +1,5 @@
 // A custom invoker's activation (HTML's activation behaviour): the nearest
-// invoker on a press's path is invoked after the press handler runs, once.
+// button on a press's path owns activation after the press handler runs.
 
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -22,7 +22,7 @@ class InvokerButton: UIButton {
         didSet {
             guard isHighlighted != oldValue else { return }
             releasePress()
-            if isHighlighted, let invoker { invoker.pressed = true; pressing = invoker }
+            if isHighlighted, let invoker { pressing = invoker; invoker.pressed = true }
         }
     }
     func releasePress() {
@@ -50,7 +50,7 @@ class InvokerButton: UIButton {
         guard let target else { return nil }
         var at: UIView? = target
         while let view = at, view !== invoker {
-            if Self.interactive(view) { return nil }
+            if view !== invoker.scroll, Self.interactive(view) { return nil }
             at = view.superview
         }
         return hit
@@ -86,10 +86,18 @@ extension MenuHost {
         }
         return nil
     }
-    /// Dispatches that press; the caller presents what `source` opens.
+    /// Dispatches that press, then runs what `source` invokes unless it
+    /// opens something: the caller presents that. The press itself invokes
+    /// nothing, as `source`, the innermost button, owns activation; so a
+    /// handler that retargets it to hide or close an open popover hides it.
     func pressAsTouched(_ source: NodeView) {
         guard let (node, bubbled) = pressTarget(of: source) else { return }
-        presenting(source) { presenter?.press(node.id, bubbled: bubbled) }
+        let token = source.incarnation
+        presenting(source) {
+            withoutInvocation(of: node) { presenter?.press(node.id, bubbled: bubbled) }
+            guard source.incarnation == token, presenter?.views[source.id] === source else { return }
+            invoke(source, bubbled: presenter?.pressBox(of: source, from: source) !== source)
+        }
     }
     /// Another path owns activation; dispatch this node's handler alone.
     func withoutInvocation(of source: NodeView?, _ press: () -> Void) {
@@ -106,37 +114,28 @@ extension MenuHost {
         press()
     }
 
-    /// The nearest invoker at or above `touched`, as a click's activation
-    /// finds it (DOM ancestry, out of a presentation): a node naming a target,
-    /// resolved after the press handler runs, which may mount it. None past a
-    /// disabled or inert node, or a link, whose activation is its own.
+    /// The innermost button owns activation, even when it names no target.
     func invoker(from touched: NodeView) -> NodeView? {
-        #if os(iOS)
-        guard !touched.inert else { return nil }
-        var at: UIView? = touched
-        while let view = at {
-            if let node = view as? NodeView {
-                if node.disabled || node.authoredInert || !(node.props["href"] ?? "").isEmpty { return nil }
-                if !(node.props["popovertarget"] ?? "").isEmpty || !(node.props["commandfor"] ?? "").isEmpty { return node }
-            }
-            at = presenter?.listenerParent(of: view) ?? view.superview
-        }
-        #endif
-        return nil
+        guard let node = presenter?.activationButton(from: touched),
+              !(node.props["popovertarget"] ?? "").isEmpty || !(node.props["commandfor"] ?? "").isEmpty else { return nil }
+        return node
     }
 
-    /// HTML activates the nearest invoker even when its click reaches a different listener.
+    /// Activation belongs to the button, while its press can reach another listener.
     /// A native control that took the touch (`consumed`) consumes it: only its own press runs.
     @discardableResult
     func activating(from touched: NodeView, pressing target: NodeView?, consumed: Bool = false, _ press: () -> Void) -> NodeView? {
         #if os(iOS)
-        if !consumed, let source = invoker(from: touched), source.kind == "button", source !== target {
-            let token = source.incarnation
-            let bubbled = presenter.map { $0.pressBox(of: source, from: touched) !== source } ?? false
-            withoutInvocation(of: target, press)
-            guard source.incarnation == token, live(source), eligible(source) else { return nil }
-            invoke(source, bubbled: bubbled)
-            return source
+        if !consumed {
+            let source = presenter?.activationButton(from: touched)
+            if source !== target {
+                let token = source?.incarnation
+                let bubbled = source.map { presenter?.pressBox(of: $0, from: touched) !== $0 } ?? false
+                withoutInvocation(of: target, press)
+                guard let source, source.incarnation == token, live(source), eligible(source) else { return nil }
+                invoke(source, bubbled: bubbled)
+                return source
+            }
         }
         #endif
         press()

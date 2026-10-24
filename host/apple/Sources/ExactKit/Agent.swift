@@ -79,6 +79,7 @@ public final class Agent {
     var contactFlags: NSEvent.ModifierFlags = []
     /// A native button's nested tracking loop consumes queued drag/up events.
     var contactTracksNative = false
+    weak var contactButton: NativeButtonMac?
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
@@ -192,6 +193,11 @@ public final class Agent {
             return
             #endif
         }
+        if ["tree", "state", "layout"].contains(op), presenter.viewport.window != nil,
+           !drainLaunch(until: Date(timeIntervalSinceNow: 20)) {
+            Agent.reply(["error": "launch work is still pending"])
+            return
+        }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
@@ -212,6 +218,15 @@ public final class Agent {
             session.picker.saveAnswered(answer, request: req)
             session.picker.documentAnswered(answer, request: req)
             ShareSheet.answered(answer, in: session)
+            listedAnswered(answer)
+            Agent.reply(tagged(answer))
+            return
+        }
+        // A relaunch handed a listed entry (`--notification '<entry>'`, LLP 1133.004 §7).
+        if op == "launchEntry" {
+            let data = Data(session.agent(line).utf8)
+            let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
+            listedAnswered(answer)
             Agent.reply(tagged(answer))
             return
         }
@@ -325,6 +340,15 @@ public final class Agent {
                 guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
                 return ["id": Int(node.id), "applied": decorations.state]
             }
+            // A Markdown editor's inline atoms, each pill's frame from its node's top left (LLP 1045.000 D9).
+            nativeSections["atoms"] = presenter.views.values.sorted { $0.id < $1.id }.flatMap { node -> [[String: Any]] in
+                guard let field = node.textArea as? TextArea, let storage = field.textStorage as NSAttributedString? else { return [] }
+                return field.atomFrames().map { range, atom, frame in
+                    let box = field.convert(frame, to: node)
+                    return ["id": Int(node.id), "kind": atom.kind, "source": (storage.string as NSString).substring(with: range), "start": range.location,
+                            "end": NSMaxRange(range), "label": atom.label, "frame": [box.minX, box.minY, box.width, box.height].map { ($0 * 100).rounded() / 100 }]
+                }
+            }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10
@@ -372,6 +396,14 @@ public final class Agent {
     /// (LLP 1035.002 D3) — read after the operation, so a reply's tags name
     /// the world it left behind; a reply's own `clock` (where a `clock` call
     /// landed) is kept. An error is left alone.
+    /// A listed entry's click under the agent (LLP 1133.004 §7): its location
+    /// opened, or the event the runner queued heard now.
+    func listedAnswered(_ answer: [String: Any]) {
+        guard answer["ref"] != nil else { return }
+        if let location = answer["navigate"] as? String { session.openLocation(location) }
+        else if answer["event"] != nil { session.deliverModuleEvents() }
+    }
+
     func tagged(_ r: [String: Any]) -> [String: Any] {
         let r = session.canvases.restoreReply(r)
         guard r["error"] == nil,
@@ -424,6 +456,16 @@ public final class Agent {
     }
 
     package static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
+
+    /// `layout <node>` for a live node the host mounted no view for (a native
+    /// button's face draws its svg): the runner's rows, no box, and why.
+    static func unmounted(_ node: [String: Any], into reply: [String: Any], now: Double) -> [String: Any] {
+        var node = node, reply = reply
+        node["native"] = ["mounted": false, "reason": "no view of its own: the host draws it inside another's (a native control's face)"]
+        node["observed"] = ["clock": now, "wall": Date().timeIntervalSince1970 * 1000]
+        reply["node"] = node
+        return reply
+    }
 
     // Whole logical points, with an area ceiling to keep this diagnostic
     // from asking the software painter for arbitrarily large allocations.
@@ -547,6 +589,7 @@ public final class Agent {
             case ("can-share-files", "true"), ("can-share-files", "false"): facts.canShareFiles = value == "true"
             case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
+            case ("iframe-partition", "true"), ("iframe-partition", "false"): facts.iframePartition = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             // The fact, and each module's tier: its renderers are made again at the new rung (LLP 1139.003 D2).
             case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
@@ -587,7 +630,7 @@ public final class Agent {
         }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-share-files": PageFacts.canShareFiles,
-                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
+                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles, "iframe-partition": PageFacts.iframePartition,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
                                        "display-scale": PageFacts.displayScale(session.presenter.viewport),
                                        "gpu-tier": ["high", "mid", "low", "low"][Int(PageFacts.tier & 3)],
@@ -623,8 +666,10 @@ public final class Agent {
         let deadline = Date(timeIntervalSinceNow: 0.3)
         while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         if presenter.hasFold { return ["error": "prefer: posture and segments: the device decides (it has a fold)"] }
-        #endif
+        var next = session.view?.agentFold ?? presenter.fold
+        #else
         var next = presenter.fold
+        #endif
         var gap: CGFloat = 0, grid = false
         for (name, raw) in fold {
             let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
@@ -646,6 +691,9 @@ public final class Agent {
             // The window's segments, as the host sends them (LLP 1075.003 §9.11).
             do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return ["error": "prefer: \(error)"] }
         }
+        #if os(iOS) || os(tvOS)
+        if let view = session.view { return view.prefer(next).map { ["error": "prefer: \($0)"] } }
+        #endif
         return session.segments(next).map { ["error": "prefer: \($0)"] }
     }
 
@@ -670,7 +718,23 @@ public final class Agent {
         return ["tapped": Int(v.id), "into": into]
     }
 
+    /// `clock`, its reply naming the requests the server holds, which no
+    /// clock waited on (LLP 1016.000 D9): `held` and `heldTargets`, as the
+    /// web hosts' do. An error reply is left as it is.
     func clock(_ req: [String: Any]) -> [String: Any] {
+        var out = clockStep(req)
+        guard out["error"] == nil,
+              let d = session.agent("{\"op\":\"held\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return out }
+        let held = o["held"] as? [[String: Any]] ?? [] // the runner's `held`, not the whole `state`
+        if !held.isEmpty {
+            out["held"] = held.count
+            out["heldTargets"] = held.compactMap { $0["name"] as? String }
+        }
+        return out
+    }
+
+    private func clockStep(_ req: [String: Any]) -> [String: Any] {
         session.natives.hatchClock.beginCommand()
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
@@ -725,6 +789,10 @@ public final class Agent {
         var wallDeadline: Date?, scrollDeadline: Date?
         #endif
         var world = WorldClock()
+        // A canvas's sensor input steps the worlds a frame at a time (AgentSensors.swift).
+        if let e = sensorFrames(to: to, deadline: deadline, floor: from)?.error {
+            return ["error": "clock: \(e)", "clock": session.clock ?? from]
+        }
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
             out["clock"] = landed
@@ -759,8 +827,10 @@ public final class Agent {
             world = session.canvases.clock(settle: settle)
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how much,
-            // as the web hosts' do (calendar F10, workout F6).
+            // as the web hosts' do (calendar F10, workout F6). A polled module
+            // source's ask it made lands first (LLP 1133.009 D10 item 7).
             guard settle else {
+                waitForPolls(until: deadline)
                 #if os(iOS) || os(tvOS)
                 // The app's own native motion on the wall clock has as long as
                 // the whole jump (`jump`: the driver's seek in steps), up to
@@ -1012,20 +1082,23 @@ public final class Agent {
         return true
     }
 
-    /// How many requests the runner has in flight (`state.pending`).
-    func pendingCount() -> Int {
+    /// Runner requests whose replies can still change the tree. A held device
+    /// observation is excluded: it waits for the person, rather than I/O.
+    func pendingRequests() -> [[String: Any]] {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
-        // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
-        // A held device request is not I/O in flight (LLP 1069.007 D3).
-        let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [] }
+        return (o["pending"] as? [[String: Any]] ?? []).filter { $0["device"] == nil }
+    }
+
+    /// How many requests the runner and the presenter's pictures have in flight.
+    func pendingCount() -> Int {
         #if os(iOS) || os(tvOS)
-        // A filtered SVG picture being drawn off the main thread (LLP 1055.000 D14).
         let pictures = SvgFilterLive.inFlight
         #else
         let pictures = 0
         #endif
-        return inFlight + session.presenter.canvas2d.loadingCount + pictures
+        // A reply the server holds is no I/O a clock waits on (LLP 1016.000 D9).
+        return pendingRequests().filter { $0["held"] == nil }.count + session.presenter.canvas2d.loadingCount + pictures
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.
@@ -1037,6 +1110,14 @@ public final class Agent {
     /// queue is drained here directly, the run loop turning in between for
     /// the executor's thread to make progress.
     @discardableResult
+    /// Run until no polled module source's ask is in flight, or the deadline.
+    func waitForPolls(until deadline: Date) {
+        while session.agent("{\"op\":\"polls\"}").contains("\"asking\":true"), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            session.apply(session.runtime.pump(now: session.now()))
+        }
+    }
+
     func waitForReplies(until deadline: Date) -> Bool {
         while pendingCount() > 0 {
             if Date() >= deadline { return false }

@@ -336,4 +336,11 @@ impl AtomicTarget {
             .write(&self.leaf, data, &token().map_err(error)?)
             .map_err(error)
     }
+    /// The same file with `.extension` appended, in the directory already pinned.
+    pub(crate) fn extended(self, extension: &str) -> Self {
+        AtomicTarget {
+            leaf: format!("{}.{extension}", self.leaf),
+            ..self
+        }
+    }
 }

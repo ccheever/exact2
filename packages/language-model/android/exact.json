@@ -1,0 +1,52 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/language-model@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidLanguageModelStatus": {
+      "featureStatus": "number",
+      "baseModelName": "option<string>",
+      "bytesDownloaded": "option<number>"
+    },
+    "AndroidLanguageModelResponse": {
+      "finishReason": "option<number>"
+    }
+  },
+  "options": {
+    "createLanguageModel": {
+      "modelPreference": "enum<fast|full>",
+      "releaseStage": "enum<stable|preview>"
+    },
+    "prompt": {
+      "temperature": "number",
+      "topK": "number",
+      "seed": "number",
+      "maxOutputTokens": "number"
+    },
+    "promptStreaming": {
+      "temperature": "number",
+      "topK": "number",
+      "seed": "number",
+      "maxOutputTokens": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "modelConfig",
+    "request"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.google.mlkit:genai-prompt:1.0.0-beta4"
+  ],
+  "artifacts": [],
+  "class": "exact.languagemodel.LanguageModelModule"
+}

@@ -280,6 +280,12 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     // A value is a value: no comment after it, no metadata or range clause,
     // which the line keeps from before.
     let value = |v: &str| {
+        // Past the checker's bound, refused before anything reads it, in
+        // words that give its size and never echo it (rt1's co-sign);
+        // measured trimmed, as a design's line is read.
+        if let Some((id, why)) = crate::css::over_limit(v.trim()) {
+            return Err(vec![Diagnostic::new(id, why, 1, 1)]);
+        }
         one_line("value", v)?;
         let words = lex::words(v.trim());
         let clause = words.last().is_some_and(|(_, w)| {
@@ -293,21 +299,32 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         }
         Ok(())
     };
-    let name = |v: &str| match lex::is_name(v) || crate::syntax::role_spelling(v).is_some() {
+    // A name, an axis or a param past a value's bound is no name: refused
+    // without echoing it.
+    let long = |v: &str| {
+        crate::css::over_bytes("a name", v).map(|(id, why)| vec![Diagnostic::new(id, why, 1, 1)])
+    };
+    let name_of = |v: &str| match lex::is_name(v) || crate::syntax::role_spelling(v).is_some() {
         true => Ok(()),
         false => Err(refuse(format!(
             "`{v}`: a token's name is identifiers joined by `.`, or a role's"
         ))),
     };
-    let param = |v: &str| match crate::syntax::param_name(v) {
-        true => Ok(()),
-        false => Err(refuse(format!(
+    let name = |v: &str| match long(v) {
+        Some(no) => Err(no),
+        None => name_of(v),
+    };
+    let param = |v: &str| match long(v) {
+        Some(no) => Err(no),
+        None if crate::syntax::param_name(v) => Ok(()),
+        None => Err(refuse(format!(
             "`{v}`: a param is named `Component.param`, or in full, `file.contract#Component.param`"
         ))),
     };
-    let ident = |v: &str| match lex::is_ident(v) {
-        true => Ok(()),
-        false => Err(refuse(format!(
+    let ident = |v: &str| match long(v) {
+        Some(no) => Err(no),
+        None if lex::is_ident(v) => Ok(()),
+        None => Err(refuse(format!(
             "`{v}`: an axis and its values are identifiers"
         ))),
     };
@@ -353,12 +370,25 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         } => {
             name(n)?;
             if let Some(k) = kind {
+                // In a design's words for a kind (`bound::preflight`).
+                if let Some((id, why)) = crate::css::over_bytes("a kind", k) {
+                    return Err(vec![Diagnostic::new(id, why, 1, 1)]);
+                }
                 ident(k)?;
             }
             value(v)?;
             comment(c)?;
             // One metadata word each: `name=value`, a quoted value whole.
             for m in meta {
+                // Measured as a design on disk measures it: its name, `=`
+                // and its value unquoted (`bound::preflight`).
+                let (k, v) = m.split_once('=').unwrap_or((m.as_str(), ""));
+                let v = lex::unquote(v).unwrap_or_else(|_| v.to_string());
+                if let Some((id, why)) =
+                    crate::css::over_bytes("a metadata word", &format!("{k}={v}"))
+                {
+                    return Err(vec![Diagnostic::new(id, why, 1, 1)]);
+                }
                 one_line("meta", m)?;
                 let one = lex::words(m).len() == 1;
                 let shaped = m.split_once('=').is_some_and(|(k, x)| {

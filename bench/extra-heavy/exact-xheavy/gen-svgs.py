@@ -59,7 +59,7 @@ for fam, prefix, what in (('Icon', 'icon-', 'an icon'), ('Chart', 'chart-', 'a c
     for name in names:
         if name.startswith(prefix):
             key = name[len(prefix):]
-            lines.append(f'      when name == "{key if fam == "Icon" else name}"')
+            lines.append(f'      if name == "{key if fam == "Icon" else name}"')
             lines.append(f'        Svg{camel(name)}()')
     lines.append('')
 open(os.path.join(HERE, 'svgs.contract'), 'w').write('\n'.join(lines))

@@ -26,7 +26,7 @@ pub(crate) use android::acquire_fd;
 #[cfg(target_os = "android")]
 pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
-pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
+pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu, sensors};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
@@ -286,12 +286,18 @@ fn module_path(
     compat: &Value,
     override_path: Option<PathBuf>,
 ) -> PathBuf {
-    if compat["embedded"]["gpu"]["trust"] == "development" {
+    // A development build's own development module (LLP 1024 D5): never a
+    // production one's, whatever its card says.
+    if compat["embedded"]["gpu"]["trust"] == "development" && !production(compat) {
         if let Some(path) = override_path {
             return path;
         }
     }
     default.to_path_buf()
+}
+/// Whether `compat` is a production build's (`exact_runner::delivery::production`).
+fn production(compat: &Value) -> bool {
+    exact_runner::delivery::production(&compat.to_string())
 }
 /// The baked identity of `artifact`: "" the primary's, else a declared
 /// module's (LLP 1009 D6), one signed digest each.
@@ -329,11 +335,8 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         }
     }
     let receipt;
-    let development = card["receipt"] == true
-        && card["trust"] == "development"
-        // No-delivery apps omit trust from the cohort; their baked GPU card
-        // still records the explicit development build trust.
-        && (compat["inputs"]["trust"].is_null() || compat["inputs"]["trust"] == "development");
+    let development =
+        card["receipt"] == true && card["trust"] == "development" && !production(compat);
     let identity = if development {
         let bytes = std::fs::read(format!("{}.proof.json", path.display()))
             .map_err(|e| refuse(&format!("completed GPU receipt: {e}")))?;

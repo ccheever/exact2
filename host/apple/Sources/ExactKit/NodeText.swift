@@ -33,7 +33,8 @@ extension NodeView {
     func decoratingAncestors(dark: Bool) -> [(String, [Double]?)] {
         var out: [(String, [Double]?)] = []
         var box: NodeView = self
-        while !["absolute", "fixed"].contains(box.style["position_type"]?.string ?? ""),
+        // A popover is out of flow too (the kernel's top layer), unless sticky.
+        while !["absolute", "fixed"].contains(box.layoutPosition),
               box === self || !(box.actsAsButton || box.kind == "control"),
               let parent = box.nodeSuperview {
             if let lines = parent.style["text_decoration_line"]?.string, !lines.isEmpty, lines != "none" {
@@ -87,7 +88,9 @@ extension NodeView {
         // Worker surfaces encode ordinary lines only. Clear their key before
         // changing eligibility, including when an exclusion is removed.
         dropTextRaster()
+        let wasEmpty = flowShapes.isEmpty
         flowShapes = wire.compactMap(TextFlowShape.init)
+        if wasEmpty != flowShapes.isEmpty { cachedTextSpec = nil }
         cachedTextLayout = nil
         #if os(macOS)
         needsDisplay = true
@@ -143,8 +146,9 @@ extension NodeView {
             // Every piece is in the node's ink, or a share of it: one kind.
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
+            let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true)
             runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
-                                                  boldText: text?.boldTextSteps(base.family) == true) ?? [textRun(source)]
+                                                  boldText: text?.boldTextSteps(base.family) == true, atoms: atoms) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
@@ -206,13 +210,16 @@ extension NodeView {
         if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
             for i in runs.indices { runs[i].propagate(lines, color: ink) }
         }
+        var strut = InlineText.run("", style: style, href: props["href"] ?? "", dark: night,
+                                   contrast: contrast, elevated: elevated, tint: tint)
         // So do the lines of the boxes it stands in, each in that box's colour.
         for (lines, color) in decoratingAncestors(dark: night) {
             for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
+            strut.propagate(lines, color: color ?? ink)
         }
-        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
+        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
-                                  language: presenter?.documentLanguage ?? "")
+                                  language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty)
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

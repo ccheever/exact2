@@ -78,6 +78,9 @@ final class AgentMotionIOSTests: XCTestCase {
     /// waits it out and its completion runs, and a tap waits for the
     /// overlay to go.
     func testTheAppsOwnMotionOnTheWallEndsUnderTheAgentsClock() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "UIKit's chained animation completions need a scene's render loop")
+        }
         let agent = mounted([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "roots", "ids": [1]],

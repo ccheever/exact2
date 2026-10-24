@@ -155,7 +155,8 @@ impl Kernel {
                         let cs = self.arena.style(c);
                         c == slot
                             || (cs.display != crate::Display::None
-                                && cs.position_type != crate::PositionType::Absolute)
+                                && crate::style::top_layer::layout_position(&self.arena, c)
+                                    != crate::PositionType::Absolute)
                     })
                     .collect();
             }

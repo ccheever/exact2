@@ -12,6 +12,23 @@ final class MenuBarMacTests: XCTestCase {
         @objc func invoke(_ sender: Any?) { calls += 1 }
     }
     private var saved: (NSMenu?, NSMenu?, NSMenu?, NSMenu?)?
+    /// Counts the writes to its `isHidden`, changed or not.
+    private final class CountingItem: NSMenuItem {
+        var writes = 0
+        override var isHidden: Bool { didSet { writes += 1 } }
+    }
+    /// A menu item's own view, which runs `moved` as it enters the open
+    /// menu's window: inside AppKit's layout of the menu's rows.
+    private final class MenuLayoutProbe: NSView {
+        var moved: () -> Void = {}
+        var calls = 0
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            calls += 1
+            moved()
+        }
+    }
 
     override func setUp() {
         _ = NSApplication.shared
@@ -225,6 +242,88 @@ final class MenuBarMacTests: XCTestCase {
         XCTAssertEqual(zoom[1].keyEquivalent, "+")
         XCTAssertTrue(equals.isHidden, "its alternate stays hidden")
         XCTAssertEqual(equals.keyEquivalent, "=")
+    }
+
+    /// View with Zoom In and Zoom Out removed and a probe as its last item,
+    /// attached to the presenter's shortcut host.
+    private func removedZoom(_ presenter: Presenter, items extra: [NSMenuItem] = []) -> (root: NodeView, view: ShortcutMenu, zoom: [CountingItem], probe: MenuLayoutProbe, file: ShortcutMenu) {
+        let root = NodeView(id: 900, kind: "view", presenter: presenter)
+        root.props = ["menuRemove": "zoom-in zoom-out"]
+        presenter.views[root.id] = root; presenter.root.addSubview(root)
+        let view = ShortcutMenu(title: "View")
+        let zoom = [CountingItem(title: "Zoom In", action: NSSelectorFromString("zoomIn:"), keyEquivalent: "+"),
+                    CountingItem(title: "Zoom Out", action: NSSelectorFromString("zoomOut:"), keyEquivalent: "-")]
+        let probe = MenuLayoutProbe(frame: NSRect(x: 0, y: 0, width: 160, height: 22))
+        let probeItem = NSMenuItem()
+        probeItem.view = probe
+        for item in zoom + extra + [probeItem] { view.addItem(item) }
+        let file = ShortcutMenu(title: "File") // the host holds its menus weakly
+        presenter.shortcuts.attach(file, view: view)
+        return (root, view, zoom, probe, file)
+    }
+
+    /// Pops `menu` up and runs `whileOpen` once its rows are laid out and
+    /// shown, then closes it. Whether AppKit tracked it.
+    private func popUp(_ menu: NSMenu, in window: NSWindow, whileOpen: @escaping () -> Void = {}) -> Bool {
+        window.orderFrontRegardless()
+        var tracked = false
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: menu, queue: nil) { _ in
+            tracked = true
+            let close = Timer(timeInterval: 0.3, repeats: false) { _ in whileOpen(); menu.cancelTrackingWithoutAnimation() }
+            RunLoop.current.add(close, forMode: .common)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        menu.popUp(positioning: nil, at: .zero, in: window.contentView)
+        return tracked
+    }
+
+    /// AppKit lays an open menu out as a table, and a view of the menu's
+    /// own entering the menu's window can start a plan batch inside that
+    /// layout (Help's search field becomes key, which posts the window
+    /// facts). A sync there leaves a standing removal untouched: an item
+    /// shown and hidden again inside the layout inserts a row, and AppKit
+    /// throws from `-[NSTableRowData insertRowsAtIndexes:withRowAnimation:]`.
+    func testASyncInsideAnOpenMenusLayoutLeavesItsRemovedItemsAlone() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent tracks no menu")
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        // The sync writes Show Sidebar's hidden state, unchanged, each time.
+        let sidebar = NSMenuItem(title: "Show Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "")
+        let menu = removedZoom(presenter, items: [sidebar])
+        defer { withExtendedLifetime(menu.file) {} }
+        XCTAssertTrue(menu.zoom.allSatisfy(\.isHidden))
+        let writes = menu.zoom.map(\.writes)
+        menu.probe.moved = { presenter.shortcuts.sync() }
+        XCTAssertTrue(popUp(menu.view, in: window), "the menu tracked")
+        XCTAssertGreaterThan(menu.probe.calls, 0, "the sync ran inside the menu's layout")
+        XCTAssertEqual(menu.zoom.map(\.writes), writes, "an unchanged removal writes nothing")
+        XCTAssertTrue(menu.zoom.allSatisfy(\.isHidden))
+        // Withdrawn with the menu closed, the removal shows the items at once.
+        menu.probe.moved = {}
+        menu.root.props["menuRemove"] = ""
+        presenter.shortcuts.sync()
+        XCTAssertFalse(menu.zoom.contains(where: \.isHidden))
+    }
+
+    /// A removal withdrawn inside the open menu's layout shows its item on
+    /// the run loop's next turn, with the menu still open.
+    func testARemovalWithdrawnInsideAnOpenMenusLayoutShowsItsItemOnTheNextTurn() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent tracks no menu")
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        let menu = removedZoom(presenter)
+        defer { withExtendedLifetime(menu.file) {} }
+        var hiddenInLayout: [Bool] = []
+        menu.probe.moved = {
+            menu.root.props["menuRemove"] = "zoom-in"
+            presenter.shortcuts.sync()
+            hiddenInLayout = menu.zoom.map(\.isHidden)
+        }
+        var hiddenWhileOpen: [Bool] = []
+        XCTAssertTrue(popUp(menu.view, in: window) { hiddenWhileOpen = menu.zoom.map(\.isHidden) }, "the menu tracked")
+        XCTAssertGreaterThan(menu.probe.calls, 0, "the sync ran inside the menu's layout")
+        XCTAssertEqual(hiddenInLayout, [true, true], "nothing written inside the layout")
+        XCTAssertEqual(hiddenWhileOpen, [true, false], "Zoom Out shows while the menu is open")
     }
 }
 #endif

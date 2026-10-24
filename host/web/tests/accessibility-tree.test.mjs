@@ -18,6 +18,7 @@ import { jsTargetBuild } from '../serve.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const app = resolveApp('caltrain');
 const wasmDist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const jsDist = process.env.EXACT_WEB_JS_DIST ? resolve(process.env.EXACT_WEB_JS_DIST) : null;
@@ -42,7 +43,7 @@ function fixture() {
   if (plan) return plan;
   tmp = mkdtempSync(resolve(tmpdir(), 'exact-ax-'));
   plan = resolve(tmp, 'accessibility.plan');
-  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync(compiler, ['build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) throw new Error('the accessibility fixture does not compile: ' + c.stderr);
   return plan;
 }

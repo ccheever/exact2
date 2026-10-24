@@ -192,6 +192,31 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
+/// LLP 1016.000 D9: `exactHeld: true` reaches the request as `held`, which
+/// the runner counts for no clock; beside a stream, or not a boolean, the
+/// fetch refuses before any request.
+#[test]
+fn a_held_fetch_marks_its_request_and_refuses_a_stream_or_a_non_boolean() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = held(\"true\") as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let request = later(m.answer(&mut s, "held", &[Value::str("true")]).unwrap());
+    assert!(request.held && request.is_held());
+    let plain = later(m.answer(&mut s, "held", &[Value::str("false")]).unwrap());
+    assert!(!plain.held);
+    for (arg, why) in [
+        (Value::str("stream"), "exactHeld: a stream is never held"),
+        (Value::str("yes"), "exactHeld is true or false"),
+        (Value::str("yes-stream"), "exactHeld is true or false"),
+    ] {
+        let refused = now(m.answer(&mut s, "held", &[arg]).unwrap());
+        assert!(
+            refused.as_str().is_some_and(|m| m.contains(why)),
+            "{refused:?}"
+        );
+    }
+}
+
 #[test]
 fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
     let mut m = module();
@@ -370,6 +395,7 @@ fn a_stream_answer_maps_each_event_and_its_end() {
     let args = [Value::str("0")];
     let request = later(m.answer(&mut s, "events", &args).unwrap());
     assert!(request.stream, "the host is told it streams");
+    assert!(request.bytes, "and that a body that is not events is bytes");
     assert_eq!(request.url, "https://api.castle.xyz/events?since=0");
     assert_eq!(
         request.http,
@@ -405,6 +431,120 @@ fn a_stream_answer_maps_each_event_and_its_end() {
         .is_err());
 }
 
+/// LLP 1016.000 D8: `exactLongPoll` makes the stream a long poll, its terms
+/// on the request (and no byte stream); each reply is an event whose id is
+/// the cursor.
+#[test]
+fn a_long_poll_carries_its_terms_and_maps_each_reply() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource live = changes(\"0\", \"\") as shape string\n  resource same = changes(\"0\", \"event\") as shape string\n  view\n    column\n      text live\n      text same\n").unwrap());
+    let mut s = store();
+    let args = [Value::str("0"), Value::str("")];
+    let request = later(m.answer(&mut s, "changes", &args).unwrap());
+    assert!(request.stream && !request.bytes && !request.socket);
+    assert_eq!(
+        request.url,
+        "https://api.castle.xyz/changes?since=0&wait=25"
+    );
+    assert_eq!(
+        request.long_poll,
+        Some(Box::new(exact_runner::LongPoll {
+            cursor: "since".into(),
+            from: "seq".into(),
+            same_cursor_event: false,
+        }))
+    );
+    assert_eq!(
+        now(m
+            .parse(&mut s, "changes", &args, event("7", "{\"seq\":7}", 0))
+            .unwrap()),
+        Value::str("7:{\"seq\":7}")
+    );
+    let args = [Value::str("0"), Value::str("event")];
+    let request = later(m.answer(&mut s, "changes", &args).unwrap());
+    assert!(request.long_poll.unwrap().same_cursor_event);
+}
+
+/// Each refusal of `exactLongPoll`, before anything is sent.
+#[test]
+fn a_long_poll_refuses_what_it_cannot_ask() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource r = pollRefused(\"stream\") as shape string\n  view\n    text r\n").unwrap());
+    let mut s = store();
+    for (case, said) in [
+        ("stream", "give exactStream too"),
+        ("socket", "HTTP, not a WebSocket"),
+        ("post", "asks with GET"),
+        ("shape", "exactLongPoll is { cursor, from }"),
+        ("cursor", "exactLongPoll.cursor is"),
+        ("from", "exactLongPoll.from is"),
+        ("same", "exactLongPoll.sameCursor is"),
+    ] {
+        let answer = m
+            .answer(&mut s, "pollRefused", &[Value::str(case)])
+            .unwrap();
+        let message = now(answer);
+        let message = message.as_str().unwrap_or_else(|| panic!("{case}"));
+        assert!(message.contains(said), "{case}: {message}");
+    }
+}
+
+/// LLP 1016.000's byte stream: a binary message reaches the mapper as an
+/// `ArrayBuffer` of its bytes.
+#[test]
+fn a_byte_stream_maps_each_message_as_an_array_buffer() {
+    let mut m = module();
+    m.bind(
+        &contract::compile(
+            "component App\n  resource screen = bytes() as shape string\n  view\n    text screen\n",
+        )
+        .unwrap(),
+    );
+    let mut s = store();
+    let request = later(m.answer(&mut s, "bytes", &[]).unwrap());
+    assert!(request.stream && request.bytes && !request.socket);
+    let bytes = |b: &[u8]| {
+        Outcome::Message(exact_runner::Message {
+            binary: Some(b.to_vec()),
+            ..exact_runner::Message::default()
+        })
+    };
+    assert_eq!(
+        now(m
+            .parse(&mut s, "bytes", &[], bytes(&[0, 0, 1, 255]))
+            .unwrap()),
+        Value::str("message:0,0,1,255")
+    );
+    let ended = Outcome::Failed {
+        kind: FailureKind::Network,
+        message: "the byte stream ended".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "bytes", &[], ended).unwrap()),
+        Value::str("ended: the byte stream ended")
+    );
+}
+
+/// LLP 1133.003 §9: the prelude installs the gate's stub decode under the
+/// agent alone.
+#[test]
+fn the_gate_stub_decode_is_installed_under_the_agent_alone() {
+    let plan = contract::compile(
+        "component App\n  resource g = gate() as shape string\n  view\n    text g\n",
+    )
+    .unwrap();
+    for (seed, kind) in [(None, "undefined"), (Some(7), "function")] {
+        let mut m = unloaded().with_agent_seed(seed);
+        m.load().expect("the fixture loads");
+        m.bind(&plan);
+        assert_eq!(
+            now(m.answer(&mut store(), "gate", &[]).unwrap()),
+            Value::str(kind),
+            "seed {seed:?}"
+        );
+    }
+}
+
 /// LLP 1069.004 slice 3: the spelling of a socket is its URL. A text frame
 /// is a `message` event; the far side's close is the end.
 #[test]
@@ -414,7 +554,7 @@ fn a_socket_answer_is_a_stream_to_a_wss_url() {
     let mut s = store();
     let args = [Value::str("7")];
     let request = later(m.answer(&mut s, "socket", &args).unwrap());
-    assert!(request.stream);
+    assert!(request.stream && !request.bytes);
     assert_eq!(request.url, "wss://jetstream.castle.xyz/subscribe?cursor=7");
     assert_eq!(
         now(m

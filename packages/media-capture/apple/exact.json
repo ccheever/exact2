@@ -1,0 +1,60 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/media-capture@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleTrack": {
+      "portType": "option<string>",
+      "portName": "option<string>",
+      "deviceType": "option<string>",
+      "position": "option<string>"
+    },
+    "AppleMicrophoneStatus": {
+      "recordPermission": "enum<undetermined|denied|granted|notDetermined|restricted|authorized>"
+    },
+    "AppleCameraStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorized>"
+    },
+    "AppleUnitPoint": {
+      "x": "number",
+      "y": "number"
+    }
+  },
+  "options": {
+    "getUserMedia": {
+      "mode": "enum<default|measurement|voiceChat|videoChat|videoRecording>",
+      "categoryOptions": "enum<mixWithOthers|duckOthers|allowBluetoothHFP|allowBluetoothA2DP|defaultToSpeaker|bluetoothHighQualityRecording|farFieldInput|overrideMutedMicrophoneInterruption>[]",
+      "prefersNoInterruptionsFromSystemAlerts": "bool",
+      "preferredIOBufferDuration": "number",
+      "inputDataSource": "string",
+      "polarPattern": "enum<stereo|cardioid|omnidirectional>",
+      "deviceType": "enum<builtInWideAngleCamera|builtInUltraWideCamera|builtInTelephotoCamera|builtInDualCamera|builtInDualWideCamera|builtInTripleCamera|builtInTrueDepthCamera|builtInLiDARDepthCamera|continuityCamera|deskViewCamera|external>"
+    },
+    "applyConstraints": {
+      "deviceType": "enum<builtInWideAngleCamera|builtInUltraWideCamera|builtInTelephotoCamera|builtInDualCamera|builtInDualWideCamera|builtInTripleCamera|builtInTrueDepthCamera|builtInLiDARDepthCamera|continuityCamera|deskViewCamera|external>",
+      "focusMode": "enum<locked|autoFocus|continuousAutoFocus>",
+      "exposureMode": "enum<locked|autoExpose|continuousAutoExposure>",
+      "focusPointOfInterest": "AppleUnitPoint",
+      "exposurePointOfInterest": "AppleUnitPoint"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "audioEngine",
+    "captureSession",
+    "captureDevice"
+  ],
+  "sources": {
+    "swift": [
+      "MediaCapture.swift",
+      "VideoCapture.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "MediaCaptureModule"
+}
