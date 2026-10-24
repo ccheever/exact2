@@ -19,3 +19,25 @@ end" checks for the live tail rather than a zero gap because of it.
 `bun scripts/agent.mjs web --app excord`: drag the transcript up past one window, send
 a message, `clock settle`, then `layout transcript`: the scroll extent minus the offset
 is 2 pt more than the port.
+
+## Diagnosis (2026-10-24)
+
+Reproduced on main with Excord's test sequence (`tap transcript into …`, `type composer …`,
+`tap transcript drag 0 500 over 60`, `tap send`, `clock settle`): `endGap` 1 or 2 in two of
+three drives. Chrome's touch fling from the drag goes on after the send's `scrollIntoView`:
+an instant `scrollTo` does not end it (nor does toggling `overflow` within the task), so
+each frame the fling's step moves the port off the end and the glue places it back
+(`collection-glue.js` `commit`, the authored correction), 29 px, then 26, 25 … 1. The request
+counts two aligned reports and ends `done` while the fling still has a pixel or two to go,
+and those land after it.
+
+## Decision needed
+
+How an authored jump meets the reader's momentum on the web. The Apple host does not
+move a decelerating list (`CollectionIOS.swift` `correct`: UIKit owns the deceleration; the
+request lands at the next report after it), so the jump waits for the fling. The web host
+fights it. Options: (a) defer an authored correction while the port moves with no input
+since the request, as Apple does, and land it at `scrollend`; (b) keep the request
+`seeking` until the port rests (no move between two frames), re-placing it each frame;
+(c) end the fling by making the port unscrollable for a frame (`overflow: hidden`), which
+can repaint scrollbars and costs a layout.
