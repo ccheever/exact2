@@ -70,6 +70,26 @@ export function displayFeatures(width, height, cols, rows, gap) {
  * The fold group (LLP 1078 D7): Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
  * and CSS's `env(viewport-segment-*)` all change — the parity oracle; a browser whose CDP lacks them gets the glue's substitute (the facts and
  * `layout.env`, not CSS). `emulated` is the carrier's media list, replaced in place. */
+/** In the page, before the media changes: for each feature asked, every query of its values whose truth changes when
+ * it becomes `value` (a range feature, color-gamut or dynamic-range, matches each value up to its own, in
+ * PREFERENCES's order), a promise of its `change` event, bounded at 5 s (a value the browser can't emulate); all of
+ * them under `token` in `globalThis.__exactMediaHeard`, which preferWeb awaits and drops. */
+export function mediaHeard(features, preferences, token) {
+  const ranges = new Set(['color-gamut', 'dynamic-range']);
+  const waits = [];
+  for (const [name, value] of Object.entries(features)) {
+    const values = preferences[name] ?? [value], at = values.indexOf(value);
+    for (const [i, v] of values.entries()) {
+      const q = matchMedia(`(${name}: ${v})`), will = ranges.has(name) ? at >= 0 && i <= at : v === value;
+      if (q.matches === will) continue;
+      waits.push(new Promise(ok => { const done = () => { clearTimeout(t); q.removeEventListener('change', done); ok(); }, t = setTimeout(done, 5000); q.addEventListener('change', done); }));
+    }
+  }
+  const heard = (globalThis.__exactMediaHeard ??= {});
+  heard[token] = Promise.all(waits).then(() => true);
+  return true;
+}
+
 export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, call, evaluate, frame, ask, scale = 0 }) {
   if (media['display-mode'] != null) throw new Error(`Chrome prefer cannot emulate display-mode ${media['display-mode']}: use the browser's fullscreen controls`);
   // LLP 1115.000 D10.3: a browser's scale is fixed when it launches (`EXACT_SCALE=2 bun scripts/agent.mjs web …`: Chrome's own device scale factor). CDP's emulated one moves `devicePixelRatio` and the resolution queries but not the device pixel a border snaps to (Chrome 154: a 0.5px border stays 1px under it), so it is not offered as the scale.
@@ -84,12 +104,14 @@ export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, c
     await call('Emulation.setTouchEmulationEnabled', { enabled: touch, ...(touch ? { maxTouchPoints: 5 } : {}) }); await frame();
   }
   if (Object.keys(rest).length) {
-    // Each query this flips is heard in the page (its `change`, which reaches the app's own listeners first) before
-    // the next step reads the app: two frames alone, cut at 250 ms, could pass first on a loaded machine (an authored
-    // test's launch `prefer`s read back as the machine's). Bounded at 5 s a query.
-    await evaluate(`(globalThis.__exactMediaHeard = Promise.all(${JSON.stringify(Object.entries(rest))}.map(([n, v]) => { const q = matchMedia('(' + n + ': ' + v + ')'); return q.matches ? null : new Promise(ok => { q.addEventListener('change', ok, { once: true }); setTimeout(ok, 5000); }); })).then(() => true), true)`);
+    // Each query this flips, true to false too, is heard in the page (its `change`, which reaches the app's own
+    // listeners first) before the next step reads the app: two frames alone, cut at 250 ms, could pass first on a
+    // loaded machine (an authored test's launch `prefer`s read back as the machine's). `mediaHeard`, above.
+    const token = `${Date.now()}-${Math.random()}`;
+    await evaluate(`(${mediaHeard})(${JSON.stringify(rest)}, ${JSON.stringify(PREFERENCES)}, ${JSON.stringify(token)})`);
     await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, rest)).map(([name, value]) => ({ name, value })) });
-    await evaluate('globalThis.__exactMediaHeard');
+    // (A document the page moved to meanwhile has no wait: said, not passed over.)
+    if (await evaluate(`(async (t) => { const h = globalThis.__exactMediaHeard?.[t]; if (!h) return 'gone'; await h; delete globalThis.__exactMediaHeard[t]; return true; })(${JSON.stringify(token)})`) === 'gone') throw new Error('prefer: the page changed documents while its media changed: prefer again');
     await frame();
   }
   let foldRequest = null;
