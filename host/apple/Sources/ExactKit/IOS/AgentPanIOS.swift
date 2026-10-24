@@ -287,6 +287,8 @@ extension Agent {
         defer { handoff?.dispatched() }
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field {
+                // A pill's press, as its tap recognizer takes a finger's (FieldAtoms.swift, LLP 1045.000 D7).
+                if let area = field as? TextArea, let hit = area.atom(at: area.convert(p, from: nil)) { area.pressAtom(hit.range); return ["pressed": Int(node.id), "atom": hit.atom.kind] }
                 handoff = presenter.beginPress(control: field)
                 if !field.isFirstResponder { _ = field.becomeFirstResponder() }
                 took = true; break

@@ -251,12 +251,12 @@ final class InlineAtomReaderTests: XCTestCase {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: faces))
         let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
-        XCTAssertEqual(atom.text, "\u{202F}A quote\u{202F}")
+        XCTAssertEqual(atom.text, "\u{202F}A\u{00A0}quote\u{202F}")
         XCTAssertNotNil(atom.background)
         XCTAssertNotEqual(atom.backgroundBox, 0)
         XCTAssertEqual(atom.backgroundRadii.count, 4)
         XCTAssertFalse(atom.decoration.contains("underline"))
-        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}A quote\u{202F} now")
+        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}A\u{00A0}quote\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
     }
