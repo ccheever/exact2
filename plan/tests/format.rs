@@ -987,14 +987,14 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
 }
 
 /// The `module_events` table joins the plan (LLP 1133.004 D6): a native
-/// module's event the root hears. Every host needs a new binary for this plan
-/// format. The format digest is pinned: a change to `tables/format.json`, a
+/// module's event the root hears; `atompress` joins the event kinds (LLP
+/// 1045.000 D7). Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
 /// comment included, moves it, and every host then needs a new binary (LLP
 /// 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0xe0a9_b602_0897_5497,
+        FORMAT_DIGEST, 0xea6c_a495_042d_3cd8,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }
