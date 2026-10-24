@@ -716,7 +716,7 @@ export function replaceBuild(stage, dist) {
     // was killed between its renames.
     if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
     // No dist (that swap's state): the stage in place first, then `.previous` gone.
-    if (!existsSync(dist)) { renameSync(stage, dist); rmSync(`${dist}.previous`, { recursive: true, force: true }); return; }
+    if (!existsSync(dist)) { renameSync(stage, dist); keepGeneration(`${dist}.previous`, dist); reapGenerations(dist); return; }
     rmSync(`${dist}.previous`, { recursive: true, force: true });
     // One step where the system has one: dist is the new tree from one
     // instant to the next, never absent, and the old tree is left at the
