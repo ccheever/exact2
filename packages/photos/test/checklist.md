@@ -1,10 +1,11 @@
 # Photos by a person (LLP 1133.019 §11 drive 9)
 
-What no tool can do here: grant the photo library on a Mac or a phone, open
-a photo held only in iCloud, and look. These steps need the real
-implementations (stage 2 on Apple, stage 3 on Android); until those land, an
-app outside the agent answers `NotSupportedError` and shows neither Save nor
-Recents' strip. Each step says what to run and what you should see.
+What no tool can do here: grant the photo library on a Mac or a phone,
+answer the system's prompt, choose a limited selection, open a photo held
+only in iCloud, and look. `apple.mjs` drives PhotoKit on an iOS simulator
+(`--fill` adds the fixtures, `simctl privacy` grants) and only the status on
+macOS; the steps below are the rest. Each says what to run and what you
+should see.
 
 ## The photo editor under the agent, by hand
 
@@ -15,8 +16,20 @@ Recents' strip. Each step says what to run and what you should see.
 - iOS simulator: the same with `ios --sim <udid>`, then `tap @4 limited`
   instead of `allow`: three photos, "The photos you chose" and Manage.
 - `bun packages/photos/test/drives.mjs <macos|ios|web>` runs every drive.
+- `bun packages/photos/test/apple.mjs ios --sim <udid> --fill` on a
+  simulator you booted, then `apple.mjs macos`: PhotoKit bound.
 
-## iPhone (drive 9, stage 2)
+## A Mac, by a person
+
+`bun host/apple/build.mjs photo-editor-apple --bundle`, open the `.app`, tap
+Show under "Recent photos": the system asks for access to your photos.
+Write down which text it shows (D4 asks for it): the read key's, "Shows
+your recent photos, so you can open one to edit.", is expected. Allow it,
+and the strip shows your newest photos. Save an edit: it is added with no
+second prompt. In System Settings > Privacy & Security > Photos, turn Photo Editor
+off: on return the strip is gone and the denied line shows.
+
+## iPhone (drive 9)
 
 `bun host/apple/build.mjs --device photo-editor-apple --run`
 
