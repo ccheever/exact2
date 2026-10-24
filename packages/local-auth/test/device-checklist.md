@@ -7,10 +7,16 @@ step says what to see; a step that shows something else is a failure to
 report with a screenshot.
 
 Build Excord for the device and sign in with a real account, or against the
-fixture (`bun apps/excord/fixture/server.ts --world transcript` on this Mac),
-which signs in by itself. Excord's fixture origin is `http://127.0.0.1:4790`:
-an Android phone reaches it through `adb reverse tcp:4790 tcp:4790`, and an
-iPhone cannot reach it yet (QUEUE.md).
+fixture, which signs in by itself. Excord's fixture origin is
+`http://127.0.0.1:4790`:
+
+- Android: run `bun apps/excord/fixture/server.ts --world transcript` on this
+  Mac and `adb reverse tcp:4790 tcp:4790`.
+- iPhone: run the server on this Mac's LAN address (`ipconfig getifaddr en0`,
+  say `10.0.0.73`) with `--host 10.0.0.73`, and build with
+  `EXACT_BACKEND_ORIGIN=http://10.0.0.73:4790`. A development build takes the
+  fixture's loopback grants for that address; a production build refuses it.
+  Allow Excord's Local Network prompt.
 
 ## iPhone with Face ID
 
