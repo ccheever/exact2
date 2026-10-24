@@ -10,7 +10,8 @@
 //   `sequence` of the reader's last answer (D12 item 1).
 //
 // Not here: a fixture implementation feeding a canvas through the context's
-// `surfaces.input`, which no host gives an implementation yet.
+// `surfaces.input`, since the fixture app has no canvas world; Beacons'
+// world is fed so on Apple and Android (LLP 1133.013 §13, "The canvas seam").
 //
 // usage: bun packages/motion/test/seams.mjs
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
