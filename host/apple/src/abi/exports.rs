@@ -752,6 +752,15 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.bind_extensions(len), |_| ())
         }
 
+        /// An `img` source of a package's scheme, admitted (LLP 1133.019 D11
+        /// item 1): the source in the input buffer; the output is
+        /// `{"extension", "agent", "owned"?}`, `{"error", "message"}`, or
+        /// empty for a source of no package's scheme.
+        #[no_mangle]
+        pub extern "C" fn exact_picture(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.picture(len), |n| n)
+        }
+
         /// The agent's `prefer extension` in the input buffer (LLP 1124 D7).
         #[no_mangle]
         pub extern "C" fn exact_extension(rt: u32, len: usize) -> u32 {

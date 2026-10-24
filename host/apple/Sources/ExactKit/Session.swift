@@ -1072,7 +1072,7 @@ public final class ExactSession {
         }
         let outermost = !applying
         // After the batch's own accounting below, which a later defer runs first
-        defer { if outermost { advanceIfDue() } }
+        defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
         let began = sampler == nil ? 0 : CACurrentMediaTime()

@@ -147,13 +147,33 @@ pub const DEVICES: &[Device] = &[
         ..ROW
     },
     // Deviation, same reason: saving to the library. PhotoKit under the
-    // hardened runtime needs the library entitlement for a write too.
+    // hardened runtime needs the library entitlement for a write too. Apple
+    // lists the add key for iOS alone and the read key for macOS too, so
+    // macOS writes both (LLP 1133.019 D4).
     Device {
         name: "photos-add",
         ios: &["NSPhotoLibraryAddUsageDescription"],
-        macos: &["NSPhotoLibraryAddUsageDescription"],
+        macos: &[
+            "NSPhotoLibraryAddUsageDescription",
+            "NSPhotoLibraryUsageDescription",
+        ],
         hardened: Some("com.apple.security.personal-information.photos-library"),
         web: None,
+        ..ROW
+    },
+    // Reading the library, `@exact/photos` (LLP 1133.019 D4): a deviation,
+    // the web has no library. iOS never shows its automatic limited-access
+    // alert, which a tool's or a wake's read would otherwise raise (D6). An
+    // app reading it keeps no answers (D6, ruling 6). Android's column is
+    // stage 3's.
+    Device {
+        name: "photos",
+        ios: &["NSPhotoLibraryUsageDescription"],
+        ios_flags: &["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"],
+        macos: &["NSPhotoLibraryUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.photos-library"),
+        web: None,
+        keeps_no_answers: true,
         ..ROW
     },
     // HealthKit (LLP 1069.008.000): Apple only, a deviation (the web has no

@@ -11,7 +11,7 @@ export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactN
  * for an app with no module of its own, an empty one. */
 export function composedModule(packages, ownModule) {
   const authenticator = packages.find(p => p.authenticator);
-  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...(packages.length ? ['import ExactPackage'] : []), ...(authenticator ? ['import Security'] : []), ...packages.map(p => `import ${p.module}`)];
+  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...(packages.length ? ['import CoreGraphics', 'import ExactPackage'] : []), ...(authenticator ? ['import Security'] : []), ...packages.map(p => `import ${p.module}`)];
   for (const p of packages) lines.push(
     `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
     `    let impl: ${p.className}, context: ExactPackageContext`,
@@ -33,6 +33,8 @@ export function composedModule(packages, ownModule) {
     '    }',
     '    override func displayed(_ id: String, _ shown: Bool, origin: String) { impl.displayed(id, shown, origin: origin) }',
     '    override func bound(_ id: String, _ prop: String, origin: String) { impl.bound(id, prop, origin: origin) }',
+    '    override func image(_ source: String, width: Int, height: Int, fit: String, owned: Bool, reply: @escaping (CGImage?, String?) -> Void) { impl.image(source, width: width, height: height, fit: fit, owned: owned, reply: reply) }',
+    '    override func permissions(_ states: [String: String]) { impl.permissions(states) }',
     // The authenticator entry (LLP 1133.010 D13): the class must conform, which compiling this checks.
     ...(p.authenticator ? [
       '    override func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {',

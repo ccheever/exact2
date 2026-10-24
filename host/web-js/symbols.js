@@ -49,7 +49,10 @@ export function symbols(table) {
   Table = table;
   if (typeof document === "undefined") return;
   document.head.append(Object.assign(document.createElement("style"), { textContent: STYLE }));
+  // A hook before this one (pictures.js: a package's scheme) takes its sources first.
+  const prior = PropHooks.src;
   PropHooks.src = (e, v) => {
+    if (prior?.(e, v)) return true;
     // A source that is no longer a symbol drops the symbol's rendering first,
     // so neither `refresh` nor the role table's late load paints it back over
     // what the new source shows (an `app:/` file lands asynchronously).
