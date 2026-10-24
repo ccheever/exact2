@@ -845,9 +845,9 @@
   var ERRNO = windowsStorage
     ? { 2: "ENOENT", 3: "ENOENT", 32: "EBUSY", 33: "EBUSY", 80: "EEXIST", 145: "ENOTEMPTY", 170: "EBUSY", 183: "EEXIST", 267: "ENOTDIR" }
     : { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
-  // `fs.compressImage`'s own failures (LLP 1069.002 A1.4), named in the
-  // message natively; the web sets the code itself.
-  var IMAGE_CODE = /^(?:filesystem: )?compressImage: (unsupported|undecodable|too-large|unfit|timeout): /;
+  // The image calls' own failures (LLP 1069.002 A1.4, LLP 1133.019 D17),
+  // named in the message natively; the web sets the code itself.
+  var IMAGE_CODE = /^(?:filesystem: )?(?:compress|transform)Image: (unsupported|undecodable|too-large|unfit|timeout|outside): /;
   function storageCode(message) {
     if (/^denied: /.test(message)) return "denied";
     var image = IMAGE_CODE.exec(message);
@@ -1015,23 +1015,25 @@
     host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
   };
   files.recentDocuments = function () { return kept(""); }; files.forgetDocument = function (path) { return kept("forget " + path); }; function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { return Promise.reject(storageError(String(e && e.message || e))); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
-  // `fs.compressImage(from, to, {maxDimension, maxBytes, type})` (LLP 1069.002 A1, A1.11): its options are
-  // checked here, before anything is queued, and travel to the host as two numbers and the media type;
-  // natively the reply is `width\theight\tsize`, on the web the record.
-  var MAX_IMAGE_DIMENSION = 8192, MAX_IMAGE_BYTES = 67108864;
-  files.compressImage = function (from, to, options) {
-    var api = "storage.fs.compressImage()";
+  // `fs.compressImage(from, to, {maxDimension, maxBytes, type, rotate, flip, crop})` (LLP 1069.002 A1,
+  // A1.11; LLP 1133.019 D15) and `fs.transformImage(from, to, options)` (D14): their options are checked
+  // before anything is queued and travel as binary.js `imageOptions` words them; natively the reply is
+  // `width\theight\tsize`, a transform's then its path and the codec's report, and on the web the record.
+  function imageCall(method, from, to, options, record) {
+    var tail;
     try {
-      if (typeof from !== "string" || typeof to !== "string") throw new TypeError(api + ": from and to must be app:/ paths");
-      if (!options || typeof options !== "object") throw new TypeError(api + ": options must be {maxDimension, maxBytes}");
-      var dimension = options.maxDimension, bytes = options.maxBytes, type = options.type === undefined ? "image/jpeg" : options.type;
-      if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION);
-      if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
-      if (type !== "image/jpeg" && type !== "image/png") throw new TypeError(api + ": type must be \"image/jpeg\" or \"image/png\"");
+      if (typeof from !== "string" || typeof to !== "string") throw new TypeError("storage.fs." + method + "(): from and to must be app:/ paths");
+      tail = binary.imageOptions("storage.fs." + method + "()", options, method === "transformImage");
     } catch (e) { return Promise.reject(e); }
-    return storageCall(nativeStorage && nativeStorage.fs, "compressImage", [from, to, dimension, bytes, type], function (value) {
-      var parts = typeof value === "string" ? value.split("\t") : [value.width, value.height, value.size];
-      return { path: to, type: type, size: +parts[2], width: +parts[0], height: +parts[1] };
+    return storageCall(nativeStorage && nativeStorage.fs, method, [from, to].concat(tail), function (value) {
+      return typeof value === "string" ? record(value.split("\t"), tail) : value;
+    });
+  }
+  files.compressImage = function (from, to, options) { return imageCall("compressImage", from, to, options, function (parts, tail) { return { path: to, type: tail[2], size: +parts[2], width: +parts[0], height: +parts[1] }; }); };
+  files.transformImage = function (from, to, options) {
+    return imageCall("transformImage", from, to, options, function (parts) {
+      var report = JSON.parse(parts.slice(4).join("\t"));
+      return { path: parts[3], type: report.type, size: +parts[2], width: +parts[0], height: +parts[1], colorSpace: report.colorSpace, hdr: report.hdr, metadata: report.metadata };
     });
   };
   var storage = Object.freeze({ fs:Object.freeze(files), sqlite:Object.freeze({
@@ -1455,8 +1457,8 @@
   // may still write, so its queue waits for it, as before. Whether it was.
   var IMAGE_ABANDONED = /^compressImage: timeout: the storage wait ran out/;
   function failAbandonedImage(message) {
-    if (!head || head.method !== "compressImage" || !IMAGE_ABANDONED.test(message)) return false;
-    landed(head, false, storageError(message));
+    if (!head || (head.method !== "compressImage" && head.method !== "transformImage") || !IMAGE_ABANDONED.test(message)) return false;
+    landed(head, false, storageError(message.replace(/^compressImage/, head.method)));
     return true;
   }
   // The background's operation in flight, so failed: its rejection runs.

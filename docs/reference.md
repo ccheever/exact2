@@ -1663,6 +1663,54 @@ Linux, Windows and Android have no image encoder and answer `unsupported`, so
 upload the original when it already fits. Under the agent it runs for real with
 `--storage <name>`.
 
+`rotate`, `flip` and `crop` edit the picture before the search, with
+`transformImage`'s meanings (below), so an avatar cropped from a turned photo
+is one call; a crop that misses the picture rejects with `code` `outside`
+([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D15).
+
+### Save an edit of a photo (`storage.fs.transformImage`)
+
+`storage.fs.transformImage(from, to, options)` decodes the image at `from`
+once, makes the edit and encodes it once at `to`, with no search. The order is
+fixed: the picture upright (its orientation applied), then `rotate` (degrees
+clockwise, about its centre), then `flip` (`'horizontal'` or `'vertical'`, in
+the turned frame, so `'horizontal'` mirrors what the person sees), then `crop`
+(`{x, y, width, height}` in the turned frame's pixels, clipped to it and its
+edges rounded), then the size (`resizeWidth`, `resizeHeight` and
+`resizeQuality` as `createImageBitmap` takes them; one side keeps the aspect),
+then the encoding (`type` and `quality`, 0 to 1, as `convertToBlob` takes
+them; `quality` is 0.9 unsaid). A quarter turn resamples nothing; any other
+angle turns the picture into its bounding box, clear where the type keeps
+alpha and white in a JPEG. `type` unsaid is the source's where the host writes
+it, else JPEG; a type the host does not write rejects with `unsupported`, never
+another silently. A `to` with no extension gains the type's.
+
+Unlike `compressImage`, which is for uploads, it keeps what the camera made where
+the host can: the source's colour space (a Display P3 photo stays P3), an HDR
+photo's gain map (JPEG and HEIC on macOS and iOS), and, by `metadata`, the
+source's EXIF, TIFF, GPS, IPTC and XMP with the orientation reset (`'keep'`,
+unsaid), the capture's standard tags and the IPTC rights with no GPS, maker
+note or XMP (`'no-location'`), or nothing (`'none'`). It resolves `{path, type,
+size, width, height, colorSpace, hdr, metadata}`, the last three what was
+written ([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D14, D15):
+
+```ts
+export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
+// the editor's angle, and the crop in the turned photo's pixels
+const saved = await storage.fs.transformImage(photo, `app:/tmp/edits/${n}`,
+  { rotate: edit.angle, crop: edit.crop });
+// saved.path ends in .jpg or .heic, the camera's own type
+```
+
+Its grants, queue, atomic write and refusals are `compressImage`'s, with
+`outside` for a crop that misses and no `unfit`. macOS and iOS encode JPEG, PNG
+and HEIC; the web encodes PNG, and JPEG and WebP where the browser does, and a
+canvas keeps no metadata, colour space but sRGB or gain map, so there the
+record says `colorSpace: 'srgb'`, `hdr: false` and `metadata: 'none'` whatever
+was asked. The iOS simulator's ImageIO writes no gain map, so there an HDR
+photo is saved as SDR and says `hdr: false`. Linux, Windows and Android answer
+`unsupported`.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
@@ -2084,7 +2132,8 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
-| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG) | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG), `"rotate"`, `"flip"`, `"crop"` | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.transformImage"` | `{"path", "destination"}` and `storage.fs.transformImage`'s options beside them (`"rotate"`, `"crop"`, `"metadata"`, …; `null` is absent) | `{"path", "type", "size", "width", "height", "colorSpace", "hdr", "metadata"}`, as it answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It

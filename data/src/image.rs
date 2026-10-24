@@ -1,6 +1,9 @@
 //! `storage.fs.compressImage` (LLP 1069.002 Amendment A1): decode an image,
 //! scale it to a pixel budget and encode it as a JPEG, or a PNG that keeps
-//! its alpha (A1.11), within a byte budget.
+//! its alpha (A1.11), within a byte budget; and `storage.fs.transformImage`
+//! (LLP 1133.019 D14), the same codec's edit: turned, flipped, cropped and
+//! sized, keeping the source's colour, HDR and metadata (D15). Both take
+//! [`edit`]'s `rotate`, `flip` and `crop`.
 //!
 //! The JPEG search is Bluesky's (`social-app` `compress.ts`), restated in
 //! A1.2 and kept as a pure function over an encoder ([`search`]) so every
@@ -12,6 +15,8 @@ use std::time::Instant;
 
 #[cfg(target_vendor = "apple")]
 mod apple;
+pub mod edit;
+pub use edit::{Edit, Metadata, Transform};
 
 /// The largest `maxDimension` (A1.1).
 pub const MAX_DIMENSION: u32 = 8192;
@@ -179,8 +184,8 @@ where
 /// When the codec must stop starting work: checked before the decode and
 /// before each trial (a trial already running finishes).
 pub struct Deadline<'a> {
-    at: Instant,
-    check: &'a dyn Fn() -> Result<(), String>,
+    pub at: Instant,
+    pub check: &'a dyn Fn() -> Result<(), String>,
     pub max_pixels: u64,
     pub max_scratch_bytes: u64,
 }
@@ -233,19 +238,12 @@ pub fn compress_controlled(
     max_pixels: u64,
     max_scratch_bytes: u64,
 ) -> Result<Compressed, String> {
-    check_limits(f64::from(max_dimension), max_bytes as f64)?;
-    check()?;
-    if source.len() as u64 > MAX_BYTES {
-        return Err(failure(
-            "too-large",
-            format!("{} bytes is over {MAX_BYTES}", source.len()),
-        ));
-    }
-    platform(
+    compress_edited(
         source,
         format,
         max_dimension,
         max_bytes,
+        &Edit::default(),
         Deadline {
             at: deadline,
             check,
@@ -255,20 +253,174 @@ pub fn compress_controlled(
     )
 }
 
+/// [`compress_controlled`] of `edit`'s picture (LLP 1133.019 D15): turned,
+/// flipped and cropped before the search, which runs on the crop's size.
+pub fn compress_edited(
+    source: &[u8],
+    format: Format,
+    max_dimension: u32,
+    max_bytes: u64,
+    edit: &Edit,
+    deadline: Deadline<'_>,
+) -> Result<Compressed, String> {
+    check_limits(f64::from(max_dimension), max_bytes as f64)?;
+    (deadline.check)()?;
+    if source.len() as u64 > MAX_BYTES {
+        return Err(failure(
+            "too-large",
+            format!("{} bytes is over {MAX_BYTES}", source.len()),
+        ));
+    }
+    platform(source, format, max_dimension, max_bytes, edit, deadline)
+}
+
 #[cfg(target_vendor = "apple")]
 fn platform(
     source: &[u8],
     format: Format,
     max_dimension: u32,
     max_bytes: u64,
+    edit: &Edit,
     deadline: Deadline<'_>,
 ) -> Result<Compressed, String> {
-    apple::compress(source, format, max_dimension, max_bytes, deadline)
+    apple::compress(source, format, max_dimension, max_bytes, edit, deadline)
 }
 
 #[cfg(not(target_vendor = "apple"))]
-fn platform(_: &[u8], _: Format, _: u32, _: u64, _: Deadline<'_>) -> Result<Compressed, String> {
+fn platform(
+    _: &[u8],
+    _: Format,
+    _: u32,
+    _: u64,
+    _: &Edit,
+    _: Deadline<'_>,
+) -> Result<Compressed, String> {
     Err(unsupported())
+}
+
+/// What `transformImage` wrote, and what of the source it kept: D14's
+/// `TransformedImage` less its path and size, which the writer knows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transformed {
+    pub bytes: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub media_type: &'static str,
+    /// `srgb`, `display-p3` or `other`.
+    pub color_space: &'static str,
+    pub hdr: bool,
+    pub metadata: Metadata,
+}
+
+impl Transformed {
+    /// The facts the result record carries beside its path, size and pixels.
+    pub fn report(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": self.media_type,
+            "colorSpace": self.color_space,
+            "hdr": self.hdr,
+            "metadata": self.metadata.word(),
+        })
+    }
+}
+
+/// `transformImage` (LLP 1133.019 D14): one decode, the edit, one encode,
+/// keeping what `options` says (D15), in at most `max_bytes`.
+pub fn transform(
+    source: &[u8],
+    options: &Transform,
+    max_bytes: u64,
+    deadline: Deadline<'_>,
+) -> Result<Transformed, String> {
+    (deadline.check)()?;
+    if source.len() as u64 > MAX_BYTES {
+        return Err(edit::failure_named(
+            "transformImage",
+            "too-large",
+            format!("{} bytes is over {MAX_BYTES}", source.len()),
+        ));
+    }
+    transform_platform(source, options, max_bytes, deadline)
+}
+
+#[cfg(target_vendor = "apple")]
+fn transform_platform(
+    source: &[u8],
+    options: &Transform,
+    max_bytes: u64,
+    deadline: Deadline<'_>,
+) -> Result<Transformed, String> {
+    apple::transform(source, options, max_bytes, deadline)
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn transform_platform(
+    _: &[u8],
+    _: &Transform,
+    _: u64,
+    _: Deadline<'_>,
+) -> Result<Transformed, String> {
+    Err(edit::failure_named(
+        "transformImage",
+        "unsupported",
+        "no image encoder on this host",
+    ))
+}
+
+/// What an embedder's codec returns for either call: the bytes and their
+/// size, and for a transform its report and the extension a `to` without
+/// one gains.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Encoded {
+    pub bytes: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub report: Option<String>,
+    pub extension: Option<&'static str>,
+}
+
+/// One request to the codec as an embedder receives it (Ibex's
+/// `ImageRequest`): a compression in `format` within its limits, whose
+/// `options` may carry an edit; or a transform, whose `options` are
+/// [`edit::parse_transform`]'s and whose output is at most `max_bytes`.
+pub fn encode_request(
+    source: &[u8],
+    transform_call: bool,
+    options: Option<&str>,
+    format: Format,
+    (max_dimension, max_bytes): (u32, u64),
+    deadline: Deadline<'_>,
+) -> Result<Encoded, String> {
+    let call = if transform_call {
+        "transformImage"
+    } else {
+        "compressImage"
+    };
+    let options: serde_json::Value = match options {
+        Some(text) => serde_json::from_str(text)
+            .map_err(|e| edit::failure_named(call, "invalid", format!("options: {e}")))?,
+        None => serde_json::Value::Null,
+    };
+    if transform_call {
+        let t = edit::parse_transform(&options)?;
+        let out = transform(source, &t, max_bytes, deadline)?;
+        return Ok(Encoded {
+            report: Some(out.report().to_string()),
+            extension: edit::extension(out.media_type),
+            bytes: out.bytes,
+            width: out.width,
+            height: out.height,
+        });
+    }
+    let edit = edit::parse_edit(call, &options)?;
+    let out = compress_edited(source, format, max_dimension, max_bytes, &edit, deadline)?;
+    Ok(Encoded {
+        bytes: out.bytes,
+        width: out.width,
+        height: out.height,
+        report: None,
+        extension: None,
+    })
 }
 
 /// The refusal where there is no codec (A1.3).

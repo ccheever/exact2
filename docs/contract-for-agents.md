@@ -1661,7 +1661,11 @@ nothing (the web and Apple journal `image refused`). Shrink a picked photo for a
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
 keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
-Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
+Linux answers `unsupported`. Save an edit (a turn, a flip, a crop, a size) with
+`storage.fs.transformImage(path, to, {rotate, crop})`, which keeps the photo's colour,
+HDR and metadata where the host can and says what it wrote
+([reference](reference.md#save-an-edit-of-a-photo-storagefstransformimage));
+`compressImage` takes `rotate`, `flip` and `crop` too. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
 through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to

@@ -133,6 +133,25 @@ now preserves Exact's app error branches: a source over the read cap is
 patch; exact internal markers and typed deadline errors are matched upstream.
 The source pin also deallocates an upload's bytes before invoking its last-release
 callback, so the executor cannot refund memory while the allocation is retained.
+
+Patch 9a (exact2 LLP 1133.019 D14, D15, D17, 2026-10-24) is Exact's alone and is
+replayed on a refresh. `bindings/install.cc` names a second fs method,
+`transformImage`, on op 121. Its native arguments are `(from, to, optionsJson)`;
+`compressImage` may add a sixth, its edit's JSON. `boundary_abi.rs` admits both
+shapes and passes the JSON unread in `fs_image::ImageRequest::options`, with
+`transform` set for the three-argument form. `ImageRequest` is `Clone`, not
+`Copy`, and has a `Default`. A transform's `max_dimension` and `max_bytes` are
+the service's own (`ImageJob::prepare`), and its failures are named
+`transformImage:` (`failed_as`, `WorkControl::check`). The codec's
+`CompressedImage` gains `report` (a JSON object, passed through) and `extension`.
+A transform whose `to` leaf has no `.` is written at `to.<extension>`, after
+`fs.write` is admitted for that path, in the parent already pinned
+(`AtomicTarget::extended`). `ImageFile` gains `path` and `report`, and a
+transform replies `width\theight\tsize\tpath\treport`. `bindings/storage.d.ts`
+declares `transformImage`, `TransformImageOptions`, `TransformedImage`,
+`ImageCrop`, and `rotate`, `flip` and `crop` on `CompressImageOptions`.
+`fs_image.rs`'s `a_transform_passes_its_options_and_extends_an_extensionless_target`
+and `contract/cli/tests/it/typescript.rs` pin it.
 The standalone manifests, dependency graph and locks are unchanged by this refresh.
 
 ### Historical v4 Windows consumer qualification — 2026-10-13

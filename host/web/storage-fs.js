@@ -380,24 +380,43 @@ export function createFileSystem(appId, grants, timers = ownTimers) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
-  // `compressImage(from, to, {maxDimension, maxBytes, type})` (LLP 1069.002 A1):
-  // both grants are checked and the options too before anything is read;
-  // the codec runs outside the mutation lock, and only the write takes it.
+  // `compressImage(from, to, {maxDimension, maxBytes, type, rotate, flip, crop})`
+  // (LLP 1069.002 A1, LLP 1133.019 D15): both grants are checked and the
+  // options too before anything is read; the codec runs outside the mutation
+  // lock, and only the write takes it.
   fs.compressImage = async (from, to, options) => {
     if (typeof from !== 'string' || typeof to !== 'string' || !from.startsWith('app:/') || !to.startsWith('app:/'))
       throw failure('compressImage: needs app:/ paths', 'failed');
     const image = await import('./storage-image.js');
     const { maxDimension, maxBytes, type } = image.limits(options);
+    const edit = image.editOptions('storage.fs.compressImage()', options, false);
     from = authorize(grants, 'fs.read', from);
     to = authorize(grants, 'fs.write', to);
     requireBelowRoot(to);
     // An entry is one IndexedDB record, read whole by any operation (`stat`
     // too); its size is checked before it becomes a Blob or is decoded.
     const { blob } = await store.blob(from, undefined, image.MAX_BYTES);
-    const out = await image.compress(blob, maxDimension, maxBytes, undefined, type);
+    const out = await image.compress(blob, maxDimension, maxBytes, undefined, type, edit);
     const size = out.bytes.byteLength;
     await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));
     return { path: to, type, size, width: out.width, height: out.height };
+  };
+  // `transformImage(from, to, options)` (LLP 1133.019 D14), as `compressImage`
+  // is run; a `to` with no extension gains the written type's, under its grant.
+  fs.transformImage = async (from, to, options) => {
+    if (typeof from !== 'string' || typeof to !== 'string' || !from.startsWith('app:/') || !to.startsWith('app:/'))
+      throw failure('transformImage: needs app:/ paths', 'failed');
+    const image = await import('./storage-image.js');
+    const checked = image.editOptions('storage.fs.transformImage()', options, true);
+    from = authorize(grants, 'fs.read', from);
+    to = authorize(grants, 'fs.write', to);
+    requireBelowRoot(to);
+    const { blob } = await store.blob(from, undefined, image.MAX_BYTES, 'transformImage');
+    const out = await image.transform(blob, checked);
+    const path = /\.[^/]*$/.test(to) ? to : authorize(grants, 'fs.write', `${to}.${image.extension(out.type)}`);
+    const { bytes, ...facts } = out, size = bytes.byteLength; // the write detaches the bytes
+    await mutate([path], () => store.atomicWriteOwnedFile(path, bytes));
+    return { path, size, ...facts };
   };
   return Object.freeze(fs);
 }
