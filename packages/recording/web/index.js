@@ -22,6 +22,9 @@
 /** The synthetic signal at step `i` (one step a 50 ms of the session clock): the recorder's formula (§10). */
 export const synthetic = i => Math.min(1, 0.12 + 0.75 * Math.abs(Math.sin(i * 0.37)) * (0.55 + 0.45 * Math.sin(i * 0.05)));
 const STEP = 50;
+// What a read of no handle (`""`) answers: an app reads before it holds one, and a poll does not ask it again.
+const NO_RECORDER = { id: '', state: 'inactive', mimeType: '', audioBitsPerSecond: null, path: '', duration: 0, reason: null, error: null, result: null };
+const SILENCE = { audioLevel: 0, totalAudioEnergy: 0, totalSamplesDuration: 0, levels: [] };
 const EXTENSIONS = { 'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/mp4': '.m4a', 'audio/wav': '.wav' };
 
 /** A WAV file, 16-bit mono PCM at `rate`, of `samples` (-1 to 1). */
@@ -120,12 +123,14 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
   // The rest of every recording, asked for as the page goes (D6): what the store receives is kept.
   if (!agent && typeof addEventListener === 'function') addEventListener('pagehide', () => { for (const r of recorders.values()) if (r.media?.state === 'recording') r.media.requestData(); });
 
-  /** The type to write: the written one if the browser writes it, else the browser's own (D2). */
+  /** The type to write: the written one if the browser writes it, else MP4, WebM or Ogg, the first it writes. */
   function typeFor(asked) {
     if (agent) return { type: 'audio/wav' };
     if (typeof MediaRecorder !== 'function') return { error: 'NotSupportedError' };
     if (asked) return MediaRecorder.isTypeSupported(asked) ? { type: asked } : { error: 'NotSupportedError' };
-    for (const t of ['audio/webm', 'audio/ogg', 'audio/mp4']) if (MediaRecorder.isTypeSupported(t)) return { type: t };
+    // MP4 first where the browser writes it: its duration is in the file, where Chrome's WebM has none until played
+    // through. Unwritten, the browser's own order would be WebM or Ogg (D2); a declared deviation.
+    for (const t of ['audio/mp4', 'audio/webm', 'audio/ogg']) if (MediaRecorder.isTypeSupported(t)) return { type: t };
     return { error: 'NotSupportedError' };
   }
   /** The path with its container's extension: added when the app wrote none, refused when it disagrees. */
@@ -165,6 +170,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
           };
           try { m.audio = connect(); }
           catch { try { m.audio = connect(source.getSettings?.().sampleRate ?? 48000); } catch (e) { say(`a level on ${args.track} has no analyser: ${e.message}`); return; } }
+          m.audio.resume?.().catch(() => {}); // a context made outside a gesture starts suspended
           m.analyser.fftSize = 2048;
           m.buffer = new Float32Array(m.analyser.fftSize);
           m.timer = setInterval(sample, interval);
@@ -250,6 +256,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       return finish(r, 'requested');
     },
     async mediaRecorderState({ recorder }) {
+      if (!recorder) return NO_RECORDER;
       const r = recorders.get(recorder);
       return r ? info(r) : { error: 'NotFoundError' };
     },
@@ -257,6 +264,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       return { type, supported: agent ? type === 'audio/wav' : typeof MediaRecorder === 'function' && MediaRecorder.isTypeSupported(type) };
     },
     async audioLevel(args) {
+      if (!args.track) return SILENCE;
       const m = meter({ track: args.track, interval: args.interval ?? null, history: args.history ?? null });
       return m.error ? m : read(m);
     },

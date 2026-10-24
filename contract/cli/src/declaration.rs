@@ -266,6 +266,15 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if !paths.is_empty() {
         out.insert("paths".into(), Value::Object(paths));
     }
+    // The options that name a handle: a read whose every one is empty names
+    // no object, and a poll does not ask it again (LLP 1133.009 D10 item 7).
+    let handles: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty.as_str().is_some_and(|t| t.trim().starts_with("handle<")))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !handles.is_empty() {
+        out.insert("handleOptions".into(), Value::Array(handles));
+    }
     for (field, value) in object(entry) {
         match field.as_str() {
             "origin" => check(
