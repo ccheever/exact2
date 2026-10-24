@@ -1,4 +1,4 @@
-import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js";
+import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js";
 export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
@@ -1394,6 +1394,7 @@ export function mount(f) {
   });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
   clock.agent = agentMode();
+  if (!clock.agent && typeof window !== "undefined") reloadOnGone(window); // a build kept no more: the page again, once
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
