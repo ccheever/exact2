@@ -1,16 +1,6 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-extension MenuHost {
-    /// Hears touches on `surface`, the page the popovers are lifted over.
-    func observeTouches(on surface: UIView) {
-        guard touchObserver?.view !== surface else { return }
-        touchObserver.map { $0.view?.removeGestureRecognizer($0) }
-        let observer = PopoverTouch(host: self)
-        surface.addGestureRecognizer(observer); touchObserver = observer
-    }
-}
-
 /// The dialog sheets that may host it are captured at opening: a later
 /// sheet must cover this layer. Elsewhere it is where BASE put every lifted
 /// popover, the top live route modal's view or the viewport.
@@ -42,7 +32,7 @@ final class PopoverLayer: UIView {
     func mount(in presenter: Presenter) {
         mounting = true
         defer { mounting = false }
-        var host: UIView = presenter.modals.coordinateView ?? presenter.documentPort
+        var host: UIView = presenter.modals.coordinateView ?? presenter.viewport
         sheet = nil
         // A sheet hosts it only while its dialog still holds the popover: a move out of it leaves the sheet.
         let holding = popover.map { presenter.menus.sheets.controllers(holding: $0) } ?? []
@@ -73,7 +63,7 @@ final class PopoverLayer: UIView {
         let covered = sheet?.viewIfLoaded?.accessibilityElementsHidden ?? false
         if accessibilityElementsHidden != covered { accessibilityElementsHidden = covered }
         // Over the document, the page's area: not the bands the viewport is drawn past (LLP 1130).
-        let place = host === presenter.documentMount ? presenter.viewport.pageBounds : (host as? UIScrollView)?.pageBounds ?? host.bounds
+        let place = (host as? UIScrollView)?.pageBounds ?? host.bounds
         if frame != place { frame = place }
     }
 

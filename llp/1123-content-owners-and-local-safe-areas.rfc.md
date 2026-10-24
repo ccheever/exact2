@@ -299,6 +299,8 @@ The block is the owner's untransformed bounds; in what follows, the owner's **al
 
 In both, the root sits in its block by its own frame (its margins, a width narrower than the block), and a rectangle of another size than the block's used size is a scale: the host's own transform (a sheet scaled at a lower detent), never the difference between the block and the root. A route under another route of its stack, or under a modal one, is inactive to the runner's walk (`head::inactive`), so hit testing passes it, as UIKit does. The agent's coordinates, taps and screenshots follow the same mapping.
 
+On iOS, a primary route under native chrome scrolls its document inside the fixed native allocation. Its placement identifies a scrollport and carries its offset in block points, including zero: the root and its descendants move while the allocation's clip stays fixed. A fixed pane's placement has no content offset. This scrolling changes no session viewport facts or layout allocation. A kernel-implied popover block supplies layout space and adds no clip.
+
 **What an owner's block carries beyond D8.2.** Two facts the kernel lays out with, published in the same commit as the block:
 
 - **Local insets** (D3, D9): the owner view's `safeAreaInsets`.

@@ -232,3 +232,46 @@ test('intersection geometry follows Chrome for rotated roots and sticky targets'
     expect(await page.evaluate(() => globalThis.entries)).toEqual([[false, 0], [true, 1]]);
   } finally { await browser.close(); }
 }, 120000);
+
+for (const engine of ['chromium', 'firefox', 'webkit']) {
+  test(`intersection roots preserve margin and clipping semantics in ${engine}`, async function () {
+    const source = readFileSync(new URL('../intersect-glue.js', import.meta.url), 'utf8');
+    const browser = await suiteBrowser(engine);
+    const scrollportStyle = 'position:relative;width:300px;height:500px;overflow:auto';
+    const cardStyle = 'position:absolute;top:600px;width:100px;height:100px';
+    const cases = [
+      { name: 'scrollport at rest', html: `<div id="root" style="${scrollportStyle}"><div id="target" style="${cardStyle}"></div></div>`, root: 'root', offset: 0, expected: [true, 1] },
+      { name: 'scrolled scrollport', html: `<div id="root" style="${scrollportStyle}"><div id="target" style="${cardStyle}"></div></div>`, root: 'root', offset: 150, expected: [true, 1] },
+      { name: 'fixed pane', html: `<div style="${scrollportStyle};overflow:clip"><div id="target" style="${cardStyle}"></div></div>`, root: null, expected: [false, 0] },
+      { name: 'clip below root', html: `<div id="root" style="${scrollportStyle}"><div style="position:relative;height:100px;overflow:clip"><div id="target" style="${cardStyle};top:120px;height:40px"></div></div></div>`, root: 'root', expected: [false, 0] },
+      { name: 'only x is clipped', html: `<div id="root" style="${scrollportStyle}"><div style="position:relative;height:100px;overflow-x:clip"><div id="target" style="${cardStyle};top:120px;height:40px"></div></div></div>`, root: 'root', expected: [true, 1] },
+      { name: 'clip above root', html: '<div style="height:100px;overflow:clip"><div id="root" style="position:relative;margin-top:600px;height:100px;overflow:auto"><div id="target" style="width:100px;height:40px"></div></div></div>', root: 'root', expected: [true, 1] },
+      { name: 'nested scroller below outer port', html: '<div style="height:300px;overflow:auto"><div id="root" style="margin-top:400px;height:100px;overflow:auto"><div id="target" style="width:100px;height:40px"></div></div></div>', root: 'root', expected: [true, 1] },
+    ];
+    try {
+      const page = await browser.newPage({ viewport: { width: 400, height: 800 } });
+      for (const scenario of cases) {
+        await page.setContent(`<style>body{margin:0}</style>${scenario.html}`);
+        const result = await page.evaluate(async ({ source, root, offset }) => {
+          const { observeIntersect } = await import(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+          const target = document.getElementById('target');
+          const port = root === null ? null : document.getElementById(root);
+          if (offset !== undefined) port.scrollTop = offset;
+          target.setAttribute('data-intersectmargin', '200px');
+          let stop, oracle;
+          const result = await Promise.all([
+            new Promise(resolve => { stop = observeIntersect(target, e => resolve([e.isIntersecting, e.intersectionRatio])); }),
+            new Promise(resolve => {
+              oracle = new IntersectionObserver(([e]) => resolve([e.isIntersecting, e.intersectionRatio]), { root: port, rootMargin: '200px' });
+              oracle.observe(target);
+            }),
+          ]);
+          stop(); oracle.disconnect();
+          return result;
+        }, { source, root: scenario.root, offset: scenario.offset });
+        expect(result[0], scenario.name).toEqual(result[1]);
+        expect(result[0], scenario.name).toEqual(scenario.expected);
+      }
+    } finally { await browser.close(); }
+  }, 120000);
+}

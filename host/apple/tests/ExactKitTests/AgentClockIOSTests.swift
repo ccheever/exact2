@@ -35,7 +35,7 @@ final class AgentClockIOSTests: XCTestCase {
         let node = NodeView(id: UInt32.max, kind: "view", presenter: p)
         p.views[node.id] = node
         node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
-        p.documentPort.addSubview(node)
+        p.viewport.addSubview(node)
         node.handlers = ["pan", "panrelease", "pointerdown", "pointermove", "pointerup"]
         let agent = Agent(session: session)
         var events: [String] = []
@@ -74,7 +74,7 @@ final class AgentClockIOSTests: XCTestCase {
             parent.addSubview(n)
             return n
         }
-        let surface = make(UInt32.max - 2, CGRect(x: 0, y: 0, width: 400, height: 500), p.documentPort, ["pan", "pointerdown"])
+        let surface = make(UInt32.max - 2, CGRect(x: 0, y: 0, width: 400, height: 500), p.viewport, ["pan", "pointerdown"])
         let row = make(UInt32.max - 1, CGRect(x: 0, y: 0, width: 400, height: 100), surface, ["swiperight", "pointerdown"])
         row.style["touch_action"] = .string("pan-y")
         let button = make(UInt32.max, CGRect(x: 0, y: 0, width: 80, height: 40), row, ["press", "pointerdown"])
@@ -112,7 +112,7 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(button.id)])?["delivery"] as? String, "recognized", "no pan: the button's finger, the swipe kept from it")
         _ = agent.recognizedPan("cancel", [:])
         // A height binding is offered no touch through a scroll view below it.
-        let sheet = make(UInt32.max - 5, CGRect(x: 0, y: 520, width: 400, height: 300), p.documentPort, [])
+        let sheet = make(UInt32.max - 5, CGRect(x: 0, y: 520, width: 400, height: 300), p.viewport, [])
         sheet.heightRecognizer = UIPanGestureRecognizer()
         let scroller = UIScrollView(frame: sheet.bounds)
         sheet.addSubview(scroller)
@@ -133,7 +133,7 @@ final class AgentClockIOSTests: XCTestCase {
         for v in [outer, node] { p.views[v.id] = v }
         outer.frame = CGRect(x: 0, y: 200, width: 300, height: 300)
         node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
-        p.documentPort.addSubview(outer)
+        p.viewport.addSubview(outer)
         outer.addSubview(node)
         outer.handlers = ["pointerdown"]
         node.handlers = ["press", "pointerdown", "pointerup"]
@@ -179,7 +179,7 @@ final class AgentClockIOSTests: XCTestCase {
         node.frame = CGRect(x: 0, y: 200, width: 100, height: 40)
         node.handlers = ["press"]
         node.applyStyle(["press_scale": 0.5])
-        p.documentPort.addSubview(node)
+        p.viewport.addSubview(node)
         var pressed = 0
         p.onPress = { _ in pressed += 1 }
         let agent = Agent(session: session)
@@ -199,7 +199,7 @@ final class AgentClockIOSTests: XCTestCase {
             p.views[id] = n
             n.frame = CGRect(x: 0, y: 200, width: 100, height: 100)
             n.handlers = ["press", "pointerdown", "pointerup"]
-            p.documentPort.addSubview(n)
+            p.viewport.addSubview(n)
             return n
         }
         let node = make(UInt32.max)
@@ -264,7 +264,7 @@ final class AgentClockIOSTests: XCTestCase {
         let box = CGRect(x: 0, y: 200, width: 100, height: 100)
 
         // Disabled by its own pointerdown.
-        let a = add(UInt32.max, box, p.documentPort, ["press", "pointerdown"])
+        let a = add(UInt32.max, box, p.viewport, ["press", "pointerdown"])
         p.onPointer = { id, _, _ in events.append("down \(id)"); a.props["disabled"] = "true" }
         _ = agent.tap(["id": Int(a.id)])
         XCTAssertEqual(events, ["down \(a.id)"], "disabled at the release: no press")
@@ -273,7 +273,7 @@ final class AgentClockIOSTests: XCTestCase {
         // Its view given to the next row (a virtualized row reused, as
         // `NodePool.rebind` does) by its own pointerup, in the plain tap.
         events = []
-        let b = add(UInt32.max - 1, box, p.documentPort, ["press", "pointerup"])
+        let b = add(UInt32.max - 1, box, p.viewport, ["press", "pointerup"])
         let first = b.id, next = UInt32.max - 7
         p.onPointer = { id, _, _ in
             events.append("up \(id)")
@@ -288,7 +288,7 @@ final class AgentClockIOSTests: XCTestCase {
 
         // A container held over child A; A's pointerdown puts B in its place.
         events = []
-        let container = add(UInt32.max - 2, box, p.documentPort, [])
+        let container = add(UInt32.max - 2, box, p.viewport, [])
         let childA = add(UInt32.max - 3, CGRect(x: 0, y: 0, width: 100, height: 100), container, ["press", "pointerdown"])
         var childB: NodeView?
         p.onPointer = { id, kind, _ in
@@ -304,7 +304,7 @@ final class AgentClockIOSTests: XCTestCase {
 
         // An inner handler hands the outer node's view to another node before its turn.
         events = []
-        let outer = add(UInt32.max - 5, box, p.documentPort, ["pointerdown"])
+        let outer = add(UInt32.max - 5, box, p.viewport, ["pointerdown"])
         let inner = add(UInt32.max - 6, CGRect(x: 0, y: 0, width: 100, height: 100), outer, ["pointerdown"])
         p.onPointer = { id, _, _ in events.append("down \(id)"); if id == inner.id { outer.incarnation = NodePool.issue() } }
         _ = agent.tap(["id": Int(inner.id)])

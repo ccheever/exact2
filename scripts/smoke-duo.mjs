@@ -23,7 +23,7 @@
 // exits 0, the convention for a missing carrier. The device is turned by the
 // same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
 // §9): the suite starts it upright, and the rotate, resize and web legs turn it.
-// `--only insets,keyboard-bar,lab,host,rotate,resize,web` runs the named legs; the keyboard checks
+// `--only insets,keyboard-bar,lab,navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -112,7 +112,7 @@ async function suite({ open: openSession, check: record }, reset) {
   // The phase a check runs in, and the first failure's since the last screenshot, which names it
   let where = 'start', failedAt = null, shots = 0;
   const check = (ok, what) => { if (!ok) { console.log('  FAIL ' + what); failedAt ??= where; } return record(ok, what); };
-  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, keyboard-bar, lab, host, rotate, resize, web
+  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, keyboard-bar, lab, navigation, host, rotate, resize, web
   const leg = (name) => !only || only.includes(name);
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -422,7 +422,7 @@ async function suite({ open: openSession, check: record }, reset) {
     check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
-  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web');
+  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web') || leg('navigation');
   const plans = {};
   const compile = (name, source) => {
     const plan = resolve(out, `${name}.plan`);
@@ -430,6 +430,7 @@ async function suite({ open: openSession, check: record }, reset) {
     if (check(c.status === 0, `the ${name} fixture did not compile: ${c.stderr}`)) plans[name] = plan;
   };
   for (const name of [probe ? 'insets' : null, leg('keyboard-bar') ? 'keyboard-bar' : null].filter(Boolean)) compile(name, resolve(ROOT, `contract/corpus/${name}.contract`));
+  if (leg('navigation')) compile('pushed-title', resolve(ROOT, 'scripts/fixtures/pushed-title.contract'));
   const lab = resolveApp('duo-lab');
   // The rotate and web legs' duo-lab starts its note sheet at 600 points, taller than the lower segment folded like a
   // laptop, so the limit there is checked: no drag can set it, since a released drag snaps the sheet to 200 or 400
@@ -715,6 +716,42 @@ async function suite({ open: openSession, check: record }, reset) {
         check(echo === `Draft so far: ${title} / ${draft}`, `${tag}: the draft is echoed on the Combinations screen: ${echo}`);
       });
     } catch (e) { check(false, `duo-lab: ${e.message}`); } finally { await s.close(); }
+  }
+
+  // UIKit's Back, located by XCTest rather than the authored placeholder.
+  if (leg('navigation') && plans['pushed-title']) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'] });
+    try {
+      await eachPose(s, 'native-back', async (_, tag) => {
+        for (const mode of ['stationary', 'scrolling', 'visual']) {
+          const overflow = mode === 'scrolling', name = `${tag}-${mode}`;
+          await s.tap(mode === 'visual' ? 'home-open-edit-visual' : overflow ? 'home-open-edit-overflow' : 'home-open-edit'); await settle(s);
+          const k = await keyboard(s, true);
+          if (softKeyboard) check(k.reached, `${name}: the pushed editor raises the keyboard`);
+          const draft = `Native Back ${name}`;
+          await s.type('edit-draft', draft); await settle(s);
+          const layout = await s.layout();
+          if (overflow) {
+            check(box(layout, 'app')?.h > layout.viewport.h, `${name}: the document has page overflow`);
+            await s.tap('app', { wheel: [0, 100] }); await settle(s);
+            check((await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the outer page scrolls`);
+          }
+          check((await s.state()).navigation.url === '/edit', `${name}: the editing route is on top`);
+          await s.back({ native: true }); await settle(s);
+          const state = await s.state();
+          check(state.navigation.url === '/' && state.slots.query === draft,
+            `${name}: tapping UIKit's Back returns to the root and preserves the edit`);
+          if (overflow) { await s.tap('app', { wheel: [0, -100000] }); await settle(s); }
+        }
+      });
+    } catch (e) { check(false, `native-back: ${e.message}`); } finally { await s.close(); }
+    const authored = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'], chrome: 'agent', touch: 'agent' });
+    try {
+      await authored.tap('home-open-edit-overflow'); await settle(authored);
+      const layout = await authored.layout('route-edit');
+      check(layout.node.space.local.h > layout.viewport.h,
+        'authored chrome keeps the overflowing document allocation');
+    } catch (e) { check(false, `authored-navigation: ${e.message}`); } finally { await authored.close(); }
   }
 
   // 4. The two-session sample host: both panes follow the pose.
