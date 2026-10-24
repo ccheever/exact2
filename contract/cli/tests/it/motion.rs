@@ -348,3 +348,31 @@ fn a_canvas_input_takes_every_sample_on_its_grid() {
     assert!(ended[0].1.contains("sensorEnded"), "{ended:?}");
     assert!(!r.surface_sensor_inputs());
 }
+
+/// D5: each reader's cursor is its own, whichever source it reads; letting
+/// go of the readers no resource holds keeps every other source's.
+#[test]
+fn each_source_s_readers_keep_their_cursors() {
+    let src = APP.replace(
+        "  mutation asked",
+        "  resource shake = accelerometer(frequency=60, interval=100, history=64) as shape Accelerometer\n  mutation asked",
+    );
+    let app = App::new("cursors", &src);
+    let mut r = boot(&app);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    r.advance(750.0).unwrap();
+    pump(&mut r, &mut parked);
+    for name in ["level", "shake"] {
+        let batch = answer(&r, name);
+        assert_eq!(
+            (
+                batch["sequence"].clone(),
+                batch["samples"].as_array().map(Vec::len)
+            ),
+            (json!(45), Some(45)),
+            "{name}: {batch}\n{}",
+            r.extensions_json().unwrap()
+        );
+    }
+}
