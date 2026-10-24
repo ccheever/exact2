@@ -78,6 +78,18 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
+    /// The schemes the plan's interfaces serve pictures by, each once: the
+    /// `img` sources a host's raster loader gives [`Runner::admit_picture`]
+    /// rather than opening as files.
+    pub fn picture_schemes(&self) -> Vec<String> {
+        let mut schemes: Vec<String> = (self.plan.modules.iter())
+            .filter_map(|m| Some(self.substitute(m)["images"]["scheme"].as_str()?.to_owned()))
+            .collect();
+        schemes.sort();
+        schemes.dedup();
+        schemes
+    }
+
     /// `Ok(owned)` where the picture may be asked for; else why not.
     fn picture_decision(
         &self,
