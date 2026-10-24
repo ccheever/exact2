@@ -27,6 +27,8 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let italic: Bool
         let lineHeight: CGFloat?
         let ink: PlatformColor
+        /// The node's inline atoms (LLP 1045.000), and the appearance their pills draw for.
+        var atoms = MarkdownAtoms()
     }
 
     /// The attributes plain typing takes, whatever the caret sits beside.
@@ -50,7 +52,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         var json: UnsafePointer<UInt8>? = nil
         var count = 0
         let handle = text.withUTF8 { bytes in
-            exact_markup_style(bytes.baseAddress, bytes.count, UInt32(clamping: selection.location), UInt32(clamping: selection.location + selection.length), &json, &count)
+            exact_markup_style(bytes.baseAddress, bytes.count, AtomHandle.of(look.atoms), UInt32(clamping: selection.location), UInt32(clamping: selection.location + selection.length), &json, &count)
         }
         defer { exact_markup_free(handle) }
         guard handle != 0, let json,
@@ -142,6 +144,14 @@ final class MarkupEditor: NSObject, MarkdownEditing {
             guard close.length > 0 else { continue }
             storage.addAttribute(.markupHidden, value: n, range: close)
             if open.length > 0 { storage.addAttribute(.markupOpener, value: n, range: open) }
+        }
+        // Each inline atom, drawn as its pill whatever the selection
+        // (MarkupHidden.swift); one covered by the selection draws selected.
+        let atoms = object["a"] ?? []
+        let paint = atoms.isEmpty ? [:] : AtomPaint.resolve(look.atoms)
+        for row in atoms {
+            guard let (range, atom) = MarkupAtom.of(row, paint: paint, selection: selection, atoms: look.atoms), NSMaxRange(range) <= length else { continue }
+            storage.addAttribute(.markupAtom, value: atom, range: range)
         }
         storage.endEditing()
     }

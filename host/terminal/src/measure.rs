@@ -596,6 +596,7 @@ mod tests {
                 paragraph.overflow_wrap = mode;
                 assert_layout(&runs, &paragraph, Some(0), true, &[("a", 1), ("b", 1)]);
                 let measured = CellMeasurer::default().measure(&TextMeasureRequest {
+                    atoms: Default::default(),
                     runs: &runs,
                     paragraph,
                     width: AxisOffer::MinContent,
@@ -676,6 +677,7 @@ mod tests {
                 };
                 assert_layout(&runs, &paragraph, Some(0), true, expected);
                 let metrics = CellMeasurer::default().measure(&TextMeasureRequest {
+                    atoms: Default::default(),
                     runs: &runs,
                     paragraph,
                     width: AxisOffer::MinContent,
@@ -789,6 +791,7 @@ mod tests {
         ] {
             assert_eq!(
                 CellMeasurer::default().measure(&TextMeasureRequest {
+                    atoms: Default::default(),
                     runs: &runs,
                     paragraph: Paragraph::from_style(&style),
                     width,
@@ -954,6 +957,7 @@ mod tests {
                     {
                         let height = AxisOffer::Definite((i + 1) as f32 * ROW);
                         let request = TextMeasureRequest {
+                            atoms: Default::default(),
                             runs: &runs,
                             paragraph: node.paragraph(),
                             width,
@@ -1004,6 +1008,7 @@ mod tests {
         for id in 1..=130 {
             let node = kernel.node(id).unwrap();
             let request = TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &node.text_runs(),
                 paragraph: node.paragraph(),
                 width: AxisOffer::MaxContent,
@@ -1016,6 +1021,7 @@ mod tests {
         for id in 1..=130 {
             let node = kernel.node(id).unwrap();
             let request = TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &node.text_runs(),
                 paragraph: node.paragraph(),
                 width: AxisOffer::Definite(COLUMN),
@@ -1121,6 +1127,7 @@ mod tests {
                 .collect();
             assert_eq!(text, expected);
             let measured = CellMeasurer::default().measure(&TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &runs,
                 paragraph,
                 width: limit.map_or(AxisOffer::MaxContent, |n| {

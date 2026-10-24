@@ -105,7 +105,7 @@ pub use text::case::{
     linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
 };
 pub use text::{
-    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
+    Markup, MarkupAtoms, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;

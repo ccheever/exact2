@@ -710,11 +710,13 @@ package final class TextSelection {
                 // A route of this app navigates in it, as a short paragraph's
                 // link does (b6 review B5); the rest is the containing app's.
                 guard let self, self.gesture == current, let url, let session = self.presenter?.session else { return }
+                if node.pressReaderAtom(url) { return } // an inline atom's press (LLP 1045.000 D7)
                 session.follow(url)
             }
             return
         }
         guard !dragged, pressed === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
+        if node.pressReaderAtom(url) { return } // an inline atom's press (LLP 1045.000 D7)
         // A route of this app navigates in it; the containing app owns the
         // rest (local Markdown, anchors, browser URLs); no arbitrary URL
         // scheme is launched by the presenter.

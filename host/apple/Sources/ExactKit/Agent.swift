@@ -340,6 +340,15 @@ public final class Agent {
                 guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
                 return ["id": Int(node.id), "applied": decorations.state]
             }
+            // A Markdown editor's inline atoms, each pill's frame from its node's top left (LLP 1045.000 D9).
+            nativeSections["atoms"] = presenter.views.values.sorted { $0.id < $1.id }.flatMap { node -> [[String: Any]] in
+                guard let field = node.textArea as? TextArea, let storage = field.textStorage as NSAttributedString? else { return [] }
+                return field.atomFrames().map { range, atom, frame in
+                    let box = field.convert(frame, to: node)
+                    return ["id": Int(node.id), "kind": atom.kind, "source": (storage.string as NSString).substring(with: range), "start": range.location,
+                            "end": NSMaxRange(range), "label": atom.label, "frame": [box.minX, box.minY, box.width, box.height].map { ($0 * 100).rounded() / 100 }]
+                }
+            }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10
