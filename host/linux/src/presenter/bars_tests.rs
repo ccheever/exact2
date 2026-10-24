@@ -614,13 +614,9 @@ fn a_host_with_no_such_shell_paints_the_header_and_the_tablist_in_the_page() {
     assert!(near(header.1, 0.0) && near(list.1, header.3));
 }
 
-/// A TV's remote reaches what the bars stand for (LLP 1115.001.003 D4): Up
-/// from the list's first button is the header's More, lit in its bar and
-/// opened by Select; Down from the list's last button is a destination.
-#[test]
-fn a_tvs_remote_reaches_the_bars_targets() {
-    let (mut p, _) = barred(APP);
-    let tv = Device {
+/// A TV's device facts: no pointer (LLP 1115.001.003 D2).
+fn tv() -> Device {
+    Device {
         night: false,
         font_scale: 1.0,
         locale: "en-US".into(),
@@ -633,13 +629,30 @@ fn a_tvs_remote_reaches_the_bars_targets() {
         tv: true,
         touch_slop: 0.0,
         dates: String::new(),
-    };
-    assert_eq!(p.set_device(&tv), None);
+    }
+}
+
+/// [`barred`] on a TV.
+fn barred_tv(source: &str) -> Presenter<Nothing> {
+    let (mut p, _) = barred(source);
+    assert_eq!(p.set_device(&tv()), None);
     assert_eq!(p.fit_window(), None);
-    let key = |p: &mut Presenter<Nothing>, code: &str, key: &str| {
-        p.hardware_key(code, key, true, false);
-        p.hardware_key(code, key, false, false);
-    };
+    p
+}
+
+/// A remote's key, down and up.
+fn remote(p: &mut Presenter<Nothing>, code: &str, key: &str) {
+    p.hardware_key(code, key, true, false);
+    p.hardware_key(code, key, false, false);
+}
+
+/// A TV's remote reaches what the bars stand for (LLP 1115.001.003 D4): Up
+/// from the list's first button is the header's More, lit in its bar and
+/// opened by Select; Down from the list's last button is a destination.
+#[test]
+fn a_tvs_remote_reaches_the_bars_targets() {
+    let mut p = barred_tv(APP);
+    let key = remote;
     assert!(p.reader_bars(2.0).is_some());
     p.set_focus(Some(id(&p, "open")), 0.);
     key(&mut p, "ArrowUp", "ArrowUp");
@@ -662,4 +675,83 @@ fn a_tvs_remote_reaches_the_bars_targets() {
     key(&mut p, "Select", "Enter");
     p.run_commands(|| Nothing);
     assert_eq!(top(&mut p).title, "Other");
+}
+
+/// The focus on a bar's target outlives a commit, though its node is inert
+/// under its route; Select opens its menu with the first row focused, and
+/// a held Select chooses nothing more (LLP 1115.001.003 D3, D4).
+#[test]
+fn a_bar_targets_focus_outlives_a_commit_and_a_held_select_opens_once() {
+    let mut p = barred_tv(APP);
+    p.set_focus(Some(id(&p, "open")), 0.);
+    remote(&mut p, "ArrowUp", "ArrowUp");
+    let more = id(&p, "more");
+    assert_eq!(p.focus(), Some(more));
+    assert_eq!(p.after_commit(), None);
+    assert_eq!(p.focus(), Some(more), "kept through a commit");
+    p.hardware_key("Select", "Enter", true, false);
+    for _ in 0..3 {
+        p.hardware_key("Select", "Enter", true, true);
+    }
+    p.hardware_key("Select", "Enter", false, false);
+    assert!(p.surface().is_some(), "the menu stays open");
+    assert_eq!(text(&p, "said"), "nothing", "no row chosen by a repeat");
+    remote(&mut p, "Select", "Enter");
+    p.run_commands(|| Nothing);
+    assert_eq!(text(&p, "said"), "shared", "Select chose the first row");
+}
+
+/// From no focus on a screen whose only controls are the bars', an arrow
+/// reaches the bars' first target.
+#[test]
+fn from_no_focus_the_remote_reaches_a_bars_only_screen() {
+    let mut p = barred_tv(APP);
+    tap(&mut p, "tab-other").unwrap();
+    p.run_commands(|| Nothing);
+    assert_eq!(top(&mut p).title, "Other");
+    p.set_focus(None, 0.);
+    remote(&mut p, "ArrowDown", "ArrowDown");
+    assert_eq!(p.focus(), Some(id(&p, "tab-home")));
+}
+
+/// A TV's bars keep inside its overscan margin, as the page does (LLP
+/// 1115.001.003 D7): 5% of a 1920 × 1080 page is 96 at the sides and 54
+/// above and below.
+#[test]
+fn a_tvs_bars_keep_inside_its_overscan_margin() {
+    let mut p = barred_tv(APP);
+    let screen = Window {
+        size: (1920.0, 1080.0),
+        bars: [0.0; 4],
+        cutout: [0.0; 4],
+        keyboard: [0.0; 4],
+        gestures: [0.0; 4],
+    };
+    assert_eq!(p.set_window(screen), None);
+    let more = p.bar_box(id(&p, "more")).unwrap();
+    assert!(
+        more.1 >= 54.0 && more.0 + more.2 <= 1920.0 - 96.0,
+        "{more:?}"
+    );
+    let home = p.bar_box(id(&p, "tab-home")).unwrap();
+    assert!(
+        home.0 >= 96.0 && home.1 + home.3 <= 1080.0 - 54.0,
+        "{home:?}"
+    );
+}
+
+/// A TV's Back with no route to go back from presses a button that answers
+/// Escape where a bar shows it.
+#[test]
+fn a_tvs_back_presses_an_escape_button_a_bar_shows() {
+    let source = APP.replace(
+        r#"popovertarget="more" aria-label="More""#,
+        r#"popovertarget="more" aria-label="More" aria-keyshortcuts="Escape""#,
+    );
+    let mut p = barred_tv(&source);
+    assert!(p.bar_node(id(&p, "more")));
+    assert!(p.back_goes());
+    assert!(p.system_back(0.));
+    let surface = p.surface().expect("Back opened More's menu");
+    assert_eq!(surface.kind, crate::presenter::top::SurfaceKind::Menu);
 }

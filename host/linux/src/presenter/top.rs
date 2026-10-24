@@ -429,6 +429,11 @@ impl<D: DataSource> Presenter<D> {
             open.anchor = anchor;
         }
         self.place_surface();
+        // A TV's remote moves the focus to the first row, as Android's
+        // dialogs take it there: Select chooses it (LLP 1115.001.003 D3).
+        if self.remote() {
+            self.surface_step(false);
+        }
         self.queue_toggle(key, true);
         self.surface_changed();
         true
@@ -576,6 +581,11 @@ impl<D: DataSource> Presenter<D> {
     /// A key while a surface is open goes to it and to nothing of the page:
     /// Escape dismisses it, Tab and the arrows move its own focus, Enter
     /// and Space choose the focused row. Whether a surface took the key.
+    /// Whether a surface is open to take the keys ([`Self::surface_key`]).
+    pub(super) fn surface_takes_keys(&self) -> bool {
+        self.alert.is_some() || self.top.open.is_some()
+    }
+
     pub(super) fn surface_key(&mut self, name: &str, now_ms: f64) -> bool {
         if self.alert.is_some() {
             return self.alert_key(name, now_ms);

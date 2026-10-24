@@ -138,7 +138,10 @@ impl<D: DataSource> Presenter<D> {
         let frame = self.chrome().frame;
         match self.window() {
             Some(w) => {
-                let safe: [f32; 4] = std::array::from_fn(|i| w.bars[i].max(w.cutout[i]));
+                // A TV's overscan margin too, as the page's (LLP 1115.001.003 D7).
+                let overscan = self.tv_margin(w.size);
+                let safe: [f32; 4] =
+                    std::array::from_fn(|i| w.bars[i].max(w.cutout[i]).max(overscan[i]));
                 (w.size, safe, frame)
             }
             None => (self.viewport, [0.0; 4], frame),
@@ -557,7 +560,7 @@ impl<D: DataSource> Presenter<D> {
     /// button or a tab by its own node (or a node inside it), and the Up
     /// arrow by the Back control it stands for on a pushed route (the item
     /// of the header that is in neither of the bar's lists).
-    fn bar_target(&self, id: ViewId) -> Option<(i32, Target)> {
+    pub(super) fn bar_target(&self, id: ViewId) -> Option<(i32, Target)> {
         let stands = |node: ViewId| node == id || self.is_inside(id, node);
         let up = (self.bars.top.as_ref())
             .filter(|s| s.plan.up)
