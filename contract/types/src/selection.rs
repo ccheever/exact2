@@ -174,7 +174,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // kanban F27), then the physical key (`code`: `KeyB`, `Digit1`,
     // `MetaLeft`, whatever the layout types there; "" where the host cannot
     // tell) and whether a keydown is the platform's auto-repeat (`repeat`;
-    // #140).
+    // #140), then whether it came while an input method composed text
+    // (`isComposing`, false where the host hands handlers no composing key).
     shapes.map.insert(
         "KeyboardEvent".into(),
         vec![
@@ -185,6 +186,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("metaKey".into(), Ty::Bool),
             ("code".into(), Ty::String),
             ("repeat".into(), Ty::Bool),
+            ("isComposing".into(), Ty::Bool),
         ],
     );
     // What `input` and `change` hand an action that takes one more

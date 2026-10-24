@@ -506,7 +506,7 @@ impl<D: DataSource> Bridge<D> {
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
     /// 1 = change, 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key,
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
-    /// key's chord with its code and repeat (`KeyboardEvent::parse`), or a
+    /// key's chord with its code, repeat and isComposing (`KeyboardEvent::parse`), or a
     /// guest message — is the input buffer's first `len` bytes, UTF-8).
     /// Kind 43 is `keyup`; 44 is `keycapture`, with the keydown payload (#140).
     /// Kind 45 is `intersect`, `0|1,ratio` (LLP 1005).
