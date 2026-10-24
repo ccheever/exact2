@@ -1,4 +1,7 @@
-use crate::{pieces_with, plain_with, style_with, AtomForm, AtomRole, Atoms, ParagraphKind, Range};
+use crate::{
+    pieces_with, plain_range, plain_with, style_with, AtomForm, AtomRole, Atoms, ParagraphKind,
+    Range,
+};
 
 const KINDS: &str = r#"[{"name":"citation","link":"t3-citation:"},{"name":"file","link":"relative"},{"name":"mention","prefix":"@","role":"link"},{"name":"skill","prefix":"$€"}]"#;
 
@@ -146,18 +149,33 @@ fn a_quoted_token_takes_escapes_and_a_prefix_may_name_several_characters() {
 }
 
 #[test]
-fn a_token_is_never_in_code_a_link_or_hidden_syntax() {
-    let a = atoms(&[("@x", ""), ("@a*b*", "")]);
+fn a_token_is_never_in_code_a_link_an_autolink_or_a_footnote() {
+    let a = atoms(&[("@x", "")]);
     for s in [
         "`@x` b",
         "[@x ](u) b",
         "[t](@x) b",
         "<https://e.dev/@x> b",
-        "@a*b* c",
         "```\n@x \n```",
+        "[^@x] b",
     ] {
         assert!(found(s, &a).is_empty(), "{s}");
     }
+}
+
+#[test]
+fn a_token_inside_emphasis_strong_or_strikethrough_is_an_atom() {
+    let a = atoms(&[("@x", ""), ("$skill", "")]);
+    assert_eq!(found("*see @x here*", &a), one("@x", "mention", "x"));
+    assert_eq!(found("**see @x here**", &a), one("@x", "mention", "x"));
+    assert_eq!(
+        found("~~see $skill now~~", &a),
+        one("$skill", "skill", "skill")
+    );
+    // Its formats are the label's: the atom is one bold piece.
+    let pieces = pieces_with("**see @x here**", &a);
+    let atom = pieces.iter().find(|p| p.atom.is_some()).unwrap();
+    assert_eq!((atom.text.as_str(), atom.weight), ("x", 700));
 }
 
 #[test]
@@ -225,4 +243,14 @@ fn plain_copy_writes_each_atom_as_its_label() {
         plain_with("hi @x and [q](t3-citation:1) **b**", &a),
         "hi Ex and q b"
     );
+}
+
+#[test]
+fn plain_copy_of_a_selection_finds_atoms_in_the_whole_source() {
+    let a = atoms(&[("@x", "Ex"), ("[f](a.rs)", "file a")]);
+    let s = "hi @x and [f](a.rs) **b**";
+    // The fragment `@x` alone fails the whitespace rule; the source does not.
+    assert_eq!(plain_range(s, Range::new(3, 5), &a), "Ex");
+    assert_eq!(plain_range(s, Range::new(10, 19), &a), "file a");
+    assert_eq!(plain_range(s, Range::new(0, 25), &a), "hi Ex and file a b");
 }

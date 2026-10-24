@@ -203,9 +203,12 @@ function createGeometry(root) {
     range(el, start, end, out) {
       if (!el?.isConnected || !root.contains(el) || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return 0;
       [start, end] = [Math.trunc(start), Math.trunc(end)];
-      if (!(start >= 0 && start <= end && end <= (el.value?.length ?? 0)) || composing.has(el) || el.exactComposing) return 0;
+      // A Markdown reader answers from its atoms' pills (LLP 1045.000 D7, atoms.js), its offsets the source's.
+      const reader = !el.exactMarkup && !('value' in el) && el.getAttribute('markup') === 'markdown';
+      if (!(start >= 0 && start <= end && end <= (reader ? el.$source?.length ?? Infinity : el.value?.length ?? 0)) || composing.has(el) || el.exactComposing) return 0;
       let box = null;
-      if (el.exactMarkup) box = el.exactMarkup.rangeFrame?.(start, end) ?? null;
+      if (reader) box = globalThis.exact?.atoms?.rangeFrame(el, start, end) ?? null;
+      else if (el.exactMarkup) box = el.exactMarkup.rangeFrame?.(start, end) ?? null;
       else if (el instanceof HTMLTextAreaElement && typeof el.createValueRange === 'function') {
         // Chrome puts a caret on an empty line at the end of the text before
         // it, and an empty field's at the viewport's origin, where it paints

@@ -253,5 +253,9 @@ fn the_drawn_line_hides_an_atoms_source_and_lists_the_atom() {
     );
     p.e.set_selection(start, end);
     assert_eq!(p.e.copy_range(), Some((2, end + 2)));
-    assert_eq!(p.e.plain(&text), "a Q");
+    assert_eq!(p.e.plain(0, n(&text)), "a Q");
+    // One selected atom, its label: found in the whole source.
+    let mut t = Page::open("hi @x now", r#"[{"source":"@x","label":"Ex"}]"#);
+    t.e.set_selection(3, 5);
+    assert_eq!(t.e.plain(3, 5), "Ex");
 }

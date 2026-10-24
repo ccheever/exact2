@@ -348,6 +348,46 @@ pub fn plain(source: &str) -> String {
     plain_with(source, &crate::Atoms::default())
 }
 
+/// The plain text of `range` (UTF-16) of `source`, each atom the whole
+/// source recognizes inside it as its label (⌘⇧C of a selection, LLP
+/// 1045.000 D5): the atoms are found in the whole source, where a token's
+/// surroundings decide it, not in the fragment alone.
+pub fn plain_range(source: &str, range: crate::Range, atoms: &crate::Atoms) -> String {
+    let units: Vec<u16> = source.encode_utf16().collect();
+    let (a, b) = (
+        range.start.min(range.end) as usize,
+        range.end.min(units.len() as u32) as usize,
+    );
+    let a = a.min(b);
+    // Each atom inside the range stands in as one private-use character
+    // while the rest is made plain, then becomes its label.
+    let found: Vec<crate::Atom> = crate::style_with(source, None, atoms)
+        .atoms
+        .into_iter()
+        .filter(|x| a <= x.range.start as usize && x.range.end as usize <= b)
+        .take(0x1900)
+        .collect();
+    let mut fragment: Vec<u16> = Vec::with_capacity(b - a);
+    let mut at = a;
+    for (i, x) in found.iter().enumerate() {
+        fragment.extend_from_slice(&units[at..x.range.start as usize]);
+        fragment.push(0xE000 + i as u16);
+        at = x.range.end as usize;
+    }
+    fragment.extend_from_slice(&units[at..b]);
+    let mut out = String::new();
+    for c in plain(&String::from_utf16_lossy(&fragment)).chars() {
+        match (c as u32)
+            .checked_sub(0xE000)
+            .and_then(|i| found.get(i as usize))
+        {
+            Some(x) => out.push_str(&x.label),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
 /// The plain text with each atom as its label (⌘⇧C, LLP 1045.000 D5).
 pub fn plain_with(source: &str, atoms: &crate::Atoms) -> String {
     let analysis = crate::style::analyze_with(source, None, atoms);

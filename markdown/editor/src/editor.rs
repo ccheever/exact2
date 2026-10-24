@@ -322,9 +322,9 @@ impl Editor {
         }
     }
 
-    /// The plain text of `markdown` with each atom as its label (⌘⇧C).
-    pub fn plain(&self, markdown: &str) -> String {
-        md::plain_with(markdown, &self.atoms)
+    /// The plain text of the source's `from..to`, each atom its label (⌘⇧C).
+    pub fn plain(&self, from: u32, to: u32) -> String {
+        md::plain_range(&self.utf8, Range::new(from, to), &self.atoms)
     }
 
     /// An input method begins composing (LLP 1045.000 D5): over a range that
