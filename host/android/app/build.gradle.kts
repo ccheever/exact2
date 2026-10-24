@@ -74,8 +74,13 @@ android {
         // CAMERA implies the back camera and autofocus as required features, which would filter the app from a
         // device without them; each is declared not required (LLP 1133.008 D6).
         val features = if ("android.permission.CAMERA" in names) listOf("camera.any", "camera", "camera.autofocus", "camera.flash") else emptyList()
+        // A permission a later API retired names its last level (`<name> maxSdkVersion=32`, LLP 1133.019 D4).
+        val permission = { line: String ->
+            val (name, last) = line.split(' ').let { it[0] to it.getOrNull(1)?.removePrefix("maxSdkVersion=") }
+            "    <uses-permission android:name=\"$name\"${last?.let { " android:maxSdkVersion=\"$it\"" } ?: ""} />\n"
+        }
         permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
-            names.joinToString("") { "    <uses-permission android:name=\"$it\" />\n" } +
+            names.joinToString("") { permission(it) } +
             features.joinToString("") { "    <uses-feature android:name=\"android.hardware.$it\" android:required=\"false\" />\n" } + "</manifest>\n")
         sourceSets["release"].manifest.srcFile(permissions)
     }
