@@ -1039,14 +1039,13 @@ sits on that list carries the trade it would take.
   the same ImageIO, Core Image and `CALayer.contentsFormat` probes and is
   launched with `xcrun devicectl device process launch --console` on an
   unlocked phone; a person at the phone is needed either way.
-- **The date and place at launch on the remaining hosts** (2026-10-13; Apple, the Rust/Wasm web
-  host and the Linux family's app boot boot under them, `exact_runner::time::launching_with`, and
-  the JS target answers `exactTime` from the page): the render host, the content-region host,
-  direct `Host::boot_stored`, and the Linux presenter's candidate reload (`restore_time` after the
-  boot) never enter it, so their first settle reads the defaults (0, `en-US`, `UTC`, seed 0). The
-  Linux family's date is sampled before the boot, but each loop's clock zero is its own instant
-  (the display loop's `started`, before `Display::open`): the epoch is off by the time between
-  them, as it was off by the boot when it was sampled after; pass each loop's zero to the boot.
+- **The date and place at launch on the remaining hosts** (2026-10-13): finish
+  supplying launch facts before the first settle on Apple, including its content-region
+  host, and in the web host's direct `Host::boot_stored` path. Linux's initial boot
+  uses the display loop's clock zero; its validation, update and development candidates
+  now boot with the current date and complete place, keeping the carried clock.
+  The render host's date is already the Unix render timestamp passed to `boot_at`
+  (LLP 1048.000 D5). It has no viewer place to supply; the page reports its own.
 - **Gaps the Bluesky clone's workers hit** (bsky5, b28–b31, 2026-10-12), as reported:
   - **A dynamic exit animation fails the web build only** (Linux; Charlie,
     2026-10-22, C and D). Support dynamic `-exact-exit-animation` on the JS
