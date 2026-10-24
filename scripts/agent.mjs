@@ -41,7 +41,7 @@ export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, postCommand, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, crashWatch, developmentLaunchEnvironment, forwardedEnv, keepInstalledRelease, phone, showSimulator, simulator, displayAsIs, withDisplay, withMaterials, withSoftwareKeyboard } from '../host/apple/devices.mjs';
-import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
+import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { generationOf, leaseGeneration } from '../host/web/generations.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -95,10 +95,15 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     if (b.status !== 0) { rmSync(planBuild, { recursive: true, force: true }); throw new Error(`--plan ${plan}: its JS build failed: ${(b.stderr ?? '').trim().split('\n').slice(-3).join(' ')}`); }
     served = planBuild;
   }
+  // The drive's build: the generation it boots, leased while it runs, so another build put in place meanwhile (a dev
+  // loop's, another `test web`'s) never answers this page (generations.mjs). One kept no more (a lease a crash lost)
+  // ends the drive: it never moves to another build on its own.
+  const pinned = js ? generationOf(served) : null, release = pinned ? leaseGeneration(served, pinned) : () => {};
+  let gone = null;
   const server = createServer((req, res) => {
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
-    if (js) return serveBuildTree(served, req, res);
+    if (js) { res.once('finish', () => { if (res.statusCode === 410) gone ??= pinned; }); return serveBuildTree(served, req, res, { pinned }); }
     serveStatic(dist, req, res);
   });
   // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
@@ -164,6 +169,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
       throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
     if (!kept) await removeBrowserProfile(profile);
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
+    release();
   };
   try {
     // A Chrome that dies at launch says why only on its stderr; the pipe just closes.
@@ -250,6 +256,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     let contact = null;
     let dragged = null; // a file drag `tap … dragenter` holds over the page: its point and its DragData
     const rawAsk = async (req) => {
+      if (gone) throw new Error(`the build this drive booted (generation ${gone}) is no longer kept: run the drive again`);
       // The existing resize input uses Chrome's real viewport and resize event.
       if (req.op === 'tap' && req.resize !== undefined) {
         const pair = req.resize;
