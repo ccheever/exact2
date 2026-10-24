@@ -407,6 +407,8 @@ public final class ExactWindow {
     public internal(set) var frame = CGRect.zero
     /// The surface's safe area: top, right, bottom, left.
     public internal(set) var safeArea: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) = (0, 0, 0, 0)
+    /// The window's angle as the web's `screen.orientation.angle`: 0, 90, 180 or 270.
+    public internal(set) var angle: Double = 0
     /// True in the first `window` call of this handle; false on a size or safe-area change.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
@@ -427,6 +429,7 @@ public final class ExactWindow {
         exclusive = json["exclusive"] as? Bool ?? false
         if let f = json["frame"] as? [Double], f.count == 4 { frame = CGRect(x: f[0], y: f[1], width: f[2], height: f[3]) }
         if let s = json["safeArea"] as? [Double], s.count == 4 { safeArea = (CGFloat(s[0]), CGFloat(s[1]), CGFloat(s[2]), CGFloat(s[3])) }
+        angle = json["angle"] as? Double ?? 0
     }
 }
 
@@ -525,6 +528,11 @@ final class ExactHatches {
     /// One of 144 or more: a package picture changed (0) or revoked (1) (LLP 1133.019 D11 item 1).
     typealias PictureFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     let pictureFn: PictureFn?
+    /// One of 160 or more: a package's canvas input (LLP 1133.013 D6; ExactExtensions.swift).
+    typealias SurfaceHasFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
+    typealias SurfaceSensorFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32,
+                                                UnsafePointer<Double>?, UInt32, UInt32, Double, UInt32) -> Void
+    let surfaceHasFn: SurfaceHasFn?, surfaceSensorFn: SurfaceSensorFn?
     #if os(iOS) || os(tvOS)
     /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
     typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -574,12 +582,36 @@ final class ExactHatches {
         audioReleaseFn = audio ? table.load(fromByteOffset: 128, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ReleaseFn.self) } : nil
         pictureFn = table.load(as: UInt32.self) >= 144
             ? table.load(fromByteOffset: 136, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PictureFn.self) } : nil
+        let surfaces = table.load(as: UInt32.self) >= 160
+        surfaceHasFn = surfaces ? table.load(fromByteOffset: 144, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceHasFn.self) } : nil
+        surfaceSensorFn = surfaces ? table.load(fromByteOffset: 152, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceSensorFn.self) } : nil
     }
 
     /// A package picture changed (0) or revoked (1): the host's raster loader acts on it.
     func picture(_ kind: UInt32, _ source: String) {
         let bytes = Array(source.utf8)
         bytes.withUnsafeBufferPointer { pictureFn?(host, kind, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// Whether the session places a canvas of surface `name`; nil when the host feeds no canvas input.
+    func hasSurface(_ name: String) -> Bool? {
+        guard let surfaceHasFn else { return nil }
+        let bytes = Array(name.utf8)
+        return bytes.withUnsafeBufferPointer { surfaceHasFn(host, $0.baseAddress, UInt32($0.count)) } == 1
+    }
+
+    /// A sample written into surface `surface`'s canvas input, or its end.
+    func sensor(_ surface: String, _ sensor: String, _ values: [Double], dropped: Int, at: Double, ended: Bool) {
+        guard let surfaceSensorFn else { return }
+        let s = Array(surface.utf8), n = Array(sensor.utf8)
+        s.withUnsafeBufferPointer { s in
+            n.withUnsafeBufferPointer { n in
+                values.withUnsafeBufferPointer { v in
+                    surfaceSensorFn(host, s.baseAddress, UInt32(s.count), n.baseAddress, UInt32(n.count), v.baseAddress, UInt32(v.count),
+                                    UInt32(clamping: dropped), at, ended ? 1 : 0)
+                }
+            }
+        }
     }
 
     func onLine() -> Bool? { onLineFn.flatMap { f in let answer = f(host); return answer > 1 ? nil : answer == 1 } }
@@ -1198,6 +1230,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
     let handle = event == 0 ? ExactWindow() : (hatches.window ?? ExactWindow())
     handle.hatches = hatches
     let isNew = event == 0 || hatches.window == nil
+    let angle = hatches.window?.angle
     handle.read(fields)
     #if os(macOS)
     handle.window = window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }
@@ -1216,6 +1249,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
     hatches.window = handle
     handle.isNew = isNew
     m.window(handle)
+    if angle != handle.angle { ExactExtensions.orientation(m, handle.angle) }
 }
 
 
