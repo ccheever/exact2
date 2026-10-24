@@ -131,6 +131,10 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** The session's track table, which its implementations share (LLP 1133.009 D10 item 6). */
     val tracks: Tracks get() = Extensions.tracks
 
+    /** The process's audio focus owner, through which a module that plays or captures claims focus (LLP 1133.012
+     * D12 item 2). */
+    val audioFocus: AudioFocus get() = AudioFocus
+
     /** The file an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's
      * scratch tree under the agent. Admission checked the path against the calling source's grants. */
     fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
@@ -205,6 +209,7 @@ internal object Extensions {
     fun bind(activity: Activity) {
         if (application == null) application = activity.applicationContext
         Presence.application = activity.applicationContext
+        AudioFocus.application = activity.applicationContext
         if (roster.isNotEmpty()) Exact.bindExtensions(roster.keys.joinToString("\n"))
     }
 
