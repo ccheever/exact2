@@ -213,10 +213,16 @@ impl Resolver<'_, '_> {
             }
             _ => return Vec::new(),
         };
+        if !self.budget.cost(ends.len() as u64) {
+            return Vec::new();
+        }
         let vertices = vertices(path, &ends);
         let last = vertices.len().saturating_sub(1);
         let mut out = Vec::new();
         for (i, v) in vertices.iter().enumerate() {
+            if self.budget.over().is_some() {
+                break;
+            }
             let which = if i == 0 {
                 0
             } else if i == last {
@@ -299,6 +305,9 @@ impl Resolver<'_, '_> {
         // A marker inside its own content draws nothing more.
         let salt = ((index as u64 + 1) << 32) | shape.id as u64;
         if self.uses.contains(&(marker.id as u64)) || self.uses.len() > 16 {
+            return None;
+        }
+        if !self.budget.cost(super::budget::ITEM) {
             return None;
         }
         let inherited = marker
