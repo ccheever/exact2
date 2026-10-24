@@ -5,10 +5,12 @@
 // The cursor is opaque to a client, which only compares it: here `<seq>.<held>`, the events' sequence and the held
 // proposals' revision, since the list moves without events.
 
-/** How long a client stays present after its GET long poll's answer (LLP 1122 D4): the long poll re-asks after a
- * backoff of up to 30 s (the server sends no longer `Retry-After` here), and a POST client's 35 s would lose its
- * pins in that wait. */
-export const LONG_POLL_PRESENT_MS = 90_000;
+import { TIMING } from './tamber-timing.mjs';
+
+/** How long a client stays present after its GET long poll's answer (LLP 1122 D4), 90 s (a test's may be shorter:
+ * tamber-timing.mjs): the long poll re-asks after a backoff of up to 30 s (the server sends no longer `Retry-After`
+ * here), and a POST client's 35 s would lose its pins in that wait. */
+export const LONG_POLL_PRESENT_MS = TIMING.longPresent;
 
 /** The cursor of an answer at `seq` with held revision `held`. */
 export const cursorOf = (seq, held) => `${seq}.${held}`;
