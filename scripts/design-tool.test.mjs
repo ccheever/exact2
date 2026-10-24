@@ -3,7 +3,7 @@
 // serves it at its own URL, and the agent drives that page (`agent web
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
-// apps/design-tool/app.test.contract.
+// apps/design-tool/*.test.contract.
 // Its heaviest drives are files of their own, so a lane runs them side by side (design-tool-ops, -canvas and
 // -scrub.test.mjs); each claims its own port and temp dirs (design-tool-harness.mjs).
 import { expect, test } from 'bun:test';
@@ -542,7 +542,8 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
 }, 900_000);
 
 test('controls from metadata that does not fit, steps, select values, column labels, branches, inputs and contrast over a background', async () => {
-  const { controlOf, columnsOf, contrast, branchOf, inputsOf, cellText } = await import('../apps/design-tool/app.ts');
+  const { controlOf, columnsOf, branchOf, inputsOf, cellText } = await import('../apps/design-tool/app.ts');
+  const { contrast } = await import('../apps/design-tool/contrast.ts');
   // A cell's text for each stage 6 kind, from `resolve`'s tuples as the server gives them (tamber/tests/corpus).
   expect(cellText('length', { amount: 12, kind: 'length', unit: 'px', value: '12px' })).toBe('12px');
   expect(cellText('length', { amount: 1.5, kind: 'length', unit: 'rem', value: '1.5rem' })).toBe('1.5rem');

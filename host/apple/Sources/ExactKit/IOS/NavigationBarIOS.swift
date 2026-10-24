@@ -701,6 +701,7 @@ extension NavigationHost {
         followTablist(routes, in: stack)
         let stackShows = nav.map(barShows) ?? !ExactEnv.authoredChrome
         let back = container?.props["navigationBack"]
+        let presented = nav.map { nav in presentedNavigations.contains { $0 === nav } } ?? false
         for (index, c) in routes.enumerated() {
             // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
             // the system Back alone on a pushed route with none of its own
@@ -730,7 +731,7 @@ extension NavigationHost {
             #endif
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             showReadouts(shows ? shape : nil, in: c)
-            reachBottom(c)
+            reachBottom(c, presented: presented)
             c.paintBackdrop()
             searchField(shows ? shape?.search : nil, in: c)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
@@ -1088,15 +1089,17 @@ extension NavigationHost {
     /// UIKit insets the scroller (`reportCovers`, `scroller_insets_bottom`),
     /// so an absolutely positioned footer still rests on the bars. A footer under
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
-    /// whose own `env()` insets would be added to UIKit's, and a transparent
-    /// bar's scroller, which UIKit insets nothing (`collapse`).
-    private func reachBottom(_ c: RouteController) {
+    /// whose own `env()` insets would be added to UIKit's, though not a
+    /// sheet's route, which is covered for the sheet's whole safe area
+    /// whatever the document's fit (`reportCovers`); and so does a
+    /// transparent bar's scroller, which UIKit insets nothing (`collapse`).
+    private func reachBottom(_ c: RouteController, presented: Bool) {
         // Until a scroller reaches the bottom edge the route's bottom cover
         // pads its in-flow content above the bars, and its content box is
         // the authored one: a scroller there ends that far above it. The
         // cover it has without one, so a scroller that does not grow as the
         // cover goes is at the edge either way.
-        let found = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
+        let found = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
         let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
@@ -1266,6 +1269,13 @@ extension NavigationHost {
             return element(named: name, in: c.node).flatMap { $0.scrollView == nil ? nil : $0 }
         }
         return Presenter.firstVerticalScroller(under: c.node)
+    }
+
+    /// The authored content scroller, or the route's document viewport when none was named.
+    func contentScrollView(of route: RouteController) -> UIScrollView? {
+        if let node = contentScroller(of: route) { return shownScroll(node) }
+        if let name = route.node.props["navigationScroll"], !name.isEmpty { return nil }
+        return route.contentViewport
     }
 
     private func element(named name: String, in route: NodeView) -> NodeView? {

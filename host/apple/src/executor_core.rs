@@ -314,17 +314,17 @@ impl Core {
                 .is_ok()
         };
         let mut reserved = reserve();
-        // Every test in the binary shares the process's bound, one core per
-        // test thread: a test waits for a slot rather than being refused.
-        // The including crate says when (`WAIT_FOR_SLOT`): its own tests,
-        // and an integration test's build of it (render's, Linux's `test-wait`).
-        // Nothing announces a released slot, so it polls. The deadline is the
-        // clock's: under load each 1 ms sleep can last far longer.
+        // Every test in the binary shares the process's bound: a test waits for a slot (`WAIT_FOR_SLOT`: its own
+        // tests, render's and Linux's `test-wait`), polling, 30 s by the clock as a loaded suite's slots sit in
+        // threads that exit late; the product never waits. One that waits it out says so, its core refusing all.
         if super::WAIT_FOR_SLOT {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             while !reserved && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 reserved = reserve();
+            }
+            if !reserved {
+                eprintln!("exact test executor: no {count} worker slots within 30 s: this core refuses every request");
             }
         }
         let machine = lanes.map(|lanes| {

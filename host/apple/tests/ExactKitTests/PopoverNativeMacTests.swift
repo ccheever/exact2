@@ -436,5 +436,39 @@ final class PopoverNativeMacTests: XCTestCase {
         XCTAssertTrue(pop.isDescendant(of: p.viewport))
         try f.press("tags")
     }
+
+    /// AppKit's popover is its content's size less its margins as they are
+    /// now, and points at its invoker across its margin as it is now: a
+    /// margin changed while it is open resizes it and moves it, even where
+    /// the margin is traded for content of the same total size.
+    func testAMarginChangedWhileOpenResizesAndMovesThePopover() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state far = true
+          action near
+            far = false
+          view
+            column testId="page" width="100%" height="100%" padding=40
+              button testId="open" popovertarget="pop"
+                text "Open"
+              button testId="near" press=near
+                text "Near"
+              column id="pop" testId="pop" popover="manual" width=200 margin=0 margin-top=(far ? 12 : 0)
+                input testId="field" value="draft" width=180 height=(far ? 100 : 112)
+        """)
+        fixture = f
+        f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
+        f.window.orderFrontRegardless()
+        f.settle()
+        let p = f.presenter
+        try f.press("open")
+        let native = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(native.window)
+        let (opened, top) = (native.popover.contentSize.height, window.frame.maxY)
+        try f.press("near")
+        f.settle()
+        XCTAssertTrue(p.menus.isOpen(try f.node("pop")))
+        XCTAssertEqual(native.popover.contentSize.height, opened + 12, "the margin's 12 points are content now")
+        XCTAssertEqual(window.frame.maxY, top + 12, accuracy: 1, "and it points at its invoker with no gap")
+    }
 }
 #endif

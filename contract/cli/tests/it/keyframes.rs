@@ -123,6 +123,14 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
             "lower-keyframes",
             "known when the app compiles",
         ),
+        (
+            app(
+                "keyframes k\n  from font-variation-settings=\"'wght' 300\"\n  to font-variation-settings=\"'wdth' 80\"\n",
+                "",
+            ),
+            "lower-keyframes",
+            "names the same axes",
+        ),
     ] {
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, id, "{source}\n{error}");

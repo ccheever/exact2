@@ -315,3 +315,55 @@ fn an_authored_swipe_yields_the_edges_the_systems_gesture_starts_from() {
     assert!(p.set_window(buttons).is_none());
     assert_eq!(swiped(&mut p, 5., 0.), "1");
 }
+
+/// A TV's window: no bars, no cutout, at 1080 points tall (LLP 1115.001.003 D6).
+fn tv_window() -> Window {
+    Window {
+        size: (1920., 1080.),
+        ..Window::default()
+    }
+}
+
+fn device(tv: bool) -> Device {
+    Device {
+        night: false,
+        font_scale: 1.0,
+        locale: "en-US".into(),
+        rtl: false,
+        hour24: false,
+        reduced_motion: false,
+        bold_text: false,
+        high_contrast: false,
+        touch: !tv,
+        tv,
+        touch_slop: 8.0,
+        dates: String::new(),
+    }
+}
+
+#[test]
+fn a_tv_keeps_the_page_five_percent_in_from_each_edge() {
+    let mut p = boot(&page("viewport-fit=\"cover\""));
+    assert!(p.set_device(&device(true)).is_none());
+    assert!(p.set_window(tv_window()).is_none());
+    let env = env(&mut p);
+    assert_eq!(env["safe-area-inset-top"], 54);
+    assert_eq!(env["safe-area-inset-right"], 96);
+    assert_eq!(env["safe-area-inset-bottom"], 54);
+    assert_eq!(env["safe-area-inset-left"], 96);
+    // A page that does not ask for the edges is laid out inside the margin.
+    let mut p = boot(&page(""));
+    assert!(p.set_device(&device(true)).is_none());
+    assert!(p.set_window(tv_window()).is_none());
+    assert_eq!(p.chrome().frame, [96., 54., 1728., 972.]);
+}
+
+#[test]
+fn a_phone_with_no_bars_has_no_margin() {
+    let mut p = boot(&page("viewport-fit=\"cover\""));
+    assert!(p.set_device(&device(false)).is_none());
+    assert!(p.set_window(tv_window()).is_none());
+    let env = env(&mut p);
+    assert_eq!(env["safe-area-inset-top"], 0);
+    assert_eq!(env["safe-area-inset-left"], 0);
+}

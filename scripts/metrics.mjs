@@ -39,6 +39,7 @@ import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { buildFileCards, buildTreeFile, jsTargetBuild, publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
+import { normalizeDemangled } from '../host/web/stages.mjs';
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp, open } from './agent.mjs';
@@ -958,7 +959,7 @@ if (long) {
       };
       const code_bytes = { core: 0, std: 0 };
       funcs.forEach(([, size], i) => {
-        const mod = owner(lines[i] ?? '');
+        const mod = owner(normalizeDemangled(lines[i] ?? ''));
         const cap = mod === null ? 'std' : CAPS.find(([, re]) => re.test(mod))?.[0] ?? 'core';
         code_bytes[cap] = (code_bytes[cap] ?? 0) + size;
       });

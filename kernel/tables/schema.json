@@ -176,6 +176,7 @@
       "id": 0,
       "name": "text",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "measure": true
     },
@@ -183,11 +184,13 @@
       "id": 1,
       "name": "imageSource",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 2,
       "name": "placeholder",
+      "watch": "admit",
       "kind": "str",
       "measure": true
     },
@@ -195,6 +198,7 @@
       "id": 3,
       "name": "accessibilityLabel",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -227,6 +231,7 @@
       "id": 9,
       "name": "lang",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -238,12 +243,14 @@
       "id": 11,
       "name": "testId",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 12,
       "name": "nativeId",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -255,6 +262,7 @@
       "id": 14,
       "name": "href",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -271,6 +279,7 @@
       "id": 17,
       "name": "value",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "measure": true
     },
@@ -293,12 +302,14 @@
       "id": 21,
       "name": "accessibilityRole",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 22,
       "name": "accessibilityHint",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -340,12 +351,14 @@
       "id": 30,
       "name": "accessibilityHeadingLevel",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "int"
     },
     {
       "id": 31,
       "name": "accessibilityElementsHidden",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "bool"
     },
     {
@@ -399,6 +412,7 @@
       "id": 42,
       "name": "src",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -410,6 +424,7 @@
       "id": 44,
       "name": "id",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -445,11 +460,13 @@
     {
       "id": 51,
       "name": "navigationKey",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 52,
       "name": "navigationBack",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -1300,6 +1317,7 @@
       "id": 212,
       "name": "max",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1069.001 D1: HTML's `max`, as `min`."
     },
@@ -1406,6 +1424,7 @@
       "id": 237,
       "name": "title",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
     },
@@ -1605,6 +1624,7 @@
       "id": 272,
       "name": "datetime",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the time element’s instant in epoch milliseconds."
     },
@@ -1612,6 +1632,7 @@
       "id": 273,
       "name": "timeFormat",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1126 D6: the time element’s named presentation."
     },
@@ -1619,6 +1640,7 @@
       "id": 274,
       "name": "start",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the progress interval’s start instant in epoch milliseconds."
     },
@@ -1626,6 +1648,7 @@
       "id": 275,
       "name": "end",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the progress interval’s end instant in epoch milliseconds."
     },
@@ -1982,6 +2005,13 @@
         "italic"
       ],
       "default": "normal"
+    },
+    "FontOpticalSizing": {
+      "values": [
+        "auto",
+        "none"
+      ],
+      "default": "auto"
     },
     "TextDecorationLine": {
       "values": [
@@ -2515,6 +2545,7 @@
       "bit": 0,
       "field": "width",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2525,6 +2556,7 @@
       "bit": 1,
       "field": "height",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2535,6 +2567,7 @@
       "bit": 2,
       "field": "min_width",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2545,6 +2578,7 @@
       "bit": 3,
       "field": "min_height",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2555,6 +2589,7 @@
       "bit": 4,
       "field": "max_width",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2565,6 +2600,7 @@
       "bit": 5,
       "field": "max_height",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2575,6 +2611,7 @@
       "bit": 6,
       "field": "padding_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2585,6 +2622,7 @@
       "bit": 7,
       "field": "padding_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2595,6 +2633,7 @@
       "bit": 8,
       "field": "padding_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2605,6 +2644,7 @@
       "bit": 9,
       "field": "padding_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2615,6 +2655,7 @@
       "bit": 10,
       "field": "margin_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2625,6 +2666,7 @@
       "bit": 11,
       "field": "margin_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2635,6 +2677,7 @@
       "bit": 12,
       "field": "margin_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2645,6 +2688,7 @@
       "bit": 13,
       "field": "margin_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2655,6 +2699,7 @@
       "bit": 14,
       "field": "flex_direction",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:FlexDirection",
       "layout": true
@@ -2663,6 +2708,7 @@
       "bit": 15,
       "field": "flex_wrap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:FlexWrap",
       "layout": true
@@ -2671,6 +2717,7 @@
       "bit": 16,
       "field": "justify_content",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyContent",
       "layout": true
@@ -2679,6 +2726,7 @@
       "bit": 17,
       "field": "align_items",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:AlignItems",
       "layout": true
@@ -2687,6 +2735,7 @@
       "bit": 18,
       "field": "align_self",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:AlignSelf",
       "layout": true
@@ -2695,6 +2744,7 @@
       "bit": 19,
       "field": "align_content",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:AlignContent",
       "layout": true
@@ -2703,6 +2753,7 @@
       "bit": 20,
       "field": "flex_grow",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2712,6 +2763,7 @@
       "bit": 21,
       "field": "flex_shrink",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2721,6 +2773,7 @@
       "bit": 22,
       "field": "flex_basis",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2731,6 +2784,7 @@
       "bit": 23,
       "field": "position_type",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:PositionType",
       "layout": true
@@ -2739,6 +2793,7 @@
       "bit": 24,
       "field": "top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2749,6 +2804,7 @@
       "bit": 25,
       "field": "right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2759,6 +2815,7 @@
       "bit": 26,
       "field": "bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2769,6 +2826,7 @@
       "bit": 27,
       "field": "left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2779,6 +2837,7 @@
       "bit": 28,
       "field": "row_gap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2788,6 +2847,7 @@
       "bit": 29,
       "field": "column_gap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2798,6 +2858,7 @@
       "field": "aspect_ratio",
       "snapshot": "admit",
       "rare": true,
+      "watch": "admit",
       "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
@@ -2807,6 +2868,7 @@
       "bit": 31,
       "field": "display",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:Display",
       "layout": true
@@ -2815,6 +2877,7 @@
       "bit": 32,
       "field": "box_sizing",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BoxSizing",
       "layout": true
@@ -2823,6 +2886,7 @@
       "bit": 33,
       "field": "overflow_x",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2831,6 +2895,7 @@
       "bit": 34,
       "field": "overflow_y",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2847,6 +2912,7 @@
       "bit": 36,
       "field": "grid_auto_flow",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:GridAutoFlow",
       "layout": true
@@ -2855,6 +2921,7 @@
       "bit": 37,
       "field": "grid_template_columns",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2864,6 +2931,7 @@
       "bit": 38,
       "field": "grid_template_rows",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2873,6 +2941,7 @@
       "bit": 39,
       "field": "grid_column",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2882,6 +2951,7 @@
       "bit": 40,
       "field": "grid_row",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2891,6 +2961,7 @@
       "bit": 41,
       "field": "justify_items",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyItems",
       "layout": true
@@ -2899,6 +2970,7 @@
       "bit": 42,
       "field": "direction",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:Direction",
       "inherited": true,
       "layout": true,
@@ -2908,6 +2980,7 @@
       "bit": 43,
       "field": "border_width_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2917,6 +2990,7 @@
       "bit": 44,
       "field": "border_width_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2926,6 +3000,7 @@
       "bit": 45,
       "field": "border_width_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2935,6 +3010,7 @@
       "bit": 46,
       "field": "border_width_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2944,6 +3020,7 @@
       "bit": 47,
       "field": "background_color",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": 0
@@ -2952,6 +3029,7 @@
       "bit": 48,
       "field": "opacity",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "default": 1
     },
@@ -2959,6 +3037,7 @@
       "bit": 49,
       "field": "border_radius_top_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2967,6 +3046,7 @@
       "bit": 50,
       "field": "border_radius_top_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2975,6 +3055,7 @@
       "bit": 51,
       "field": "border_radius_bottom_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2983,6 +3064,7 @@
       "bit": 52,
       "field": "border_radius_bottom_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2991,6 +3073,7 @@
       "bit": 53,
       "field": "border_color_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -3000,6 +3083,7 @@
       "bit": 54,
       "field": "border_color_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -3009,6 +3093,7 @@
       "bit": 55,
       "field": "border_color_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -3018,6 +3103,7 @@
       "bit": 56,
       "field": "border_color_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -3071,6 +3157,7 @@
       "bit": 63,
       "field": "object_fit",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:ObjectFit",
       "cold": true
     },
@@ -3078,6 +3165,7 @@
       "bit": 64,
       "field": "font_size",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -3088,6 +3176,7 @@
       "bit": 65,
       "field": "font_weight",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "u16",
       "inherited": true,
@@ -3099,6 +3188,7 @@
       "bit": 66,
       "field": "font_style",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:FontStyle",
       "inherited": true,
@@ -3109,6 +3199,7 @@
       "bit": 67,
       "field": "font_family",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "u16",
       "inherited": true,
       "text": true,
@@ -3119,6 +3210,7 @@
       "bit": 68,
       "field": "text_align",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextAlign",
       "inherited": true,
@@ -3128,6 +3220,7 @@
       "bit": 69,
       "field": "line_height",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "line-height",
       "inherited": true,
       "text": true,
@@ -3138,6 +3231,7 @@
       "bit": 70,
       "field": "letter_spacing",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -3148,6 +3242,7 @@
       "bit": 71,
       "field": "text_decoration_line",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextDecorationLine"
     },
@@ -3155,6 +3250,7 @@
       "bit": 72,
       "field": "font_variant_numeric",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "u8",
       "keywords": "FontVariantNumeric",
       "inherited": true,
@@ -3166,6 +3262,7 @@
       "bit": 73,
       "field": "line_clamp",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "u32",
       "text": true,
@@ -3176,6 +3273,7 @@
       "bit": 74,
       "field": "text_overflow",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextOverflow",
       "text": true,
@@ -3185,6 +3283,7 @@
       "bit": 75,
       "field": "text_color",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "color",
       "inherited": true,
@@ -3201,6 +3300,7 @@
       "bit": 77,
       "field": "white_space",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:WhiteSpace",
       "inherited": true,
@@ -3248,6 +3348,7 @@
       "bit": 84,
       "field": "clip_path",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "codec": "clip-path"
     },
@@ -3270,6 +3371,7 @@
       "bit": 87,
       "field": "overflow_wrap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:OverflowWrap",
       "inherited": true,
@@ -3280,6 +3382,7 @@
       "bit": 88,
       "field": "border_style_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3288,6 +3391,7 @@
       "bit": 89,
       "field": "border_style_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3296,6 +3400,7 @@
       "bit": 90,
       "field": "border_style_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3304,6 +3409,7 @@
       "bit": 91,
       "field": "border_style_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3648,6 +3754,7 @@
       "bit": 140,
       "field": "text_transform",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextTransform",
       "inherited": true,
@@ -3658,6 +3765,7 @@
       "bit": 141,
       "field": "background_image",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "background-image",
       "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or up to four linear/radial/conic/repeating-linear gradients; linear/radial stops take px or %. Painted over background-color, clipped as the background is.",
       "cold": true
@@ -3904,6 +4012,7 @@
       "bit": 175,
       "field": "order",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "i32",
       "layout": true,
@@ -3921,6 +4030,7 @@
       "bit": 177,
       "field": "text_indent",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "f32",
       "inherited": true,
@@ -3933,6 +4043,7 @@
       "bit": 178,
       "field": "hyphens",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:Hyphens",
       "inherited": true,
       "text": true,
@@ -4111,6 +4222,7 @@
       "bit": 201,
       "field": "text_box_trim",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:TextBoxTrim",
       "text": true,
       "layout": true
@@ -4119,6 +4231,7 @@
       "bit": 202,
       "field": "text_box_edge",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:TextBoxEdge",
       "inherited": true,
       "text": true,
@@ -4135,6 +4248,7 @@
       "bit": 204,
       "field": "text_wrap_style",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:TextWrapStyle",
       "inherited": true,
       "text": true,
@@ -4233,6 +4347,7 @@
       "bit": 216,
       "field": "font_stretch",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -4244,6 +4359,7 @@
       "bit": 217,
       "field": "font_variation_settings",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "font-variations",
       "inherited": true,
       "text": true,
@@ -4252,6 +4368,16 @@
     },
     {
       "bit": 218,
+      "field": "font_optical_sizing",
+      "snapshot": "admit",
+      "codec": "enum:FontOpticalSizing",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1019 §13: CSS `font-optical-sizing` (CSS Fonts 4 §2.7). `auto` sets a face's `opsz` axis to the font size in px; `none` leaves the face's own optical size. Inherited, as in CSS."
+    },
+    {
+      "bit": 219,
       "field": "zoom",
       "codec": "f32",
       "rare": true,
@@ -4260,8 +4386,8 @@
       "_comment": "@ref LLP 1020.002 D6: CSS `zoom` (CSS Viewport 1 §5), admitted on an `iframe` alone: the kernel multiplies the element's own absolute lengths (sizes, margins, padding, borders, insets and its default object size; never a percentage) and the host zooms the guest's page by it (`pageZoom` on Apple; the property itself on the web), as Chrome applies `zoom` to a frame."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch — LLP 1019 §13 D10; 27 is CSS's `border-color` shorthand; 28 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (≤8), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (≤32), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (≤8), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (≤32), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), three for a `font-variation-settings` axis (its number, then its tag's high and low 16 bits; a keyframe carries one value per axis, LLP 1019 §13 D10), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {

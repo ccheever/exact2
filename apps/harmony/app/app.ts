@@ -145,19 +145,24 @@ async function threadOf(db: Db, roomId: string, now: number, offset: number, me:
     members: members.sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
-// Live: Snapback's change feed (GET /changes?since&wait, the long-poll its own
-// clients hold) as server-sent events from the backend's front, `/live`, which
-// an Exact stream resource holds without holding an answer: each change the
-// persona can see moves `seq`, and the view reads `snapshot` again. Natively the
-// device serves one answer at a time, so the long-poll itself cannot be awaited
-// in a source (snapback4/README.md, "Live updates").
+// Live: Snapback's change feed, GET /changes?since&wait (the long-poll its own
+// clients hold), as an Exact long poll (`exactLongPoll`, LLP 1016.000 D8), which
+// a stream resource holds without holding an answer: each change the persona can
+// see moves `seq`, and the view reads `snapshot` again. The first ask's `since`
+// is past any head, which Snapback answers at once with the head; the host then
+// asks with `since` = that `seq`, held up to 25 s, and a reply at the same `seq`
+// is a heartbeat. Natively the device serves one answer at a time, so the
+// long-poll itself cannot be awaited in a source (snapback4/README.md, "Live
+// updates").
 function live(persona: string): Result<'live'> {
-  return fetch(`${origin}/live?as=${encodeURIComponent(persona)}`, {
+  return fetch(`${origin}/changes?since=${Number.MAX_SAFE_INTEGER}&wait=25`, {
+    headers: { 'x-snapback-persona': persona },
     exactStream: (event: { type: string; data?: unknown }) => {
       if (event.type !== 'message' || typeof event.data !== 'string') return { seq: -1, state: event.type };
       try { return { seq: Number((JSON.parse(event.data) as { seq: number }).seq), state: 'open' }; }
       catch { return { seq: -1, state: 'malformed' }; }
     },
+    exactLongPoll: { cursor: 'since', from: 'seq' },
   } as RequestInit) as unknown as Result<'live'>;
 }
 

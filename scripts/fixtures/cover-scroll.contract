@@ -3,16 +3,29 @@
 // status column, a phone's notch in landscape). UIKit insets it at its top
 // and bottom only, so its content, as wide as it, never scrolls sideways
 // (NavigationCollapseIOSTests). A trimmed `large-title.contract` with a cover root.
+// Picker is a sheet over it whose scroller runs to the sheet's bottom edge,
+// the document's cover notwithstanding (ContentOwnersIOSTests).
 routes nav
   home "/"
+    picker "/picker"
 
 component CoverScroll
+  action openPicker
+    nav = push(nav, "/picker")
+  action back
+    nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` testId="app" viewport-fit="cover" width="100%" height="100%"
       for e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` testId="route-home" position="absolute" inset=0 display="flex" flex-direction="column"
+        column navigationKey=`${e.id}` testId=`route-${e.name}` navigationPresentation=(e.name == "picker" ? "modal" : "") navigationScroll=(e.name == "picker" ? "picker-scroll" : "") position="absolute" inset=0 display="flex" flex-direction="column"
           header testId="header-home" display="flex" align-items="center" padding="8px 16px"
+            if e.name == "picker"
+              button id="back" press=back
+                text "Close"
             text "Home" role="heading" aria-level=1
-          scroll testId="home-scroll" flex=1 min-height=0
+            if e.name == "home"
+              button testId="open-picker" press=openPicker
+                text "Picker"
+          scroll id=(e.name == "picker" ? "picker-scroll" : "home-scroll") testId=(e.name == "picker" ? "picker-scroll" : "home-scroll") flex=1 min-height=0
             text "home top" testId="home-top"
             column height=1600

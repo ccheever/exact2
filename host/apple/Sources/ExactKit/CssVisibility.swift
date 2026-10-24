@@ -52,6 +52,7 @@ extension NodeView {
         presenter?.controls.controls[id]?.isHidden = hidden
         #if os(macOS)
         symbolClip?.isHidden = hidden
+        symbolShape?.isHidden = hidden
         #endif
         guard isParagraph else { return }
         // The bitmap `invalidateText` left up. A fully hidden paragraph may

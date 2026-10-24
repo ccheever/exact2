@@ -584,7 +584,7 @@ fn web_wire_enum_strings_cross_calls_and_nested_overlay_replies() {
 const src = await Bun.file(process.argv[1]).text();
 const api = new Function(src.replace(/^import .*;$/gm, '').replace(/^export /gm, '') + ';return {writer,encode};')();
 const w = api.writer(), value = ['a|b', 'n🥳', ['a|b']];
-w.u32(3); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
+w.u32(Number(process.argv[3])); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
 w.u8(6); w.u32(2); api.encode(w, 'a|b', 's'); api.encode(w, value, '{s?s[s}');
 if (process.argv[2] === 'true') {
   api.encode(w, value, '{s?s[s}'); w.u32(1); w.u64(7); w.str('save'); w.str('save');
@@ -596,6 +596,7 @@ process.stdout.write(w.done());
             .args(["--eval", js])
             .arg(&bridge)
             .arg(overlay.to_string())
+            .arg(ABI.to_string())
             .output()
             .unwrap();
         assert!(
@@ -620,4 +621,81 @@ process.stdout.write(w.done());
             );
         }
     }
+}
+
+/// A presence secret across the module seam (LLP 1133.010 D5): the per-call
+/// snapshot carries its occupancy and never its bytes, an answer that reads
+/// it with `get` fails as it would in process, and a locked write goes back
+/// to the host's store, which keeps nothing of it either.
+#[test]
+fn a_locked_name_crosses_the_seam_as_occupancy_alone() {
+    struct Locked;
+    impl DataSource for Locked {
+        fn grants(&self) -> &str {
+            "secret.keep token user-presence\ndevice.local-auth purpose.lock"
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn answer(
+            &mut self,
+            store: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            if source == "write" {
+                store.set("token", "secret-2")?;
+                return Ok(Answer::Now(Value::Bool(store.locked("token"))));
+            }
+            Ok(Answer::Now(Value::str(
+                store.get("token").unwrap_or("none"),
+            )))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            unreachable!()
+        }
+    }
+    let grants = "secret.keep token user-presence\ndevice.local-auth purpose.lock";
+    let mut store = Store::new(
+        grants,
+        [
+            ("token".into(), b"secret-1".to_vec()),
+            ("exact.presence.token".into(), b"locked".to_vec()),
+            ("exact.presence.".into(), b"1".to_vec()),
+        ],
+    );
+    let mut module = Session::new(Locked);
+    let input = call_request(&store, "read", &[], None).unwrap();
+    assert!(!input.windows(6).any(|x| x == b"secret"));
+    assert!(input.windows(6).any(|x| x == b"locked"));
+    module.dispatch(&input).unwrap();
+    let refused = call_reply(module.output(), &mut store).unwrap_err();
+    assert!(
+        refused.to_string().contains("InvalidAccessError"),
+        "{refused}"
+    );
+    module
+        .dispatch(&call_request(&store, "write", &[], None).unwrap())
+        .unwrap();
+    assert_eq!(
+        call_reply(module.output(), &mut store).unwrap(),
+        Answer::Now(Value::Bool(true))
+    );
+    assert!(!store
+        .snapshot()
+        .iter()
+        .any(|(_, v)| v.windows(6).any(|x| x == b"secret")));
+    let writes = store.take_writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(
+        writes[0].value.as_deref(),
+        Some(&b"secret-2"[..]),
+        "for the host's backend"
+    );
 }

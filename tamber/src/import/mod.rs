@@ -17,6 +17,7 @@ pub mod dtcg;
 mod engine;
 mod kinds;
 mod landing;
+mod reach;
 pub mod shadcn;
 pub mod tailwind;
 
@@ -420,7 +421,12 @@ const NESTING: usize = 64;
 /// a declaration or a rule is reported, not copied about (no real one is
 /// near them).
 const NAME: usize = 256;
-const VALUE: usize = 4096;
+const VALUE: usize = crate::css::MAX_VALUE_BYTES;
+/// The report of a value past [`VALUE`], which a CSS importer refuses as
+/// the checker's bound (`source_read`).
+const LONG_VALUE: &str = "a custom property's value past 4 KiB";
+/// A long name's value nested past the checker's bound, likewise refused.
+const DEEP_VALUE: &str = "a custom property's value nested past 32 functions";
 
 /// How many bytes of enclosing preludes the blocks may copy, all told: each
 /// block keeps its context, so 64 long preludes around many small rules
@@ -572,9 +578,12 @@ fn body(
                     let value = value.trim();
                     if name.len() > NAME || value.len() > VALUE {
                         let at = from + (segment.len() - segment.trim_start().len());
-                        let why = match name.len() > NAME {
-                            true => "a custom property's name past 256 bytes",
-                            false => "a custom property's value past 4 KiB",
+                        // (the value first: one past the checker's bound
+                        // refuses the import, however long its name)
+                        let why = match (value.len() > VALUE, crate::css::over_limit(value)) {
+                            (true, _) => LONG_VALUE,
+                            (false, Some(_)) => DEEP_VALUE,
+                            (false, None) => "a custom property's name past 256 bytes",
                         };
                         read.deep.push((name.chars().take(80).collect(), at, why));
                         return;
@@ -676,6 +685,34 @@ pub(super) fn split_roles(
             .iter()
             .any(|o| !o.ops.is_empty() && key(&o.role).as_ref() == Some(k))
     };
+    // Over the design's tokens, each naming the tokens its values name:
+    // those reaching a token the import sets or a role an offer rebinds, and
+    // those reaching a `when` line, for every token at once.
+    let index = reach::Index::new(design, roles);
+    let edges: Vec<Vec<usize>> = design
+        .tokens
+        .iter()
+        .map(|t| words_of(t).filter_map(|w| index.get(w)).collect())
+        .collect();
+    let set: std::collections::HashSet<&str> = tokens.iter().map(|m| m.name.as_str()).collect();
+    let reaches = reach::reaching(
+        &edges,
+        design.tokens.iter().enumerate().filter_map(|(i, t)| {
+            let n = &t.name.value;
+            (set.contains(n.as_str())
+                || key(n).is_some_and(|k| rebound(&k))
+                || words_of(t).any(|w| set.contains(w)))
+            .then_some(i)
+        }),
+    );
+    let varies = reach::reaching(
+        &edges,
+        design
+            .tokens
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| (!t.whens.is_empty()).then_some(i)),
+    );
     let mut out = Vec::new();
     for t in &design.tokens {
         let Some(k) = key(&t.name.value) else {
@@ -688,16 +725,10 @@ pub(super) fn split_roles(
         {
             continue;
         }
-        let mut seen = Vec::new();
-        chain(&t.name.value, design, roles, &mut seen);
-        let reaches = seen.iter().any(|&i| {
-            let n = &design.tokens[i].name.value;
-            tokens.iter().any(|m| m.name == *n) || key(n).is_some_and(|k| rebound(&k))
-        }) || seen
-            .iter()
-            .flat_map(|&i| words_of(&design.tokens[i]))
-            .any(|w| tokens.iter().any(|m| m.name == w));
-        if reaches && seen.iter().any(|&i| !design.tokens[i].whens.is_empty()) {
+        if index
+            .get(&t.name.value)
+            .is_some_and(|i| reaches[i] && varies[i])
+        {
             out.push(Offer {
                 role: t.name.value.clone(),
                 token: t.value.value.clone(),
@@ -709,44 +740,160 @@ pub(super) fn split_roles(
     out
 }
 
-/// The design's tokens `name` reaches, itself included, by their indices:
-/// through every value it and they name, under any spelling of a role.
-fn chain(name: &str, design: &Design, roles: &[(String, bool)], seen: &mut Vec<usize>) {
-    let Ok(i) = crate::edit::token_index(design, roles, name) else {
-        return;
-    };
-    if seen.contains(&i) {
-        return;
-    }
-    seen.push(i);
-    for w in words_of(&design.tokens[i]) {
-        chain(w, design, roles, seen);
-    }
-}
-
 /// The names a token's default and `when` values may hold.
 fn words_of(t: &crate::Token) -> impl Iterator<Item = &str> {
     std::iter::once(t.value.value.as_str())
         .chain(t.whens.iter().map(|w| w.value.value.as_str()))
-        .flat_map(|v| {
-            v.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-                .filter(|w| !w.is_empty())
-        })
+        .flat_map(reach::words)
 }
 
 /// The dial whose only use is the role `t`: rebinding `t` would leave it
 /// unused, which the design refuses (`tamber-dial-inert`).
 pub(super) fn orphaned_dial<'a>(design: &'a Design, t: &crate::Token) -> Option<&'a str> {
+    let others: std::collections::HashSet<&str> = design
+        .tokens
+        .iter()
+        .filter(|o| !std::ptr::eq(*o, t))
+        .flat_map(words_of)
+        .collect();
     design
         .dials
         .iter()
         .map(|d| d.name.value.as_str())
-        .find(|d| {
-            words_of(t).any(|w| w == *d)
-                && !design
-                    .tokens
-                    .iter()
-                    .filter(|o| !std::ptr::eq(*o, t))
-                    .any(|o| words_of(o).any(|w| w == *d))
+        .find(|d| words_of(t).any(|w| w == *d) && !others.contains(d))
+}
+
+/// The design checker's bound at import (theme2's condition on the checker
+/// bound): a source value past `css::over_limit`, mapped or reported,
+/// refuses the import with that bound's id, naming the source's name and
+/// never echoing the value. The importers' own budget bounds their work
+/// reading the source; this bounds what they hand the checker.
+pub(crate) fn bounded(import: Result<Import, Vec<Diagnostic>>) -> Result<Import, Vec<Diagnostic>> {
+    let import = import?;
+    let over = |name: &str, value: &str| {
+        crate::css::over_limit(value).map(|(id, why)| {
+            let name: String = name.chars().take(80).collect();
+            vec![Diagnostic::new(id, format!("`{name}`: {why}"), 1, 1)]
         })
+    };
+    // (an unmapped value is a report's text, which an importer may join
+    // from two source values each within the bound: the source values are
+    // checked where they are read, `source_bound`)
+    let ops = import
+        .ops
+        .iter()
+        .chain(import.offers.iter().flat_map(|o| &o.ops));
+    for op in ops {
+        let values: Vec<(&str, &str)> = match op {
+            Op::SetToken { name, value, .. }
+            | Op::SetDial { name, value }
+            | Op::SetParam { name, value, .. } => vec![(name, value)],
+            Op::AddToken {
+                name, value, whens, ..
+            } => std::iter::once((name.as_str(), value.as_str()))
+                .chain(whens.iter().map(|(_, v, _)| (name.as_str(), v.as_str())))
+                .collect(),
+            _ => Vec::new(),
+        };
+        for (name, value) in values {
+            if let Some(no) = over(name, value) {
+                return Err(no);
+            }
+        }
+    }
+    Ok(import)
+}
+
+/// Each source value an importer reads, before it maps any: one past
+/// `css::over_limit` refuses the import with that bound's id (theme2's
+/// condition), naming the source's name and never echoing the value, though
+/// the importer might have folded it to something short.
+pub(crate) fn source_bound<'a>(
+    values: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<(), Vec<Diagnostic>> {
+    for (name, value) in values {
+        if let Some((id, why)) = crate::css::over_limit(value) {
+            let name: String = name.chars().take(80).collect();
+            return Err(vec![Diagnostic::new(id, format!("`{name}`: {why}"), 1, 1)]);
+        }
+    }
+    Ok(())
+}
+
+/// Every string a JSON value holds, depth first (a composite token's parts).
+pub(crate) fn json_strings<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a str>) {
+    match v {
+        serde_json::Value::String(s) => out.push(s),
+        serde_json::Value::Array(a) => a.iter().for_each(|v| json_strings(v, out)),
+        serde_json::Value::Object(o) => o.values().for_each(|v| json_strings(v, out)),
+        _ => {}
+    }
+}
+
+/// A CSS importer's source as `css_read` read it: a value past the checker's
+/// bound, which the reader reports rather than copies, or one it copied,
+/// refuses the import with `tamber-value-size` ([`source_bound`]).
+pub(crate) fn source_read(blocks: &[Block], deep: &[Deep]) -> Result<(), Vec<Diagnostic>> {
+    if let Some(d) = deep
+        .iter()
+        .find(|d| d.why == LONG_VALUE || d.why == DEEP_VALUE)
+    {
+        let name: String = d.prelude.chars().take(80).collect();
+        let (id, why) = match d.why == LONG_VALUE {
+            true => (
+                "tamber-value-size",
+                format!("a value is at most {VALUE} bytes"),
+            ),
+            false => (
+                "tamber-value-depth",
+                format!(
+                    "a value nests at most {} functions deep",
+                    crate::css::MAX_VALUE_DEPTH
+                ),
+            ),
+        };
+        return Err(vec![Diagnostic::new(
+            id,
+            format!("`{name}`: {why}"),
+            d.line as u32,
+            1,
+        )]);
+    }
+    source_bound(
+        blocks
+            .iter()
+            .flat_map(|b| b.decls.iter().map(|(n, v)| (n.as_str(), v.as_str()))),
+    )
+}
+
+/// A reimport's source read as JSON (`refuse` saying why it isn't), its
+/// `$value`s against the checker's bound ([`source_bound`]): past it, the
+/// reimport is refused with the bound's id, as an import is.
+pub(crate) fn dtcg_doc(
+    text: &str,
+    refuse: &dyn Fn(String) -> Vec<Diagnostic>,
+) -> Result<serde_json::Value, Vec<Diagnostic>> {
+    let doc = serde_json::from_str(text).map_err(|e| refuse(format!("not JSON: {e}")))?;
+    // Every string it holds (an export keeps a mode's values in its
+    // `$extensions`, beside each `$value`), and every key, which a refusal
+    // may name (a context's).
+    let mut strings = Vec::new();
+    json_strings(&doc, &mut strings);
+    source_bound(strings.into_iter().map(|v| ("the reimported file", v)))?;
+    if let Some((id, why)) = json_keys(&doc).find_map(|k| crate::css::over_bytes("a name", k)) {
+        return Err(vec![Diagnostic::new(id, why, 1, 1)]);
+    }
+    Ok(doc)
+}
+
+/// Every key a JSON value's objects hold, depth first.
+fn json_keys(v: &serde_json::Value) -> Box<dyn Iterator<Item = &str> + '_> {
+    match v {
+        serde_json::Value::Object(o) => Box::new(
+            o.iter()
+                .flat_map(|(k, v)| std::iter::once(k.as_str()).chain(json_keys(v))),
+        ),
+        serde_json::Value::Array(a) => Box::new(a.iter().flat_map(json_keys)),
+        _ => Box::new(std::iter::empty()),
+    }
 }

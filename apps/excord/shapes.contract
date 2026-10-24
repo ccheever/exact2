@@ -163,6 +163,12 @@ shape Guild
   unread: bool
   mentions: number
 
+// A guild's channels under one category ("" for those in none), in Discord's order.
+shape Category
+  id: string
+  name: string
+  channels: Channel[]
+
 // The gateway's snapshot (Excord LLP 0001 §4.2), the same size for any
 // account: the connection's state ("idle", "connecting", "awaiting-hello",
 // "identifying", "resuming", "ready", "backoff", "stopped" or "signed-out"),
@@ -175,6 +181,10 @@ shape Gateway
   state: string
   detail: string
   me: string
+  meName: string
+  // Socket messages waiting for `digest`, and this snapshot's place in the session's order.
+  queued: number
+  seq: number
   fixture: bool
   sidebar: number
   channel: string
@@ -184,10 +194,14 @@ shape Gateway
   attempt: number
 
 // The kept credentials, read into the data module: `ready` once read, and
-// whether there is a token to sign in with.
+// whether there is a token to sign in with. Lock Excord (LLP 1133.010 §9):
+// `lockOn` while the token is kept behind the person's check, and `locked`
+// while this launch has not passed it yet, so nothing of the account shows.
 shape Session
   ready: bool
   signedIn: bool
+  locked: bool
+  lockOn: bool
 
 shape Ack
   ok: bool

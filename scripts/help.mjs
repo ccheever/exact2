@@ -58,7 +58,7 @@ const APPLE = ['--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device',
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
-const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early, then --release waits for it and takes seconds; an iOS agent drive installs over it, saying how to put it back'];
+const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production: it ignores EXACT_AGENT and EXACT_MODULES, so drive the development build; a first is minutes: --prebuild --release early, then --release waits for it and takes seconds; an iOS agent drive installs over it, saying how to put it back'];
 
 export const HELP = {
   backend: {
@@ -118,7 +118,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     example: 'bun exact.mjs web-build',
   },
   test: {
-    line: 'run app.test.contract (or the files named) on a host: web by default',
+    line: 'run *.test.contract (or the files named) on a host: web by default',
     usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
     common: ['test [web|ios] [<file>…] [--size <w>x<h>] [--sim <name>]'],
     flags: DRIVE.filter(naming(['--size', '--sim'], true)),
@@ -168,7 +168,7 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
-    line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
+    line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
     usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
@@ -179,7 +179,8 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
     internal: ['--app <name>'],
     body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
 (an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
-fresh scratch store, and runs check light and dark on the screen it opens to. Each test's
+fresh scratch store, and runs check light and dark on the screen it opens to. The tests are
+app.test.contract's, then each other *.test.contract's beside it, as test runs them. Each test's
 last screen is checked the same way in the test's own session (web: at both widths; ios
 runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store
 a passing test left, and says whether its first screen shows what that test stored. One
@@ -217,7 +218,7 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
-      ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone'],
+      ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone; production trust, so with an update store EXACT_UPDATE_RECEIPT or EXACT_UPDATE_GENESIS=1'],
       ['--unsigned', 'with --archive: ad-hoc signed, for a service that re-signs it'],
       ['--tvos', 'an Apple TV simulator instead (with --device, an Apple TV)'],
       ['--url <url>', 'connect the client to that dev server (web\'s URL) for live reload'],
@@ -265,7 +266,8 @@ Ports    none. Runs to completion.`,
     // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
     // which `exact new` does not write yet, or a game (its shell generates one). --release builds the
     // release profile, for measuring.
-    internal: ['--apk', '--release'],
+    // --write-locks writes the Gradle lock and verification files of an app whose modules name Maven libraries.
+    internal: ['--apk', '--release', '--write-locks'],
     body: `Builds for aarch64-linux-android and prints the binary's path; the drive runs it under
 adb shell on the first device or emulator (ANDROID_SERIAL picks one). Needs the NDK
 (ANDROID_NDK_HOME, else the newest under the SDK's ndk/) and, once in this directory,

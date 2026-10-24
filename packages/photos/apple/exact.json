@@ -1,0 +1,41 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/photos@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "ApplePhotoAsset": {
+      "mediaSubtypes": "string[]",
+      "burstIdentifier": "option<string>",
+      "hasAdjustments": "bool"
+    },
+    "ApplePhotoLibraryStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorized|limited>",
+      "addOnlyAuthorizationStatus": "enum<notDetermined|restricted|denied|authorized|limited>"
+    }
+  },
+  "options": {
+    "copyPhotoAsset": {
+      "isNetworkAccessAllowed": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "fetchOptions",
+    "imageRequestOptions",
+    "creationRequest"
+  ],
+  "sources": {
+    "swift": [
+      "Photos.swift",
+      "Library.swift",
+      "AgentLibrary.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "PhotosModule"
+}

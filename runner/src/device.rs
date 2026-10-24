@@ -26,7 +26,9 @@ pub struct Device {
     /// iOS `Info.plist` keys set to true.
     pub ios_flags: &'static [&'static str],
     /// Android's runtime permissions (`<uses-permission>`), asked in one
-    /// request (LLP 1133.002 D6).
+    /// request (LLP 1133.002 D6). One the platform retired at an API level
+    /// is written `<name> maxSdkVersion=<level>`, which the manifest
+    /// declares as `android:maxSdkVersion` (LLP 1133.019 D4).
     pub android: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
@@ -35,6 +37,9 @@ pub struct Device {
     pub hardened: Option<&'static str>,
     /// The web `Permissions-Policy` feature, where the feature is policy-controlled.
     pub web: Option<&'static str>,
+    /// Further `Permissions-Policy` features the row turns on beside `web`:
+    /// motion's three sensors are three features (LLP 1133.013 D11).
+    pub policy: &'static [&'static str],
     /// iOS signing entitlements the device needs beside its usage strings
     /// (LLP 1069.008.000 D2): HealthKit authorizes nothing without its own.
     pub ios_entitlements: &'static [&'static str],
@@ -62,6 +67,7 @@ const ROW: Device = Device {
     macos: &[],
     hardened: None,
     web: None,
+    policy: &[],
     ios_entitlements: &[],
     companion: None,
     tvos: true,
@@ -77,16 +83,18 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSMicrophoneUsageDescription"],
         hardened: Some("com.apple.security.device.audio-input"),
         web: Some("microphone"),
+        android: &["android.permission.RECORD_AUDIO"],
         ..ROW
     },
-    // A camera is a native module's (`rules/DEFERRED.md`, moved 2026-10-02):
-    // the row is what that module declares.
+    // The camera, `@exact/camera`'s (LLP 1133.008 D6). Its Android features
+    // are declared not required where the permission is (app/build.gradle.kts).
     Device {
         name: "camera",
         ios: &["NSCameraUsageDescription"],
         macos: &["NSCameraUsageDescription"],
         hardened: Some("com.apple.security.device.camera"),
         web: Some("camera"),
+        android: &["android.permission.CAMERA"],
         ..ROW
     },
     Device {
@@ -141,13 +149,45 @@ pub const DEVICES: &[Device] = &[
         ..ROW
     },
     // Deviation, same reason: saving to the library. PhotoKit under the
-    // hardened runtime needs the library entitlement for a write too.
+    // hardened runtime needs the library entitlement for a write too. Apple
+    // lists the add key for iOS alone and the read key for macOS too, so
+    // macOS writes both (LLP 1133.019 D4).
     Device {
         name: "photos-add",
         ios: &["NSPhotoLibraryAddUsageDescription"],
-        macos: &["NSPhotoLibraryAddUsageDescription"],
+        macos: &[
+            "NSPhotoLibraryAddUsageDescription",
+            "NSPhotoLibraryUsageDescription",
+        ],
         hardened: Some("com.apple.security.personal-information.photos-library"),
         web: None,
+        ..ROW
+    },
+    // Reading the library, `@exact/photos` (LLP 1133.019 D4): a deviation,
+    // the web has no library. iOS never shows its automatic limited-access
+    // alert, which a tool's or a wake's read would otherwise raise (D6). An
+    // app reading it keeps no answers (D6, ruling 6). Android's read is a
+    // permission per API range: `READ_EXTERNAL_STORAGE` to 32,
+    // `READ_MEDIA_IMAGES` from 33, `READ_MEDIA_VISUAL_USER_SELECTED` (a
+    // partial grant) from 34; and `ACCESS_MEDIA_LOCATION`, without which
+    // another app's photo reads with its location redacted (D4). A level
+    // ignores a permission it does not define, so only a range's end is
+    // written; the implementation asks those its level has. Adding needs no
+    // permission from API 29, the host's oldest.
+    Device {
+        name: "photos",
+        ios: &["NSPhotoLibraryUsageDescription"],
+        ios_flags: &["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"],
+        android: &[
+            "android.permission.READ_EXTERNAL_STORAGE maxSdkVersion=32",
+            "android.permission.READ_MEDIA_IMAGES",
+            "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            "android.permission.ACCESS_MEDIA_LOCATION",
+        ],
+        macos: &["NSPhotoLibraryUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.photos-library"),
+        web: None,
+        keeps_no_answers: true,
         ..ROW
     },
     // HealthKit (LLP 1069.008.000): Apple only, a deviation (the web has no
@@ -185,11 +225,34 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSLocalNetworkUsageDescription"],
         ..ROW
     },
+    // @ref LLP 1133.010 D12 — local authentication. iOS shows the purpose the
+    // first time Face ID is used, and refuses Face ID without the key; Touch ID
+    // and macOS ask nothing. A declared deviation: the web has no name (its
+    // cell is `later`, over passkeys). Not on tvOS, which has no biometry.
+    Device {
+        name: "local-auth",
+        ios: &["NSFaceIDUsageDescription"],
+        android: &["android.permission.USE_BIOMETRIC"],
+        tvos: false,
+        ..ROW
+    },
     // @ref LLP 1125 D6 — Web MIDI's permission and policy feature. Apple asks
     // for nothing, so no usage key; tvOS has no CoreMIDI (`unavailable`).
     Device {
         name: "midi",
         web: Some("midi"),
+        tvos: false,
+        ..ROW
+    },
+    // @ref LLP 1133.013 D11 — `@exact/motion`. A declared deviation: the
+    // Registry has three names and one line grants all three, the
+    // magnetometer's whatever the app reads. iOS and Android ask nothing for
+    // these sensors (`NSMotionUsageDescription` is the activity and
+    // pedometer APIs'), and tvOS has none of Core Motion's streams.
+    Device {
+        name: "motion",
+        web: Some("accelerometer"),
+        policy: &["gyroscope", "magnetometer"],
         tvos: false,
         ..ROW
     },
@@ -283,7 +346,8 @@ pub fn permissions_policy(spec: &str) -> String {
     let granted = device_grants(spec).unwrap_or_default();
     // A feature two rows share (`geolocation`) is named once: on when either is granted.
     let mut features: Vec<&str> = Vec::new();
-    for feature in DEVICES.iter().filter_map(|d| d.web) {
+    let of = |d: &'static Device| d.web.into_iter().chain(d.policy.iter().copied());
+    for feature in DEVICES.iter().flat_map(of) {
         if !features.contains(&feature) {
             features.push(feature);
         }
@@ -291,7 +355,7 @@ pub fn permissions_policy(spec: &str) -> String {
     features
         .into_iter()
         .map(|feature| {
-            let on = granted.iter().any(|g| g.device.web == Some(feature));
+            let on = granted.iter().any(|g| of(g.device).any(|f| f == feature));
             format!("{feature}=({})", if on { "self" } else { "" })
         })
         .collect::<Vec<_>>()
@@ -372,11 +436,21 @@ mod tests {
     fn the_policy_allows_what_is_granted_and_denies_the_rest() {
         assert_eq!(
             permissions_policy("device.microphone p\ndevice.speech-recognition q"),
-            "microphone=(self), camera=(), geolocation=(), midi=()"
+            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
         assert_eq!(
             permissions_policy(""),
-            "microphone=(), camera=(), geolocation=(), midi=()"
+            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
+    }
+
+    /// LLP 1133.013 D11: one line turns on the three sensors' features.
+    #[test]
+    fn motion_is_one_line_for_three_policy_features() {
+        let policy = permissions_policy("device.motion purpose.motion");
+        for feature in ["accelerometer", "gyroscope", "magnetometer"] {
+            assert!(policy.contains(&format!("{feature}=(self)")), "{policy}");
+        }
+        assert!(policy.contains("microphone=()"), "{policy}");
     }
 }

@@ -5,7 +5,8 @@
 //! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
 //! grouped list's sections (LLP 1084), and
 //! whether a followed link names one of the app's routes (LLP 1038 §7),
-//! and where the host's own Back goes (LLP 1115 D5).
+//! where the host's own Back goes (LLP 1115 D5), and a package's call of
+//! the app's handler (LLP 1133.016 D15 item 1).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -78,6 +79,31 @@ impl<D: DataSource> Bridge<D> {
                 .as_ref()
                 .is_some_and(|h| h.runner().route_matches(&location)),
         )
+    }
+
+    /// `exact_module_invoke`: a package's call of the app's handler,
+    /// `{"extension", "handle", "handler", "args"}` in the input buffer.
+    /// `reply(ctx, answer, len)` is called once with the runner's JSON, now
+    /// or when the handler's own work lands. Not a batch.
+    pub fn module_invoke(&mut self, len: usize, reply: InvokeReply, ctx: *mut std::ffi::c_void) {
+        let body = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        // The context crosses threads as an address: the host's, which `reply` frees.
+        let ctx = ctx as usize;
+        let answer: Box<dyn FnOnce(String) + Send> = Box::new(move |text: String| {
+            reply(
+                ctx as *mut std::ffi::c_void,
+                text.as_ptr(),
+                text.len() as u32,
+            )
+        });
+        match self.host.as_mut() {
+            Some(h) => h.runner_mut().invoke_module(&body, answer),
+            None => answer(r#"{"error":"InvalidStateError","message":"no session runs"}"#.into()),
+        }
+        // The handler's requests, for the host to run.
+        if let Some(executor) = self.executor.as_deref() {
+            executor.notify();
+        }
     }
 
     /// `exact_location_beneath`: the location of the visit beneath visit
@@ -228,6 +254,19 @@ impl<D: DataSource> Bridge<D> {
                 },
                 _ => {}
             }
+        }
+        if let Some(x) = self.executor.as_deref() {
+            x.notify();
+        }
+        0
+    }
+
+    /// How a presence check the host made ended (`exact_presence`, LLP
+    /// 1133.010 D13): the value goes to the waiting call alone.
+    pub fn presence(&mut self, len: usize) -> u32 {
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut()
+                .presence_reply(&self.input[..len.min(self.input.len())]);
         }
         if let Some(x) = self.executor.as_deref() {
             x.notify();
@@ -537,3 +576,6 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 }
+
+/// The host's answer to a package's call back: `reply(ctx, answer, len)`.
+pub type InvokeReply = extern "C" fn(*mut std::ffi::c_void, *const u8, u32);

@@ -77,10 +77,8 @@ extension Presenter {
     /// route's backdrop), never a row's own. Nil where nothing is painted.
     func bottomEdgeColor() -> UIColor? {
         let b = viewport.bounds.inset(by: pageMargins) // the page's area, not the band under it
-        // The mount beside the viewport shares its space and has no ground of its own.
-        let port = documentPort
-        guard b.height > 1, let hit = port.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
-        let chain = Array(sequence(first: hit, next: { $0 === port ? nil : $0.superview })) + (port === viewport ? [] : [viewport as UIView])
+        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
         return chain[from...].lazy.compactMap { v in
             v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
@@ -331,21 +329,13 @@ extension Presenter {
 }
 
 extension NavigationHost {
-    /// The frame of the controller Exact installed under the root: the
-    /// root's bounds, and for a tab container, while the keyboard ends the
-    /// viewport above the screen's bottom, down to that bottom: its tab bar
-    /// stays under the keys, as UIKit's does, and the routes, laid out to
-    /// the keyboard's top, end there with nothing of the bar left over them
-    /// (`reportCovers` reads what is left of it).
+    /// The primary controller fills the document viewport. A tab container
+    /// extends beneath a content-resizing keyboard so its tab bar stays
+    /// covered while route allocations end at the keys.
     func ownerFrame(_ owner: UIViewController, in root: UIView) -> CGRect {
-        var frame = root.bounds
-        if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
-            frame.size.height += presenter.keyboardInset
-        } else if owner === primaryOwner, presenter.keyboardPolicy == "resizes-content" {
-            #if os(iOS)
-            frame.size.height += presenter.keyboardAccessoryHeight
-            #endif
-        }
+        let viewport = presenter.viewport
+        var frame = !ExactEnv.authoredChrome && root.isDescendant(of: viewport) ? viewport.convert(viewport.pageBounds, to: root) : root.bounds
+        frame.size.height += ownerKeyboardExtension(owner)
         // The authored tablist the agent paints takes its own place in the
         // root, as on the web; the routes end at its edge, not under it.
         if owner === tabOwner, ExactEnv.authoredChrome, let list = adoptedTablist.flatMap({ presenter.views[$0] }),
@@ -362,12 +352,14 @@ extension NavigationHost {
         return frame
     }
 
-    /// The keyboard moved the viewport (ExactView `fit`): the tab container
-    /// keeps the screen's height under it.
-    func fitOwner() {
-        guard let owner = tabOwner, modalNavigation == nil, let root = owner.view.superview else { return }
-        let frame = ownerFrame(owner, in: root)
-        if owner.view.frame != frame { owner.view.frame = frame }
+    func ownerKeyboardExtension(_ owner: UIViewController) -> CGFloat {
+        if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
+            return presenter.keyboardInset
+        }
+        #if os(iOS)
+        if owner === primaryOwner, presenter.keyboardPolicy == "resizes-content" { return presenter.keyboardAccessoryHeight }
+        #endif
+        return 0
     }
 }
 #endif

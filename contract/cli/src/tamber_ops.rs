@@ -115,7 +115,12 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
                 axis: s(v, "axis")?,
                 value: s(v, "value")?,
             },
-            other => return Err(bad(format!("no operation {}", other.unwrap_or("(none)")))),
+            other => {
+                let what = other.unwrap_or("(none)");
+                return Err(bad(exact_tamber::bounded_words(format!(
+                    "no operation {what}"
+                ))));
+            }
         };
         out.push((file, op));
     }
@@ -172,9 +177,15 @@ pub(crate) fn param_names(
             } => (name, (!when.is_empty()).then_some(respell)),
             _ => continue,
         };
+        // Bounded before anything formats it, as `edit::valid` would.
+        if let Some((id, why)) = exact_tamber::over_name(name) {
+            return Err(json!({"message": format!("{id}: {why}"), "id": id}));
+        }
         let resolve = |n: &str| contract_lower::params::resolve(&app.tokens, &app.identities, n);
-        let p = resolve(name)
-            .map_err(|e| json!({"message": format!("{}: {}", e.id, e.message), "id": e.id}))?;
+        let p = resolve(name).map_err(|e| {
+            let message = exact_tamber::bounded_words(format!("{}: {}", e.id, e.message));
+            json!({"message": message, "id": e.id})
+        })?;
         let design = snap
             .iter()
             .find(|(f, _, _)| f == file)

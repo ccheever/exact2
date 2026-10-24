@@ -671,11 +671,7 @@ impl DataSource for Module {
             };
         }
         let granted = Store::new(&self.grants, []).granted().to_vec();
-        let snapshot: Vec<_> = store
-            .snapshot()
-            .into_iter()
-            .filter(|(name, _)| !name.starts_with(Store::KEPT) && granted.iter().any(|g| g == name))
-            .collect();
+        let snapshot = store.call_snapshot(&granted);
         let grants = Json::Array(granted.iter().map(|g| g.as_str().into()).collect());
         match call(object([
             ("op", "dispatch".into()),

@@ -87,13 +87,17 @@ pub(super) fn push_style(
     }
     // CSS `font-optical-sizing: auto` (CSS Fonts 4 §2.7): a face's `opsz` is
     // the size, as the browser and CoreText set it; one without the axis
-    // ignores it. Parley applies it after fontique's synthesis, and
-    // `font-variation-settings` after it, each axis winning over the
-    // weight's, the width's and the size's (CSS Fonts 4 §7.2, LLP 1019 D9).
-    let mut axes = vec![parley::FontVariation::new(
-        parley::setting::Tag::new(b"opsz"),
-        run.size,
-    )];
+    // ignores it, and `none` leaves the face's own. Parley applies it after
+    // fontique's synthesis, and `font-variation-settings` after it, each axis
+    // winning over the weight's, the width's and the size's (CSS Fonts 4
+    // §7.2, LLP 1019 D9).
+    let mut axes = Vec::new();
+    if run.optical_sizing {
+        axes.push(parley::FontVariation::new(
+            parley::setting::Tag::new(b"opsz"),
+            run.size,
+        ));
+    }
     axes.extend(run.variations.axes().iter().map(|(tag, value)| {
         parley::FontVariation::new(parley::setting::Tag::new(&tag.to_be_bytes()), *value)
     }));

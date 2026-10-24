@@ -33,8 +33,26 @@ export interface FileSystem {
    * `TypeError` for a bad option, else with `code` `unsupported` (no codec
    * on this host), `undecodable`, `too-large` (over 64 MiB, 64 Mi pixels,
    * or more decoding memory than the host allows), `unfit` (nothing fits) or
-   * `timeout` (20 s), or a filesystem code. */
+   * `timeout` (20 s), or a filesystem code. With `rotate`, `flip` or `crop`
+   * (exact2 LLP 1133.019 D15) the edit is made first, in `transformImage`'s
+   * order, and the search runs on the edited picture; a crop that misses it
+   * rejects with `code` `outside`. */
   compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;
+  /** Exact patch 9a (exact2 LLP 1133.019 D14), the app interface: decode
+   * the image at `from` once, turn it upright, then `rotate` it about its
+   * centre (degrees clockwise; a free angle takes the bounding box, clear
+   * where the type keeps alpha and white otherwise), `flip` it in the
+   * turned frame, `crop` it in that frame's pixels, size it as
+   * `createImageBitmap` does, and encode it once at `to`. Unlike
+   * `compressImage` it keeps what the camera made where the host can: the
+   * source's colour space, an HDR gain map (JPEG and HEIC on Apple) and,
+   * by `metadata`, its EXIF, TIFF, GPS, IPTC and XMP; the result says what
+   * was written. A `to` with no extension gains the type's. Needs `fs.read`
+   * on `from` and `fs.write` on `to`, both `app:/` paths. Rejects with a
+   * `TypeError` for a bad option, else with `code` `unsupported` (a type
+   * this host does not write), `undecodable`, `too-large`, `outside` (the
+   * crop misses the picture) or `timeout`, or a filesystem code. */
+  transformImage(from: string, to: string, options?: TransformImageOptions): Promise<TransformedImage>;
   /** Exact patch 14 (exact2 LLP 1069.010.000 D1), the app interface: this
    * answer depends on the `doc:/` path, and the host asks it again when the
    * file, a folder's own entries or, with `recursive`, its subtree change on
@@ -84,6 +102,56 @@ export interface CompressImageOptions {
   readonly maxBytes: number;
   /** What to write; `"image/jpeg"` when absent. */
   readonly type?: "image/jpeg" | "image/png";
+  /** Exact patch 9a (exact2 LLP 1133.019 D15): `transformImage`'s edit. */
+  readonly rotate?: number;
+  readonly flip?: "horizontal" | "vertical";
+  readonly crop?: ImageCrop;
+}
+
+/** A rectangle in the turned picture's pixels, as a `DOMRect` names one.
+ * It is clipped to the picture and its edges rounded. */
+export interface ImageCrop {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface TransformImageOptions {
+  /** Degrees clockwise, as CSS's `rotate` turns. */
+  readonly rotate?: number;
+  /** In the turned frame: `horizontal` mirrors what the person sees. */
+  readonly flip?: "horizontal" | "vertical";
+  readonly crop?: ImageCrop;
+  /** `createImageBitmap`'s: one keeps the aspect, both set the size,
+   * neither keeps the crop's. Integers from 1 to 16384. */
+  readonly resizeWidth?: number;
+  readonly resizeHeight?: number;
+  /** `"high"` when absent. */
+  readonly resizeQuality?: "pixelated" | "low" | "medium" | "high";
+  /** The source's type when the host writes it, else `"image/jpeg"`. A
+   * type the host does not write rejects with `code` `unsupported`. */
+  readonly type?: string;
+  /** From 0 to 1, for a lossy type; 0.9 when absent. */
+  readonly quality?: number;
+  /** What of the source's metadata to write: all of it, with the
+   * orientation reset and the size rewritten (`"keep"`, when absent); the
+   * capture's standard tags and the IPTC rights fields, with no GPS, maker
+   * note or XMP (`"no-location"`); or none. */
+  readonly metadata?: "keep" | "no-location" | "none";
+}
+
+export interface TransformedImage {
+  /** `to`, with the type's extension where it had none. */
+  readonly path: string;
+  readonly type: string;
+  readonly size: number;
+  readonly width: number;
+  readonly height: number;
+  /** What was written, which a host that cannot keep something says. */
+  readonly colorSpace: "srgb" | "display-p3" | "other";
+  readonly hdr: boolean;
+  readonly metadata: "keep" | "no-location" | "none";
 }
 
 export interface CompressedImage {

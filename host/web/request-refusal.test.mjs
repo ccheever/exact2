@@ -346,6 +346,11 @@ test('the TypeScript secret facade has native Store null, reservation, read and 
   expect(() => malformed.set('token', 'x')).toThrow('line 1');
 });
 
+test('the web refuses a locked secret and keeps an optional one plain (LLP 1133.010 D15)', async () => {
+  const backing = new Map([['key', 'older']]), store = createSecretFacade(backing, normalized('secret.keep token user-presence optional\nsecret.keep key user-presence\ndevice.local-auth purpose.lock'), () => Promise.resolve(null));
+  expect(() => store.set('key', 's')).toThrow(expect.objectContaining({ name: 'NotSupportedError' })); store.set('token', 'open'); await expect(store.protect('token')).rejects.toMatchObject({ name: 'NotSupportedError' }); expect([store.get('key'), store.has('key'), store.locked('key'), backing.get('key'), store.get('token'), store.has('token'), store.locked('token'), await store.unlock('token')]).toEqual([null, false, false, 'older', 'open', true, false, 'open']);
+});
+
 test('filesystem admission is component-based and refuses traversal', () => {
   const set = normalized('fs.read app:/data\nfs.write app:/data/out');
   expect(coversPath(set, 'fs.read', 'app:/data/note.txt')).toBe(true);
@@ -834,10 +839,10 @@ test('rust-data decodes an ABI child scope before the production executor refuse
   const response = fill => {
     const bytes = [], u8 = value => bytes.push(value), u32 = value => bytes.push(value & 255, value >>> 8 & 255, value >>> 16 & 255, value >>> 24 & 255);
     const string = value => { const encoded = new TextEncoder().encode(value); u32(encoded.length); bytes.push(...encoded); };
-    u32(3); fill({ u8, u32, string }); output = Uint8Array.from(bytes); new Uint8Array(memory.buffer, out, output.length).set(output);
+    u32(4); fill({ u8, u32, string }); output = Uint8Array.from(bytes); new Uint8Array(memory.buffer, out, output.length).set(output);
   };
   const exports = {
-    memory, exact_logic_abi: () => 3, exact_logic_create: () => 1, exact_logic_alloc: () => 0, exact_logic_dealloc() {},
+    memory, exact_logic_abi: () => 4, exact_logic_create: () => 1, exact_logic_alloc: () => 0, exact_logic_dealloc() {},
     exact_logic_output: () => out, exact_logic_output_len: () => output.length,
     exact_logic_call(_session, pointer) {
       const code = new Uint8Array(memory.buffer)[pointer + 4];

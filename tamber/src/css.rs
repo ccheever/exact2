@@ -25,12 +25,102 @@ pub(crate) enum Item {
     Op(char),
 }
 
-/// Read `text` as space-separated items, or say why it is not a value.
+/// The most a value's text may be, in bytes (the design checker's own
+/// bound: every value the build reads is far shorter, and one a paired
+/// client writes can't make the checker's work grow past it).
+pub const MAX_VALUE_BYTES: usize = 4096;
+/// The deepest a value may nest functions and calc groups: the reader
+/// recurses once a level, so a deeper one is refused before it would
+/// overflow the stack.
+pub const MAX_VALUE_DEPTH: usize = 32;
+
+/// `what` (a name, a kind, a metadata word: text no reader nests) past
+/// [`MAX_VALUE_BYTES`]: the bound's id and words, never the text. The wire
+/// (`edit::valid`) and a design on disk (`bound::preflight`) say it alike.
+pub(crate) fn over_bytes(what: &str, text: &str) -> Option<(&'static str, String)> {
+    (text.len() > MAX_VALUE_BYTES).then(|| {
+        (
+            "tamber-value-size",
+            format!(
+                "{what} is at most {MAX_VALUE_BYTES} bytes; this one is {}",
+                text.len()
+            ),
+        )
+    })
+}
+
+/// A value past [`MAX_VALUE_BYTES`] or [`MAX_VALUE_DEPTH`]: its id and
+/// words, which never echo the value (it may be a megabyte).
+pub(crate) fn over_limit(text: &str) -> Option<(&'static str, String)> {
+    if text.len() > MAX_VALUE_BYTES {
+        return Some((
+            "tamber-value-size",
+            format!(
+                "a value is at most {MAX_VALUE_BYTES} bytes; this one is {}",
+                text.len()
+            ),
+        ));
+    }
+    // As the reader nests: a quoted string's text is no function.
+    // (a single-quoted family's text is no function either: the reader
+    // counts the levels it recurses whatever this scan saw)
+    let (mut depth, mut deepest, mut quoted) = (0usize, 0usize, None);
+    for b in text.bytes() {
+        match (b, quoted) {
+            (b'"' | b'\'', None) => quoted = Some(b),
+            (q, Some(open)) if q == open => quoted = None,
+            (_, Some(_)) => {}
+            (b'(', None) => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            (b')', None) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    (deepest > MAX_VALUE_DEPTH).then(|| {
+        (
+            "tamber-value-depth",
+            format!("{}; this one nests {deepest}", depth_words()),
+        )
+    })
+}
+
+/// What a value nested past [`MAX_VALUE_DEPTH`] is refused with: the scan
+/// above says it with its depth; the reader, which also counts the levels it
+/// recurses (a platform colour's fallback is read again), says it alone.
+fn depth_words() -> String {
+    format!("a value nests at most {MAX_VALUE_DEPTH} functions deep")
+}
+
+/// The id of a value [`parse`] refused: the checker's bound's, else
+/// `tamber-syntax`.
+pub(crate) fn refusal_id(text: &str, why: &str) -> &'static str {
+    match over_limit(text) {
+        Some((id, _)) => id,
+        None if why.starts_with(&depth_words()) => "tamber-value-depth",
+        None => "tamber-syntax",
+    }
+}
+
+/// Read `text` as space-separated items, or say why it is not a value. A
+/// value past the checker's bounds ([`over_limit`]) is refused before it
+/// is read.
 pub(crate) fn parse(text: &str) -> Result<Vec<Item>, String> {
+    if let Some((_, why)) = over_limit(text) {
+        return Err(why);
+    }
+    parse_at(text, 0)
+}
+
+/// [`parse`] of a part of a value already `depth` functions deep (a platform
+/// colour's fallback), the reader counting on from there.
+fn parse_at(text: &str, depth: usize) -> Result<Vec<Item>, String> {
     let mut p = Reader {
         s: text.as_bytes(),
         text,
         i: 0,
+        depth,
     };
     let items = p.items(false)?;
     if p.i < p.s.len() {
@@ -46,6 +136,8 @@ struct Reader<'a> {
     s: &'a [u8],
     text: &'a str,
     i: usize,
+    /// The functions and groups it is inside: never past [`MAX_VALUE_DEPTH`].
+    depth: usize,
 }
 
 fn ident_start(b: u8) -> bool {
@@ -200,6 +292,17 @@ impl Reader<'_> {
 
     /// `name(` at `self.i`, through its `)`.
     fn call(&mut self, start: usize, name: &str) -> Result<Item, String> {
+        // Counted as it recurses, whatever the scan before it saw.
+        if self.depth >= MAX_VALUE_DEPTH {
+            return Err(depth_words());
+        }
+        self.depth += 1;
+        let item = self.call_in(start, name);
+        self.depth -= 1;
+        item
+    }
+
+    fn call_in(&mut self, start: usize, name: &str) -> Result<Item, String> {
         self.i += 1;
         if name.eq_ignore_ascii_case("-exact-platform-color") {
             return self.platform(start, name);
@@ -259,7 +362,7 @@ impl Reader<'_> {
             .iter()
             .map(|p| vec![Item::Str(p.trim().to_string())])
             .collect();
-        args.push(parse(rest.trim())?);
+        args.push(parse_at(rest.trim(), self.depth)?);
         self.i = close + 1;
         Ok(Item::Func(
             name.to_ascii_lowercase(),

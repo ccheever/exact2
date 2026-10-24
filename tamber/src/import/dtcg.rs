@@ -969,6 +969,20 @@ fn planned(
     design: &Design,
     vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    super::bounded(planned_unbounded(read, prefix, design, vocab))
+}
+
+fn planned_unbounded(
+    read: Read,
+    prefix: &str,
+    design: &Design,
+    vocab: &crate::Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
+    for d in &read.defs {
+        let mut strings = Vec::new();
+        super::json_strings(&d.value, &mut strings);
+        super::source_bound(strings.into_iter().map(|v| (d.path.as_str(), v)))?;
+    }
     let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
     let defs = &read.defs;
     // The dimensions: the scheme, and each axis with its values in order.

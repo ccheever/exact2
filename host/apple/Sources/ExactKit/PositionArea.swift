@@ -3,11 +3,40 @@
 // the subset the contract admits — the same on iOS's and macOS's top layers,
 // and the point macOS pops a chooser's NSMenu up at.
 import CoreGraphics
+#if os(macOS)
+import AppKit
+#endif
 
 enum PositionArea {
     /// A box's resolved margins, in points.
     struct Margins: Equatable {
         var top: CGFloat = 0, right: CGFloat = 0, bottom: CGFloat = 0, left: CGFloat = 0
+        #if os(macOS)
+        /// The margin facing an invoker the box sits beyond `edge` of, in a
+        /// flipped view (`minY` above it, `maxY` below, `maxX` right, `minX` left).
+        func gap(_ edge: NSRectEdge) -> CGFloat {
+            edge == .minY ? bottom : edge == .maxY ? top : edge == .maxX ? left : right
+        }
+        #endif
+    }
+
+    /// The fallbacks the web's UA sheet gives a popover (`neutral.css`:
+    /// flip-block, flip-inline, then both).
+    static let defaultFallbacks = "flip-block, flip-inline, flip-block flip-inline"
+
+    /// The area and fallbacks a painted popover is placed by (theme2
+    /// 2026-10-23 20:05): its author's, and where its author wrote no area the
+    /// web's UA default, `block-end span-inline-end` with flips (`neutral.css`),
+    /// so the same contract opens alike on the web, iOS and the Mac and a
+    /// popover near an edge flips rather than covering its invoker. An authored
+    /// `position-try-fallbacks` (`none` included) replaces only the flips. A
+    /// chooser's AppKit menu keeps `of` and its own placement.
+    static func painted(area: String?, fallbacks: String?, rtl: Bool) -> (area: String, fallbacks: String) {
+        guard let area else { return (rtl ? "bottom span-left" : "bottom span-right", fallbacks ?? defaultFallbacks) }
+        return (area, fallbacks ?? "none")
+    }
+    static func painted(_ popover: NodeView, rtl: Bool) -> (area: String, fallbacks: String) {
+        painted(area: popover.style["position_area"]?.string, fallbacks: popover.style["position_try_fallbacks"]?.string, rtl: rtl)
     }
 
     /// The row's value on a popover (`none` when it has none).

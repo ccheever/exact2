@@ -105,9 +105,8 @@ private extension ISO8601DateFormatter {
 
 extension ExactEnv {
     /// Whether this binary is a build that ships: baked with production
-    /// trust, or stamped `release` or `archive` by `build.mjs`. An app with
-    /// no updater (`deploy.store` "0") records no trust in `compat.json`, so
-    /// the stamp is what says its `--release` build is one. Such a build
+    /// trust, or stamped `release` or `archive` by `build.mjs` (which bakes
+    /// production trust whenever it stamps either). Such a build
     /// measures frames, hatch calls and its plan sites' work for `perf` (LLP
     /// 1079) only from when something first reads them
     /// (`ExactSession.measurePerf`), so one that nobody drives keeps no frame

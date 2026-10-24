@@ -513,7 +513,12 @@ theme
   inside a `light-dark()` (`tamber-under-role`; as built, that `light-dark()` is itself refused until LLP 1095 D10, §10). Only colours may vary by such an
   axis: the kernel picks a length's slice without knowing the scheme, so a non-colour `when`
   on it is refused (`tamber-under-kind`). A design whose axes multiply past 64 tuples is
-  refused with the axes named.
+  refused with the axes named. *(Amended 2026-10-23, the checker's own bound, theme2's
+  approval:)* a value past 4096 bytes or 32 nested functions (`tamber-value-size`,
+  `tamber-value-depth`), a length over base names past 256 terms (`tamber-length-size`), and a
+  chain of names past 512 deep (`tamber-reference-depth`) are refused in the build and the
+  design server's check alike, before anything reads the value; the importers and a reimport
+  refuse such a source value with the same id.
 - **`setMode("dark-style", "dim")`** sets the window's app slice: a runner command beside
   `setScheme`, which stays the host's appearance command. The new slice applies in the
   action's own commit, refreshed by D7's per-use domains: repainted, and laid out only where

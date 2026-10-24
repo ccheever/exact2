@@ -67,6 +67,17 @@
 //! text leaves and ratio boxes in block, absolute, root and column layout.
 //! The text's monospace advance was normalized to 10px in Chrome to match
 //! the reference measurer: twelve `a`s have a measured width of 120px.
+//! `Chrome 151 ratio text growth` was measured on 2026-10-24 with Chrome
+//! 151.0.7922.34, using the same 10px advance. It covers growing auto-height
+//! text leaves with height caps, flex bases, explicit minima, overflow,
+//! width caps, ratios, box sizing, definite heights and stretch. Controls
+//! include equal height bounds, a growing sibling and leaves without a ratio
+//! or height cap.
+//! `Chrome 151 ratio text wrapping` uses the same version and date. Letter
+//! and word spacing were normalized separately: `aaaaaa aaaaaa` measures
+//! 130px at max-content and 60px at min-content. Cases cover column cross
+//! sizing with definite, flexed and percentage heights, height caps, stretch,
+//! box sizing, ratios and inline bounds, with row, block and absolute controls.
 //! `Chrome 151 grid ratio maximum` was measured on 2026-10-19 with Chrome
 //! 151.0.7922.34. It covers grid item content minima and track contributions
 //! under maximum sizes, implicit and explicit auto columns, alignment,
@@ -92,6 +103,12 @@
 //! indefinite bases, padding, borders, margins and overflow, with column and wrap controls.
 //! The zero-inner-basis cases include negative margins on padding/border floors,
 //! growable zero-width items, negative left margins and a zero-height column.
+//!
+//! `Chrome 151 ratio root overflow` was measured on 2026-10-24 with Chrome
+//! 151.0.7922.34, in a 50px block and as direct roots offered 50×600 and
+//! 50×1000. It covers overflowing children, stretch, wrapping, automatic and
+//! explicit root widths, item minima, overflow and both box-sizing modes,
+//! with block, grid, column and explicit-height controls.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
@@ -228,18 +245,24 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 #[test]
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
-    check(failures(fixture, true), &[]);
+    // QUEUE: the auto-height column shrinks to 60px instead of its 100px cap.
+    check(
+        failures(fixture, true),
+        &["Chrome 151 ratio text wrapping column height cap"],
+    );
 }
 
 /// The same Chrome frames hold when the ratio container is the root in a
-/// 50px offer, where the first layout already reaches the ratio height and
-/// passes it to the item as a definite cross size.
+/// 50px offer, including children that overflow its ratio-derived height.
 #[test]
 fn ratio_roots_in_a_definite_offer_match_chrome() {
     let mut wrong = Vec::new();
     for case in cases(include_str!("fixtures/browser_position.tsv"))
         .into_iter()
-        .filter(|case| case.name.starts_with("Chrome 151 ratio definite cross "))
+        .filter(|case| {
+            case.name.starts_with("Chrome 151 ratio definite cross ")
+                || case.name.starts_with("Chrome 151 ratio root overflow ")
+        })
     {
         let root = case.nodes[0].2;
         let nodes = case.nodes[1..]
@@ -251,9 +274,11 @@ fn ratio_roots_in_a_definite_offer_match_chrome() {
             .map(|(id, frame)| (id - 1, *frame))
             .collect();
         let mut k = lay_out_with(props(&css_rows(root)), nodes, &[], &[]);
-        k.compute_layout(1, exact_kernel::Offer::definite(50.0, 600.0))
-            .unwrap();
-        wrong.extend(mismatches(case.name, &k, &want));
+        for height in [600.0, 1000.0] {
+            k.compute_layout(1, exact_kernel::Offer::definite(50.0, height))
+                .unwrap();
+            wrong.extend(mismatches(case.name, &k, &want));
+        }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
@@ -270,6 +295,72 @@ fn cross_axis_auto_margins_match_chrome() {
         ),
         &[],
     );
+}
+
+/// Chrome 151.0.7922.34, 2026-10-24: block item sizing and placement,
+/// direction, overflow safety and auto margins. Text advances are 10px;
+/// the 800px offer takes the root's direction, as the kernel root solver does.
+#[test]
+fn block_justify_items_matches_chrome() {
+    check(
+        failures(include_str!("fixtures/browser_block_justify.tsv"), false),
+        // QUEUE: absolute children still use the unaligned static position.
+        &["Chrome 151 block justify absolute automatic insets"],
+    );
+}
+
+/// The vendor's per-item override is not a Contract attribute. Chrome's
+/// automatic-width children are 20px wide unless explicitly stretched.
+#[test]
+fn block_justify_self_overrides_the_container_default() {
+    use taffy::{prelude::*, TaffyTree};
+    let mut tree: TaffyTree = TaffyTree::new();
+    let mut children = Vec::new();
+    for alignment in [None, Some(JustifySelf::END), Some(JustifySelf::STRETCH)] {
+        let content = tree
+            .new_leaf(Style {
+                size: Size {
+                    width: length(20.0),
+                    height: length(10.0),
+                },
+                ..Style::default()
+            })
+            .unwrap();
+        children.push(
+            tree.new_with_children(
+                Style {
+                    display: Display::Block,
+                    justify_self: alignment,
+                    ..Style::default()
+                },
+                &[content],
+            )
+            .unwrap(),
+        );
+    }
+    let root = tree
+        .new_with_children(
+            Style {
+                display: Display::Block,
+                size: Size {
+                    width: length(100.0),
+                    height: auto(),
+                },
+                justify_items: Some(JustifyItems::CENTER),
+                ..Style::default()
+            },
+            &children,
+        )
+        .unwrap();
+    tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+    let frames: Vec<_> = children
+        .into_iter()
+        .map(|id| {
+            let layout = tree.layout(id).unwrap();
+            (layout.location.x, layout.size.width)
+        })
+        .collect();
+    assert_eq!(frames, [(40.0, 20.0), (80.0, 20.0), (0.0, 100.0)]);
 }
 
 /// Chrome 151.0.7922.34, 2026-10-18: overflowing and fitting flex lines,
@@ -348,6 +439,9 @@ fn min_content_rows_remeasure_content_dependent_bases() {
 /// `Chrome 151 intrinsic ratio percentages` (151.0.7922.34, 2026-10-23)
 /// checks item heights and bounds against the ratio basis, including when
 /// content grows beyond it, wrapping, box sizing and a definite-width control.
+/// `Chrome 151 intrinsic ratio column percentages` (151.0.7922.34, 2026-10-24)
+/// checks the same basis after column cross sizing, including tall content,
+/// reverse directions, caps, box sizing, and definite-size and no-ratio controls.
 /// A max-content root offer must publish wrapped frames without a parent's
 /// definite-width pass.
 #[test]

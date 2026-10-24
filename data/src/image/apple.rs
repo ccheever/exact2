@@ -10,7 +10,10 @@
 //! not `floor()`. Each trial encodes that bitmap. No source property is copied
 //! into the JPEG: no EXIF, GPS, TIFF, IPTC, XMP or orientation tag; the
 //! encoder writes its own JFIF, sRGB profile and colour-space EXIF.
-use super::{failure, search, search_lossless, Compressed, Deadline, Format};
+use super::edit::{Affine, Edit, Geometry, ResizeQuality};
+use super::{
+    failure, search, search_lossless, Compressed, Deadline, Format, Transform, Transformed,
+};
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 
@@ -235,6 +238,7 @@ pub(super) fn scratch_bytes(
     source_bytes: usize,
     source: (u32, u32),
     depth: u32,
+    thumbnail: (u32, u32),
     target: (u32, u32),
     max_bytes: u64,
 ) -> Option<u64> {
@@ -251,8 +255,6 @@ pub(super) fn scratch_bytes(
             .map(|row| row & !63)?
             .checked_mul(u64::from(h))
     };
-    // The thumbnail can round up one pixel while contain() floors the target.
-    let thumbnail = (target.0.checked_add(1)?, target.1.checked_add(1)?);
     // Reserve a second source-sized surface for decoder workspace. The
     // measured PNG/TIFF paths can retain it alongside the returned thumbnail.
     (source_bytes as u64)
@@ -267,6 +269,7 @@ pub(super) fn compress(
     format: Format,
     max_dimension: u32,
     max_bytes: u64,
+    edit: &Edit,
     deadline: Deadline<'_>,
 ) -> Result<Compressed, String> {
     // ImageIO autoreleases internally; a storage worker lives long, so each
@@ -334,12 +337,37 @@ pub(super) fn compress(
     } else {
         (width as u32, height as u32)
     };
+    // The search runs on the edited picture's size: the crop's, else the turned frame's.
+    let geometry = (!edit.is_identity())
+        .then(|| Geometry::new("compressImage", width, height, edit))
+        .transpose()?;
+    let upright = (width, height);
+    let (width, height) = geometry.as_ref().map_or(upright, Geometry::size);
     // Refuse before the first decode, using component depth rather than
     // assuming every accepted PNG/TIFF/HEIC source has 8-bit channels.
     let target = super::contain(width, height, max_dimension);
-    let scratch = u32::try_from(depth)
-        .ok()
-        .and_then(|depth| scratch_bytes(source.len(), source_size, depth, target, max_bytes));
+    // The thumbnail can round up one pixel while contain() floors the target;
+    // an edit's is the whole upright picture at the target's scale.
+    let thumbnail = match &geometry {
+        None => (target.0 + 1, target.1 + 1),
+        Some(_) => {
+            let side = thumbnail_side(upright, (width, height), target);
+            let long = upright.0.max(upright.1);
+            let scaled =
+                |n: u32| (u64::from(n) * u64::from(side)).div_ceil(u64::from(long)) as u32 + 1;
+            (scaled(upright.0), scaled(upright.1))
+        }
+    };
+    let scratch = u32::try_from(depth).ok().and_then(|depth| {
+        scratch_bytes(
+            source.len(),
+            source_size,
+            depth,
+            thumbnail,
+            target,
+            max_bytes,
+        )
+    });
     // Keep one quarter for opaque native workspace beyond the surfaces above.
     // This is conservative admission headroom, not an ImageIO allocator limit.
     if scratch.is_none_or(|n| n > surface_budget) {
@@ -363,7 +391,11 @@ pub(super) fn compress(
             drawn = Some((
                 w,
                 h,
-                draw(image_source.get(), w, h, format).ok_or_else(undecodable)?,
+                match &geometry {
+                    None => draw(image_source.get(), w, h, format),
+                    Some(g) => draw_edited(image_source.get(), g, upright, (w, h), format),
+                }
+                .ok_or_else(undecodable)?,
             ));
         }
         let image = drawn.as_ref().expect("drawn above").2.get();
@@ -433,6 +465,68 @@ fn draw(source: CFTypeRef, w: u32, h: u32, format: Format) -> Option<Owned> {
     // SAFETY: `context` is live; the image is +1 and copies on write.
     Owned::new(unsafe { CGBitmapContextCreateImage(context.get()) })
 }
+
+/// The thumbnail's long side for an edited output of `out`, cropped from a
+/// `crop` of the `upright` picture: the scale the output needs, never above
+/// the source's own.
+fn thumbnail_side(upright: (u32, u32), crop: (u32, u32), out: (u32, u32)) -> u32 {
+    let long = upright.0.max(upright.1);
+    let scale = (f64::from(out.0) / f64::from(crop.0)).max(f64::from(out.1) / f64::from(crop.1));
+    ((f64::from(long) * scale).ceil() as u32).clamp(1, long)
+}
+
+/// `geometry`'s picture of the oriented image at exactly `out`, as [`draw`]
+/// makes it: the thumbnail decode at the output's scale, then one draw
+/// through the edit's map.
+fn draw_edited(
+    source: CFTypeRef,
+    geometry: &Geometry,
+    upright: (u32, u32),
+    out: (u32, u32),
+    format: Format,
+) -> Option<Owned> {
+    let side = number_i64(i64::from(thumbnail_side(upright, geometry.size(), out)))?;
+    // SAFETY: as in `draw`.
+    let options = dictionary(unsafe {
+        &[
+            (kCGImageSourceCreateThumbnailFromImageAlways, kCFBooleanTrue),
+            (kCGImageSourceCreateThumbnailWithTransform, kCFBooleanTrue),
+            (kCGImageSourceShouldCache, kCFBooleanFalse),
+            (kCGImageSourceDecodeRequest, kCGImageSourceDecodeToSDR),
+            (kCGImageSourceThumbnailMaxPixelSize, side.get()),
+        ]
+    })?;
+    // SAFETY: `source` and `options` are live; the thumbnail is +1.
+    let thumbnail =
+        Owned::new(unsafe { CGImageSourceCreateThumbnailAtIndex(source, 0, options.get()) })?;
+    let (tw, th) = transform::size(thumbnail.get());
+    let map = Affine::scale(f64::from(upright.0) / tw, f64::from(upright.1) / th)
+        .then(geometry.to_output(out));
+    // SAFETY: the name is an immutable static; the space is +1.
+    let srgb = Owned::new(unsafe { CGColorSpaceCreateWithName(kCGColorSpaceSRGB) })?;
+    transform::render(
+        thumbnail.get(),
+        map,
+        out,
+        srgb.get(),
+        transform::Surface::Eight,
+        format == Format::Png,
+        ResizeQuality::High,
+    )
+}
+
+/// `transformImage` on ImageIO: `apple_transform.rs`.
+pub(super) fn transform(
+    source: &[u8],
+    options: &Transform,
+    max_bytes: u64,
+    deadline: Deadline<'_>,
+) -> Result<Transformed, String> {
+    transform::transform(source, options, max_bytes, deadline)
+}
+
+#[path = "apple_transform.rs"]
+mod transform;
 
 /// An 8-bit bitmap context in `space`: opaque RGB, or premultiplied RGBA.
 fn bitmap(w: u32, h: u32, space: CFTypeRef, alpha: bool) -> Option<Owned> {

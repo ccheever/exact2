@@ -163,6 +163,21 @@ on macOS and Linux.
   (stage 13 B, carried into stage 14 A), and every import's `notes` (in the held proposal's `review`
   when it has any): what decided a choice the source didn't say, a Pencil number's kind; and an
   import's `prefix` is at most 128 characters, for every kind (a correction: a longer one is refused).
+  It also adds the checker's own limits (the checker bound): `tamber-value-size`, `tamber-value-depth`,
+  `tamber-length-size` and `tamber-reference-depth`, refused alike by `check`, the build and every write and import.
+  It also adds `GET /__tamber/events?after=<cursor>&epoch=<e>&client=<c>` (stage 14 D): the events read for a client
+  that re-asks by cursor (LLP 1016.000 D8's `exactLongPoll`), with the POST read's token, scope and doors. Each
+  answer carries a `cursor`, which is opaque (a client only compares it and sends it back), and `asked`, the cursor
+  it answers (null with none), so a client sees one it never had (a reply coalesced away); nothing new in 25 s is a
+  204 with no body (a heartbeat). An ask with no `after` (a stream's first, which its host waits on) is answered at
+  once, as `wait: false` is: from `open=<cursor>` if given, the events since that cursor, `asked` being it (`open`
+  is read only with no `after`, so a host's re-asks, which set `after`, leave it unread; one this run can't serve,
+  another run's or past what is kept, is answered `missed`, as the POST answers a gap). The POST read's answer
+  carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route
+  sends no `Retry-After` longer than 30 s. A client polling so stays present 90 s after an answer (LLP 1122 D4). The
+  Figma plugin keeps the POST form: its door's CORS preflight allows POST only.
+  It also adds **`edit-held`** `{client, proposal, index, when?, value, items?}`: one value of a held proposal
+  changed in place, no ops sent (see Held proposals), the reason word `edited`, and `editedBy` on the proposal.
 
 ## Where it runs
 
@@ -197,6 +212,7 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 | `/__tamber` | POST | one request, one reply |
 | `/__tamber/subscribe` | POST | the change stream, as server-sent events on the response |
 | `/__tamber/events` | POST | the change stream as a long poll, for a client whose `fetch` reads a whole body |
+| `/__tamber/events?after=…` | GET | the same, re-asked by cursor (`exactLongPoll`, *1.17*): first from `open=…` at once, a `cursor` in each answer, 204 after 25 s with nothing new |
 | `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request (*1.1*) and on the remote doors (stage 10 B) |
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
@@ -410,8 +426,8 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 | Scope | Requests |
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
-| `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop` and `edit-held` of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` and `edit-held` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
@@ -764,6 +780,14 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
+  - (*1.17*) a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
+    groups deep (`tamber-value-depth`), refused before anything reads it, in every op that
+    carries one (a name or metadata word past 4096 bytes too), in words that give its size and
+    never echo it; each importer refuses a source value past them with the same id;
+  - (*1.17*) a length over base names expands to at most 256 terms (`tamber-length-size`): a chain of
+    tokens each naming the next more than once, or a sum of many, is refused where it passes;
+  - (*1.17*) a chain of tokens naming one another, with the functions their values nest, is at most 512 deep (`tamber-reference-depth`), past
+    the importers' 256 links;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
 - **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
   or its short one (`PostButton.radius`); a name no param of the app answers, or a short name two
@@ -996,7 +1020,9 @@ pushes.
 ### Held proposals (LLP 1122 D10)
 
 **`propose` with `hold: true`** and a `client` keeps the plan for 15 minutes, 64 at most (the
-oldest goes; below `write`, only the client's own, else 409: see Scopes), and announces it.
+oldest goes, never one an `edit-held` is planning; below `write`, only the client's own, else 409: see Scopes;
+with every one held being edited, 409, and an accept's proposal that can't be put back then is dropped as `too many
+held`), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
@@ -1017,6 +1043,22 @@ with.
   planned again from its commit (see `revert`).
 
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
+
+**`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
+holds it again in its place, sending no ops:
+- `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of an `add-token`'s
+  `whens` branches (a `set-token` writes its value alone); with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,
+  keeps only those operations, and must keep `index`.
+- A held revert is not edited (it is planned from its commit: drop it and revert again).
+- The proposal stays held, and counted in the held caps, while its edit is planned; a concurrent `accept`, `drop` or
+  `edit-held` of it finds none (404), and it doesn't expire meanwhile. The value is set, and the rest held again on the current files as a **new** proposal, the original client's (its owner, who may accept or
+  drop it), with its own guards and a fresh expiry. The proposal carries `editedBy`, its last editor's client (the
+  owner's own name when the owner edits it), wherever it is shown: the list, `subscribed`, the `proposal` event, and
+  a recompute of it. Its review is renumbered as a recompute's, marked `kept` (its overrides were ticked) and `from` the
+  old id. A server re-import is held as an edit: the value given, not marked again.
+- The reply is a recompute's, `{recomputed: true, replaces, proposal, …}`. The old one's end is
+  `proposal-dropped {reason: "edited", replacedBy, editedBy}`. A plan that fails leaves the old one held as it was.
+- It needs `propose` for the client's own proposal and `write` for another client's, as `drop` does.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
 `proposal` event shows it, except a long poll that names the list's current revision (below). A
@@ -1270,8 +1312,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 |---|---|
 | `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
 | `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
-| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked) |
-| `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
+| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked), `editedBy?` (*1.17*: its last editor's client, `edit-held`) |
+| `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `edited` (*1.17*, with `replacedBy` and `editedBy`), `stale`, `expired` or `too many held` (never one an `edit-held` is planning) |
 | `down` | `message`: the design server stopped or never started |
 | `paired` | `client`, `scope` (*1.13*: a client paired) |
 | `revoked` | `client`, `reason`: `revoked` or `expired` (*1.13*) |

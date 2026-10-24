@@ -8,7 +8,7 @@ use crate::error::DecodeError;
 use exact_motion::animation::Keyframe;
 use exact_motion::{
     Animation, Animations, Direction, FillMode, Keyframes, Property, TimingFunction, Value,
-    MAX_ANIMATIONS, MAX_KEYFRAMES,
+    MAX_ANIMATIONS, MAX_KEYFRAMES, MAX_VALUES,
 };
 
 impl Reader<'_> {
@@ -46,7 +46,7 @@ impl Reader<'_> {
                     _ => return Err(DecodeError::BadAnimation),
                 };
                 let n = self.u8()? as usize;
-                if n > Property::ALL.len() {
+                if n > MAX_VALUES {
                     return Err(DecodeError::BadAnimation);
                 }
                 let mut values = Vec::with_capacity(n);

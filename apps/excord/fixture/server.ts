@@ -10,12 +10,16 @@
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
+// POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
+// each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
+// `identify_token` is the token the last IDENTIFY carried.
 import { constants, createDeflate } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ServerWebSocket } from 'bun';
 import { emojiNames, WORLD_NOW } from './transcript-content.ts';
 import { createTranscriptWorld } from './transcript-world.ts';
 import { inject, type InjectedDispatch } from './inject.ts';
+import { settingsProto } from './settings.ts';
 import {
   createMessageGenerator, createWorld, emptyMessage, fileAssets, imageArtwork, pageMessages,
   NONCE_WINDOW_MS, recentNonceMessage, replySnapshot, seededRandom, snowflakeFromMs,
@@ -148,7 +152,11 @@ function readyGuild(guild: Guild) {
     large: false, member_count: members.length, version: 1 };
 }
 
-export function syntheticGuild(world: World, index: number, randomBytes = 0): Guild {
+// A large public server's permissions: many roles, channels whose overwrites name them, and the
+// account a member holding some of the roles rather than the owner.
+export interface GuildShape { roles?: number; channels?: number; overwrites?: number; dms?: number }
+
+export function syntheticGuild(world: World, index: number, randomBytes = 0, shape: GuildShape = {}): Guild {
   const random = seededRandom(world.seed + index * 65537);
   const source = world.guilds[0];
   const id = snowflakeFromMs(Date.UTC(2024, 0, 1), index);
@@ -159,18 +167,25 @@ export function syntheticGuild(world: World, index: number, randomBytes = 0): Gu
     return chars.toString('ascii');
   };
   const count = Math.max(32, Math.ceil(randomBytes / 320));
-  return { ...source, id, name: `Workshop ${index}`, owner_id: world.me.id,
+  const roleCount = Math.max(1, shape.roles ?? 1), overwrites = shape.overwrites ?? 0;
+  const roles = [{ ...source.roles[0], id }, ...Array.from({ length: roleCount - 1 }, (_, r) => ({ ...source.roles[0],
+    id: snowflakeFromMs(Date.UTC(2024, 0, 4) + index, r), name: `role-${r}`, position: r + 1, permissions: '0' }))];
+  const mine = roles.slice(1).filter((_, r) => r % 10 === 0).map(role => role.id);
+  return { ...source, id, name: `Workshop ${index}`, owner_id: shape.roles ? world.users[1].id : world.me.id,
     description: 'A community for making, learning, and sharing projects.', member_count: count,
-    roles: [{ ...source.roles[0], id }],
-    channels: Array.from({ length: 8 }, (_, c) => ({ ...source.channels[1],
+    roles,
+    channels: Array.from({ length: shape.channels ?? 8 }, (_, c) => ({ ...source.channels[1],
       id: snowflakeFromMs(Date.UTC(2024, 0, 2) + index, c), guild_id: id,
-      name: `project-${c}`, position: c, parent_id: null, last_message_id: null })),
-    members: Array.from({ length: count }, (_, m) => ({
+      name: `project-${c}`, position: c, parent_id: null, last_message_id: null,
+      permission_overwrites: Array.from({ length: Math.min(overwrites, roleCount) }, (_, o) => ({
+        id: roles[(c * 7 + o * 13) % roleCount].id, type: 0, allow: o % 2 ? '1024' : '0', deny: o % 2 ? '0' : '2048' })) })),
+    members: [...(shape.roles ? [{ user: world.me, roles: mine, joined_at: '2024-01-01T00:00:00.000Z', deaf: false, mute: false, flags: 0 }] : []),
+      ...Array.from({ length: count }, (_, m) => ({
       user: { ...world.users[m % world.users.length],
         id: snowflakeFromMs(Date.UTC(2024, 0, 3) + index, m), username: word(24), global_name: word(24),
         avatar: word(32), bio: randomBytes ? word(320) : 'Making a little progress every day.' },
       roles: [], nick: word(24), joined_at: '2024-01-01T00:00:00.000Z', deaf: false, mute: false, flags: 0,
-    })),
+    }))],
   };
 }
 
@@ -191,19 +206,40 @@ export function readyPayload(world: World, sessionId: string, gatewayUrl: string
     analytics_token: 'fixture-analytics', relationships: [], presences: [],
     connected_accounts: [], experiments: [], guild_experiments: [], friend_suggestion_count: 0,
     required_action: null, tutorial: null, user_settings: { locale: 'en-US', theme: 'dark', status: 'online' },
+    user_settings_proto: settingsProto(world.guilds.map(guild => ({ ids: [guild.id] }))),
   };
 }
 
-export function sizedReady(world: World, sessionId: string, gatewayUrl: string, seq: number, bytes: number): Dispatch {
+export function sizedReady(world: World, sessionId: string, gatewayUrl: string, seq: number, bytes: number, shape: GuildShape = {}): Dispatch {
   const frame: Dispatch = { op: 0, t: 'READY', s: seq, d: readyPayload(world, sessionId, gatewayUrl) };
+  // A long-lived account's direct messages: one per old conversation, a few unread. READY shares the
+  // world's lists, so they are copied first.
+  frame.d.private_channels = [...frame.d.private_channels];
+  frame.d.read_state = { ...frame.d.read_state, entries: [...frame.d.read_state.entries] };
+  for (let i = 0; i < (shape.dms ?? 0); i++) {
+    const id = snowflakeFromMs(Date.UTC(2023, 0, 1) + i, 0), last = snowflakeFromMs(Date.UTC(2023, 6, 1) + i * 1000, 0);
+    frame.d.private_channels.push({ id, type: 1, recipient_ids: [world.users[1 + i % (world.users.length - 1)].id],
+      last_message_id: last, flags: 0 });
+    frame.d.read_state.entries.push(i % 25 === 0 ? { id, last_message_id: id, mention_count: 1 } : { id, last_message_id: last, mention_count: 0 });
+  }
   let size = Buffer.byteLength(JSON.stringify(frame));
   let index = 1;
   while (size < bytes) {
-    const guild = readyGuild(syntheticGuild(world, index++));
+    const guild = readyGuild(syntheticGuild(world, index++, 0, shape));
     const added = Buffer.byteLength(JSON.stringify(guild)) + 1;
     if (size + added > bytes) break;
     frame.d.guilds.push(guild);
     size += added;
+  }
+  // The synthetic guilds sit in a folder after the world's, newest at its top; the settings grow
+  // with them, so a guild that no longer fits comes off.
+  for (;;) {
+    const synthetic = frame.d.guilds.slice(world.guilds.length).map((guild: Guild) => guild.id).reverse();
+    if (!synthetic.length) break;
+    frame.d.user_settings_proto = settingsProto([...world.guilds.map(guild => ({ ids: [guild.id] })), { ids: synthetic, name: 'Workshops' }]);
+    size = Buffer.byteLength(JSON.stringify(frame));
+    if (size <= bytes) break;
+    frame.d.guilds.pop();
   }
   if (size < bytes) {
     const description = frame.d.guilds[0].properties;
@@ -224,7 +260,9 @@ export function startFixture(options: FixtureOptions = {}) {
   let world: World;
   let origin = '', gatewayUrl = '';
   let connectionCounter = 0, sessionCounter = 0, identifyCount = 0, resumeCount = 0, loginsDone = 0;
+  let rotatedToken: string | null = null, identifyToken: string | null = null;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
+  let readyShape: GuildShape = {};
   let closed = false;
   let resetVersion = 0;
   let clockOffsetMs = 0, messageTimestamp = 0, messageSequence = 0, passiveUpdateCount = 0;
@@ -417,8 +455,10 @@ export function startFixture(options: FixtureOptions = {}) {
     socket.data.session = session;
     const size = readyBytes, burst = loginBytes;
     readyBytes = 0;
+    const shape = readyShape;
+    readyShape = {};
     loginBytes = 0;
-    const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size);
+    const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size, shape);
     let sent = await send(socket, dispatch(session, 'READY', ready.d));
     if (version !== resetVersion || socket.data.closed) return;
     sent += await send(socket, dispatch(session, 'READY_SUPPLEMENTAL', {
@@ -455,6 +495,7 @@ export function startFixture(options: FixtureOptions = {}) {
       return;
     }
     if (frame?.op !== 2 && frame?.op !== 6) return;
+    if (frame.op === 2) identifyToken = frame.d?.token ?? null;
     if (frame.d?.token !== world.token) { socket.close(4004, 'Authentication failed'); return; }
     if (socket.data.session) { socket.close(4005, 'Already authenticated'); return; }
     if (frame.op === 2) {
@@ -634,6 +675,7 @@ export function startFixture(options: FixtureOptions = {}) {
 
   function state() {
     return { connections: sockets.size, sessions: sessions.size, identify_count: identifyCount, resume_count: resumeCount,
+      identify_token: identifyToken,
       logins_done: loginsDone,
       connection_details: [...sockets].map(socket => ({ id: socket.data.id,
         session_id: socket.data.session?.id ?? null, compressed: socket.data.compressed })),
@@ -662,8 +704,9 @@ export function startFixture(options: FixtureOptions = {}) {
     clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
     forced.length = requests.length = frames.length = 0;
     connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
-    readyBytes = loginBytes = 0; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
+    readyBytes = loginBytes = 0; readyShape = {}; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
     world = buildWorld();
+    if (rotatedToken) world.token = rotatedToken;
     if (keep) {
       keep.data.session = undefined;
       keep.data.id = ++connectionCounter;
@@ -788,7 +831,18 @@ export function startFixture(options: FixtureOptions = {}) {
         break;
       }
       case 'stop-acks': stopAcks = body.on === true; break;
-      case 'ready-size': readyBytes = integer(body.bytes, 3 * 1024 * 1024, 64 * 1024 * 1024); break;
+      case 'rotate-token': {
+        const token = textField(body, 'token');
+        world.token = rotatedToken = token;
+        await Promise.all([...sessions.values()].flatMap(session =>
+          deliver(session, 'READY', { ...readyPayload(world, session.id, gatewayUrl), auth_token: token })));
+        break;
+      }
+      case 'ready-size':
+        readyBytes = integer(body.bytes, 3 * 1024 * 1024, 64 * 1024 * 1024);
+        readyShape = { roles: integer(body.roles ?? 1, 1, 1000), channels: integer(body.channels ?? 8, 1, 500),
+          overwrites: integer(body.overwrites ?? 0, 0, 100), dms: integer(body.dms ?? 0, 0, 10000) };
+        break;
       case 'login-burst': loginBytes = integer(body.bytes, 1024 * 1024 + 4096, 64 * 1024 * 1024); break;
       case 'oversize-frame': {
         const bytes = integer(body.bytes, 1024 * 1024 + 4096, 64 * 1024 * 1024);
@@ -1001,8 +1055,10 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--reset-on-identify') { options.resetOnIdentify = true; continue; }
-    if (!['--port', '--seed', '--world', '--clock'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (!['--port', '--seed', '--world', '--clock', '--host'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (args[i + 1] === undefined) throw new Error(`Missing value for ${flag}`);
+    // The address it listens on and names itself by (READY's gateway, asset URLs): a phone's, this Mac's LAN address.
+    if (flag === '--host') { options.hostname = args[++i]; continue; }
     if (flag === '--world') {
       const world = args[++i];
       if (world !== 'default' && world !== 'transcript') throw new Error('world must be default or transcript');

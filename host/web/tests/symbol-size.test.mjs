@@ -311,3 +311,97 @@ test('chromium: loaded raster scale-down follows symbol source and title resizin
     expect(result).toEqual(['auto', 'contain', 'auto'].map(fit => cases.map(() => [true, 40, fit === 'auto', fit])));
   } finally { await suite.close(); }
 }, 10000);
+
+for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: empty button titles have the symbol-alone face (${file})`, async () => {
+  const source = readFileSync(resolve(ROOT, file), 'utf8');
+  const cases = ['row', 'trailing', 'column', 'column-trailing', 'bar', 'sheet', 'own', 'padding', 'tight', 'subtitle', 'empty-subtitle'];
+  const face = (kind, state) => {
+    const id = `${kind}-${state}`, image = (kind === 'own' ? own : role)(`${id}-i`, 'add');
+    const text = state === 'alone' ? '' : title(state === 'titled' ? 'Go' : '');
+    const subtitle = kind === 'subtitle' ? title('Details', '') : kind === 'empty-subtitle' && state !== 'alone' ? title('', '') : '';
+    const css = kind.startsWith('column') ? stacked : kind === 'padding' ? 'padding:3px 11px' : kind === 'tight' ? 'width:20px;height:20px' : '';
+    const said = kind === 'padding' ? 'padding-inline padding-block' : kind === 'tight' ? 'width height' : '';
+    const node = button(id, kind.endsWith('trailing') ? text + image : image + text + subtitle, css, `aria-label="Add" data-exact-said="${said}"`);
+    if (kind === 'sheet') return `<div navigationPresentation="modal" style="visibility:hidden"><header>${node}</header></div>`;
+    return kind === 'bar' ? `<div navigationkey="root"><header data-exact-bar>${node}</header></div>` : node;
+  };
+  const content = cases.map(kind => `<div style="display:flex;align-items:flex-start;gap:40px">${['alone', 'titled', 'bound'].map(state => face(kind, state)).join('')}</div>`).join('');
+  const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<div id="exact-root" style="font-size:17px;display:flex;flex-direction:column;gap:20px;padding:20px">${content}</div>`)
+    .replace('<script type="module" src="./glue.js"></script>', `<script>${stand} ${glueDeclarations(source, names)} globalThis.paint = () => { ${run} };</script>`);
+  const suite = await suiteBrowser(engine, { timeout: 30000 });
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/') return new Response(html, { headers: { 'content-type': 'text/html' } });
+    if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    for (const dir of ['host/web-js', 'host/web']) {
+      const module = Bun.file(resolve(ROOT, dir, path.slice(1)));
+      if (await module.exists()) return new Response(module);
+    }
+    return new Response('missing', { status: 404 });
+  } });
+  try {
+    const page = await suite.newPage({ viewport: { width: 800, height: 1000 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(server.url.href);
+    // Even local offsets can round differently while the sheet is translating.
+    const settled = async () => {
+      await page.waitForFunction(() => [...document.images].every(image => image.complete));
+      await page.evaluate(() => Promise.all(document.getAnimations().map(a => a.finished))
+        .then(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))));
+    };
+    await page.evaluate(async cases => {
+      const { sig, P, W, commit } = await import('/rt.js');
+      const value = sig('');
+      for (const kind of cases) P(document.querySelector(`#${kind}-bound > [data-exact-text]`), 'text', value);
+      globalThis.changeTitle = text => commit(() => W(value, text));
+      globalThis.paint();
+    }, cases);
+    await settled();
+    const measure = id => page.evaluate(id => {
+      const el = document.getElementById(id), img = el.querySelector('img');
+      const r = el.getBoundingClientRect(), s = getComputedStyle(el), is = getComputedStyle(img), word = getComputedStyle(el, '::after');
+      // A hidden symbol has no box: its zero rect at the viewport origin is not relative to the moving sheet.
+      const i = img.getClientRects().length ? img.getBoundingClientRect() : null;
+      const round = n => Math.round(n * 100) / 100;
+      return { box: [r.width, r.height].map(round), image: i ? [i.x - r.x, i.y - r.y, i.width, i.height].map(round) : null,
+        word: word.content === 'none' ? null : [word.content, word.width, word.height, word.gridArea],
+        padding: s.padding, columns: s.gridTemplateColumns, rows: s.gridTemplateRows, overflow: s.overflow, margin: is.margin, pointer: is.pointerEvents };
+    }, id);
+    // A face measurement is local to the button, regardless of the sheet's position.
+    const sheet = await measure('sheet-alone');
+    await page.locator('#sheet-alone').evaluate(el => { el.style.transform = 'translateY(40px)'; });
+    await settled();
+    expect(await measure('sheet-alone')).toEqual(sheet);
+    await page.locator('#sheet-alone').evaluate(el => el.style.removeProperty('transform'));
+    await settled();
+    const titled = await Promise.all(cases.map(async kind => [kind, await measure(`${kind}-titled`)]));
+    // LLP 1011 §3 and LLP 1115.000: absent face text leaves a symbol alone;
+    // a subtitle still occupies its own row. Both textContent writers clear to :empty.
+    for (const text of ['', 'Go', '']) {
+      await page.evaluate(text => { globalThis.changeTitle(text); globalThis.paint(); }, text);
+      await settled();
+      for (const kind of cases.filter(kind => kind !== 'subtitle')) {
+        expect(await measure(`${kind}-bound`), `${kind}, title ${JSON.stringify(text)}`).toEqual(await measure(`${kind}-${text ? 'titled' : 'alone'}`));
+      }
+      expect(await Promise.all(cases.map(async kind => [kind, await measure(`${kind}-titled`)]))).toEqual(titled);
+      expect((await measure('sheet-bound')).word?.[0] ?? null).toBe(text ? null : '"Add"');
+      expect(await page.locator('#row-bound').ariaSnapshot()).toStartWith('- button "Add"');
+      expect(await page.locator('#row-bound > span').evaluate(el => el.matches(':empty'))).toBe(!text);
+      const subtitle = page.locator('#subtitle-bound > span:last-child');
+      expect(await subtitle.isVisible()).toBe(true);
+      const subtitleBox = await subtitle.boundingBox(), imageBox = await page.locator('#subtitle-bound-i').boundingBox();
+      expect(subtitleBox.x).toBeGreaterThanOrEqual(imageBox.x + imageBox.width + 7.9);
+      expect((await measure('subtitle-bound')).box[0]).toBeGreaterThan((await measure('row-alone')).box[0]);
+    }
+    expect((await measure('row-bound')).box).toEqual([38.25, 38.25]);
+    expect((await measure('padding-bound')).padding).toBe('3px 11px');
+    const hits = await page.locator('#tight-bound').evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return [-1, 1, r.width - 1, r.width + 1].map(x => document.elementFromPoint(r.x + x, r.y + r.height / 2)?.closest('button') === el);
+    });
+    expect(hits).toEqual([false, true, true, false]);
+    expect(errors).toEqual([]);
+  } finally { await suite.close(); server.stop(true); }
+}, 60000);

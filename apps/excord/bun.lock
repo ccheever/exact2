@@ -5,11 +5,14 @@
     "": {
       "name": "excord",
       "dependencies": {
+        "@exact/local-auth": "file:../../packages/local-auth",
         "fflate": "0.8.3",
       },
     },
   },
   "packages": {
+    "@exact/local-auth": ["@exact/local-auth@file:../../packages/local-auth", {}],
+
     "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
   }
 }

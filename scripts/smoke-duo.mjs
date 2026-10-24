@@ -23,7 +23,7 @@
 // exits 0, the convention for a missing carrier. The device is turned by the
 // same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
 // §9): the suite starts it upright, and the rotate, resize and web legs turn it.
-// `--only insets,keyboard-bar,lab,host,rotate,resize,web` runs the named legs; the keyboard checks
+// `--only insets,keyboard-bar,lab,navigation,navigation-gestures,host-navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -112,7 +112,7 @@ async function suite({ open: openSession, check: record }, reset) {
   // The phase a check runs in, and the first failure's since the last screenshot, which names it
   let where = 'start', failedAt = null, shots = 0;
   const check = (ok, what) => { if (!ok) { console.log('  FAIL ' + what); failedAt ??= where; } return record(ok, what); };
-  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, keyboard-bar, lab, host, rotate, resize, web
+  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null;
   const leg = (name) => !only || only.includes(name);
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -422,7 +422,7 @@ async function suite({ open: openSession, check: record }, reset) {
     check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
-  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web');
+  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web') || leg('navigation') || leg('navigation-gestures');
   const plans = {};
   const compile = (name, source) => {
     const plan = resolve(out, `${name}.plan`);
@@ -430,6 +430,9 @@ async function suite({ open: openSession, check: record }, reset) {
     if (check(c.status === 0, `the ${name} fixture did not compile: ${c.stderr}`)) plans[name] = plan;
   };
   for (const name of [probe ? 'insets' : null, leg('keyboard-bar') ? 'keyboard-bar' : null].filter(Boolean)) compile(name, resolve(ROOT, `contract/corpus/${name}.contract`));
+  if (leg('navigation') || leg('navigation-gestures') || leg('host-navigation')) {
+    compile('pushed-title', resolve(ROOT, 'scripts/fixtures/pushed-title.contract'));
+  }
   const lab = resolveApp('duo-lab');
   // The rotate and web legs' duo-lab starts its note sheet at 600 points, taller than the lower segment folded like a
   // laptop, so the limit there is checked: no drag can set it, since a released drag snaps the sheet to 200 or 400
@@ -717,8 +720,154 @@ async function suite({ open: openSession, check: record }, reset) {
     } catch (e) { check(false, `duo-lab: ${e.message}`); } finally { await s.close(); }
   }
 
+  // UIKit's Back, located by XCTest rather than the authored placeholder.
+  if (leg('navigation') && plans['pushed-title']) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'] });
+    try {
+      await eachPose(s, 'native-back', async (_, tag) => {
+        for (const mode of ['stationary', 'scrolling', 'visual']) {
+          const overflow = mode === 'scrolling', name = `${tag}-${mode}`;
+          await s.tap(mode === 'visual' ? 'home-open-edit-visual' : overflow ? 'home-open-edit-overflow' : 'home-open-edit'); await settle(s);
+          const k = await keyboard(s, true);
+          if (softKeyboard) check(k.reached, `${name}: the pushed editor raises the keyboard`);
+          const draft = `Native Back ${name}`;
+          await s.type('edit-draft', draft); await settle(s);
+          const layout = await s.layout();
+          if (overflow) {
+            check(box(layout, 'app')?.h > layout.viewport.h, `${name}: the document has page overflow`);
+            await s.tap('app', { wheel: [0, 100] }); await settle(s);
+            check((await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the outer page scrolls`);
+          }
+          check((await s.state()).navigation.url === '/edit', `${name}: the editing route is on top`);
+          await s.back({ native: true }); await settle(s);
+          const state = await s.state();
+          check(state.navigation.url === '/' && state.slots.query === draft,
+            `${name}: tapping UIKit's Back returns to the root and preserves the edit`);
+          if (overflow) { await s.tap('app', { wheel: [0, -100000] }); await settle(s); }
+        }
+      });
+    } catch (e) { check(false, `native-back: ${e.message}`); } finally { await s.close(); }
+    const authored = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'], chrome: 'agent', touch: 'agent' });
+    try {
+      await authored.tap('home-open-edit-overflow'); await settle(authored);
+      const layout = await authored.layout('route-edit');
+      check(layout.node.space.local.h > layout.viewport.h,
+        'authored chrome keeps the overflowing document allocation');
+    } catch (e) { check(false, `authored-navigation: ${e.message}`); } finally { await authored.close(); }
+  }
+
+  if (leg('navigation-gestures') && plans['pushed-title']) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'], timing: 'platform' });
+    try {
+      await eachPose(s, 'swipe-back', async (_, pose) => {
+        for (const [kind, startX] of [['content', 0.2], ['edge', 0.02]]) {
+          const tag = `${pose}-${kind}`;
+          await s.tap('home-open-long'); await settle(s);
+          await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
+          const scrollId = byTestId(await s.tree(), 'long-scroll').id;
+          const offset = async () => (await s.layout('long-open-edit')).node.scroll.find((port) => port.id === scrollId)?.sy;
+          const before = await offset();
+          check(before > 0, `${tag}: the destination has a scroll position to restore`);
+          await s.tap('long-open-edit'); await settle(s);
+          const draft = `Swipe Back ${tag}`;
+          await s.type('edit-draft', draft); await settle(s);
+          const start = await s.state(), editor = byTestId(await s.tree(), 'edit-draft').id;
+          check(start.focus.editor === editor && start.focus.native != null, `${tag}: the pushed editor has native focus`);
+          if (softKeyboard) {
+            check((await keyboard(s, true)).reached, `${tag}: the pushed editor raises the keyboard`);
+          }
+          const clearance = async () => {
+            const layout = await s.layout(), route = box(layout, 'route-edit'), content = box(layout, 'edit-scroll');
+            return [content.x - route.x, route.x + route.w - content.x - content.w];
+          };
+          const sides = await clearance();
+          const swipe = async (cancel) => {
+            const { w, h } = box(await s.layout(), 'route-edit');
+            const distance = w * (cancel ? 0.3 : 0.7);
+            console.log(`  ${tag}: ${cancel ? 'cancel' : 'complete'} Back`);
+            await s.tap('route-edit', { drag: {
+              from: [w * startX, h * 0.5], dx: distance, dy: 0, over: 400, hold: 1500,
+              during: [async () => {
+                const state = await s.state();
+                check(state.navigation.transition.interactive && state.navigation.transition.phase === 'in-progress',
+                  `${tag}: UIKit owns the interactive Back gesture before release`);
+                check(state.navigation.url === '/edit', `${tag}: a held swipe has not committed Back`);
+                const held = await clearance();
+                check(held.every((side, i) => near(side, sides[i], 0.5)),
+                  `${tag}: the departing screen keeps its horizontal clearance during Back: ${sides} → ${held}`);
+              }],
+              ...(cancel ? { path: [{ dx: -distance, dy: 0, over: 400 }] } : {}),
+            } });
+            await settle(s);
+          };
+          await swipe(true);
+          const cancelled = await s.state();
+          check(cancelled.navigation.url === '/edit' && cancelled.navigation.transition.phase === 'cancelled'
+            && JSON.stringify(cancelled.navigation.stack) === JSON.stringify(start.navigation.stack) && cancelled.slots.query === draft,
+          `${tag}: cancelling Back preserves the route, stack and edit`);
+          check(cancelled.focus.editor === editor && cancelled.focus.native === start.focus.native,
+            `${tag}: cancelling Back restores the same native editor`);
+          const restored = await clearance();
+          check(restored.every((side, i) => near(side, sides[i], 0.5)), `${tag}: cancelling Back preserves horizontal clearance`);
+          if (softKeyboard) {
+            check((await keyboard(s, true)).reached, `${tag}: cancelling Back restores the software keyboard`);
+          }
+          await swipe(false);
+          const completed = await s.state();
+          check(completed.navigation.url === '/long' && completed.navigation.transition.phase === 'completed'
+            && JSON.stringify(completed.navigation.stack) === JSON.stringify(start.navigation.stack.slice(0, -1)) && completed.slots.query === draft,
+          `${tag}: completing Back pops exactly one route and preserves the edit`);
+          if (softKeyboard) {
+            check((await keyboard(s, false)).reached, `${tag}: completing Back dismisses the software keyboard`);
+          }
+          check(near(await offset(), before, 0.5), `${tag}: Back restores the destination's scroll position`);
+          await s.back(); await settle(s);
+        }
+      });
+    } catch (e) { check(false, `swipe-back: ${e.message}`); } finally { await s.close(); }
+  }
+
   // 4. The two-session sample host: both panes follow the pose.
   const hostBundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator', host: true }).bundle;
+  if (leg('host-navigation') && plans['pushed-title'] && check(existsSync(hostBundle), 'build the host fixture before testing embedded Back: bun host/apple/build.mjs --ios --host')) {
+    const s = await open({ host: 'host-ios', session: 'a', plan: plans['pushed-title'] });
+    try {
+      const offset = async () => {
+        const id = byTestId(await s.tree(), 'long-scroll').id;
+        return (await s.layout('long-top')).node.scroll.find((port) => port.id === id)?.sy;
+      };
+      await eachPose(s, 'embedded-back', async (_, pose) => {
+        for (const chosen of ['a', 'b']) {
+          const tag = `${pose}-${chosen}`, before = {};
+          for (const label of ['a', 'b']) {
+            s.session = label;
+            await s.tap('home-open-long'); await settle(s);
+            await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
+            before[label] = { state: await s.state(), offset: await offset() };
+            check(before[label].offset > 0, `${tag}: session ${label} has a scroll position to preserve`);
+          }
+          const first = before.a.state.navigation.nativeBack, second = before.b.state.navigation.nativeBack;
+          check(typeof first === 'string' && typeof second === 'string' && first !== second,
+            `${tag}: both embedded stacks identify their own Back container`);
+          s.session = chosen;
+          await s.back({ native: true }); await settle(s);
+          check((await s.state()).navigation.url === '/', `${tag}: UIKit's Back pops session ${chosen}`);
+          let refused = false;
+          try { await s.back({ native: true }); } catch (e) { refused = e.message.includes('native Back needs'); }
+          check(refused, `${tag}: the session at its root cannot tap the other session's Back`);
+          const other = chosen === 'a' ? 'b' : 'a';
+          s.session = other;
+          const remaining = await s.state();
+          check(remaining.navigation.url === '/long'
+            && JSON.stringify(remaining.navigation.stack) === JSON.stringify(before[other].state.navigation.stack)
+            && near(await offset(), before[other].offset, 0.5), `${tag}: session ${other} keeps its route, stack and scroll position`);
+          await s.back(); await settle(s);
+          s.session = chosen;
+          check((await s.state()).navigation.url === '/', `${tag}: session ${chosen} remains at its root`);
+        }
+      });
+    } catch (e) { check(false, `embedded-back: ${e.message}`); } finally { await s.close(); }
+  }
   if (!leg('host')) { /* not asked for */ }
   else if (!existsSync(hostBundle)) console.log('duo host: unsupported — run bun host/apple/build.mjs --ios --host first');
   else {

@@ -118,6 +118,24 @@ impl<D: DataSource> Presenter<D> {
         (prop(PropId::ViewportFit) == Some("cover"), keyboard)
     }
 
+    /// A TV's screen may overscan its edges: Android TV keeps content 5% in
+    /// from each (48 dp at the sides and 27 dp above and below its 960 × 540
+    /// dp), as Apple TV's safe area keeps it in (LLP 1115.001.003 D7). The
+    /// margin is the safe area's on a TV, and nothing elsewhere; top, right,
+    /// bottom, left.
+    pub(super) fn tv_margin(&self, (width, height): (f32, f32)) -> [f32; 4] {
+        const MARGIN: f32 = 0.05;
+        match self.device.as_ref().is_some_and(|d| d.tv) {
+            true => [
+                height * MARGIN,
+                width * MARGIN,
+                height * MARGIN,
+                width * MARGIN,
+            ],
+            false => [0.0; 4],
+        }
+    }
+
     /// Lay the page out in the window the shell told, as the first root's
     /// `viewport-fit` and `interactive-widget` say now. The shell's host
     /// calls it before a paint as well, since a commit may have changed
@@ -126,7 +144,9 @@ impl<D: DataSource> Presenter<D> {
     pub fn fit_window(&mut self) -> Option<String> {
         let window = self.window.window?;
         let (cover, policy) = self.window_policy();
-        let safe: [f32; 4] = std::array::from_fn(|i| window.bars[i].max(window.cutout[i]));
+        let overscan = self.tv_margin(window.size);
+        let safe: [f32; 4] =
+            std::array::from_fn(|i| window.bars[i].max(window.cutout[i]).max(overscan[i]));
         let (mut frame, mut env) = match cover {
             true => ([0.0, 0.0, window.size.0, window.size.1], safe),
             false => (
@@ -231,8 +251,16 @@ impl<D: DataSource> Presenter<D> {
         let Some(window) = self.window.window else {
             return false;
         };
-        let at = self.window.frame.map_or(0.0, |frame| frame[0]) + x;
+        let at = self.page_origin().0 + x;
         at < window.gestures[3] || at >= window.size.0 - window.gestures[1]
+    }
+
+    /// Where the page's top left is in the window, points: (0, 0) where
+    /// the shell told no window or the page covers it.
+    pub(super) fn page_origin(&self) -> (f32, f32) {
+        self.window
+            .frame
+            .map_or((0.0, 0.0), |frame| (frame[0], frame[1]))
     }
 
     /// `layout.env`'s insets (LLP 1012 §1): the four safe-area insets the

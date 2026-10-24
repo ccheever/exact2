@@ -572,3 +572,20 @@ test "a channel never read jumps to its first message (wiring review: Sol 8)"
   expect state anchor == "0"
   expect tree has "new-divider"
   expect tree has "message-1432427377459200001"
+
+test "the server menu switches the list to the direct messages, which open like a channel, and is kept"
+  clock +500 real
+  tap "server"
+  tap "server-@me"
+  clock settle
+  expect state server == "@me"
+  expect tree missing "channel-general"
+  tap "Weekend rides"
+  clock settle
+  expect state chan.name == "Weekend rides"
+  expect state win.hasAfter == false
+  back
+  clock settle
+  reload
+  clock +500 real
+  expect state server == "@me"

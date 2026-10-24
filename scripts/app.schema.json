@@ -297,6 +297,27 @@
         }
       }
     },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "component"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]*\\.contract$",
+          "description": "The Contract file of the watch entry, beside `app.contract`; the phone's plan does not use it."
+        },
+        "component": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "description": "The root of the watch entry (LLP 1126.002 D4): the first component of `source`, compiled to its own live plan, which the watch app boots."
+        }
+      },
+      "description": "The app's watch entry: its own live plan (state, resources, timers, handlers), the app's screen on Apple Watch. Not a widget: no families, preview props or refresh."
+    },
     "widgets": {
       "type": "array",
       "items": {
@@ -696,12 +717,17 @@
           "additionalProperties": false
         },
         "android": {
-          "description": "Android: `minimumOS` (default 12).",
+          "description": "Android: `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
           "type": "object",
           "properties": {
             "minimumOS": {
               "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
               "enum": ["10", "11", "12", "13", "14", "15", "16"]
+            },
+            "certificates": {
+              "description": "The SHA-256 fingerprints of every certificate that signs the app (the debug key, the upload key, Play App Signing's), as `AB:CD:…`: the origin's `/.well-known/assetlinks.json` lets each use the app's passkeys (LLP 1133.011 D6).",
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){31}$" }
             }
           },
           "additionalProperties": false
@@ -712,8 +738,21 @@
           "additionalProperties": false
         },
         "windows": {
-          "description": "The Windows host has no settings yet; an empty object.",
+          "description": "Windows: the `window` it opens in.",
           "type": "object",
+          "properties": {
+            "window": {
+              "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
+              "type": "object",
+              "properties": {
+                "width": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "height": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 }
+              },
+              "additionalProperties": false
+            }
+          },
           "additionalProperties": false
         },
         "web": {

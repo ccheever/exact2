@@ -6,7 +6,7 @@ mod entry;
 mod inline;
 mod paragraphs;
 mod refresh;
-mod values;
+pub(crate) mod values;
 pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 
 /// Find the props slot by this name; a route URL may add a preceding router slot.
@@ -167,7 +167,7 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
         };
         match target {
             Some(AttrTarget::Handler(_)) => errors.push(fail("snapshot-handler", "a snapshot handler cannot navigate or take input; make it a `link href=…` (button and toggle intents are stage 2)")),
-            Some(AttrTarget::Styles(_) | AttrTarget::Shorthand) => values::attribute(a, errors),
+            Some(AttrTarget::Styles(_) | AttrTarget::Shorthand) => values::attribute(a, errors, false),
             Some(AttrTarget::Surface | AttrTarget::MediaMetadata) => errors.push(fail("snapshot-request", "render only supplied props; move this work into the refresh function and use an image")),
             Some(AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p))
                 if !admits_prop(p) => {
@@ -292,7 +292,7 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
     }
 }
 
-fn local_image(e: &Expr) -> bool {
+pub(crate) fn local_image(e: &Expr) -> bool {
     fn path(s: &str) -> bool {
         // Every `symbol:` source is the host's, an empty one too, which
         // draws nothing (stage 9 H).

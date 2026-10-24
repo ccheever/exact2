@@ -28,6 +28,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "agents-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
 name = "agents-apple"
 version = "0.1.0"
 dependencies = [
@@ -1890,6 +1902,7 @@ dependencies = [
  "exact-linux",
  "exact-logic",
  "exact-plan",
+ "serde_json",
 ]
 
 [[package]]
@@ -1921,6 +1934,7 @@ dependencies = [
  "exact-js-bake",
  "exact-logic",
  "exact-windows",
+ "serde_json",
 ]
 
 [[package]]
@@ -4065,42 +4079,49 @@ dependencies = [
 name = "photo-editor-apple"
 version = "0.1.0"
 dependencies = [
- "contract",
  "exact-apple",
- "exact-bake",
+ "exact-js",
+ "exact-js-bake",
  "exact-logic",
- "photo-editor-data",
-]
-
-[[package]]
-name = "photo-editor-data"
-version = "0.1.0"
-dependencies = [
- "exact-plan",
- "exact-runner",
 ]
 
 [[package]]
 name = "photo-editor-linux"
 version = "0.1.0"
 dependencies = [
- "contract",
- "exact-bake",
+ "exact-js",
+ "exact-js-bake",
  "exact-linux",
  "exact-logic",
- "photo-editor-data",
 ]
 
 [[package]]
 name = "photo-editor-web"
 version = "0.1.0"
 dependencies = [
- "contract",
- "exact-bake",
+ "exact-js-bake",
+ "exact-js-web",
  "exact-logic",
  "exact-web",
  "exact-web-capabilities",
- "photo-editor-data",
+]
+
+[[package]]
+name = "photos-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "photos-fixture-data",
+]
+
+[[package]]
+name = "photos-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
 ]
 
 [[package]]
@@ -4321,6 +4342,18 @@ dependencies = [
  "exact-render",
  "exact-web",
  "exact-web-capabilities",
+]
+
+[[package]]
+name = "recorder-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]
@@ -4776,6 +4809,16 @@ dependencies = [
  "exact-logic",
  "exact-web",
  "exact-web-capabilities",
+]
+
+[[package]]
+name = "shelf-windows"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+ "exact-windows",
 ]
 
 [[package]]

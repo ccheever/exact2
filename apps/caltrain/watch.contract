@@ -1,0 +1,99 @@
+// @ref LLP 1126.002 D4 — Caltrain's watch entry (app.json `watch`): its own live plan,
+// the station and its next two trains each way, or the station list. Its sources are the
+// app's data module's, answered by name.
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+shape Departure
+  id: string
+  train: number
+  service: string
+  headsign: string
+  at: number
+
+// The clock's epoch at zero, so a `time` node can count down to a real instant.
+shape WatchClock
+  epochAtZero: number
+
+// The station list is pushed over the trains: the platform's Back (the bar's
+// chevron, the edge swipe) pops it.
+routes nav
+  tab home "/"
+    stations "/stations"
+
+component CaltrainWatch
+  // The seeded schedule's day, as the phone's app has it.
+  state seededEpoch = 1787915400000
+  state nowMs = seededEpoch
+  state stationId = none
+  state query = ""
+  resource clock = exactTime() as shape WatchClock
+  resource location = defaultLocation() as shape Location
+  derive selectedId = match stationId { case some(id) => id, case none => "mv" }
+  resource station = station(selectedId, location) as shape Station
+  resource northBoard = board(selectedId, "north", nowMs) as shape Departure[]
+  resource southBoard = board(selectedId, "south", nowMs) as shape Departure[]
+  resource allStations = stations(location) as shape Station[]
+  resource matches = search(query, location) as shape Station[]
+  action tick
+    nowMs = seededEpoch + performanceNow()
+  action openStations
+    query = ""
+    nav = push(nav, "/stations")
+  action selectStation(id)
+    stationId = some(id)
+    nav = back(nav)
+    haptic("success")
+  action setQuery(value)
+    query = value
+  task ticker mount
+    every(1000, tick)
+  provide
+    accent = "#c0392b"
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%" background-color="#05081a" testId="watch-main"
+      for t in nav.tabs key=t.name
+        for e in t.stack key=e.id
+          column navigationKey=`${e.id}` position="absolute" inset=0 testId=`page-${e.name}`
+            scroll width="100%" height="100%"
+              column gap=8 padding=4 box-sizing="border-box"
+                if e.name == "home"
+                  text station.name font-size="1.25em" font-weight=700 color="#ffffff" role="heading" aria-level=1 testId="station-name"
+                  WatchBoard(title="North", board=northBoard.slice(0, 2), offset=(clock.epochAtZero - seededEpoch), testId="watch-north")
+                  WatchBoard(title="South", board=southBoard.slice(0, 2), offset=(clock.epochAtZero - seededEpoch), testId="watch-south")
+                  button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=10 background-color="#333333"
+                    text "Change station" font-size="0.875em" font-weight=600 color="#ffffff"
+                if e.name == "stations"
+                  input value=query input=setQuery placeholder="Search" aria-label="Search stations" testId="station-search" padding=8 border-radius=10 background-color="#333333" color="#ffffff"
+                  for s in (query == "" ? allStations : matches) key=s.id
+                    button press=selectStation(s.id) aria-label=s.name testId=`station-${s.id}`
+                      text s.name
+
+component WatchBoard
+  inject
+    accent: string
+  props
+    title: string
+    board: Departure[]
+    // The seeded schedule's time to the real clock's: a train's real instant is `d.at + offset`.
+    offset: number
+    testId: string
+  view
+    column gap=2 testId=testId
+      text title font-size="0.75em" font-weight=700 color=accent
+      if board.isEmpty()
+        text "No more trains" font-size="0.8125em" color="#aaaaaa"
+      else
+        for d in board key=d.id
+          // A countdown the platform draws from its instant, so it stays right between
+          // the runner's turns, in Always On too (LLP 1126.002 D6).
+          row gap=6 align-items="baseline" testId=`watch-dep-${d.id}`
+            time datetime=(d.at + offset) format="countdown" font-size="1.25em" font-weight=700 color="#ffffff" testId=`watch-countdown-${d.id}`
+            text formatTime(d.at, 0, "short") font-size="0.75em" color="#aaaaaa"

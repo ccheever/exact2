@@ -1080,6 +1080,8 @@ on `system-ui` San Francisco's widths on Apple. Any other axis is set by tag,
 as CSS sets it: `font-variation-settings="'GRAD' 150, 'wdth' 60"`. A tag
 it names wins over `font-weight` and `font-stretch` for that axis; prefer those
 two where they say it. Text fields and Canvas 2D's `font` take the width too.
+A file's `opsz` axis follows the font size; `font-optical-sizing="none"` keeps
+the face's own.
 
 ## Input, events, and commands
 

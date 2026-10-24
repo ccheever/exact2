@@ -129,6 +129,16 @@ pub fn import(
     design: &Design,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    super::bounded(import_unbounded(json, prefix, design, vocab))
+}
+
+/// [`import`] before the checker's bound at import (`super::bounded`).
+fn import_unbounded(
+    json: &str,
+    prefix: &str,
+    design: &Design,
+    vocab: &Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-import-source", m, 1, 1)];
     let doc: Value = serde_json::from_str(json).map_err(|e| refuse(e.to_string()))?;
     let side = |k: &str| {
@@ -137,6 +147,15 @@ pub fn import(
             .ok_or_else(|| refuse(format!("the resolved theme has no `{k}` object")))
     };
     let (light, dark) = (side("light")?, side("dark")?);
+    // The theme's own tokens too (`local`): every value the import reads.
+    let own = doc.get("local").and_then(Value::as_object);
+    super::source_bound(
+        light
+            .iter()
+            .chain(dark.iter())
+            .chain(own.into_iter().flatten())
+            .filter_map(|(k, v)| Some((k.as_str(), v.as_str()?))),
+    )?;
     let mut unmapped = Vec::new();
     let mut tokens = Vec::new();
     let mut mapped = 0;

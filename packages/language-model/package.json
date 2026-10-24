@@ -1,0 +1,12 @@
+{
+  "name": "@exact/language-model",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The device's own language model, by the Prompt API's names (LLP 1133.016).",
+  "exports": {
+    ".": "./exact.json",
+    "./android": "./android/exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

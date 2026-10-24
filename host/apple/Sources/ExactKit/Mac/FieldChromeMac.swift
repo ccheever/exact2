@@ -144,16 +144,16 @@ extension TextEngine {
         if size == base.pointSize, weight == Self.controlWeight(base), italic == base.fontDescriptor.symbolicTraits.contains(.italic) { return base }
         let key = "control/\(family)/\(size)/\(weight)/\(italic)"
         if let font = fonts[key] { return font }
-        let generic = self.font(size: size, weight: weight, family: 0, italic: italic)
-        let traits = generic.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any] ?? [:]
-        var descriptor = base.fontDescriptor.addingAttributes([.traits: traits])
-        if italic { descriptor = descriptor.withSymbolicTraits(.italic) }
-        let font = TextEngine.cssWeight(NSFont(descriptor: descriptor, size: size) ?? generic, weight: weight, size: size)
+        let font = TextEngine.cssWeight(weight, size: size) { stop in
+            var descriptor = base.fontDescriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: TextEngine.namedWeight(stop).rawValue]])
+            if italic { descriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.italic)) }
+            return NSFont(descriptor: descriptor, size: size) ?? self.font(size: size, weight: stop, family: 0, italic: italic)
+        }
         fonts[key] = font
         return font
     }
     static func controlWeight(_ font: NSFont) -> Int {
-        if let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let weight = axes[0x77676874] { return weight.intValue }
+        if let weight = TextEngine.cssWeight(of: font) { return weight }
         let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
         let weight = traits?[.weight] as? CGFloat ?? 0
         return weight >= NSFont.Weight.bold.rawValue ? 700 : weight >= NSFont.Weight.semibold.rawValue ? 600 : 400

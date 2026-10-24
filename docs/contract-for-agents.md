@@ -110,7 +110,11 @@ diagnostics, including related locations, before making the next repair. Each ha
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
 bar hides (`lower-header-unplaced`), a route's `header` a box below the route,
-which iOS leaves in the page (`lower-header-nested`), a content heading that says the bar's title
+which iOS leaves in the page (`lower-header-nested`), a heading header at the head of
+an app with no navigation route (`lower-header-routeless`: a lone `navigationKey`
+is only a root; add a navigation root holding
+a separately keyed screen whose first child is the header, or give the header
+`appearance="none"` to keep it drawn as written on iOS), a content heading that says the bar's title
 again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
@@ -150,7 +154,7 @@ by exact name with `symbols file.contract --name name`.
 After compiling, build and drive the actual app. From an `exact new` app:
 
 ```sh
-bun exact.mjs test web                          # app.test.contract; builds a stale web app first
+bun exact.mjs test web                          # the app's *.test.contract; builds a stale web app first
 bun exact.mjs agent web tree "tap add" state logs "screenshot out.png"
 bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized viewport
 ```
@@ -631,6 +635,9 @@ binder does not protect call heads.
 A derive supplies a value, even when its expression is a function call.
 Beside `fn pick`, `derive pick = pick(1)` makes `${pick}` read that result;
 `pick(5)` still calls the function.
+States and device-fact resources also supply values only: beside `fn pick`,
+`state pick = 7` makes `${pick}` read `7`, while `pick(5)` calls the function.
+These names leave calls intact in derives, state initializers, actions and slot fills.
 
 A child's action may call its `action` props and injected actions, with the
 arguments after those captured where they were bound: the parent's action runs
@@ -1168,6 +1175,21 @@ A token, a password or a key the module keeps is a secret, not a file: grant
 web, the page's `localStorage`, readable by any script on that origin; a Linux
 launch keeps it only until the app exits for now. A drive keeps it, by default,
 only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive, on a Mac, a simulator or a phone, the Keychain a normal launch reads).
+A secret that only the person in front of the device may read (an account's token
+behind Face ID) carries a policy on its line, `secret.keep token user-presence`
+(`biometry-any`, `biometry-current-set`, `device-credential`), then `optional` when
+the person chooses whether it is locked; the app grants `device.local-auth <purposeKey>`
+and depends on `@exact/local-auth` (LLP 1133.010). Its value is never in the store:
+`store.get` throws `InvalidAccessError` while it is locked, `await store.unlock(name,
+{ reason })` shows the platform's sheet and answers the value, `store.has` and
+`store.locked` say what is kept, and `store.protect(name)` and `store.unprotect(name,
+{ reason })` turn an `optional` lock on and off. `store.set` keeps every write in the
+name's state, a rotated token's too. Keep the value out of every answer: an answer is
+kept and shown. `authenticate(reason=)` from the same package is the check alone: it
+gates a screen, never a secret. The web keeps no locked secret yet: a name that must
+be locked is refused there, and `localAuthStatus().presenceSecrets` is false. Under the
+agent the sheet is a `presence` ticket (`tap @presence allow`, `cancel`, `fail`,
+`lockout`, `invalidated`), after Face ID's `permission` ticket while it is `prompt`.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
@@ -1639,7 +1661,11 @@ nothing (the web and Apple journal `image refused`). Shrink a picked photo for a
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
 keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
-Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
+Linux answers `unsupported`. Save an edit (a turn, a flip, a crop, a size) with
+`storage.fs.transformImage(path, to, {rotate, crop})`, which keeps the photo's colour,
+HDR and metadata where the host can and says what it wrote
+([reference](reference.md#save-an-edit-of-a-photo-storagefstransformimage));
+`compressImage` takes `rotate`, `flip` and `crop` too. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
 through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to
@@ -2051,6 +2077,17 @@ element under its box's `aria-label`, with the traits of its `role`: `button`, `
 `img`, `switch` or `checkbox` (`aria-checked`), or `slider` (`aria-valuenow`). A view with
 parts sets `accessibilityElements` (`UIAccessibilityElement`s with a label, `.button` and
 `accessibilityActivate`); the box is then a group under the label.
+
+### Native views: a package's
+
+A package serves a tag by declaring it in its `exact.json` `views` (LLP 1133.001 D1): an
+app that depends on the package places it with no `app.json` entry. Its implementation
+makes it in each session, the same instance that answers its names: Swift
+`view(_:id:props:events:)` on the `ExactPackage` class, a `roster` of view classes from the
+web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view declared
+`"displayed": true` is told `displayed(id, shown, origin)` when it shows or hides, and a
+prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
+`tool` or `wake`, that of the commit that did it. `packages/fixtures/swatch` is a whole one.
 
 ## Routes and web documents
 
@@ -2734,7 +2771,8 @@ browser drivers refuse that override, so test real fullscreen transitions. This 
 queries; `fine` and `hover` on macOS, Linux and Windows, and `coarse` and `none`
 on Android's touch screen and on a Linux one with no mouse or touchpad, read once
 at launch; on iOS `coarse` and `none`, or `fine` and
-`hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS.
+`hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS
+and on Android TV.
 They change while the app runs. Show a game's on-screen stick under `coarse`
 (the starter does, `game/recipes/touch-controls.md`), never by platform. The web's
 neutral look sizes its own controls for a touch device instead (`any-pointer:
@@ -3177,7 +3215,9 @@ the down, then every 83 ms),
 `type "id" paste "text"` (⌘V on macOS, Ctrl+V elsewhere, then the paste; a `key` handler that `preventDefault()`s that chord keeps it from landing), `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
-what is in flight lands, with each answer's `then`, the clock unmoved), `resize
+what is in flight lands, with each answer's `then`, the clock unmoved), `clock held [<resource>…] [<n>s|<n>ms]`
+(the driver's: real time with the clock frozen until each held request, or each named, has had a reply, such as a
+long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, including a `secret.keep`, its state and
 clock starting over, so a test shows what persists; the web reloads its current
@@ -3193,7 +3233,11 @@ go back from fails),
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`) or a list index (`rows.0`), and the
-number may be negative (`== -3`). A failed expect names any resource that
+number may be negative (`== -3`). `expect wakelock held|released` reads
+`state.wakelock.held`: the runner's record of displayed elements requesting the
+lock, not whether the OS or browser granted it. A mismatch names the holding
+view ids and their testIds when present, or says nothing holds it.
+A failed expect names any resource that
 failed, and why; with no input before it, the requests still in flight (the boot's
 own, or what a `clock +N` left on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
@@ -3260,6 +3304,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | An absolute width ceiling containing scalable text stays bounded at accessibility sizes (`lower-text-px-width`). The lint follows `width` and `max-width` through their bounds: a fixed maximum alone caps growth; a minimum alone does not. A fixed minimum can override a smaller cap, but a growing or unknown minimum makes the lint stay silent. Absolute lengths include numbers, px, pt and absolute `calc()`; `em` is fixed against an authored absolute font. Flex can supersede width on a row’s main axis; zero grow with an auto basis keeps its ceiling, and flex does not size a column child’s width. Effective classes, declaration order and parent direction count. Unresolved classes and uncertain sizing stay silent. A computed display leaves the node uncertain but its children are still checked; known-hidden subtrees are skipped. Text in absolute positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; `inherit` and `unset` use the parent font even on controls. The warning reads lowering’s grouped-list typography and checks layout boxes containing text runs or text fields, including HTML inside SVG `foreignObject`; an inline run’s own width does not constrain its paragraph | Express the width and its bounds in `rem`, such as `width="3rem"` or `max-width="3rem"`, so they follow the root font, or let the content determine the width |
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
 | `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
+| `image "symbol:heart" -exact-tint-color="-exact-secondary-label"`, which Apple draws in the text colour: a symbol is drawn in its `color` on every host, and `-exact-tint-color` colours a raster image or a native button's face (`lower-symbol-tint`) | `image "symbol:heart" color="-exact-secondary-label"` |
 | `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
 | `for p in posts` with `users.filter(u => u.id == p.userId)` in the row: every update walks posts × users, about 100 ms at 1,000 × 1,000 on a Mac (`lower-row-lookup`) | Join it in the data module: the source gives each post the field it reads (`userName`). A `derive` of the join is one evaluation and passes the list bound |
 | `RoundButton(label="Start quiz", …)`, cut to "Start q…" in its 80-point circle (`lower-round-button-label`) | The circle is for a word (Start, Stop, Lap); a screen's main action of more words is `button buttonStyle="filled"` with its `text` (`recipes/content-design.md`) |
@@ -3625,6 +3670,8 @@ signal; edge contact may be true with ratio 0. `intersect-margin="200px"`
 expands the root for overscan; a literal of one to four `px`/`%` lengths (units
 are case-insensitive) has IntersectionObserver's `rootMargin` semantics (percentages use the corresponding
 root dimension, as in Chrome).
+A native route's scrollport also counts as a root. `overflow: clip` remains
+an intervening clip, and margins expand only the observer root.
 Removing a node stops observation, with no synthetic leave. Both web targets
 use the browser. AppKit, UIKit and Linux sample native layout and scrolling;
 inline runs, moving presentation geometry, rotated roots and SVG clip references
@@ -3903,6 +3950,18 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
+The in-repo packages' one-colour nonzero icons are icon tokens, which an app
+overrides by full name: `@exact/cards`' `cards.repost`, `cards.pin`,
+`cards.corner-down-right` (PostCard's context and reply lines), `cards.ban`,
+`cards.eye-slash`, `cards.warning`, `cards.circle-info` (ProfileHeader's
+alerts), and `@exact/actions`' `actions.reply`, `actions.repost`,
+`actions.heart`, `actions.heart-filled`, `actions.bookmark`,
+`actions.bookmark-filled`, `actions.share`, `actions.dots` (ActionRow). Each
+has no `sf`, so Apple draws the same path as the web. Still paths, as no
+template can draw them yet (QUEUE): ComposeFrame's gallery, camera and GIF,
+`BarItem`'s and `HeaderButton`'s icons and AtCard's Attie mark fill even-odd
+(a template fills nonzero), and the verified and verifier badges are two
+colours (a template is one).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

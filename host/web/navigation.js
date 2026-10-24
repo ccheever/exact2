@@ -137,7 +137,7 @@ export function historyURL(path) { // (exported for its test)
   return url.href;
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
-/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationRules.backControl); another route's is that route's. */
+/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationBack.control); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
 // with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
@@ -234,7 +234,7 @@ function appBack(route) {
   if (!known || navigate(entry.url) === false) hostBack?.(id);
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
-/** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationRules.swift `backControl`),
+/** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationBack.swift `control`),
  * unless it is disabled, or inert (the web's choice: iOS's Back reads no inert); else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
@@ -287,7 +287,7 @@ function popped({ j, state, url }) {
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
-  // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationRules.back): the route's
+  // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationBack.way): the route's
   // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
   const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
@@ -1322,7 +1322,7 @@ const sourceTuple = source => {
       } catch { return null; }
     }
   }
-  if (words.length !== 2) return null;
+  if (words.length !== 2 && !(capability === 'secret.keep' && /^(user-presence|biometry-any|biometry-current-set|device-credential)( optional)?( (apple\.accessible=when(PasscodeSet|Unlocked)ThisDeviceOnly|apple\.or(Watch|Companion)|android\.strongBox))*$/.test(words.slice(2).join(' ')))) return null; // a presence policy (LLP 1133.010 D4), which Rust's parser checks whole
   const target = words[1];
   const scheme = (capability === 'net.fetch' || capability === 'net.websocket') && /^[a-z][a-z0-9+.-]*:$/i.test(target) ? target.slice(0, -1).toLowerCase() : null;
   if (scheme != null) {

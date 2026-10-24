@@ -472,7 +472,13 @@ impl<D: DataSource> Presenter<D> {
     /// A Tab stop (LLP 1088 D7.3): focusable, and an explicit `tabindex` ≥ 0
     /// or none at all — a negative one is focusable but skipped — shown,
     /// not inert, with a box (display: none and `hidden` have none).
-    fn tabbable(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
+    pub(super) fn tabbable(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
+        self.focus_stop(id, boxed) && self.radio_tab_stop(id)
+    }
+
+    /// A Tab stop but for HTML's one stop to a radio group: every enabled
+    /// radio is one. A TV remote's stops (LLP 1115.001.003 D4).
+    pub(super) fn focus_stop(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
         let explicit = self
             .host
             .kernel()
@@ -481,7 +487,6 @@ impl<D: DataSource> Presenter<D> {
         self.focus_refusal(id).is_none()
             && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
-            && self.radio_tab_stop(id)
             && boxed.contains(&id)
     }
 
@@ -491,14 +496,7 @@ impl<D: DataSource> Presenter<D> {
     /// wrapping, and from no focus, or one out of the order, to the first
     /// (Shift: the last). A `key` handler's `preventDefault()` keeps Tab.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
-        self.boxes();
-        let boxed: BTreeSet<ViewId> = self
-            .boxes
-            .iter()
-            .filter(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
-            .filter(|b| self.display.allows(self.host.kernel(), b.id))
-            .map(|b| b.id)
-            .collect();
+        let boxed = self.shown_boxes();
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
         for (at, id) in self.host.preorder().into_iter().enumerate() {
             if self.tabbable(id, &boxed) {
@@ -522,6 +520,18 @@ impl<D: DataSource> Presenter<D> {
             None => 0,
         };
         self.set_focus(Some(order[next].2), now_ms)
+    }
+
+    /// The nodes with a box of some size that the display shows: what a Tab
+    /// stop needs ([`Self::tabbable`]).
+    pub(super) fn shown_boxes(&mut self) -> BTreeSet<ViewId> {
+        self.boxes();
+        self.boxes
+            .iter()
+            .filter(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
+            .filter(|b| self.display.allows(self.host.kernel(), b.id))
+            .map(|b| b.id)
+            .collect()
     }
 
     /// A key from the display's keyboard: a character, Enter, or Backspace.
@@ -558,6 +568,11 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
+        // A held Select chooses nothing in a surface it opened either
+        // (LLP 1115.001.003 D3).
+        if repeat && code == "Select" && self.surface_takes_keys() {
+            return;
+        }
         // An open surface of the top layer takes every key (`top.rs`).
         if self.surface_key(name, now_ms) {
             return;
@@ -574,18 +589,30 @@ impl<D: DataSource> Presenter<D> {
         }
         let Some(id) = self.focus else {
             // With no focus the root's handlers hear the key; then, unless
-            // one prevented it, Tab takes the first stop (LLP 1088 D7.3).
+            // one prevented it, Tab takes the first stop (LLP 1088 D7.3), and
+            // so does a remote's arrow (LLP 1115.001.003 D4).
             let (error, prevented) = self.key_event(EventKind::Key, name, code, repeat, now_ms);
             if let Some(e) = error {
                 eprintln!("exact: {e}");
             }
-            if name == "Tab" && !prevented && self.focus.is_none() {
+            if prevented || self.focus.is_some() {
+                return;
+            }
+            if name == "Tab" {
                 if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
                     eprintln!("exact: {e}");
                 }
+            } else if let Some(d) = remote::Direction::of(name).filter(|_| self.remote()) {
+                self.move_focus_toward(d, now_ms);
             }
             return;
         };
+        // A bar's target is no box of the page's: the remote's keys there are
+        // the remote's alone (LLP 1115.001.003 D4).
+        if self.remote() && self.bar_node(id) {
+            self.remote_key(id, (name, code, repeat), now_ms);
+            return;
+        }
         if !self.display.allows(self.host.kernel(), id) {
             return;
         }
@@ -595,6 +622,7 @@ impl<D: DataSource> Presenter<D> {
             .node(id)
             .is_none_or(|n| crate::surfaces::controls::disabled_control(&n))
         {
+            self.remote_leaves_disabled(id, name, now_ms);
             return;
         }
         // A grouped grip's keys move its row (LLP 1094 D9).
@@ -615,6 +643,10 @@ impl<D: DataSource> Presenter<D> {
             if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
                 eprintln!("exact: {e}");
             }
+            return;
+        }
+        // A remote's Select and arrows (LLP 1115.001.003 D3).
+        if self.remote_key(id, (name, code, repeat), now_ms) {
             return;
         }
         let Some(node) = self.host.kernel().node(id) else {

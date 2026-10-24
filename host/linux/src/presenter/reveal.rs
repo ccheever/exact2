@@ -10,6 +10,8 @@ use super::*;
 pub(super) enum Cause {
     InsetAdjustment,
     FieldNavigation,
+    /// A remote's arrow moved the focus (LLP 1115.001.003 D4).
+    FocusMove,
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -136,7 +138,7 @@ impl<D: DataSource> Presenter<D> {
         self.scroll_into(
             id,
             false,
-            matches!(cause, Cause::FieldNavigation),
+            matches!(cause, Cause::FieldNavigation | Cause::FocusMove),
             |t, p| {
                 (
                     aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,

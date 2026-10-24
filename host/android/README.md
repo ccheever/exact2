@@ -392,7 +392,7 @@ capability has a call of its own.
 | 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
 | 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
 | 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
-| 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}` | calls the extension's `later` or `release` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call |
+| 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}`; or a package picture the runner admitted (LLP 1133.019 D11 item 1), `{"extension", "picture", "width", "height", "fit", "owned", "agent"}` | calls the extension's `later` or `release`, or `picture` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call. A picture is answered by `Native.picture` with its `Bitmap`, or with an error code |
 
 Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
@@ -492,7 +492,37 @@ names (`--bind`) as in production and the rest told they run under the agent, wh
 own substitute behind the runner's tickets; the substitute answers every other. Android runs one session a process,
 which ends with the process: `destroy(done)` is not called.
 `openURL("app-settings:")` opens the app's page in Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`), journaled only
-under the agent. `packages/geolocation/android/Geolocation.kt` is one.
+under the agent. `packages/geolocation/android/Geolocation.kt` is one. `permission(name)` and `askPermission(name,
+done)` read and ask a runtime permission with the one history every module shares: `denied` once a request was
+refused and the platform owes no rationale after it (LLP 1133.008 D8 item 7; the camera's uses it, geolocation's and
+the microphone's still keep their own). `tracks` is the session's track table: a package that opens an input adds its
+tracks (`TrackEntry`, with `state` and, for a camera, `video`, the running capture), and one that consumes a track
+subscribes (`TrackConsumer.live` for audio, `liveVideo` for a camera, whose `VideoSource` takes CameraX use cases
+typed `Any`, so the reader links no CameraX).
+
+### Maven libraries: one locked, verified Gradle graph (LLP 1133.008 D8 item 5)
+
+An implementation may name Maven coordinates on Google's Maven and Maven Central in its `exact.json`,
+`"maven": ["androidx.camera:camera-camera2:1.6.2", …]` (`packages/camera`, `packages/media-capture`). It adds no
+repository and no plugin. They resolve in the app's one Gradle graph, with the reader's own AndroidX (Compose, for an
+app with a date or time control), so a camera beside a date picker builds; two closures of AndroidX would not.
+`agent-android.mjs` passes the union of the bound implementations' coordinates (`-Pmaven`), and the graph is held by
+Gradle's own means:
+
+- **Locked:** `dependencyLocking` in `STRICT` mode, to the app's `gradle.lockfile` beside its other locks
+  (`-PmavenLock`). A module, or a version, the lock does not name is refused by Gradle, naming it.
+- **Verified:** Gradle's dependency verification (SHA-256 of every artifact and its metadata, plugins included),
+  from the app's `gradle-verification.xml`. Gradle reads that file only from the reader's `gradle/`, so the build
+  copies it to `gradle/verification-metadata.xml` for the run and takes it away after (ignored by Git), and passes
+  `--dependency-verification=strict`. `gradle.properties` leaves verification off for every other build.
+- **Written** once, and again when a module's coordinates change:
+  `bun scripts/agent-android.mjs build <app> --apk --write-locks` (Gradle's `--write-locks` and
+  `--write-verification-metadata sha256`); the app keeps both files with its source. Without them, an app whose
+  modules name libraries is refused before Gradle runs, with that command.
+
+An app with no Maven libraries resolves as before, unlocked and unverified. Two such builds at once on one checkout
+would share the placed verification file. A library that is not on those repositories stays LLP 1133.001 D9's pinned
+`artifacts`. `packages/camera/test/android.mjs` checks each step on a fixture app with CameraX and Compose.
 
 ## Text fields (LLP 1115.001 D8)
 
@@ -1102,6 +1132,38 @@ in the one APK every release installs; at run time a newer release pays the `SDK
 
 Not tried: Android 11 (no device), and a TypeScript data module: the Android Hermes bundle is built at the NDK's API
 30 (LLP 1107 §4.1), and whether its archives link and load at API 29 is unknown.
+
+## Android TV (LLP 1115.001.003)
+
+The phone's APK also runs on an Android TV, and its manifest puts the app in the TV launcher with a plain banner
+(`app/src/main/res/drawable/banner.xml`). Build it as for a phone, then install it on a TV emulator:
+
+```sh
+bun scripts/agent-android.mjs build caltrain --apk
+adb -s <serial> install -r host/android/app/build/caltrain/outputs/apk/release/app-release.apk
+adb -s <serial> shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER \
+  -n com.exact.caltrain/dev.exact.app.MainActivity
+```
+
+On a TV:
+
+- **Device facts.** The reader tells the host that the device is a TV (`Device.tv`, from the UI mode's type), and
+  the app reads `pointer: none` and `hover: none`, as on tvOS. The page is 1080 CSS pixels tall, as Apple TV's is
+  1080 points (`Device.scale`): a 1080p TV draws one pixel per CSS pixel, not Android's two per dp. Its safe area
+  is 5% in from each edge, Android TV's overscan margin (`presenter/window.rs`, `tv_margin`). A TV image has no dynamic colour, so the colour
+  roles are Material's baseline scheme (`Palette.read`).
+- **D-pad.** The arrows reach `key` handlers as `ArrowUp`, `ArrowDown`, `ArrowLeft` and `ArrowRight`
+  (`Keys.remote`, `Native.namedKey`). Their default action moves the focus by Android's `FocusFinder` rules
+  (`host/linux/src/presenter/remote.rs`).
+- **Select.** DPAD_CENTER is heard as `Enter`. It presses the focus, toggles a checkbox or switch, and checks a
+  radio.
+- **Back.** Back keeps the phone's order. With no route to go back from, it presses the shown button with
+  `aria-keyshortcuts="Escape"`, as tvOS's Menu does.
+
+A drive with `--reader` restarts the app, and its `type … key ArrowDown` reaches the presenter, not Android's input.
+To test the real keys, send them with `adb shell input keyevent KEYCODE_DPAD_DOWN` while the drive waits on real time
+(`"clock +15000 real"`). `focusGuide`, the media keys, text entry with the TV's keyboard and a banner per app are not
+built.
 
 ## Still the benchmark's
 

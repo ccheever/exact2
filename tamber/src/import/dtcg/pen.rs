@@ -774,6 +774,30 @@ pub fn import_within(
     let _work = crate::budget::Work::begin(limit);
     crate::budget::spend(text.len() as u64).map_err(refuse)?;
     let doc: Doc = serde_json::from_str(text).map_err(|e| refuse(format!("{file}: {e}")))?;
+    // A value past the checker's bound refuses the import with that bound's
+    // id (`super::super::source_bound`); one past this importer's own 1024
+    // bytes and within it is reported, as before. A value only: not a
+    // variable's `type`, nor an alias (`$name`), whose name this importer
+    // reports past 128 characters before any checker reads it.
+    for (name, v) in doc.variables.as_ref().map_or(&[][..], |v| &v.0[..]) {
+        // The value, or each entry's value in a themed list (not its
+        // `theme`'s labels).
+        let mut strings = Vec::new();
+        match v.get("value") {
+            Some(Value::Array(entries)) => entries
+                .iter()
+                .filter_map(|e| e.get("value"))
+                .for_each(|e| super::super::json_strings(e, &mut strings)),
+            Some(value) => super::super::json_strings(value, &mut strings),
+            None => {}
+        }
+        super::super::source_bound(
+            strings
+                .into_iter()
+                .filter(|s| !s.starts_with('$'))
+                .map(|s| (name.as_str(), s)),
+        )?;
+    }
     let (read, notes) = read(file, &doc).map_err(|m| refuse(format!("{file}: {m}")))?;
     let mut import = planned(read, prefix, design, vocab)?;
     import.notes = notes;

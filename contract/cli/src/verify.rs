@@ -9,8 +9,8 @@ use std::process::{Command, ExitCode};
 
 const USAGE: &str = "usage: contract verify <file.contract> [--types] [--prove <Module>]
 
-Runs the app's `test` blocks (its own and an `app.test.contract` beside it)
-and an explore script on the runner and on the Lean semantics, and names
+Runs the app's `test` blocks (its own, and those in `app.test.contract` and
+every other `*.test.contract` beside it) and an explore script on the runner and on the Lean semantics, and names
 where they first differ. --types runs the Lean type checker on it;
 --prove <Module> regenerates semantics/Apps/<Module>.lean and builds the
 proofs in semantics/Apps/Proofs/<Module>.lean.";

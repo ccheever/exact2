@@ -447,6 +447,18 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         }
+        // A TV remote's focus on a bar's target, a node out of the page, or
+        // its arrow at a control a commit disabled: the key goes to the
+        // remote's keys, not to the page's (LLP 1115.001.003 D4).
+        let focus = self.focus;
+        let disabled = |p: &Self, f: ViewId| {
+            crate::presenter::remote::Direction::of(key).is_some()
+                && p.host.kernel().node(f).is_none_or(|n| disabled_control(&n))
+        };
+        if down && self.remote() && focus.is_some_and(|f| self.bar_node(f) || disabled(self, f)) {
+            self.key_down_with(key, code, repeat, self.host.now());
+            return;
+        }
         if let Some(id) = self.focus.or_else(|| {
             self.surfaces.canvases.keys().copied().find(|view| {
                 self.surfaces.wants_input(*view)
@@ -461,7 +473,8 @@ impl<D: DataSource> Presenter<D> {
             let _ = self.type_key(id, code, key, down, repeat);
         } else if down {
             // With nothing focused the root's handlers hear the key; then Tab
-            // takes the first stop (LLP 1088 D7.3) and a Back key goes back
+            // takes the first stop (LLP 1088 D7.3), a remote's arrow moves
+            // toward one (LLP 1115.001.003 D4) and a Back key goes back
             // (LLP 1115.000 D5.4).
             let name = match key {
                 "Space" => " ",

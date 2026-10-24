@@ -29,8 +29,9 @@ pub struct RunnerLinks {
     /// CSS animations' `@keyframes`, resolved for a node's `animation` list
     /// (LLP 1055 D5): [`crate::bridge::KeyframesTable::resolve`].
     pub keyframes: crate::bridge::KeyframesLink,
-    /// `font-weight` and `font-stretch` transitions (LLP 1019 §13 D10),
-    /// which the runner plays: `None` where a browser plays them.
+    /// `font-weight`, `font-stretch` and `font-variation-settings`
+    /// transitions and keyframes (LLP 1019 §13 D10), which the runner
+    /// plays: `None` where a browser plays them.
     pub text_axes: super::text_axes::TextAxesLink,
 }
 

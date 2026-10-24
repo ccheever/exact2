@@ -84,7 +84,7 @@ export const READS = {
   'HeaderButton.tint': ['0/0 fill hb-base,hb-lead'],
   'HeaderButton.tintSmall': ['0/0 fill hb-small'],
   'ListRow.tint': ['0 tint_color lr-base,sample-lr-value,sample-lr-check-symbol'],
-  'ProfileHeader.alert': ['2/2/0/0/0 fill sample-ph-alerts', '2/2/0/1 text_color sample-ph-alerts', '2/2/1/0/0 fill sample-ph-alerts', '2/2/1/1 text_color sample-ph-alerts', '2/2/2/0/0 fill sample-ph-alerts', '2/2/2/1 text_color sample-ph-alerts', '2/2/3/0/0 fill sample-ph-alerts', '2/2/3/1 text_color sample-ph-alerts'],
+  'ProfileHeader.alert': ['2/2/0/0 text_color sample-ph-alerts', '2/2/0/1 text_color sample-ph-alerts', '2/2/1/0 text_color sample-ph-alerts', '2/2/1/1 text_color sample-ph-alerts', '2/2/2/0 text_color sample-ph-alerts', '2/2/2/1 text_color sample-ph-alerts', '2/2/3/0 text_color sample-ph-alerts', '2/2/3/1 text_color sample-ph-alerts'],
   'ProfileHeader.alertGround': ['2/2/0 background_color sample-ph-alerts', '2/2/1 background_color sample-ph-alerts', '2/2/2 background_color sample-ph-alerts', '2/2/3 background_color sample-ph-alerts'],
   'ProfileHeader.badge': ['2/1/0/1/0/0 fill sample-ph-verified,sample-ph-verifier'],
   'ProfileHeader.badgeMark': ['2/1/0/1/0/1 fill sample-ph-verified,sample-ph-verifier'],
@@ -211,7 +211,8 @@ const componentOfPath = token => {
 /** The packages' tokens from their designs: [{ name, kind }], `kind` a
  * length, a number or (no type) a colour. */
 export function packageTokens(root = ROOT) {
-  return PACKAGES.flatMap(p => [...readFileSync(join(root, 'packages', p, `${p}.tamber`), 'utf8').matchAll(/^\s+([a-z][\w-]*(?:\.[\w-]+)+)(?::\s*([\w-]+))?\s*=/gm)]
+  // An icon token (`name = icon(svg "…")`, a space before its `(` or none) is no colour, length or number: no case restyles it.
+  return PACKAGES.flatMap(p => [...readFileSync(join(root, 'packages', p, `${p}.tamber`), 'utf8').matchAll(/^\s+([a-z][\w-]*(?:\.[\w-]+)+)(?::\s*([\w-]+))?\s*=(?!\s*icon\s*\()/gm)]
     .map(m => ({ name: m[1], kind: m[2] ?? 'color' })));
 }
 

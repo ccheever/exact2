@@ -73,6 +73,8 @@ final class BlockHost {
     private var turns = 0
     /// Each block's used size, as the last layout returned it.
     private(set) var used: [UInt32: CGSize] = [:]
+    /// Each block root's margins when its container was last told its size.
+    private var margined: [UInt32: PositionArea.Margins] = [:]
     /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
     /// a popover's in the page too: what a painted popover is reported by.
     private(set) var rects: [UInt32: CGRect] = [:]
@@ -166,10 +168,15 @@ final class BlockHost {
         guard op.payload["op"] as? String == "block", entries[op.id] != nil,
               let w = op.payload["w"] as? NSNumber, let h = op.payload["h"] as? NSNumber else { return }
         let size = CGSize(width: w.doubleValue, height: h.doubleValue)
-        guard used[op.id] != size else { return }
+        // Its root's margins too: a container that shows the root without them
+        // (AppKit's popover) resizes when a margin is traded for content.
+        let edges = entries[op.id].map { PositionArea.margins(of: $0.node) } ?? .init()
+        let resized = used[op.id] != size
+        guard resized || margined[op.id] != edges else { return }
         used[op.id] = size
+        margined[op.id] = edges
         entries[op.id]?.used?(size)
-        onUsed?(op.id, size)
+        if resized { onUsed?(op.id, size) }
     }
 
     /// A subtree's root is being destroyed, its view still in its container:
@@ -182,7 +189,7 @@ final class BlockHost {
     /// The node is gone, and its block with it.
     func destroyed(_ id: UInt32) {
         if let node = entries[id]?.node { onDestroyed?(node) }
-        entries[id] = nil; used[id] = nil; rects[id] = nil
+        entries[id] = nil; used[id] = nil; rects[id] = nil; margined[id] = nil
     }
 
     private func tell(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) {

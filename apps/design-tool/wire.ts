@@ -8,6 +8,8 @@
 // never in storage, a URL, a log or an error. Revoked or expired (401), it
 // is dropped and nothing more is sent.
 
+import type { StreamEvent } from './app.contract.d.ts';
+
 type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
 export type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[]; hint?: string } };
 /** A refusal's words: its message, and each diagnostic's file, line, id
@@ -26,20 +28,22 @@ const BEFORE = 'This was made before the tool paired with another design server,
  * local token's alone. */
 export const NEEDS: Record<string, string> = {
   hello: 'read', describe: 'read', resolve: 'read', explain: 'read', uses: 'read', history: 'read', export: 'read', inspect: 'read', subscribe: 'read', events: 'read',
-  propose: 'propose', import: 'propose', revert: 'propose', drop: 'propose',
+  propose: 'propose', import: 'propose', revert: 'propose', drop: 'propose', 'edit-held': 'propose',
   transaction: 'write', undo: 'write', commit: 'write', accept: 'write', pin: 'write', preview: 'write', outline: 'write', hold: 'write', navigate: 'write', scrub: 'write', 'scrub-release': 'write', 'scrub-cancel': 'write',
   clients: 'local', revoke: 'local', 'pair-code': 'local',
   canvas: 'read',
 };
 const SCOPES = ['read', 'propose', 'write'];
+// The long poll's reply ceiling: 16 MiB, room for a held import's diffs (a native host counts twice that running).
+const LONG_POLL_MAX = 16 * 1024 * 1024;
 /** What a request needs, as the server reads it: inspect other than a
- * refresh is `write` (it moves the builds), and so is a drop of another
+ * refresh is `write` (it moves the builds), and so is a drop or an edit of another
  * client's held proposal (`ownerOf` its proposer, null when not known); a
  * method not in the table, `local`. */
 export const needOf = (path: string, body: any, ownerOf: (id: string) => string | null = () => null) => {
   if (path !== '/__tamber') return 'read';
   if (body?.method === 'inspect' && body.refresh !== true) return 'write';
-  if (body?.method === 'drop') { const by = ownerOf(String(body.proposal)); return by !== null && by !== body.client ? 'write' : 'propose'; }
+  if (body?.method === 'drop' || body?.method === 'edit-held') { const by = ownerOf(String(body.proposal)); return by !== null && by !== body.client ? 'write' : 'propose'; }
   return NEEDS[String(body?.method)] ?? 'local';
 };
 /** Why a paired client at `scope` does not send `need`'s request; "" when it may. */
@@ -158,5 +162,22 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
   }
 
   // (The server checks every scope; the tool's own reading of it only words and greys.)
-  return { call, RESTARTED, pairWith, remote: () => (paired ? base : ''), scope: () => scope };
+  /** The changes' long poll (tamber/1.17's GET, `exactLongPoll`): its stream, made at once with the token in hand
+   * (the web build takes a stream's fetch only before an answer's first await), each event mapped with that token's
+   * handle; null when no token is in hand, or this client was revoked: the caller reads once instead, which asks.
+   * Its replies may be as large as a read's (a held import's diffs): `LONG_POLL_MAX`, not a stream's 1 MiB. */
+  function longPoll<T>(query: string, map: (event: StreamEvent, used: string) => T): Promise<T> | null {
+    if (!token || (paired && (gone || token !== pairedToken))) return null;
+    const used = handleOf(token), at = session, sent = token;
+    // (Its end on a token the server no longer knows, it restarted, drops that token, so the next ask, a read, asks
+    // again; a paired client's 401 ends it, as a request's does.)
+    const ended = (event: StreamEvent) => {
+      const status = (event as { status?: number }).status;
+      if (event.type !== 'error' || at !== session || token !== sent) return;
+      if (status === 401 && paired) { gone = true; token = null; } else if (status === 404 && !paired) token = null;
+    };
+    return fetch(`${base}/__tamber/events?${query}`, { exactStream: (event: StreamEvent) => (ended(event), map(event, used)), exactLongPoll: { cursor: 'after', from: 'cursor' }, exactIndependentHttp: { maxResponseBytes: LONG_POLL_MAX }, redirect: 'error', headers: { 'x-exact-tamber-token': token } });
+  }
+
+  return { call, longPoll, RESTARTED, pairWith, remote: () => (paired ? base : ''), scope: () => scope };
 }

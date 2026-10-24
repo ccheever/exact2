@@ -1,0 +1,12 @@
+{
+  "name": "@exact/motion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The device's acceleration, rotation, magnetic field and orientation, with the web's names (LLP 1133.013).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

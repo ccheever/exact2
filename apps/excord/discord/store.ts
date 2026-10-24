@@ -5,6 +5,7 @@
 // MESSAGE_CREATE replaces them in place, keeping the row's key (§3.9). A send's REST reply can be
 // applied as a MESSAGE_CREATE too; the gateway's copy then updates the same row.
 import { cmpId } from './ids.ts';
+import { guildOrder } from './settings.ts';
 
 export type DiscordObject = Record<string, any>;
 export interface User extends DiscordObject { id: string }
@@ -77,7 +78,15 @@ export interface Store {
   channelMap: Map<string, Channel>;
   histories: Map<string, History>;
   readStates: Map<string, ReadState>;
+  // The account's own roles in each guild, which decide what it can see.
+  roles: Map<string, string[]>;
+  // Each guild's channel ids, rebuilt when a channel joins or leaves the cache (`removals` counts the
+  // leaving): a lookup per guild over every channel was quadratic in a large account's READY.
+  byGuild: { key: string; ids: Map<string, string[]> } | null;
+  removals: number;
   versions: Map<string, number>;
+  // The server list's order from the account's settings (`settings.ts`).
+  guildOrder: string[];
   sidebarRevision: number;
   sequence: number;
 }
@@ -87,8 +96,19 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), versions: new Map(), sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], sidebarRevision: 0, sequence: 0,
   };
+}
+
+/** Forget the account (a sign-out): every cached object goes, and every version moves on, so no
+ * answer asked after it can match one asked before. */
+export function forgetAccount(s: Store): void {
+  s.meId = null;
+  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles]) map.clear();
+  s.guildOrder = [];
+  s.removals++;
+  for (const [id, version] of s.versions) s.versions.set(id, version + 1);
+  s.sidebarRevision++;
 }
 
 function changes(): Changes { return { channels: new Set(), sidebar: false }; }
@@ -337,6 +357,7 @@ function setChannel(s: Store, data: DiscordObject, c: Changes): void {
     delete normalized.recipients;
   }
   if (sameFields(old, normalized)) return;
+  if (old && normalized.guild_id !== undefined && old.guild_id !== normalized.guild_id) s.removals++;
   s.channelMap.set(data.id, { ...old, ...normalized } as Channel);
   if (h?.live && last && (!h.live.rowHigh || cmpId(last, h.live.rowHigh) > 0)) demoteLive(h);
   c.channels.add(data.id);
@@ -345,14 +366,34 @@ function setChannel(s: Store, data: DiscordObject, c: Changes): void {
 
 function setGuild(s: Store, data: DiscordObject, c: Changes): void {
   if (!data.id) return;
-  const { properties, channels, threads, members, ...rest } = data;
+  // What the app never shows is not kept: a large account's READY is mostly these.
+  const { properties, channels, threads, members, emojis, stickers, guild_scheduled_events, stage_instances,
+    voice_states, embedded_activities, activity_instances, presences, soundboard_sounds, ...rest } = data;
   const guild = { ...properties, ...rest };
   if (!sameFields(s.guildMap.get(data.id), guild)) {
     s.guildMap.set(data.id, { ...s.guildMap.get(data.id), ...guild } as Guild);
     c.sidebar = true;
   }
   for (const channel of [...(channels ?? []), ...(threads ?? [])]) setChannel(s, { ...channel, guild_id: data.id }, c);
-  for (const member of members ?? []) rememberUser(s, member.user);
+  for (const member of members ?? []) rememberMember(s, data.id, member, c);
+}
+
+function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
+  rememberUser(s, member.user);
+  const id = member.user_id ?? member.user?.id;
+  if (!guildId || !id || id !== s.meId || !Array.isArray(member.roles)) return;
+  const old = s.roles.get(guildId);
+  if (old && old.length === member.roles.length && old.every((role, i) => role === member.roles[i])) return;
+  s.roles.set(guildId, [...member.roles]);
+  c.sidebar = true;
+}
+
+function setRole(s: Store, guildId: string, role: DiscordObject | null, roleId: string, c: Changes): void {
+  const guild = s.guildMap.get(guildId);
+  if (!guild) return;
+  const roles = ((guild.roles ?? []) as DiscordObject[]).filter(r => r.id !== roleId);
+  s.guildMap.set(guildId, { ...guild, roles: role ? [...roles, role] : roles } as Guild);
+  c.sidebar = true;
 }
 
 function unreadSignature(s: Store, id: string): string {
@@ -382,18 +423,32 @@ function ingestReady(s: Store, data: DiscordObject, c: Changes): void {
   rememberUser(s, data.user);
   if (data.user?.id) s.meId = data.user.id;
   for (const user of data.users ?? []) rememberUser(s, user);
+  if (typeof data.user_settings_proto === 'string') setOrder(s, data.user_settings_proto, c);
   for (const guild of data.guilds ?? []) setGuild(s, guild, c);
   for (const channel of data.private_channels ?? []) setChannel(s, { type: 1, ...channel }, c);
-  for (const members of data.merged_members ?? []) for (const member of members) rememberUser(s, member.user);
+  // `merged_members[i]` holds the account's own member in `guilds[i]`.
+  (data.merged_members ?? []).forEach((members: DiscordObject[], i: number) => {
+    for (const member of members ?? []) rememberMember(s, data.guilds?.[i]?.id, member, c);
+  });
   const readState = data.read_state;
   for (const entry of (Array.isArray(readState) ? readState : readState?.entries) ?? []) {
     setRead(s, entry.id ?? entry.channel_id, entry.last_message_id, entry.mention_count, c);
   }
 }
 
+// Settings that cannot be read leave the order as it was.
+function setOrder(s: Store, proto: string, c: Changes): void {
+  let order: string[] | null;
+  try { order = guildOrder(proto); } catch { return; }
+  if (!order || (order.length === s.guildOrder.length && order.every((id, i) => id === s.guildOrder[i]))) return;
+  s.guildOrder = order;
+  c.sidebar = true;
+}
+
 function removeChannel(s: Store, id: string, c: Changes): void {
   if (!s.channelMap.has(id) && !s.histories.has(id) && !s.readStates.has(id)) return;
   s.channelMap.delete(id);
+  s.removals++;
   s.histories.delete(id);
   s.readStates.delete(id);
   c.channels.add(id);
@@ -533,7 +588,9 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
   switch (t) {
     case 'READY':
       for (const id of new Set([...s.channelMap.keys(), ...s.readStates.keys()])) c.channels.add(id);
-      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear();
+      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear();
+      s.guildOrder = [];
+      s.removals++;
       ingestReady(s, d, c);
       for (const [id, h] of s.histories) {
         h.invalidatedAt = s.sequence;
@@ -549,6 +606,10 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       c.sidebar = true;
       break;
     case 'READY_SUPPLEMENTAL': ingestReady(s, d, c); break;
+    // Type 1 is the preloaded settings, which hold the folders.
+    case 'USER_SETTINGS_PROTO_UPDATE':
+      if (d.settings?.type === 1 && typeof d.settings.proto === 'string') setOrder(s, d.settings.proto, c);
+      break;
     case 'PASSIVE_UPDATE_V1': passiveUpdate(s, d.channels ?? [], d.members ?? [], d.guild_id, c); break;
     case 'PASSIVE_UPDATE_V2': passiveUpdate(s, d.updated_channels ?? [], d.updated_members ?? [], d.guild_id, c); break;
     case 'GUILD_CREATE': setGuild(s, { unavailable: false, ...d }, c); break;
@@ -560,6 +621,10 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
         for (const channel of s.channelMap.values()) if (channel.guild_id === d.id) removeChannel(s, channel.id, c);
       }
       break;
+    case 'GUILD_MEMBER_UPDATE': rememberMember(s, d.guild_id, d, c); break;
+    case 'GUILD_ROLE_CREATE':
+    case 'GUILD_ROLE_UPDATE': if (d.role?.id) setRole(s, d.guild_id, d.role, d.role.id, c); break;
+    case 'GUILD_ROLE_DELETE': setRole(s, d.guild_id, null, d.role_id, c); break;
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE': setChannel(s, d, c); break;
     case 'CHANNEL_DELETE': removeChannel(s, d.id, c); break;
@@ -838,13 +903,42 @@ export function windowAfter(s: Store, channelId: string, cursorId: string, limit
 }
 
 /** Return normalized guilds in READY order, retaining unavailable guild placeholders. */
-export function guilds(s: Store): Guild[] { return [...s.guildMap.values()]; }
+/** The guilds in the account's order. One the settings do not place, joined since they were saved,
+ * comes first, newest first, where Discord's client puts it. */
+export function guilds(s: Store): Guild[] {
+  const place = new Map(s.guildOrder.map((id, i) => [id, i]));
+  const joined = (g: Guild) => Date.parse(g.joined_at ?? '') || 0;
+  return [...s.guildMap.values()].sort((a, b) => {
+    const pa = place.get(a.id), pb = place.get(b.id);
+    if (pa === undefined || pb === undefined) return pa === pb ? joined(b) - joined(a) || cmpId(b.id, a.id) : pa === undefined ? -1 : 1;
+    return pa - pb;
+  });
+}
 
 function channelOrder(a: Channel, b: Channel): number { return (a.position ?? 0) - (b.position ?? 0) || cmpId(a.id, b.id); }
 
 /** Group a guild's channels by category, with uncategorized channels first and position/id ordering. */
+function channelIdsOf(s: Store, guildId: string): string[] {
+  const key = `${s.channelMap.size}:${s.removals}`;
+  if (s.byGuild?.key !== key) {
+    const ids = new Map<string, string[]>();
+    for (const channel of s.channelMap.values()) {
+      if (!channel.guild_id) continue;
+      const list = ids.get(channel.guild_id);
+      if (list) list.push(channel.id); else ids.set(channel.guild_id, [channel.id]);
+    }
+    s.byGuild = { key, ids };
+  }
+  return s.byGuild.ids.get(guildId) ?? [];
+}
+
+/** A guild's channels in no order, for a count over them. */
+export function guildChannelList(s: Store, guildId: string): Channel[] {
+  return channelIdsOf(s, guildId).map(id => s.channelMap.get(id)!).filter(channel => channel?.guild_id === guildId);
+}
+
 export function guildChannels(s: Store, guildId: string): ChannelGroup[] {
-  const channels = [...s.channelMap.values()].filter(channel => channel.guild_id === guildId);
+  const channels = guildChannelList(s, guildId);
   const categories = channels.filter(channel => channel.type === 4).sort(channelOrder);
   const groups = categories.map(category => ({ category, channels: [] as Channel[] }));
   const byId = new Map(groups.map(group => [group.category.id, group]));
@@ -855,6 +949,63 @@ export function guildChannels(s: Store, guildId: string): ChannelGroup[] {
   const result = ungrouped.channels.length ? [ungrouped, ...groups] : groups;
   for (const group of result) group.channels.sort(channelOrder);
   return result;
+}
+
+const ADMINISTRATOR = 1n << 3n;
+const VIEW_CHANNEL = 1n << 10n;
+const bits = (value: unknown): bigint => {
+  try { return BigInt(typeof value === 'string' || typeof value === 'number' ? value : 0); } catch { return 0n; }
+};
+
+// What a guild grants the account before a channel's overwrites: the roles it holds and their
+// permissions, or `null` when it sees every channel (the owner, an administrator, or a cache that
+// cannot decide yet). A guild, its roles and the account's roles are replaced, never changed in place,
+// so the same three objects give the same grant, and a channel object its same answer: a large
+// account's sidebar asks for thousands of channels on every change.
+interface Grant { held: Set<string>; base: bigint }
+const grants = new WeakMap<Guild, { mine: string[] | undefined; me: string; grant: Grant | null }>();
+const answers = new WeakMap<Channel, { grant: Grant; visible: boolean }>();
+
+function grantOf(s: Store, guild: Guild, me: string): Grant | null {
+  const mine = s.roles.get(guild.id);
+  const kept = grants.get(guild);
+  if (kept && kept.mine === mine && kept.me === me) return kept.grant;
+  let grant: Grant | null = null;
+  const roles = (guild.roles ?? []) as DiscordObject[];
+  if (guild.owner_id !== me && mine && roles.length) {
+    // A role the guild no longer has (GUILD_ROLE_DELETE) grants nothing, nor do its overwrites.
+    const existing = new Set(roles.map(role => role.id));
+    const held = new Set([guild.id, ...mine.filter(id => existing.has(id))]);
+    let base = 0n;
+    for (const role of roles) if (held.has(role.id)) base |= bits(role.permissions);
+    if (!(base & ADMINISTRATOR)) grant = { held, base };
+  }
+  grants.set(guild, { mine, me, grant });
+  return grant;
+}
+
+/** Whether the account may see a guild channel: its roles' permissions with the channel's overwrites
+ * applied, @everyone's first, then its roles' together, then its own, as Discord computes them
+ * (https://discord.com/developers/docs/topics/permissions#permission-overwrites). What the cache cannot
+ * decide (no roles yet) is shown. */
+export function canView(s: Store, channel: Channel): boolean {
+  const guild = channel.guild_id ? s.guildMap.get(channel.guild_id) : undefined;
+  if (!guild || !s.meId) return true;
+  const grant = grantOf(s, guild, s.meId);
+  if (!grant) return true;
+  const kept = answers.get(channel);
+  if (kept?.grant === grant) return kept.visible;
+  let permissions = grant.base;
+  const overwrites = (channel.permission_overwrites ?? []) as DiscordObject[];
+  const apply = (o: DiscordObject | undefined) => { if (o) permissions = (permissions & ~bits(o.deny)) | bits(o.allow); };
+  apply(overwrites.find(o => o.id === guild.id));
+  let deny = 0n, allow = 0n;
+  for (const o of overwrites) if (o.id !== guild.id && o.type === 0 && grant.held.has(o.id)) { deny |= bits(o.deny); allow |= bits(o.allow); }
+  permissions = (permissions & ~deny) | allow;
+  apply(overwrites.find(o => o.type === 1 && o.id === s.meId));
+  const visible = (permissions & VIEW_CHANNEL) !== 0n;
+  answers.set(channel, { grant, visible });
+  return visible;
 }
 
 function withRecipients(s: Store, value: Channel): Channel {

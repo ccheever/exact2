@@ -178,6 +178,11 @@ package final class Runtime {
         let ctx = UInt(bitPattern: ctx)
         on { exact_set_fonts(rt, fonts, UnsafeMutableRawPointer(bitPattern: ctx)) }
     }
+    /// The host's clock in the runner's milliseconds, or nil for the seekable one that
+    /// tests and the agent move (the timers RFC, D1); later boots take it too.
+    package func setLiveClock(_ wall: (@convention(c) () -> Double)?) {
+        on { () -> Void in _ = exact_set_live_clock(rt, wall) }
+    }
     /// The wake for a request's reply (LLP 1016 D2), on the executor's thread.
     package func setWake(_ wake: ExactWakeFn?, ctx: UnsafeMutableRawPointer?) {
         let ctx = UInt(bitPattern: ctx)
@@ -609,6 +614,16 @@ package final class Runtime {
     package func hostGo(_ location: String, now: Double) -> Batch {
         on { read(exact_host_go(rt, write(location), now)) }
     }
+    /// A package's call of the app's handler (LLP 1133.016 D15 item 1),
+    /// `{"extension", "handle", "handler", "args"}`: the runner's answer,
+    /// JSON, goes to `reply(ctx, …)` once, now or when the handler's work lands.
+    package func invokeModule(_ body: String, reply: ExactInvokeReply, ctx: UnsafeMutableRawPointer?) {
+        let ran = on(busy: false) { () -> Bool in exact_module_invoke(rt, write(body), reply, ctx); return true }
+        if !ran {
+            let busy = Array("{\"error\":\"InvalidStateError\",\"message\":\"the runtime is busy\"}".utf8)
+            busy.withUnsafeBufferPointer { reply(ctx, $0.baseAddress, UInt32($0.count)) }
+        }
+    }
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
@@ -664,6 +679,16 @@ package final class Runtime {
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
     package func preferExtension(_ json: String) -> Batch { on { read(exact_extension(rt, write(json))) } }
     package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
+    /// A package picture's admission (LLP 1133.019 D11 item 1): nil for a
+    /// source of no package's scheme.
+    package func picture(_ source: String) -> [String: Any]? {
+        on(busy: ["error": "NotAllowedError", "message": "busy"]) {
+            let len = exact_picture(rt, write(source))
+            guard len > 0 else { return nil }
+            let data = Data(bytes: exact_out(rt), count: Int(len))
+            return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "NotAllowedError"]
+        }
+    }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     package func setPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale)) ) } }
@@ -786,6 +811,14 @@ package final class Runtime {
         on {
             guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
             _ = exact_auth(rt, write(String(decoding: json, as: UTF8.self)))
+        }
+    }
+    /// How a presence check ended (LLP 1133.010 D13): on the store's
+    /// completion path, which carries an unlocked value to its call alone.
+    package func presence(_ answer: [String: Any]) {
+        on {
+            guard let json = try? JSONSerialization.data(withJSONObject: answer) else { return }
+            _ = exact_presence(rt, write(String(decoding: json, as: UTF8.self)))
         }
     }
     /// A line for the runner's journal (LLP 1012 §3): what this host refused, and why.

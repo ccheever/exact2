@@ -986,15 +986,15 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// `currententrychange`, `navigatesuccess` and `navigateerror` join the
-/// event kinds (LLP 1020.002 D2, an iframe's navigations). Every host needs
-/// a new binary for this plan format.
+/// The `views` table joins the plan (LLP 1133.008 D8 items 1 and 2), and
+/// `currententrychange`, `navigatesuccess` and `navigateerror` the event
+/// kinds (LLP 1020.002 D2). Every host needs a new binary for this plan format.
 /// The format digest is pinned: a change to `tables/format.json`, a comment
 /// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x6216_981c_bc3d_cda2,
+        FORMAT_DIGEST, 0x591e_0b51_ea63_4aa8,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

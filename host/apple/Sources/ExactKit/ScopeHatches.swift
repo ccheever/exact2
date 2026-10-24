@@ -15,7 +15,7 @@
 //   184  app(module, event, application, json, len)
 //          event 0 built, 1 changed, 2 ended; json {"facts": {…}, "data": {…}, "processOwner"}
 //   192  window(module, event, window, scene, json, len)
-//          event 0 built, 1 changed, 2 ended; json {"frame", "safeArea", "exclusive"}
+//          event 0 built, 1 changed, 2 ended; json {"frame", "safeArea", "exclusive", "angle"}
 //
 // Built runs as the hatches connect, after first pixel; changed and ended
 // never inside a batch.
@@ -118,7 +118,23 @@ extension NativeViews {
         let frame = view.convert(view.bounds, to: nil)
         let r = { (x: CGFloat) in (Double(x) * 100).rounded() / 100 }
         let insets = view.safeAreaInsets, safe = [r(insets.top), r(insets.right), r(insets.bottom), r(insets.left)]
-        return encoded(["frame": [r(frame.minX), r(frame.minY), r(frame.width), r(frame.height)], "safeArea": safe, "exclusive": scopes.windowExclusive])
+        return encoded(["frame": [r(frame.minX), r(frame.minY), r(frame.width), r(frame.height)], "safeArea": safe, "exclusive": scopes.windowExclusive,
+                        "angle": Self.angle(window)])
+    }
+
+    /// The window's angle as the web's `screen.orientation.angle` (LLP
+    /// 1133.013 D12 item 4): its scene's interface orientation; 0 on the Mac.
+    static func angle(_ window: FocusWindow) -> Int {
+        #if os(iOS)
+        switch window.windowScene?.effectiveGeometry.interfaceOrientation {
+        case .landscapeRight: return 90
+        case .portraitUpsideDown: return 180
+        case .landscapeLeft: return 270
+        default: return 0
+        }
+        #else
+        return 0
+        #endif
     }
 
     /// `window` for the surface the session presents into: built (0), a

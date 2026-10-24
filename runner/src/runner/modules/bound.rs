@@ -35,9 +35,11 @@ impl<D: DataSource> Runner<D> {
             .filter(|e| !real.contains(e))
             .map(|e| e.to_string())
             .collect();
+        self.presence_rebound();
         if real.is_empty() && agent.is_empty() {
             return;
         }
+        self.retell_views(&[real, agent].concat());
         if !real.is_empty() {
             self.log(format!("modules bound here: {}", real.join(", ")));
         }
@@ -84,7 +86,7 @@ impl<D: DataSource> Runner<D> {
                 self.plan.str(row.sync)
             );
             let answer = (self.route(row) != Route::Real).then(|| {
-                let answer = match self.decide(row, row.send) {
+                let answer = match self.decide(row, row.send, &json!({})) {
                     Decision::Now(answer) => answer,
                     Decision::Hold(_) | Decision::Forward => {
                         match &self.substitute(row)["cancel"] {
@@ -112,7 +114,9 @@ impl<D: DataSource> Runner<D> {
 
     /// The body of a call of `row` for its implementation, `{"extension",
     /// "source"|"send", "args"}`; under the agent with the preferred value
-    /// the agent set for it, as `preferred` (LLP 1133.009 D10 item 11). A
+    /// the agent set for it, as `preferred` (LLP 1133.009 D10 item 11); with
+    /// its `origin` when a tool or a wake made it, so an implementation that
+    /// starts a device on a read (a track's first lease, D6) can refuse. A
     /// live source's reader is counted, so its release can be said, and a
     /// Contract reader (`reader`, its resource) with its arguments, so each
     /// argument group's can.
@@ -126,12 +130,42 @@ impl<D: DataSource> Runner<D> {
         // An option the call omits is left out, so it stays the platform's (D2).
         let mut args = args;
         written(&mut args);
+        // The options its declaration names strings keys are sent as their
+        // text, which the platform shows (a sheet's reason, LLP 1133.010 D1).
+        let strings = self.substitute(row)["strings"].clone();
+        for path in strings
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Json::as_str)
+        {
+            let pointer = format!("/{}", path.replace('.', "/"));
+            let key = args
+                .pointer(&pointer)
+                .and_then(Json::as_str)
+                .map(str::to_owned);
+            if let (Some(key), Some(at)) = (key, args.pointer_mut(&pointer)) {
+                *at = Json::String(self.strings_text(&key));
+            }
+        }
         let key = self.key(row);
         let mut body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
         if self.route(row) == Route::Agent {
             if let Some(preferred) = self.extensions.preferred.get(&key) {
                 body["preferred"] = preferred.clone();
             }
+        }
+        let origin = match reader {
+            Some(i) => self.origin_for(Some(crate::runner::Target::Resource(i))),
+            None => self.call_origin(),
+        };
+        if origin != super::CallOrigin::App {
+            body["origin"] = json!(origin.word());
+        }
+        // A send's number, which `cancel` names if it is let go (LLP 1133.016 D15 item 2).
+        if row.send {
+            self.extensions.requests += 1;
+            body["request"] = json!(self.extensions.requests);
         }
         if row.live && !row.send {
             self.note_poll(row);
@@ -147,7 +181,54 @@ impl<D: DataSource> Runner<D> {
             }
             self.extensions.live.insert(key);
         }
+        // A sampled source's reader carries its cursor (LLP 1133.013 D5),
+        // outside the group its arguments make.
+        if let Some(after) = self.cursor(row) {
+            body["args"]["after"] = json!(after);
+        }
         body.to_string().into_bytes()
+    }
+
+    /// Request `ticket` went out with `body`: a send to an implementation
+    /// is kept by its number until its reply lands.
+    pub(in crate::runner) fn note_send(&mut self, ticket: u64, body: &[u8]) {
+        let Ok(v) = serde_json::from_slice::<Json>(body) else {
+            return;
+        };
+        if let (Some(extension), Some(send), Some(n)) = (
+            v["extension"].as_str(),
+            v["send"].as_str(),
+            v["request"].as_u64(),
+        ) {
+            (self.extensions.sent).insert(ticket, (format!("{extension}.{send}"), n));
+        }
+    }
+
+    /// Request `ticket`'s reply landed: its send is no longer cancelled.
+    pub(in crate::runner) fn landed_send(&mut self, ticket: u64) {
+        self.extensions.sent.remove(&ticket);
+    }
+
+    /// Each send let go before its reply landed (superseded, its commit
+    /// refused): its implementation is told `{"extension", "cancel": n}`,
+    /// so the work no one reads stops (LLP 1133.016 D15 item 2).
+    pub(in crate::runner) fn cancel_let_go(&mut self) {
+        let gone: Vec<u64> = (self.extensions.sent.keys())
+            .filter(|t| !self.pending.iter().any(|p| p.ticket == **t))
+            .copied()
+            .collect();
+        let handler = self.native_slot().handler();
+        for ticket in gone {
+            let Some((key, n)) = self.extensions.sent.remove(&ticket) else {
+                continue;
+            };
+            self.log(format!("cancel {key} request {n}: its call was let go"));
+            let extension = key.split_once('.').map_or(key.as_str(), |(e, _)| e);
+            if let Some(handler) = &handler {
+                let body = json!({ "extension": extension, "cancel": n });
+                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+            }
+        }
     }
 
     /// The preferred values the agent set for `extension`'s names, for its
@@ -162,7 +243,21 @@ impl<D: DataSource> Runner<D> {
         let values: serde_json::Map<String, Json> = (self.extensions.preferred.iter())
             .filter_map(|(k, v)| Some((k.strip_prefix(&prefix)?.to_owned(), v.clone())))
             .collect();
-        let body = json!({ "extension": extension, "preferred": values });
+        // And the state of each permission it declares, which its answers
+        // follow (LLP 1133.019 §10: under `limited`, only the selection).
+        let permissions: serde_json::Map<String, Json> = (self.plan.modules.iter())
+            .filter(|m| self.plan.str(m.extension) == extension)
+            .flat_map(|m| {
+                let list = self.substitute(m)["permissionList"].clone();
+                list.as_array().cloned().unwrap_or_default()
+            })
+            .filter_map(|p| {
+                let name = p["name"].as_str()?.to_owned();
+                Some((name.clone(), json!(self.permission_state(&name))))
+            })
+            .collect();
+        let body =
+            json!({ "extension": extension, "preferred": values, "permissions": permissions });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));
     }
 

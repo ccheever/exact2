@@ -611,8 +611,12 @@ to LLP 1126.001 §5 Q6's pending ruling.
 
 `bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
 companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
---watch-sim <watch udid>` installs it on an existing, booted pair and opens its
-placeholder gallery. Add a complication through the watch face's editor.
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens it.
+An app whose `app.json` declares a `watch` entry (`{"source", "component"}`:
+its own Contract file and root component, LLP 1126.002 D4) runs that entry live
+on the watch; the bake refuses what the watch does not draw. An app with none
+opens its complications' placeholders. Add a complication through the watch
+face's editor.
 The watch extension keeps the accessory families (`accessoryCircular`,
 `accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
 `accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
@@ -620,7 +624,7 @@ families; `families` still names its iOS families. An app with `app.ts` has all
 watch entries omitted with a message, including its Rust refreshes, until the
 watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
 refresh against the watch's own App Group and store. No account transfer is
-performed. The watch app is a placeholder gallery until the live driver lands.
+performed.
 For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
 optional image. Only that leaf and image survive the inline archive; a
 container's background and layout do not. The bake evaluates the preview at
@@ -1659,6 +1663,54 @@ Linux, Windows and Android have no image encoder and answer `unsupported`, so
 upload the original when it already fits. Under the agent it runs for real with
 `--storage <name>`.
 
+`rotate`, `flip` and `crop` edit the picture before the search, with
+`transformImage`'s meanings (below), so an avatar cropped from a turned photo
+is one call; a crop that misses the picture rejects with `code` `outside`
+([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D15).
+
+### Save an edit of a photo (`storage.fs.transformImage`)
+
+`storage.fs.transformImage(from, to, options)` decodes the image at `from`
+once, makes the edit and encodes it once at `to`, with no search. The order is
+fixed: the picture upright (its orientation applied), then `rotate` (degrees
+clockwise, about its centre), then `flip` (`'horizontal'` or `'vertical'`, in
+the turned frame, so `'horizontal'` mirrors what the person sees), then `crop`
+(`{x, y, width, height}` in the turned frame's pixels, clipped to it and its
+edges rounded), then the size (`resizeWidth`, `resizeHeight` and
+`resizeQuality` as `createImageBitmap` takes them; one side keeps the aspect),
+then the encoding (`type` and `quality`, 0 to 1, as `convertToBlob` takes
+them; `quality` is 0.9 unsaid). A quarter turn resamples nothing; any other
+angle turns the picture into its bounding box, clear where the type keeps
+alpha and white in a JPEG. `type` unsaid is the source's where the host writes
+it, else JPEG; a type the host does not write rejects with `unsupported`, never
+another silently. A `to` with no extension gains the type's.
+
+Unlike `compressImage`, which is for uploads, it keeps what the camera made where
+the host can: the source's colour space (a Display P3 photo stays P3), an HDR
+photo's gain map (JPEG and HEIC on macOS and iOS), and, by `metadata`, the
+source's EXIF, TIFF, GPS, IPTC and XMP with the orientation reset (`'keep'`,
+unsaid), the capture's standard tags and the IPTC rights with no GPS, maker
+note or XMP (`'no-location'`), or nothing (`'none'`). It resolves `{path, type,
+size, width, height, colorSpace, hdr, metadata}`, the last three what was
+written ([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D14, D15):
+
+```ts
+export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
+// the editor's angle, and the crop in the turned photo's pixels
+const saved = await storage.fs.transformImage(photo, `app:/tmp/edits/${n}`,
+  { rotate: edit.angle, crop: edit.crop });
+// saved.path ends in .jpg or .heic, the camera's own type
+```
+
+Its grants, queue, atomic write and refusals are `compressImage`'s, with
+`outside` for a crop that misses and no `unfit`. macOS and iOS encode JPEG, PNG
+and HEIC; the web encodes PNG, and JPEG and WebP where the browser does, and a
+canvas keeps no metadata, colour space but sRGB or gain map, so there the
+record says `colorSpace: 'srgb'`, `hdr: false` and `metadata: 'none'` whatever
+was asked. The iOS simulator's ImageIO writes no gain map, so there an HDR
+photo is saved as SDR and says `hdr: false`. Linux, Windows and Android answer
+`unsupported`.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
@@ -1815,8 +1867,14 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 `.exact/backend-origin` overrides it, and refuses a missing entry, listing the
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
-same grants. Authored source stays unchanged; keyed grants are never moved to
-another origin.
+same grants. Authored source stays unchanged. Keyed grants move to another
+origin in one case: in a development build (`EXACT_UPDATE_TRUST` unset or
+`development`), an origin at a private-network address (RFC 1918 or link-local
+IPv4, `fc00::/7` or `fe80::/10` IPv6) with no entry takes the entry of the same
+server at loopback (`127.0.0.1`, `localhost` or `[::1]` with the same scheme and
+port), its `net.fetch` and `net.websocket` lines moved to that address with their
+paths. This is how a phone reaches a fixture server on the Mac's LAN address. A
+production build refuses it, as it refuses any missing entry.
 
 The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
@@ -2080,7 +2138,8 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
-| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG) | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG), `"rotate"`, `"flip"`, `"crop"` | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.transformImage"` | `{"path", "destination"}` and `storage.fs.transformImage`'s options beside them (`"rotate"`, `"crop"`, `"metadata"`, …; `null` is absent) | `{"path", "type", "size", "width", "height", "colorSpace", "hdr", "metadata"}`, as it answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It
@@ -2179,8 +2238,8 @@ bundle built and signed, installed on nothing, so it needs the tvOS SDK and
 Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
 `--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
 host and every Linux app (`-p '*-linux'`: each `apps/<app>/linux` crate is a
-workspace member named `<app>-linux`) and for the Windows host and Windows Desk. Install
-`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+workspace member named `<app>-linux`) and for the Windows host and Windows Desk, on x64 and ARM64. Install
+`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu` and `aarch64-pc-windows-gnullvm` with `rustup target add`
 and provide `zig` on the Mac: it compiles C, and C++ for the Linux target
 (Hermes's JSI bindings). The check runs offline, so install the pinned Linux
 Hermes bundle once per Hermes pin (again whenever the pin changes): `cargo run
@@ -2397,6 +2456,10 @@ after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
 is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
 Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
 Percentages use the corresponding root dimension.
+A native route's scrollport can be the root, including at offset zero.
+`overflow: clip` clips descendants without becoming a root. The margin expands
+only the root; clips between the target and root keep their original bounds.
+Ancestors above an explicit root only map its coordinates.
 This can keep T3 sidebar subscriptions active near the viewport and track timeline turns.
 Removal cancels observation without a leave callback. Both web targets use the
 browser's IntersectionObserver after first paint. AppKit, UIKit and Linux use

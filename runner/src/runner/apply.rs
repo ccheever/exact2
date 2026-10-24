@@ -14,7 +14,7 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         let live_undo = self.prepare_live_times(&mut ops);
-        let axes = self.prepare_text_axes(&mut ops);
+        let axes = self.prepare_text_axes(&ops);
         self.batch += 1;
         let (language, direction) = self.document_facts();
         let shown = std::mem::take(&mut self.shown);
@@ -26,7 +26,6 @@ impl<D: DataSource> Runner<D> {
                 Ok(receipt) => receipt,
                 Err(e) => {
                     live_undo.restore(&mut self.live_times);
-                    self.unwind_text_axes(axes);
                     self.notes.clear();
                     return Err(e.into());
                 }
@@ -53,17 +52,26 @@ impl<D: DataSource> Runner<D> {
             self.batch += 1;
             let tail = self.kernel.apply(0, self.batch, &cleanup)?;
             self.tally(&cleanup, &tail.touched);
-            receipt.batch = tail.batch;
-            receipt.epoch = tail.epoch;
-            for key in tail.touched {
-                if !receipt.created.contains(&key) && !receipt.touched.contains(&key) {
-                    receipt.touched.push(key);
-                }
-            }
-            receipt.layout_invalidated |= tail.layout_invalidated;
+            take_tail(&mut receipt, tail);
+        }
+        // The font rows' presented values (LLP 1019 §13 D10).
+        if let Some(tail) = self.settle_text_axes(axes, &receipt)? {
+            take_tail(&mut receipt, tail);
         }
         self.commit_router(change);
         self.retire_holds();
         Ok(receipt)
     }
+}
+
+/// One receipt for a commit and the one that followed it in the same apply.
+pub(super) fn take_tail(receipt: &mut CommitReceipt, tail: CommitReceipt) {
+    receipt.batch = tail.batch;
+    receipt.epoch = tail.epoch;
+    for key in tail.touched {
+        if !receipt.created.contains(&key) && !receipt.touched.contains(&key) {
+            receipt.touched.push(key);
+        }
+    }
+    receipt.layout_invalidated |= tail.layout_invalidated;
 }

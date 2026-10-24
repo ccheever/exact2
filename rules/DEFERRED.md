@@ -236,6 +236,13 @@ hooks and reusable shader-packaging support in shared build tools are within
 that optional add-on's scope. The same take holds; core apps gain no engine
 dependency. Weird Waters may prove the hooks privately alongside independent
 public fixtures on web, macOS and iOS.
+**Expanded (Charlie, 2026-10-23, #905):** a game surface's published record
+carries a host-owned readiness fact: true once the game's renderer has drawn a
+complete frame for the current generation, false again after a restore or a
+lost device. The app binds its own pause and loading cover to it; `PENDING`
+still permits ticks and the runtime adds no barrier. The Minecraft consumer,
+whose player took damage before its terrain drew, is the consumer. Take: none
+offered; waived by Charlie. It follows Nathan Schroeder's #967.
 
 **Expanded (Charlie, 2026-09-23: "ok let's do pre-rendering etc."; "let's use
 Interview as our website"):** web rendering across the curve (LLP 1048), with
@@ -320,6 +327,12 @@ configure this on platforms that support it"):** a sheet route's
 tall over a half-height stop, is the consumer. Take: none offered; waived by
 James, whom Charlie gave the call. Still out: reading or binding the detent
 a person drags the sheet to.
+**Expanded (Charlie, 2026-10-23, #854; part of LLP 1123 D7):** a presented
+route's `navigationSizing` is `page` (the default) or `form`, which iPadOS
+shows as UIKit's centred `.formSheet`; a host whose sheets have one size
+ignores it. T3 Code's Add environment sheet (#216) is the consumer, and Nathan
+Schroeder implements it. Take: none offered; waived by Charlie. Still out:
+D7's `automatic` and `fitted`, which stay in stage 6.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
@@ -375,6 +388,9 @@ removal ids for Go ▸ Back, Develop (its chords stay), Edit's template items,
 Help's book item and View's zoom; View ▸ Actual Size, Zoom In and Zoom Out
 over the root font size. Take: none; still Mac-only hints other hosts ignore,
 with no dock menu, status item or Windows menu bar.
+**Expanded (Charlie, 2026-10-23, Windows at full speed):** Windows presents
+the declared menu bar as a painted Fluent menu row (LLP 1021 §5.3.2). The
+dock menu and status item stay out.
 
 ## Surfaces
 
@@ -450,6 +466,14 @@ commands, writes on the location (`todo add milk`), and printing a GUI app
   using Contract and an app-local Win32 control presenter. General Windows
   control parity remains behind these two consumers; no additional showcase
   or framework is admitted by this example.
+  **Admitted (Charlie, 2026-10-23, waiver):** "We are no longer deferring
+  Windows. We are going full speed ahead on it right now." Windows is a host
+  for general apps, built to LLP 1115.004: Fluent painted by Exact's presenter,
+  with what Windows owns taken from Windows. First consumers: `apps/shelf` and
+  `apps/excord`, from S1. Floor: Windows 11 build 22621 on x64. Implementer:
+  Claude (Opus 5.5), S0 from 2026-10-23, on the NucBox. It admits a painted
+  Fluent menu bar for an app that declares one (LLP 1021 §5.3.2), and Exact's
+  delivery on Windows (LLP 1115.004 D15).
 - **Android.** Same, until 2026-10-07. **Admitted (Charlie, 2026-10-07,
   waiver):** "admit android. we are working on android now -- it's becoming
   real. amend that." Unblocks Android as a supported host instead of work
@@ -462,6 +486,13 @@ commands, writes on the location (`todo add milk`), and printing a GUI app
 
   No take was named; the ruling stands as its own waiver until Charlie names
   one.
+
+  **Expanded (Charlie, 2026-10-23, LLP 1115.001.003 §5):** Android TV is
+  admitted as a variant of the Android phone host, as tvOS is of the iOS
+  presenter: the same APK, Canvas reader and presenter, which tell a TV by
+  its UI mode at run time; no second artifact or build flag. Unblocks Caltrain
+  on an Android TV, driven by the remote's D-pad, Select and Back. No take was
+  named; the ruling stands as its own waiver until Charlie names one.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
 change can break.
@@ -803,6 +834,170 @@ reading. Nothing that isn't HTML is added by it.
   in the background, Android's background recording, constraint
   dictionaries, two inputs at once, `getDisplayMedia`, and the Windows,
   Linux, tvOS, visionOS and watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Expand both, no take", on LLP 1133.012
+  §14 question 7):** speech synthesis and recognition by the Web Speech
+  API's names (`speak`, `cancelSpeech`, `speechSynthesisState` and the rest
+  from `@exact/speech-synthesis`; `startSpeechRecognition` and the rest
+  from `@exact/speech-recognition`), on the web, iOS, macOS and Android.
+  Spoken audio is a claim on the host's one audio session (LLP 1096 D8);
+  recognition takes a track from `@exact/media-capture`, the microphone
+  held exclusively where the recognizer must own it, or a file.
+  Consumers: the recorder's transcript of each take and the Markdown
+  reader's Listen. Unblocks reading a document aloud and transcribing a
+  recording without app Swift. Take: none named. Still out, each until a
+  consumer asks (LLP 1133.012 §12): synthesis to a file or buffers and
+  SSML as tier 1 names, Now Playing for a `playback` queue, an Android
+  `playback` queue in the background, recognising while the app speaks
+  without hearing itself, turn-taking for a voice assistant, recognition
+  in the background and keyword spotting while idle, file transcription
+  on the web, speaker identification, diarization and translation,
+  `boost` on Apple and grammars, and the tvOS, visionOS, watchOS, Windows
+  and Linux cells. The LLP 1096 entry's "synthesis" is sound synthesis,
+  and it stays out.
+- **Expanded (Charlie, 2026-10-23, "Expand both, no take", on LLP 1133.013
+  §14 question 7):** the device's motion by W3C Device Orientation and
+  Motion's and the Generic Sensor API's names (`deviceMotion`,
+  `deviceOrientation`, `accelerometer`, `gravitySensor` and the rest,
+  imported from `@exact/motion`), on the web, iOS and Android: each a
+  polled source whose answer carries the samples since the reader's last,
+  under a cursor the runner holds; and samples at frame rate into a
+  canvas's input below the runner (`startSensorInput`, the engine's
+  `input.sensor`). Consumer: Beacons' tilt to move. Unblocks tilt
+  steering in a game without app Swift or a commit per sample. Take: none
+  named. Still out, each until a consumer asks (LLP 1133.013 §12): motion
+  in the background or while the app is closed, and wake-up sensors;
+  steps, activity, floors, altitude, pressure, light and proximity as
+  tier 1; fall detection, water submersion and movement disorder; a
+  Contract reader faster than the poll's floor, and a package view that
+  draws from samples below the runner; `populateMatrix` and other
+  conversions as names; `deviceOrientation` and the sensor sources on
+  macOS; and the Windows, visionOS and watchOS cells, and Linux through
+  IIO.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.014 §13 question 8):** signing in with an identity provider by
+  FedCM's names: an `identity` member on `@exact/passkeys`'
+  `credentials.get`, with `getIdentityCapabilities`, `preventSilentAccess`
+  and the provider's button (`exact-sign-in-button`) from
+  `@exact/sign-in`, for Sign in with Apple and Sign in with Google on the
+  web, iOS, macOS and Android, Apple on Android `later`. The provider's ID
+  token reaches data code alone, and the app's server verifies it; on the
+  web each provider's page opens in a popup through the host's auth
+  session and answers the app's server, and no provider's script runs in
+  the page. Consumer: the auth fixture, with Snapback's identity as the
+  product consumer. Unblocks signing in with Apple or Google without app
+  Swift, beside a passkey in one sheet. Take: none named. Still out, each
+  until a consumer asks (LLP 1133.014 §6, §8): One Tap, Google's button
+  and FedCM in a web page, and Sign in with Apple JS; a guaranteed silent
+  sign-in; Google API scopes and server auth codes; linked-account
+  sign-in; other identity providers and FedCM's identity-provider side; a
+  token verifier for apps' servers; Apple on Android; arbitrating sheets
+  across ExactKit sessions that share a window; and the Windows, Linux,
+  tvOS, watchOS and visionOS cells.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.015 §13 question 8):** selling digital goods through the platform's
+  store by the Digital Goods API's names (`getDetails`, `listPurchases`,
+  `consume`, with `purchase`, `acknowledge` and `unfinishedPurchases`, the
+  store's queue, from `@exact/purchases`), over StoreKit 2 on iOS and
+  macOS and Play Billing on Android, the web `absent`; and the store's
+  rating prompt (`requestReview` from `@exact/store-review`). Consumer:
+  Weatherlight+. Unblocks a subscription or a purchase in an app without
+  app Swift. Take: none named. The App Store, Mac App Store and Play
+  distribution lanes stay deferred, so selling in production still waits
+  for a store lane; development builds and the stores' test environments
+  need none. Still out, each until a consumer asks (LLP 1133.015 §11):
+  StoreKit's merchandising views as package views; External Purchase, the
+  link-out entitlements and Play's alternative billing as tier 1; payments
+  for physical goods; the web cell inside a TWA or a Microsoft Store PWA;
+  a receipt-validation or entitlement server of exact2's, and relaying the
+  stores' server notifications; and the Windows, tvOS, visionOS and
+  watchOS cells.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.016 §14 question 9):** the device's own language model by the
+  Prompt API's names (`languageModelAvailability`, `createLanguageModel`,
+  `prompt`, `promptStreaming` and the rest, from
+  `@exact/language-model`), over Foundation Models on iOS and macOS, ML
+  Kit's GenAI Prompt API on Android and the browser's Prompt API on the
+  web: structured output by a JSON Schema subset, tools that are the app's
+  data code the model calls back at the prompt's origin narrowed to
+  `tool`, and a download only as a person's act. Consumer: Agents'
+  on-device conversation, its titles and its tool. Unblocks prompting the
+  device's model without app Swift or a server. Take: none named. Still
+  out, each until a consumer asks (LLP 1133.016 §12): image and audio
+  input; partially generated structured values while streaming; tools and
+  enforced structured output on Android; the summarizer, writer,
+  rewriter and proofreader; Apple's dynamic profiles, session properties
+  and transcript error policy; a transcript that outlives the app's
+  session; `temperature` and `topK` as tier 1, and the web's
+  `samplingMode`; LLP 1111's `tool` lines as the model's tools; and the
+  visionOS, watchOS and Windows cells.
+- Background tasks were never on the doing list (LLP 1069 §5's "Not now").
+  **Expanded (Charlie, 2026-10-23, "Admit all three, no take", waived; LLP
+  1133.017 §15 question 11):** the app's code run by a wake the platform
+  schedules (Background Sync's `sync` and Periodic Background Sync's
+  `periodicsync`, from `@exact/background`), and uploads and downloads the
+  platform finishes after the app has gone (Background Fetch's names, from
+  `@exact/background-transfer`), on iOS, macOS and Android, with WorkManager
+  on Android; `sync` on the web while the page is open. A wake boots the
+  session with no view and draws nothing (`rules/RULES.md`'s boot row
+  exempts it); the host keeps the platform's entry points and the transfer
+  carrier, with the seam additions of LLP 1133.017 §8. The list's generic
+  job scheduler is not this: the platform's scheduler runs it, with no
+  queue or pool of exact2's. Consumer: Harmony's outbox, mention
+  notifications and photos. Unblocks a message written offline sent at the
+  next chance, and a photo that finishes uploading after the person has
+  left the app. Take: none named. Still refused (LLP 1133.017 §13): a
+  runner in a service worker on the web, and with it periodic sync and
+  background fetch there; push and a data-only push's wake; wakes for an
+  app that is not running on macOS, Linux and Windows; Android's
+  long-running workers and foreground services beyond a person-started
+  transfer's; resuming an interrupted upload on Android; an app's own
+  `beginBackgroundTask`; background location, geofencing, Bluetooth
+  restoration and HealthKit delivery, each its own module over this seam;
+  Background Fetch's `icons` and `updateUI`; and continued processing's
+  GPU resource.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.018 §15 question 9):** contacts and calendars (`@exact/contacts`,
+  `@exact/calendar`) on the web, iOS, macOS and Android. Choosing contacts
+  by the Contact Picker API's `select` is a copy and needs no grant; reading
+  the address book is a grant, in the picker's shape. Adding an event
+  through the system's editor (`showEventEditor`; an `.ics` file on the web
+  and the Mac) needs no grant; reading and writing the person's calendars
+  is a grant, in JSCalendar's shape of iCalendar's model. Limited contacts
+  and write-only calendars are `access` beside `state`; an app granted
+  either store keeps no answers, as one granted Health keeps none; a tool
+  may read the stores and may not write the calendar. With the seam
+  additions of LLP 1133.018 D13. Consumer: the Calendar example, Android
+  driven on `apps/module-fixture`. Unblocks the person's own events, guests
+  picked from contacts and Add to Calendar without app Swift. Take: none
+  named. Still out, each until a consumer asks (LLP 1133.018 §13): writing
+  contacts, groups and containers, and the system's contact card and
+  new-contact editor; recurrence written or edited by span, alarms,
+  attendees and reminders (reachable through the `EKEventStore` hatch); a
+  change history or batch protocol for a sync engine; delivery while the
+  app is closed; an app's own calendar account as a sync adapter, and
+  subscribed calendars; JSCalendar 2.0's changes; and the tvOS, visionOS,
+  watchOS, Windows and Linux cells.
+- **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
+  1133.019 §13 question 7):** the photo library, read and added to, both
+  halves now (`photoLibraryStatus`, `photoAssets`, `copyPhotoAsset`,
+  `addToPhotoLibrary` and `managePhotoSelection` from `@exact/photos`), on
+  iOS, macOS and Android, the web a visible absence. A library item
+  crosses by reference: an id, a picture the host draws through the
+  package's `img` scheme, or a copy in `app:/tmp`. Adding and reading are
+  two grants, limited access is a fact beside the state, and an app granted
+  the read keeps no answers. And image transforms (`transformImage`, and
+  `rotate`, `flip` and `crop` on `compressImage`) over each host's codec,
+  on the web, Apple and Android, with a new Android codec. With the seam
+  additions of LLP 1133.019 D11. Consumer: the photo editor, which saves
+  its edit to Photos and opens a recent photo from a strip under limited
+  access. Unblocks saving an edit and opening a library photo without app
+  Swift. Take: none named. Still out, each until a consumer asks (LLP
+  1133.019 §9): videos in the library and a Live Photo's movie; albums as
+  shared words; editing a photo in place, reverting it and deleting;
+  download progress for an iCloud photo; a change-details protocol for a
+  large grid; the picker's Android arm (LLP 1069.002's); filters and
+  adjustments, metadata read as values, and RAW; and the tvOS, visionOS,
+  Windows and Linux cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
@@ -1014,6 +1209,9 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   the runner laying the text out again each frame (LLP 1019 §13 D10). Unblocks
   variable type that moves, as the browser and Expo SDK 58 draw it. Every other
   layout property stays out.
+  **Expanded (Charlie, 2026-10-24, "fix all those things", of a list naming
+  them):** `transition` on `font-variation-settings`, and `@keyframes` on all
+  three font rows, played the same way.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

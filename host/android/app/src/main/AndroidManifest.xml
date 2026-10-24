@@ -5,7 +5,17 @@
          remote picture fail at the name lookup. What an app may reach is still its own grants' to say (`net.fetch`),
          which exact2 enforces; this is only the platform's door. A normal permission: nothing is asked of the person. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true">
+    <!-- One APK for phones and TVs (LLP 1115.001.003 D1, D5): neither a touch screen nor the TV's leanback UI is
+         required, so it installs on both. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- Back reaches the reader's OnBackInvokedCallback from Android 13 (ExactActivity.Back, LLP 1115.001 D6). Before
+         Android 16 the platform calls it only when the app opts in; without this, Back on Android 13 to 15 finished
+         the activity from any screen. -->
+    <!-- Locked secrets' files stay out of backups and transfers (res/xml/exact_backup.xml, LLP 1133.010 D6). -->
+    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true"
+        android:banner="@drawable/banner" android:enableOnBackInvokedCallback="true"
+        android:fullBackupContent="@xml/exact_backup" android:dataExtractionRules="@xml/exact_data_extraction">
         <profileable android:shell="true" />
         <!-- The changes the host takes in place (LLP 1115.001 D15.1), so that none of them makes the activity again:
              a rotation or a resize, night mode, font scale and bold text, the locale and its direction, the display's
@@ -15,6 +25,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- The TV launcher's entry (D5). -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
     </application>

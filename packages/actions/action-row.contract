@@ -1,4 +1,3 @@
-use iconReply, iconRepost, iconHeart, iconHeartFilled, iconBookmark, iconBookmarkFilled, iconShare, iconDots, Glyph from "./common.contract"
 
 style ActionCount
   font-size="actions.count-size" line-height="actions.count-line" font-variant-numeric="tabular-nums"
@@ -74,11 +73,12 @@ component ActionRow
             padding="param.hit"
             border-radius="param.radius"
             -exact-press-haptic=(haptics ? "impact-light" : "none")
-            Glyph(
-              d=iconReply(),
-              size=(big ? "actions.icon-big" : "actions.icon"),
+            image "symbol:actions.reply"
+              width=(big ? "actions.icon-big" : "actions.icon")
+              height=(big ? "actions.icon-big" : "actions.icon")
+              flex-shrink=0
+              aria-hidden=true
               color="param.tint"
-            )
             if replies != ""
               text replies class=ActionCount
                 font-size=(big ? "actions.count-size-big" : "actions.count-size")
@@ -95,11 +95,12 @@ component ActionRow
             padding="param.hit"
             border-radius="param.radius"
             -exact-press-haptic=(haptics ? "impact-light" : "none")
-            Glyph(
-              d=iconRepost(),
-              size=(big ? "actions.icon-big" : "actions.icon"),
+            image "symbol:actions.repost"
+              width=(big ? "actions.icon-big" : "actions.icon")
+              height=(big ? "actions.icon-big" : "actions.icon")
+              flex-shrink=0
+              aria-hidden=true
               color=(reposted ? "actions.row-reposted" : "param.tint")
-            )
             if reposts != ""
               text reposts class=ActionCount
                 font-size=(big ? "actions.count-size-big" : "actions.count-size")
@@ -118,11 +119,12 @@ component ActionRow
             padding="param.hit"
             border-radius="param.radius"
             -exact-press-haptic=(haptics ? "impact-light" : "none")
-            Glyph(
-              d=(liked ? iconHeartFilled() : iconHeart()),
-              size=(big ? "actions.icon-big" : "actions.icon"),
+            image (liked ? "symbol:actions.heart-filled" : "symbol:actions.heart")
+              width=(big ? "actions.icon-big" : "actions.icon")
+              height=(big ? "actions.icon-big" : "actions.icon")
+              flex-shrink=0
+              aria-hidden=true
               color=(liked ? "actions.row-liked" : "param.tint")
-            )
             if likes != ""
               text likes class=ActionCount
                 font-size=(big ? "actions.count-size-big" : "actions.count-size")
@@ -137,11 +139,12 @@ component ActionRow
           padding="param.hit"
           border-radius="param.radius"
           -exact-press-haptic=(haptics ? "impact-light" : "none")
-          Glyph(
-            d=(saved ? iconBookmarkFilled() : iconBookmark()),
-            size=(big ? "actions.icon-big" : "actions.icon"),
+          image (saved ? "symbol:actions.bookmark-filled" : "symbol:actions.bookmark")
+            width=(big ? "actions.icon-big" : "actions.icon")
+            height=(big ? "actions.icon-big" : "actions.icon")
+            flex-shrink=0
+            aria-hidden=true
             color=(saved ? "actions.row-saved" : "param.tint")
-          )
         // The share menu; a long press shares at once.
         button part="share" class=ActionButton
           testId=`share-${id}`
@@ -151,7 +154,12 @@ component ActionRow
           padding="param.hit"
           border-radius="param.radius"
           -exact-press-haptic=(haptics ? "impact-light" : "none")
-          Glyph(d=iconShare(), size=(big ? "actions.icon-big" : "actions.icon"), color="param.tint")
+          image "symbol:actions.share"
+            width=(big ? "actions.icon-big" : "actions.icon")
+            height=(big ? "actions.icon-big" : "actions.icon")
+            flex-shrink=0
+            aria-hidden=true
+            color="param.tint"
         button part="more" class=ActionButton
           testId=`more-${id}`
           aria-label="Open post options menu"
@@ -159,4 +167,9 @@ component ActionRow
           padding="param.hit"
           border-radius="param.radius"
           -exact-press-haptic=(haptics ? "impact-light" : "none")
-          Glyph(d=iconDots(), size=(big ? "actions.icon-big" : "actions.icon"), color="param.tint")
+          image "symbol:actions.dots"
+            width=(big ? "actions.icon-big" : "actions.icon")
+            height=(big ? "actions.icon-big" : "actions.icon")
+            flex-shrink=0
+            aria-hidden=true
+            color="param.tint"

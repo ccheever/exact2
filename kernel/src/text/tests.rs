@@ -7,6 +7,7 @@ fn style(font_size: f32) -> TextStyle {
         font_style: FontStyle::Normal,
         font_stretch: 100.0,
         font_variations: Default::default(),
+        font_optical_sizing: Default::default(),
         font_family: 0,
         line_height: None,
         letter_spacing: 0.0,

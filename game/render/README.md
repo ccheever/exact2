@@ -914,7 +914,7 @@ until it has, and the driver asks again.
   `hidden-ancestor <name>`, `opacity 0`, `asset-pending <model or texture>`,
   `lod-hidden <d> m`, `not-drawn` (no draw held it), `custom-material` (never
   culled), `frustum`, `occluded` (dropped by the depth pyramid this frame),
-  `outside-cascade <n>` (drawn, beyond every sun cascade), `no-particles` (an
+  `outside-cascade <n>` (drawn, in no sun cascade's list: past them, or casting where the camera reads none), `no-particles` (an
   emitter with none live) or `drawn`. The cull's camera and cascade lists answer
   for meshes and its account says which test dropped one (`not-drawn` names a level
   of detail not drawn when the account marks it, and `lod-hidden` comes from the

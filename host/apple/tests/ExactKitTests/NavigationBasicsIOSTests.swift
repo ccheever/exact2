@@ -97,69 +97,208 @@ final class NavigationBasicsIOSTests: XCTestCase {
         (try? node(session, testId))?.accessibleText
     }
 
-    func testStationaryNavigationKeepsItsBarsOutsideThePageScroller() throws {
-        let session = try fixture("stationary-navigation")
-        let presenter = session.presenter
-        let owner = try XCTUnwrap(presenter.navigation.primaryOwner?.view)
-        var ancestor = owner.superview
-        while let view = ancestor {
-            XCTAssertFalse(view is UIScrollView, "Duo's native Back must not sit inside a page scroller")
-            ancestor = view.superview
+    func testNativeNavigationKeepsItsViewportWhileThePageScrolls() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "UIKit publishes pinned placements through its natural layout pass")
         }
-        XCTAssertTrue(presenter.mounts(owner))
-        XCTAssertFalse(presenter.viewport.isScrollEnabled)
+        let session = try fixture("native-allocation", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter
+        let owner = try XCTUnwrap(p.navigation.primaryOwner?.view), window = try XCTUnwrap(window)
+        let allocation = owner.convert(owner.bounds, to: window)
+        try tapNode(session, "home-open-edit-overflow")
+        let field = try XCTUnwrap(try node(session, "edit-draft").field)
+        until("the editor and its native screen settle") { field.isFirstResponder && !p.navigation.inTransition }
+        let agent = Agent(session: session)
+        _ = agent.clock(["settle": true])
+        XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation, "page extent does not size the native screen")
+        XCTAssertGreaterThan(p.viewport.contentSize.height, p.viewport.bounds.height)
+        let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(p.owners.told[route.node.id]?.block, .size(p.viewportSize), "the native route receives the viewport's layout allocation")
+        let before = try XCTUnwrap(p.owners.told[route.node.id]?.placement).rect
+        let editorFrame = field.convert(field.bounds, to: window)
+        p.viewport.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
+        until("scrolling publishes the fixed native allocation without an agent settle") {
+            abs((p.owners.told[route.node.id]?.placement?.rect.minY ?? -.infinity) - before.minY - p.viewport.contentOffset.y) <= 0.5
+        }
+        _ = agent.clock(["settle": true])
+        XCTAssertGreaterThan(p.viewport.contentOffset.y, 0)
+        XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation, "UIKit keeps the screen in the viewport")
+        XCTAssertEqual(field.convert(field.bounds, to: window), editorFrame)
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertEqual(try XCTUnwrap(p.owners.told[route.node.id]?.placement).rect.minY,
+                       before.minY + p.viewport.contentOffset.y, accuracy: 0.5, "public geometry follows the fixed allocation")
+        _ = agent.back()
+        until("Home returns") { !p.navigation.inTransition }
+        try tapNode(session, "home-open-edit")
+        _ = agent.clock(["settle": true])
+        XCTAssertEqual(p.viewport.contentOffset, .zero, "shrinking the page restores its rest offset")
+        XCTAssertTrue(p.root.isDescendant(of: p.viewport), "the document retains one scrolling parent")
     }
 
-    func testNavigationDocumentsKeepScrollingWhenTheirContentGrows() throws {
-        let session = try fixture("scrolling-navigation-document")
-        let presenter = session.presenter
-        let root = try XCTUnwrap(presenter.root.subviews.first)
-        let original = root.frame
-        root.frame.size.height = presenter.viewportSize.height + 300
-        presenter.fitDocument()
-        XCTAssertTrue(root.isDescendant(of: presenter.viewport))
-        XCTAssertTrue(presenter.viewport.isScrollEnabled)
-        let before = root.convert(CGPoint.zero, to: session.view)
-        presenter.viewport.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
-        XCTAssertEqual(root.convert(CGPoint.zero, to: session.view).y, before.y - 100, accuracy: 0.5)
-        presenter.viewport.setContentOffset(.zero, animated: false)
-        root.frame = original
-        presenter.fitDocument()
-        XCTAssertFalse(root.isDescendant(of: presenter.viewport))
-        XCTAssertTrue(presenter.mounts(root))
+    func testVisualKeyboardInsetsRevealALowNativeRouteFieldWithoutAnInnerScroller() throws {
+        let session = try fixture("native-visual-keyboard", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter
+        try tapNode(session, "home-open-edit-visual")
+        let field = try node(session, "edit-draft")
+        until("the pushed editor settles") { field.field?.isFirstResponder == true && !p.navigation.inTransition }
+        XCTAssertEqual(p.keyboardPolicy, "resizes-visual")
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        let layoutAllocation = route.node.bounds.size
+        let owner = try XCTUnwrap(p.navigation.primaryOwner?.view)
+        let ownerFrame = owner.convert(owner.bounds, to: window)
+        let keys = try XCTUnwrap(window).bounds.maxY - 250
+        XCTAssertGreaterThan(field.convert(field.bounds, to: window).maxY, keys, "the authored field starts below the keyboard")
+        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        p.viewport.layoutIfNeeded()
+        _ = Agent(session: session).clock(["settle": true])
+        XCTAssertEqual(route.node.bounds.size, layoutAllocation, "visual keyboard accommodation does not reflow the route")
+        XCTAssertLessThanOrEqual(field.convert(field.bounds, to: window).maxY, keys + 0.5,
+                                 "a native route still reveals a field with no authored scroller")
+        let content = try XCTUnwrap(route.contentViewport)
+        XCTAssertEqual(p.viewport.contentInset.bottom, 0, "the keyboard adds range to the route, not the pinned owner's outer page")
+        XCTAssertGreaterThan(content.contentInset.bottom, 0)
+        XCTAssertGreaterThan(content.contentOffset.y, 0)
+        XCTAssertEqual(p.owners.told[route.node.id]?.placement?.contentOffset, content.contentOffset)
+        let observation = try XCTUnwrap(Agent(session: session).layout(["id": Int(field.id)])["node"] as? [String: Any])
+        let scrolls = try XCTUnwrap(observation["scroll"] as? [[String: Any]])
+        let routeScroll = try XCTUnwrap(scrolls.first { $0["route"] as? Int == Int(route.node.id) })
+        XCTAssertEqual(routeScroll["sy"] as? Double, Agent.r2(content.contentOffset.y))
+        let clips = try XCTUnwrap(observation["clip"] as? [[String: Any]])
+        XCTAssertTrue(clips.contains { $0["id"] as? Int == Int(route.node.id) && $0["kind"] as? String == "viewport" })
+        XCTAssertTrue(FocusSearch.items(p.viewport, in: p.viewport.bounds).contains { ($0 as? UIView) === field.field },
+                      "the session's focus search includes native fields inside the route")
+        XCTAssertEqual(owner.convert(owner.bounds, to: window), ownerFrame, "the content reveal leaves UIKit's container in place")
+        let applied = session.appliedBatches
+        let offset = CGPoint(x: content.contentOffset.x, y: content.contentOffset.y - 10)
+        content.contentOffset = offset
+        until("the native scroll publishes its placement") { p.owners.told[route.node.id]?.placement?.contentOffset == offset }
+        XCTAssertEqual(session.appliedBatches, applied, "a placement-only scroll skips the presentation pass")
+        p.navigation.clearOwnerAllocation()
+        XCTAssertEqual(p.viewport.contentInset.bottom, p.keyboardInset, "an unpinned document owns keyboard accommodation again")
+        var room = p.viewport.contentInset
+        room.bottom += 40
+        p.viewport.contentInset = room
+        p.navigation.clearOwnerAllocation()
+        XCTAssertEqual(p.viewport.contentInset, room, "unchanged ownership preserves room another inset writer added")
+        p.navigation.fitOwner()
+        XCTAssertEqual(p.viewport.contentInset.bottom, 0)
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        XCTAssertEqual(content.contentOffset, .zero, "hiding the keyboard releases its scroll accommodation")
     }
 
-    /// A popover over a stationary document is in the document's mount, above
-    /// the document, and follows it into the viewport and back with its field's focus.
-    func testAPopoverFollowsTheDocumentBetweenItsMounts() throws {
-        let session = try fixture("stationary-popover")
-        let presenter = session.presenter
-        XCTAssertTrue(presenter.root.superview === presenter.documentMount)
-        try tapNode(session, "open-native-popover")
-        spin(0.5)
-        let layer = try XCTUnwrap(PopoverLayer.containing(try node(session, "native-popover")))
-        func above() throws -> Bool {
-            let order = presenter.documentPort.subviews
-            return try XCTUnwrap(order.firstIndex(of: layer)) > XCTUnwrap(order.firstIndex(of: presenter.root))
+    func testNativeBackKeepsItsScopeInsideTheHostsTabController() throws {
+        let session = try fixture("native-back-host-tabs", plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let window = try XCTUnwrap(window), host = try XCTUnwrap(window.rootViewController)
+        let tabs = UITabBarController()
+        tabs.view.accessibilityIdentifier = "host-tabs"
+        window.rootViewController = nil
+        tabs.setViewControllers([host], animated: false)
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        tabs.view.layoutIfNeeded()
+        session.view?.frame = host.view.bounds
+        session.view?.layoutIfNeeded()
+        try tapNode(session, "start-open-detail")
+        until("the route settles inside the host's tabs") { !session.presenter.navigation.inTransition }
+        let navigation = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        XCTAssertTrue(navigation.tabBarController === tabs, "UIKit also sees the host's enclosing controller")
+        let container = try XCTUnwrap(session.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertEqual(container, navigation.view.accessibilityIdentifier)
+        XCTAssertNotEqual(container, tabs.view.accessibilityIdentifier, "the host's tabs can contain other sessions")
+    }
+
+    func testNativeBackIdentifiesEachEmbeddedNavigationContainer() throws {
+        let first = try fixture("native-back"), firstWindow = try XCTUnwrap(window)
+        let host = try XCTUnwrap(firstWindow.rootViewController), firstView = try XCTUnwrap(first.view)
+        let second = ExactApp.shared.makeSession(label: "native-back")
+        sessions.append(second)
+        let secondView = ExactView(session: second)
+        let frame = host.view.bounds
+        firstView.frame = CGRect(x: 0, y: 0, width: frame.width, height: frame.height / 2)
+        secondView.frame = firstView.frame.offsetBy(dx: 0, dy: frame.height / 2)
+        host.view.addSubview(secondView)
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        XCTAssertNil(second.boot(plan: plan, size: secondView.bounds.size).error)
+        firstView.layoutIfNeeded()
+        secondView.layoutIfNeeded()
+        XCTAssertNil(first.presenter.navigation.observation()["nativeBack"] as? String, "a root has no native Back")
+        try tapNode(first, "open-plain")
+        try tapNode(second, "open-plain")
+        until("the first route settles") { !first.presenter.navigation.inTransition }
+        until("the second route settles") { !second.presenter.navigation.inTransition }
+        let firstContainer = try XCTUnwrap(first.presenter.navigation.observation()["nativeBack"] as? String)
+        let secondContainer = try XCTUnwrap(second.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertNotEqual(firstContainer, secondContainer, "overlapping node ids and session labels cannot share Back's scope")
+        XCTAssertEqual(firstContainer, first.presenter.navigation.primaryOwner?.view.accessibilityIdentifier)
+        XCTAssertEqual(secondContainer, second.presenter.navigation.primaryOwner?.view.accessibilityIdentifier)
+        secondView.removeFromSuperview()
+        XCTAssertNil(second.presenter.navigation.observation()["nativeBack"] as? String, "an unmounted session cannot tap Back")
+        XCTAssertEqual(first.presenter.navigation.observation()["nativeBack"] as? String, firstContainer)
+        host.view.addSubview(secondView)
+        secondView.layoutIfNeeded()
+        let remountedContainer = try XCTUnwrap(second.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertNotEqual(remountedContainer, firstContainer)
+        XCTAssertEqual(remountedContainer, second.presenter.navigation.primaryOwner?.view.accessibilityIdentifier,
+                       "the driver reads the current native container after remounting")
+        _ = Agent(session: first).back()
+        until("the first route returns") { !first.presenter.navigation.inTransition }
+        XCTAssertNil(first.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertEqual(second.presenter.navigation.observation()["nativeBack"] as? String, remountedContainer,
+                       "popping one session leaves the other's Back available")
+    }
+
+    func testNativeRouteKeepsItsPopoverAnchoredAndWaitsForAFillBeforeRevealing() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "native route scrolling and anchored popovers need a scene's layout passes")
         }
-        XCTAssertTrue(layer.superview === presenter.documentMount)
-        XCTAssertTrue(try above())
-        let field = try XCTUnwrap(try node(session, "popover-search").field)
-        XCTAssertTrue(field.isFirstResponder, "the popover's autofocus field")
-        let content = try XCTUnwrap(presenter.root.subviews.first), original = content.frame
-        content.frame.size.height = presenter.viewportSize.height + 300
-        presenter.fitDocument()
-        XCTAssertTrue(layer.superview === presenter.viewport)
-        XCTAssertTrue(try above())
-        XCTAssertTrue(field.isFirstResponder, "the move into the viewport keeps the focus")
-        content.frame = original
-        presenter.fitDocument()
-        XCTAssertTrue(layer.superview === presenter.documentMount)
-        XCTAssertTrue(try above())
-        XCTAssertTrue(field.isFirstResponder, "the move out of the viewport keeps the focus")
-        XCTAssertTrue(presenter.mounts(field))
-        XCTAssertTrue(presenter.endEditing())
-        XCTAssertFalse(field.isFirstResponder, "the session's blur reaches the mount")
+        let session = try fixture("native-viewport-interop", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter
+        try tapNode(session, "home-open-viewport")
+        until("the route settles") { !p.navigation.inTransition }
+        _ = Agent(session: session).clock(["settle": true])
+        let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        let content = try XCTUnwrap(route.contentViewport)
+        let opener = try node(session, "viewport-info-open"), info = try node(session, "viewport-info")
+        p.press(opener.id)
+        until("the popover opens") { p.menus.isOpen(info) && !p.menus.inTransition }
+        let gap = { info.convert(info.bounds, to: self.window).minY - opener.convert(opener.bounds, to: self.window).maxY }
+        let openingGap = gap()
+        let before = try XCTUnwrap(p.owners.told[route.node.id]?.placement).rect
+        p.viewport.contentOffset.y = 100
+        until("the outer scroll publishes") {
+            abs((p.owners.told[route.node.id]?.placement?.rect.minY ?? -.infinity) - before.minY - p.viewport.contentOffset.y) <= 0.5
+        }
+        XCTAssertEqual(p.viewport.contentOffset.y, 100, accuracy: 0.5)
+        XCTAssertEqual(p.owners.told[route.node.id]?.placement?.rect.minY ?? -.infinity,
+                       before.minY + p.viewport.contentOffset.y, accuracy: 0.5, "the published allocation follows the settled native owner")
+        XCTAssertEqual(gap(), openingGap, accuracy: 0.5, "the pinned invoker keeps its popover as the outer page scrolls")
+        content.contentOffset.y = 40
+        XCTAssertEqual(gap(), openingGap, accuracy: 0.5, "the popover follows its invoker through route scrolling")
+        p.press(opener.id)
+        until("the popover closes") { !p.menus.isOpen(info) }
+        content.contentOffset = .zero
+        let target = try node(session, "viewport-target")
+        session.holdFillForTests()
+        p.scrollElementIntoView(["viewport-target", "start", "nearest", "instant"])
+        XCTAssertEqual(content.contentOffset, .zero, "the reveal waits for the fill's geometry")
+        XCTAssertEqual(p.elementScrolls.names, ["viewport-target"])
+        let shown = target.convert(target.bounds, to: content)
+        let moved = try XCTUnwrap(target.grid).layout.offsetBy(dx: 0, dy: content.bounds.maxY + 100 - shown.minY)
+        let extent = max(route.node.content.height, content.bounds.height + 200)
+        session.publishFillForTests(route.node.id, wireBatch([
+            ["op": "content", "id": route.node.id, "w": content.bounds.width, "h": extent],
+            ["op": "frame", "id": target.id, "x": moved.minX, "y": moved.minY, "w": moved.width, "h": moved.height],
+        ]), generation: session.generation)
+        session.landFill()
+        until("the fill lands and the target is revealed") { !session.fillInFlight && p.elementScrolls.names.isEmpty && content.contentOffset.y > 0 }
+        XCTAssertTrue(content.bounds.contains(target.convert(target.bounds, to: content)), "the reveal uses the target's new frame")
+        for behavior in ["auto", "contain", "none", "auto"] {
+            route.node.style["overscroll_behavior_y"] = .string(behavior)
+            content.contentOffset = .zero
+            p.viewport.contentOffset.y = 100
+            XCTAssertEqual(content.handsOff(CGPoint(x: 0, y: 400)), behavior == "auto", "\(behavior) controls route chaining")
+            XCTAssertEqual(content.bounces, behavior != "none", "\(behavior) controls the native affordance")
+            Agent.scroll(from: opener, dx: 0, dy: -20)
+            XCTAssertEqual(p.viewport.contentOffset.y, behavior == "auto" ? 80 : 100, accuracy: 0.5, "the agent observes \(behavior) too")
+        }
     }
 
     func testDeclaredProtocolCarriesColdAndWarmURLsThroughTheRouter() throws {
@@ -1046,6 +1185,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
             abs(sv.contentSize.height + sv.adjustedContentInset.top + sv.adjustedContentInset.bottom - sv.bounds.height) < 0.5
         }
         until("short content fits above the toolbar") { automaticBottom() > self.window!.safeAreaInsets.bottom + 1 && fits() }
+        XCTAssertTrue(sv.alwaysBounceVertical, "the native document viewport preserves the authored scroller's short-content behavior")
         let shown = automaticBottom(), manual = sv.contentInset.bottom, height = sv.contentSize.height
         let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
         sv.contentInset.bottom += 180 // the keyboard toolbar's manual inset basis

@@ -11,7 +11,8 @@ At bake, `.exact/backend-origin` overrides `app.ts`'s `origin` constant.
 time without editing authored source or tests. Plain-string grants move their
 matching `net.fetch` line and a `net.websocket` line at the same host (`ws:` for
 `http:`, `wss:` for `https:`). For grants keyed by origin, the selected origin
-must have its own entry; see [keyed grants](../reference.md#bake-and-deliver-a-typescript-module).
+must have its own entry, except that a development build may take a loopback entry
+for the same server at a LAN address; see [keyed grants](../reference.md#bake-and-deliver-a-typescript-module).
 Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.

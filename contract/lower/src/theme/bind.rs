@@ -65,18 +65,42 @@ pub(crate) fn profiles(
     design: &mut tamber::Design,
     origin: &Origin,
 ) -> Vec<Profiled> {
-    let same = same_name;
+    use std::collections::{BTreeSet, HashMap, HashSet};
+    // A name's identity as `same_name` compares names: its role's, else
+    // its own spelling.
+    let key = |n: &str| role_named(n).map(|(x, _)| x).ok_or_else(|| n.to_string());
     let mut out: Vec<Profiled> = Vec::new();
-    loop {
-        // A profile's colour is the default app tuple's, which is all the
-        // plan carries until it carries the axes (stage 2, commit 3).
-        let found = design.tokens.iter().position(|t| {
+    // (one past the checker's bounds is left as written, for the check
+    // to refuse as the design server's does: Astra's round 2)
+    let bounded = |t: &tamber::Token| tamber::within_bounds(&t.value.value);
+    // The tokens with no `when` naming a name whole, by its identity: each
+    // is a profile's once the name is.
+    let mut naming: HashMap<_, Vec<usize>> = HashMap::new();
+    for (i, t) in design.tokens.iter().enumerate() {
+        if bounded(t) && t.whens.is_empty() {
+            naming.entry(key(t.value.value.trim())).or_default().push(i);
+        }
+    }
+    // A profile's colour is the default app tuple's, which is all the plan
+    // carries until it carries the axes (stage 2, commit 3). Taken first
+    // in the design's order among those that are a profile's so far, a
+    // name taken once (each step linear in what it takes: round 3).
+    let mut ready: BTreeSet<usize> = design
+        .tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| {
             let text = t.value.value.trim();
-            !out.iter().any(|p| same(&p.name, &t.name.value))
-                && (text.to_ascii_lowercase().starts_with("color(--") && parses(text)
-                    || t.whens.is_empty() && out.iter().any(|p| same(&p.name, text)))
-        });
-        let Some(i) = found else { break };
+            bounded(t) && text.to_ascii_lowercase().starts_with("color(--") && parses(text)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let mut taken = HashSet::new();
+    let mut values: HashMap<_, String> = HashMap::new();
+    while let Some(i) = ready.pop_first() {
+        if taken.contains(&key(&design.tokens[i].name.value)) {
+            continue;
+        }
         // A `when` that holds at the default modes would be the default's.
         let axes = &design.axes;
         let defaults = |w: &tamber::When| {
@@ -95,25 +119,25 @@ pub(crate) fn profiles(
         }
         let t = &mut design.tokens[i];
         let text = t.value.value.trim().to_string();
-        let value = match out.iter().find(|p| same(&p.name, &text)) {
-            Some(p) => p.value.clone(),
-            None => text,
-        };
+        let value = values.get(&key(&text)).cloned().unwrap_or(text);
+        let name = key(&t.name.value);
+        values.entry(name.clone()).or_insert_with(|| value.clone());
         out.push(Profiled {
             name: t.name.value.clone(),
             value,
         });
         t.value.value = "transparent".into();
+        ready.extend(naming.get(&name).into_iter().flatten());
+        taken.insert(name);
     }
+    let profiles: HashSet<&str> = out.iter().map(|p| p.name.as_str()).collect();
     for t in &design.tokens {
         // A profile token's default is taken; its `when` values are read.
-        let profile = out.iter().any(|p| p.name == t.name.value);
+        let profile = profiles.contains(t.name.value.as_str());
         let values = std::iter::once(&t.value)
             .filter(|_| !profile)
             .chain(t.whens.iter().map(|w| &w.value));
-        let names = |v: &tamber::At<String>| {
-            scan::words(&v.value).any(|w| out.iter().any(|p| same(&p.name, w)))
-        };
+        let names = |v: &tamber::At<String>| scan::words(&v.value).any(|w| taken.contains(&key(w)));
         if values.into_iter().any(names) {
             let span = sink.span(origin, t.name.line, t.name.col);
             sink.push(LowerError {

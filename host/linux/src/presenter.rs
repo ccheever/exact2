@@ -85,6 +85,7 @@ mod images;
 mod links;
 mod palette;
 pub mod preferences;
+pub(crate) mod remote;
 mod requests;
 mod retained_action;
 mod reveal;
@@ -576,14 +577,23 @@ impl<D: DataSource> Presenter<D> {
             self.host.runner().delivery(),
             let_go,
         )?;
-        let (mut host, error) = Host::boot_with(
-            plan,
-            data,
-            Box::new(Measurer(candidate_text.clone())),
-            self.viewport.0,
-            self.viewport.1,
-            Some(&carried),
-            Some(self.host.runner().delivery().clone()),
+        let (mut host, error) = exact_runner::time::launching_with(
+            exact_runner::time::Launch {
+                time: Some(self.host.runner().wall_time()),
+                place: Some(self.host.runner().place().clone()),
+                ..exact_runner::time::Launch::NONE
+            },
+            || {
+                Host::boot_with(
+                    plan,
+                    data,
+                    Box::new(Measurer(candidate_text.clone())),
+                    self.viewport.0,
+                    self.viewport.1,
+                    Some(&carried),
+                    Some(self.host.runner().delivery().clone()),
+                )
+            },
         )?;
         if let Some(error) = error {
             return Err(HostError::Layout(error));
@@ -804,6 +814,19 @@ impl<D: DataSource> Presenter<D> {
         for (token, dispatch) in self.host.release_work() {
             if let Some(r) = self.parked.remove(&token) {
                 self.run_dispatch(r, dispatch);
+            }
+        }
+        // The platform's checks for presence calls: the shell's (LLP 1133.010 D8).
+        for ask in self.host.runner_mut().take_presence_asks() {
+            match self.has_shell() {
+                true => _ = self.request(requests::Request::Presence(ask.json())),
+                false => self.host.runner_mut().presence_answer(
+                    ask.id,
+                    exact_runner::presence::PresenceAnswer::Failed(
+                        "NotSupportedError".into(),
+                        "this host has no shell to check the person".into(),
+                    ),
+                ),
             }
         }
         // Socket frames of the commits that stood (LLP 1016.000 D7).

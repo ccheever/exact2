@@ -14,8 +14,7 @@ import UIKit
 
 final class MenuHost {
     private(set) weak var presenter: Presenter?
-    /// What hears a touch that dismisses a light popover (`observeTouches`).
-    var touchObserver: PopoverTouch?
+    private var touchObserver: PopoverTouch?
     private var overlays: [UInt32: UIButton] = [:]
     /// The target and press shape each overlay's menu was built for.
     private var menuShapes: [UInt32: String] = [:]
@@ -126,10 +125,14 @@ final class MenuHost {
     /// they are ranked (a positioned chip), and yields only to one that is
     /// interactive itself (`InvokerButton`).
     func sync() {
-        // Ordinary menus retain LLP 1021 D4's existing agent presentation.
-        // Confirmations use the same UIKit owner under either input carrier.
+        // Paint ordinary menus for the agent; confirmations use UIKit with either input carrier (LLP 1021 D4).
         guard let presenter else { return }
-        observeTouches(on: presenter.modals.coordinateView ?? presenter.documentPort)
+        let surface = presenter.modals.coordinateView ?? presenter.viewport
+        if touchObserver?.view !== surface {
+            if let observer = touchObserver { observer.view?.removeGestureRecognizer(observer) }
+            let observer = PopoverTouch(host: self)
+            surface.addGestureRecognizer(observer); touchObserver = observer
+        }
         if let owner = confirmation, !owner.fields.isEmpty { followPrompt(owner) }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         sheets.sync()
@@ -762,9 +765,10 @@ final class MenuHost {
         // A bar item's popover opens from the item, not its hidden button (`agentOpen(barItem:)`).
         if case .success(let (bar, item))? = presenter.navigation.barItem(source) { anchor = bar.convert(item, to: entry.layer) }
         let size = pop.bounds.size
-        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
+        let placed = PositionArea.painted(pop, rtl: presenter.documentDirection == "rtl")
+        let at = PositionArea.origin(placed.area, anchor: anchor, size: size,
                                     margins: PositionArea.margins(of: pop),
-                                    fallbacks: pop.style["position_try_fallbacks"]?.string ?? "none",
+                                    fallbacks: placed.fallbacks,
                                     // The page's document less the bands past its area (status bar, home indicator).
                                     overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
                                     rtl: presenter.documentDirection == "rtl",

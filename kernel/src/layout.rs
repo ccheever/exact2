@@ -32,7 +32,7 @@ use crate::id::{IdMap, IdSet};
 use crate::shared_style::Interner;
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
-use taffy::tree::{Baselines, LayoutInput};
+use taffy::tree::{Baselines, LayoutInput, RequestedAxis};
 use taffy::util::{MaybeResolve, ResolveOrZero};
 use taffy::TraversePartialTree;
 
@@ -933,10 +933,10 @@ impl LayoutTree {
         if let Some(fault) = &self.fault {
             return Err(LayoutError::Engine(fault.clone()));
         }
-        // @ref LLP 1043.000 §3 D3 — invalidate only the text whose height
-        // proof matters to live wrapping contexts. Clean roots retain their
-        // cached proof; hidden, detached and other-root exclusions do no work.
-        if self.is_dirty(root) && !arena.exclusion_slots.is_empty() {
+        // @ref LLP 1043.000 §3 D3 — changed offers can mix cached intrinsic heights
+        // with fresh layout. Invalidate contributing leaves to rebuild their proof.
+        let changed = self.is_dirty(root) || self.last_offer(root) != Some(offer);
+        if changed && !arena.exclusion_slots.is_empty() {
             let mut contexts = crate::sorted::SlotSet::default();
             for slot in arena.exclusion_slots.iter() {
                 let mut at = Some(slot);
@@ -1046,8 +1046,6 @@ impl LayoutTree {
                 record.parent_width = inputs.parent_size.width;
             }
 
-            // Patch 2's separate API is unnecessary: the upstream callback owns
-            // LayoutOutput, including baselines in border-box coordinates.
             let inset = style
                 .padding
                 .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc)
@@ -1082,13 +1080,15 @@ impl LayoutTree {
                     let Some(context) = context else {
                         return Size::ZERO;
                     };
-                    // Clear on the first actual measurement of this pass. A cache
-                    // hit retains the proof of the pass that produced that layout.
-                    if context.pass != pass {
-                        context.pass = pass;
-                        context.height_measured = false;
+                    // Width probes leave a cached layout's height proof intact. Reset
+                    // on the first height measurement, keeping dependence through stretching.
+                    if inputs.axis != RequestedAxis::Horizontal {
+                        if context.pass != pass {
+                            context.pass = pass;
+                            context.height_measured = false;
+                        }
+                        context.height_measured |= !height_known;
                     }
-                    context.height_measured |= !height_known;
                     let slot = context.slot;
                     if let Some((size, metrics)) = alert::measure(
                         arena,

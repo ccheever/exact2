@@ -82,9 +82,6 @@ public final class ExactView: UIView {
         backgroundColor = launchScreenColor ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
-        session.presenter.documentMount.isHidden = true
-        session.presenter.documentMount.clipsToBounds = true
-        addSubview(session.presenter.documentMount)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
@@ -584,7 +581,6 @@ public final class ExactView: UIView {
             lastFold = segments
             session.segments(segments)
         }
-        session.presenter.mountDocument()
         paintUnderKeys()
     }
 

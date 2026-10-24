@@ -1,6 +1,8 @@
 //! `storage.fs.compressImage` in real Chrome (LLP 1069.002 A1.3, A1.7): the
 //! web host's `storage-fs.js` over `storage-image.js`, in the page and in a
-//! module worker, and a Rust source's request through `storage-request.js`.
+//! module worker, and a Rust source's request through `storage-request.js`;
+//! and `transformImage` and `compressImage`'s edit there (LLP 1133.019 §11's
+//! image conformance), with Firefox and WebKit where installed.
 use std::path::Path;
 use std::process::Command;
 
@@ -155,7 +157,15 @@ fn check(engine: &str, report: &serde_json::Value) {
             "{engine} {realm}: a PNG lost its alpha"
         );
         assert_eq!(r["badType"], "TypeError", "{engine} {realm}");
+        transformed(engine, realm, &r["transform"]);
     }
+    // A Rust source's transform: D14's options beside the paths, its record back.
+    assert_eq!(
+        report["rustTransform"],
+        serde_json::json!({"path":"app:/data/rust-turned.jpg","type":"image/jpeg","width":64,"height":48,
+            "colorSpace":"srgb","hdr":false,"metadata":"none","sized":true}),
+        "{engine}: {report}"
+    );
     assert_eq!(report["rustPng"], "image/png", "{engine}: {report}");
     // A null `type` is absent, as the native request reads it.
     assert_eq!(report["rustNull"], "image/jpeg", "{engine}: {report}");
@@ -174,6 +184,74 @@ fn check(engine: &str, report: &serde_json::Value) {
     assert_eq!(
         report["rustDoc"], "compressImage: needs app:/ paths",
         "{engine}: {report}"
+    );
+}
+
+/// LLP 1133.019 §11's image conformance on the canvas codec.
+fn transformed(engine: &str, realm: &str, t: &serde_json::Value) {
+    let rgb = |v: &serde_json::Value| -> Vec<u64> {
+        v.as_array().unwrap()[..3]
+            .iter()
+            .map(|c| c.as_u64().unwrap())
+            .collect()
+    };
+    let blue = |v: &serde_json::Value| {
+        let c = rgb(v);
+        c[2] > 200 && c[0] < 60 && c[1] < 60
+    };
+    let red = |v: &serde_json::Value| {
+        let c = rgb(v);
+        c[0] > 200 && c[1] < 60 && c[2] < 60
+    };
+    // A `to` without an extension gains the type's; a canvas keeps nothing,
+    // and says so whatever was asked.
+    assert_eq!(
+        t["turned"]["record"],
+        serde_json::json!({"path":"app:/data/turned.jpg","type":"image/jpeg","size":t["turned"]["record"]["size"],
+            "width":64,"height":48,"colorSpace":"srgb","hdr":false,"metadata":"none"}),
+        "{engine} {realm}: {t}"
+    );
+    assert!(
+        blue(&t["turned"]["top"]) && red(&t["turned"]["bottom"]),
+        "{engine} {realm}: rotate 90 puts blue on top: {t}"
+    );
+    assert_eq!(t["turned"]["exif"], false, "{engine} {realm}: {t}");
+    assert!(
+        red(&t["flipped"]["left"]) && blue(&t["flipped"]["right"]),
+        "{engine} {realm}: flip puts blue on the right: {t}"
+    );
+    assert_eq!(
+        t["cropped"]["size"],
+        serde_json::json!([24, 64]),
+        "{engine} {realm}"
+    );
+    assert!(
+        t["cropped"]["corners"].as_array().unwrap().iter().all(blue),
+        "{engine} {realm}: the crop is all blue: {t}"
+    );
+    assert_eq!(
+        t["free"]["size"],
+        serde_json::json!([74, 80]),
+        "{engine} {realm}: {t}"
+    );
+    assert_eq!(
+        t["free"]["png"], 0,
+        "{engine} {realm}: a free turn's PNG corner is clear: {t}"
+    );
+    assert!(
+        rgb(&t["free"]["jpeg"]).iter().all(|&c| c > 245),
+        "{engine} {realm}: a free turn's JPEG corner is white: {t}"
+    );
+    assert_eq!(
+        t["compressed"]["size"],
+        serde_json::json!([64, 24]),
+        "{engine} {realm}: {t}"
+    );
+    assert!(blue(&t["compressed"]["topLeft"]), "{engine} {realm}: {t}");
+    assert_eq!(
+        t["codes"],
+        serde_json::json!(["outside", "unsupported", "TypeError", "denied", "outside"]),
+        "{engine} {realm}: {t}"
     );
 }
 
@@ -295,6 +373,37 @@ const checks = async (origin, sets, app) => {
   alpha.drawImage(await createImageBitmap(new Blob([await fs.readFile('app:/tmp/half-out.png')], { type: 'image/png' })), 0, 0);
   report.png = { type: png.type, size: [png.width, png.height], left: alpha.getImageData(0, 0, 1, 1).data[3], right: alpha.getImageData(7, 0, 1, 1).data[3] };
   report.badType = await code(fs.compressImage('app:/tmp/half.png', 'app:/tmp/x.webp', { maxDimension: 8, maxBytes: 100, type: 'image/webp' }));
+  // `transformImage` and `compressImage`'s edit (LLP 1133.019 §11): the
+  // fixture upright is 48×64, blue on the left.
+  const at = async (path, type, points) => {
+    const b = await createImageBitmap(new Blob([await fs.readFile(path)], { type }));
+    const c = new OffscreenCanvas(b.width, b.height).getContext('2d');
+    c.drawImage(b, 0, 0);
+    return { size: [b.width, b.height], points: points.map(([x, y]) => [...c.getImageData(x, y, 1, 1).data]) };
+  };
+  const t = report.transform = {};
+  const turned = await fs.transformImage('app:/tmp/in.jpg', 'app:/data/turned', { rotate: 90, metadata: 'keep' });
+  const [top, bottom] = (await at(turned.path, 'image/jpeg', [[32, 2], [32, 45]])).points;
+  const turnedTags = tags(await fs.readFile(turned.path));
+  t.turned = { record: turned, top, bottom, exif: Boolean(turnedTags[0x8825] || turnedTags[0x9003]) };
+  const flipped = await fs.transformImage('app:/tmp/in.jpg', 'app:/data/flipped.jpg', { flip: 'horizontal' });
+  const [left, right] = (await at(flipped.path, 'image/jpeg', [[2, 32], [45, 32]])).points;
+  t.flipped = { left, right };
+  const cropped = await fs.transformImage('app:/tmp/in.jpg', 'app:/data/cropped.jpg', { crop: { x: 0, y: 0, width: 24, height: 64 } });
+  t.cropped = { size: [cropped.width, cropped.height], corners: (await at(cropped.path, 'image/jpeg', [[1, 1], [22, 1], [1, 62], [22, 62]])).points };
+  // 48 cos 30 + 64 sin 30 = 73.6, 48 sin 30 + 64 cos 30 = 79.4.
+  const free = await fs.transformImage('app:/tmp/in.jpg', 'app:/data/free', { rotate: 30, type: 'image/png' });
+  const freeJpeg = await fs.transformImage('app:/tmp/in.jpg', 'app:/data/free.jpg', { rotate: 30 });
+  t.free = { size: [free.width, free.height], png: (await at(free.path, 'image/png', [[0, 0]])).points[0][3], jpeg: (await at(freeJpeg.path, 'image/jpeg', [[0, 0]])).points[0] };
+  const compressed = await fs.compressImage('app:/tmp/in.jpg', 'app:/data/compressed.jpg', { maxDimension: 100, maxBytes: 2_000_000, rotate: 90, crop: { x: 0, y: 0, width: 64, height: 24 } });
+  t.compressed = { size: [compressed.width, compressed.height], topLeft: (await at(compressed.path, 'image/jpeg', [[2, 2]])).points[0] };
+  t.codes = [
+    await code(fs.transformImage('app:/tmp/in.jpg', 'app:/data/x.jpg', { crop: { x: 100, y: 0, width: 4, height: 4 } })),
+    await code(fs.transformImage('app:/tmp/in.jpg', 'app:/data/x.img', { type: 'image/x-unknown' })),
+    await code(fs.transformImage('app:/tmp/in.jpg', 'app:/data/x.jpg', { flip: 'both' })),
+    await code(fs.transformImage('app:/tmp/in.jpg', 'app:/cache/x.jpg')),
+    await code(fs.compressImage('app:/tmp/in.jpg', 'app:/data/x.jpg', { maxDimension: 10, maxBytes: 10000, crop: { x: 0, y: 100, width: 4, height: 4 } })),
+  ];
   fs.dispose();
   return report;
 };
@@ -325,8 +434,11 @@ const expression = `(async () => {
     const rustPng = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'app:/tmp/in.jpg', destination: 'app:/data/rust.png', maxDimension: 32, maxBytes: 2000000, type: 'image/png' } })));
     const rustNull = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'app:/tmp/in.jpg', destination: 'app:/data/rust-null.jpg', maxDimension: 32, maxBytes: 2000000, type: null } })));
     const rustDoc = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'doc:/1/in.jpg', destination: 'app:/data/x.jpg', maxDimension: 32, maxBytes: 2000000 } })));
+    const turned = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.transformImage', args: { path: 'app:/tmp/in.jpg', destination: 'app:/data/rust-turned', rotate: 90 } })));
+    const { size, ...rustTransform } = turned;
     requests.dispose();
-    return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error, rustPng: rustPng.error ?? rustPng.type, rustNull: rustNull.error ?? rustNull.type });
+    return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error, rustPng: rustPng.error ?? rustPng.type, rustNull: rustNull.error ?? rustNull.type,
+      rustTransform: turned.error ? turned : { ...rustTransform, sized: size > 0 } });
   })()`;
 const reports = {};
 try {

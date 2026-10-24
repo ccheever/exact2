@@ -827,5 +827,128 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(again.superview === columns.detailPane)
         XCTAssertFalse(library.isHidden)
     }
+
+    /// A popover declared in a route the split shows in its detail pane opens,
+    /// painted and as AppKit's: the pane is a block's native container, and
+    /// whether the popover is in the page walks out of it to the route's
+    /// authored home (theme2 12:32; it had never opened there, the pane being
+    /// under no page root).
+    func testAPopoverInTheDetailPaneOpens() throws {
+        for painted in [true, false] {
+            let source = app(tabs: false).replacingOccurrences(
+                of: "testId=`field-${e.params.id}`",
+                with: "testId=`field-${e.params.id}`\n            button testId=\"pop-open\" popovertarget=\"bookpop\"\n              text \"More\"\n            column id=\"bookpop\" testId=\"bookpop\" popover=\"auto\" width=100 height=40"
+            ).replacingOccurrences(
+                of: "      for e in stack(nav) key=e.id\n",
+                with: "      button testId=\"list-pop-open\" popovertarget=\"listpop\"\n        text \"Filter\"\n      column id=\"listpop\" testId=\"listpop\" popover=\"manual\" width=100 height=40\n      for e in stack(nav) key=e.id\n")
+            let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+            _ = compose(ExactView(session: session), width: 1000, sidebar: false)
+            let window = try XCTUnwrap(self.window)
+            window.setFrameOrigin(NSPoint(x: 120, y: 120))
+            window.orderFrontRegardless()
+            let p = session.presenter
+            p.menus.painted = painted
+            func settle() { for _ in 0..<20 { p.settlePump(); session.drainFill(); RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
+            try press("row-a")
+            settle()
+            window.layoutIfNeeded()
+            let pop = try node("bookpop"), opener = try node("pop-open")
+            XCTAssertTrue(p.navigation.split.holds(try node("route-book-a")), "the book is in the detail pane")
+            XCTAssertFalse(opener.isDescendant(of: p.root), "its invoker is under no page root")
+            try press("pop-open")
+            let end = Date().addingTimeInterval(3)
+            while !p.menus.isOpen(pop), Date() < end { settle() }
+            XCTAssertTrue(p.menus.isOpen(pop), painted ? "painted" : "AppKit's popover")
+            if !painted { XCTAssertEqual(p.menus.windowed.count, 1) }
+            if painted {
+                // In the pane's own layer, beside its invoker: not clamped into the list.
+                let pane = try XCTUnwrap(p.navigation.split.pane(holding: opener))
+                XCTAssertTrue(pop.isDescendant(of: pane))
+                let shown = pop.convert(pop.bounds, to: nil), invoker = opener.convert(opener.bounds, to: nil)
+                XCTAssertEqual(shown.minX, invoker.minX, accuracy: 1, "\(shown) under \(invoker)")
+                // A menu-shaped one (AppKit's menu) pops up there too, not clamped into the list.
+                let menu = NSMenu()
+                menu.addItem(withTitle: "Row", action: nil, keyEquivalent: "")
+                menu.minimumWidth = 100
+                XCTAssertEqual(p.menus.popUpPoint(menu, pop, in: opener).x, 0, accuracy: 1, "under its invoker's left edge")
+                // Escape closes it with the keyboard still in the pane.
+                XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(try node("field-a").field)))
+                let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+                XCTAssertTrue(p.menus.key(escape))
+                XCTAssertFalse(p.menus.isOpen(pop), "Escape from the pane's field")
+                // Open again, then the split ends (the driver's own chrome): the
+                // route goes back into the page, and the open popover's layer with it.
+                try press("pop-open")
+                let again = Date().addingTimeInterval(3)
+                while !p.menus.isOpen(pop), Date() < again { settle() }
+                XCTAssertTrue(pop.isDescendant(of: pane))
+                // And one opened after it with no invoker (`showPopover`), in the page's layer.
+                let later = try node("listpop")
+                p.menus.action("showPopover", ["listpop"])
+                let opened = Date().addingTimeInterval(3)
+                while !p.menus.isOpen(later), Date() < opened { settle() }
+                // A depth from the pane's own ranking must not travel with the
+                // layer: a box ranked there that stays when the split ends (as a
+                // retained route of another stack would) gives the pane's layers
+                // a deeper depth than the page's.
+                let paneLayer = try XCTUnwrap(pop.superview)
+                let retained = NodeView(id: 9_999_001, kind: "view", presenter: p)
+                pane.addSubview(retained, positioned: .below, relativeTo: nil)
+                retained.setRank(2)
+                XCTAssertGreaterThan(paneLayer.layer?.zPosition ?? 0, 0.0015, "deeper by the pane's own ranking")
+                p.navigation.split.painted = true
+                settle()
+                XCTAssertFalse(p.navigation.split.active, "no split")
+                XCTAssertTrue(p.menus.isOpen(pop) && p.menus.isOpen(later))
+                XCTAssertTrue(pop.isDescendant(of: p.viewport), "its layer follows the route into the page")
+                let layers = p.viewport.subviews
+                let (first, second) = (layers.firstIndex { pop.isDescendant(of: $0) }, layers.firstIndex { later.isDescendant(of: $0) })
+                XCTAssertLessThan(try XCTUnwrap(first), try XCTUnwrap(second), "under the one opened after it")
+                let depths = (paneLayer.layer?.zPosition, later.superview?.layer?.zPosition)
+                XCTAssertEqual(depths.0, depths.1, "ranked among the page's layers, so their order paints")
+                retained.removeFromSuperview()
+            }
+            session.destroy(); self.session = nil; window.close(); self.window = nil
+        }
+    }
+
+    /// A route mounted in the pane after a painted popover opened from it (a
+    /// push) goes under the popover's layer, which stays on top of the pane,
+    /// so a click on the popover reaches it, as it paints.
+    func testARouteMountedInThePaneStaysUnderAnOpenPopover() throws {
+        let source = app(tabs: false).replacingOccurrences(
+            of: "testId=`field-${e.params.id}`",
+            with: "testId=`field-${e.params.id}`\n            button testId=\"pane-pop-open\" popovertarget=\"panepop\"\n              text \"Keep\""
+        ).replacingOccurrences(
+            of: "      for e in stack(nav) key=e.id\n",
+            with: "      column id=\"panepop\" testId=\"panepop\" popover=\"manual\" width=100 height=40\n        box testId=\"in-pop\" width=100 height=40\n      for e in stack(nav) key=e.id\n")
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        _ = compose(ExactView(session: session), width: 1000, sidebar: false)
+        let window = try XCTUnwrap(self.window)
+        window.setFrameOrigin(NSPoint(x: 120, y: 120))
+        window.orderFrontRegardless()
+        let p = session.presenter
+        p.menus.painted = true
+        func settle() { for _ in 0..<20 { p.settlePump(); session.drainFill(); RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
+        try press("row-a")
+        settle()
+        let pop = try node("panepop")
+        try press("pane-pop-open")
+        let end = Date().addingTimeInterval(3)
+        while !p.menus.isOpen(pop), Date() < end { settle() }
+        let pane = try XCTUnwrap(p.navigation.split.pane(holding: try node("pane-pop-open")))
+        let layer = try XCTUnwrap(pop.superview)
+        XCTAssertTrue(layer.superview === pane)
+        try press("notes-a")
+        settle()
+        XCTAssertTrue(has("route-notes"), "notes pushed into the pane")
+        XCTAssertTrue(p.menus.isOpen(pop), "a manual popover stays open")
+        XCTAssertTrue(pane.subviews.last === layer, "the layer is back on top of the pane")
+        let inside = try node("in-pop")
+        let point = inside.convert(NSPoint(x: inside.bounds.midX, y: inside.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(window.contentView?.hitTest(window.contentView!.convert(point, from: nil)))
+        XCTAssertTrue(hit.isDescendant(of: inside), "the click reaches the popover: \(type(of: hit))")
+    }
 }
 #endif

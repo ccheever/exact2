@@ -11,6 +11,13 @@ use crate::CompileError;
 use contract_syntax::{Expr, Field, File, ModuleDecl, ModuleKind, ShapeDecl, Span, Stmt, TypeExpr};
 use std::collections::HashMap;
 
+/// What a call's literals are checked against: the canvases' surface names
+/// the file places, and its shapes, by name.
+struct Known {
+    surfaces: Vec<String>,
+    shapes: HashMap<String, ShapeDecl>,
+}
+
 /// Rewrite every call of a module name in `file`, and declare the records
 /// the calls build. Every refusal in one run.
 pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
@@ -26,6 +33,14 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
         file.shapes.extend(records(m));
     }
     let mut errors = Vec::new();
+    let surfaces = Known {
+        surfaces: surfaces(file),
+        shapes: file
+            .shapes
+            .iter()
+            .map(|s| (s.name.clone(), s.clone()))
+            .collect(),
+    };
     for c in &mut file.components {
         for r in &mut c.resources {
             if let Some(p) = &r.placeholder {
@@ -54,7 +69,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
                 ));
                 continue;
             }
-            check_answers(m, &r.shape, &r.name, r.span, &mut errors);
+            check_answers(m, &r.args, &r.shape, &r.name, r.span, &mut errors);
             if r.identity.is_some() {
                 errors.push(error(
                     "contract-module-with",
@@ -62,7 +77,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
                     r.span,
                 ));
             }
-            match call(m, std::mem::take(&mut r.args), r.span) {
+            match call(m, std::mem::take(&mut r.args), r.span, &surfaces) {
                 Ok(args) => r.args = args,
                 Err(e) => errors.extend(e),
             }
@@ -73,7 +88,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
             .map(|m| (m.name.clone(), m.shape.clone()))
             .collect();
         for a in &mut c.actions {
-            stmts(&mut a.body, &modules, &shapes, &mut errors);
+            stmts(&mut a.body, &modules, &shapes, &surfaces, &mut errors);
         }
     }
     if errors.is_empty() {
@@ -87,6 +102,7 @@ fn stmts(
     body: &mut [Stmt],
     modules: &HashMap<String, ModuleDecl>,
     shapes: &HashMap<String, TypeExpr>,
+    surfaces: &Known,
     errors: &mut Vec<CompileError>,
 ) {
     for stmt in body {
@@ -112,9 +128,9 @@ fn stmts(
                     continue;
                 }
                 if let Some(shape) = shapes.get(target.as_str()) {
-                    check_answers(m, shape, target, *span, errors);
+                    check_answers(m, args, shape, target, *span, errors);
                 }
-                match call(m, std::mem::take(args), *span) {
+                match call(m, std::mem::take(args), *span, surfaces) {
                     Ok(rewritten) => *args = rewritten,
                     Err(e) => errors.extend(e),
                 }
@@ -122,14 +138,14 @@ fn stmts(
             Stmt::If {
                 then, otherwise, ..
             } => {
-                stmts(then, modules, shapes, errors);
-                stmts(otherwise, modules, shapes, errors);
+                stmts(then, modules, shapes, surfaces, errors);
+                stmts(otherwise, modules, shapes, surfaces, errors);
             }
             Stmt::Match { some, none, .. } => {
-                stmts(&mut some.1, modules, shapes, errors);
-                stmts(none, modules, shapes, errors);
+                stmts(&mut some.1, modules, shapes, surfaces, errors);
+                stmts(none, modules, shapes, surfaces, errors);
             }
-            Stmt::Call { body, .. } => stmts(body, modules, shapes, errors),
+            Stmt::Call { body, .. } => stmts(body, modules, shapes, surfaces, errors),
             _ => {}
         }
     }
@@ -184,7 +200,14 @@ fn words_record(m: &ModuleDecl, platform: &str) -> String {
 }
 
 /// `args`, a call's keyword arguments, as the one record the source takes.
-fn call(m: &ModuleDecl, args: Vec<Expr>, span: Span) -> Result<Vec<Expr>, Vec<CompileError>> {
+/// `surfaces` are the canvases' surface names the file places.
+fn call(
+    m: &ModuleDecl,
+    args: Vec<Expr>,
+    span: Span,
+    known: &Known,
+) -> Result<Vec<Expr>, Vec<CompileError>> {
+    let surfaces = &known.surfaces;
     let mut errors = Vec::new();
     let mut options: Vec<(String, Expr)> = Vec::new();
     let mut words: Vec<(String, Vec<(String, Expr)>)> = Vec::new();
@@ -228,6 +251,7 @@ fn call(m: &ModuleDecl, args: Vec<Expr>, span: Span) -> Result<Vec<Expr>, Vec<Co
                     .iter()
                     .find(|f| f.name == *option)
                     .and_then(|f| member(&name, &f.ty, &value))
+                    .or_else(|| bounded(m, option, &value, surfaces))
                 {
                     errors.push(e);
                 } else {
@@ -294,6 +318,18 @@ fn call(m: &ModuleDecl, args: Vec<Expr>, span: Span) -> Result<Vec<Expr>, Vec<Co
             ));
         }
     }
+    // A shape named by its literal goes as its schema (LLP 1133.016 D15 item 4).
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+    let paths: Vec<String> = (sub["shapeNames"].as_array().into_iter().flatten())
+        .filter_map(|p| p.as_str().map(str::to_owned))
+        .collect();
+    crate::shape_schema::rewrite(
+        &m.declared,
+        &paths,
+        &mut options,
+        &known.shapes,
+        &mut errors,
+    );
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -347,6 +383,100 @@ fn call(m: &ModuleDecl, args: Vec<Expr>, span: Span) -> Result<Vec<Expr>, Vec<Co
     Ok(vec![Expr::Call(options_record(m), fields, span)])
 }
 
+/// A literal outside what the declaration admits for `option` (LLP 1133.013
+/// D12 items 2 and 3): a number past its `min` or `max` (a poll faster than
+/// its floor, a batch past its bound), or a surface no canvas of the file
+/// places. A computed one is the runtime's to clamp or refuse.
+fn bounded(
+    m: &ModuleDecl,
+    option: &str,
+    value: &Expr,
+    surfaces: &[String],
+) -> Option<CompileError> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+    match value {
+        Expr::Number(n, at) => {
+            let b = &sub["bounds"][option];
+            let (min, max) = (b["min"].as_f64(), b["max"].as_f64());
+            let out = min.is_some_and(|min| *n < min) || max.is_some_and(|max| *n > max);
+            out.then(|| {
+                let range = match (min, max) {
+                    (Some(min), Some(max)) => format!("from {min} to {max}"),
+                    (Some(min), None) => format!("at least {min}"),
+                    (None, Some(max)) => format!("at most {max}"),
+                    (None, None) => String::new(),
+                };
+                error(
+                    "contract-module-bound",
+                    format!("`{}`'s `{option}` is {range}, given {n}", m.declared),
+                    *at,
+                )
+            })
+        }
+        Expr::Str(name, at) => {
+            let surface =
+                (sub["surfaceOptions"].as_array().into_iter().flatten()).any(|o| o == option);
+            (surface && !surfaces.contains(name)).then(|| {
+                error(
+                    "contract-module-surface",
+                    format!(
+                        "`{}`'s `{option}` names a canvas's surface; no canvas here places `{name}`, and the file's are {}",
+                        m.declared,
+                        list(surfaces.iter().map(String::as_str))
+                    ),
+                    *at,
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The surface names the canvases of `file` place, `canvas surface=world(…)`.
+fn surfaces(file: &File) -> Vec<String> {
+    use contract_syntax::Node;
+    fn walk(nodes: &[Node], out: &mut Vec<String>) {
+        for node in nodes {
+            match node {
+                Node::Element {
+                    tag,
+                    attrs,
+                    children,
+                    ..
+                } => {
+                    for a in attrs
+                        .iter()
+                        .filter(|a| tag == "canvas" && a.name == "surface")
+                    {
+                        if let Expr::Call(name, _, _) = &a.value {
+                            out.push(name.clone());
+                        }
+                    }
+                    walk(children, out);
+                }
+                Node::Use { children, .. } => walk(children, out),
+                Node::Each { body, .. } => walk(body, out),
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    walk(then, out);
+                    walk(otherwise, out);
+                }
+                Node::Match { some, none, .. } => {
+                    walk(&some.1, out);
+                    walk(none, out);
+                }
+                Node::Children { .. } => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for c in &file.components {
+        walk(&c.view, &mut out);
+    }
+    out
+}
+
 /// A string literal outside its argument's vocabulary, refused by the name
 /// the call writes rather than the record it becomes.
 fn member(name: &str, ty: &TypeExpr, value: &Expr) -> Option<CompileError> {
@@ -372,23 +502,39 @@ fn member(name: &str, ty: &TypeExpr, value: &Expr) -> Option<CompileError> {
 /// A resource's or a mutation's `as shape` against what the module answers.
 fn check_answers(
     m: &ModuleDecl,
+    args: &[Expr],
     shape: &TypeExpr,
     name: &str,
     span: Span,
     errors: &mut Vec<CompileError>,
 ) {
-    if !same(shape, &m.answers) {
+    let answers = typed_answer(m, args).unwrap_or_else(|| m.answers.clone());
+    if !same(shape, &answers) {
         errors.push(error(
             "contract-module-answers",
             format!(
                 "`{name}` reads `{}`, which answers `{}`: write `as shape {}`",
                 m.declared,
-                written(&m.answers),
-                written(&m.answers)
+                written(&answers),
+                written(&answers)
             ),
             span,
         ));
     }
+}
+
+/// What a call of `m` answers when its answer is typed by an argument (LLP
+/// 1133.016 D15 item 4): the shape its literal option names.
+fn typed_answer(m: &ModuleDecl, args: &[Expr]) -> Option<TypeExpr> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).ok()?;
+    let by = sub["answersBy"].as_str()?;
+    args.iter().find_map(|a| match a {
+        Expr::NamedArg(n, v, _) if n == by => match v.as_ref() {
+            Expr::Str(shape, at) => Some(TypeExpr::Named(shape.clone(), *at)),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// Two written types alike, wherever each was written.

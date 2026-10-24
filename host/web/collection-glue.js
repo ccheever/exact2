@@ -56,7 +56,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
   let scrollsFired = 0; // scroll events the lists' ports have delivered (fireOwedScrolls)
-  let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
+  let early = { frame: undefined, left: 0, lists: new Map() }, settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
   // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
   // slice of time: every row a report owes (what shows, the pins), then as
@@ -230,16 +230,16 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     return old && ((old.focus_view != null && old.focus_view !== next[0])
       || (old.interaction_view != null && old.interaction_view !== next[1]));
   }
-  function flush(beforePaint = false, only = null) {
+  function flush(beforePaint = false, only = null, beforeFrame = false) {
     if (!beforePaint) {
-      frame = null; reportsLeft = 4;
+      frame = null; reportsLeft = 4; early.frame = undefined;
       const time = now();
       if (lastFrame !== null && time - lastFrame > 4 && time - lastFrame < 50) interval = time - lastFrame;
       lastFrame = time; deadline = time + slice();
     }
     const attempted = new Set();
     // The agent's settle visits every list each round, not four a frame.
-    for (let pass = 0; pass < (settling ? states.size + 4 : 4) && (reportsLeft > 0 || only?.jump != null); pass++) {
+    for (let pass = 0; pass < (settling ? states.size + 4 : 4) && (reportsLeft > 0 || only?.jump != null || beforeFrame); pass++) {
       const releases = [...states.values()].filter(retiring);
       const candidates = [...dirty].filter(s => !attempted.has(s) && (!only || s === only));
       const s = candidates.find(s => releases.includes(s)) ?? candidates[0];
@@ -297,7 +297,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }
-      s.budget--; reportsLeft--; reported++;
+      s.budget--; if (!beforeFrame) reportsLeft--; reported++;
       for (const el of s.observed.keys()) if (!measuredSizes.has(el)) s.observed.set(el, size(el));
       measuredSizes.clear();
       delivering = true;
@@ -424,6 +424,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     // mutation is deferred with feedback; corrections happen before this paint.
     commit(snapshots) {
       const active = new Set(snapshots.map(s => s.view));
+      const fresh = new Set();
       for (const s of states.values()) if (!active.has(s.snapshot.view)) detach(s);
       for (const snapshot of snapshots) {
         const el = views.get(snapshot.view);
@@ -577,6 +578,34 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         observe(s);
         // A reply that left rows unbuilt owes the next slice a report.
         enqueue(s, !delivering || freshRows || snapshot.pending === true);
+        if (freshRows && velocity(s) === 0) fresh.add(s);
+      }
+      // Rows built at rest (a list opening at its end, a window replaced,
+      // the rows a report's correction brought in) are measured and
+      // reported before the next frame, as a native host measures its rows
+      // in the batch that built them: that frame's scroll event, which runs
+      // before its animation frame callbacks, would otherwise read the port
+      // where their estimates put it, and the frame paint it there. Two
+      // such reports a list a frame (the first report's correction is made
+      // on estimates, the second on the rows measured; a window the second
+      // moves onto unmeasured rows waits for the frame), outside the shared
+      // budget, which lists opening together would exhaust; in all, two for
+      // each list an app's own commit built and four more, so lists the
+      // reports' replies mount again and again cannot hold the frame off.
+      if (fresh.size) {
+        // The last frame's time names the frame these reports come before;
+        // a frame's flush renews them too, where there is no timeline.
+        const at = doc.timeline?.currentTime ?? null;
+        if (early.frame !== at) early = { frame: at, left: 4, lists: new Map() };
+        if (!delivering) early.left += 2 * fresh.size;
+        queueMicrotask(() => {
+          for (const s of fresh) {
+            const n = early.lists.get(s) ?? 0;
+            if (delivering || states.get(s.snapshot.view) !== s || n >= 2 || early.left <= 0) continue;
+            early.lists.set(s, n + 1); early.left--;
+            flush(true, s, true);
+          }
+        });
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
     },

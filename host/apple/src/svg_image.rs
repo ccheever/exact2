@@ -24,7 +24,7 @@ pub fn scene(text: &str, width: f32, height: f32) -> Result<Picture, String> {
         .kernel()
         .node(loaded.svg())
         .ok_or("the svg node is not in the kernel")?;
-    let json = crate::host::svg::image_scene(loaded.kernel(), &node, (0.0, 0.0, width, height));
+    let json = crate::host::svg::image_scene(loaded.kernel(), &node, (0.0, 0.0, width, height))?;
     Ok(Picture {
         json,
         text: loaded.document.text,
@@ -167,5 +167,22 @@ mod tests {
         assert!(super::scene("<svg>", 1.0, 1.0)
             .unwrap_err()
             .contains("never closed"));
+    }
+
+    #[test]
+    fn a_file_past_a_cost_limit_is_the_named_error() {
+        // Each level uses the one below twice (LLP 1011.001 D2).
+        let mut defs = String::from("<path id=\"l0\" d=\"M0 0");
+        defs += &"l1 1l1 -1".repeat(15);
+        defs += "\"/>";
+        for k in 1..=17 {
+            defs += &format!(
+                "<g id=\"l{k}\"><use href=\"#l{0}\"/><use href=\"#l{0}\"/></g>",
+                k - 1
+            );
+        }
+        let file = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#l17\"/></svg>");
+        let why = super::scene(&file, 64.0, 64.0).unwrap_err();
+        assert!(why.contains("expands past"), "{why}");
     }
 }

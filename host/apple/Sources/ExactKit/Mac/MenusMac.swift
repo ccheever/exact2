@@ -197,9 +197,17 @@ final class MenuHost: NSObject {
         entries.filter { $0.source === source && $0.menu == nil && $0.native == nil }.map(\.popover)
     }
     func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
+    /// In the page: under its root, a block's root (a route in a split's
+    /// pane) by the node it is declared under, or in a presented dialog.
+    /// Only whether it is in the page goes through the block's home; what
+    /// hides it or makes it inert stays where it is shown.
     private func connected(_ view: NSView) -> Bool {
         guard let presenter else { return false }
-        return contains(presenter.root, view) || presenter.dialogs.presented.contains { contains($0, view) }
+        let out = { (at: NSView) -> NSView? in
+            self.authoredParent(of: at) ?? (at as? NodeView).flatMap { presenter.blocks.owns($0) ? presenter.blocks.parent(of: $0) : nil } ?? at.superview
+        }
+        let paged = sequence(first: view, next: out).contains { $0 === presenter.root }
+        return paged || presenter.dialogs.presented.contains { contains($0, view) }
     }
     func hidden(_ view: NSView) -> Bool {
         sequence(first: view, next: { self.parent(of: $0) }).contains {
@@ -427,9 +435,11 @@ final class MenuHost: NSObject {
     }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
     /// the popover's `position-area` and margins as its painted box would
-    /// sit, the menu's own size the box, clamped to the viewport (§5).
+    /// sit, the menu's own size the box, clamped to the viewport (§5), or to
+    /// the split's pane when `source` is in it.
     func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
-        let bounds = presenter.map { source.convert($0.viewport.bounds, from: $0.viewport) } ?? .infinite
+        let column = presenter.map { $0.navigation.split.pane(holding: source) ?? $0.viewport }
+        let bounds = column.map { source.convert($0.bounds, from: $0) } ?? .infinite
         return PositionArea.origin(PositionArea.of(pop), anchor: anchor(source, in: source), size: menu.size,
                                    margins: PositionArea.margins(of: pop), overflow: .platform, in: bounds)
     }
@@ -536,16 +546,33 @@ final class MenuHost: NSObject {
     }
     func layout() {
         guard let presenter else { return }
-        for entry in entries where entry.menu == nil && entry.native == nil {
+        // Each owner's painted layers stay last among its views, in the order
+        // they opened: a layer moved to a new owner (a split ending), or a
+        // route mounted after it in the pane, is put back on top, and ranked
+        // among its owner's (its depth was its old owner's).
+        let painted = entries.filter { $0.menu == nil && $0.native == nil }
+        // One opened with no invoker (`showPopover(id)`) stays where it is.
+        let owner = { (e: Entry) in self.layerHost(e, in: e.source?.window ?? e.layer.window) ?? e.layer.superview }
+        for entry in painted {
+            guard let host = owner(entry) else { continue }
+            let mine = painted.filter { owner($0) === host }.map(\.layer)
+            let last = host.subviews.suffix(mine.count)
+            if entry.layer.superview !== host || last.count != mine.count || !zip(last, mine).allSatisfy({ $0 === $1 }) {
+                for layer in mine { host.addSubview(layer) }
+                entry.layer.setPaintForeground()
+            }
+        }
+        for entry in painted {
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
             // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
             let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
             let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
-            box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
+            let placed = PositionArea.painted(entry.popover, rtl: presenter.documentDirection == "rtl")
+            box.origin = PositionArea.origin(placed.area, anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover),
-                                             fallbacks: entry.popover.style["position_try_fallbacks"]?.string ?? "none",
+                                             fallbacks: placed.fallbacks,
                                              overflow: PositionArea.overflow(of: entry.popover, page: page),
                                              rtl: presenter.documentDirection == "rtl",
                                              history: &entry.placement, in: entry.layer.bounds)
@@ -569,7 +596,7 @@ final class MenuHost: NSObject {
         // A sheet's window and a popover's hold this session's nodes alone.
         if window !== viewport.window {
         } else if let owner = focusOwner(window) {
-            guard owner === viewport || owner.isDescendant(of: viewport) else { return false }
+            guard owner === viewport || owner.isDescendant(of: viewport) || presenter?.navigation.split.holdsFocus(owner) == true else { return false }
         } else if presenter?.session?.view?.ownsShortcutFocus() == false { return false }
         guard let last = entries.last(where: { $0.value != "manual" }),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }

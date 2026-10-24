@@ -205,6 +205,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
     var symbolView: NSImageView? { didSet { layerPaintCache = nil } }
+    /// A template path's leaf instead of `symbolView` (IconShapeMac.swift).
+    var symbolShape: IconShapeView? { didSet { layerPaintCache = nil } }
+    /// Whether a symbol's leaf, either kind, is in this node.
+    var hasSymbolLeaf: Bool { symbolView != nil || symbolShape != nil }
     var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
@@ -851,6 +855,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
         presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
+        // A path icon's fill is a resolved colour; an image view resolved its tint as it drew.
+        tintIconShape()
         guard hasSchemeColor || fieldGround != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
@@ -858,7 +864,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// what it resolved is applied again, as for an appearance change; an
     /// untinted symbol follows the accent, so it counts too.
     func systemColorsChanged() {
-        guard hasSchemeColor || symbolView != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
+        guard hasSchemeColor || hasSymbolLeaf || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
     func reapplyColors() {
@@ -1192,7 +1198,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style["font_variation_settings"]))
+            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
             f.textColor = fieldInk
             applyPlaceholder(f)
             styleNativeField()
@@ -1383,7 +1389,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if paintsBox, materialContent == nil { drawBackground(path, rounded: rounded) }
         if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
         if paintsBox, materialContent == nil { drawBoxBorder() }
-        if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
+        if !cssVisibilityHidden, kind == "image", !hasSymbolLeaf, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the

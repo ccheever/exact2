@@ -240,7 +240,7 @@ open class ExactActivity : Activity() {
         // The window as it is now, with the system's raw insets (D3.3): told before the host boots too, so the page is
         // laid out where it will be shown. The view's own size is never told: the presenter places the page.
         val size = windowSize()
-        val density = resources.displayMetrics.density
+        val density = Device.scale(this)
         val insets = root.rootWindowInsets ?: if (Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.windowInsets else null
         val edges = insets?.let { edges(it) } ?: IntArray(16)
         toldWindow = Triple(size, density, edges.toList())
@@ -271,7 +271,7 @@ open class ExactActivity : Activity() {
                 ready = true
                 // `start=N` for an app whose rows have one pitch: scrolled there before the driver starts.
                 val start = intent.getStringExtra("start")?.toIntOrNull() ?: 0
-                if (start > 0 && startPitchDp > 0f) view.scrollBy(start * startPitchDp * resources.displayMetrics.density)
+                if (start > 0 && startPitchDp > 0f) view.scrollBy(start * startPitchDp * Device.scale(this))
                 driver?.contentReady()
             }
         }
@@ -284,7 +284,7 @@ open class ExactActivity : Activity() {
         Exact.answered = { view.onPublished() }
         Exact.turned = { view.turned() }
         if (input) view.keys = Keys(view)
-        val elements = Natives(this, File(storage, "app"), modules, video)
+        val elements = Natives(this, File(storage, "app"), Extensions.withViews(modules), video)
         natives = elements
         elements.hatched = { node, context -> hatchReader?.made(node, context) }
         view.natives = elements
@@ -371,7 +371,7 @@ open class ExactActivity : Activity() {
     private fun window(insets: android.view.WindowInsets) {
         if (!reads()) return
         val size = if (root.width > 0 && root.height > 0) root.width to root.height else windowSize()
-        val density = resources.displayMetrics.density
+        val density = Device.scale(this)
         val edges = edges(insets)
         val now = Triple(size, density, edges.toList())
         if (now == toldWindow) return
@@ -451,10 +451,12 @@ open class ExactActivity : Activity() {
         // What changed while the activity was stopped and is no configuration change.
         configure()
         view.running(true)
+        Exact.hidden(false)
     }
 
     override fun onStop() {
         stopped = true
+        Exact.hidden(true)
         pads.blur()
         view.running(false, reads())
         contentResolver.unregisterContentObserver(settings)

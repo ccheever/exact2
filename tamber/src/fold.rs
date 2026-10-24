@@ -301,6 +301,11 @@ fn func(
     text: &str,
     names: &mut dyn Names,
 ) -> Result<Folded, FoldError> {
+    // A level of the fold, counted with the tokens it follows (`bound`).
+    let Some(_level) = crate::bound::deeper() else {
+        let (id, why) = crate::bound::too_deep();
+        return Err(FoldError { id, message: why });
+    };
     match name {
         "light-dark" => {
             let [a, b] = args else {

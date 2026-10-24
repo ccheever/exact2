@@ -2,7 +2,7 @@
 //! `state.extensions`, and `prefer extension` and `prefer permission`.
 
 use super::super::{CommitReceipt, DataSource, Runner};
-use super::{error_code, Json, ModulesRow, Route, Waits};
+use super::{error_code, Json, ModulesRow, Route};
 use serde_json::{json, Map};
 
 impl<D: DataSource> Runner<D> {
@@ -10,10 +10,12 @@ impl<D: DataSource> Runner<D> {
     /// names, by its extension: whether a host's implementation answers it
     /// (`bound`, and `agent` where it answers under the agent), its
     /// permission's state, the preferred values, each source's readers (a
-    /// resource that reads it, or whose data code did), and the tickets held
-    /// with their calls' origins. `None` for a plan that names none.
+    /// resource that reads it, or whose data code did), the tickets held
+    /// with their calls' origins, and its ceremonies and signals, each by
+    /// name, RP ID, origin and outcome, never a response (LLP 1133.011 §9).
+    /// `None` for a plan that names none.
     pub fn extensions_json(&self) -> Option<String> {
-        if self.plan.modules.is_empty() {
+        if self.plan.modules.is_empty() && self.plan.views.is_empty() {
             return None;
         }
         let mut out = Map::new();
@@ -28,8 +30,17 @@ impl<D: DataSource> Runner<D> {
             if self.route(row) == Route::Agent {
                 entry["agent"] = json!(true);
             }
-            if let Some(name) = self.substitute(row)["permission"]["name"].as_str() {
-                entry["permission"] = json!(self.permission_state(name));
+            // Each permission by name; `permission` too where it has one.
+            let sub = self.substitute(row);
+            let by = sub["permissionBy"].as_object().into_iter().flatten();
+            let list = sub["permissionList"].as_array().into_iter().flatten();
+            for p in std::iter::once(&sub["permission"])
+                .chain(by.map(|(_, p)| p))
+                .chain(list)
+            {
+                if let Some(name) = p["name"].as_str() {
+                    entry["permissions"][name] = json!(self.permission_state(name));
+                }
             }
             if let Some(v) = self.extensions.preferred.get(&key) {
                 entry["preferred"][&declared] = v.clone();
@@ -45,13 +56,49 @@ impl<D: DataSource> Runner<D> {
                     .collect();
                 entry["readers"][&declared] = json!(readers);
             }
+            let ceremonies = self.ceremonies_of(&extension);
+            if !ceremonies.is_empty() {
+                entry["ceremonies"] = json!(ceremonies);
+            }
             for h in self.extensions.held.iter().filter(|h| {
                 h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
+                    && !h.queued
             }) {
                 if let Some(held) = entry["held"].as_array_mut() {
-                    held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": match h.waits { Waits::Permission => "permission", Waits::Value => "value", Waits::Raise => "raise" } }));
+                    held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": h.waits.word() }));
                 }
             }
+        }
+        for (extension, entry) in out.iter_mut() {
+            // Its streams, sampled readers and canvas inputs (LLP 1133.013 §9).
+            if let Some(samples) = self.samples_json(extension) {
+                for (k, v) in samples.as_object().into_iter().flatten() {
+                    entry[k] = v.clone();
+                }
+            }
+            if let Some(pictures) = self.pictures_json(extension) {
+                entry["pictures"] = pictures;
+            }
+            // The canvases its inputs feed, and their leases (D6).
+            if let Some(surfaces) = self.fed_json(extension) {
+                entry["surfaces"] = surfaces;
+            }
+            let one = (entry["permissions"].as_object())
+                .filter(|p| p.len() == 1)
+                .and_then(|p| p.values().next().cloned());
+            if let Some(state) = one {
+                entry["permission"] = state;
+            }
+        }
+        // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
+        for row in &self.plan.views {
+            let extension = self.plan.str(row.extension);
+            let views = self.views_json(extension);
+            let bound = self.extensions.bound.contains(extension);
+            let entry = (out.entry(extension.to_owned())).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            entry["views"] = json!(views);
         }
         Some(Json::Object(out).to_string())
     }
@@ -77,8 +124,7 @@ impl<D: DataSource> Runner<D> {
                 );
             };
             for (name, state) in group {
-                let known = (self.plan.modules.iter())
-                    .any(|m| self.substitute(m)["permission"]["name"].as_str() == Some(name));
+                let known = (self.plan.modules.iter()).any(|m| self.asks_permission(m, name));
                 let state = state
                     .as_str()
                     .filter(|s| matches!(*s, "granted" | "denied" | "prompt"));
@@ -109,6 +155,12 @@ impl<D: DataSource> Runner<D> {
             return refuse("prefer extension: an object of `extension.source`".into());
         };
         for (key, value) in group {
+            if let Some(ty) = self.agent_word(key) {
+                if value != "clear" && !word_fits(&ty, value) {
+                    return refuse(format!("prefer extension: `{key}` is a {ty}"));
+                }
+                continue;
+            }
             let Some(row) = self
                 .plan
                 .modules
@@ -135,26 +187,34 @@ impl<D: DataSource> Runner<D> {
                 ));
             }
             let sub = self.substitute(&row);
-            let permission = &sub["permission"];
-            let status = permission["status"].as_str() == Some(self.plan.str(row.declared));
-            let field = permission["field"].as_str().filter(|_| status);
-            if let Some(field) = field.filter(|f| value.get(f).is_some()) {
-                // One authority per fact (§6): the state is the permission's.
-                let name = permission["name"].as_str().unwrap_or_default();
-                return refuse(format!(
-                    "prefer extension: `{key}`'s `{field}` is set by `prefer permission.{name}`"
-                ));
+            let statuses = self.statuses_of(&row);
+            for permission in &statuses {
+                let field = permission["field"].as_str().unwrap_or_default();
+                if value.get(field).is_some() {
+                    // One authority per fact (§6): the state is the permission's.
+                    let name = permission["name"].as_str().unwrap_or_default();
+                    return refuse(format!(
+                        "prefer extension: `{key}`'s `{field}` is set by `prefer permission.{name}`"
+                    ));
+                }
             }
             if value != "clear" && error_code(value).is_none() {
                 let mut checked = value.clone();
-                if let (Some(field), Some(object)) = (field, checked.as_object_mut()) {
-                    object.insert(field.into(), json!("prompt"));
+                for field in statuses.iter().filter_map(|p| p["field"].as_str()) {
+                    if let Some(object) = checked.as_object_mut() {
+                        object.insert(field.into(), json!("prompt"));
+                    }
                 }
                 // An implementation's own substitute takes a partial
-                // overlay (LLP 1133.009 D10 item 11); a declared one, a value.
-                let checked = match sub["implementation"] == true {
-                    true => self.partial(&row, &checked),
-                    false => self.typed(&row, &checked.to_string()).map(|_| ()),
+                // overlay (LLP 1133.009 D10 item 11), as a `partial` source
+                // does over its default; a declared one, a value. A sampled
+                // source's takes a reading or a track of steps (§9).
+                let checked = if sub["track"] == true {
+                    self.track_checked(&row, &checked)
+                } else if sub["implementation"] == true || sub["partial"] == true {
+                    self.partial(&row, &checked)
+                } else {
+                    self.typed(&row, &checked.to_string()).map(|_| ())
                 };
                 if let Err(e) = checked {
                     return refuse(format!("prefer extension: {e}"));
@@ -168,9 +228,15 @@ impl<D: DataSource> Runner<D> {
             } else {
                 self.extensions.preferred.insert(key.clone(), value.clone());
             }
+            self.note_track(key, value);
             self.log(format!("prefer extension {key}"));
             self.announce(key);
-            let row = (self.plan.modules.iter()).find(|m| self.key(m) == *key);
+            // An agent word is its extension's: any of its names stands for it.
+            let extension = key.split_once('.').map_or("", |(e, _)| e);
+            let row = (self.plan.modules.iter()).find(|m| {
+                self.key(m) == *key
+                    || (self.plan.str(m.extension) == extension && self.agent_word(key).is_some())
+            });
             if let Some(row) = row.filter(|r| self.route(r) == Route::Agent) {
                 told.insert(self.plan.str(row.extension).to_owned());
             }
@@ -193,6 +259,33 @@ impl<D: DataSource> Runner<D> {
         let ty = self.plan.sources[row.source.0 as usize].ty;
         let shape = exact_js_value::Shape::from_plan(&self.plan, ty)?;
         partial(&self.key(row), value, &shape)
+    }
+
+    /// The type of `key` (`speech-recognition.heard`) where it is one of the
+    /// words its interface declares for the agent path alone (`agent`, LLP
+    /// 1133.012 §9) and is no name of the interface.
+    fn agent_word(&self, key: &str) -> Option<String> {
+        let (extension, word) = key.split_once('.')?;
+        if (self.plan.modules.iter()).any(|m| self.key(m) == key) {
+            return None;
+        }
+        let row = (self.plan.modules.iter()).find(|m| self.plan.str(m.extension) == extension)?;
+        self.substitute(row)["agent"][word]
+            .as_str()
+            .map(str::to_owned)
+    }
+}
+
+/// Whether `value` is one of `ty`'s: a string, number or bool by its kind,
+/// a list of them, and anything else as JSON.
+fn word_fits(ty: &str, value: &Json) -> bool {
+    match ty.trim() {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "bool" => value.is_boolean(),
+        list if list.ends_with("[]") => (value.as_array())
+            .is_some_and(|a| a.iter().all(|v| word_fits(&list[..list.len() - 2], v))),
+        _ => true,
     }
 }
 

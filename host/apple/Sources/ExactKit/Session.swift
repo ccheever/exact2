@@ -18,24 +18,21 @@ import QuartzCore
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
     /// The process's environment. A production bake never enters agent mode
-    /// (LLP 1069.007 D2, ruled): its `EXACT_AGENT` and `EXACT_AGENT_*`
-    /// variables are dropped here, from the process too, before this host
-    /// or its library reads one.
+    /// (LLP 1069.007 D2, ruled) and takes no module override (LLP 1024 D5):
+    /// its `EXACT_AGENT`, `EXACT_AGENT_*`, `EXACT_HATCHES` and
+    /// `EXACT_MODULES` variables are dropped here, from the process too,
+    /// before this host or its library reads one.
     public static let environment: [String: String] = {
         var environment = ProcessInfo.processInfo.environment
-        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0 == "EXACT_HATCHES" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        let agent = environment.keys.filter { ["EXACT_AGENT", "EXACT_HATCHES", "EXACT_MODULES"].contains($0) || $0.hasPrefix("EXACT_AGENT_") }.sorted()
         guard !agent.isEmpty, productionBake else { return environment }
-        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
+        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2, LLP 1024 D5)\n".utf8))
         for key in agent { environment[key] = nil; unsetenv(key) }
         return environment
     }()
-    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`:
-    /// its own `compat.json`'s `inputs.trust`.
-    static var productionBake: Bool {
-        let bytes = Runtime.bakedCompat()
-        let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
-        return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
-    }
+    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`
+    /// (`BakedCompatibility.production`).
+    static let productionBake = BakedCompatibility.production(BakedCompatibility.json)
     public static let agentMode = environment["EXACT_AGENT"] == "1"
     /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
     static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
@@ -484,6 +481,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        PresenceKeychain.install() // before the first boot reads the backend (LLP 1133.010 D6)
         if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
@@ -1074,7 +1072,7 @@ public final class ExactSession {
         }
         let outermost = !applying
         // After the batch's own accounting below, which a later defer runs first
-        defer { if outermost { advanceIfDue() } }
+        defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
         let began = sampler == nil ? 0 : CACurrentMediaTime()
@@ -1101,9 +1099,9 @@ public final class ExactSession {
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound || op.op == .midi { if op.op == .sound { sound.apply(op.payload) } else { midi.apply(op.payload) } } } // LLP 1096 D8, LLP 1125 D7: the voice table's and the MIDI queue's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
-        for op in batch.ops where op.op == .auth {
-            let payload = op.payload
-            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
+        for op in batch.ops where op.op == .auth || op.op == .presence {
+            let (payload, auth) = (op.payload, op.op == .auth)
+            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { if auth { authOp(payload) } else { presenceOp(payload) } } }
         }
         // Each presenter takes its boot's table, a second one with the same too.
         ThemeRoles.apply(batch, root: presenter.root); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }

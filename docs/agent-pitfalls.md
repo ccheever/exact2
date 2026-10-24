@@ -104,7 +104,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A `symbol:` image's `-exact-tint-color` does nothing.** A symbol is drawn in its
   computed `color` on every host (LLP 1081 stage 2); `-exact-tint-color` colours a
   raster image only, and a native button's face symbol. Write
-  `image "symbol:forward-chevron" color="-exact-tertiary-label"`.
+  `image "symbol:forward-chevron" color="-exact-tertiary-label"`. The build warns
+  (`lower-symbol-tint`).
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
   Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
   it follows its text (in a button, tab or bar item, its title's font; give it a
@@ -898,6 +899,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
   key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
   a terminal too, where a typed capital is reported as `Shift+N`).
+- **A `Meta` shortcut does nothing on Windows.** Every host matches a chord as
+  written, and on Windows `Meta` is the Windows key, whose chords the shell takes
+  (Win+N is Notification Center), so `"Meta+N"` alone never fires there. List the
+  Control chord beside it, `aria-keyshortcuts="Meta+N Control+N"`. In an app with
+  a Windows host (`host.windows` in `app.json`, or a `windows/` crate) the build
+  warns: `analyze-shortcut-meta-only` names the chord to add, and
+  `analyze-shortcut-windows-reserved` a chord Windows keeps for itself (Alt+Tab,
+  Alt+F4, Alt+Space, Control+Escape, Control+Shift+Escape, Control+Alt+Delete).
+  (LLP 1115.004 D9.6.)
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no

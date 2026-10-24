@@ -138,3 +138,30 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     await suite.close();
   }
 }, 30000);
+
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authored empty text remains part of a custom bar face`, async () => {
+  const cases = ['bar-button', 'bar-pressable', 'sheet-button', 'sheet-pressable'];
+  const content = cases.map(id => {
+    const tag = id.endsWith('button') ? 'button' : 'div';
+    const face = role(`${id}-i`, 'add', 13, 'font-size:13px;width:20px;height:20px')
+      + '<span data-exact-text style="display:block;width:12px;height:8px;background:red"></span>';
+    return `<div navigationkey="${id}" ${id.startsWith('sheet') ? 'navigationPresentation="modal"' : ''}><header data-exact-bar>
+      <${tag} id="${id}" data-exact-on="press" aria-label="Add" style="display:flex">${face}</${tag}>
+    </header></div>`;
+  }).join('');
+  const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<div id="exact-root">${content}</div>`)
+    .replace('<script type="module" src="./glue.js"></script>', '');
+  const suite = await suiteBrowser(engine, { timeout: 10000 });
+  try {
+    const page = await suite.newPage();
+    await page.setContent(html);
+    const got = await page.evaluate(cases => cases.map(id => {
+      const item = document.getElementById(id), image = item.querySelector('img'), text = item.querySelector('span');
+      const s = getComputedStyle(image), t = getComputedStyle(text), r = text.getBoundingClientRect();
+      return { id, image: [s.width, s.height, s.fontSize, s.display], text: [r.width, r.height, t.backgroundColor],
+        label: getComputedStyle(item, '::after').content };
+    }), cases);
+    expect(got).toEqual(cases.map(id => ({ id, image: ['20px', '20px', '13px', 'block'], text: [12, 8, 'rgb(255, 0, 0)'], label: 'none' })));
+  } finally { await suite.close(); }
+}, 10000);

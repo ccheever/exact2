@@ -106,7 +106,15 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
-        let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
+        let face = self.button_context == Some("a native button");
+        let inked = crate::symbols::symbol_ink(
+            tag,
+            positional,
+            &expanded[sheet.len()..],
+            face,
+            !self.fns.contains_key("startsWith")
+                && !contract_types::records::is_record_call("startsWith", &self.types.shapes),
+        );
         crate::popover_surface::check_authored(expanded)?;
         let surfaced = crate::popover_surface::implied(expanded, *span);
         let added: Vec<Attr> = inked

@@ -149,7 +149,7 @@ fn screen(routes: &RoutesDecl, entry: &str) -> Option<Node> {
           text "Not Found" role="heading" aria-level=2
         column flex=1 min-height=0 align-items="center" justify-content="center" gap=8 padding="48px 24px" text-align="center"
           image "symbol:alert" width=48 height=48 object-fit="contain" margin-bottom=8 aria-hidden=true
-            -exact-tint-color="-exact-secondary-label"
+            color="-exact-secondary-label"
           text "Page not found" font="-exact-title3" testId="not-found-title"
           text `There is no page at ${{{entry}.url}}.` color="-exact-secondary-label" max-width=360 testId="not-found-message"
           link href="{home}" margin-top=8 testId="not-found-home"

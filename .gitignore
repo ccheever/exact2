@@ -17,6 +17,8 @@ game/.shells/
 apps/*/app.contract.d.ts
 # The design server's lock and journal (contract tamber serve, LLP 1121 D13).
 apps/*/.exact/
+# The Windows package host/windows/build.mjs writes (game/ ignores its own).
+apps/*/dist-windows/
 
 # What the Messages app's bake wrote before its rewrite (87997f0d), and the
 # removed Snapback-backed Messages Legacy app's generated files: a checkout

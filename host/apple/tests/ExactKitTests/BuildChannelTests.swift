@@ -108,6 +108,27 @@ final class BuildChannelTests: XCTestCase {
         XCTAssertEqual(connection.plan, "accepted-generation")
     }
 
+    /// `ExactEnv.productionBake` (`BakedCompatibility.production` of the
+    /// baked compat), which this channel, the frame sampler, hatch
+    /// diagnostics and the module override follow, is the build's own trust,
+    /// `embedded.trust`: an updater-free (L=0) production bake records none
+    /// in its cohort and is still production (#948), and a cohort's trust
+    /// alone does not make a build production.
+    func testProductionBakeIsTheBuildsTrustEvenWithNoUpdater() throws {
+        func compat(_ json: String) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        }
+        let zero = try compat(#"{"id":"c","inputs":{"store":{"L":"0","acceptedKinds":[]},"keys":null,"trust":null},"embedded":{"seq":0,"genesis":true,"trust":"production"}}"#)
+        let developing = try compat(#"{"id":"c","inputs":{"store":{"L":"0","acceptedKinds":[]},"keys":null,"trust":null},"embedded":{"seq":0,"genesis":true,"trust":"development"}}"#)
+        let cohortOnly = try compat(#"{"id":"c","inputs":{"store":{"L":"A"},"trust":"production"},"embedded":{"seq":0}}"#)
+        XCTAssertTrue(BakedCompatibility.production(zero))
+        XCTAssertFalse(BakedCompatibility.production(developing))
+        XCTAssertFalse(BakedCompatibility.production(cohortOnly), "no reading of the cohort's trust in its place")
+        let override = ["EXACT_MODULES": "/elsewhere/libexact_modules.dylib"]
+        XCTAssertEqual(NativeViews.modulePath(standard: "baked", production: BakedCompatibility.production(zero), environment: override), "baked")
+        XCTAssertEqual(NativeViews.modulePath(standard: "baked", production: BakedCompatibility.production(developing), environment: override), override["EXACT_MODULES"])
+    }
+
     #if os(macOS)
     /// A boot, as a generation, reports its plan's own design: the server's
     /// `/__dev/design` answers 204 when its design is the plan's, so no
