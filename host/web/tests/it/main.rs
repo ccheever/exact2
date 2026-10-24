@@ -13,6 +13,7 @@ mod height;
 mod height_drag;
 mod holds;
 mod host;
+mod icon_rule;
 mod lengths;
 mod lists;
 mod looks;

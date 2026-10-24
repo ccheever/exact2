@@ -24,15 +24,23 @@ function schedule() {
   });
 }
 // A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
-// `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file.
+// `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file. An
+// even-odd icon's path starts `evenodd:` (stage 14 C2): the page's one reading of a source form,
+// exact_kernel::Icon::parse's rule in JavaScript (a rule it doesn't know draws nothing).
+const iconForm = name => {
+  const f = name.split("|"), p = f[3] ?? "", [rule, d] = p.includes(":") ? p.split(/:(.*)/s) : ["", p];
+  const known = rule === "" || (rule === "evenodd" && d !== "");
+  return [known ? d : "", 1, f[2], p ? "" : f[4], rule === "evenodd" && known ? 1 : 0];
+};
 const draw = (e, name) => {
-  const f = name.startsWith("icon|") ? name.split("|") : null;
-  const [path, filled, box, file] = f ? [f[3], 1, f[2], f[3] ? "" : f[4]] : Table[name] ?? [""];
+  const [path, filled, box, file, evenOdd] = name.startsWith("icon|") ? iconForm(name) : Table[name] ?? [""];
   e.toggleAttribute("data-symbol-file", !!file);
   if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
-  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`).
-  e.toggleAttribute("data-symbol-nonzero", !!box);
+  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`), or
+  // even-odd where its SVG says so (the mask's `fill-rule`, `refresh`).
+  e.toggleAttribute("data-symbol-nonzero", !!box && !evenOdd);
+  e.toggleAttribute("data-symbol-evenodd", !!box && !!evenOdd);
   if (box) e.setAttribute("data-symbol-viewbox", box); else e.removeAttribute("data-symbol-viewbox");
 };
 function everyRole() {
@@ -84,7 +92,7 @@ export function symbols(table) {
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
-  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-file"]) e.removeAttribute(a);
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-evenodd", "data-symbol-file"]) e.removeAttribute(a);
   e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;

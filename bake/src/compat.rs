@@ -184,6 +184,11 @@ pub fn compatibility_id_sources_with_entries(
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
     crate::reach::derive(app_dir, platform, &mut compat)?;
+    // An even-odd icon's plan needs a binary that reads its rule (stage 14 C2).
+    if let Some(rules) = crate::icon_rules::needed(app_dir) {
+        compat.inputs["iconFillRules"] = serde_json::json!(rules);
+        compat.id = compatibility_digest(&compat.inputs);
+    }
     if let Some(out) = std::env::var_os("OUT_DIR") {
         // What an Apple archive links is part of its cohort (LLP 1047.001
         // D2), named before anything binds the id.

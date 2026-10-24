@@ -72,6 +72,7 @@ mod grouped_separators;
 mod grouped_title;
 mod headings;
 mod height_binding;
+mod icon_path_readers;
 mod inference_order;
 mod inline_image;
 mod insets;
