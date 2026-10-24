@@ -424,6 +424,132 @@ mod tests {
         assert!(parse(&deep).unwrap_err().message.contains("nested deeper"));
     }
 
+    /// Files a few kilobytes long that name billions of items, dashes or
+    /// surface pixels (LLP 1011.001 D2): each is refused by the limit it
+    /// passes, quickly, before a host allocates for it.
+    #[test]
+    fn a_file_that_expands_past_a_limit_draws_nothing_and_names_it() {
+        use exact_kernel::svg::scene::Limit;
+        const NS: &str = "xmlns=\"http://www.w3.org/2000/svg\"";
+        let zigzag =
+            |n: usize| -> String { (0..n).map(|i| format!("l1 {}", i % 2)).collect::<String>() };
+        let over = |file: String| {
+            let started = std::time::Instant::now();
+            let scene = load(&file).unwrap().scene(64.0, 64.0);
+            assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+            assert!(scene.items.is_empty() || scene.over.is_none());
+            scene.over
+        };
+        // 16 levels of `symbol`, each using the one below twice.
+        let mut defs = format!(
+            "<symbol id=\"s0\" viewBox=\"0 0 9 9\"><path d=\"M0 0{}\" stroke=\"#000\"/></symbol>",
+            zigzag(100)
+        );
+        for k in 1..=16 {
+            defs += &format!("<symbol id=\"s{k}\" viewBox=\"0 0 9 9\"><use href=\"#s{}\"/><use href=\"#s{}\" x=\"1\"/></symbol>", k - 1, k - 1);
+        }
+        assert_eq!(
+            over(format!(
+                "<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#s16\"/></svg>"
+            )),
+            Some(Limit::Expansion)
+        );
+        // Markers whose content is a marked path, four deep: 100^4 copies.
+        let mut defs = String::from("<marker id=\"m0\"><circle r=\"1\"/></marker>");
+        for k in 1..=4 {
+            defs += &format!("<marker id=\"m{k}\"><path d=\"M0 0{}\" marker-mid=\"url(#m{})\" stroke=\"#000\"/></marker>", zigzag(100), k - 1);
+        }
+        assert_eq!(
+            over(format!("<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><path d=\"M0 0{}\" marker-mid=\"url(#m4)\"/></svg>", zigzag(100))),
+            Some(Limit::Expansion)
+        );
+        // 300 paths of a million dashes each.
+        let paths: String = (0..300)
+            .map(|i| {
+                format!("<path d=\"M0 {i}H99000\" stroke=\"#000\" stroke-dasharray=\"0.05\"/>")
+            })
+            .collect();
+        assert_eq!(
+            over(format!("<svg {NS} viewBox=\"0 0 99000 300\">{paths}</svg>")),
+            Some(Limit::Dashes)
+        );
+        // Filters whose region is far past the drawing, each an island of
+        // the largest size with its working images, on 400 shapes.
+        let shapes = "<rect width=\"5\" height=\"5\" filter=\"url(#f)\"/>".repeat(400);
+        assert_eq!(
+            over(format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\" filterUnits=\"userSpaceOnUse\" x=\"-1e6\" y=\"-1e6\" width=\"2e6\" height=\"2e6\"><feGaussianBlur stdDeviation=\"20\"/></filter>{shapes}</svg>")),
+            Some(Limit::Surfaces)
+        );
+        // A primitive whose work per pixel is a parameter of the file.
+        let filtered = |primitive: &str| {
+            format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\" filterUnits=\"userSpaceOnUse\" x=\"-100\" y=\"-100\" width=\"200\" height=\"200\">{primitive}</filter><rect width=\"5\" height=\"5\" filter=\"url(#f)\"/></svg>")
+        };
+        for primitive in [
+            "<feTurbulence baseFrequency=\"0.1\" numOctaves=\"1000000000\"/>",
+            "<feMorphology radius=\"1000000\"/>",
+        ] {
+            assert_eq!(
+                over(filtered(primitive)),
+                Some(Limit::FilterWork),
+                "{primitive}"
+            );
+        }
+        assert_eq!(over(filtered("<feMorphology radius=\"0.2\"/>")), None);
+        // One filter named a thousand times in one list: each a copy.
+        let offsets = "<feOffset dx=\"1\"/>".repeat(2000);
+        let list = "url(#f) ".repeat(1000);
+        assert_eq!(
+            over(format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\">{offsets}</filter><rect width=\"5\" height=\"5\" style=\"filter: {list}\"/></svg>")),
+            Some(Limit::Expansion)
+        );
+        // A transfer table each filtered shape carries a copy of.
+        let table = "1 ".repeat(10_000);
+        let shapes = "<rect width=\"1\" height=\"1\" filter=\"url(#t)\"/>".repeat(200);
+        assert_eq!(
+            over(format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"t\"><feComponentTransfer><feFuncR type=\"table\" tableValues=\"{table}\"/></feComponentTransfer></filter>{shapes}</svg>")),
+            Some(Limit::Expansion)
+        );
+        // Copies that carry a gradient's stops, or empty spans of text.
+        let doubling = |base: &str, defs: &str| {
+            let mut defs = format!("{defs}<g id=\"l0\">{base}</g>");
+            for k in 1..=14 {
+                defs += &format!(
+                    "<g id=\"l{k}\"><use href=\"#l{0}\"/><use href=\"#l{0}\"/></g>",
+                    k - 1
+                );
+            }
+            over(format!(
+                "<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#l14\"/></svg>"
+            ))
+        };
+        let stops: String = (0..200)
+            .map(|i| {
+                format!(
+                    "<stop offset=\"{}\" stop-color=\"#{:06x}\"/>",
+                    i as f32 / 200.0,
+                    i * 997
+                )
+            })
+            .collect();
+        assert_eq!(
+            doubling(
+                "<rect width=\"1\" height=\"1\" fill=\"url(#g)\"/>",
+                &format!("<linearGradient id=\"g\">{stops}</linearGradient>")
+            ),
+            Some(Limit::Expansion)
+        );
+        let spans = "<tspan dx=\"1\"/>".repeat(100);
+        assert_eq!(
+            doubling(&format!("<text>{spans}</text>"), ""),
+            Some(Limit::Expansion)
+        );
+        // An icon with a drop shadow, a pattern and a few uses is none of these.
+        assert_eq!(
+            over(format!("<svg {NS} viewBox=\"0 0 24 24\"><defs><filter id=\"f\"><feGaussianBlur stdDeviation=\"1\"/></filter><pattern id=\"p\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\"><circle cx=\"2\" cy=\"2\" r=\"1\"/></pattern><path id=\"a\" d=\"M2 2h8v8z\"/></defs><g filter=\"url(#f)\"><use href=\"#a\"/><use href=\"#a\" x=\"10\"/></g><rect width=\"24\" height=\"6\" fill=\"url(#p)\" stroke=\"#000\" stroke-dasharray=\"1 1\"/></svg>")),
+            None
+        );
+    }
+
     #[test]
     fn a_picture_shows_an_island_for_a_mask_or_a_filter() {
         let islands = |body: &str| {

@@ -358,11 +358,16 @@ impl Resolver<'_, '_> {
                 else {
                     return Some(nothing);
                 };
-                let Some(region) = self.filter_element(&target, bbox, vp, &mut chain) else {
+                let before = chain.primitives.len();
+                let region = self.filter_element(&target, bbox, vp, &mut chain);
+                // A list can name one filter many times: each a copy.
+                let made = &chain.primitives[before..];
+                let Some(region) = region.filter(|_| self.budget.primitives(made)) else {
                     return Some(nothing);
                 };
                 chain.region = Some(chain.region.map_or(region, |c| union(c, region)));
             } else {
+                let before = chain.primitives.len();
                 function(
                     &mut chain,
                     f,
@@ -370,6 +375,9 @@ impl Resolver<'_, '_> {
                     node.style.text_color.resolve(false),
                     false,
                 );
+                if !self.budget.primitives(&chain.primitives[before..]) {
+                    return Some(nothing);
+                }
             }
         }
         let region = chain.region.unwrap_or((0.0, 0.0, 0.0, 0.0));
