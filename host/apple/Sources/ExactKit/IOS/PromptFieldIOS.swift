@@ -34,9 +34,6 @@ final class PromptField: NSObject, UITextFieldDelegate {
     /// prompt's first action that is not destructive (`MenuHost`).
     var returned: (() -> Void)?
     init(_ node: NodeView, presenter: Presenter) { self.node = node; self.presenter = presenter }
-    /// Whether UIKit's field holds the focus, and so raises the software keyboard.
-    var editing: Bool { field?.isFirstResponder == true }
-
     func snapshot() -> Snapshot? {
         guard let node = live(), let field else { return nil }
         return Snapshot(node: node, incarnation: node.incarnation, value: node.props["value"],
@@ -115,6 +112,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
         return alertDelegate?.textFieldShouldClear?(textField) ?? true
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
+        presenter?.keyboardPrompt = textField
         alertDelegate?.textFieldDidBeginEditing?(textField)
         if let node = live() { presenter?.focus(node.id) }
     }
