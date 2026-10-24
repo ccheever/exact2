@@ -165,6 +165,8 @@ pub extern "C" fn mde_before_input(
         12 => Input::Forward,
         13 => Input::OtherBackward,
         14 => Input::OtherForward,
+        15 => Input::WordBackward,
+        16 => Input::WordForward,
         _ => Input::Other,
     };
     with(h, len, |e, data| {
@@ -270,9 +272,10 @@ pub extern "C" fn mde_source_len(h: u32) -> u32 {
 }
 
 /// The lines into [`mde_out`]; returns its length. `[count]`, then per line
-/// `start, end, heading, quote, depth, flags, deco, deco_a, deco_b, count`
-/// and `count` segments of `start, end, style`, positions after `end`
-/// relative to the line's start so an unchanged line reads the same.
+/// `start, end, heading, quote, depth, flags, deco, deco_a, deco_b, count`,
+/// `count` segments of `start, end, style`, then the line's atom count and
+/// per atom `start, end, kind, style`, positions after `end` relative to the
+/// line's start so an unchanged line reads the same.
 #[no_mangle]
 pub extern "C" fn mde_view(h: u32) -> u32 {
     let lines = with(h, 0, |e, _| e.lines());
@@ -313,6 +316,10 @@ pub extern "C" fn mde_view(h: u32) -> u32 {
             for (s, e, style) in l.segments {
                 out.extend([s - l.start, e - l.start, style.into()]);
             }
+            out.push(l.atoms.len() as u32);
+            for (s, e, kind, style) in l.atoms {
+                out.extend([s - l.start, e - l.start, kind as u32, style.into()]);
+            }
         }
         out.len() as u32
     })
@@ -339,8 +346,9 @@ fn put_text(text: &str) -> u32 {
     })
 }
 
-/// The `select` event payload (formats, mixed, unavailable, link; one per
-/// line) into [`mde_text`]; returns its length.
+/// The `select` event payload (formats, mixed, unavailable, atom, link; one
+/// per line, the link last since a destination may hold a line break) into
+/// [`mde_text`]; returns its length.
 #[no_mangle]
 pub extern "C" fn mde_facts(h: u32) -> u32 {
     let facts = with(h, 0, |e, _| e.facts());
@@ -350,18 +358,74 @@ pub extern "C" fn mde_facts(h: u32) -> u32 {
             facts.formats.as_str(),
             mixed,
             &facts.unavailable,
+            &facts.atom,
             &facts.link,
         ]
         .join("\n"),
     )
 }
 
-/// The input as plain text, for "copy plain", into [`mde_text`].
+/// The input as plain text, each atom its label, for "copy plain", into
+/// [`mde_text`].
 #[no_mangle]
-pub extern "C" fn mde_plain(len: u32) -> u32 {
-    let source = ABI.with(|abi| {
-        let abi = abi.borrow();
-        String::from_utf16_lossy(&abi.input[..(len as usize).min(abi.input.len())])
+pub extern "C" fn mde_plain(h: u32, len: u32) -> u32 {
+    let plain = with(h, len, |e, input| e.plain(&String::from_utf16_lossy(input)));
+    put_text(&plain)
+}
+
+/// The field's atom kinds (`kinds_len` units of the compiler's JSON) then
+/// the app's faces (the rest of the input) (LLP 1045.000 D2).
+#[no_mangle]
+pub extern "C" fn mde_atoms(h: u32, kinds_len: u32, faces_len: u32) -> u32 {
+    with(h, kinds_len.saturating_add(faces_len), |e, input| {
+        let at = (kinds_len as usize).min(input.len());
+        let atoms = exact_markdown::Atoms::parse(
+            &String::from_utf16_lossy(&input[..at]),
+            &String::from_utf16_lossy(&input[at..]),
+        );
+        bits(e.set_atoms(atoms))
+    })
+}
+
+/// Each atom's kind name, label, icon, title, role (`button` or `link`),
+/// destination and source, a field per line and a blank line after each
+/// atom's, in source order, into [`mde_text`]; returns its length. No field
+/// holds a line break: an atom's source never does, and a label's white
+/// space draws as one space.
+#[no_mangle]
+pub extern "C" fn mde_atom_faces(h: u32) -> u32 {
+    let text = with(h, 0, |e, _| {
+        let mut out = String::new();
+        let flat = |s: &str| s.split(['\n', '\r']).collect::<Vec<_>>().join(" ");
+        for a in e.atoms() {
+            let kind = &e.atom_kinds()[a.kind];
+            let face = e.atom_face(&a.source);
+            let role = match kind.role {
+                exact_markdown::AtomRole::Button => "button",
+                exact_markdown::AtomRole::Link => "link",
+            };
+            for field in [
+                kind.name.as_str(),
+                &flat(&a.label),
+                &flat(face.map_or("", |f| f.icon.as_str())),
+                &flat(face.map_or("", |f| f.title.as_str())),
+                role,
+                &a.href,
+                &a.source,
+            ] {
+                out.push_str(field);
+                out.push('\n');
+            }
+            out.push('\n');
+        }
+        out
     });
-    put_text(&exact_markdown::plain(&source))
+    put_text(&text)
+}
+
+/// An input method begins composing: a range holding an atom is deleted
+/// first, its own undo step (LLP 1045.000 D5).
+#[no_mangle]
+pub extern "C" fn mde_compose(h: u32, now: f64) -> u32 {
+    with(h, 0, |e, _| bits(e.compose(now)))
 }

@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod atoms;
 mod block;
 mod edit;
 mod inline;
@@ -33,12 +34,13 @@ mod style;
 /// Shared JSON wire for native and browser editing.
 pub mod wire;
 
+pub use atoms::{Atom, AtomFace, AtomForm, AtomKind, AtomRole, Atoms};
 pub use edit::{edit, Command, Edit};
-pub use pieces::{pieces, Piece, Role};
-pub use segment::{embed, excerpt, plain, segments, video, Embed, Provider, Segment};
+pub use pieces::{pieces, pieces_with, AtomPiece, Piece, Role};
+pub use segment::{embed, excerpt, plain, plain_with, segments, video, Embed, Provider, Segment};
 pub use selection::{selection, Selection};
 pub use style::{
-    style, Footnote, LinkSyntax, Paragraph, ParagraphKind, Replaced, Replacement, Span, Styled,
+    style, style_with, Footnote, LinkSyntax, Paragraph, ParagraphKind, Replaced, Replacement, Span, Styled,
 };
 
 /// Bold.

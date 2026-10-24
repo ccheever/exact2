@@ -345,9 +345,33 @@ pub fn segments<'a>(source: &'a str, limit: usize) -> Vec<Segment<'a>> {
 
 /// The text a reader sees: markers gone, bullets and boxes as glyphs.
 pub fn plain(source: &str) -> String {
-    let analysis = analyze(source, None);
+    plain_with(source, &crate::Atoms::default())
+}
+
+/// The plain text with each atom as its label (⌘⇧C, LLP 1045.000 D5).
+pub fn plain_with(source: &str, atoms: &crate::Atoms) -> String {
+    let analysis = crate::style::analyze_with(source, None, atoms);
+    let labels: Vec<String> = analysis
+        .atoms
+        .iter()
+        .map(|a| {
+            atoms
+                .face(&source[a.range.clone()])
+                .map(|f| f.label.as_str())
+                .filter(|l| !l.is_empty())
+                .unwrap_or(&a.default)
+                .to_string()
+        })
+        .collect();
     let mut skips: Vec<(std::ops::Range<usize>, &str)> =
         analysis.hidden.iter().map(|r| (r.clone(), "")).collect();
+    skips.extend(
+        analysis
+            .atoms
+            .iter()
+            .zip(&labels)
+            .map(|(a, l)| (a.range.clone(), l.as_str())),
+    );
     skips.extend(analysis.replaced.iter().map(|(r, with)| {
         (
             r.clone(),

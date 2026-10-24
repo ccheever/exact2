@@ -86,7 +86,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }

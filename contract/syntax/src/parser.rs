@@ -467,6 +467,7 @@ impl Parser {
                 TokenKind::Ident(w) if w == "decoration" => {
                     file.decorations.push(self.decoration()?)
                 }
+                TokenKind::Ident(w) if w == "atom" => file.atoms.push(self.atom()?),
                 TokenKind::Ident(w) if w == "keyframes" => {
                     let decl = self.keyframes_decl()?;
                     if let Some(first) = file.keyframes.iter().find(|k| k.name == decl.name) {
