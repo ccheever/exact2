@@ -34,9 +34,9 @@
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
 // drag's `screen` and `screenTo` send it there too, built as XCTest's own
 // drag is, a still press, then one move, and held as a finger holds it
-// (`Synthesizer.drag`). Without them, or when that SPI is missing or refuses the touch,
-// the public `XCUICoordinate` call makes it; one the synthesizer has not
-// finished in time fails, never played again.
+// (`Synthesizer.drag`). A named display must match; a refused or unfinished
+// synthesis fails without a coordinate fallback. A request with only scene
+// coordinates uses `XCUICoordinate` only on a single-screen device.
 // SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
 // It never launches, activates or terminates the app: the driver owns its lifecycle.
 import XCTest
@@ -97,14 +97,15 @@ final class ExactTouches: XCTestCase {
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000
                 var via = "synthesizer"
-                let screen = (req["screen"] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil }
-                let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
-                switch screen.map({ Synthesizer.tap($0, display: size.flatMap(Displays.showing)) }) ?? .missing {
+                let destination: (point: CGPoint, id: Int)?
+                do { destination = try Displays.target(req) }
+                catch { session.send(["error": String(describing: error)]); continue }
+                switch destination.map({ Synthesizer.tap($0.point, display: $0.id) }) ?? .missing {
                 case .injected: break
-                // Only a tap that was never injected falls back to the public one; one still in flight may yet land, and
-                // a second tap would press twice (a toggle back where it was), so it fails instead.
+                // An unfinished touch may still land, so never replay it
                 case .unfinished: session.send(["error": "XCTest's event synthesizer did not finish the tap in 5 s; nothing more was injected"]); continue
                 case .missing, .refused:
+                    guard destination == nil else { session.send(["error": "XCTest could not inject the tap on the requested display; no coordinate fallback was sent"]); continue }
                     via = "coordinate"
                     target.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p[0], dy: p[1])).tap()
                 }
@@ -115,11 +116,13 @@ final class ExactTouches: XCTestCase {
                       [press, hold, velocity].allSatisfy({ $0.isFinite && $0 >= 0 }) else { session.send(["error": "drag needs finite points and non-negative press, hold and velocity"]); continue }
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000
-                // Play the drag through the synthesizer, as a tap, on the app's display; the public call is the fallback
+                let destination: (point: CGPoint, id: Int)?
+                do { destination = try Displays.target(req) }
+                catch { session.send(["error": String(describing: error)]); continue }
                 let fixed = { (key: String) in (req[key] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil } }
                 let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
                 if let legs = req["path"] as? [[String: Any]] {
-                    guard let from = fixed("screen"), !legs.isEmpty, legs.count <= 8 else { session.send(["error": "path needs a screen start and one to eight legs"]); continue }
+                    guard let destination, !legs.isEmpty, legs.count <= 8 else { session.send(["error": "path needs a screen start and one to eight legs"]); continue }
                     var points: [(CGPoint, Double, Double)] = []
                     for leg in legs {
                         guard let to = leg["to"] as? [Double], to.count == 2, to.allSatisfy(\.isFinite),
@@ -128,14 +131,16 @@ final class ExactTouches: XCTestCase {
                         points.append((CGPoint(x: to[0], y: to[1]), over, held))
                     }
                     guard points.count == legs.count, press + points.reduce(0, { $0 + $1.1 + $1.2 }) <= 10 else { session.send(["error": "invalid path or duration past 10 s"]); continue }
-                    let outcome = Synthesizer.path(from: from, legs: points, press: press, display: size.flatMap(Displays.showing), bounds: size)
+                    let outcome = Synthesizer.path(from: destination.point, legs: points, press: press, display: destination.id, bounds: size)
                     guard outcome == .injected else { session.send(["error": "XCTest's synthesizer did not inject the complete path; no fallback was injected"]); continue }
                     session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer"]]); continue
                 }
-                if let from = fixed("screen"), let to = fixed("screenTo") {
-                    let outcome = Synthesizer.drag(from: from, to: to, press: press, velocity: velocity, hold: hold, display: size.flatMap(Displays.showing), bounds: size)
+                if let destination {
+                    guard let to = fixed("screenTo") else { session.send(["error": "drag needs a finite screenTo on the requested display"]); continue }
+                    let outcome = Synthesizer.drag(from: destination.point, to: to, press: press, velocity: velocity, hold: hold, display: destination.id, bounds: size)
                     if outcome == .unfinished { session.send(["error": "XCTest's event synthesizer did not finish the drag in time; nothing more was injected"]); continue }
                     if outcome == .injected { session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer"]]); continue }
+                    session.send(["error": "XCTest could not inject the drag on the requested display; no coordinate fallback was sent"]); continue
                 }
                 let zero = target.coordinate(withNormalizedOffset: .zero)
                 let from = zero.withOffset(CGVector(dx: p[0], dy: p[1]))
@@ -424,9 +429,9 @@ final class Link {
 /// screenshot (XCUIScreen has no public bounds), and matched to it either
 /// way round.
 enum Displays {
+    private static let screens = XCUIScreen.screens
     private static let displays: [(id: Int, sides: (CGFloat, CGFloat))] = {
-        let screens = XCUIScreen.screens
-        return screens.count < 2 ? [] : screens.compactMap { screen in
+        screens.compactMap { screen in
             guard (screen as NSObject).responds(to: NSSelectorFromString("displayID")) else { return nil }
             return ((screen as NSObject).value(forKey: "displayID") as? Int).map { ($0, sides(screen.screenshot().image.size)) }
         }
@@ -434,7 +439,20 @@ enum Displays {
 
     static func showing(_ screen: CGSize) -> Int? {
         let want = sides(screen)
-        return displays.first { abs($0.sides.0 - want.0) < 1 && abs($0.sides.1 - want.1) < 1 }?.id
+        let matches = displays.filter { abs($0.sides.0 - want.0) < 1 && abs($0.sides.1 - want.1) < 1 }
+        return matches.count == 1 ? matches[0].id : nil
+    }
+
+    static func target(_ request: [String: Any]) throws -> (point: CGPoint, id: Int)? {
+        guard screens.count > 1 || ["screen", "display", "screenTo", "path"].contains(where: { request[$0] != nil }) else { return nil }
+        guard let point = request["screen"] as? [Double], point.count == 2, point.allSatisfy(\.isFinite),
+              let dimensions = request["display"] as? [Double], dimensions.count == 2,
+              dimensions.allSatisfy({ $0.isFinite && $0 > 0 }),
+              let id = showing(CGSize(width: dimensions[0], height: dimensions[1])) else {
+            throw NSError(domain: "ExactTouches", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "The gesture's display does not match exactly one XCTest display; supply a finite screen point and its display size. No touch was injected."])
+        }
+        return (CGPoint(x: point[0], y: point[1]), id)
     }
 
     /// A size's short and long sides, the same whichever way the display is turned

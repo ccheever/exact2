@@ -38,12 +38,11 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
-/** The frame of the native view of class `cls` in session `s`'s accessibility tree (a bar UIKit draws), or undefined;
- * an incomplete tree throws, so a bar missing from it is never taken for absent. */
-const axFrame = async (s, cls) => {
-  const ax = (await s.op({ op: 'tree', ax: true })).ax;
-  if (ax?.coverage?.complete !== true) throw new Error(`the accessibility tree is incomplete: ${JSON.stringify(ax?.coverage ?? ax)}`);
-  return ax.elements.find((e) => e.native?.class === cls)?.frame;
+/** The native bar standing for the authored tablist, independent of accessibility grouping. */
+const nativeTabBar = async (s) => (await s.layout('tab-bar')).node.native.tabBar;
+const tabBarFrame = async (s) => {
+  const bar = await nativeTabBar(s);
+  return bar?.visible ? bar.frame : undefined;
 };
 const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < eps;
 // A box at a segment's edge, which lies on a half point (455.5, 495.5): iOS draws every box on the device's pixel
@@ -327,7 +326,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await pose(s, 180); // closed to open in a live session, checked
   };
   /** Where duo-lab's routes end in layout `l` of session `s`, its chrome checked. The note screen hides the tablist on
-   * either chrome (UIKit's tab bar leaves the accessibility tree), so there they end at the viewport's bottom; iOS's
+   * either chrome, so there they end at the viewport's bottom; iOS's
    * layout lists only views in the window, so its sheet is listed only while it shows. Under UIKit's bars the authored
    * tablist has no box. Beside UIKit's tab bar along the bottom a tab's route ends below the bar's top by the home
    * indicator's inset (34 points on the whole panel), which the panes' padding takes; beside its rail, at the viewport's
@@ -336,13 +335,13 @@ async function suite({ open: openSession, check: record }, reset) {
   const routesEnd = async (s, l, tag) => {
     const bar = box(l, 'tab-bar'), laid = bar?.w > 0 && bar?.h > 0, uikit = s.chrome !== 'agent';
     if (box(l, 'note-sheet')) {
-      check(!laid && (!uikit || !(await axFrame(s, 'UITabBar'))), `${tag}: the note screen hides the tablist: ${JSON.stringify(bar)}`);
+      check(!laid && (!uikit || (await nativeTabBar(s))?.visible === false), `${tag}: the note screen hides the tablist: ${JSON.stringify(bar)}`);
       return l.viewport.h;
     }
     if (uikit) {
       check(!laid, `${tag}: under UIKit's bars the authored tablist has no box: ${JSON.stringify(bar)}`);
-      const f = await axFrame(s, 'UITabBar');
-      if (!check(f, `${tag}: UIKit's tab bar is in the accessibility tree`)) return l.viewport.h;
+      const f = await tabBarFrame(s);
+      if (!check(f, `${tag}: UIKit's tab bar is visible`)) return l.viewport.h;
       if (f.h > f.w) return l.viewport.h; // a rail at the side
       check(near(f.x, 0) && near(f.w, l.viewport.w) && near(f.y + f.h, l.viewport.h), `${tag}: UIKit's tab bar runs along the viewport's bottom: ${JSON.stringify(f)} in ${JSON.stringify(l.viewport)}`);
       return f.y + l.env['safe-area-inset-bottom'];
@@ -357,6 +356,21 @@ async function suite({ open: openSession, check: record }, reset) {
     const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
     check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `${where}: item-2 selected another detail: ${first} → ${chosen}`);
     return chosen;
+  };
+  const refusesOtherDisplays = async (s, tag) => {
+    const id = byTestId(await s.tree(), 'item-2').id;
+    const { aim, error } = await s.op({ op: 'tap', id, aim: { press: true } });
+    if (error) { throw new Error(error); }
+    const base = { point: aim.point, screen: aim.fixed };
+    const drag = { ...base, op: 'drag', to: aim.point, screenTo: aim.fixed, press: 0.05, hold: 0, velocity: 0 };
+    for (const display of [[1, 1], undefined]) {
+      for (const request of [{ ...base, op: 'tap' }, drag, { ...drag, path: [{ to: aim.fixed, over: 0, hold: 0.05 }] }]) {
+        const reply = await s.carrier.touches.ask({ ...request, display });
+        check(reply.error?.includes('display does not match'), `${tag}: ${request.op} refuses an unmatched or missing display: ${JSON.stringify(reply)}`);
+      }
+    }
+    const dispatch = await s.op({ op: 'tap', log: aim.seq });
+    check(!dispatch.lost && dispatch.log?.length === 0, `${tag}: refused display requests inject no touches: ${JSON.stringify(dispatch)}`);
   };
   /** The Fold screen's facts and panes at a pose (`chosen`: the detail selected before). */
   const foldScreen = async (s, l, tag, deg, chosen, whole = true) => {
@@ -612,6 +626,7 @@ async function suite({ open: openSession, check: record }, reset) {
       check(byTestId(await s.tree(), 'screen-fold') != null, 'duo-lab opens on the Fold screen');
       const chosen = await chooseSecond(s);
       await eachPose(s, 'fold', async ({ l }, tag, deg) => {
+        await refusesOtherDisplays(s, tag);
         await foldScreen(s, l, tag, deg, chosen);
         if (folded(deg)) await offBand(s, l, tag);
       });
@@ -1084,9 +1099,8 @@ async function suite({ open: openSession, check: record }, reset) {
       let l = await s.layout();
       await foldScreen(s, l, where, 130, chosen);
       await offBand(s, l, where);
-      // The drawn bar, read where UIKit's accessibility runtime is on (an earlier leg's touch runner turns it on).
-      const drawn = await axFrame(s, 'ExactTabBar').catch((e) => (console.log(`  ${where}: the drawn tab bar is not checked: ${e.message.slice(0, 120)}`), null)), trailing = l.env['viewport-segments'][1];
-      if (drawn !== null) check(drawn && drawn.x >= trailing[0] - 0.01 && drawn.x + drawn.w <= trailing[0] + trailing[2] + 0.01, `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
+      const drawn = await tabBarFrame(s), trailing = l.env['viewport-segments'][1];
+      check(drawn && drawn.x >= trailing[0] - 0.01 && drawn.x + drawn.w <= trailing[0] + trailing[2] + 0.01, `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
       where = 'web-130-landscape-right';
       await orient('landscape-right', s);
       for (let i = 0; i < 50 && l.env['vertical-viewport-segments'] !== 2; i++) { await sleep(100); l = await s.layout(); }
