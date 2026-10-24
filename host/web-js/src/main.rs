@@ -372,7 +372,19 @@ fn main() -> ExitCode {
         match exact_plan::Plan::decode(&bytes) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("{input}: {e}");
+                // Another format's plan: most often one a stale `target/debug/contract` wrote (the
+                // host tests compile with it), which says nothing on its own.
+                let stale = matches!(
+                    e,
+                    exact_plan::PlanError::FormatDigestMismatch { .. }
+                        | exact_plan::PlanError::UnsupportedVersion(_)
+                );
+                let hint = if stale {
+                    " (the plan was written by a compiler built from another plan format, often a stale target/debug/contract: `cargo build -p contract`, then write the plan again)"
+                } else {
+                    ""
+                };
+                eprintln!("{input}: {e}{hint}");
                 return ExitCode::from(1);
             }
         }
