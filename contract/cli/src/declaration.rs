@@ -284,10 +284,15 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     // the runner reads it from any name of the interface. Its `agent` names
     // the words a drive may prefer for its implementation's agent path alone
     // (LLP 1133.012 §9: `speech-recognition.heard`), each with its type.
-    for field in ["permission", "grants", "authenticator", "agent"] {
+    // Its `images`, an `img` source scheme the package serves (LLP 1133.019
+    // D11 item 1), is read by picture admission from any name too.
+    for field in ["permission", "grants", "authenticator", "agent", "images"] {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
         }
+    }
+    if let Some(images) = interface["images"].as_object() {
+        images_checked(images)?;
     }
     if let Some(words) = interface["agent"].as_object() {
         if !words.values().all(|t| {
@@ -297,8 +302,18 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             return Err("an interface's `agent` names each word's type".into());
         }
     }
+    // A send that shows the person a choice (`choose`, LLP 1133.019 §10):
+    // its ticket's answer is the agent word it names.
+    if let Some(choose) = out.get("choose") {
+        let word = choose["word"].as_str().unwrap_or_default();
+        if !choose["ticket"].is_string() || interface["agent"][word].is_null() {
+            return Err(format!(
+                "`{name}`'s `choose` names its ticket and one of the interface's `agent` words"
+            ));
+        }
+    }
     if let Value::Array(permissions) = &interface["permission"] {
-        let (permission, by) = permission_of(entry, name, permissions)?;
+        let (permission, by, any) = permission_of(entry, name, permissions)?;
         match permission {
             Some(p) => out.insert("permission".into(), p),
             None => out.remove("permission"),
@@ -306,6 +321,13 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         if !by.is_empty() {
             out.insert("permissionBy".into(), Value::Object(by));
         }
+        if !any.is_empty() {
+            out.insert("permissionAny".into(), Value::Array(any));
+        }
+        // Every permission the interface declares, which a status source
+        // shared by two answers both of (LLP 1133.019 D5: `state` and
+        // `addState`), and a ticket or `prefer permission` finds by name.
+        out.insert("permissionList".into(), Value::Array(permissions.clone()));
     }
     match &interface["substitute"] {
         Value::Null => {}
@@ -442,6 +464,12 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             )?,
             // A send made inside the press that asks it (D12 item 5).
             "gesture" => check(value.is_boolean(), "`gesture` is true or false")?,
+            // A read of the app's own item, let through under another grant
+            // line on the targets named (LLP 1133.019 D11 item 4).
+            "owned" => check(
+                (value.as_object()).is_some_and(|o| o.values().all(Value::is_string)),
+                "`owned` names a grant line for each target",
+            )?,
             "poll" => {
                 let option = value.as_str().or(value["option"].as_str());
                 let default = &value["default"];
@@ -497,12 +525,16 @@ fn is_json(ty: &Value) -> bool {
 /// of that argument's line (`permissionBy`; the runtime asks the ones the
 /// call's arguments need), and the first as its default; a name with a list
 /// of lines asks the permission that covers them; a name with no lines asks
-/// none.
+/// none. A name may say which it asks (`"permission"`): one by its name,
+/// none (`false`), or `"narrowest"`, the first of its grant lines' that the
+/// app declares (`permissionAny`, in the order of its `grants`; LLP
+/// 1133.019 D4: an add asks add-only access where the app has that line).
+#[allow(clippy::type_complexity)]
 fn permission_of(
     entry: &Value,
     name: &str,
     permissions: &[Value],
-) -> Result<(Option<Value>, Map<String, Value>), String> {
+) -> Result<(Option<Value>, Map<String, Value>, Vec<Value>), String> {
     let lines = |v: &Value| -> Vec<String> {
         match v {
             Value::String(l) => vec![l.clone()],
@@ -526,7 +558,38 @@ fn permission_of(
             })
     };
     if let Some(own) = permissions.iter().find(|p| p["status"] == name) {
-        return Ok((Some(own.clone()), Map::new()));
+        return Ok((Some(own.clone()), Map::new(), Vec::new()));
+    }
+    match &entry["permission"] {
+        Value::Null => {}
+        Value::Bool(false) => return Ok((None, Map::new(), Vec::new())),
+        Value::String(s) if s == "narrowest" => {
+            let mut any = Vec::new();
+            for line in lines(&entry["grants"]) {
+                let p = covering(&Value::String(line))?;
+                if !any.contains(&p) {
+                    any.push(p);
+                }
+            }
+            if any.is_empty() {
+                return Err(format!(
+                    "`{name}` asks the narrowest permission of no grant lines"
+                ));
+            }
+            return Ok((any.first().cloned(), Map::new(), any));
+        }
+        Value::String(named) => {
+            let p = (permissions.iter())
+                .find(|p| p["name"] == named.as_str())
+                .ok_or_else(|| {
+                    format!("`{name}` asks permission `{named}`, which is not declared")
+                })?;
+            return Ok((Some(p.clone()), Map::new(), Vec::new()));
+        }
+        other => {
+            let want = "a permission's name, \"narrowest\" or false";
+            return Err(format!("`{name}`'s `permission` is {want}, not `{other}`"));
+        }
     }
     match &entry["grants"] {
         Value::Object(by_argument) => {
@@ -534,11 +597,53 @@ fn permission_of(
             for (argument, line) in by_argument {
                 by.insert(argument.clone(), covering(line)?);
             }
-            Ok((by.values().next().cloned(), by))
+            Ok((by.values().next().cloned(), by, Vec::new()))
         }
-        Value::Null => Ok((None, Map::new())),
-        line => Ok((Some(covering(line)?), Map::new())),
+        Value::Null => Ok((None, Map::new(), Vec::new())),
+        line => Ok((Some(covering(line)?), Map::new(), Vec::new())),
     }
+}
+
+/// The schemes a host owns, which no package's `images` may take (LLP
+/// 1133.019 D11 item 1).
+pub(crate) const HOST_SCHEMES: &[&str] = &[
+    "app", "doc", "symbol", "data", "http", "https", "blob", "file", "asset",
+];
+
+/// An interface's `images`: `{"scheme", "grants", "permission"?, "owned"?}`,
+/// its scheme a lowercase word no host owns.
+fn images_checked(images: &Map<String, Value>) -> Result<(), String> {
+    let scheme = images
+        .get("scheme")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let word = !scheme.is_empty()
+        && scheme.starts_with(|c: char| c.is_ascii_lowercase())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !word {
+        return Err(format!("`images.scheme` `{scheme}` is a lowercase word"));
+    }
+    if HOST_SCHEMES.contains(&scheme) {
+        return Err(format!("`images.scheme` `{scheme}` is a host's own"));
+    }
+    if !images.get("grants").is_some_and(|g| {
+        g.as_array()
+            .is_some_and(|g| !g.is_empty() && g.iter().all(Value::is_string))
+    }) {
+        return Err("`images.grants` lists the grant lines a picture is drawn under".into());
+    }
+    if images.get("permission").is_some_and(|p| !p.is_string()) {
+        return Err("`images.permission` names the permission a picture is drawn under".into());
+    }
+    if images.get("owned").is_some_and(|o| {
+        !o.as_object()
+            .is_some_and(|o| o.values().all(Value::is_string))
+    }) {
+        return Err("`images.owned` names a grant line for each target".into());
+    }
+    Ok(())
 }
 
 /// A declaration's type (LLP 1133.002 D13): `number`, `string`, `bool`,

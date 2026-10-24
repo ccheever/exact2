@@ -568,6 +568,27 @@ fn lower_body(
         .filter(|m| sources.contains_key(&m.name))
         .map(|m| m.extension.as_str())
         .collect();
+    // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
+    let mut schemes: std::collections::BTreeMap<String, &str> = Default::default();
+    for m in (file.modules.iter()).filter(|m| used.contains(&m.extension.as_str())) {
+        let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+        let Some(scheme) = sub["images"]["scheme"].as_str() else {
+            continue;
+        };
+        match schemes.insert(scheme.to_owned(), &m.package) {
+            Some(other) if other != m.package => {
+                return Err(vec![LowerError {
+                    id: "bake-scheme-twice",
+                    message: format!(
+                        "the image scheme `{scheme}:` is declared by {other} and by {}: a scheme is one package's, so the app uses one of them",
+                        m.package
+                    ),
+                    span: m.span,
+                }])
+            }
+            _ => {}
+        }
+    }
     for m in file
         .modules
         .iter()

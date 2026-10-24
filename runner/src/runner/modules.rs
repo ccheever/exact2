@@ -40,6 +40,8 @@ mod agent;
 mod bound;
 mod ceremony;
 mod handles;
+mod permits;
+mod pictures;
 mod poll;
 mod presence;
 mod samples;
@@ -101,6 +103,8 @@ pub(super) struct Extensions {
     /// The ceremonies and signals held or answered, by held token, with
     /// their extension (`ceremony.rs`).
     ceremonies: Vec<(u64, String, Json)>,
+    /// The pictures admitted and refused, by extension (`pictures.rs`).
+    pictures: pictures::Pictures,
 }
 
 /// A Contract read or send of a module's name, as admission saw it.
@@ -193,6 +197,10 @@ enum Waits {
     /// A sheet the person answers (`ceremony`: LLP 1133.011 §9), with a
     /// typed response or a tap that fails it.
     Ceremony,
+    /// A send that shows the person a choice the implementation then
+    /// answers from (`choose`: the limited selection, LLP 1133.019 §10): the
+    /// agent's `type @t` sets the agent word it names; `cancel` leaves it.
+    Choose,
 }
 
 impl Waits {
@@ -203,6 +211,7 @@ impl Waits {
             Waits::Raise => "raise",
             Waits::Check => "check",
             Waits::Ceremony => "ceremony",
+            Waits::Choose => "choose",
         }
     }
 }
@@ -458,21 +467,6 @@ impl<D: DataSource> Runner<D> {
             .cloned()
     }
 
-    /// Permission `name`'s state: what the agent or a ticket set, else the
-    /// state its declaration starts in (`initial`: `granted` where every
-    /// native platform grants without asking, LLP 1133.013 §9), else
-    /// `prompt`.
-    fn permission_state(&self, name: &str) -> String {
-        if let Some(state) = self.extensions.permission.get(name) {
-            return state.clone();
-        }
-        (self.plan.modules.iter())
-            .map(|m| self.substitute(m)["permission"].clone())
-            .find(|p| p["name"] == name)
-            .and_then(|p| p["initial"].as_str().map(str::to_owned))
-            .unwrap_or_else(|| "prompt".into())
-    }
-
     /// §6's transitions for a read (or a send) of `row` now.
     fn decide(&self, row: &ModulesRow, send: bool, args: &Json) -> Decision {
         if self.unavailable(row) {
@@ -501,10 +495,15 @@ impl<D: DataSource> Runner<D> {
         let state = self.permission_state(name);
         if !send && permission["status"].as_str() == Some(self.plan.str(row.declared)) {
             let mut status = self.value_of(row).unwrap_or(json!({}));
-            if let (Some(object), Some(field)) =
-                (status.as_object_mut(), permission["field"].as_str())
-            {
-                object.insert(field.into(), json!(state));
+            // Each permission this source answers the state of, in its field.
+            for p in self.statuses_of(row) {
+                if let (Some(object), Some(field), Some(name)) = (
+                    status.as_object_mut(),
+                    p["field"].as_str(),
+                    p["name"].as_str(),
+                ) {
+                    object.insert(field.into(), json!(self.permission_state(name)));
+                }
             }
             return Some(Decision::Now(status));
         }
@@ -555,6 +554,9 @@ impl<D: DataSource> Runner<D> {
 
     /// What answers `row` once its permission allows it.
     fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool, args: &Json) -> Decision {
+        if let Some(choose) = self.decide_choose(row, send) {
+            return choose;
+        }
         if !send && sub["samples"].is_object() {
             return Decision::Now(self.sampled(row, args));
         }
@@ -736,12 +738,29 @@ impl<D: DataSource> Runner<D> {
         let checks = check_choices(&sub);
         let taps = self.ceremony_choices(&sub);
         let taps: Vec<&str> = taps.iter().map(String::as_str).collect();
+        // A permission's further answers (`choices`), after allow and deny.
+        let mut asked = vec!["allow".to_owned(), "deny".to_owned()];
+        asked.extend(
+            (self.permission_named(row, permission)["choices"].as_object())
+                .into_iter()
+                .flat_map(|c| c.keys().cloned()),
+        );
+        let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
         let (capability, args, choices, value) = match waits {
             Waits::Permission => (
                 "permission".to_owned(),
                 json!({ "capability": permission, "request": declared, "origin": origin.word() }),
-                &["allow", "deny"][..],
+                &asked[..],
                 false,
+            ),
+            Waits::Choose => (
+                sub["choose"]["ticket"]
+                    .as_str()
+                    .unwrap_or("choose")
+                    .to_owned(),
+                json!({ "request": declared, "origin": origin.word() }),
+                &[][..],
+                true,
             ),
             Waits::Value => (
                 sub["ticket"].as_str().unwrap_or("value").to_owned(),
@@ -1058,6 +1077,9 @@ impl<D: DataSource> Runner<D> {
             let typed = self.ceremony_typed(&row, text);
             return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
         }
+        if h.waits == Waits::Choose {
+            return Some(Ok(()));
+        }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
         }
@@ -1126,9 +1148,12 @@ impl<D: DataSource> Runner<D> {
         let sub = self.substitute(&row);
         match (waits, answer) {
             (Waits::Permission, HoldAnswer::Choice(c)) => {
+                let chosen = self.permission_named(&row, &name)["choices"][c.as_str()].is_object();
                 match c.as_str() {
                     "allow" => self.set_permission(&name, "granted"),
                     "deny" => self.set_permission(&name, "denied"),
+                    // A grant of less than all (`limited`, LLP 1133.019 D11 item 3).
+                    choice if chosen => self.set_permission_as(&name, "granted", choice),
                     // The dialog dismissed: the state stays, this request fails.
                     _ => {
                         let code = self.permission_named(&row, &name)["denied"].clone();
@@ -1204,130 +1229,8 @@ impl<D: DataSource> Runner<D> {
                     self.release(token, response);
                 }
             }
+            (Waits::Choose, answer) => self.chosen(&row, token, answer),
             (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_)) => {}
-        }
-    }
-
-    /// Set permission `name`'s state: the permission tickets pending for it
-    /// settle as `allow` or `deny` would, and every name of its module is
-    /// asked again.
-    fn set_permission(&mut self, name: &str, state: &str) {
-        self.extensions
-            .permission
-            .insert(name.to_owned(), state.to_owned());
-        self.log(format!("permission {name}: {state}"));
-        let rows: Vec<ModulesRow> = (self.plan.modules.iter())
-            .filter(|m| self.asks_permission(m, name))
-            .cloned()
-            .collect();
-        if state == "granted" {
-            self.allow(&rows);
-        }
-        type Waiting = (u64, u64, String, bool, Waits, Option<f64>, Json);
-        let held: Vec<Waiting> = (self.extensions.held.iter())
-            .filter(|h| h.permission == name)
-            .map(|h| {
-                (
-                    h.token,
-                    h.hold,
-                    h.source.clone(),
-                    h.send,
-                    h.waits,
-                    h.timeout,
-                    h.args.clone(),
-                )
-            })
-            .collect();
-        for (token, hold, source, send, waits, timeout, args) in held {
-            let row = self.module_row(&source);
-            if !rows.iter().any(|r| r.source == row.source) {
-                continue;
-            }
-            let fails = self.denial_fails(&self.substitute_for(&row, &args), &args);
-            match (state, waits) {
-                ("granted", Waits::Permission) | ("denied", Waits::Permission)
-                    if state == "granted" || !fails =>
-                {
-                    self.retire_hold(hold);
-                    // A call that needs another permission too asks it next
-                    // (`getUserMedia(audio=true, video=true)`, LLP 1133.009 D3).
-                    if state == "granted" && self.ask_next(&row, send, token, name, &args) {
-                        continue;
-                    }
-                    let forward = (self.extensions.held.iter())
-                        .any(|h| h.token == token && h.forward.is_some());
-                    if forward {
-                        self.release_forward(token);
-                        continue;
-                    }
-                    match self.decide_timed(&row, send, timeout, &args) {
-                        Decision::Now(answer) => self.release(token, answer),
-                        Decision::Forward => self.release_forward(token),
-                        Decision::Hold(waits) => {
-                            if let Some((held_by, origin)) = self.held_name(token, &row) {
-                                let hold =
-                                    self.device_hold(&row, held_by, waits, origin, name, &args);
-                                let deadline = timeout
-                                    .filter(|_| waits == Waits::Value)
-                                    .map(|t| self.now_ms + t);
-                                if let Some(h) =
-                                    self.extensions.held.iter_mut().find(|h| h.token == token)
-                                {
-                                    h.hold = hold;
-                                    h.waits = waits;
-                                    h.deadline = deadline;
-                                }
-                            }
-                        }
-                    }
-                }
-                ("denied", _) if fails => {
-                    self.retire_hold(hold);
-                    let code = self.permission_named(&row, name)["denied"].clone();
-                    self.release(token, json!({ "error": code }));
-                }
-                _ => {}
-            }
-        }
-        for row in &rows {
-            let key = self.key(row);
-            self.announce(&key);
-        }
-        self.pump_presence();
-    }
-
-    /// `allow` sets the status fields the app's grant line names (its
-    /// approximate grant reads `approximate`), as a preferred status.
-    fn allow(&mut self, rows: &[ModulesRow]) {
-        let grants = self.data.grants().to_owned();
-        for row in rows {
-            let sub = self.substitute(row);
-            let permission = &sub["permission"];
-            if permission["status"].as_str() != Some(self.plan.str(row.declared)) {
-                continue;
-            }
-            let mut status = self.value_of(row).unwrap_or(json!({}));
-            // The state is the permission's, never a preferred value's.
-            if let (Some(object), Some(field)) =
-                (status.as_object_mut(), permission["field"].as_str())
-            {
-                object.remove(field);
-            }
-            for (field, by_line) in permission["allow"].as_object().into_iter().flatten() {
-                // The longest line the app grants: the approximate one where both are.
-                let line = (by_line.as_object().into_iter().flatten())
-                    .filter(|(line, _)| {
-                        grants
-                            .lines()
-                            .any(|g| g.split_whitespace().next() == Some(line.as_str()))
-                    })
-                    .max_by_key(|(line, _)| line.len());
-                if let (Some((_, v)), Some(object)) = (line, status.as_object_mut()) {
-                    object.insert(field.clone(), v.clone());
-                }
-            }
-            let key = self.key(row);
-            self.extensions.preferred.insert(key, status);
         }
     }
 

@@ -231,8 +231,10 @@ impl<D: DataSource> Runner<D> {
         }
         let decision = match self.route(row) {
             Route::Real => return Decision::Forward,
-            Route::Agent => self
-                .decide_permission(row, send, args)
+            // No dialog: the implementation opens it as the app's own or fails.
+            Route::Agent if self.owned_call(row) => Decision::Forward,
+            Route::Agent => (self.decide_permission(row, send, args))
+                .or_else(|| self.decide_choose(row, send))
                 .unwrap_or(Decision::Forward),
             Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
@@ -273,6 +275,23 @@ impl<D: DataSource> Runner<D> {
     /// else the first (LLP 1133.008 D6, LLP 1133.009 D3).
     pub(in crate::runner) fn permission_of(&self, row: &ModulesRow, args: &Json) -> Json {
         let sub = self.substitute(row);
+        // The first of the name's permissions whose grant line the app
+        // declares (`"narrowest"`, LLP 1133.019 D4).
+        if let Some(any) = sub["permissionAny"].as_array() {
+            let declares = |p: &&Json| {
+                (p["grants"].as_array().into_iter().flatten())
+                    .filter_map(Json::as_str)
+                    .any(|l| {
+                        (self.data.grants().lines()).any(|g| g.split_whitespace().next() == Some(l))
+                    })
+            };
+            return any
+                .iter()
+                .find(declares)
+                .or(any.first())
+                .cloned()
+                .unwrap_or_default();
+        }
         let Some(by) = sub["permissionBy"].as_object() else {
             return sub["permission"].clone();
         };
@@ -290,7 +309,7 @@ impl<D: DataSource> Runner<D> {
     /// `row`'s substitute with the permission a call with `args` asks.
     pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
         let mut sub = self.substitute(row);
-        if sub["permissionBy"].is_object() {
+        if sub["permissionBy"].is_object() || sub["permissionAny"].is_array() {
             sub["permission"] = self.permission_of(row, args);
         }
         sub
@@ -307,7 +326,9 @@ impl<D: DataSource> Runner<D> {
     pub(in crate::runner) fn permission_named(&self, row: &ModulesRow, name: &str) -> Json {
         let sub = self.substitute(row);
         let by = sub["permissionBy"].as_object().into_iter().flatten();
+        let any = sub["permissionAny"].as_array().into_iter().flatten();
         (std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)))
+            .chain(any)
             .find(|p| p["name"] == name)
             .cloned()
             .unwrap_or_default()
@@ -399,6 +420,23 @@ impl<D: DataSource> Runner<D> {
                 return Err(format!("grant-missing ({})", named(line)));
             }
             _ => {}
+        }
+        // A name any of several lines admits asks the permission of one the
+        // app declares, or is let through as a read of the app's own item
+        // (`owned`, LLP 1133.019 D11 item 4).
+        if sub["nameGrants"].as_array().is_some_and(|l| l.len() > 1) && !self.owned_call(row) {
+            let permission = self.permission_of(row, args);
+            let lines: Vec<&Json> = permission["grants"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .collect();
+            if !lines.is_empty() && !lines.iter().any(|l| granted(l)) {
+                return Err(format!(
+                    "grant-missing (permission {})",
+                    permission["name"].as_str().unwrap_or_default()
+                ));
+            }
         }
         // A path option is the app's own file, within the calling source's
         // `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).

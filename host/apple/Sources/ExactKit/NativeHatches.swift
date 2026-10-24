@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                136
+//    0  u32 size                144
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -38,6 +38,8 @@
 //  120  audio_claim(host, mode, len, options, background, event, ctx) → claim
 //  128  audio_release(host, claim): a package capture's claim on the audio
 //        session (LLP 1133.009 D7, AudioSession.swift)
+//  136  picture(host, kind, source, len): a package picture changed (0) or
+//        was revoked (1) (LLP 1133.019 D11 item 1, PackagePictures.swift)
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -300,6 +302,16 @@ private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap
     return UInt32(data.count)
 }
 
+private typealias HatchPictureFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+private let hatchPicture: HatchPictureFn = { host, kind, bytes, length in
+    let source = hatchText(bytes, length)
+    // From any thread: the loader is the main thread's.
+    DispatchQueue.main.async {
+        guard let session = hatchSession(host) else { return }
+        if kind == 1 { session.rasters.revokePicture(source) } else { session.rasters.pictureChanged(source) }
+    }
+}
+
 /// The diagnostics' call table, which a development build's host table names.
 private let hatchDiagnosticsTable: UnsafeRawPointer = {
     let t = UnsafeMutableRawPointer.allocate(byteCount: 16, alignment: 8)
@@ -312,7 +324,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 136
+    let size = 144
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -332,6 +344,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchOnLine, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAudioClaim, to: UnsafeRawPointer.self), toByteOffset: 120, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAudioRelease, to: UnsafeRawPointer.self), toByteOffset: 128, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchPicture, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 

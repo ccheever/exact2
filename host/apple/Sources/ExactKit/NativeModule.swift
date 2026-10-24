@@ -63,6 +63,8 @@
 //        with and its displayed reports name (LLP 1133.008 D8 item 1)
 // 232  authenticate(module, json, len, access, ctx, done)  size ≥ 240;
 //        nullable: a presence check (LLP 1133.010 D13), Presence.swift
+// 240  image(module, json, len, ctx, done)              size ≥ 248;
+//        nullable: a package picture (LLP 1133.019 D11 item 1), PackagePictures.swift
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -164,6 +166,8 @@ private final class NativeTable {
     var createView: CreateViewFn?
     /// The authenticator entry (LLP 1133.010 D13), in one of 240 or more.
     var authenticate: PresenceAuthenticateFn?
+    /// A package picture (LLP 1133.019 D11 item 1), in one of 248 or more.
+    var image: PackageImageFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -248,6 +252,7 @@ private final class NativeTable {
         if size >= 224 { loaded.tamber = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
         if size >= 232 { loaded.createView = pointer(224).map { unsafeBitCast($0, to: CreateViewFn.self) } }
         if size >= 240 { loaded.authenticate = pointer(232).map { unsafeBitCast($0, to: PresenceAuthenticateFn.self) } }
+        if size >= 248 { loaded.image = pointer(240).map { unsafeBitCast($0, to: PackageImageFn.self) } }
         return .success(loaded)
     }
 }
@@ -697,6 +702,12 @@ final class NativeViews {
 
     /// The module's authenticator entry and its instance, made if need be;
     /// nil for an artifact without one. Main thread.
+    func imageEntry() -> (UnsafeMutableRawPointer, PackageImageFn)? {
+        guard hasAppModule, case .success(let table) = self.table(), let entry = table.image,
+              case .success(let m) = module(table) else { return nil }
+        return (m, entry)
+    }
+
     func authenticator() -> (UnsafeMutableRawPointer, PresenceAuthenticateFn)? {
         guard hasAppModule, case .success(let table) = self.table(), let entry = table.authenticate,
               case .success(let m) = module(table) else { return nil }
