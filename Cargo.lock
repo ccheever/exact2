@@ -4095,6 +4095,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "photos-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "photos-fixture-data",
+]
+
+[[package]]
+name = "photos-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
