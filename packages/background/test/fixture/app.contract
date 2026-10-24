@@ -1,8 +1,8 @@
 // The conformance fixture (LLP 1133.001 D7): @exact/background's names, read
 // and sent as an app would, each answer shown by testId for the suite. The
-// root's `sync` handler pulls from the suite's server, which answers or
-// refuses as the suite says.
-use backgroundSyncStatus, syncTags, sync, BackgroundSyncStatus, SyncEvent, SyncRegistration from "@exact/background"
+// root's `sync` and `periodicsync` handlers pull from the suite's server,
+// which answers or refuses as the suite says.
+use backgroundSyncStatus, syncTags, sync, periodicsync, BackgroundSyncStatus, SyncEvent, SyncRegistration from "@exact/background"
 
 shape Pulled
   ok: bool
@@ -25,8 +25,10 @@ component Fixture
     send pulled = pull(tag, e.lastChance)
   action tryPeriodic
     send periodic = periodicSync()
+  action ticked(tag: string)
+    send pulled = pull(tag, false)
   view
-    column sync=heard gap=8 padding=16
+    column sync=heard periodicsync=ticked gap=8 padding=16
       text `${status.available} ${status.state} ${status.periodic} ${status.sync}` testId="status"
       text tags.map(t => t.tag).join(" ") testId="tags"
       match pulled

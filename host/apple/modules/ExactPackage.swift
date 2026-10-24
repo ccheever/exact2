@@ -97,7 +97,11 @@ public final class ExactPackageContext {
     private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
     private let emitFn: (String, [Any]) -> Void
     private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
-    private let wakeFn: (String, [Any], String) -> Void
+    private let wakeFn: (String, [Any], String, @escaping (String) -> Void) -> Void
+    /// The host's wake requests (LLP 1133.017 D8).
+    public let wakes: ExactWakes
+    /// The host's transfer carrier (LLP 1133.017 D8, D10).
+    public let transfers: ExactTransfers
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
@@ -108,19 +112,25 @@ public final class ExactPackageContext {
                 invoke: @escaping (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void = { _, _, _, reply in reply(["error": "NotSupportedError"]) },
                 emit: @escaping (String, [Any]) -> Void = { _, _ in },
                 activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] },
-                wake: @escaping (String, [Any], String) -> Void = { _, _, _ in }) {
+                wake: @escaping (String, [Any], String, @escaping (String) -> Void) -> Void = { _, _, _, _ in },
+                wakes: ExactWakes = ExactWakes { _, _ in },
+                transfers: ExactTransfers = ExactTransfers { _, _ in nil }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; invokeFn = invoke
-        emitFn = emit; activationFn = activation; wakeFn = wake
+        emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
     }
 
     /// Raise the interface's wake event `name` with `args` for the platform
-    /// object `id` (a `BGTask`, a scheduler's block; LLP 1133.017 D8): the
-    /// events of one id are one wake, run with the wake's origin, and
-    /// `woke(id, outcome)` is told its end. Main thread.
-    public func wake(_ name: String, _ args: [Any], id: String) { wakeFn(name, args, id) }
+    /// object `id` (LLP 1133.017 D8): the events of one id are one wake, run
+    /// with the wake's origin, and `ended` hears its outcome once:
+    /// `completed`, `expired`, `superseded`, `refused`, or `unheard` when no
+    /// handler hears the event. `ExactWake.raise` names the id itself.
+    /// Main thread.
+    public func wake(_ name: String, _ args: [Any], id: String, ended: @escaping (String) -> Void = { _ in }) {
+        wakeFn(name, args, id, ended)
+    }
 
     /// Raise the interface's event `name` with `args` (LLP 1133.004 D6):
     /// delivered in order, once, with the device's origin. Any thread.
@@ -233,10 +243,9 @@ public protocol ExactPackage: AnyObject {
     func displayed(surface: String, _ shown: Bool, origin: String)
     /// The session window's angle changed (`ExactPackageContext.orientation`).
     func orientation(_ angle: Double)
-    /// The wake `context.wake` raised for `id` ended: `completed`,
-    /// `expired`, `superseded`, `refused`, or `unheard` when no handler
-    /// hears its event. Complete the platform's task now.
-    func woke(_ id: String, _ outcome: String)
+    /// The host ran the app for this implementation's due wake requests
+    /// (`context.wakes`, LLP 1133.017 D8): raise their events, then `done`.
+    func woke(_ wake: ExactWake)
 }
 
 public extension ExactPackage {
@@ -259,7 +268,85 @@ public extension ExactPackage {
     func permissions(_ states: [String: String]) {}
     func displayed(surface: String, _ shown: Bool, origin: String) {}
     func orientation(_ angle: Double) {}
-    func woke(_ id: String, _ outcome: String) {}
+    func woke(_ wake: ExactWake) { wake.done(success: true) }
+}
+
+// MARK: wakes (LLP 1133.017 D8)
+
+/// The host's wake requests, kept in its defaults across launches. The
+/// host keeps the platform's entry points, which must exist before any
+/// package loads: on iOS one `BGAppRefreshTask` and the two
+/// `BGProcessingTask` identifiers, each request submitted at the soonest
+/// time asked of it; on the Mac a scheduler per request. A due request is
+/// handed to the implementation that asked as `woke(_:)`, once.
+public final class ExactWakes {
+    private let requestFn: (String, [String: Any]?) -> Void
+    public init(_ request: @escaping (String, [String: Any]?) -> Void) { requestFn = request }
+    /// A wake for `key` at `at` or later (ms since the epoch): `refresh`
+    /// (iOS's 30 s) or `processing` (minutes, while the device is idle),
+    /// with a network connection and, if asked, external power. A request
+    /// for a key replaces the last.
+    public func request(kind: String, at: Double, key: String, network: Bool = true, power: Bool = false) {
+        requestFn(key, ["kind": kind, "at": at, "network": network, "power": power])
+    }
+    /// No wake for `key`.
+    public func cancel(key: String) { requestFn(key, nil) }
+}
+
+/// The host's background `URLSession`s and their durable records (LLP
+/// 1133.017 D10), which outlive the process: a registration's requests run
+/// while the app is suspended or terminated, and when they have all ended
+/// the host offers the registration to the implementation that started it
+/// as `woke(_:)` of kind `transfer`, its key the registration's id, until
+/// it is retired.
+public final class ExactTransfers {
+    private let callFn: (String, [String: Any]) -> Any?
+    public init(_ call: @escaping (String, [String: Any]) -> Any?) { callFn = call }
+    /// Start registration `id`: each request `{url, method, headers,
+    /// bodyFrom}`, `bodyFrom` a file path the host copies first. Nil, or the
+    /// error's name (`TypeError` for an id in flight or a bad request).
+    public func start(id: String, requests: [[String: Any]], discretionary: Bool = false) -> String? {
+        callFn("start", ["id": id, "requests": requests, "discretionary": discretionary]) as? String
+    }
+    /// Cancel its requests in flight; false when none is.
+    public func abort(id: String) -> Bool { callFn("abort", ["id": id]) as? Bool ?? false }
+    /// Delete its record and the response files the host kept.
+    public func retire(id: String) { _ = callFn("retire", ["id": id]) }
+    /// `{id, result, failureReason, records: [{index, url, status,
+    /// contentType, path?, location?, bodyLost}]}`, never a header or a query.
+    public func record(id: String) -> [String: Any]? { callFn("record", ["id": id]) as? [String: Any] }
+    /// This implementation's registrations not retired.
+    public var ids: [String] { callFn("ids", [:]) as? [String] ?? [] }
+}
+
+/// A wake the host was given for an implementation's due requests.
+public final class ExactWake {
+    /// `refresh`, `processing`, or `transfer`.
+    public let kind: String
+    /// The keys of the requests now due.
+    public let keys: [String]
+    /// When the platform ends the wake (ms since the epoch), when known.
+    public let deadline: Double?
+    /// The platform's own object: the `BGTask` on iOS, nil on the Mac.
+    public let platform: AnyObject?
+    private let raiseFn: (String, [Any], @escaping (String) -> Void) -> Void
+    private var doneFn: ((Bool) -> Void)?
+    public init(kind: String, keys: [String], deadline: Double?, platform: AnyObject?,
+                raise: @escaping (String, [Any], @escaping (String) -> Void) -> Void, done: @escaping (Bool) -> Void) {
+        self.kind = kind; self.keys = keys; self.deadline = deadline; self.platform = platform
+        raiseFn = raise; doneFn = done
+    }
+    /// Raise one declared wake event; `ended` hears its outcome.
+    public func raise(_ event: String, _ args: [Any], ended: @escaping (String) -> Void) { raiseFn(event, args, ended) }
+    /// Every event this wake raised has ended: the host completes the
+    /// platform's task once each implementation it woke is done. Once.
+    public func done(success: Bool) { let d = doneFn; doneFn = nil; d?(success) }
+    /// The host's due wake as the composed adapter hears it; each event raised is a wake of its own id.
+    public convenience init(_ wake: [String: Any], context: ExactPackageContext, done: @escaping (Bool) -> Void) {
+        self.init(kind: wake["kind"] as? String ?? "refresh", keys: wake["keys"] as? [String] ?? [], deadline: wake["deadline"] as? Double,
+                  platform: wake["task"] as AnyObject?,
+                  raise: { [context] event, args, ended in context.wake(event, args, id: UUID().uuidString, ended: ended) }, done: done)
+    }
 }
 
 // MARK: canvas inputs (LLP 1133.013 D6, D12 item 3)

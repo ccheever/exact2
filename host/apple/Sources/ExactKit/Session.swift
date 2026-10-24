@@ -346,7 +346,7 @@ public final class ExactSession {
     /// The generation whose data source `prepareData` activated on the owner, and whether it still runs there.
     var preparedGeneration: Int?, dataPreparing = false
     var nativesOpened: Int? // the generation whose native views may attach (LLP 1024 D3)
-    private var updateToken: UInt64 = 0, receipt: DrawReceipt?
+    private(set) var updateToken: UInt64 = 0; private var receipt: DrawReceipt?
     package let core: SessionCore
     package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
