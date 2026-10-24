@@ -91,7 +91,8 @@ pub(super) struct Installed {
     pub generics: Generics,
 }
 
-/// The generic families a platform's configuration names.
+/// The generic families a platform's configuration names; an empty name
+/// where it names none.
 #[derive(Clone, Debug)]
 pub(super) struct Generics {
     pub sans: String,
@@ -203,6 +204,11 @@ fn system_dirs() -> (Vec<PathBuf>, Generics) {
     let mut generics = Generics::default();
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if cfg!(target_os = "windows") {
+        // Windows configures no generic families. fontdb's default sans,
+        // Arial, is installed there and would win over the system's UI font,
+        // so `sans-serif` comes from the platform's list
+        // (`catalog::sans_preference`).
+        generics.sans.clear();
         let root = std::env::var_os("SYSTEMROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("C:\\Windows"));
