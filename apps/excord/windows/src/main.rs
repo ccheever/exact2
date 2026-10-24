@@ -41,5 +41,10 @@ fn host(_source: &str) -> Box<dyn exact_js::NativeModule> {
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 fn main() {
-    std::process::exit(exact_windows::run::<AppData>("Excord", PLAN, COMPAT));
+    std::process::exit(exact_windows::run::<AppData>(
+        "Excord",
+        window(),
+        PLAN,
+        COMPAT,
+    ));
 }
