@@ -9,13 +9,14 @@ import { DRIVEN, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, timed, toolTurns
 
 toolTurns();
 
-/** Signal 0 of `looked` once the server lists the frame's build (polled until the drive ends). */
+/** Signal 0 of `looked` once the server lists the frame's build running a design and the plan it runs (the loop's
+ * check of a live edit reads it, LLP 1122 T2b), so a live edit is proposed live (polled until the drive ends). */
 function framed(looked) {
   let done = false;
   const polling = (async () => {
     while (!done) {
       const listed = await fetch(`${TOOL_ORIGIN}/__tamber/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
-      if (listed?.ok?.builds?.some(b => b.host === 'web-js')) { looked.fire(0); return; }
+      if (listed?.ok?.builds?.some(b => b.host === 'web-js' && b.design && b.planDigest)) { looked.fire(0); return; }
       await Bun.sleep(100);
     }
   })();
