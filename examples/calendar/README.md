@@ -45,13 +45,36 @@ provide the same operations.
 There are seven themes. Stickers and icons are shared; portrait and landscape
 wallpapers are selected by layout. Dates range from January 1900 to December 2100.
 
+## The person's calendars and contacts
+
+The app reads the system's calendars and picks from the system's contacts
+through `@exact/calendar` and `@exact/contacts` (LLP 1133.018 §11):
+
+- **Show my calendars**, a switch in the inspector where the target has a
+  calendar store (iOS and macOS). While it is on, the selected day's agenda
+  adds the person's events, each in its calendar's colour, and the month
+  dots each day that has one. Nothing is read, and nothing is asked, until
+  it is turned on. While access is denied, the section says so and opens
+  Settings. The data crate reads the store a page at a time
+  (`data/src/device.rs`); no answer from it is kept between launches.
+- **Invite…** in the editor of a saved event or plan opens the system's
+  contact picker for names and emails. The guests are the app's own copy,
+  kept in a `guests` table of its SQLite file.
+- **Add to Calendar…** in the same editor opens the system's calendar
+  editor with the item filled in. On iOS it reports whether it was saved;
+  on macOS and the web it opens an `.ics` file in the calendar app.
+
+The web has no calendar store, so it has no switch; Invite appears where the
+browser has a contact picker (Chrome on Android).
+
 ## Sources
 
 - `app.contract`: the fixed application entrypoint; imports the implementation.
 - `src/app.contract`: shared resources, state, actions and responsive composition.
 - `src/models.contract`: records, pure helpers and animations.
 - `src/month.contract`, `agenda.contract`, `editor.contract`, `themes.contract`,
-  `stickers.contract`: components grouped by feature, not by platform.
+  `stickers.contract`, `device.contract`: components grouped by feature, not by
+  platform.
 - `data/`: one data crate, including persistence and date/layout tests.
 - `ios/`, `macos/`, `web/`: build entrypoints and each platform's `modules/`.
   The iOS entry reuses the native bake in `macos/build.rs`; UI and business logic
@@ -62,11 +85,12 @@ wallpapers are selected by layout. Dates range from January 1900 to December 210
 ## Storage
 
 The app ID is `com.exact.calendar`. Existing iOS calendar data keeps its identity
-and schema. Data from the former `com.exact.calendar.macos` and
-`com.exact.calendar.web` examples is neither imported nor deleted. Browser data
+and schema; guests are a table of their own, made when first used. Data from
+the former `com.exact.calendar.macos` and `com.exact.calendar.web` examples is
+neither imported nor deleted. Browser data
 also depends on its profile and origin. Sharing source does not synchronize
 calendars between devices. Calendar sync, recurrence and notifications are out
-of scope.
+of scope, as is writing to the system's calendars beyond Add to Calendar.
 
 ## Verify
 
@@ -79,6 +103,10 @@ bun scripts/agent.mjs web --app calendar --size 1180x800 \
   "clock +500" "tap new-item" "clock +200" \
   "type schedule-title Shared calendar" "tap save-schedule" "clock +500" state logs
 ```
+
+`bun examples/calendar/tests/drives.mjs <macos|ios|web>` runs LLP 1133.018
+§11's drives under the agent, over the packages' fixture calendars and
+contacts: never the person's own.
 
 For a compact drive, use `--size 402x874` and insert `"tap add-event"` after
 `"tap new-item"`. To inspect native builds, use `macos` or `ios` instead of `web`.
