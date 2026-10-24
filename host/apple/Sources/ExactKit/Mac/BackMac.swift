@@ -2,7 +2,7 @@
 // "Back is always there"): Go ▸ Back ⌘[ in the menu bar (DevMenuMac.swift),
 // a navigational toolbar item, disabled at a stack's root (ToolbarMac.swift),
 // and the trackpad's swipe (`BackSwipe`, below). Each goes the way iOS's
-// Back button and edge swipe go (`NavigationRules.back`): an authored Back
+// Back button and edge swipe go (`NavigationBack.way`): an authored Back
 // control is what they press, and a route that declares none goes back by
 // the root's `navigate` with the location beneath, or with no `navigate`
 // handler by the runner's own `back`. A sheet or modal route is not pushed:
