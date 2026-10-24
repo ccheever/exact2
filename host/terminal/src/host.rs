@@ -159,6 +159,7 @@ pub enum Mode {
 /// One runner, one grid.
 pub struct Host<D: DataSource> {
     pub(crate) runner: Runner<D>,
+    input_clock: Option<std::time::Instant>,
     pub(crate) cols: usize,
     pub(crate) rows: usize,
     /// How the app occupies the terminal.
@@ -271,6 +272,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            input_clock: None,
             cols,
             rows,
             mode,
@@ -651,8 +653,18 @@ impl<D: DataSource> Host<D> {
     /// RFC, D1): a repeat that missed beats fires once, and every commit
     /// observes the clock.
     pub fn live_from(&mut self, start: std::time::Instant) {
+        self.input_clock = Some(start);
         let sample = move || start.elapsed().as_secs_f64() * 1000.0;
         self.runner.set_live_clock(Some(Box::new(sample)));
+    }
+
+    /// Run due timers before an external input chooses its target. Internal
+    /// key, press, blur and focus dispatches stay in the same input turn.
+    pub(crate) fn advance_for_input(&mut self) {
+        let now = self.input_clock.map_or(self.runner.now_ms(), |start| {
+            start.elapsed().as_secs_f64() * 1000.0
+        });
+        self.tick(now);
     }
 
     /// Advance the app's clock: timers fire.
