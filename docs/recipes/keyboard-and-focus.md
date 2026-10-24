@@ -1,6 +1,6 @@
 # Recipe: the keyboard and focus
 
-Return, putting the keyboard away, moving the focus: said on the field and in actions.
+Keep typing or dismiss the keyboard.
 
 ```contract
 routes nav
@@ -63,14 +63,14 @@ test "Return adds and keeps typing; Done puts the keyboard away"
   expect state adding == false
 ```
 
-- **Return** is the field's `submit`; `enterkeyhint` labels the key. On iOS it puts the keyboard
-  away, and `next` moves to the next field. To keep typing, `focus("draft")` again in the
-  action, as `add` does: the keyboard stays up.
+- **Return** calls `submit`; `enterkeyhint` labels the key. iOS dismisses the keyboard;
+  `next` moves to the next field. Call `focus("draft")` in its submit action to keep typing.
 - **`blur()`** puts the keyboard away from an action, `blur("draft")` from that field only;
   **`focus("id")`** moves it to a field by its `id` (a sheet's first field: `autofocus=true`).
+- **iOS Back:** The keyboard travels with its screen; `blur()` dismisses it. A returning editor can claim focus; custom animator setup may withdraw an early claim.
 - **`focus=` and `blur=`** say when a field is being edited: here the bar shows Done meanwhile.
-- **Search** is the bar's field, filtering as you type, not a field in the content: `contract vocab search`.
-- **A live result** goes above its field: the keyboard covers what is below it.
+- **Search** lives in the bar: `contract vocab search`. Native iOS Back commits its edit and blur before removing the route.
+- Put live results above the editor.
 - **On scroll,** a drag on a `list` or `scroll` that reaches the keyboard pulls it down (a flick
   that just reaches it ends in a frame, as in UIKit); `keyboardDismissMode="on-drag"` puts it
   away as the drag starts, `"none"` keeps it up and a background tap still dismisses it.

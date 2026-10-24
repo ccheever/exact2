@@ -5,7 +5,7 @@
 // rides the keyboard's top instead, moved by a transform, and the scrollers
 // that end where it starts keep their content clear of it with a content
 // inset and a scroll-indicator inset; one that was at its end stays there.
-// Both are set inside the keyboard's own animation (Presenter.applyKeyboard),
+// Both are set inside the keyboard's own animation (Presenter.refitKeyboard),
 // so they move with its duration and curve, finger-driven dismissal
 // included. This is how UIKit apps (Signal's input toolbar, pinned to the
 // keyboard layout guide over a collection view's bottom inset) do it.
@@ -44,9 +44,13 @@ final class KeyboardToolbars {
 
     /// The keyboard now covers `overlap` points of the viewport's bottom.
     func ride(overlap: CGFloat) {
-        let toolbars = presenter.carrying("toolbarPlacement").filter {
-            $0.props["toolbarPlacement"] == "keyboard" && !$0.isHidden && $0.window != nil
-        }
+        let toolbars = presenter.keyboardPolicy == "overlays-content" ? presenter.carrying("toolbarPlacement").filter {
+            guard $0.props["toolbarPlacement"] == "keyboard", !$0.isHidden, $0.window != nil else { return false }
+            if !ExactEnv.authoredChrome, let route = ViewPresentation.controller(for: $0) as? RouteController {
+                return presenter.ownsKeyboard(in: route.view)
+            }
+            return true
+        } : []
         var still = Set<UInt32>(), owned = Set<UInt32>()
         for bar in toolbars {
             guard let window = bar.window else { continue }

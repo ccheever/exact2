@@ -1090,11 +1090,11 @@ final class PopoverSheetIOSTests: XCTestCase {
         let original = pop.center, box = pop.convert(pop.bounds, to: nil), top = box.maxY - 30
         p.editing = field
         for edge in [top, top - 30] {
-            p.applyKeyboard(top: edge, duration: 0, curve: 0)
+            setKeyboard(p, top: edge)
             XCTAssertLessThanOrEqual(field.convert(field.bounds, to: nil).maxY, edge + 0.5)
             XCTAssertLessThanOrEqual(pop.convert(pop.bounds, to: nil).maxY, edge + 0.5)
         }
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
         XCTAssertEqual(pop.center.x, original.x, accuracy: 0.5)
         XCTAssertEqual(pop.center.y, original.y, accuracy: 0.5)
     }

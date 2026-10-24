@@ -76,6 +76,7 @@ extension NodeView {
             self.markdownFormat("link", argument: url)
             f.becomeFirstResponder()
         })
+        presenter?.keyboardPrompt = alert.textFields?.first
         controller.present(alert, animated: true)
         #endif
     }
