@@ -1,7 +1,7 @@
 // The design tool paired with a design server on another machine (LLP 1122
 // T6, LLP 1121 stage 10): driven as a person would, through the server's
 // trusted-tunnel door, which serves the tool itself, against a real `tamber
-// serve`. Its stub-server tests are in apps/design-tool/app.test.contract.
+// serve`. Its stub-server tests are apps/design-tool/*.test.contract.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

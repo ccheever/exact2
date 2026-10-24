@@ -1,0 +1,63 @@
+use Clients, PairCode, Pinned from "./shapes.contract"
+
+// Pairing (LLP 1122 D12, T6): a code for a client on another
+// machine, at a scope, with each remote door to check it by; the
+// clients paired, each revoked here. The local tool's alone.
+component Pairing
+  props
+    pairScope: string
+    clients: Clients
+    paircode: option<PairCode>
+    revoked: option<Pinned>
+    // A code being minted, a revoke in flight.
+    minting: bool
+    revoking: bool
+    choosePairScope: action
+    mintCode: action
+    revokeClient: action
+  view
+    column gap=8 testId="pairing"
+      row gap=8 align-items="center" flex-wrap="wrap"
+        text "Clients" role="heading" aria-level=2 flex=1
+        select value=pairScope change=choosePairScope aria-label="Pairing scope" testId="pair-scope"
+          option "Read" value="read"
+          option "Propose" value="propose"
+          option "Write" value="write"
+        button press=mintCode disabled=minting buttonStyle="bordered" testId="pair-mint"
+          text "Pair a client"
+      text (pairScope == "read" ? "Read: it sees the design and its history, and inspects without moving anyone's screens." : pairScope == "propose" ? "Propose: it reads, and offers changes for someone with write to accept." : "Write: it edits, commits, and pins, holds and outlines on the running copies.") color="-exact-secondary-label" font="-exact-footnote" testId="pair-scope-note"
+      match paircode
+        case some(c)
+          if c.ok
+            column gap=4 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-code"
+              text c.code font="-exact-title2" font-family="ui-monospace, monospace" testId="pair-code-text"
+              text `Good once, until ${c.until}, for a client of its own at ${c.scope}. Type it on the other machine; nothing else is needed.` color="-exact-secondary-label" font="-exact-footnote" testId="pair-code-note"
+              if c.doors.length == 0
+                text "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine." color="-exact-secondary-label" font="-exact-footnote" testId="pair-no-door"
+              for d in c.doors key=d.origin
+                if d.tunnel
+                  text `Through the tunnel you trusted, at ${d.origin}` font="-exact-footnote" testId=`pair-door-${d.origin}`
+                else
+                  column gap=2 testId=`pair-door-${d.origin}`
+                    text `Open ${d.origin}/__tamber/tool/ there, and check its certificate's SHA-256 is` font="-exact-footnote"
+                    text d.fingerprint font="-exact-caption1" font-family="ui-monospace, monospace" testId=`pair-fingerprint-${d.origin}`
+          else
+            text c.error color="-exact-system-red" font="-exact-footnote" testId="pair-error"
+        case none
+          text "" display="none"
+      if not clients.ok
+        text clients.error color="-exact-system-red" font="-exact-footnote" testId="clients-error"
+      else if clients.clients.length == 0
+        text "No client is paired." color="-exact-secondary-label" font="-exact-footnote" testId="no-clients"
+      for k in clients.clients key=k.client
+        row gap=8 align-items="center" flex-wrap="wrap" testId=`client-${k.client}`
+          text k.client flex=1 min-width=0
+          text k.scope font="-exact-footnote" testId=`client-scope-${k.client}`
+          text `${k.peer}${k.seen != "" ? ` · seen ${k.seen}` : ""}` color="-exact-secondary-label" font="-exact-footnote"
+          button press=revokeClient(k.client) disabled=revoking buttonStyle="bordered" testId=`revoke-${k.client}`
+            text "Revoke"
+      match revoked
+        case some(r)
+          text (r.ok ? r.note : r.error) color=(r.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId="revoke-result"
+        case none
+          text "" display="none"
