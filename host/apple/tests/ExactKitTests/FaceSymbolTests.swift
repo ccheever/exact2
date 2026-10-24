@@ -93,7 +93,9 @@ final class FaceSymbolTests: XCTestCase {
     }
 
     /// The image's colour at its middle, drawn 24 points square, unpremultiplied RGBA 0...1.
-    private func middle(_ image: NSImage?) throws -> [CGFloat] {
+    private func middle(_ image: NSImage?) throws -> [CGFloat] { try colour(image, x: 12, y: 12) }
+    /// The image's colour at (`x`, `y`) of it drawn 24 points square (y from the top).
+    private func colour(_ image: NSImage?, x: Int, y: Int) throws -> [CGFloat] {
         let image = try XCTUnwrap(image)
         let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 24, pixelsHigh: 24, bitsPerSample: 8, samplesPerPixel: 4,
                                                  hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
@@ -101,7 +103,7 @@ final class FaceSymbolTests: XCTestCase {
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         image.draw(in: NSRect(x: 0, y: 0, width: 24, height: 24))
         NSGraphicsContext.restoreGraphicsState()
-        let c = try XCTUnwrap(rep.colorAt(x: 12, y: 12)?.usingColorSpace(.deviceRGB))
+        let c = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
         return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
     }
 
@@ -122,8 +124,10 @@ final class FaceSymbolTests: XCTestCase {
     }
 
     /// Stage 14 C2, mounted: a toolbar button's even-odd icon (its image
-    /// node's `symbolFillRule`) is installed with its hole clear; the rule
-    /// cleared through the batch, the item's image is filled again.
+    /// node's `symbolFillRule`) is installed with its hole clear and its band
+    /// inked; the rule cleared through the batch, the item's image is filled
+    /// again. (AppKit draws the item through SwiftUI, which no in-process
+    /// capture reaches, so its placement on the screen is not sampled here.)
     @MainActor func testAToolbarItemsEvenOddPathKeepsItsHole() throws {
         var even = Self.svgProps
         even["symbolPath"] = IconPathTests.frame; even["symbolFillRule"] = "evenodd"
@@ -134,6 +138,7 @@ final class FaceSymbolTests: XCTestCase {
         defer { p.toolbar.detach() }
         XCTAssertTrue(p.toolbar.attach(to: w))
         XCTAssertEqual(try middle(try XCTUnwrap(p.toolbar.items[2]).image)[3], 0, accuracy: 0.01, "the hole clear")
+        XCTAssertEqual(try colour(try XCTUnwrap(p.toolbar.items[2]).image, x: 12, y: 4)[3], 1, accuracy: 0.01, "the band inked")
         p.apply(wireBatch([["op": "props", "id": 3, "clear": ["symbolFillRule"]]]))
         XCTAssertEqual(try middle(try XCTUnwrap(p.toolbar.items[2]).image)[3], 1, accuracy: 0.01, "nonzero: filled")
     }
