@@ -16,7 +16,7 @@ fixture's files, this package by `file:`), then build it for each target:
 | iPhone, the app | `bun exact.mjs ios --device --run` in the fixture app |
 | iPhone, Safari | `bun exact.mjs web-build`, then `target/web-dist` served over HTTPS |
 | Android phone, Chrome | the same dist |
-| Android phone, the app | `bun <exact2>/scripts/agent-android.mjs build motionfixture --apk` with `EXACT_APP_DIR` set to the fixture app, then `adb install` the APK it names |
+| Android phone, the app | the fixture given a Canvas library as `test/android.mjs` gives it, then `bun <exact2>/scripts/agent-android.mjs build <name> --apk` with `EXACT_APP_DIR` set to it, and `adb install` the APK it names |
 
 1. **Units and sign.** Face up on a table: `gravity` reads about
    `0 0 9.8` (m/s²). Stood upright in portrait: about `0 9.8 0`. If Safari
@@ -44,6 +44,12 @@ Build and install: `bun game/prove.mjs beacons --hosts ios --device`, or
 8. **Level.** Hold the phone at a comfortable angle: the dot glides to the
    tilt and the readout gives the two angles. Tap **Set level**: it reads
    `0° · 0°` and the dot centres.
+
+Items 9 to 11 wait on the context's `surfaces.input`, which no host gives
+an implementation yet: on a phone `startSensorInput` answers
+`NotSupportedError`, so the player does not walk by tilt (LLP 1133.013
+§13, stage 2). Run them once it lands.
+
 9. **Walk.** Tap **Resume** and tilt: tilting the right edge down walks the
    player right, tilting the top edge away walks it forward. If either is
    reversed, the sign of D6's map against the platform's gravity is wrong:
