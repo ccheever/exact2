@@ -168,7 +168,7 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
-    line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
+    line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
     usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
@@ -179,7 +179,8 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
     internal: ['--app <name>'],
     body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
 (an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
-fresh scratch store, and runs check light and dark on the screen it opens to. Each test's
+fresh scratch store, and runs check light and dark on the screen it opens to. The tests are
+app.test.contract's, then each other *.test.contract's beside it, as test runs them. Each test's
 last screen is checked the same way in the test's own session (web: at both widths; ios
 runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store
 a passing test left, and says whether its first screen shows what that test stored. One
