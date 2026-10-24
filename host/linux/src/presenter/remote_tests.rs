@@ -362,9 +362,10 @@ fn the_remote_leaves_a_control_disabled_under_the_focus() {
 }
 
 /// Back with no route presses the first enabled button that answers
-/// Escape, and the reader is told Back is taken only when there is one.
+/// Escape, as a page shortcut finds it (a column that declares the chord is
+/// no button), and the reader is told Back is taken only when there is one.
 #[test]
-fn a_tvs_back_skips_a_disabled_escape_button() {
+fn a_tvs_back_skips_a_disabled_escape_button_and_a_column() {
     let mut p = boot_tv(
         r#"component App
   state log = ""
@@ -372,6 +373,7 @@ fn a_tvs_back_skips_a_disabled_escape_button() {
     log = `${log}back;`
   view
     column width=600 height=400
+      column aria-keyshortcuts="Escape" testId="box" width=100 height=40
       button "Off" aria-keyshortcuts="Escape" disabled=true testId="off" width=100 height=40
       button "Back" press=goBack aria-keyshortcuts="Escape" testId="back" width=100 height=40
       text log testId="log"
@@ -381,4 +383,27 @@ fn a_tvs_back_skips_a_disabled_escape_button() {
     assert!(p.system_back(0.));
     p.advance(16.);
     assert_eq!(text(&p, "log"), "back;");
+}
+
+/// A pressable row with a control in it is a control, not a container: the
+/// remote stops on it.
+#[test]
+fn a_pressable_row_holding_a_control_is_a_stop() {
+    let mut p = boot_tv(
+        r#"component App
+  state log = ""
+  action go
+    log = `${log}go;`
+  view
+    column width=600 height=400
+      row press=go testId="row" width=300 height=60
+        input type="checkbox" aria-label="On" testId="inner"
+      button "Next" testId="next" width=100 height=40
+      text log testId="log"
+"#,
+    );
+    assert_eq!(arrow(&mut p, "ArrowDown"), "row");
+    press(&mut p, "Select", "Enter");
+    assert_eq!(text(&p, "log"), "go;");
+    assert_eq!(arrow(&mut p, "ArrowDown"), "next");
 }
