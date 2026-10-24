@@ -200,6 +200,10 @@ pub(super) fn decode(
     }
     let css = css_size(plan.pixels, scale);
     let scene = loaded.scene(css.0, css.1);
+    if let Some(limit) = scene.over {
+        eprintln!("exact: image `{name}`: {limit}");
+        return Err(Refusal::DecodeFailed);
+    }
     if loaded.document.text {
         return Ok(Decoded::Later(scene));
     }
