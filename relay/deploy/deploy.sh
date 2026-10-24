@@ -34,7 +34,7 @@ port=${RELAY_SSH_PORT:-22}
 known=${RELAY_KNOWN_HOSTS:-$HOME/.ssh/known_hosts}
 # The host's key must already be pinned (`trust`): no first-use acceptance, so no one between here and the host can
 # slip their own key in on the connection that carries the certificate key and the account tokens.
-ssh_opts=(-i "$key_file" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known" -o ConnectTimeout=15)
+ssh_opts=(-i "$key_file" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known" -o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no -o ConnectTimeout=15)
 # (Always a user named: without one, ssh's own choice could skip the sudo a non-root user needs.)
 [[ $host == *@* ]] || host=root@$host
 user=${host%%@*}
@@ -47,19 +47,26 @@ pinned_as=$address; [ "$port" = 22 ] || pinned_as="[$address]:$port"
 # connection reached on the host goes with it, so provision can refuse a firewall that would shut it out.
 DOMAIN_RE='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$'
 LABEL_RE='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
-remote() { ssh "${ssh_opts[@]}" -p "$port" "$host" "$sudo env RELAY_SSH_SERVER_PORT=\"\${SSH_CONNECTION##* }\" bash -s -- $(printf '%q ' "$@")" < "$here/remote.sh"; }
+remote() { ssh "${ssh_opts[@]}" -p "$port" "$host" "$sudo env RELAY_SSH_CONNECTION=\"\$SSH_CONNECTION\" RELAY_SSH_USER=\"\$(id -un)\" bash -s -- $(printf '%q ' "$@")" < "$here/remote.sh"; }
 # A private directory on the host for one upload (0700, this user's), removed from here too if the remote side never
 # gets to it (a failed copy, an interrupted run): what's put in it is read by no one else and outlives nothing.
 UPLOAD=""
 cleanup() { [ -z "$UPLOAD" ] || ssh "${ssh_opts[@]}" -p "$port" "$host" "rm -rf $(printf '%q' "$UPLOAD")" < /dev/null || true; [ -z "${out:-}" ] || rm -rf "$out"; }
 trap cleanup EXIT
 updir() {
-  UPLOAD=$(ssh "${ssh_opts[@]}" -p "$port" "$host" 'umask 077; mktemp -d /tmp/tamber-relay-upload.XXXXXX' < /dev/null | tail -1)
-  [[ $UPLOAD =~ ^/tmp/tamber-relay-upload\.[A-Za-z0-9]+$ ]] || { echo "deploy.sh: the host gave no upload directory (got '$UPLOAD')" >&2; UPLOAD=""; exit 1; }
+  local got
+  got=$(ssh "${ssh_opts[@]}" -p "$port" "$host" 'umask 077; mktemp -d /tmp/tamber-relay-upload.XXXXXX' < /dev/null) || { echo "deploy.sh: the host made no upload directory" >&2; exit 1; }
+  got=$(printf '%s\n' "$got" | tail -1)
+  # (the cleanup's target only once it is what was asked for)
+  [[ $got =~ ^/tmp/tamber-relay-upload\.[A-Za-z0-9]+$ ]] || { echo "deploy.sh: the host gave no upload directory (got '$got')" >&2; exit 1; }
+  UPLOAD=$got
 }
 put_up() { scp -q "${ssh_opts[@]}" -P "$port" "$1" "$host:$2"; }
-# A bounded TLS probe from here (macOS has no timeout(1)): its output.
-probe() { perl -e 'alarm 10; exec @ARGV' openssl s_client -connect "$address:${RELAY_CHECK_PORT:-443}" -servername "$1" </dev/null 2>/dev/null || true; }
+# A bounded TLS probe from here (macOS has no timeout(1)): its output, and HELD=1 when it was still open at 10 s.
+probe() {
+  PROBE=$(perl -e '$p = fork // die; if (!$p) { exec @ARGV } $SIG{ALRM} = sub { kill 9, $p; waitpid $p, 0; exit 124 }; alarm 10; waitpid $p, 0; exit($? >> 8)' \
+    openssl s_client -connect "$address:${RELAY_CHECK_PORT:-443}" -servername "$1" </dev/null 2>/dev/null) && HELD=0 || { [ $? = 124 ] && HELD=1 || HELD=0; }
+}
 # The DNS names a PEM certificate on stdin carries, as `DNS:a,DNS:b` (OpenSSL's and LibreSSL's -text alike).
 sans() { openssl x509 -noout -text 2>/dev/null | grep -A1 'Subject Alternative Name' | tail -1 | tr -d ' ' || true; }
 
@@ -113,9 +120,13 @@ case "$cmd" in
     domain=${1:?check <domain>}
     ok=1
     # From outside the host: what the internet sees.
-    san=$(probe "$domain" | sans)
+    probe "$domain"
+    san=$(printf '%s' "$PROBE" | sans)
+    [ $HELD = 0 ] || { echo "check: FAILED: $domain's handshake was held open 10 s"; ok=0; }
     if [ "$san" = "DNS:$domain" ]; then echo "check: ${RELAY_CHECK_PORT:-443} answers $domain with its certificate"; else echo "check: FAILED: ${RELAY_CHECK_PORT:-443} did not answer $domain (got '${san:-nothing}')"; ok=0; fi
-    case "$(probe unknown.invalid)" in *'BEGIN CERTIFICATE'*) echo "check: FAILED: an unknown name got a certificate"; ok=0;; *) echo "check: an unknown name is closed";; esac
+    probe unknown.invalid
+    if [ $HELD = 1 ]; then echo "check: FAILED: an unknown name was held open 10 s, not closed"; ok=0
+    else case "$PROBE" in *'BEGIN CERTIFICATE'*) echo "check: FAILED: an unknown name got a certificate"; ok=0;; *) echo "check: an unknown name is closed";; esac; fi
     if nc -z -w 3 "$address" "$port" 2>/dev/null; then echo "check: ssh ($port) answers"; else echo "check: FAILED: ssh ($port) does not answer"; ok=0; fi
     closed=()
     for p in 21 25 53 80 3000 5432 6379 7740 8080 8443 9090; do
