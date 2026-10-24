@@ -201,7 +201,7 @@ whose design the port serves.
   the base or the package removes it.
 - `app.test.contract`, `editing.test.contract` and `inspector.test.contract`
   run against `stub/tamber-stub.ts`, canned replies (`bun exact.mjs test`
-  runs the three; `verify` runs `app.test.contract` alone);
+  and `verify` run the three);
   `scripts/design-tool.test.mjs` (with its `-ops`, `-canvas` and `-scrub`
   files, which a lane runs side by side) drives the built tool against a
   real server on a copy of `apps/theme-fixture`. Both run on the checkout's own

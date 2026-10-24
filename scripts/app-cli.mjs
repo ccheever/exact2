@@ -240,9 +240,10 @@ if (verb === 'contract') {
   const { withAppServer } = await import(resolve(exact2, 'scripts/verify.mjs'));
   return log(await withAppServer(dir, async () => {
     let failed = 0;
-    const own = [...new Bun.Glob('*.test.contract').scanSync({ cwd: dir, absolute: true })].filter((f) => basename(f) !== 'app.test.contract').sort();
-    for (const file of tests.length ? tests : [resolve(dir, 'app.test.contract'), ...own]) {
-      if (tests.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
+    // None authored: app.test.contract, whose absence the driver names.
+    const files = tests.length ? tests : (await import(resolve(exact2, 'scripts/app.mjs'))).authoredTests(dir);
+    for (const file of files.length ? files : [resolve(dir, 'app.test.contract')]) {
+      if (files.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
       failed = (await script(verbs.test, ['--test', file, ...rest])) || failed;
     }
     return failed;

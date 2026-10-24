@@ -119,7 +119,7 @@ the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` wor
 A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
 one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
 `bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
-(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
+(each `*.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
 `prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation resolves the generated workspace offline against the current SDK lock, so
 the first locked test and proof need no lock refresh. Generation writes only inside that game. A game is the files its author writes; bakes

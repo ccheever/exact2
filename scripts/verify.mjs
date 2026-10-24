@@ -2,7 +2,8 @@
 // `bun exact.mjs verify [web|ios]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
 // drives, check and screenshots were three to five turns. It builds when the build is stale (web: the dist's
 // record against its sources, as the driver checks it; iOS: agent-build.mjs `buildFirst`, the plan fast path
-// included), runs app.test.contract (agent-test.mjs `runTests`), launches the app on a fresh scratch store at a
+// included), runs the app's tests (app.test.contract and each other `*.test.contract` beside it, app.mjs
+// `authoredTests`; agent-test.mjs `runTests`), launches the app on a fresh scratch store at a
 // phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars), and runs `check` light and
 // dark there. Each test's end screen is checked the same way inside the test's own session (the web at both
 // widths, resized to each), so its secondary screens and populated states are in the report. Then the app
@@ -707,17 +708,24 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded, large, ...(port ? { port } : {}) };
 };
 
-/** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
- * without a file, or `{ error }` when they do not compile. */
+/** The authored tests (app.mjs `authoredTests`), a file at a time: `{ passed, failed, results }` (each with its file,
+ * its end screen's `end`, and the store it left), with `error` naming each file that does not compile; `{ none }` without
+ * a file. A test is numbered by its place in `results`, so its captures' names are its own across the files, and each
+ * file after the first runs under a storage name of its own, so a store one file's test left is not another's. */
 async function tests(host, app, shots) {
-  const persisted = persistedStates(app.dir);
-  const file = resolve(app.dir, 'app.test.contract');
-  if (!existsSync(file)) return { none: true };
-  const { runTests } = await import('./agent-test.mjs');
-  try {
-    const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots, persisted), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
-    return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store, shots }) => ({ name, failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
-  } catch (e) { return { error: e.message }; }
+  const [{ runTests }, { authoredTests }] = await Promise.all([import('./agent-test.mjs'), import('./app.mjs')]);
+  const persisted = persistedStates(app.dir), files = authoredTests(app.dir);
+  if (!files.length) return { none: true };
+  const atEnd = testEnd(host, shots, persisted), out = { passed: 0, failed: 0, results: [] }, errors = [];
+  for (const [i, file] of files.entries()) {
+    const first = out.results.length;
+    try {
+      const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+      out.passed += r.passed; out.failed += r.failed;
+      out.results.push(...r.results.map(({ name, failures, end, store, shots }) => ({ name, file: basename(file), failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
+    } catch (e) { errors.push(files.length > 1 ? `${basename(file)}: ${e.message}` : e.message); }
+  }
+  return errors.length ? { ...out, error: errors.join('\n') } : out;
 }
 
 /** The web's tour of the screens the tests pass through, at the largest text size: the tests run again on the phone's
@@ -731,12 +739,11 @@ async function tests(host, app, shots) {
 const LARGE_TOUR_SCREENS = 12, LARGE_TOUR_MS = 40_000;
 const kindOf = (id) => String(id).replace(/\d+/g, '#');
 async function largeTour(app) {
-  const file = resolve(app.dir, 'app.test.contract');
-  if (!existsSync(file)) return [];
-  const { runTests } = await import('./agent-test.mjs');
+  const [{ runTests }, { authoredTests }] = await Promise.all([import('./agent-test.mjs'), import('./app.mjs')]);
   const shown = new Set(), read = [], started = Date.now();
+  const spent = () => read.length >= LARGE_TOUR_SCREENS || Date.now() - started > LARGE_TOUR_MS;
   const atStep = async (s, { name, line }) => {
-    if (read.length >= LARGE_TOUR_SCREENS || Date.now() - started > LARGE_TOUR_MS) return 'done';
+    if (spent()) return 'done';
     const tree = await s.op({ op: 'tree' }).catch(() => null);
     const ids = (tree?.nodes ?? []).filter((n) => !n.inactive && n.props?.testId != null).map((n) => kindOf(n.props.testId));
     if (ids.every((id) => shown.has(id))) return;
@@ -744,8 +751,11 @@ async function largeTour(app) {
     const r = await largestText(s, `line ${line} of ${quoted(name, 24)}`);
     if (r && !r.error) read.push(r);
   };
-  try { await runTests({ host: 'web', file, app: app.name, size: WEB_SIZES[0], storage: 'verify-tour', atStep }); }
-  catch { /* the tests' own run says what does not compile */ }
+  for (const file of authoredTests(app.dir)) {
+    if (spent()) break;
+    try { await runTests({ host: 'web', file, app: app.name, size: WEB_SIZES[0], storage: 'verify-tour', atStep }); }
+    catch { /* the tests' own run says what does not compile */ }
+  }
   return read;
 }
 
@@ -975,11 +985,12 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     full.push(`compiler: ${plural(compiler.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
     findings += compiler.length;
   }
-  if (tested?.none) out.push('tests: none (no app.test.contract)');
-  else if (tested?.error) {
+  if (tested?.none) out.push('tests: none (no *.test.contract)');
+  if (tested?.error) {
     broken++;
     out.push(`tests: did not compile`, ...tested.error.split('\n').filter((l) => l.trim()).slice(0, 6).map((l) => `  ${l}`));
-  } else if (tested) {
+  }
+  if (tested?.results && !(tested.error && !tested.results.length)) {
     failedTests = tested.failed;
     out.push(`tests: ${tested.passed} passed, ${tested.failed} failed`);
     for (const t of tested.results) for (const f of t.failures) out.push(`  FAIL "${t.name}": ${firstLine(f).replace(`${t.name}: `, '')}`);
@@ -1194,7 +1205,7 @@ async function main(argv) {
   if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
-    const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
+    const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
     console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
