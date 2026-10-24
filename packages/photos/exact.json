@@ -1,0 +1,212 @@
+{
+  "kind": "interface",
+  "name": "@exact/photos",
+  "version": "1.0.0",
+  "grants": [
+    "device.photos",
+    "device.photos-add"
+  ],
+  "substitute": "implementation",
+  "images": {
+    "scheme": "photos",
+    "grants": [
+      "device.photos",
+      "device.photos-add"
+    ],
+    "permission": "photos",
+    "owned": {
+      "android": "device.photos-add"
+    }
+  },
+  "permission": [
+    {
+      "name": "photos",
+      "grants": [
+        "device.photos"
+      ],
+      "status": "photoLibraryStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "allow": {
+        "access": "full"
+      },
+      "choices": {
+        "limited": {
+          "access": "limited"
+        }
+      },
+      "deny": {
+        "access": "none"
+      }
+    },
+    {
+      "name": "photos-add",
+      "grants": [
+        "device.photos-add"
+      ],
+      "status": "photoLibraryStatus",
+      "field": "addState",
+      "denied": "NotAllowedError",
+      "grantedBy": "photos"
+    }
+  ],
+  "agent": {
+    "selection": "string[]"
+  },
+  "shapes": {
+    "PhotoAsset": {
+      "id": "string",
+      "mediaType": "enum<image>",
+      "width": "number",
+      "height": "number",
+      "creationDate": "option<number>",
+      "favorite": "bool",
+      "picture": "string",
+      "apple": "option<ApplePhotoAsset>",
+      "android": "option<AndroidPhotoAsset>"
+    },
+    "PhotoAssetList": {
+      "assets": "PhotoAsset[]"
+    },
+    "PhotoLibraryStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "access": "enum<full|limited|none>",
+      "addState": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<ApplePhotoLibraryStatus>",
+      "android": "option<AndroidPhotoLibraryStatus>"
+    },
+    "PhotoCopy": {
+      "path": "string",
+      "name": "string",
+      "type": "string",
+      "size": "number",
+      "width": "number",
+      "height": "number",
+      "duration": "option<number>",
+      "android": "option<AndroidPhotoCopy>"
+    },
+    "PhotoAdded": {
+      "asset": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "source": "photoLibraryStatus",
+      "live": true,
+      "answers": "PhotoLibraryStatus",
+      "sync": {
+        "name": "photoLibraryStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt",
+          "access": "none",
+          "addState": "prompt"
+        },
+        "web": {
+          "available": false,
+          "state": "unknown",
+          "access": "none",
+          "addState": "unknown"
+        }
+      }
+    },
+    {
+      "source": "photoAssets",
+      "live": true,
+      "request": "when-prompt",
+      "grants": [
+        "device.photos"
+      ],
+      "options": {
+        "limit": {
+          "type": "option<number>",
+          "min": 1,
+          "max": 500,
+          "default": 60
+        }
+      },
+      "answers": "PhotoAssetList",
+      "substitute": {
+        "unsupported": [
+          "web"
+        ]
+      }
+    },
+    {
+      "send": "copyPhotoAsset",
+      "request": true,
+      "grants": [
+        "device.photos",
+        "device.photos-add"
+      ],
+      "permission": "photos",
+      "owned": {
+        "android": "device.photos-add"
+      },
+      "options": {
+        "asset": "string",
+        "version": "option<enum<current|original>>",
+        "path": {
+          "type": "path",
+          "access": "write",
+          "optional": true
+        }
+      },
+      "answers": "PhotoCopy",
+      "substitute": {
+        "unsupported": [
+          "web"
+        ]
+      }
+    },
+    {
+      "send": "addToPhotoLibrary",
+      "request": true,
+      "origin": "app",
+      "grants": [
+        "device.photos-add",
+        "device.photos"
+      ],
+      "permission": "narrowest",
+      "options": {
+        "path": {
+          "type": "path",
+          "access": "read"
+        }
+      },
+      "answers": "PhotoAdded",
+      "substitute": {
+        "unsupported": [
+          "web"
+        ]
+      }
+    },
+    {
+      "send": "managePhotoSelection",
+      "request": true,
+      "origin": "app",
+      "grants": [
+        "device.photos"
+      ],
+      "permission": false,
+      "answers": "PhotoLibraryStatus",
+      "substitute": {
+        "choose": {
+          "ticket": "selection",
+          "word": "selection",
+          "status": "photoLibraryStatus",
+          "while": {
+            "access": "limited"
+          }
+        },
+        "unsupported": [
+          "web"
+        ]
+      }
+    }
+  ]
+}

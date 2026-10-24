@@ -651,6 +651,12 @@ uint32_t exact_extension(ExactRuntime rt, size_t len);
  * line `agent <name>` is an implementation bound under the agent, which
  * answers an interface that is its own substitute (LLP 1133.006 D8). */
 void exact_bind_extensions(ExactRuntime rt, size_t len);
+/* @ref LLP 1133.019 D11 item 1: an `img` source of a package's scheme, in the
+ * input buffer, admitted as a read: the output is {"extension","scheme",
+ * "agent","owned"?} to ask that extension's implementation for the picture,
+ * {"error","message"} for an unresolved image, or empty for a source of no
+ * package's scheme. Never raises a ticket. */
+uint32_t exact_picture(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev

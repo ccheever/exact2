@@ -152,8 +152,23 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "macos" => device.macos,
         _ => &[],
     };
+    // A key two granted rows write takes the text of the row whose own
+    // prompt it is, the one listing it first (LLP 1133.019 D4: on macOS both
+    // photo lines write `NSPhotoLibraryUsageDescription`, which takes
+    // `device.photos`'s purpose), never whichever line came last; `shared`
+    // names the line each such key took its text from.
+    let mut writers: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
+    let mut shared = Map::new();
     for grant in &devices {
-        for key in keys_of(grant.device) {
+        for (at, key) in keys_of(grant.device).iter().enumerate() {
+            if let Some(&(first, by)) = writers.get(key) {
+                let line = if first <= at { by } else { grant.device.name };
+                shared.insert((*key).into(), json!(format!("device.{line}")));
+                if first <= at {
+                    continue;
+                }
+            }
+            writers.insert(key, (at, grant.device.name));
             usage.insert((*key).into(), json!(purposes[grant.purpose]));
         }
         // The platform's signing entitlements: macOS's hardened-runtime ones,
@@ -241,6 +256,9 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "tvOmits": tv_omits,
         "auth": auth,
     });
+    if !shared.is_empty() {
+        compat.reach["sharedKeys"] = Value::Object(shared);
+    }
     Ok(())
 }
 
@@ -641,6 +659,47 @@ mod tests {
         assert_eq!(
             derive_for("device.speech-recognition write", "ios")["tvOmits"],
             json!([])
+        );
+    }
+
+    #[test]
+    fn both_photo_lines_write_the_read_key_once_with_the_read_purpose() {
+        // LLP 1133.019 D4.
+        let dir = app(&[(
+            "en",
+            r#"{"recents": "Shows recent photos.", "save": "Saves edits."}"#,
+        )]);
+        let derive_for = |grants: &str, platform: &str| {
+            let mut c = compat(grants);
+            derive(&dir.0, platform, &mut c).unwrap();
+            c.reach
+        };
+        let (read, add) = (
+            "NSPhotoLibraryUsageDescription",
+            "NSPhotoLibraryAddUsageDescription",
+        );
+        let recents = json!({"en": "Shows recent photos."});
+        let save = json!({"en": "Saves edits."});
+        for grants in [
+            "device.photos-add save\ndevice.photos recents",
+            "device.photos recents\ndevice.photos-add save",
+        ] {
+            let mac = derive_for(grants, "macos");
+            assert_eq!(mac["usage"], json!({read: recents, add: save}));
+            assert_eq!(mac["sharedKeys"], json!({read: "device.photos"}));
+            let ios = derive_for(grants, "ios");
+            assert_eq!(ios["usage"], json!({read: recents, add: save}));
+            assert_eq!(
+                ios["flags"],
+                json!(["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"])
+            );
+        }
+        // The add line alone on macOS: the read key with the add's text.
+        let mac = derive_for("device.photos-add save", "macos");
+        assert_eq!(mac["usage"], json!({add: save, read: save}));
+        assert_eq!(
+            mac["entitlements"],
+            json!(["com.apple.security.personal-information.photos-library"])
         );
     }
 

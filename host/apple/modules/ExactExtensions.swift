@@ -13,8 +13,9 @@
 //   call of one of its names, `origin` when a tool or a wake made it;
 // - `{"extension", "release", "args"?}`: a live source with no reader left,
 //   or, with `args`, an argument group of one (LLP 1133.009 D10 item 12);
-// - `{"extension", "preferred"}`: the agent's preferred values, for an
-//   implementation bound under the agent;
+// - `{"extension", "preferred", "permissions"}`: the agent's preferred
+//   values and the runner's permission states, for an implementation bound
+//   under the agent;
 // - `{"extension", "dispose"}`: handles a dropped reply carried (item 10);
 // - `{"extension", "foreground"}`: the app went to the foreground or left
 //   it (item 3);
@@ -23,9 +24,13 @@
 // - `{"extension", "sync", "args"}`, through `call`: data code's
 //   synchronous form.
 //
+// A picture of a package's `img` scheme comes through the table's `image`
+// entry instead (`ExactExtensions.image`), since its answer is an image.
+//
 // An error is answered as `{"error": code}`. At the session's end each
 // adapter's `destroy` is called and waited for, a second at most (item 1).
 import Foundation
+import CoreGraphics
 import Security
 #if canImport(ExactPackage)
 import ExactPackage
@@ -51,6 +56,10 @@ open class ExactExtensionAdapter {
     }
     open func displayed(_ id: String, _ shown: Bool, origin: String) {}
     open func bound(_ id: String, _ prop: String, origin: String) {}
+    open func image(_ source: String, width: Int, height: Int, fit: String, owned: Bool, reply: @escaping (CGImage?, String?) -> Void) {
+        reply(nil, "NotSupportedError")
+    }
+    open func permissions(_ states: [String: String]) {}
     /// The authenticator entry (ExactPackage.swift's `ExactAuthenticator`),
     /// for the extension `exactAuthenticator` names.
     open func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {
@@ -115,6 +124,7 @@ enum ExactExtensions {
             if let args { a.release(name, args: args) } else { a.release(name) }
             reply.send([:])
         } else if let values = request["preferred"] as? [String: Any], request["source"] == nil, request["send"] == nil {
+            if let states = request["permissions"] as? [String: String] { a.permissions(states) }
             a.preferred(values)
             reply.send([:])
         } else if let ids = request["dispose"] as? [String] {
@@ -145,6 +155,16 @@ enum ExactExtensions {
             return ["error": "NotSupportedError"]
         }
         return try a.call(name, request["args"] as? [String: Any] ?? [:])
+    }
+
+    /// A picture of `extension`'s `img` scheme (LLP 1133.019 D11 item 1),
+    /// which the runner admitted: its adapter, made now if no call made it
+    /// first, draws it.
+    static func image(_ m: ExactModule, _ request: [String: Any], reply: @escaping (CGImage?, String?) -> Void) {
+        guard let name = request["extension"] as? String, let a = adapter(m, name),
+              let source = request["source"] as? String else { return reply(nil, "NotSupportedError") }
+        a.image(source, width: request["width"] as? Int ?? 0, height: request["height"] as? Int ?? 0,
+                fit: request["fit"] as? String ?? "fill", owned: request["owned"] as? Bool ?? false, reply: reply)
     }
 
     /// A presence check (LLP 1133.010 D13), by the extension whose
@@ -231,7 +251,8 @@ extension ExactExtensions {
             file: { [weak module] path in module.flatMap { file(path, $0) } },
             audioSession: ExactAudioSession { [weak m] mode, options, background, events in
                 m?.hatches.flatMap { AudioClaims.claim($0, mode: mode, options: options, background: background, events: events) }
-            })
+            },
+            picture: { [weak m] kind, source in m?.hatches?.picture(kind, source) })
     }
 }
 #endif

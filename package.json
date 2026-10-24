@@ -24,6 +24,7 @@
     "@exact/geolocation": "workspace:*",
     "@exact/local-auth": "workspace:*",
     "@exact/camera": "workspace:*",
+    "@exact/photos": "workspace:*",
     "@exact/media-capture": "workspace:*",
     "@exact/motion": "workspace:*",
     "@exact/recording": "workspace:*",

@@ -14,6 +14,7 @@
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
         "@exact/passkeys": "workspace:*",
+        "@exact/photos": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
@@ -72,6 +73,10 @@
       "name": "@exact/passkeys",
       "version": "1.0.0",
     },
+    "packages/photos": {
+      "name": "@exact/photos",
+      "version": "1.0.0",
+    },
     "packages/reading": {
       "name": "@exact/reading",
       "version": "0.1.0",
@@ -127,6 +132,8 @@
     "@exact/motion": ["@exact/motion@workspace:packages/motion"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
+
+    "@exact/photos": ["@exact/photos@workspace:packages/photos"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 

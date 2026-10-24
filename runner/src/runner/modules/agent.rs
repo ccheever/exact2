@@ -33,7 +33,11 @@ impl<D: DataSource> Runner<D> {
             // Each permission by name; `permission` too where it has one.
             let sub = self.substitute(row);
             let by = sub["permissionBy"].as_object().into_iter().flatten();
-            for p in std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)) {
+            let list = sub["permissionList"].as_array().into_iter().flatten();
+            for p in std::iter::once(&sub["permission"])
+                .chain(by.map(|(_, p)| p))
+                .chain(list)
+            {
                 if let Some(name) = p["name"].as_str() {
                     entry["permissions"][name] = json!(self.permission_state(name));
                 }
@@ -71,6 +75,9 @@ impl<D: DataSource> Runner<D> {
                 for (k, v) in samples.as_object().into_iter().flatten() {
                     entry[k] = v.clone();
                 }
+            }
+            if let Some(pictures) = self.pictures_json(extension) {
+                entry["pictures"] = pictures;
             }
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
@@ -176,20 +183,23 @@ impl<D: DataSource> Runner<D> {
                 ));
             }
             let sub = self.substitute(&row);
-            let permission = &sub["permission"];
-            let status = permission["status"].as_str() == Some(self.plan.str(row.declared));
-            let field = permission["field"].as_str().filter(|_| status);
-            if let Some(field) = field.filter(|f| value.get(f).is_some()) {
-                // One authority per fact (§6): the state is the permission's.
-                let name = permission["name"].as_str().unwrap_or_default();
-                return refuse(format!(
-                    "prefer extension: `{key}`'s `{field}` is set by `prefer permission.{name}`"
-                ));
+            let statuses = self.statuses_of(&row);
+            for permission in &statuses {
+                let field = permission["field"].as_str().unwrap_or_default();
+                if value.get(field).is_some() {
+                    // One authority per fact (§6): the state is the permission's.
+                    let name = permission["name"].as_str().unwrap_or_default();
+                    return refuse(format!(
+                        "prefer extension: `{key}`'s `{field}` is set by `prefer permission.{name}`"
+                    ));
+                }
             }
             if value != "clear" && error_code(value).is_none() {
                 let mut checked = value.clone();
-                if let (Some(field), Some(object)) = (field, checked.as_object_mut()) {
-                    object.insert(field.into(), json!("prompt"));
+                for field in statuses.iter().filter_map(|p| p["field"].as_str()) {
+                    if let Some(object) = checked.as_object_mut() {
+                        object.insert(field.into(), json!("prompt"));
+                    }
                 }
                 // An implementation's own substitute takes a partial
                 // overlay (LLP 1133.009 D10 item 11), as a `partial` source

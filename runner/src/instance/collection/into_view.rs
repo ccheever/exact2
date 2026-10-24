@@ -53,10 +53,6 @@ pub struct IntoView {
 
 /// Correcting reports a request may take before it ends `unconverged`.
 const CORRECTIONS: u8 = 6;
-/// Reports a request may correct that find the port elsewhere than its last
-/// correction put it (`Target::planned`), about two seconds of frames: a
-/// destination the host cannot reach, as it clamps, is never landed.
-const HELD: u8 = 240;
 
 /// A request a list is carrying out.
 #[derive(Debug, Clone)]
@@ -67,12 +63,6 @@ pub(super) struct Target {
     offset: Option<f64>,
 
     reports: u8,
-    /// Where the last correction put the port. A report elsewhere (by more
-    /// than a pixel, as WebKit rounds) is one the host has not landed (it
-    /// holds one while the port coasts on the reader's momentum): its
-    /// correction does not count toward `CORRECTIONS` but toward `HELD`.
-    planned: f64,
-    held: u8,
     /// Consecutive reports that said the port was travelling.
     travelling: u8,
     /// Consecutive reports that found it aligned, everything to it measured.
@@ -86,7 +76,7 @@ pub enum IntoViewStatus {
     Done,
     /// Still correcting.
     Pending,
-    /// `CORRECTIONS` corrections did not land it.
+    /// Four corrections did not land it.
     Unconverged,
     /// The reader scrolled, a newer request came, or the key left.
     Cancelled,
@@ -245,8 +235,6 @@ impl Collection {
             smooth,
             offset: within,
             reports: 0,
-            planned: offset,
-            held: 0,
             travelling: 0,
             aligned: 0,
         });
@@ -357,12 +345,11 @@ impl Collection {
         if let Some(t) = &mut self.target {
             t.aligned = 0;
         }
-        let sequence = g.scroll_sequence;
-        let counts = (reported - target.planned).abs() <= 1.0;
-        if (counts && target.reports >= CORRECTIONS) || (!counts && target.held >= HELD) {
+        if target.reports >= CORRECTIONS {
             self.target = None;
             return Some(IntoViewStatus::Unconverged);
         }
+        let sequence = g.scroll_sequence;
         if let Some(g) = &mut self.geometry {
             g.offset = desired;
         }
@@ -373,12 +360,7 @@ impl Collection {
             smooth: target.smooth,
         });
         if let Some(t) = &mut self.target {
-            if counts {
-                t.reports += 1;
-            } else {
-                t.held += 1;
-            }
-            t.planned = desired;
+            t.reports += 1;
         }
         None
     }
