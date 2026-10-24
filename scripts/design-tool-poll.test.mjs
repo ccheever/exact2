@@ -3,14 +3,14 @@
 // each heartbeat (the server's 204 after its wait, 25 s) is a reply `clock held changes` returns on that commits
 // nothing; an agent's write then shows within one reply. The server's wait is 5 s here (tamber-timing.mjs's test
 // knob, every bound scaled from 25 s's), and the real 25 s in the slow lane (EXACT_SLOW_TESTS=1).
-import { expect, test } from 'bun:test';
+import { expect, onTestFinished, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnOwned } from './test-children.mjs';
-import { DRIVEN, ROOT, SLOW, TOOL_ORIGIN, lines, stop, timed, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, ROOT, SLOW, TOOL_ORIGIN, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -26,10 +26,13 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
     // The first read is a POST; its follow task (`clock +1`) opens the stream, whose first ask is answered at once.
-    // (`clock held` waits up to 1.2 waits here: a heartbeat comes a wait after an ask.)
+    // (`clock held` waits up to 1.2 waits here: a heartbeat comes a wait after an ask.) The write lands while the drive
+    // waits on its signal, so no heartbeat can come between: then one reply on, it is folded.
+    const written = signals('poll');
+    onTestFinished(written.drop);
     const ops = ['clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
       'clock settle', HELD, HELD, HELD, HELD, 'state',
-      HELD, 'clock data', 'state'];
+      written.pause(60_000, 1), HELD, 'clock data', 'state'];
     drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-poll-${process.pid}`, '--json', ...ops], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
@@ -42,11 +45,12 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
     const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
     const write = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', TOOL_ORIGIN, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, encoding: 'utf8' });
     expect(write.status, write.stdout + write.stderr).toBe(0);
+    written.fire(1);
     await new Promise(ok => drive.once('exit', ok));
     expect(drive.exitCode, driveSaid).toBe(0);
     const r = replies().map(l => JSON.parse(l));
     expect(r.length).toBe(ops.length);
-    const opened = r[5].resources.changes, idle = r[11].resources.changes, after = r[14].resources.changes;
+    const opened = r[5].resources.changes, idle = r[11].resources.changes, after = r[15].resources.changes;
     expect(r[5].resources.hello).toMatchObject({ ok: true, protocol: 'tamber/1.17' });
     expect(opened.stream).toBe(true);
     // Settled with the poll held, not waited on: named, and back well inside the server's wait (10 s of 25 s).

@@ -1058,8 +1058,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const real = /^\+(\d+(?:\.\d+)?)\s+real(?:\s+until\s+(\S.*))?$/.exec(String(spec)), time = real ? real[1] : typeof spec === 'string' && spec.startsWith('+') ? spec.slice(1) : spec;
       // `+N real until <path>`: a test harness's signal (a file it controls): `+N real`, ended early once <path> exists.
       const until = real?.[2] ? resolve(real[2]) : null;
-      if (until && (/^[a-z][a-z0-9+.-]*:/i.test(real[2]) || /[*?[\]{}]/.test(real[2]))) throw new MalformedOperation(`clock +N real until <path>: a file path on this machine, not a URL or a glob: ${real[2]}`);
-      if (until && !existsSync(dirname(until))) throw new MalformedOperation(`clock +N real until ${real[2]}: its directory ${dirname(until)} does not exist (the harness that signals makes it first)`);
+      // (A scheme is two letters or more: `C:\…` is a Windows path.)
+      if (until && (/^[a-z][a-z0-9+.-]+:/i.test(real[2]) || /[*?[\]{}]/.test(real[2]))) throw new MalformedOperation(`clock +N real until <path>: a file path on this machine, not a URL or a glob: ${real[2]}`);
+      if (until && !statSync(dirname(until), { throwIfNoEntry: false })?.isDirectory()) throw new MalformedOperation(`clock +N real until ${real[2]}: its directory ${dirname(until)} does not exist (the harness that signals makes it first)`);
+      if (until && statSync(until, { throwIfNoEntry: false })?.isDirectory()) throw new MalformedOperation(`clock +N real until ${real[2]}: a directory, not the file a harness writes`);
+      const signalled = () => !!statSync(until, { throwIfNoEntry: false })?.isFile();
       if (!['settle', 'data'].includes(spec) && !Number.isFinite(Number(time))) throw new MalformedOperation(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
       if (spec !== 'settle' && spec !== 'data' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
@@ -1077,11 +1080,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (real) {
         const from = s.now, end = req.to, t0 = performance.now();
         // (A file there already: met at once, the clock unmoved.)
-        if (until && existsSync(until)) return { clock: s.now, real: 0, until: 'met' };
+        if (until && signalled()) return { clock: s.now, real: 0, until: 'met' };
         for (;;) {
           if (down && !await down()) return { clock: s.now, cancelled: true };
           // Met: the clock moves by the real time gone, as a `+M real` with M that time would.
-          const met = until !== null && existsSync(until);
+          const met = until !== null && signalled();
           const to = Math.max(s.now, Math.min(end, from + (performance.now() - t0))), r = await s.op({ op: 'clock', to, step: true }); // real time passes here: the host waits on no native motion
           s.now = r.clock;
           if (met || to >= end) return { ...r, real: Math.round(performance.now() - t0), ...(until ? { until: met ? 'met' : 'bound' } : {}) };

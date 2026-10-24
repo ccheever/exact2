@@ -23,8 +23,9 @@ function framed(looked) {
   return polling;
 }
 /** The drive's wait for the frame's build (4 s at most, as before): once listed, the tool's next read has it (`clock
- * +1` runs the follow task that asks it, as it opens the stream, whose first ask is answered at once). */
-const ready = looked => [looked.pause(4000, 0), 'clock +1', 'clock data', 'clock +1', 'clock data'];
+ * +1` runs the follow task that asks it, as it opens the stream, whose first ask is answered at once), or, the stream
+ * open already, its push (`clock held`: the next reply, the push or, landed already, a 3 s heartbeat). */
+const ready = looked => [looked.pause(4000, 0), 'clock +1', 'clock data', 'clock +1', 'clock data', 'clock held changes 10s'];
 
 /** Stage 6's kinds in the tool on the JS target's dev loop: a theme-fixture
  * copy whose card reads a length, a shadow, a font-weight number and a
@@ -61,7 +62,7 @@ async function kindsOnTheJsLoop() {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-dist-'));
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed({ POLL: 6_000 }), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed({ POLL: 3_000 }), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
