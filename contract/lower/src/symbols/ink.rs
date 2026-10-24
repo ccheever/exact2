@@ -1,7 +1,7 @@
 //! A symbol's ink as the hosts draw it: its `color` (LLP 1081 stage 2).
 
 use super::tint::{symbol, tinted};
-use contract_syntax::{Attr, Expr};
+use contract_syntax::{Attr, Expr, TemplatePart};
 
 /// @ref LLP 1116.019 D6 — a `color` the author wrote on a symbol `image`
 /// (or its class) is the symbol's colour, as an inline SVG icon drawn in
@@ -16,7 +16,13 @@ use contract_syntax::{Attr, Expr};
 /// raster (a tint paints it as a silhouette), or a symbol that writes
 /// neither. `rows` are the author's, its classes' included, without the
 /// sheet's.
-pub(crate) fn symbol_ink(tag: &str, positional: &[Expr], rows: &[Attr], face: bool) -> Vec<Attr> {
+pub(crate) fn symbol_ink(
+    tag: &str,
+    positional: &[Expr],
+    rows: &[Attr],
+    face: bool,
+    guard: bool,
+) -> Vec<Attr> {
     let ink = |name: &str, said: &Attr, written: bool| Attr {
         name: name.into(),
         value: Expr::Str("currentcolor".into(), said.span),
@@ -32,31 +38,43 @@ pub(crate) fn symbol_ink(tag: &str, positional: &[Expr], rows: &[Attr], face: bo
         .rev()
         .find(|a| a.written && a.name == "-exact-tint-color");
     if !symbol(source) {
-        // A source that may be either at run time (a state's, a choice of a symbol and a file): a
-        // symbol's tint is answered when it is one, a raster's kept. A literal file is a raster.
-        let literal = matches!(source, Expr::Str(..))
-            || matches!(source, Expr::Template(parts, _) if matches!(parts.first(), Some(contract_syntax::TemplatePart::Text(_))));
-        return base
-            .filter(|_| !literal)
-            .map(|tint| {
-                let at = tint.span;
-                let is_symbol = Expr::Call(
-                    "startsWith".into(),
-                    vec![source.clone(), Expr::Str("symbol:".into(), at)],
+        // A source that may be either at run time (a state's, a choice of a symbol and a file, a
+        // template that may yet spell `symbol:`): a symbol's tint, and each state's, answered when it
+        // is one, a raster's kept. A literal file is a raster; with an app's own `startsWith` (`guard`
+        // false) no answer is made, since the call would be the app's.
+        let raster = match source {
+            Expr::Str(..) => true,
+            Expr::Template(parts, _) => {
+                matches!(parts.first(), Some(TemplatePart::Text(t)) if !"symbol:".starts_with(t.as_str()))
+            }
+            _ => false,
+        };
+        if raster || !guard {
+            return Vec::new();
+        }
+        let mut out: Vec<Attr> = Vec::new();
+        for a in rows.iter().filter(|a| a.written && tinted(&a.name)) {
+            if out.iter().any(|o| o.name == a.name) {
+                continue;
+            }
+            let tint = rows.iter().rev().find(|r| r.name == a.name).expect("named");
+            let at = tint.span;
+            let is_symbol = Expr::Call(
+                "startsWith".into(),
+                vec![source.clone(), Expr::Str("symbol:".into(), at)],
+                at,
+            );
+            out.push(Attr {
+                value: Expr::Ternary(
+                    Box::new(is_symbol),
+                    Box::new(Expr::Str("currentcolor".into(), at)),
+                    Box::new(tint.value.clone()),
                     at,
-                );
-                Attr {
-                    value: Expr::Ternary(
-                        Box::new(is_symbol),
-                        Box::new(Expr::Str("currentcolor".into(), at)),
-                        Box::new(tint.value.clone()),
-                        at,
-                    ),
-                    ..tint.clone()
-                }
-            })
-            .into_iter()
-            .collect();
+                ),
+                ..tint.clone()
+            });
+        }
+        return out;
     }
     let mut out: Vec<Attr> = match base {
         Some(tint) => vec![ink("-exact-tint-color", tint, tint.written)],
