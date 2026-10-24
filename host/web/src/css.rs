@@ -781,6 +781,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::Orphans
             | StyleId::FontWeight
             | StyleId::Scale
+            // CSS `zoom`, an iframe's alone (LLP 1020.002 D6).
+            | StyleId::Zoom
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
             | StyleId::FillOpacity
             | StyleId::StrokeOpacity

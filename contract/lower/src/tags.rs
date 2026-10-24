@@ -510,6 +510,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
+        // @ref LLP 1020.002 D2 — an iframe's guest, by the Navigation API's
+        // event names (an iframe's `navigate=` is its guest's too).
+        "currententrychange" => AttrTarget::Handler("currententrychange"),
+        "navigatesuccess" => AttrTarget::Handler("navigatesuccess"),
+        "navigateerror" => AttrTarget::Handler("navigateerror"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
         "transformrelease" => AttrTarget::Handler("transformrelease"),
@@ -678,6 +683,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
+        // @ref LLP 1020.002 D1, §9 — a top-level guest's own storage, and
+        // `WKWebView`'s words under the platform's key (`frames.rs`).
+        "partition" => AttrTarget::Prop(p("partition")),
+        "apple.allowsBackForwardNavigationGestures" => {
+            AttrTarget::Prop(p("appleAllowsBackForwardNavigationGestures"))
+        }
+        "apple.allowsMagnification" => AttrTarget::Prop(p("appleAllowsMagnification")),
+        "apple.inactiveSchedulingPolicy" => AttrTarget::Prop(p("appleInactiveSchedulingPolicy")),
         // The Popover API, by its own names (LLP 1021 D1): a container with `popover` is
         // hidden until its invoker — a `button` whose `popovertarget` names the container's
         // `id` — toggles it; open state is the host's, never the plan's (D2). `aria-checked`

@@ -19,6 +19,7 @@
   "dependencies": {
     "@exact/scale-fixture-cards": "workspace:*",
     "@exact/actions": "workspace:*",
+    "@exact/browser": "workspace:*",
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",

@@ -580,6 +580,7 @@ public final class Agent {
             case ("can-share-files", "true"), ("can-share-files", "false"): facts.canShareFiles = value == "true"
             case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
+            case ("iframe-partition", "true"), ("iframe-partition", "false"): facts.iframePartition = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             // The fact, and each module's tier: its renderers are made again at the new rung (LLP 1139.003 D2).
             case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
@@ -620,7 +621,7 @@ public final class Agent {
         }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-share-files": PageFacts.canShareFiles,
-                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
+                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles, "iframe-partition": PageFacts.iframePartition,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
                                        "display-scale": PageFacts.displayScale(session.presenter.viewport),
                                        "gpu-tier": ["high", "mid", "low", "low"][Int(PageFacts.tier & 3)],

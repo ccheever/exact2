@@ -44,6 +44,9 @@ private final class WebModule {
     typealias EvalFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias SetReaderFn = @convention(c) (WebAssetReadFn?) -> Void
+    typealias ClearDoneFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias SetReaderlessFn = @convention(c) (UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias ClearFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ClearDoneFn?) -> Void
 
     let library: UnsafeMutableRawPointer
     let create: CreateFn
@@ -55,6 +58,10 @@ private final class WebModule {
     let snapshot: SnapshotFn
     let evaluate: EvalFn
     let destroy: DestroyFn
+    let configure: PostFn
+    let command: PostFn
+    let clearSiteData: ClearFn
+    let endSession: SetReaderlessFn
 
     static func load(path: String) -> Result<WebModule, WebLoadError> {
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
@@ -72,7 +79,11 @@ private final class WebModule {
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
               let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
               let destroy = symbol("exact_web_destroy", DestroyFn.self),
-              let setReader = symbol("exact_web_set_reader", SetReaderFn.self)
+              let setReader = symbol("exact_web_set_reader", SetReaderFn.self),
+              let configure = symbol("exact_web_configure", PostFn.self),
+              let command = symbol("exact_web_command", PostFn.self),
+              let clearSiteData = symbol("exact_web_clear_site_data", ClearFn.self),
+              let endSession = symbol("exact_web_end_session", SetReaderlessFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
@@ -81,14 +92,15 @@ private final class WebModule {
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
             setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
-            evaluate: evaluate, destroy: destroy))
+            evaluate: evaluate, destroy: destroy, configure: configure, command: command, clearSiteData: clearSiteData, endSession: endSession))
     }
 
     private init(
         library: UnsafeMutableRawPointer, create: @escaping CreateFn,
         platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
         setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
-        evaluate: @escaping EvalFn, destroy: @escaping DestroyFn
+        evaluate: @escaping EvalFn, destroy: @escaping DestroyFn,
+        configure: @escaping PostFn, command: @escaping PostFn, clearSiteData: @escaping ClearFn, endSession: @escaping SetReaderlessFn
     ) {
         self.library = library
         self.create = create
@@ -100,6 +112,10 @@ private final class WebModule {
         self.snapshot = snapshot
         self.evaluate = evaluate
         self.destroy = destroy
+        self.configure = configure
+        self.command = command
+        self.clearSiteData = clearSiteData
+        self.endSession = endSession
     }
 }
 
@@ -116,6 +132,12 @@ private final class WebEntry {
     var platformView: ExactWebPlatformView?
     var src: String?
     var sandbox: String?
+    /// What `exact_web_configure` was last given (`partition`, `zoom`, the
+    /// `apple.*` words), and the last `FrameNavigation` record the frame
+    /// reported, which `tree` shows (@ref LLP 1020.002 §10).
+    var configuration: Data?
+    var partition: String?
+    var navigation: [String: Any]?
     var initialized = false
     var loading = true
     var unavailable = false
@@ -211,6 +233,7 @@ final class WebViews {
             FileHandle.standardError.write(Data("exact web: \(failure!)\n".utf8))
             return nil
         }
+        configure(entry, owner, module: module, handle: handle)
         guard let rawView = module.platformView(handle) else {
             module.destroy(handle)
             entry.loading = false
@@ -225,6 +248,52 @@ final class WebViews {
         return view
     }
 
+    /// `partition`, `zoom` and the `apple.*` words as the arm takes them
+    /// (`exact_web_configure`), before its web view is made.
+    private func configuration(_ owner: NodeView) -> Data {
+        var values: [String: Any] = ["agent": ExactEnv.agentMode, "session": sessionKey,
+                                     "app": WebViews.appKey(session?.appFileRoots["data"])]
+        if let partition = owner.props["partition"] { values["partition"] = partition }
+        if let zoom = owner.style["zoom"]?.number, zoom > 0 { values["zoom"] = zoom }
+        for (prop, key) in WebViews.appleWords {
+            guard let value = owner.props[prop] else { continue }
+            values[key] = value == "true" ? true as Any : value == "false" ? false as Any : value as Any
+        }
+        return (try? JSONSerialization.data(withJSONObject: values, options: .sortedKeys)) ?? Data("{}".utf8)
+    }
+
+    /// The app a `persist:` partition belongs to: the runner's app id, which
+    /// names the app's data root (`…/Library/Application Support/exact/<app id>/data`,
+    /// `host/apple/src/picker.rs`), so two apps embedded in one process keep
+    /// theirs apart. Never the root's whole path: iOS moves an app's data
+    /// container (its HOME) at every update and reinstall, and a store keyed
+    /// by it would be lost each time. Without a root, the bundle's id.
+    static func appKey(_ dataRoot: String?, home: String = NSHomeDirectory()) -> String {
+        let fallback = Bundle.main.bundleIdentifier ?? "exact"
+        guard let dataRoot else { return fallback }
+        let marker = "/Library/Application Support/exact/"
+        if let range = dataRoot.range(of: marker),
+           let id = dataRoot[range.upperBound...].split(separator: "/").first, !id.isEmpty {
+            return String(id)
+        }
+        return dataRoot.hasPrefix(home) ? String(dataRoot.dropFirst(home.count)) : dataRoot
+    }
+
+    /// The tier 2 words (@ref LLP 1020.002 §9), by prop.
+    static let appleWords = [
+        ("appleAllowsBackForwardNavigationGestures", "allowsBackForwardNavigationGestures"),
+        ("appleAllowsMagnification", "allowsMagnification"),
+        ("appleInactiveSchedulingPolicy", "inactiveSchedulingPolicy"),
+    ]
+
+    private func configure(_ entry: WebEntry, _ owner: NodeView, module: WebModule, handle: UnsafeMutableRawPointer) {
+        let data = configuration(owner)
+        guard data != entry.configuration else { return }
+        entry.configuration = data
+        entry.partition = owner.props["partition"]
+        data.withUnsafeBytes { module.configure(handle, $0.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count)) }
+    }
+
     func update(_ owner: NodeView) {
         guard let entry = entries[owner.id] else { return }
         let src = Self.browserSource(owner.props["src"])
@@ -234,6 +303,10 @@ final class WebViews {
         entry.src = src
         entry.sandbox = sandbox
         entry.initialized = true
+        if let module, let handle = entry.handle {
+            configure(entry, owner, module: module, handle: handle)
+            replaceView(entry, owner, module: module, handle: handle)
+        }
         guard let module, let handle = entry.handle, changedSrc || changedSandbox else { return }
         guard changedSrc else {
             if !entry.fileFailed { entry.loading = true }
@@ -286,6 +359,24 @@ final class WebViews {
 
     private static let reads = DispatchQueue(label: "exact.web.documents", qos: .userInitiated)
 
+    /// A new partition made the arm a new web view: the node shows it in
+    /// place of the old one (@ref LLP 1020.002 D1).
+    private func replaceView(_ entry: WebEntry, _ owner: NodeView, module: WebModule, handle: UnsafeMutableRawPointer) {
+        guard let raw = module.platformView(handle) else { return }
+        let view = Unmanaged<ExactWebPlatformView>.fromOpaque(raw).takeUnretainedValue()
+        guard view !== entry.platformView else { return }
+        let old = entry.platformView
+        view.frame = old?.frame ?? owner.bounds
+        view.autoresizingMask = old?.autoresizingMask ?? []
+        #if os(macOS)
+        view.wantsLayer = true
+        #endif
+        old?.removeFromSuperview()
+        owner.addSubview(view)
+        owner.web = view
+        entry.platformView = view
+    }
+
     private static func browserSource(_ source: String?) -> String? {
         guard let source, source.hasPrefix("//") else { return source }
         let scheme = ExactApp.shared.connectedPage?.scheme?.lowercased()
@@ -311,6 +402,10 @@ final class WebViews {
             fputs("exact: postMessage: no unique live iframe with id \(target)\n", stderr)
             return
         }
+        guard entry.partition == nil else {
+            fputs("exact: postMessage: iframe \(target) has a partition; a partitioned frame has no message bridge\n", stderr)
+            return
+        }
         Data(text.utf8).withUnsafeBytes { bytes in
             module.postMessage(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count))
         }
@@ -329,6 +424,18 @@ final class WebViews {
         for id in Array(entries.keys) { destroy(id: id) }
     }
 
+    /// The session's own key for its in-memory partitions.
+    private lazy var sessionKey = UUID().uuidString
+
+    /// The session ended: its frames are gone, and its in-memory partitions go
+    /// with them (an arm never loaded made none).
+    func endSession() {
+        reset()
+        guard let module else { return }
+        let data = Data("{\"session\":\"\(sessionKey)\"}".utf8)
+        data.withUnsafeBytes { module.endSession($0.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count)) }
+    }
+
     fileprivate func receivedEvent(id: UInt32, kind: UInt32, data: Data) {
         guard let entry = entries[id], !entry.fileFailed, let owner = entry.owner else { return }
         switch kind {
@@ -341,8 +448,41 @@ final class WebViews {
             }
         case 2: entry.loading = false
         case 3: entry.loading = true
+        case 4:
+            // A `FrameNavigation` record (@ref LLP 1020.002 D2).
+            guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let name = value["event"] as? String, let record = value["record"] as? [String: Any] else { return }
+            entry.navigation = record
+            guard owner.handlers.contains(name), let session,
+                  let json = try? JSONSerialization.data(withJSONObject: record, options: .sortedKeys) else { return }
+            let text = String(decoding: json, as: UTF8.self)
+            DispatchQueue.main.async { [weak session] in
+                guard let session else { return }
+                session.apply(session.runtime.frameNavigation(id, event: name, record: text, now: session.now()))
+            }
         default: break
         }
+    }
+
+    /// `navigate(id, url)`, `traverseHistory(id, delta)`, `reload(id,
+    /// ignoreCache=)` and `stopLoading(id)` (@ref LLP 1020.002 D3), to the
+    /// one mounted frame with that id.
+    func command(_ name: String, _ args: [Any]) {
+        let target = args.first as? String ?? ""
+        let matches = entries.values.filter { $0.owner?.props["id"] == target }
+        guard matches.count == 1, let entry = matches.first, let handle = entry.handle, let module else {
+            fputs("exact: \(name): no unique live iframe with id \(target)\n", stderr)
+            return
+        }
+        var op: [String: Any] = ["op": name]
+        switch name {
+        case "navigate": op["url"] = args.count > 1 ? Self.browserSource(args[1] as? String) ?? "" : ""
+        case "traverseHistory": op["delta"] = args.count > 1 ? (args[1] as? NSNumber)?.intValue ?? 0 : 0
+        case "reload": op["ignoreCache"] = args.count > 1 ? args[1] as? Bool ?? false : false
+        default: break
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: op) else { return }
+        data.withUnsafeBytes { module.command(handle, $0.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count)) }
     }
 
     fileprivate func receivedReply(token: UInt32, kind: UInt32, data: Data) {
@@ -387,6 +527,11 @@ final class WebViews {
             else { continue }
             nodes[index]["url"] = entry.src ?? ""
             nodes[index]["loading"] = entry.loading
+            if let partition = entry.partition { nodes[index]["partition"] = partition }
+            if let navigation = entry.navigation {
+                // What a person sees of the guest, never its cookies or storage (@ref LLP 1020.002 §10).
+                nodes[index]["navigation"] = navigation.filter { ["url", "title", "loading", "controller", "canGoBack", "canGoForward"].contains($0.key) }
+            }
             if entry.unavailable { nodes[index]["unavailable"] = true }
             guard !entry.loading,
                   case .success(let outline) = request(entry, script: WebViews.outlineScript),

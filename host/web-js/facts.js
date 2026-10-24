@@ -61,8 +61,8 @@ export function page(readers) {
   const facts = reporter();
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
-    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", persisted: false, restores: 0 };
-    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores });
+    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", persisted: false, restores: 0, "iframe-partition": false };
+    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores, iframePartition: f["iframe-partition"] === true });
   };
   if (!facts) return;
   pageChanged = again("exactPage", "page");
