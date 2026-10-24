@@ -896,21 +896,81 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
     }
 
-    /// A `tabContainer` hook that keeps none of the stacks leaves them in
-    /// Exact's container, its bar showing the selected tab.
+    /// A late nil result keeps the live bar's selection and hit regions.
+    /// Emptying and refilling the controller overlaps the Duo's tab items.
     func testATabContainerHookThatKeepsNoneLeavesTheSelectedTabShown() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else {
+            throw missing("scene", "native tab geometry needs a full-screen hosted window")
+        }
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "native tab items need UIKit's accessibility runtime") }
         defer { NativeViews.uninstallTable() }
-        let session = try fixture("tabs-kept", module: true)
+        let session = try fixture("tabs-kept", wholeScreen: true)
         let navigation = session.presenter.navigation
+        let container = try XCTUnwrap(navigation.tabController)
+        tapTab(container, 1)
+        until("the second tab is selected before the module connects") { container.selectedIndex == 1 }
+        let stacks = try XCTUnwrap(container.viewControllers)
+        let selected = try XCTUnwrap(container.selectedViewController)
+        let agent = Agent(session: session)
+        let items = try ["tab-home", "tab-second"].map { try node(session, $0) }
+        func frames() throws -> [CGRect] {
+            window?.layoutIfNeeded()
+            return try items.map {
+                let item = try XCTUnwrap(agent.tabItem($0)).get()
+                return item.convert(item.bounds, to: self.window)
+            }
+        }
+        func assertSeparate(_ frames: [CGRect], file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(frames.count, 2, file: file, line: line)
+            for frame in frames {
+                XCTAssertGreaterThan(frame.width, 0, file: file, line: line)
+                XCTAssertGreaterThan(frame.height, 0, file: file, line: line)
+            }
+            let intersection = frames[0].intersection(frames[1])
+            let smaller = frames.map { $0.width * $0.height }.min() ?? 0
+            XCTAssertLessThanOrEqual(intersection.isNull ? 0 : intersection.width * intersection.height,
+                                     smaller / 2, "native tab hit regions overlap: \(frames)", file: file, line: line)
+        }
+        assertSeparate(try frames())
+        session.natives.installArtifact(try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_MODULE"]))
         let log = { session.agent(#"{"op":"logs","since":0}"#) }
         until("the module connected") { log().contains("hatch tabs: built") }
         until("the hook was asked") { navigation.tabContainerAsked }
-        let container = try XCTUnwrap(navigation.tabController)
-        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        XCTAssertTrue(navigation.tabController === container)
+        XCTAssertTrue(navigation.tabOwner === container)
         XCTAssertEqual(container.viewControllers?.count, stacks.count)
         XCTAssertTrue(zip(container.viewControllers ?? [], stacks).allSatisfy { $0 === $1 }, "Exact's container keeps its stacks")
+        XCTAssertTrue(container.selectedViewController === selected)
+        XCTAssertEqual(container.selectedIndex, 1)
+        XCTAssertTrue(stacks.allSatisfy { $0.parent === container })
         XCTAssertNotNil(container.tabBar.selectedItem, "the bar shows a tab selected")
         XCTAssertEqual(container.tabBar.selectedItem, container.tabBar.items?[container.selectedIndex])
+        assertSeparate(try frames())
+        navigation.replayTabs()
+        XCTAssertEqual(container.selectedIndex, 1)
+        assertSeparate(try frames())
+    }
+
+    func testAnEagerTabContainerTakesTheLiveStacksBeforeReturning() throws {
+        setenv("EXACT_FIXTURE_CONTAINER", "eager", 1)
+        defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
+        let session = try fixture("tabs-eager")
+        let navigation = session.presenter.navigation
+        let original = try XCTUnwrap(navigation.tabController)
+        tapTab(original, 1)
+        until("the second tab is selected") { original.selectedIndex == 1 }
+        let stacks = try XCTUnwrap(original.viewControllers)
+        session.natives.installArtifact(try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_MODULE"]))
+        until("the eager container owns the tabs") { navigation.tabController == nil && navigation.tabOwner !== original }
+        let owner = try XCTUnwrap(navigation.tabOwner)
+        XCTAssertTrue(stacks.allSatisfy { $0.parent === owner && $0.view.isDescendant(of: owner.view) })
+        XCTAssertNil(original.parent)
+        XCTAssertNil(original.view.window)
+        let control = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual(control.selectedSegmentIndex, 1)
+        XCTAssertTrue(navigation.primaryNavigation === stacks[1])
+        XCTAssertFalse(stacks[1].view.isHidden)
+        XCTAssertTrue(stacks[0].view.isHidden)
     }
 
     func testSharePresentsOverAnAppOwnedTabContainer() throws {
