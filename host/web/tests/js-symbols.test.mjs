@@ -1,9 +1,6 @@
-// The JS target's image source hook (host/web-js/symbols.js): an image that
-// showed a symbol and then shows an `app:/` file shows the file, and no
-// later refresh paints the symbol back (Astra's batch 2 review). The DOM is
-// a small fake; the runtime and the picker glue are stand-ins.
-import { test, expect } from 'bun:test';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+// Test symbol updates with a minimal DOM, then verify their computed styles in Chrome.
+import { afterAll, test, expect } from 'bun:test';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
@@ -11,6 +8,7 @@ import { withLook } from '../look.mjs';
 
 // symbols.js beside stand-ins for the runtime and the picker glue it loads.
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-symbols-'));
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
 copyFileSync(resolve(new URL('../../web-js/symbols.js', import.meta.url).pathname), resolve(dir, 'symbols.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { After, PropHooks, inflight, journal, clock, data } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'picker-glue.js'), '');
