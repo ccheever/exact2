@@ -145,6 +145,11 @@ fn fields(map: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
                     "option<string>"
                 }
                 Value::Object(_) if ty["type"] == "path" => "string",
+                // An option with bounds or a default, `{"type", "min", "max",
+                // "default"}` (LLP 1133.013 D12 item 2): its type is `type`.
+                Value::Object(_) => ty["type"]
+                    .as_str()
+                    .ok_or_else(|| format!("`{name}`'s object names its `type`, or is a path's"))?,
                 ty => ty
                     .as_str()
                     .ok_or_else(|| format!("`{name}`'s type is a string, or a path's object"))?,
@@ -206,7 +211,9 @@ fn module(
 /// lines (`nameGrants`: a list, or a line per argument, `"*"` for every
 /// call), the answer's
 /// `handles`, the option a polled source's period is (`poll`), and its path
-/// options (`paths`). An `origin` of `"person"` refuses a tool or a wake
+/// options (`paths`), each option's `bounds`, a polled source's batch
+/// (`samples`), the canvas input a send `feeds`, and a send made inside the
+/// press (`gesture`). An `origin` of `"person"` refuses a tool or a wake
 /// `PERMISSION_DENIED`, `person-required`, in every state (LLP 1133.010 D12).
 fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     let name = entry["source"]
@@ -286,6 +293,41 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if !handles.is_empty() {
         out.insert("handleOptions".into(), Value::Array(handles));
     }
+    // Each option's bounds and default (`{"type", "min", "max", "default"}`):
+    // the bake refuses a literal outside them, admission clamps a computed
+    // one, and an omitted one takes the default (LLP 1133.013 D12 item 2).
+    let mut bounds = Map::new();
+    for (option, ty) in object(&entry["options"]) {
+        if !ty.is_object() || ty["type"] == "path" {
+            continue;
+        }
+        let mut b = Map::new();
+        for key in ["min", "max", "default"] {
+            if let Some(v) = ty.get(key) {
+                check(
+                    v.is_number(),
+                    &format!("option `{option}`'s `{key}` is a number"),
+                )?;
+                b.insert(key.into(), v.clone());
+            }
+        }
+        bounds.insert(option.clone(), Value::Object(b));
+    }
+    if !bounds.is_empty() {
+        out.insert("bounds".into(), Value::Object(bounds));
+    }
+    // The options that name a canvas's surface (LLP 1133.013 D12 item 3).
+    let surfaces: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty.as_str().is_some_and(|t| t.trim() == "surface"))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !surfaces.is_empty() {
+        out.insert("surfaceOptions".into(), Value::Array(surfaces));
+    }
+    let option = |name: &Value| {
+        name.as_str()
+            .is_some_and(|o| !object(&entry["options"])[o].is_null())
+    };
     for (field, value) in object(entry) {
         match field.as_str() {
             // `{"whenAny": [options], "is": "app"}` holds a call to `app`
@@ -310,6 +352,23 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                 "`grants` is a list of lines, or a line per argument",
             )?,
             "handles" => check(value.is_object(), "`handles` names each id field's kind")?,
+            // A polled source's batch (LLP 1133.013 D12 item 1): the options
+            // that bound it and set its rate, on a polled source.
+            "samples" => check(
+                value.is_object()
+                    && ["bound", "frequency"]
+                        .iter()
+                        .all(|k| value[k].is_null() || option(&value[k]))
+                    && !entry["poll"].is_null(),
+                "`samples` is an object naming its own options, on a polled source",
+            )?,
+            // A send that feeds a canvas's input (D12 item 3).
+            "feeds" => check(
+                value.is_object() && option(&value["surface"]) && option(&value["sensor"]),
+                "`feeds` names its surface and sensor options",
+            )?,
+            // A send made inside the press that asks it (D12 item 5).
+            "gesture" => check(value.is_boolean(), "`gesture` is true or false")?,
             "poll" => {
                 let option = value.as_str().or(value["option"].as_str());
                 let default = &value["default"];
@@ -384,8 +443,9 @@ fn permission_of(
 
 /// A declaration's type (LLP 1133.002 D13): `number`, `string`, `bool`,
 /// `option<T>`, `T[]`, `enum<a|b>`, a shape's name, `strings-key`, a key of
-/// the app's strings table, or `handle<kind>`, the id of a native object the
-/// session holds (LLP 1133.009 D10 item 10); both are strings here.
+/// the app's strings table, `handle<kind>`, the id of a native object the
+/// session holds (LLP 1133.009 D10 item 10), or `surface`, a canvas's surface
+/// name (LLP 1133.013 D12 item 3); each is a string here.
 fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     let ty = ty.trim();
     if let Some(inner) = ty.strip_suffix("[]") {
@@ -405,7 +465,7 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
     let named = match ty {
-        "strings-key" => "string",
+        "strings-key" | "surface" => "string",
         "number" | "string" | "bool" => ty,
         shape
             if shape.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')

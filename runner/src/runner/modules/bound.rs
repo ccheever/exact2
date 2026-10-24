@@ -176,6 +176,11 @@ impl<D: DataSource> Runner<D> {
             }
             self.extensions.live.insert(key);
         }
+        // A sampled source's reader carries its cursor (LLP 1133.013 D5),
+        // outside the group its arguments make.
+        if let Some(after) = self.cursor(row) {
+            body["args"]["after"] = json!(after);
+        }
         body.to_string().into_bytes()
     }
 
