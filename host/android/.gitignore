@@ -3,3 +3,5 @@ build/
 .gradle/
 .kotlin/
 local.properties
+gradle/verification-metadata.xml
+settings-gradle.lockfile

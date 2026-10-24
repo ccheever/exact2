@@ -1,5 +1,7 @@
 package dev.exact.canvas
 
+import org.json.JSONObject
+
 /**
  * The session's track table (LLP 1133.009 D3, D10 item 6): tracks and streams by id, each track with the
  * implementation that opened it ([TrackOwner]), through which a consuming implementation subscribes, so a recorder
@@ -19,7 +21,13 @@ class Tracks internal constructor() {
 }
 
 /** A track or a stream; a stream lists its tracks. */
-class TrackEntry(val id: String, val kind: String, val tracks: List<String> = emptyList(), val owner: TrackOwner? = null)
+class TrackEntry(val id: String, val kind: String, val tracks: List<String> = emptyList(), val owner: TrackOwner? = null) {
+    /** A track's state as `mediaStreamTrack` answers it, for a package that consumes it. */
+    var state: (() -> JSONObject)? = null
+
+    /** A video track's running capture while its lease is held (LLP 1133.008 D3, D8 item 3); null otherwise. */
+    var video: (() -> VideoSource?)? = null
+}
 
 /** Why a track call failed: a `DOMException` name, as answered. */
 class TrackError(val code: String) : Exception(code)
@@ -30,10 +38,12 @@ interface TrackOwner {
     fun subscribe(id: String, consumer: TrackConsumer, start: Boolean, origin: String): () -> Unit
 }
 
-/** A consumer of a track: a recorder, a level. Main thread. */
+/** A consumer of a track: a recorder, a level, a viewfinder. Main thread. */
 interface TrackConsumer {
-    /** The capture runs: its source, or null under the agent (no device). */
-    fun live(source: AudioSource?)
+    /** An audio track's capture runs: its source, or null under the agent (no device). */
+    fun live(source: AudioSource?) {}
+    /** A video track's capture runs: its source, or null under the agent. */
+    fun liveVideo(source: VideoSource?) {}
     /** `idle`, `interrupted`, `background`, `silenced`, … */
     fun muted(reason: String)
     fun unmuted()
@@ -47,4 +57,21 @@ interface AudioSource {
     /** [block] hears each read of 16-bit PCM frames (interleaved, its length in samples) on the capture's thread until
      * the returned function is called. It must not block. */
     fun tap(block: (ShortArray, Int) -> Unit): () -> Unit
+}
+
+/**
+ * A running camera capture (LLP 1133.008 D3, D8 item 3): CameraX's one lifecycle's set of use cases, which a consumer
+ * adds to rather than reading frames. Its objects are CameraX's (`UseCase`, `Camera`), typed `Any` here so the reader
+ * links no CameraX; a package that uses them names CameraX's coordinates (D8 item 5). Main thread.
+ */
+interface VideoSource {
+    /** The bound `androidx.camera.core.Camera`, once the set is bound. */
+    val camera: Any?
+    /** Add an `androidx.camera.core.UseCase` to the set, which is bound again with it. */
+    fun add(useCase: Any)
+    fun remove(useCase: Any)
+    /** A package's process object for this capture, made by [make] on first ask (the camera's `ImageCapture`). */
+    fun <T : Any> shared(key: String, make: () -> T): T
+    /** Constraints that keep the camera (`zoom`, `torch`), applied and reported by the tracks on it. */
+    fun apply(constraints: JSONObject)
 }
