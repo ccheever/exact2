@@ -176,6 +176,8 @@ on macOS and Linux.
   carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route
   sends no `Retry-After` longer than 30 s. A client polling so stays present 90 s after an answer (LLP 1122 D4). The
   Figma plugin keeps the POST form: its door's CORS preflight allows POST only.
+  It also adds **`edit-held`** `{client, proposal, index, when?, value, items?}`: one value of a held proposal
+  changed in place, no ops sent (see Held proposals), the reason word `edited`, and `editedBy` on the proposal.
 
 ## Where it runs
 
@@ -424,8 +426,8 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 | Scope | Requests |
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
-| `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop` and `edit-held` of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` and `edit-held` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
@@ -1039,6 +1041,21 @@ with.
   planned again from its commit (see `revert`).
 
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
+
+**`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
+holds it again in its place, sending no ops:
+- `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of that operation's
+  `whens` branches; with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,
+  keeps only those operations, and must keep `index`.
+- The proposal is taken out at once (a concurrent `accept`, `drop` or `edit-held` finds none), the value set, and
+  the rest held again on the current files as a **new** proposal, the original client's (its owner, who may accept or
+  drop it), with its own guards and a fresh expiry. The proposal carries `editedBy`, its last editor's client (the
+  owner's own name when the owner edits it), wherever it is shown: the list, `subscribed`, the `proposal` event, and
+  a recompute of it. Its review is renumbered as a recompute's, marked `kept` (its overrides were ticked) and `from` the
+  old id. A server re-import is held as an edit: the value given, not marked again.
+- The reply is a recompute's, `{recomputed: true, replaces, proposal, …}`. The old one's end is
+  `proposal-dropped {reason: "edited", replacedBy, editedBy}`. A plan that fails puts the old one back as it was.
+- It needs `propose` for the client's own proposal and `write` for another client's, as `drop` does.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
 `proposal` event shows it, except a long poll that names the list's current revision (below). A

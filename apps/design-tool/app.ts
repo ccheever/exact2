@@ -426,7 +426,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
     heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
     held = heldRaw.map(p => ({
-      proposal: String(p.proposal), client: String(p.client ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
+      proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
       tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
       items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
       ...reviewOf(p),
@@ -1353,11 +1353,9 @@ const sources: Sources = {
     return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
   editImport: async ([client, proposal, index, mode, value, picked]) => {
-    // A mapped token's value in one mode changed before accepting: the
-    // import held again (on the same server run) as what the card has
-    // chosen, with the edit, its review renumbered to those items and its
-    // overrides on, since they were ticked; the old one dropped. So its
-    // diff is what Accept writes, and an override left unticked is not
+    // A mapped token's value in one mode changed before accepting: the import held again (on the same server run)
+    // as what the card has chosen, with the edit, its review renumbered to those items and its overrides on, since
+    // they were ticked; the old one dropped. So its diff is what Accept writes, and an override left unticked is not
     // checked along with an edit it has no part in.
     const at = session;
     const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
@@ -1374,12 +1372,13 @@ const sources: Sources = {
       ...r, kept: true, from: proposal, tokens: keep.filter(i => i < tokens).length,
       offers: (r.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })),
     };
-    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
+    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
+    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim(), items: keep } : { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
-    const dropped = await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
+    const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
     const carried: string[] = [];
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
