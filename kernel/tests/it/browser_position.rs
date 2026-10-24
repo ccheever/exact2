@@ -67,6 +67,12 @@
 //! text leaves and ratio boxes in block, absolute, root and column layout.
 //! The text's monospace advance was normalized to 10px in Chrome to match
 //! the reference measurer: twelve `a`s have a measured width of 120px.
+//! `Chrome 151 ratio text growth` was measured on 2026-10-24 with Chrome
+//! 151.0.7922.34, using the same 10px advance. It covers growing auto-height
+//! text leaves with height caps, flex bases, explicit minima, overflow,
+//! width caps, ratios, box sizing, definite heights and stretch. Controls
+//! include equal height bounds, a growing sibling and leaves without a ratio
+//! or height cap.
 //! `Chrome 151 grid ratio maximum` was measured on 2026-10-19 with Chrome
 //! 151.0.7922.34. It covers grid item content minima and track contributions
 //! under maximum sizes, implicit and explicit auto columns, alignment,
