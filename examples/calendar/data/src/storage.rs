@@ -102,7 +102,7 @@ pub(crate) enum PendingMutation {
     Write { intent: Intent, applied: Applied },
 }
 
-fn sql(transaction: bool, commands: Vec<Json>) -> Answer {
+pub(crate) fn sql(transaction: bool, commands: Vec<Json>) -> Answer {
     Answer::Later(storage::request(
         if transaction {
             "sqlite.transaction"
@@ -113,11 +113,11 @@ fn sql(transaction: bool, commands: Vec<Json>) -> Answer {
     ))
 }
 
-fn query(statement: &str, params: Json) -> Json {
+pub(crate) fn query(statement: &str, params: Json) -> Json {
     json!({"kind":"query","sql":statement,"params":params})
 }
 
-fn execute(statement: &str, params: Json) -> Json {
+pub(crate) fn execute(statement: &str, params: Json) -> Json {
     json!({"kind":"execute","sql":statement,"params":params})
 }
 
