@@ -935,7 +935,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   expiry.unref?.();
   /** A proposal held again (an accept that did not apply it), announced, within the cap. */
   const restore = (id, p) => {
-    if (p.expires <= Date.now()) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'expired' }); return; }
+    if (p.expires <= Date.now() || (proposals.size >= HELD && ![...proposals].some(([, q]) => !q.busy))) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: p.expires <= Date.now() ? 'expired' : 'too many held' }); return; } // (full of edits planning: not held again over the cap)
     // Its client ended while it was out being accepted: marked as held ones were.
     if (gone(p.client)) p.shown = { ...p.shown, revoked: true };
     proposals.set(id, p); heldRevision++;
