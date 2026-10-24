@@ -606,6 +606,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// is loaded first, or the swipe never asks Exact.
     func watchPops(_ nav: UINavigationController) {
         nav.loadViewIfNeeded()
+        if nav.view.accessibilityIdentifier == nil {
+            nav.view.accessibilityIdentifier = "exact-navigation-\(UUID().uuidString)"
+        }
         // tvOS has no interactive pop gesture.
         #if !os(tvOS)
         nav.interactivePopGestureRecognizer?.delegate = self
@@ -965,15 +968,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
     func observation() -> [String: Any] {
-        // Permit XCTest's application-wide Back lookup only for a single mounted session
-        let sessions = presenter.session?.app.sessions.filter { $0.view?.window != nil } ?? []
-        let nativeBack = sessions.count == 1 && sessions.first === presenter.session && (navigation?.viewControllers.count ?? 0) > 1
+        // Scope Back to its container: Duo places the control outside the navigation bar
+        let nativeBack: String? = {
+            guard let nav = navigation, nav.viewIfLoaded?.window != nil, !nav.isNavigationBarHidden,
+                  nav.viewControllers.count > 1, canInvokeBack else { return nil }
+            let owner: UIViewController? = nav === primaryNavigation ? primaryOwner : nav
+            return owner?.view.accessibilityIdentifier
+        }()
         let stack = (navigation?.viewControllers ?? primaryHeld?.stackRoutes ?? []).compactMap { ($0 as? RouteController)?.key }
         let transition: [String: Any] = ["interactive": navigation?.transitionCoordinator?.isInteractive ?? false,
                                          "phase": changing || pendingSync || presenter.modals.inTransition ? "in-progress" : lastTransition]
         let root = container ?? presenter.root.subviews.first as? NodeView
         return ["route": root?.props["navigationKey"] ?? NSNull(), "stack": stack, "transition": transition,
-                "nativeBack": nativeBack]
+                "nativeBack": nativeBack ?? NSNull()]
     }
 
     /// Whether a route or a logical ancestor of it (`eventParent`) is
