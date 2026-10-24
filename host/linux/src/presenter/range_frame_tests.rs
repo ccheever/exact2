@@ -2,11 +2,11 @@
 use super::*;
 use std::path::PathBuf;
 
-fn boot(source: &str) -> Presenter<()> {
+pub(super) fn boot(source: &str) -> Presenter<()> {
     boot_at(source, 1.)
 }
 
-fn boot_at(source: &str, scale: f32) -> Presenter<()> {
+pub(super) fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
         &crate::test_plan(source),
         (),
@@ -35,18 +35,18 @@ fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     p
 }
 
-fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
+pub(super) fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
     let k = p.host.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
-fn tap(p: &mut Presenter<()>, test_id: &str) {
+pub(super) fn tap(p: &mut Presenter<()>, test_id: &str) {
     let id = view(p, test_id);
     p.tap(id).unwrap();
     p.run_commands(|| ());
 }
 
-fn slot(p: &Presenter<()>, name: &str) -> serde_json::Value {
+pub(super) fn slot(p: &Presenter<()>, name: &str) -> serde_json::Value {
     let state: serde_json::Value =
         serde_json::from_str(&p.host.agent("{\"op\":\"state\"}")).unwrap();
     state["slots"][name].clone()
