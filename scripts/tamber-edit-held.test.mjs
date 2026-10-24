@@ -5,12 +5,12 @@
 // a failed plan putting the old one back.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { developmentGate } from './install-page.mjs';
-import { edited } from './tamber-edit-held.mjs';
+import { edited, editHeld } from './tamber-edit-held.mjs';
 import { needs } from './tamber-pairing.mjs';
 import { tamberServer } from './tamber-server.mjs';
 
@@ -61,7 +61,7 @@ test('a value and a when branch edited: held again in its place, the original cl
   const stream = await subscribe();
   const review = { importer: 'dtcg', tokens: 2, offers: [{ role: 'AccentColor', token: 'edge', items: [1] }] };
   const held = await post({ method: 'propose', hold: true, client: 'agent:codex', ops: [
-    { op: 'set-token', name: 'ink', value: '#010101', whens: [{ when: [{ axis: 'density', value: 'compact' }], value: '#020202' }] },
+    { op: 'add-token', name: 'glow', value: '#010101', whens: [{ when: [{ axis: 'density', value: 'compact' }], value: '#020202' }] },
     { op: 'set-token', name: 'edge', value: '#030303' },
   ], review });
   expect(held.status).toBe(200);
@@ -71,9 +71,11 @@ test('a value and a when branch edited: held again in its place, the original cl
   expect(edit.status).toBe(200);
   expect(edit.ok).toMatchObject({ recomputed: true, replaces: old, client: 'agent:codex', replaces: old });
   expect(edit.ok.ops.map(o => o.op)).toEqual([
-    { op: 'set-token', name: 'ink', value: '#010101', whens: [{ when: [{ axis: 'density', value: 'compact' }], value: '#0a0a0a' }] },
+    { op: 'add-token', name: 'glow', value: '#010101', whens: [{ when: [{ axis: 'density', value: 'compact' }], value: '#0a0a0a' }] },
     { op: 'set-token', name: 'edge', value: '#030303' },
   ]);
+  // The plan reads the branch: its diff carries the edited value.
+  expect(edit.ok.diff).toContain('#0a0a0a');
   expect(edit.ok.review).toMatchObject({ importer: 'dtcg', kept: true, from: old, tokens: 2, offers: [{ items: [1] }] });
   const list = await heldList();
   expect(list.map(p => p.proposal)).toEqual([edit.ok.proposal]);
@@ -100,6 +102,7 @@ test('every refusal: no proposal, an index, a when, a value, items without the e
     [{ proposal: id, index: 2, value: '#050505' }, 400, '`index`'],
     [{ proposal: id, index: 1, value: '#050505' }, 400, 'only these carry a value'],
     [{ proposal: id, index: 0, when: 1, value: '#050505' }, 400, '`when`'],
+    [{ proposal: id, index: 0, when: 1, value: '#050505' }, 400, "an `add-token`'s"],
     [{ proposal: id, index: 0, value: '  ' }, 400, '`value`'],
     [{ proposal: id, index: 0, value: '#050505', items: [1] }, 400, 'keeps the operation it edits'],
     [{ proposal: id, index: 0, value: '#050505', items: [7] }, 400, '`items`'],
@@ -128,21 +131,55 @@ test('a 3,000-op held import has one value edited with no ops sent', async () =>
   await post({ method: 'drop', client: 'agent:figma', proposal: edit.ok.proposal });
 }, 120_000);
 
-test('an edit racing an accept: one of them has it, the other finds none; a plan that fails puts it back as it was', async () => {
-  const held = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#060606' }] });
-  const id = held.ok.proposal;
-  const [accepted, edit] = await Promise.all([post({ method: 'accept', client: 'person', proposal: id }), post({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#070707' })]);
-  expect([accepted.status, edit.status].sort()).toEqual([200, 404]);
-  // A value the design can't take: the plan fails, and the proposal is held again, unchanged.
-  spawnSync('git', ['checkout', '--', 'app.tamber'], { cwd: dir });
-  const kept = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#080808' }] });
+test('an edit racing an accept: the edit holds it while it plans, so the accept finds none; a plan that fails leaves it held as it was', async () => {
+  const stream = await subscribe();
+  // A big proposal, so its edit's plan takes a while: the accept, the drop and a second edit come while it plans.
+  const ops = Array.from({ length: 3000 }, (_, i) => ({ op: 'add-token', name: `race.t${i}`, value: '#060606' }));
+  const id = (await post({ method: 'propose', hold: true, client: 'agent', ops })).ok.proposal;
+  const editing = post({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#070707' });
+  await Bun.sleep(30);
+  const [accepted, dropped, second] = await Promise.all([post({ method: 'accept', client: 'person', proposal: id }), post({ method: 'drop', client: 'agent', proposal: id }), post({ method: 'edit-held', client: 'person', proposal: id, index: 1, value: '#080808' })]);
+  expect([accepted.status, dropped.status, second.status]).toEqual([404, 404, 404]);
+  const edit = await editing;
+  expect(edit.status).toBe(200);
+  // The survivor: the edit, held; nothing written.
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('race.t0');
+  const list = await heldList();
+  expect(list.map(p => p.proposal)).toEqual(expect.arrayContaining([edit.ok.proposal]));
+  expect(list.map(p => p.proposal)).not.toContain(id);
+  expect(list.find(p => p.proposal === edit.ok.proposal).ops[0].op.value).toBe('#070707');
+  await post({ method: 'drop', client: 'agent', proposal: edit.ok.proposal });
+  // A value the design can't take: the plan fails, and the proposal is held as it was: the same record, no event.
+  const kept = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#080808' }], review: { importer: 'css', tokens: 1 } });
+  const before = (await heldList()).find(p => p.proposal === kept.ok.proposal);
+  const seen = stream.events.length;
   const bad = await post({ method: 'edit-held', client: 'person', proposal: kept.ok.proposal, index: 0, value: 'not a colour (' });
   expect(bad.status).toBeGreaterThanOrEqual(400);
-  const list = await heldList();
-  const back = list.find(p => p.proposal === kept.ok.proposal);
-  expect(back?.ops.map(o => o.op.value)).toEqual(['#080808']);
+  expect((await heldList()).find(p => p.proposal === kept.ok.proposal)).toEqual(before);
+  await Bun.sleep(100);
+  expect(stream.events.slice(seen).filter(e => e.proposal === kept.ok.proposal || e.replaces === kept.ok.proposal)).toEqual([]);
   await post({ method: 'drop', client: 'agent', proposal: kept.ok.proposal });
-}, 60_000);
+  stream.close();
+}, 120_000);
+
+test('a held revert is not edited; an edit holds at its requester\'s scope', async () => {
+  // A revert is planned from its commit: refused before anything is taken.
+  const p = { ops: [{ op: 'set-token', name: 'a', value: '#000' }], guards: {}, shown: { proposal: 'prop-r-1', review: { revert: { commit: 'c' } } } };
+  const proposals = new Map([['prop-r-1', p]]);
+  let held = null;
+  const ctx = { expire() {}, proposals, hold: async (...args) => { held = args; return { ok: { proposal: 'prop-r-2' } }; }, announce() {} };
+  const revert = await editHeld({ client: 'x', proposal: 'prop-r-1', index: 0, value: '#fff' }, 'write', ctx);
+  expect([revert.status, revert.error.message]).toEqual([400, 'a held revert is planned from its commit: drop it and revert again to change it']);
+  expect(held).toBe(null);
+  // Not a revert: held at the requester's scope (a `propose` client's edit never evicts another's at the cap), its
+  // owner kept, the editor named, and it stays held (busy) while planned.
+  delete p.shown.review;
+  let busy = null;
+  ctx.hold = async (...args) => { busy = proposals.get('prop-r-1').busy; held = args; return { ok: { proposal: 'prop-r-2' } }; };
+  p.client = 'agent';
+  expect((await editHeld({ client: 'remote:Ada#1', proposal: 'prop-r-1', index: 0, value: '#fff' }, 'propose', ctx)).ok).toMatchObject({ replaces: 'prop-r-1', proposal: 'prop-r-2' });
+  expect([held[0], held[3], held[6], held[9], busy, p.busy]).toEqual(['agent', 'prop-r-1', 'propose', 'remote:Ada#1', true, false]);
+});
 
 test('the scope: one\'s own at propose, another client\'s at write, as drop', () => {
   const owner = () => 'agent:codex';
