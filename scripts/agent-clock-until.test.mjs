@@ -3,7 +3,7 @@
 // refused for a URL, a glob or a directory that does not exist. The driver's actual method, on a stand-in host whose
 // wall clock the test moves (as caps.test.mjs's `clock +N real` test does).
 import { expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { MalformedOperation } from './agent-keys.mjs';
@@ -16,8 +16,8 @@ function harness(events = {}) {
   let wall = 0;
   const sent = [], s = { now: 1000, async op(req) { sent.push(req.to); return { clock: req.to }; } };
   const performance = { now: () => { const t = wall; wall += 100; for (const [ms, f] of Object.entries(events)) if (t >= Number(ms)) { f(); delete events[ms]; } return t; } };
-  const clock = new Function('s', 'carrier', 'performance', 'setTimeout', 'REAL_STEP_MS', 'existsSync', 'resolve', 'dirname', 'MalformedOperation',
-    `return ({${source.slice(start, end)}}).clock;`)(s, { host: 'web' }, performance, (done) => done(), 50, existsSync, resolve, dirname, MalformedOperation);
+  const clock = new Function('s', 'carrier', 'performance', 'setTimeout', 'REAL_STEP_MS', 'statSync', 'resolve', 'dirname', 'MalformedOperation',
+    `return ({${source.slice(start, end)}}).clock;`)(s, { host: 'web' }, performance, (done) => done(), 50, statSync, resolve, dirname, MalformedOperation);
   return { clock, sent, s };
 }
 
@@ -61,11 +61,20 @@ test('a file there already: met at once, 0 ms, the clock unmoved', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('refused: a directory that does not exist, a URL, a glob', async () => {
+test('refused: a directory that does not exist (or is a file), a directory for the file, a URL, a glob', async () => {
   const { clock, sent } = harness();
   await expect(clock(`+6000 real until ${join(tmpdir(), 'exact-clock-until-none', 'go')}`)).rejects.toThrow(/its directory .*exact-clock-until-none does not exist/);
+  const dir = mkdtempSync(join(tmpdir(), 'exact-clock-until-'));
+  try {
+    writeFileSync(join(dir, 'file'), '');
+    await expect(clock(`+6000 real until ${join(dir, 'file', 'go')}`)).rejects.toThrow(/its directory .*file does not exist/);
+    mkdirSync(join(dir, 'sub'));
+    await expect(clock(`+6000 real until ${join(dir, 'sub')}`)).rejects.toThrow(/a directory, not the file a harness writes/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
   await expect(clock('+6000 real until file:///tmp/go')).rejects.toThrow(/a file path on this machine, not a URL or a glob/);
   await expect(clock('+6000 real until https://example.test/go')).rejects.toThrow(/not a URL or a glob/);
   await expect(clock(`+6000 real until ${tmpdir()}/*.go`)).rejects.toThrow(/not a URL or a glob/);
   expect(sent).toEqual([]);
+  // A Windows drive path is a path (its one-letter "scheme" is a drive): here, under this directory, it waits its bound.
+  expect((await harness().clock('+200 real until C:\\signals\\go')).until).toBe('bound');
 });
