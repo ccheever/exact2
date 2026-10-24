@@ -1307,9 +1307,12 @@ component Composer
 
 The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
 icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of
-the two spaces an atom's deletion leaves). Linux, Windows and Android show the
-source in the editor and the link text in the reader, with no `atompress`. The driver's `state atoms` lists
-each one: its node, kind, source, range, label and frame from the node's top
+the two spaces an atom's deletion leaves). VoiceOver on macOS and iOS reads
+an atom's label in place and its role only from its own element, which the
+next-item command passes over on macOS and reaches after the field on iOS
+(LLP 1045.000 §10 Q10). Linux, Windows and Android show the source in the
+editor and the link text in the reader, with no `atompress`. The driver's
+`state atoms` lists each one: its node, kind, source, range, label and frame from the node's top
 left, where `tap <node> at <x> <y>` presses it.
 
 ### Keep-awake: `wakelock`
