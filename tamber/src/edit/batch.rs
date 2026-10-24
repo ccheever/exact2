@@ -55,25 +55,27 @@ enum Target {
 /// Many `add-token`s with no `before` (an import's tokens) with one parse:
 /// the first stepped as ever, each after it on the lines right after the one
 /// before, where stepping it would land (after the last token, the one just
-/// added). `None` for anything else, or any refusal (a field, a name taken):
-/// the caller steps them, with stepping's words.
-pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
-    let adds = ops
-        .iter()
-        .all(|op| matches!(op, Op::AddToken { before: None, .. }));
-    if ops.len() < 2 || !adds || ops.iter().any(|op| valid(op).is_err()) {
-        return None;
-    }
+/// added). The text, and how many of `ops` it took: those before the first
+/// that is no such operation, or that stepping would refuse for a field or a
+/// name taken (the caller steps that one, with stepping's words). `None`
+/// when fewer than two would be taken.
+pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<(String, usize)> {
     let design = crate::parse(src).ok()?;
     let mut names: HashSet<&str> = design
         .tokens
         .iter()
         .map(|t| t.name.value.as_str())
         .collect();
-    let fresh = ops
+    let taken = ops
         .iter()
-        .all(|op| matches!(op, Op::AddToken { name, .. } if names.insert(name.as_str())));
-    if !fresh {
+        .take_while(|op| match op {
+            Op::AddToken {
+                name, before: None, ..
+            } => valid(op).is_ok() && names.insert(name.as_str()),
+            _ => false,
+        })
+        .count();
+    if taken < 2 {
         return None;
     }
     let mut doc = Doc::new(src);
@@ -83,17 +85,9 @@ pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
         .map(|r| (r.name.clone(), r.system))
         .collect();
     let indents = doc.indents(&design);
-    let before = doc.lines.clone();
     doc.apply(&design, &ops[0]).ok()?;
-    let suffix = before
-        .iter()
-        .rev()
-        .zip(doc.lines.iter().rev())
-        .take_while(|(x, y)| x == y)
-        .count()
-        .min(before.len());
-    let mut at = doc.lines.len() - suffix;
-    for op in &ops[1..] {
+    let mut at = doc.added_at?;
+    for op in &ops[1..taken] {
         let Op::AddToken {
             name,
             kind,
@@ -112,7 +106,7 @@ pub(super) fn added(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
             at += 1;
         }
     }
-    Some(doc.text())
+    Some((doc.text(), taken))
 }
 
 /// `ops` stepped on `src` with one parse, or `None` for the caller to step
@@ -432,10 +426,47 @@ mod tests {
                     .collect();
                 assert_eq!(
                     super::added(design, &ops, &vocab()),
-                    Some(one_at_a_time(design, &ops, &vocab()).unwrap()),
+                    Some((one_at_a_time(design, &ops, &vocab()).unwrap(), ops.len())),
                     "{design:?} {ops:?}"
                 );
             }
         }
+    }
+
+    /// A new token whose `when` line is the same text as the line it lands
+    /// after keeps it (Astra's round 2: a suffix match put the next token
+    /// between them).
+    #[test]
+    fn a_new_tokens_when_line_like_the_last_one_stays_its_own() {
+        let design = "tamber t\n\naxes\n  tone = a | b\n\ntheme\n  old = #111111\n    when tone=b: #222222\n";
+        let ops = vec![
+            Op::AddToken {
+                name: "first".into(),
+                kind: None,
+                value: "#111111".into(),
+                meta: Vec::new(),
+                whens: vec![(vec![("tone".into(), "b".into())], "#222222".into(), None)],
+                comment: None,
+                before: None,
+            },
+            Op::AddToken {
+                name: "second".into(),
+                kind: None,
+                value: "#333333".into(),
+                meta: Vec::new(),
+                whens: Vec::new(),
+                comment: None,
+                before: None,
+            },
+        ];
+        let stepped = one_at_a_time(design, &ops, &vocab()).unwrap();
+        assert_eq!(
+            super::added(design, &ops, &vocab()),
+            Some((stepped.clone(), 2))
+        );
+        assert!(
+            stepped.ends_with("  first = #111111\n    when tone=b: #222222\n  second = #333333\n"),
+            "{stepped}"
+        );
     }
 }

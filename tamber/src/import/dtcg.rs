@@ -585,6 +585,16 @@ fn studio(
         } else {
             format!("the theme group `{group}`")
         };
+        // A group's themes are an axis's values: past the tuples a design
+        // may have, refused before anything compares them (round 2 of the
+        // checker sweep).
+        if members.len() > crate::MAX_TUPLES {
+            return Err(format!(
+                "{shown} has {} themes; a design has at most {} tuples",
+                members.len(),
+                crate::MAX_TUPLES
+            ));
+        }
         if members.len() > 1 {
             if names.iter().any(|n| n.trim().is_empty()) {
                 return Err(format!("{shown} has a theme with no name"));
@@ -597,8 +607,9 @@ fn studio(
                 return Err(format!("{shown} names two themes `{n}`"));
             }
         }
+        let by_scheme = scheme(&names);
         for (t, theme) in members.iter().zip(&names) {
-            let scope = match (members.len(), scheme(&names)) {
+            let scope = match (members.len(), by_scheme) {
                 (1, _) => Scope::Base,
                 (_, true) => Scope::Scheme(is_dark(theme)),
                 _ => out.axis(group, theme),

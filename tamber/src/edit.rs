@@ -446,12 +446,8 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             name: n, values, ..
         } => {
             ident(n)?;
-            if values.is_empty()
-                || values
-                    .iter()
-                    .enumerate()
-                    .any(|(i, v)| values[..i].contains(v))
-            {
+            let mut seen = std::collections::HashSet::new();
+            if values.is_empty() || !values.iter().all(|v| seen.insert(v)) {
                 return Err(refuse(format!("`{n}`: an axis has values, each once")));
             }
             values.iter().try_for_each(|v| ident(v))
@@ -508,14 +504,25 @@ fn run(
             while k < ops.len() {
                 // A run of new tokens (an import's) with one parse, and one
                 // restore that takes them all out (round 1 of the sweep).
+                if let Some((next, taken)) = batch::added(&text, &ops[k..], vocab) {
+                    inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                    (text, k) = (next, k + taken);
+                    continue;
+                }
+                // And a run of values and dials (an import's `set-token`s
+                // beside its new tokens).
                 let run = ops[k..]
                     .iter()
-                    .take_while(|op| matches!(op, Op::AddToken { before: None, .. }))
+                    .take_while(|op| {
+                        matches!(op, Op::SetToken { .. } | Op::SetDial { .. }) && valid(op).is_ok()
+                    })
                     .count();
-                if let Some(next) = batch::added(&text, &ops[k..k + run], vocab) {
-                    inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
-                    (text, k) = (next, k + run);
-                    continue;
+                if run >= 2 {
+                    if let Some(next) = batch::stepped(&text, &ops[k..k + run], vocab) {
+                        inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                        (text, k) = (next, k + run);
+                        continue;
+                    }
                 }
                 let (next, undo) = step(&text, &ops[k], vocab, params)?;
                 text = next;
@@ -629,6 +636,9 @@ struct Doc {
     /// The design's tokens by name and by role, each the first, when one
     /// parse serves many operations (`batch`): what [`token_index`] scans for.
     index: Option<batch::Index>,
+    /// Where the last new token's lines ended (`batch::added` puts the next
+    /// one there).
+    added_at: Option<usize>,
 }
 
 impl Doc {
@@ -640,6 +650,7 @@ impl Doc {
             newline,
             roles: Vec::new(),
             index: None,
+            added_at: None,
         }
     }
 
@@ -871,10 +882,12 @@ impl Doc {
                         }
                     },
                 };
+                let count = new.len();
                 for (k, l) in new.into_iter().enumerate() {
                     let l = self.ended(l);
                     self.lines.insert(at + k, l);
                 }
+                self.added_at = Some(at + count);
                 Ok(vec![Op::RemoveToken { name: name.clone() }])
             }
             Op::RemoveToken { name } => {

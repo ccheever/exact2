@@ -542,6 +542,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (text == null) { if (text === null) json(res, 413, { error: { message: `a request is at most ${who.local && !access.remote ? 16 : 1} MiB` } }); return true; } // (undefined: the client left)
     const query = get ? eventsQuery(url) : null, request = get ? query.request : parse(text);
     if (query?.error) { json(res, 400, { error: { message: query.error } }); return true; }
+    // Past 1 MiB only an import (the local token's sources) is read further.
+    if (Buffer.byteLength(text) > BODY_LIMIT && request?.method !== 'import') { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
     if (request && tooDeep(request)) { json(res, 400, { error: { message: 'a request is nested at most 64 levels deep' } }); return true; }
