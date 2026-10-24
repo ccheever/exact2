@@ -898,6 +898,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
   key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
   a terminal too, where a typed capital is reported as `Shift+N`).
+- **A `Meta` shortcut does nothing on Windows.** Every host matches a chord as
+  written, and on Windows `Meta` is the Windows key, whose chords the shell takes
+  (Win+N is Notification Center), so `"Meta+N"` alone never fires there. List the
+  Control chord beside it, `aria-keyshortcuts="Meta+N Control+N"`. In an app with
+  a Windows host (`host.windows` in `app.json`, or a `windows/` crate) the build
+  warns: `analyze-shortcut-meta-only` names the chord to add, and
+  `analyze-shortcut-windows-reserved` a chord Windows keeps for itself (Alt+Tab,
+  Alt+F4, Alt+Space, Control+Escape, Control+Shift+Escape, Control+Alt+Delete).
+  (LLP 1115.004 D9.6.)
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no
