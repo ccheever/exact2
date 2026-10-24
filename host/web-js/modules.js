@@ -17,7 +17,7 @@
 // agent's preferred value laid over each answer; every other by the
 // substitute. The web has no tool or wake door, so every call's origin is
 // `app`.
-import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After } from "./rt.js";
+import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After, time } from "./rt.js";
 import { reportTime } from "./navigation.js";
 import { packageViews } from "./views.js";
 import { appGrantSet, coversPath } from "./admission.js";
@@ -173,7 +173,7 @@ export function modules(rows, bound = {}, views = {}) {
   const instance = extension => {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
-      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => clock.now, foreground: shown, log: say, tracks, files, audioSession };
+      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       return impl;
@@ -225,10 +225,15 @@ export function modules(rows, bound = {}, views = {}) {
   const polls = new Map(), asking = new Set(), failed = new Set();
   const periodOf = row => {
     const option = typeof row.sub.poll === "string" ? row.sub.poll : row.sub.poll?.option;
-    const asked = [...(readers.get(row.key)?.values() ?? [])].map(a => JSON.parse(a)[option]).filter(ms => typeof ms === "number" && ms > 0);
+    // A reader that names no handle (every handle option empty) reads nothing a poll would change.
+    const handles = row.sub.handleOptions ?? [], all = [...(readers.get(row.key)?.values() ?? [])].map(a => JSON.parse(a));
+    const polling = all.filter(a => !handles.length || handles.some(h => typeof a[h] === "string" && a[h] !== ""));
+    if (all.length && !polling.length) return null;
+    const asked = polling.map(a => a[option]).filter(ms => typeof ms === "number" && ms > 0);
     return asked.length ? Math.min(...asked) : row.sub.poll?.default > 0 ? row.sub.poll.default : null;
   };
   const pollCheck = () => {
+    time(); // on the live clock, the wall's time: a page with no timer moves no clock
     const due = [...polls].filter(([key, last]) => {
       const row = byKey.get(key), period = periodOf(row);
       return period != null && route(row) !== "substitute" && !asking.has(key) && !failed.has(key) && live.has(key) && clock.now - last >= period;
@@ -308,7 +313,8 @@ export function modules(rows, bound = {}, views = {}) {
       asked.set(name, n);
       if (d.forward) return viaImplementation(row, given, reader).then(json => { disposeDropped(row, json, name, n); return answer(row, json); });
       if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given, reader) : null, given);
-      return answer(row, d.now);
+      // A send refused now fails its mutation, as on native, rather than the action that sent it.
+      return row.send && errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
     };
   }
   // `allow` sets the status fields the app's grant line names (its approximate grant reads `approximate`).

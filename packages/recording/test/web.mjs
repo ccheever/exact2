@@ -103,6 +103,27 @@ for (const engine of engines) {
     await page.goto(origin);
     const granted = await until(page, 'status', t => t === `true ${grantedState[engine]}`);
     check(engine, `state ${grantedState[engine]} once granted`, granted === `true ${grantedState[engine]}`, granted);
+    // What the engine's own device gives here, outside the implementation: a level, and a MediaRecorder's bytes.
+    // Where it gives none, the checks of a take's content are skipped by name.
+    // Firefox's fake device makes a tone and records it, and a page that probes it this way stops answering.
+    const own = engine === 'firefox' ? { peak: 1, bytes: Infinity } : await page.evaluate(async () => {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ctx = new AudioContext(), a = ctx.createAnalyser(), buf = new Float32Array(2048);
+      ctx.createMediaStreamSource(s).connect(a);
+      await ctx.resume().catch(() => {});
+      const r = new MediaRecorder(s);
+      let bytes = 0;
+      r.ondataavailable = e => { bytes += e.data.size; };
+      await new Promise(done => { r.onstop = done; r.start(); setTimeout(() => r.stop(), 1000); });
+      a.getFloatTimeDomainData(buf);
+      const peak = Math.max(...buf.map(Math.abs));
+      s.getTracks().forEach(t => t.stop());
+      await ctx.close();
+      return { peak, bytes };
+    });
+    const sounds = own.peak > 0, writes = own.bytes > 1000;
+    if (!sounds) console.log(`SKIP ${engine} the level's content: the engine's own analyser hears silence from its device here`);
+    if (!writes) console.log(`SKIP ${engine} the file's content: the engine's own MediaRecorder wrote ${own.bytes} bytes here`);
 
     await tap(page, 'open-nothing');
     const nothing = await until(page, 'opened-error', t => t !== '');
@@ -124,7 +145,7 @@ for (const engine of engines) {
     await tap(page, 'meter');
     await page.waitForTimeout(1500);
     const level = await until(page, 'level', t => Number(t.split(' ')[0]) >= 5 && t.split(' ')[1] === 'true');
-    check(engine, 'the level is polled and hears the fake device', Number(level.split(' ')[0]) >= 5 && level.split(' ')[1] === 'true', level);
+    check(engine, 'the level is polled' + (sounds ? ' and hears the device' : ''), Number(level.split(' ')[0]) >= 5 && (!sounds || level.split(' ')[1] === 'true'), level);
     await tap(page, 'meter');
 
     await tap(page, 'pause');
@@ -136,11 +157,11 @@ for (const engine of engines) {
     await page.waitForTimeout(1200);
     await tap(page, 'stop');
     const saved = await until(page, 'saved', t => t !== 'none');
-    check(engine, 'stop answers the file', /^app:\/data\/takes\/take-1\.\S+ audio\/\S+ true$/.test(saved), saved);
+    check(engine, 'stop answers the file', new RegExp(`^app:/data/takes/take-1\\.\\S+ audio/\\S+ ${writes ? 'true' : '(true|false)'}$`).test(saved), saved);
     const path = saved.split(' ')[0], size = await stored(page, path);
-    check(engine, 'the file is in the app\'s store', size > 1000, `${path}: ${size} bytes`);
+    if (writes) check(engine, 'the file is in the app\'s store', size > 1000, `${path}: ${size} bytes`);
     const played = await page.waitForFunction(() => { const a = document.querySelector('[data-testid="playback"]'); return a && (a.readyState >= 1 || a.error) ? { ready: a.readyState, duration: a.duration, error: a.error?.code ?? null } : null; }, null, { timeout: 10000 }).then(h => h.jsonValue()).catch(e => ({ error: e.message }));
-    check(engine, 'the file plays (an audio element loads its metadata)', played.ready >= 1 && !played.error, JSON.stringify(played));
+    if (writes) check(engine, 'the file plays (an audio element loads its metadata)', played.ready >= 1 && !played.error, JSON.stringify(played));
     const inactive = await until(page, 'rec', t => t.startsWith('inactive'));
     check(engine, 'a stopped recorder is sticky and inactive', /^inactive \d+ requested$/.test(inactive), inactive);
     await tap(page, 'pause');
@@ -196,7 +217,7 @@ for (const engine of engines) {
     await page.reload();
     await page.waitForTimeout(500);
     const kept = await stored(page, midway);
-    check(engine, 'a page reloaded mid-take keeps what its store received', kept > 0, `${midway}: ${kept} bytes`);
+    if (writes) check(engine, 'a page reloaded mid-take keeps what its store received', kept > 0, `${midway}: ${kept} bytes`);
 
     await context.close();
   } finally {

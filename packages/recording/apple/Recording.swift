@@ -53,7 +53,10 @@ public final class RecordingModule: ExactPackage {
         case "stopMediaRecorder":
             guard let r = recorder else { return reply(["error": "NotFoundError"]) }
             r.finish("requested") { reply($0) }
-        case "mediaRecorderState": reply(recorder?.info() ?? ["error": "NotFoundError"])
+        case "mediaRecorderState":
+            // A read of no recorder (`recorder=""`): an app reads before it holds one.
+            if args["recorder"] as? String ?? "" == "" { return reply(["id": "", "state": "inactive", "mimeType": "", "path": "", "duration": 0]) }
+            reply(recorder?.info() ?? ["error": "NotFoundError"])
         case "isTypeSupported":
             let type = args["type"] as? String ?? ""
             reply(["type": type, "supported": context.agent ? type == "audio/wav" : ["audio/mp4", "audio/wav"].contains(type)])
@@ -94,7 +97,8 @@ public final class RecordingModule: ExactPackage {
     // MARK: the level
 
     private func level(_ args: [String: Any]) -> [String: Any] {
-        guard let track = args["track"] as? String else { return ["error": "NotFoundError"] }
+        // A read of no track (`track=""`) is silence: an app reads before it holds one.
+        guard let track = args["track"] as? String, !track.isEmpty else { return ["audioLevel": 0, "totalAudioEnergy": 0, "totalSamplesDuration": 0, "levels": [Double]()] }
         let interval = (args["interval"] as? Double).flatMap { $0 > 0 ? $0 : nil } ?? 50
         let history = (args["history"] as? Double).flatMap { $0 > 0 ? Int($0) : nil } ?? 100
         let key = Meter.key(track, args)
