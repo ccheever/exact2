@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/camera@^1.0",
+  "platform": "web",
+  "targets": [
+    "web"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [
+    "exact-camera"
+  ],
+  "hatches": [],
+  "sources": {
+    "javascript": [
+      "index.js"
+    ]
+  },
+  "artifacts": []
+}

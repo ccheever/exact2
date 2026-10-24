@@ -6,10 +6,12 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
+        "@exact/media-capture": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
@@ -26,6 +28,16 @@
     "packages/actions": {
       "name": "@exact/actions",
       "version": "0.1.0",
+    },
+    "packages/camera": {
+      "name": "@exact/camera",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
     },
     "packages/cards": {
       "name": "@exact/cards",
@@ -72,6 +84,8 @@
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
+
+    "@exact/camera": ["@exact/camera@workspace:packages/camera"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
 
