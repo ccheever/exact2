@@ -301,6 +301,28 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
     return {text: out.join("\n")};
   }
+  // `fs.transformImage` and `compressImage`'s edit (LLP 1133.019 D14, D15):
+  // each record, then each refusal's name and code, in one answer.
+  if (op === "transform") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    const steps: (() => Promise<any>)[] = [
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/turned", { rotate: 90 }),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/private", { flip: "horizontal", metadata: "no-location", type: "image/png", resizeWidth: 24 }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/crop.jpg", { maxDimension: 100, maxBytes: 2_000_000, rotate: 90, crop: { x: 0, y: 0, width: 64, height: 24 } }),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/x.jpg", { crop: { x: 100, y: 0, width: 4, height: 4 } }),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/x.webp", { type: "image/webp" }),
+      () => storage.fs.transformImage(data + "/in.jpg", "app:/tmp/x.jpg"),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/x.jpg", { flip: "both" as any }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/x.jpg", { maxDimension: 10, maxBytes: 10_000, crop: { x: 0, y: 0, width: 0, height: 1 } }),
+    ];
+    for (const step of steps) {
+      try {
+        const r = await step();
+        out.push([r.path, r.type, r.size, r.width, r.height, r.colorSpace, r.hdr, r.metadata, (await storage.fs.readFile(r.path)).byteLength].join(" "));
+      } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   // A compression the wait gives up on, then a write to the same path: the
   // write is what remains (LLP 1069.002 A1.5).
   if (op === "compress-abandoned") {

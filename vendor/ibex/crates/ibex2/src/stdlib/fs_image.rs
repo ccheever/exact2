@@ -18,17 +18,26 @@ pub const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 pub const TRIAL_BUDGET: Duration = Duration::from_secs(20);
 /// Retained provider diagnostics cannot make completion records unbounded.
 pub const MAX_ERROR_BYTES: usize = 4096;
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompressedImage {
     pub bytes: Vec<u8>,
     pub width: u32,
     pub height: u32,
+    /// Exact patch 9a (exact2 LLP 1133.019 D14): a transform's facts beside
+    /// its pixels, as the codec words them (a JSON object), passed through.
+    pub report: Option<String>,
+    /// The written type's file extension, which a transform's `to` without
+    /// one gains.
+    pub extension: Option<&'static str>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ImageFile {
     pub width: u32,
     pub height: u32,
     pub size: u64,
+    /// A transform's: the path written, and the codec's report.
+    pub path: Option<String>,
+    pub report: Option<String>,
 }
 /// Exact patch 9 (exact2 LLP 1069.002 A1.11): what the codec encodes; JPEG
 /// unless the app asks for a PNG, which keeps alpha.
@@ -38,11 +47,27 @@ pub enum ImageFormat {
     Jpeg,
     Png,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Default)]
 pub struct ImageRequest {
     pub max_dimension: u32,
     pub max_bytes: u64,
     pub format: ImageFormat,
+    /// Exact patch 9a (exact2 LLP 1133.019 D17): the call's further options
+    /// as one JSON value, which Ibex passes to the codec unread: the edit on
+    /// `compressImage`, everything on `transformImage`.
+    pub options: Option<Arc<str>>,
+    /// `transformImage`: no search, so the bounds are the service's own,
+    /// and failures are named for it.
+    pub transform: bool,
+}
+impl ImageRequest {
+    pub fn call(&self) -> &'static str {
+        if self.transform {
+            "transformImage"
+        } else {
+            "compressImage"
+        }
+    }
 }
 /// Provider declarations used for preallocation checks and Ibex admission.
 /// The provider must check decoded pixels before decoding, bound retained encoded
@@ -376,6 +401,7 @@ pub struct WorkControl {
     handle: WorkHandle,
     deadline: Instant,
     limits: CodecLimits,
+    call: &'static str,
 }
 impl WorkControl {
     pub fn deadline(&self) -> Instant {
@@ -390,9 +416,9 @@ impl WorkControl {
     /// Call BEFORE starting every decode/encode trial and between long-running chunks.
     pub fn check(&self) -> Result<(), HostError> {
         if self.canceled() {
-            Err(failed("work abandoned"))
+            Err(failed_as(self.call, "work abandoned"))
         } else if Instant::now() >= self.deadline {
-            Err(failed("timeout: the trial deadline expired"))
+            Err(failed_as(self.call, "timeout: the trial deadline expired"))
         } else {
             Ok(())
         }
@@ -411,17 +437,20 @@ pub struct ImageJob {
     worker: Option<Worker>,
 }
 fn failed(detail: &str) -> HostError {
-    HostError::Failed(format!("compressImage: {detail}"))
+    failed_as("compressImage", detail)
 }
-fn source_error(error: HostError, control: &WorkControl) -> HostError {
+fn failed_as(call: &str, detail: &str) -> HostError {
+    HostError::Failed(format!("{call}: {detail}"))
+}
+fn source_error(error: HostError, control: &WorkControl, call: &str) -> HostError {
     // This exact, internal reader marker is the source quota. Arbitrary I/O or
     // provider text containing these words must retain its original meaning.
     if matches!(&error, HostError::Failed(text)
         if text.strip_prefix("filesystem: ") == Some(crate::stdlib::fs::RESULT_LIMIT))
     {
-        failed("too-large: the source is over 64 MiB")
+        failed_as(call, "too-large: the source is over 64 MiB")
     } else if !control.canceled() && Instant::now() >= control.deadline {
-        failed("timeout: the source read ran past the trial deadline")
+        failed_as(call, "timeout: the source read ran past the trial deadline")
     } else {
         error
     }
@@ -455,8 +484,10 @@ impl ImageJob {
         grants: Arc<GrantSet>,
         from: &str,
         to: &str,
-        request: ImageRequest,
+        mut request: ImageRequest,
     ) -> Result<Self, HostError> {
+        let call = request.call();
+        let failed = |detail: &str| failed_as(call, detail);
         if from.len() > 32_768 || to.len() > 32_768 {
             return Err(failed("image path exceeds its bound"));
         }
@@ -465,6 +496,10 @@ impl ImageJob {
         let service = service.ok_or_else(|| failed("unsupported: no image codec"))?;
         if work.0.limits != service.limits {
             return Err(failed("work registry and codec service limits differ"));
+        }
+        if request.transform {
+            request.max_dimension = service.limits.max_dimension;
+            request.max_bytes = service.limits.max_output_bytes;
         }
         if !from.starts_with("app:/")
             || !to.starts_with("app:/")
@@ -515,25 +550,28 @@ impl ImageJob {
         self.handle.settle(outcome)
     }
     fn perform(&self, observer: impl FnOnce(WorkId)) -> WorkOutcome {
+        let call = self.request.call();
+        let failed = |detail: &str| failed_as(call, detail);
         let control = WorkControl {
             handle: self.handle.clone(),
             deadline: Instant::now() + TRIAL_BUDGET,
             limits: self.service.codec_limits,
+            call,
         };
         control.check()?;
         // Pin the destination parent before provider work; no later namespace lookup retargets it.
-        let target = self.directories.prepare_atomic(&self.grants, &self.to)?;
+        let mut target = self.directories.prepare_atomic(&self.grants, &self.to)?;
         let source = self
             .directories
             .read_bounded(&self.grants, &self.from, MAX_SOURCE_BYTES, &|| {
                 control.check().is_err()
             })
-            .map_err(|error| source_error(error, &control))?;
+            .map_err(|error| source_error(error, &control, call))?;
         control.check()?;
         let image = self
             .service
             .codec
-            .encode(&source, self.request, &control)
+            .encode(&source, self.request.clone(), &control)
             .map_err(bounded_error)?;
         drop(source);
         let pixels = u64::from(image.width)
@@ -548,6 +586,17 @@ impl ImageJob {
         {
             return Err(failed("codec exceeded its output contract"));
         }
+        // A transform's `to` without an extension gains the type's (LLP
+        // 1133.019 D14), in the directory already pinned.
+        let mut path = self.to.clone();
+        if self.request.transform {
+            let leaf = path.rsplit('/').next().unwrap_or_default();
+            if let (false, Some(extension)) = (leaf.contains('.'), image.extension) {
+                path = format!("{path}.{extension}");
+                crate::boundary::admit(&self.grants, &Operation::FsWrite { path: path.clone() })?;
+                target = target.extended(extension);
+            }
+        }
         if !self.handle.reserve_commit(control.deadline) {
             return Err(failed("abandoned before publication"));
         }
@@ -558,6 +607,8 @@ impl ImageJob {
             width: image.width,
             height: image.height,
             size: image.bytes.len() as u64,
+            path: self.request.transform.then_some(path),
+            report: image.report,
         })
     }
 }
@@ -625,6 +676,7 @@ mod tests {
                     max_dimension: 16,
                     max_bytes: 32,
                     format: ImageFormat::Jpeg,
+                    ..Default::default()
                 },
             )
             .unwrap()
@@ -662,6 +714,7 @@ mod tests {
             bytes: source.to_vec(),
             width: 2,
             height: 1,
+            ..Default::default()
         })
     }
     fn service<
@@ -699,16 +752,21 @@ mod tests {
                 max_pixels: 1024,
                 max_scratch_bytes: 1024,
             },
+            call: "compressImage",
         };
         let lookalike = HostError::Failed(format!(
             "unrelated detail: {}",
             crate::stdlib::fs::RESULT_LIMIT
         ));
-        assert_eq!(source_error(lookalike.clone(), &control), lookalike);
+        assert_eq!(
+            source_error(lookalike.clone(), &control, "compressImage"),
+            lookalike
+        );
         assert_eq!(
             source_error(
                 HostError::Failed(format!("filesystem: {}", crate::stdlib::fs::RESULT_LIMIT)),
-                &control
+                &control,
+                "compressImage"
             ),
             failed("too-large: the source is over 64 MiB")
         );
@@ -718,7 +776,11 @@ mod tests {
             Err(failed("timeout: the trial deadline expired"))
         );
         assert_eq!(
-            source_error(HostError::Failed("interrupted read".into()), &control),
+            source_error(
+                HostError::Failed("interrupted read".into()),
+                &control,
+                "compressImage"
+            ),
             failed("timeout: the source read ran past the trial deadline")
         );
         assert!(!handle.reserve_commit(control.deadline));
@@ -884,6 +946,7 @@ mod tests {
                 max_dimension: 16,
                 max_bytes: 32,
                 format: ImageFormat::Jpeg,
+                ..Default::default()
             }
         )
         .is_err());
@@ -910,6 +973,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 size: 9,
+                ..Default::default()
             }))
         });
         // Publication cannot progress until this sends. A blocking cancel deadlocks this witness.
@@ -947,6 +1011,7 @@ mod tests {
                 max_dimension: 16,
                 max_bytes: 32,
                 format: ImageFormat::Jpeg,
+                ..Default::default()
             }
         )
         .is_err());
@@ -983,6 +1048,7 @@ mod tests {
                 max_dimension: 16,
                 max_bytes: 32,
                 format: ImageFormat::Jpeg,
+                ..Default::default()
             }
         )
         .is_err());
@@ -1003,6 +1069,7 @@ mod tests {
                 max_dimension: 1,
                 max_bytes: 1,
                 format: ImageFormat::Jpeg,
+                ..Default::default()
             },
         )
         .err()
@@ -1017,6 +1084,7 @@ mod tests {
                     bytes: vec![0; 33],
                     width: 1,
                     height: 1,
+                    ..Default::default()
                 })
             },
             limits,
@@ -1032,6 +1100,7 @@ mod tests {
                 max_dimension: 1,
                 max_bytes: 1,
                 format: ImageFormat::Jpeg,
+                ..Default::default()
             },
         )
         .err()
@@ -1045,6 +1114,69 @@ mod tests {
         assert!(f.job(&work, &service).execute().is_err());
         assert_eq!(count.load(Ordering::Relaxed), 1);
         assert_eq!(f.output(), b"old");
+    }
+    /// Exact patch 9a: a transform's options reach the codec unread, its
+    /// bounds are the service's, its failures are its own, and a `to`
+    /// without an extension gains the written type's.
+    #[test]
+    fn a_transform_passes_its_options_and_extends_an_extensionless_target() {
+        struct Echo;
+        impl ImageCodec for Echo {
+            fn limits(&self) -> CodecLimits {
+                CodecLimits {
+                    max_pixels: 1024,
+                    max_scratch_bytes: 1024,
+                }
+            }
+            fn encode(
+                &self,
+                source: &[u8],
+                request: ImageRequest,
+                _: &WorkControl,
+            ) -> Result<CompressedImage, HostError> {
+                assert_eq!(request.options.as_deref(), Some(r#"{"rotate":90}"#));
+                assert_eq!(request.max_dimension, WorkLimits::default().max_dimension);
+                Ok(CompressedImage {
+                    bytes: source.to_vec(),
+                    width: 1,
+                    height: 2,
+                    report: Some(r#"{"hdr":false}"#.into()),
+                    extension: Some("jpg"),
+                })
+            }
+        }
+        let f = Fixture::new();
+        let limits = WorkLimits::default();
+        let work = ImageWork::new(limits);
+        let service = ImageService::new(Arc::new(Echo), limits).unwrap();
+        let transform = |to: &str| {
+            ImageJob::prepare(
+                &work,
+                Some(&service),
+                Some(f.dirs.clone()),
+                f.grants.clone(),
+                "app:/tmp/in",
+                to,
+                ImageRequest {
+                    options: Some(r#"{"rotate":90}"#.into()),
+                    transform: true,
+                    ..Default::default()
+                },
+            )
+        };
+        let file = transform("app:/data/edit").unwrap().execute().unwrap();
+        assert_eq!(file.path.as_deref(), Some("app:/data/edit.jpg"));
+        assert_eq!(file.report.as_deref(), Some(r#"{"hdr":false}"#));
+        assert_eq!((file.width, file.height, file.size), (1, 2, 3));
+        assert_eq!(std::fs::read(f.path.join("data/edit.jpg")).unwrap(), b"new");
+        assert!(!f.path.join("data/edit").exists());
+        let named = transform("app:/data/edit.jpeg").unwrap().execute().unwrap();
+        assert_eq!(named.path.as_deref(), Some("app:/data/edit.jpeg"));
+        let long = format!("app:/data/{}", "x".repeat(32_768));
+        assert_eq!(
+            transform(&long).err().unwrap(),
+            failed_as("transformImage", "image path exceeds its bound")
+        );
     }
     #[test]
     fn destination_parent_is_pinned_before_codec_and_host_owner_drop_cancels_queued_work() {
@@ -1077,6 +1209,7 @@ mod tests {
                     max_dimension: 2,
                     max_bytes: 32,
                     format: ImageFormat::Jpeg,
+                    ..Default::default()
                 },
             )
             .unwrap();

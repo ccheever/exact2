@@ -140,8 +140,8 @@ fn execute(
             Err(e) => Err(e),
         };
     }
-    if op == "fs.compressImage" {
-        return compress_image(grants, directories, args);
+    if op == "fs.compressImage" || op == "fs.transformImage" {
+        return image(op == "fs.transformImage", grants, directories, args);
     }
     let (operation, destination, data) = operation(op, args)?;
     if path.starts_with("app:/") && destination.is_some_and(|d| !d.starts_with("app:/")) {
@@ -180,15 +180,59 @@ fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
         _ => return Err(format!("unsupported storage operation {op}")),
     })
 }
-/// `fs.compressImage` (LLP 1069.002 A1): the operation a TypeScript source's
-/// `storage.fs.compressImage` runs, through ibex2's one executor and the
-/// same codec, so a grant and a failure mean the same in either language.
-fn compress_image(
+/// `fs.compressImage` (LLP 1069.002 A1) and `fs.transformImage` (LLP
+/// 1133.019 D14): the operations a TypeScript source's calls run, through
+/// ibex2's one executor and the same codec, so a grant and a failure mean the
+/// same in either language. The record is the TypeScript options beside
+/// `path` and `destination`; what the codec reads travels as one JSON value
+/// (D17), as the prelude sends it.
+fn image(
+    transform: bool,
     grants: &GrantSet,
     directories: Option<&AppDirectories>,
     args: &Value,
 ) -> Result<Value, String> {
     let (from, to) = (text(args, "path")?, text(args, "destination")?);
+    let options = |keys: &[&str]| {
+        let picked: serde_json::Map<String, Value> = args
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(k, v)| keys.contains(&k.as_str()) && !v.is_null())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        (!picked.is_empty()).then(|| Value::Object(picked).to_string().into())
+    };
+    if transform {
+        let file = run_image(
+            grants,
+            directories,
+            from,
+            to,
+            ImageRequest {
+                options: options(&[
+                    "rotate",
+                    "flip",
+                    "crop",
+                    "resizeWidth",
+                    "resizeHeight",
+                    "resizeQuality",
+                    "type",
+                    "quality",
+                    "metadata",
+                ]),
+                transform: true,
+                ..Default::default()
+            },
+        )?;
+        let mut record: Value = serde_json::from_str(file.report.as_deref().unwrap_or("{}"))
+            .map_err(|e| format!("transformImage: the codec's report: {e}"))?;
+        record["path"] = json!(file.path.as_deref().unwrap_or(to));
+        record["size"] = json!(file.size);
+        record["width"] = json!(file.width);
+        record["height"] = json!(file.height);
+        return Ok(record);
+    }
     let number = |k: &str| {
         args[k]
             .as_f64()
@@ -204,6 +248,37 @@ fn compress_image(
         })?,
         _ => return Err("storage: type must be a string".into()),
     };
+    let file = run_image(
+        grants,
+        directories,
+        from,
+        to,
+        ImageRequest {
+            max_dimension,
+            max_bytes,
+            format: match format {
+                exact_data::image::Format::Jpeg => fs_image::ImageFormat::Jpeg,
+                exact_data::image::Format::Png => fs_image::ImageFormat::Png,
+            },
+            options: options(&["rotate", "flip", "crop"]),
+            transform: false,
+        },
+    )?;
+    Ok(json!({
+        "path": to,
+        "type": format.media_type(),
+        "size": file.size,
+        "width": file.width,
+        "height": file.height
+    }))
+}
+fn run_image(
+    grants: &GrantSet,
+    directories: Option<&AppDirectories>,
+    from: &str,
+    to: &str,
+    request: ImageRequest,
+) -> Result<fs_image::ImageFile, String> {
     let service = cfg!(target_vendor = "apple")
         .then(|| ImageService::new(std::sync::Arc::new(ImageCodec), image_limits()))
         .transpose()
@@ -216,35 +291,22 @@ fn compress_image(
         std::sync::Arc::new(grants.clone()),
         from,
         to,
-        ImageRequest {
-            max_dimension,
-            max_bytes,
-            format: match format {
-                exact_data::image::Format::Jpeg => fs_image::ImageFormat::Jpeg,
-                exact_data::image::Format::Png => fs_image::ImageFormat::Png,
-            },
-        },
+        request,
     )
     .map_err(error)?;
     let handle = job.handle();
     let result = job.execute();
     handle.take_outcome();
-    let file = result.map_err(error)?;
-    Ok(json!({
-        "path": to,
-        "type": format.media_type(),
-        "size": file.size,
-        "width": file.width,
-        "height": file.height
-    }))
+    result.map_err(error)
 }
 /// Exact owns the platform codec and its admission budget; Ibex owns work
-/// identity, bounded source reads and the publication decision.
+/// identity, bounded source reads and the publication decision. As
+/// js/src/storage.rs's: a transform's output side bounds the service.
 struct ImageCodec;
 fn image_limits() -> fs_image::WorkLimits {
     fs_image::WorkLimits {
         max_job_bytes: 640 << 20,
-        max_dimension: exact_data::image::MAX_DIMENSION,
+        max_dimension: exact_data::image::edit::MAX_SIDE,
         ..fs_image::WorkLimits::default()
     }
 }
@@ -261,27 +323,36 @@ impl fs_image::ImageCodec for ImageCodec {
         request: ImageRequest,
         control: &fs_image::WorkControl,
     ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
-        exact_data::image::compress_controlled(
+        let call = request.call();
+        exact_data::image::encode_request(
             bytes,
+            request.transform,
+            request.options.as_deref(),
             match request.format {
                 fs_image::ImageFormat::Jpeg => exact_data::image::Format::Jpeg,
                 fs_image::ImageFormat::Png => exact_data::image::Format::Png,
             },
-            request.max_dimension,
-            request.max_bytes,
-            control.deadline(),
-            &|| {
-                control
-                    .check()
-                    .map_err(|e| exact_data::image::failure("timeout", e))
+            (request.max_dimension, request.max_bytes),
+            exact_data::image::Deadline {
+                at: control.deadline(),
+                check: &|| {
+                    control
+                        .check()
+                        .map_err(|e| exact_data::image::edit::failure_named(call, "timeout", e))
+                },
+                max_pixels: control
+                    .limits()
+                    .max_pixels
+                    .min(exact_data::image::MAX_SOURCE_PIXELS),
+                max_scratch_bytes: control.limits().max_scratch_bytes,
             },
-            control.limits().max_pixels,
-            control.limits().max_scratch_bytes,
         )
         .map(|c| fs_image::CompressedImage {
             bytes: c.bytes,
             width: c.width,
             height: c.height,
+            report: c.report,
+            extension: c.extension,
         })
         .map_err(ibex2::boundary::HostError::Failed)
     }
@@ -455,12 +526,12 @@ pub(super) fn run(
         }
         let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
         // Two app files, never a document or a disk path (LLP 1069.002 A1.1).
-        if op == "fs.compressImage"
+        if (op == "fs.compressImage" || op == "fs.transformImage")
             && ![&args["path"], &args["destination"]]
                 .iter()
                 .all(|p| p.as_str().is_some_and(|p| p.starts_with("app:/")))
         {
-            return Err("compressImage: needs app:/ paths".into());
+            return Err(format!("{}: needs app:/ paths", &op[3..]));
         }
         if args["path"]
             .as_str()
