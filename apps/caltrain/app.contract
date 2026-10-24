@@ -167,8 +167,8 @@ component Caltrain
   action focusDeparture(id)
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
-  // With the sky off, a light grey page: the white cards keep their edges.
-  derive canvasColor = match sky { case some(c) => c, case none => "#edf0f4" }
+  // Grouped ground keeps the cards distinct in either scheme.
+  derive canvasColor = match sky { case some(c) => c, case none => "-exact-grouped-background" }
   action hoverStation(id, over)
     hoverId = id
     hoverOn = over
@@ -189,31 +189,28 @@ component Caltrain
   task ticker mount
     every(1000, tick)
 
-  // One accent for every card and header below, provided once (LLP 1017
-  // P4a, LLP 1035.005.000 D9).
-  provide
-    accent = "#c0392b"
   view
     // The sky is optional (the "Sky off" button): the same content inside
     // the aurora canvas — captured through its surface, the shader every
     // frame — or in a plain scroll, to see what each costs on a phone. The
     // root's background is what a phone paints behind the status bar and
-    // the home indicator (the web's rule): the sky's dark, or white.
+    // the home indicator (the web's rule): the sky or the grouped ground.
     // Text is sized in em from this root: 16 on a phone or a desktop, 24 on
     // a TV (pointer none), read across a room.
-    main testId="caltrain-main" viewport-fit="cover" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor
+    main testId="caltrain-main" viewport-fit="cover" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor accent-color="light-dark(#a92d21, #ff9b90)"
       // @ref LLP 1020 D6 — the iframe screen is outside the live canvas.
       if screen == "web-deck"
-        section role="region" aria-label="Deck fixture" testId="deck-screen" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)"
-          row align-items="center" justify-content="space-between"
-            text "Web deck" font-size="1.25em" font-weight=700 color="#ffffff"
-            button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="deck-back" padding=8 background-color="#ffffff"
-              text "Back" font-size="0.8125em"
-          // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
-          // scripts, so the agent's guest outline is live on the web arm too.
-          iframe src="/deck/index.html" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
-          text `${deckLoaded}` testId="deck-loaded" color="#ffffff"
-          text deckMessage testId="deck-message" color="#ffffff"
+        ArtworkScheme(on=skyOn, scheme="dark")
+          section role="region" aria-label="Deck fixture" testId="deck-screen" color="CanvasText" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)"
+            row align-items="center" justify-content="space-between"
+              text "Web deck" font-size="1.25em" font-weight=700 color="CanvasText"
+              button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="deck-back" padding=8 background-color="-exact-fill"
+                text "Back" font-size="0.8125em"
+            // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
+            // scripts, so the agent's guest outline is live on the web arm too.
+            iframe src="/deck/index.html" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
+            text `${deckLoaded}` testId="deck-loaded" color="CanvasText"
+            text deckMessage testId="deck-message" color="CanvasText"
       else
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
@@ -233,7 +230,7 @@ component Sky
     // The sky is optional (the "Sky off" button): the same content inside
     // the aurora canvas — captured through its surface, the shader every
     // frame — or in a plain scroll, to see what each costs on a phone.
-    // Dimmed on a TV, where the full aurora is too bright across a room.
+    // The fixed sky tint dims the artwork on TV, independently of the UI scheme.
     // It fills the screen (`viewport-fit="cover"`); the content keeps to the
     // safe area: a phone's status bar and home indicator, a TV's overscan.
     if on
@@ -245,8 +242,6 @@ component Sky
         children
 
 component Content
-  inject
-    accent: string
   props
     activities: Activities
     startTracking: action
@@ -299,15 +294,15 @@ component Content
         // An update is staged (LLP 1030 D7): say so, and let the person take it
         // now — with carry, the selected station survives — or at the next launch.
         if delivery.staged
-          row justify-content="space-between" align-items="center" background-color="#fff4d6" border-radius=12 padding=12 testId="update-banner"
-            text "An update is ready" font-size="0.8125em" font-weight=600 color="#5a4a1a" testId="update-ready"
-            button press=activateUpdate aria-label="Apply the update now" testId="delivery-activate" padding=8 border-radius=8 background-color="#1e3a5f"
-              text "Update now" font-size="0.75em" font-weight=600 color="#ffffff"
+          row justify-content="space-between" align-items="center" background-color="light-dark(#fff4d6, #40351c)" border-radius=12 padding=12 testId="update-banner"
+            text "An update is ready" font-size="0.8125em" font-weight=600 color="CanvasText" testId="update-ready"
+            button press=activateUpdate aria-label="Apply the update now" testId="delivery-activate" padding=8 border-radius=8 background-color="-exact-fill"
+              text "Update now" font-size="0.75em" font-weight=600 color="CanvasText"
         header width="100%" background-color="light-dark(#ffffffd9, #1c1c1ed9)" border-radius=16 padding=14 box-sizing="border-box"
           row justify-content="space-between" align-items="center"
             column gap=2
               image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
-              text "Caltrain" font-size="0.8125em" font-weight=700 letter-spacing=1.2 color=accent testId="brand"
+              text "Caltrain" font-size="0.8125em" font-weight=700 letter-spacing=1.2 color="AccentColor" testId="brand"
               text station.name font-size="1.5em" font-weight=700 testId="station-name" role="heading" aria-level=1
               text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="-exact-secondary-label"
             column gap=6 align-items="flex-end"
@@ -360,27 +355,30 @@ component Content
                 button press=setMaterial("crt") aria-label="CRT" testId="material-crt" padding=8 border-radius=8
                   text "CRT" font-size="0.75em" font-weight=600
                 button press=toggleDeck aria-label="Deck" testId="deck-toggle" padding=8 border-radius=8
-                  text "Deck" font-size="0.75em" font-weight=600 color=accent
+                  text "Deck" font-size="0.75em" font-weight=600 color="AccentColor"
         if screen == "home"
           // A fixed band of sky on a TV, where the left column has room; on a
           // phone it fits its text, so the departures stay on screen.
-          column padding=20 gap=4 height=(tv ? 220 : "auto") box-sizing="border-box" justify-content="flex-end" testId="aurora"
-            if material == "glass"
-              text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color=(sky ? "#9ad8ff" : "#2a6f9e")
-              text station.name font-size="2.125em" font-weight=800 color=(sky ? "#ffffff" : "#111111") testId="aurora-title"
-              text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size="0.75em" color=(sky ? "#d0e4ff" : "#555555")
-            else
-              text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="#8a5a2b"
-              text station.name font-size="2.125em" font-weight=800 color="#2a1f14" testId="aurora-title"
-              text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size="0.75em" color="#5a4a3a"
-          canvas surface=allStations.map(selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 background-color="-exact-secondary-background" testId="line-map"
+          // Ink uses dark ink on paper; CRT turns dark ink into bright phosphor.
+          // Only text drawn directly over the material takes its input scheme.
+          ArtworkScheme(on=sky, scheme=(material == "glass" ? "dark" : "light"))
+            column padding=20 gap=4 height=(tv ? 220 : "auto") box-sizing="border-box" justify-content="flex-end" testId="aurora"
+              if material == "glass"
+                text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="-exact-secondary-label"
+                text station.name font-size="2.125em" font-weight=800 color="CanvasText" testId="aurora-title"
+                text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size="0.75em" color="-exact-secondary-label"
+              else
+                text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="-exact-secondary-label"
+                text station.name font-size="2.125em" font-weight=800 color="CanvasText" testId="aurora-title"
+                text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size="0.75em" color="-exact-secondary-label"
+          canvas surface=allStations.map(selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 background-color="-exact-secondary-grouped-background" testId="line-map"
             column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
               for s in allStations key=s.id
                 row align-items="center" height="1.25em" testId=`map-${s.id}`
                   view flex=1
                   column width="0.875em" height="0.875em" align-items="center" justify-content="center"
                     if s.id == selectedId
-                      view width="0.875em" height="0.875em" border-radius="0.4375em" background-color="#bf382b"
+                      view width="0.875em" height="0.875em" border-radius="0.4375em" background-color="AccentColor"
                     else
                       view width="0.4375em" height="0.4375em" border-radius="0.21875em" background-color="-exact-system-gray"
                   view flex=1 padding-left=10
@@ -439,8 +437,6 @@ component Pane
         children
 
 component DirectionCard
-  inject
-    accent: string
   props
     title: string
     board: Departure[]
@@ -449,7 +445,7 @@ component DirectionCard
     testId: string
   view
     column border-radius=16 padding=16 gap=10 background-color="light-dark(#ffffffd9, #1c1c1ed9)" testId=testId
-      text title font-size="0.8125em" font-weight=700 color=accent
+      text title font-size="0.8125em" font-weight=700 color="AccentColor"
       if board.isEmpty()
         text "No more trains today" font-size="0.875em" color="-exact-secondary-label"
       else
@@ -476,3 +472,16 @@ component StationRow
           text station.name font-size="0.9375em" font-weight=600
           text `Zone ${station.zone}` font-size="0.75em" color="-exact-tertiary-label"
         text distanceText(station.distance) font-size="0.75em" color="-exact-secondary-label"
+
+// Fix only the text over artwork; ordinary surfaces follow the app's scheme.
+component ArtworkScheme
+  props
+    on: bool
+    scheme: string
+  slot
+  view
+    if on
+      view color-scheme=scheme
+        children
+    else
+      children
