@@ -432,6 +432,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
         "decorations" => AttrTarget::Prop(PropId::Decorations),
+        // LLP 1045.000 D3: a Markdown node's atom kinds and faces (the
+        // lowerer's `bind_atoms` and `bind_atom_faces` read them first).
+        "atoms" => AttrTarget::Prop(PropId::Atoms),
+        "atomFaces" => AttrTarget::Prop(PropId::AtomFaces),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
@@ -494,6 +498,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "drop" => AttrTarget::Handler("drop"),
         "dragenter" => AttrTarget::Handler("dragenter"),
         "dragleave" => AttrTarget::Handler("dragleave"),
+        // A press on an inline atom (LLP 1045.000 D7).
+        "atompress" => AttrTarget::Handler("atompress"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),

@@ -184,6 +184,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
                 .map_err(|_| mismatch())?
                 .into(),
         )
+    } else if prop == PropId::AtomFaces {
+        PropValue::Str(
+            crate::decorations::atom_faces(value)
+                .map_err(|_| mismatch())?
+                .into(),
+        )
     } else {
         match (prop.kind(), value) {
             (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
