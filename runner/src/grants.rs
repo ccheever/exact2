@@ -23,6 +23,14 @@ impl<'a> Grants<'a> {
                 .flatten()
         })
     }
+
+    /// The `secret.keep` names that carry a presence policy (LLP 1133.010
+    /// D4), in declaration order.
+    pub fn presence(&self) -> impl Iterator<Item = (&'a str, exact_grants::Presence)> + '_ {
+        self.lines
+            .iter()
+            .filter_map(|line| exact_grants::line_presence(line))
+    }
 }
 
 /// How the runner reads an I/O grant line (`net.fetch …`, `secret.keep …`),

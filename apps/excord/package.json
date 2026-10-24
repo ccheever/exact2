@@ -3,6 +3,7 @@
   "type": "module",
   "private": true,
   "dependencies": {
+    "@exact/local-auth": "file:../../packages/local-auth",
     "fflate": "0.8.3"
   }
 }

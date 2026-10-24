@@ -93,6 +93,9 @@ export interface Live {
   account: number;
   // Counts snapshots: the view takes the newer of the stream's and `digest`'s.
   snapshots: number;
+  // The person signed out, or the platform dropped the locked token: the fixture's account does not sign itself in
+  // again until the person asks (Lock Excord, LLP 1133.010 §9).
+  signedOut: boolean;
 }
 
 // Socket bytes not yet gathered into a packet, a gathered packet and how much of it is inflated, a
@@ -107,7 +110,7 @@ export function createLive(origins: Origins): Live {
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
     history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
     ackToken: null, paging: new Set(), sends: new Map(), attempt: 0, ready: false,
-    queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0 };
+    queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0, signedOut: false };
 }
 
 // Kept per backend, so a fixture build never reads a Discord token or record, nor the reverse.
@@ -243,12 +246,16 @@ function retire(live: Live): void {
 }
 
 /** The session resource's answer: the kept token and identify record, read into module state. It is
- * the only answer that reads them, so the gateway's writes of them re-ask it, never the socket. */
-export async function loadSession(live: Live, secrets: Secrets, storage: Storage): Promise<{ ready: boolean; signedIn: boolean }> {
+ * the only answer that reads them, so the gateway's writes of them re-ask it, never the socket. A token
+ * kept locked is read by `unlockSession` behind the person's check; until then the session is not
+ * ready, so the gateway opens nothing, and the answer carries no token either way. */
+export async function loadSession(live: Live, secrets: Secrets, storage: Storage): Promise<{ ready: boolean; signedIn: boolean; locked: boolean; lockOn: boolean }> {
   const key = tokenKey(live.origins);
-  let token = secrets.get(key);
+  const lockOn = secrets.locked(key);
+  if (lockOn && !live.token) return { ready: false, signedIn: true, locked: true, lockOn };
+  let token = lockOn ? live.token : secrets.get(key);
   // The fixture's account signs in by itself; Discord's waits for the person (stage 2's sign-in).
-  if (!token && live.origins.fixture) { token = 'fixture-token'; secrets.set(key, token); }
+  if (!token && live.origins.fixture && !live.signedOut) { token = 'fixture-token'; secrets.set(key, token); }
   live.token = token ?? '';
   live.ready = true;
   if (live.gw && token) live.gw.token = token;
@@ -256,7 +263,7 @@ export async function loadSession(live: Live, secrets: Secrets, storage: Storage
   try { kept = JSON.parse(new TextDecoder().decode(await storage.fs.readFile(identifiesPath(live.origins)))); }
   catch { /* none yet, or unreadable: the record starts empty and is written before the first identify */ }
   live.kept = Array.isArray(kept) ? kept.filter((t): t is number => typeof t === 'number' && Number.isFinite(t)) : [];
-  return { ready: true, signedIn: !!token };
+  return { ready: true, signedIn: !!token, locked: false, lockOn };
 }
 
 /** Write the identify record, the held IDENTIFY's included, to app storage, and await it. */

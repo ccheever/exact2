@@ -72,8 +72,12 @@ impl<D: DataSource> Runner<D> {
         self.start_commit();
         self.derives_evaluated = 0;
         self.copied_at_checkpoint = self.store.copied_bytes();
+        let store = self.store.checkpoint();
+        // What the presence backend moved since the last commit shows in
+        // this one (LLP 1133.010 D5); a refused commit puts it back.
+        self.adopt_presence();
         Checkpoint {
-            store: self.store.checkpoint(),
+            store,
             slots: self.slots.clone(),
             resources: resources.then(|| self.resources.clone()),
             stale: self.stale.clone(),
@@ -785,6 +789,7 @@ impl<D: DataSource> Runner<D> {
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
+        self.presence_noted(ticket, &request);
         self.pending.push(PendingReq {
             refusal: None,
             refused: false,
@@ -883,6 +888,11 @@ impl<D: DataSource> Runner<D> {
         // A module request whose reply carries handles: watched as it leaves
         // the implementation (LLP 1133.009 D6).
         if let Some(dispatch) = self.handled_work(&request.body) {
+            return dispatch;
+        }
+        // A store's presence call: the host's backend, on the store's own
+        // path, never a module's (LLP 1133.010 D13).
+        if let Some(dispatch) = self.presence_call(&request.body) {
             return dispatch;
         }
         // A module's name called from data code: the runner's admission, then
@@ -994,6 +1004,7 @@ impl<D: DataSource> Runner<D> {
     fn held_for_agent(&self, p: &PendingReq) -> bool {
         self.device_holds.iter().any(|h| h.ticket == p.ticket)
             || self.extensions.holds_token(p.continuation)
+            || self.presence_holds(p.ticket)
     }
 
     /// The requests in flight, as `has_pending` counts them: the agent's
@@ -1213,8 +1224,10 @@ impl<D: DataSource> Runner<D> {
         } else if self.plan.module_named(&p.source).is_some() {
             self.module_parse(ty, &p.source, outcome)
         } else {
-            self.data
-                .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
+            let parsed =
+                self.data
+                    .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+            self.refuse_locked(parsed)
         };
         // Only a socket's mapper answering a frame stages for this commit
         // (LLP 1016.000 D7); a turn of an answer sends whatever it answered
