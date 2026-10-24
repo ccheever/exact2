@@ -30,6 +30,10 @@ pub struct Device {
     /// is written `<name> maxSdkVersion=<level>`, which the manifest
     /// declares as `android:maxSdkVersion` (LLP 1133.019 D4).
     pub android: &'static [&'static str],
+    /// Android permissions derived beside `android` only where the app uses
+    /// a module name that writes under the line (`"writes": true` in its
+    /// declaration; LLP 1133.018 D11: `WRITE_CALENDAR` for `saveEvent`).
+    pub android_writes: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
     /// The macOS hardened-runtime entitlement: without it a notarised build is
@@ -64,6 +68,7 @@ const ROW: Device = Device {
     ios: &[],
     ios_flags: &[],
     android: &[],
+    android_writes: &[],
     macos: &[],
     hardened: None,
     web: None,
@@ -211,6 +216,50 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSHealthUpdateUsageDescription"],
         ios_entitlements: &["com.apple.developer.healthkit"],
         companion: Some("NSHealthShareUsageDescription"),
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
+    // The person's address book, `@exact/contacts` (LLP 1133.018 D11): a
+    // deviation, the web has no store. Choosing contacts needs no line (D4).
+    // An app reading it keeps no answers (D8).
+    Device {
+        name: "contacts",
+        ios: &["NSContactsUsageDescription"],
+        macos: &["NSContactsUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.addressbook"),
+        android: &["android.permission.READ_CONTACTS"],
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
+    // The person's calendars, `@exact/calendar` (D11): full access, and
+    // `WRITE_CALENDAR` on Android only where the app writes (`android_writes`).
+    // Neither calendar line narrows the other: Apple's path between them is
+    // an upgrade, so an app may write both.
+    Device {
+        name: "calendar",
+        ios: &["NSCalendarsFullAccessUsageDescription"],
+        macos: &["NSCalendarsFullAccessUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.calendars"),
+        android: &["android.permission.READ_CALENDAR"],
+        android_writes: &["android.permission.WRITE_CALENDAR"],
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
+    // Apple's write-only calendar access (iOS 17, macOS 14). Android has no
+    // narrower grant: an insert names a calendar row, which only a read finds,
+    // so the line derives both permissions there (D11).
+    Device {
+        name: "calendar-write-only",
+        ios: &["NSCalendarsWriteOnlyAccessUsageDescription"],
+        macos: &["NSCalendarsWriteOnlyAccessUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.calendars"),
+        android: &[
+            "android.permission.READ_CALENDAR",
+            "android.permission.WRITE_CALENDAR",
+        ],
         tvos: false,
         keeps_no_answers: true,
         ..ROW

@@ -6,8 +6,10 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/calendar": "workspace:*",
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
+        "@exact/contacts": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
@@ -36,6 +38,10 @@
       "name": "@exact/actions",
       "version": "0.1.0",
     },
+    "packages/calendar": {
+      "name": "@exact/calendar",
+      "version": "1.0.0",
+    },
     "packages/camera": {
       "name": "@exact/camera",
       "version": "1.0.0",
@@ -49,6 +55,10 @@
     "packages/cards": {
       "name": "@exact/cards",
       "version": "0.1.0",
+    },
+    "packages/contacts": {
+      "name": "@exact/contacts",
+      "version": "1.0.0",
     },
     "packages/geolocation": {
       "name": "@exact/geolocation",
@@ -122,9 +132,13 @@
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
+    "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
+
     "@exact/camera": ["@exact/camera@workspace:packages/camera"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 

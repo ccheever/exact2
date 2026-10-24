@@ -1061,13 +1061,21 @@ function rustSources(app) {
   return walk(join(app,'data','src')).join('\n');
 }
 
+/** The app's own source text that can name an interface: `app.ts`, and every
+ * `.contract` file in the app's tree, since a root `app.contract` may import
+ * the components that use one from a subdirectory. */
+function appText(app) {
+  const contracts=(d)=>{ try { return readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory() ? (/^(\.|node_modules$|target$)/.test(e.name) ? [] : contracts(join(d,e.name))) : e.name.endsWith('.contract') ? [join(d,e.name)] : []); } catch { return []; } };
+  return [join(app,'app.ts'),...contracts(app)].map(f=>{ try { return readFileSync(f,'utf8'); } catch { return ''; } }).join('\n');
+}
+
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
  * its class, its source files, and the system frameworks it needs from an OS
  * version (`frameworks`, LLP 1133.016 D15). */
 export function appleImplementations(app, target) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
+  const named = appText(app);
   return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,target);
     const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
@@ -1105,7 +1113,7 @@ function usesInterface(i, named) {
  * its class, its source directories, which join the APK's Kotlin, and the Maven coordinates it names, which join the
  * one locked Gradle graph (LLP 1133.008 D8 item 5). */
 export function androidImplementations(app) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
+  const named = appText(app);
   return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];

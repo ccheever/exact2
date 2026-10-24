@@ -185,7 +185,12 @@ pub fn reply(name: &str, outcome: &Outcome) -> Result<Json, ModuleError> {
         .map_err(|e| unsupported(format!("the reply is not JSON: {e}")))?;
     let error = (json.as_object())
         .filter(|o| o.keys().all(|k| ERROR_KEYS.contains(&k.as_str())))
-        .and_then(|o| Some((o.get("error")?.as_str()?, o.get("message")?.as_str())));
+        .and_then(|o| {
+            Some((
+                o.get("error")?.as_str()?,
+                o.get("message").and_then(Json::as_str),
+            ))
+        });
     match error {
         Some((code, Some(said))) => Err(ModuleError::new(code, format!("{name}: {code}: {said}"))),
         Some((code, None)) => Err(ModuleError::new(code, format!("{name}: {code}"))),
