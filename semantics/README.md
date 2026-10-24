@@ -189,8 +189,8 @@ events and by the semantics' sources and the harness that runs them
 async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
-app's `test` blocks (its own and those in `app.test.contract` beside it)
-plus an explore script, on the runner and on the semantics. A divergence
+app's `test` blocks (its own, those in `app.test.contract` and those in
+every other `*.test.contract` beside it) plus an explore script, on the runner and on the semantics. A divergence
 names the step where the two first differ and the line of the test that
 step comes from, where the element it tapped is declared, and the slot,
 derive or element whose line differs:

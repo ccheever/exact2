@@ -21,7 +21,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { authoredTests } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const GATE = join(ROOT, 'apps/scale-gate');
@@ -492,7 +493,7 @@ export function lines(opts) {
       // dtool2's stage 11 tests: any in the tool's own test file (against its
       // stub server), and those against the real server, in
       // scripts/design-tool.test.mjs or design-tool-scale.test.mjs.
-      const own = [...readFileSync(join(ROOT, 'apps/design-tool/app.test.contract'), 'utf8').matchAll(/^test "(stage 11[^"]*)"/gm)].map(m => m[1]);
+      const own = authoredTests(join(ROOT, 'apps/design-tool')).flatMap(f => [...readFileSync(f, 'utf8').matchAll(/^test "(stage 11[^"]*)"/gm)].map(m => [basename(f), m[1]]));
       const real = ['scripts/design-tool.test.mjs', 'scripts/design-tool-scale.test.mjs'].filter(f => existsSync(join(ROOT, f))).flatMap(f =>
         [...readFileSync(join(ROOT, f), 'utf8').matchAll(/^test\('((?:[^'\\]|\\.)*)'/gm)].map(m => [f, m[1].replace(/\\(.)/g, '$1')]).filter(([, n]) => /stage 11/i.test(n)));
       if (!own.length && !real.length) return waits('dtool2\'s D (the tool half): no design-tool test says stage 11 yet');
@@ -504,10 +505,10 @@ export function lines(opts) {
         let results = [];
         const line = r.out.split('\n').findLast(l => l.startsWith('{"host"'));
         try { results = JSON.parse(line).tests?.results ?? []; } catch { /* said below */ }
-        for (const name of own) {
-          const result = results.find(x => x.name === name);
+        for (const [file, name] of own) {
+          const result = results.find(x => x.file === file && x.name === name);
           const passed = result && !result.failures?.length;
-          evidence.push(`app.test.contract "${name}": ${passed ? 'pass' : `FAIL (${result ? result.failures.join(' / ').slice(0, 200) : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 200)})`} (the tool's stub server)`);
+          evidence.push(`${file} "${name}": ${passed ? 'pass' : `FAIL (${result ? result.failures.join(' / ').slice(0, 200) : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 200)})`} (the tool's stub server)`);
           if (!passed) bad.push(name);
         }
       }
