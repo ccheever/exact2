@@ -2200,11 +2200,20 @@ fn determine_hypothetical_cross_size(
         let transferred_max_cross =
             transfer_into_unsized(child.max_size, ratio, sized).cross(constants.dir);
 
-        let child_cross = child
-            .size
-            .cross(constants.dir)
-            .maybe_clamp(transferred_min_cross, transferred_max_cross)
-            .maybe_max(padding_border_sum);
+        // EXACT PATCH 65: a single-line row's definite stretch also applies
+        // during measurement (Flexbox §9.8). Overflow inside that item must
+        // not enlarge the container's content-based ratio height minimum.
+        let child_cross = if constants.is_row && !constants.is_wrap && constants.has_definite_cross_size
+            && constants.node_outer_size.height.is_none()
+            && child.align_self == AlignSelf::STRETCH && child.size_style.height.is_auto()
+            && !child.margin_is_auto.top && !child.margin_is_auto.bottom
+        {
+            constants.node_inner_size.height
+                .maybe_sub(child.margin.vertical_axis_sum())
+                .maybe_clamp(child.min_size.height, child.max_size.height)
+        } else {
+            child.size.cross(constants.dir).maybe_clamp(transferred_min_cross, transferred_max_cross)
+        }.maybe_max(padding_border_sum);
 
         let child_available_cross = available_space
             .cross(constants.dir)

@@ -104,6 +104,12 @@
 //! The zero-inner-basis cases include negative margins on padding/border floors,
 //! growable zero-width items, negative left margins and a zero-height column.
 //!
+//! `Chrome 151 ratio root overflow` was measured on 2026-10-24 with Chrome
+//! 151.0.7922.34, in a 50px block and as direct roots offered 50×600 and
+//! 50×1000. It covers overflowing children, stretch, wrapping, automatic and
+//! explicit root widths, item minima, overflow and both box-sizing modes,
+//! with block, grid, column and explicit-height controls.
+//!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
 //! separated by tabs.
@@ -247,14 +253,16 @@ fn positioned_boxes_roots_and_ratios_match_chrome() {
 }
 
 /// The same Chrome frames hold when the ratio container is the root in a
-/// 50px offer, where the first layout already reaches the ratio height and
-/// passes it to the item as a definite cross size.
+/// 50px offer, including children that overflow its ratio-derived height.
 #[test]
 fn ratio_roots_in_a_definite_offer_match_chrome() {
     let mut wrong = Vec::new();
     for case in cases(include_str!("fixtures/browser_position.tsv"))
         .into_iter()
-        .filter(|case| case.name.starts_with("Chrome 151 ratio definite cross "))
+        .filter(|case| {
+            case.name.starts_with("Chrome 151 ratio definite cross ")
+                || case.name.starts_with("Chrome 151 ratio root overflow ")
+        })
     {
         let root = case.nodes[0].2;
         let nodes = case.nodes[1..]
@@ -266,9 +274,11 @@ fn ratio_roots_in_a_definite_offer_match_chrome() {
             .map(|(id, frame)| (id - 1, *frame))
             .collect();
         let mut k = lay_out_with(props(&css_rows(root)), nodes, &[], &[]);
-        k.compute_layout(1, exact_kernel::Offer::definite(50.0, 600.0))
-            .unwrap();
-        wrong.extend(mismatches(case.name, &k, &want));
+        for height in [600.0, 1000.0] {
+            k.compute_layout(1, exact_kernel::Offer::definite(50.0, height))
+                .unwrap();
+            wrong.extend(mismatches(case.name, &k, &want));
+        }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
