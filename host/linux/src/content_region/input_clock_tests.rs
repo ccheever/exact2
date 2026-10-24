@@ -128,3 +128,42 @@ fn review_hidden_pending_content_paints() {
     actions::action(&mut p, "hide", 150.);
     actions::ack(&mut p);
 }
+
+#[test]
+fn retained_release_revalidates_the_original_hit_path() {
+    let _service = crate::content_region::test_service();
+    let mut delivered = Vec::new();
+    for wrapper in [false, true] {
+        for swipe in [false, true] {
+            let source = actions::source()
+                .replace("  state revision = 0", "  state expired = false\n  state revision = 0")
+                .replace("  action body\n", "  action expire\n    expired = true\n  task expiry mount\n    after(150, expire)\n  action body\n")
+                .replace("swiperight=replyTo(m.id)", "press=replyTo(m.id) swiperight=replyTo(m.id)")
+                .replace("                MessageBubble(message=m)", &format!(
+                    "                box inert={}\n                  box testId=`leaf-${{m.id}}` inert={} width=320 height=32\n                  MessageBubble(message=m)",
+                    if wrapper { "expired" } else { "false" },
+                    if wrapper { "false" } else { "expired" },
+                ));
+            let mut p = actions::boot(&source, true, actions::Rows::default());
+            let leaf = actions::id(&p, "leaf-message-0");
+            let at = actions::point(&mut p, leaf);
+            let _gate = actions::block_body(&mut p, 100.);
+            assert!(p.pointer_down(at.0, at.1, 110.).unwrap());
+            if swipe {
+                assert!(p.pointer_move(at.0 + 10., at.1, 120.).unwrap());
+                assert!(p.pointer_move(at.0 + 80., at.1, 130.).unwrap());
+                assert!(p.contact.as_ref().unwrap().hold.is_some());
+            }
+            let accepted = p.pointer_up(at.0 + if swipe { 90. } else { 0. }, at.1, 200.);
+            assert_eq!(p.host.runner().slot("expired"), Some(&Value::Bool(true)));
+            if accepted != Ok(false) || actions::selected(&p) != Value::str("") {
+                delivered.push((wrapper, swipe, accepted));
+            }
+            assert!(p.contact.is_none());
+        }
+    }
+    assert!(
+        delivered.is_empty(),
+        "invalidated paths delivered: {delivered:?}"
+    );
+}

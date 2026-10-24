@@ -214,3 +214,111 @@ fn review_input_refuses_targets_invalidated_by_due_timer() {
         "invalid targets accepted: {failures:?}"
     );
 }
+
+#[test]
+fn visible_child_press_reaches_a_hidden_ancestor_handler() {
+    let source = r#"component App
+  state count = 0
+  action go
+    count = count + 1
+  view
+    column visibility="hidden" press=go
+      button "Go" visibility="visible" testId="child"
+"#;
+    for click in [false, true] {
+        let mut host = Host::boot(
+            contract::compile(source).unwrap(),
+            (),
+            Mode::Fullscreen,
+            80,
+            40,
+        )
+        .unwrap();
+        host.frame();
+        let child = host.by_test_id("child").unwrap();
+        if click {
+            let at = host.cells_of(child).unwrap();
+            host.click(at.x, at.y);
+        } else {
+            host.press(child);
+        }
+        assert_eq!(
+            host.runner.slot("count"),
+            Some(&Value::Number(1.)),
+            "click={click}"
+        );
+    }
+}
+
+#[test]
+fn nonmodal_popover_allows_page_focus_and_press() {
+    let source = r#"component App
+  state focused = 0
+  state pressed = 0
+  action back
+    focus("query")
+  action focusQuery
+    focused = focused + 1
+  action go
+    pressed = pressed + 1
+  view
+    column
+      input id="query" testId="query" value="" focus=focusQuery
+      button "Go" testId="go" press=go
+      column id="suggestions" testId="suggestions" popover="auto"
+        button "Return" testId="back" press=back
+"#;
+    let mut host = Host::boot(
+        contract::compile(source).unwrap(),
+        (),
+        Mode::Fullscreen,
+        80,
+        40,
+    )
+    .unwrap();
+    host.open_layer(host.by_test_id("suggestions").unwrap(), false);
+    host.press(host.by_test_id("back").unwrap());
+    assert_eq!(host.runner.slot("focused"), Some(&Value::Number(1.)));
+    assert_eq!(host.focus, host.by_test_id("query"));
+    host.press(host.by_test_id("go").unwrap());
+    assert_eq!(host.runner.slot("pressed"), Some(&Value::Number(1.)));
+}
+
+#[test]
+fn modal_inside_closed_popover_accepts_input_and_blocks_page() {
+    let source = r#"component App
+  state count = 0
+  action go
+    count = count + 1
+  view
+    column
+      button "Outside" testId="outside" press=go
+      column popover="auto"
+        dialog testId="dialog"
+          button "Inside" testId="inside" press=go
+        button "Closed" testId="closed" press=go
+"#;
+    let mut host = Host::boot(
+        contract::compile(source).unwrap(),
+        (),
+        Mode::Fullscreen,
+        80,
+        40,
+    )
+    .unwrap();
+    host.arm = false;
+    host.open_layer(host.by_test_id("dialog").unwrap(), true);
+    let inside = host.by_test_id("inside").unwrap();
+    host.press(inside);
+    assert_eq!(host.runner.slot("count"), Some(&Value::Number(1.)));
+    assert_eq!(host.focus, Some(inside));
+    host.key(Key::Named("Enter"));
+    assert_eq!(host.runner.slot("count"), Some(&Value::Number(2.)));
+    for name in ["outside", "closed"] {
+        let node = host.by_test_id(name).unwrap();
+        host.focus(Some(node));
+        host.press(node);
+        assert_eq!(host.focus, Some(inside));
+        assert_eq!(host.runner.slot("count"), Some(&Value::Number(2.)));
+    }
+}
