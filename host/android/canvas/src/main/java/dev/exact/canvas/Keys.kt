@@ -20,6 +20,9 @@ import android.view.inputmethod.InputMethodManager
  */
 class Keys(private val view: ExactView) {
     private val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    /** The device is a TV, whose remote's D-pad is exact2's ([remote]); a phone keyboard's arrows send the same key
+     * codes and keep Android's own handling. */
+    private val tv = Device.tv(view.context)
     /** What exact2 last asked for ([show]): 0 none, 1 an input, 3 a textarea. */
     private var shown = 0
 
@@ -71,9 +74,9 @@ class Keys(private val view: ExactView) {
         return true
     }
 
-    /** A remote's key by the web's `code` and `key` (LLP 1115.001.003 D3): the D-pad's arrows, and Select, which a
-     * `key` handler hears as Enter, as Chrome on Android sends DPAD_CENTER; null for any other key. */
-    private fun remote(keyCode: Int): Pair<String, String>? = when (keyCode) {
+    /** A TV remote's key by the web's `code` and `key` (LLP 1115.001.003 D3): the D-pad's arrows, and Select, which a
+     * `key` handler hears as Enter, as Chrome on Android sends DPAD_CENTER; null for any other key, and on a phone. */
+    private fun remote(keyCode: Int): Pair<String, String>? = if (!tv) null else when (keyCode) {
         KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp" to "ArrowUp"
         KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown" to "ArrowDown"
         KeyEvent.KEYCODE_DPAD_LEFT -> "ArrowLeft" to "ArrowLeft"

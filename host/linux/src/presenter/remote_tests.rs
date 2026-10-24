@@ -223,9 +223,11 @@ fn the_remote_reaches_every_radio_of_a_group_and_select_checks_one() {
 fn a_held_select_presses_once_and_toggles_once() {
     let mut p = boot(true);
     let held = |p: &mut Presenter<()>| {
+        // Three repeats: an unguarded checkbox would end unchecked.
         p.hardware_key("Select", "Enter", true, false);
-        p.hardware_key("Select", "Enter", true, true);
-        p.hardware_key("Select", "Enter", true, true);
+        for _ in 0..3 {
+            p.hardware_key("Select", "Enter", true, true);
+        }
         p.hardware_key("Select", "Enter", false, false);
         p.advance(16.);
     };
@@ -256,4 +258,127 @@ fn a_held_arrow_keeps_moving_the_focus() {
     assert_eq!(focused(&p), "x");
     p.hardware_key("ArrowLeft", "ArrowLeft", true, true);
     assert_eq!(focused(&p), "a", "a repeat moves too");
+}
+
+/// With nothing focused the root's `key` hears a remote's arrow first, as
+/// it hears any key (LLP 1005, "Keys with nothing focused"); a root that
+/// prevents it keeps the arrow from taking the first stop. (A root with a
+/// `key` handler is focusable; `tabindex=-1` keeps it out of the stops.)
+#[test]
+fn with_nothing_focused_the_root_hears_the_arrow_and_may_keep_it() {
+    const ROOT: &str = r#"component App
+  state log = ""
+  action heard(key: string)
+    log = `${log}${key};`
+    if key == "ArrowUp"
+      preventDefault()
+  view
+    column key=heard tabindex=-1 width=600 height=400
+      button "A" testId="a" width=100 height=40
+      text log testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(ROOT),
+        (),
+        (600., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let mut tv = boot(true).device().unwrap().clone();
+    tv.tv = true;
+    assert!(p.set_device(&tv).is_none());
+    p.advance(16.);
+    assert_eq!(arrow(&mut p, "ArrowUp"), "", "prevented: no stop taken");
+    assert_eq!(arrow(&mut p, "ArrowDown"), "a");
+    assert_eq!(text(&p, "log"), "ArrowUp;ArrowDown;");
+}
+
+/// Boot `source` on a TV.
+fn boot_tv(source: &str) -> Presenter<()> {
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (600., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let tv = boot(true).device().unwrap().clone();
+    assert!(p.set_device(&tv).is_none());
+    p.advance(16.);
+    p
+}
+
+/// A column with a `key` handler is focusable, and none of its controls
+/// lies beyond its edges: the remote reaches the controls, not the column.
+#[test]
+fn the_remote_reaches_the_controls_in_a_focusable_column() {
+    let mut p = boot_tv(
+        r#"component App
+  state log = ""
+  action heard(key: string)
+    log = `${log}${key};`
+  view
+    column key=heard testId="page" width=600 height=400
+      button "One" testId="one" width=100 height=40
+      button "Two" testId="two" width=100 height=40
+      text log testId="log"
+"#,
+    );
+    assert_eq!(arrow(&mut p, "ArrowDown"), "one");
+    assert_eq!(arrow(&mut p, "ArrowDown"), "two");
+    p.set_focus(Some(id(&p, "page")), 0.);
+    assert_eq!(
+        arrow(&mut p, "ArrowDown"),
+        "one",
+        "from the column, into it"
+    );
+}
+
+/// A button that disables itself when pressed keeps the focus; the
+/// remote's arrows still move it off.
+#[test]
+fn the_remote_leaves_a_control_disabled_under_the_focus() {
+    let mut p = boot_tv(
+        r#"component App
+  state done = false
+  action finish
+    done = true
+  view
+    column width=600 height=400
+      button "Go" press=finish disabled=done testId="go" width=100 height=40
+      button "Next" testId="next" width=100 height=40
+"#,
+    );
+    p.set_focus(Some(id(&p, "go")), 0.);
+    press(&mut p, "Select", "Enter");
+    assert_eq!(focused(&p), "go");
+    assert_eq!(arrow(&mut p, "ArrowDown"), "next");
+}
+
+/// Back with no route presses the first enabled button that answers
+/// Escape, and the reader is told Back is taken only when there is one.
+#[test]
+fn a_tvs_back_skips_a_disabled_escape_button() {
+    let mut p = boot_tv(
+        r#"component App
+  state log = ""
+  action goBack
+    log = `${log}back;`
+  view
+    column width=600 height=400
+      button "Off" aria-keyshortcuts="Escape" disabled=true testId="off" width=100 height=40
+      button "Back" press=goBack aria-keyshortcuts="Escape" testId="back" width=100 height=40
+      text log testId="log"
+"#,
+    );
+    assert!(p.back_goes());
+    assert!(p.system_back(0.));
+    p.advance(16.);
+    assert_eq!(text(&p, "log"), "back;");
 }
