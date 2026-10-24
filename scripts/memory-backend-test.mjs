@@ -21,7 +21,9 @@
  *     `.exact/backend-origin` alike), and requires the build's loopback
  *     `net.fetch` grants to be that origin alone;
  *   - runs the tests with the driver on that very build (`scripts/agent.mjs`,
- *     which builds nothing), so `fresh` resets only those grants;
+ *     which builds nothing), so `fresh` resets only those grants, and then the
+ *     app's `live-push.mjs` when it has one (a check that needs a write from
+ *     another client mid-drive) on the same server and build;
  *   - stops every child however it ends (a signal included: no step starts
  *     after one), killing what has not exited after a grace period, and
  *     removes the build.
@@ -166,8 +168,11 @@ export async function main(argv) {
     const grants = loopbackOrigins(dist);
     if (grants.length !== 1 || grants[0] !== origin) throw new Error(`the build's loopback grants are ${grants.join(', ') || 'none'}, not ${origin} alone: refusing to run tests whose fresh resets them`);
     // The driver on the build just checked: it builds nothing.
-    return await run(process.execPath, ['scripts/agent.mjs', 'web', '--app', app, '--test', resolve(app, 'app.test.contract')],
+    const tested = await run(process.execPath, ['scripts/agent.mjs', 'web', '--app', app, '--test', resolve(app, 'app.test.contract')],
       { cwd: ROOT, stdio: 'inherit', env }).done;
+    if (tested !== 0 || !existsSync(resolve(app, 'live-push.mjs'))) return tested;
+    check();
+    return await run(process.execPath, [resolve(app, 'live-push.mjs')], { cwd: ROOT, stdio: 'inherit', env }).done;
   } finally {
     await cleanup();
   }
