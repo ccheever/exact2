@@ -125,12 +125,10 @@ private extension CGPoint {
     static func - (a: CGPoint, b: CGPoint) -> CGPoint { CGPoint(x: a.x - b.x, y: a.y - b.y) }
 }
 
-/// `scrollIntoView` requests held until their targets can be scrolled to
-/// (UIKit's sheets mount a turn after the batch that made them; euxy's
-/// preselected icon was asked in that turn), and carried out once more when a
-/// presentation or navigation settles, after any focus it brought, which
-/// UIKit would otherwise scroll back to. One per HTML id, the latest; a
-/// request for another element leaves them be.
+/// Hold `scrollIntoView` requests until their targets mount and pending fills finish.
+/// Repeat them after navigation or presentation settles, following focus so UIKit
+/// cannot scroll back to the focused field. Keep the latest request per HTML id;
+/// a request for another element leaves the others in place.
 final class ElementScrolls {
     private struct Held {
         weak var node: NodeView?
@@ -146,6 +144,9 @@ final class ElementScrolls {
     func hold(_ node: NodeView, _ name: String, _ args: [Any]) {
         drop(name)
         held.append(Held(node: node, incarnation: node.incarnation, name: name, args: args))
+        if let session = presenter.session, session.fillInFlight {
+            session.whenIdle { [weak self] in self?.flush() }
+        }
     }
     func drop(_ name: String) { held.removeAll { $0.name == name } }
     /// A closing sheet or dialog takes its requests with it.
@@ -268,7 +269,7 @@ extension Presenter {
     /// collection, which projects the row (or, offscreen, scrolls to the
     /// original's place).
     func canScrollIntoView(_ target: NodeView) -> Bool {
-        guard target.window != nil else { return false }
+        guard target.window != nil, session?.fillInFlight != true else { return false }
         return groupedLists?.scroller(for: target.id) != nil || target.bounds.width > 0 || target.bounds.height > 0
     }
 
@@ -280,7 +281,7 @@ extension Presenter {
         }
         guard canScrollIntoView(target), !applying else {
             elementScrolls.hold(target, name, args)
-            session?.log("scrollIntoView \"\(name)\" waits: its target is not laid out in a window yet")
+            session?.log("scrollIntoView \"\(name)\" waits for its target to mount or its pending layout to finish")
             return
         }
         scrollIntoView(target, args)

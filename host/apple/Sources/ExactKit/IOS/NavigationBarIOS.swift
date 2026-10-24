@@ -1271,6 +1271,13 @@ extension NavigationHost {
         return Presenter.firstVerticalScroller(under: c.node)
     }
 
+    /// The authored content scroller, or the route's document viewport when none was named.
+    func contentScrollView(of route: RouteController) -> UIScrollView? {
+        if let node = contentScroller(of: route) { return shownScroll(node) }
+        if let name = route.node.props["navigationScroll"], !name.isEmpty { return nil }
+        return route.contentViewport
+    }
+
     private func element(named name: String, in route: NodeView) -> NodeView? {
         presenter.carrying("id").first { $0.props["id"] == name && ($0 === route || $0.isDescendant(of: route)) }
     }

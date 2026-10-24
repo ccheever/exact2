@@ -55,8 +55,6 @@ package final class Presenter {
     package let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
     package let viewport: ScrollView = Viewport(frame: .zero)
-    /// The document's mount beside the viewport while the page stands still (`mountDocument`).
-    let documentMount = PresentationMount()
     package var views: [UInt32: NodeView] = [:]
     lazy var focusEvents = FocusEvents(self)
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
@@ -286,6 +284,7 @@ package final class Presenter {
     var interactiveKeyboardDrag: Bool {
         let drags = { (sv: UIScrollView) in sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging) }
         return drags(viewport) || views.values.contains { node in node.scrollView.map(drags) ?? false }
+            || navigation.primaryRoutes.contains { $0.contentViewport.map(drags) ?? false }
     }
 
     /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
@@ -318,6 +317,7 @@ package final class Presenter {
                 self.setKeyboardInset(overlap); if !self.fold.rects.isEmpty { self.onKeyboardResize?() } // a fold's last row ends at the keys' top
             }
             if top == nil { self.pinnedRoom.release() }
+            self.navigation.primaryRoutes.forEach { $0.fitContentViewport() }
             self.menus.rehostPopovers()
             self.revealEditorAsTheKeysMove()
         }
@@ -332,12 +332,11 @@ package final class Presenter {
     func setKeyboardInset(_ h: CGFloat) {
         keyboardInset = h
         var inset = viewport.contentInset
-        inset.bottom = h
-        viewport.contentInset = inset
+        inset.bottom = navigation.pinsPrimaryViewport ? 0 : h
+        if viewport.contentInset != inset { viewport.contentInset = inset }
         var indicators = viewport.verticalScrollIndicatorInsets
         indicators.bottom = h
-        viewport.verticalScrollIndicatorInsets = indicators
-        mountDocument() // the inset is range: the field being edited is revealed by the viewport
+        if viewport.verticalScrollIndicatorInsets != indicators { viewport.verticalScrollIndicatorInsets = indicators }
     }
 
     /// The viewport's size in points: what the kernel lays out under, the
@@ -415,7 +414,6 @@ package final class Presenter {
         if root.frame != frame { root.frame = frame }
         let content = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
         if viewport.contentSize != content { viewport.contentSize = content }
-        mountDocument()
     }
     var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?

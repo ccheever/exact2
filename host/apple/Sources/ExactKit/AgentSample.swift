@@ -53,8 +53,6 @@ extension Agent {
         } else {
             ctx.translateBy(x: view.bounds.minX - view.pageBounds.minX, y: view.bounds.minY - view.pageBounds.minY)
             layer.render(in: ctx)
-            // The document standing beside the viewport, in its space (`mountDocument`)
-            if presenter.documentPort !== view { presenter.documentMount.layer.render(in: ctx) }
         }
         #else
         ctx.translateBy(x: -area.minX, y: -area.minY)

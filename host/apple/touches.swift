@@ -29,6 +29,7 @@
 //   A swipe also needs `screenTo`; `velocity` (points/s, default 1000) and
 //   `hold` (seconds, default 0) control its move and hold before lifting.
 //   {"op":"quit"}                ends the test
+// `tap {back:true}` locates UIKit's Back button through XCTest and taps it.
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
 // drag's `screen` and `screenTo` send it there too, built as XCTest's own
@@ -80,6 +81,14 @@ final class ExactTouches: XCTestCase {
             case "foreground":
                 session.send(["state": Self.name(target.state)])
             case "tap":
+                if req["back"] as? Bool == true {
+                    guard target.state == .runningForeground else { session.send(["error": "Native Back requires the app in the foreground; reopen its agent session and retry"]); continue }
+                    let buttons = target.buttons.matching(identifier: "BackButton")
+                    let count = buttons.count
+                    guard count == 1 else { session.send(["error": "Native Back found \(count) Back buttons; settle a pushed route with a native bar and retry"]); continue }
+                    buttons.element(boundBy: 0).tap()
+                    session.send(["done": true]); continue
+                }
                 guard let p = req["point"] as? [Double], p.count == 2, p.allSatisfy(\.isFinite) else { session.send(["error": "tap needs a finite point"]); continue }
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000

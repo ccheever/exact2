@@ -89,8 +89,8 @@ extension NavigationHost {
             }
             return container
         }()
-        mount(holder, in: parent, at: p.root)
         tabOwner = holder
+        mount(holder, in: parent, at: p.root)
         tint(tabs.tablist)
         // Kept under the agent too, where the authored tablist shows in the
         // bar's place: a real touch refuses it (LLP 1080.000 D7).
@@ -105,10 +105,11 @@ extension NavigationHost {
     private func mount(_ holder: UIViewController, in parent: UIViewController, at root: NodeView) {
         parent.addChild(holder)
         // Sized before it enters the window, where UIKit lays it out.
-        holder.view.frame = root.bounds
+        holder.view.frame = ownerFrame(holder, in: root)
         holder.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         root.addSubview(holder.view)
         holder.view.setPaintForeground(aboveAuthored: false)
+        fitOwner()
         holder.didMove(toParent: parent)
     }
 
@@ -161,8 +162,8 @@ extension NavigationHost {
         container.view.removeFromSuperview()
         container.removeFromParent()
         tabController = nil
-        mount(owned, in: parent, at: root)
         tabOwner = owned
+        mount(owned, in: parent, at: root)
         presenter.session?.log("hatch: the app's \(type(of: owned)) holds the tabs; the content moved after the first frame")
     }
 
@@ -399,10 +400,11 @@ extension NavigationHost {
     /// UIKit's tab bar does not do this itself: a selected tab tapped again
     /// scrolls nothing in UIKit alone (iOS 27, a real touch).
     func scrollToTop(_ c: RouteController) {
-        guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
+        guard let sv = contentScrollView(of: c) else { return }
+        let node = contentScroller(of: c)
         // At its top under a collapsed title it goes on to the open title's
         // inset, as UIKit's status-bar tap does, and opens it.
-        let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+        let inset = max(sv.adjustedContentInset.top, node != nil && node === c.collapseScroll ? node?.scrollOrigin ?? 0 : 0)
         guard sv.contentOffset.y > 0.5 - inset else { return restAtTop(sv, in: c) }
         guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
         sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -inset), in: sv, clamped: false), animated: true)

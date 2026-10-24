@@ -92,7 +92,7 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// ordinary route's placement is.
     private func local(_ session: ExactSession, _ view: UIView) -> BlockPlacement? {
         let owner = session.presenter.navigation.container
-        return owner.map { BlockPlacement(rect: view.convert(view.bounds, to: $0), within: $0.id) }
+        return owner.map { BlockPlacement(rect: view.convert(view.bounds, to: $0), within: $0.id, contentOffset: .zero) }
     }
 
     /// Where a person sees `view`, in viewport points.
