@@ -80,6 +80,8 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertGreaterThan(x(b), x(a), "the pill has its label's width")
         XCTAssertEqual(x(a + 3), x(b), accuracy: 0.5, "an offset inside draws at its end")
         XCTAssertEqual(f.accessibilityValue(), "Ask A quote now", "read as its label")
+        XCTAssertEqual(f.accessibilityAttributedString(for: NSRange(location: 0, length: (source as NSString).length))?.string, "Ask A quote now", "a line read as VoiceOver reads it")
+        XCTAssertEqual(f.accessibilityString(for: NSRange(location: 2, length: b - 2)), "k A quote")
         XCTAssertNil(f.typingAttributes[.markupAtom])
     }
 
@@ -234,10 +236,11 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         f.selectedRange = NSRange(location: a + 3, length: 0)
         XCTAssertEqual(f.selectedRange, NSRange(location: b, length: 0))
         f.deleteBackward()
-        XCTAssertEqual(f.text, "Ask  now")
+        // UIKit's smart delete takes one of the two spaces left, as when a word goes.
+        XCTAssertEqual(f.text, "Ask now")
         XCTAssertEqual(f.selectedRange, NSRange(location: a, length: 0))
         f.insertText("x")
-        XCTAssertEqual(f.text, "Ask x now")
+        XCTAssertEqual(f.text, "Ask xnow")
     }
 }
 #endif

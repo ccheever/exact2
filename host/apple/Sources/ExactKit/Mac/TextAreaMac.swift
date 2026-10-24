@@ -98,8 +98,13 @@ package final class TextArea: NSTextView {
         guard markup != nil, let storage = textStorage, let full, full.length == range.length, NSMaxRange(range) <= storage.length,
               storage.hidesSource(in: range) else { return full }
         let shown = NSMutableAttributedString(attributedString: full)
-        storage.enumerateAttribute(.markupHidden, in: range, options: .reverse) { value, run, _ in
-            if value != nil { shown.deleteCharacters(in: NSRange(location: run.location - range.location, length: run.length)) }
+        // Hidden runs read as nothing, an atom as its label (LLP 1045.000 D8).
+        storage.enumerateAttributes(in: range, options: .reverse) { attributes, run, _ in
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            if let atom = attributes[.markupAtom] as? MarkupAtom {
+                let label = storage.atomRange(at: run.location)?.location == run.location ? atom.label : ""
+                shown.replaceCharacters(in: local, with: label)
+            } else if attributes[.markupHidden] != nil { shown.deleteCharacters(in: local) }
         }
         return shown
     }

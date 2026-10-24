@@ -25,6 +25,8 @@ extension NodeView {
     #endif
 
     var accessibleText: String {
+        // A Markdown text reads as its words, each inline atom its label (LLP 1045.000 D8).
+        if let text = props["text"], props["markup"] == "markdown", !(props["atoms"] ?? "").isEmpty, let plain = MarkdownLink.installed?.plain(text, atoms: props["atoms"] ?? "", faces: props["atomFaces"] ?? "") { return plain }
         if let text = props["text"] { return text }
         // A native button's children are its face, not views (LLP 1069.011 D5),
         // read from the kernel, current on its first batch (LLP 1069.011.000 D1).
