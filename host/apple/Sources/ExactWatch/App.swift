@@ -147,6 +147,14 @@ final class EarlyBoot {
 private struct LiveRoot: View {
     @State private var model: LiveModel?
     @State private var failure: String?
+    /// The scene's latest size, phase and text size, which a boot that finishes later
+    /// reads: the view that asked for it may be an older copy by then.
+    @MainActor private final class Latest {
+        var size = CGSize.zero
+        var phase = ScenePhase.active
+        var textSize = DynamicTypeSize.large
+    }
+    @State private var latest = Latest()
     @Environment(\.scenePhase) private var phase
     @Environment(\.isLuminanceReduced) private var dimmed
     @Environment(\.displayScale) private var scale
@@ -172,11 +180,15 @@ private struct LiveRoot: View {
             }
             .onChange(of: proxy.size, initial: true) { _, size in
                 guard size.width > 0, size.height > 0 else { return }
+                latest.size = size
                 if let model { model.resize(to: size) } else { boot(size: size) }
             }
         }
-        .onChange(of: phase, initial: true) { _, phase in model?.setPhase(phase) }
-        .onChange(of: textSize) { _, size in model?.setRootFontSize(SnapshotDriver.rootFontSize(for: size)) }
+        .onChange(of: phase, initial: true) { _, phase in latest.phase = phase; model?.setPhase(phase) }
+        .onChange(of: textSize, initial: true) { _, size in
+            latest.textSize = size
+            model?.setRootFontSize(SnapshotDriver.rootFontSize(for: size))
+        }
         .onChange(of: dimmed) { _, dimmed in log.debug("luminance reduced \(dimmed, privacy: .public)") }
     }
 
@@ -184,13 +196,14 @@ private struct LiveRoot: View {
     private func boot(size: CGSize) {
         guard model == nil, failure == nil, !booting else { return }
         booting = true
+        let latest = latest
         let taken = EarlyBoot.take { booted in
             do {
                 let early = try booted.get()
                 // The early boot guessed the default text size; the reader's wins.
-                let rootFontSize = Double(SnapshotDriver.rootFontSize(for: textSize))
+                let rootFontSize = Double(SnapshotDriver.rootFontSize(for: latest.textSize))
                 if rootFontSize != early.rootFontSize { try early.session.setRootFontSize(CGFloat(rootFontSize)) }
-                start(early.session, at: size, since: early.start)
+                start(early.session, since: early.start)
             } catch { fail(error) }
         }
         guard !taken else { return }
@@ -201,16 +214,18 @@ private struct LiveRoot: View {
                                      rootFontSize: Double(SnapshotDriver.rootFontSize(for: textSize)), date: Date(), clock: HeadlessSession.liveNow())
             let session = try EarlyBoot.session(size: size, facts: facts)
             LaunchPhases.mark("booted")
-            start(session, at: size, since: since)
+            start(session, since: since)
         } catch { fail(error) }
     }
     @State private var booting = false
 
-    private func start(_ session: HeadlessSession, at size: CGSize, since: TimeInterval) {
+    /// Sized to the scene as it is now, at its phase now.
+    private func start(_ session: HeadlessSession, since: TimeInterval) {
+        let size = latest.size
         do {
             if try session.snapshot().size != size { try session.resize(to: size) }
             LaunchPhases.mark("sized")
-            let live = try LiveModel(session: session, phase: phase)
+            let live = try LiveModel(session: session, phase: latest.phase)
             LaunchPhases.mark("first batch")
             live.onCommand = { command in
                 switch command.name {
