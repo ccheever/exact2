@@ -129,12 +129,235 @@ fn decode(v: &str) -> String {
 /// The fix for CSS a template doesn't read (C2 round 2, theme2).
 const FIX_STYLE: &str = "write the paint as attributes (`fill=\"currentColor\"`, `fill-rule=\"evenodd\"`) and drop the `<style>` block, or the offending style text: a template needs neither";
 
+/// The properties a template's `style` (or presentation attribute) may set
+/// and be read (C2 round 3, an allowlist): `fill`, `fill-rule` and `color`
+/// (what `currentColor` paints). The survey behind it: no SVG under the
+/// repo's packages' or apps' `assets/` has a `style` attribute at all, and
+/// the lint's own cases use these three; so the list is what the template
+/// rule reads, nothing more.
+const STYLE_READ: &[&str] = &["fill", "fill-rule", "color"];
+
+/// Properties a template is refused for by their own reasons (a transform,
+/// an opacity, a stroke, a clip, a mask, a filter, hiding): accepted as
+/// syntax here, so that reason, not this one, names them.
+const STYLE_REFUSED_ELSEWHERE: &[&str] = &[
+    "transform",
+    "opacity",
+    "fill-opacity",
+    "stroke",
+    "clip-path",
+    "mask",
+    "filter",
+    "display",
+    "visibility",
+];
+
+/// CSS's named colours (and `transparent`), the one word a colour may be.
+const NAMED_COLOURS: &[&str] = &[
+    "aliceblue",
+    "antiquewhite",
+    "aqua",
+    "aquamarine",
+    "azure",
+    "beige",
+    "bisque",
+    "black",
+    "blanchedalmond",
+    "blue",
+    "blueviolet",
+    "brown",
+    "burlywood",
+    "cadetblue",
+    "chartreuse",
+    "chocolate",
+    "coral",
+    "cornflowerblue",
+    "cornsilk",
+    "crimson",
+    "cyan",
+    "darkblue",
+    "darkcyan",
+    "darkgoldenrod",
+    "darkgray",
+    "darkgreen",
+    "darkgrey",
+    "darkkhaki",
+    "darkmagenta",
+    "darkolivegreen",
+    "darkorange",
+    "darkorchid",
+    "darkred",
+    "darksalmon",
+    "darkseagreen",
+    "darkslateblue",
+    "darkslategray",
+    "darkslategrey",
+    "darkturquoise",
+    "darkviolet",
+    "deeppink",
+    "deepskyblue",
+    "dimgray",
+    "dimgrey",
+    "dodgerblue",
+    "firebrick",
+    "floralwhite",
+    "forestgreen",
+    "fuchsia",
+    "gainsboro",
+    "ghostwhite",
+    "gold",
+    "goldenrod",
+    "gray",
+    "green",
+    "greenyellow",
+    "grey",
+    "honeydew",
+    "hotpink",
+    "indianred",
+    "indigo",
+    "ivory",
+    "khaki",
+    "lavender",
+    "lavenderblush",
+    "lawngreen",
+    "lemonchiffon",
+    "lightblue",
+    "lightcoral",
+    "lightcyan",
+    "lightgoldenrodyellow",
+    "lightgray",
+    "lightgreen",
+    "lightgrey",
+    "lightpink",
+    "lightsalmon",
+    "lightseagreen",
+    "lightskyblue",
+    "lightslategray",
+    "lightslategrey",
+    "lightsteelblue",
+    "lightyellow",
+    "lime",
+    "limegreen",
+    "linen",
+    "magenta",
+    "maroon",
+    "mediumaquamarine",
+    "mediumblue",
+    "mediumorchid",
+    "mediumpurple",
+    "mediumseagreen",
+    "mediumslateblue",
+    "mediumspringgreen",
+    "mediumturquoise",
+    "mediumvioletred",
+    "midnightblue",
+    "mintcream",
+    "mistyrose",
+    "moccasin",
+    "navajowhite",
+    "navy",
+    "oldlace",
+    "olive",
+    "olivedrab",
+    "orange",
+    "orangered",
+    "orchid",
+    "palegoldenrod",
+    "palegreen",
+    "paleturquoise",
+    "palevioletred",
+    "papayawhip",
+    "peachpuff",
+    "peru",
+    "pink",
+    "plum",
+    "powderblue",
+    "purple",
+    "rebeccapurple",
+    "red",
+    "rosybrown",
+    "royalblue",
+    "saddlebrown",
+    "salmon",
+    "sandybrown",
+    "seagreen",
+    "seashell",
+    "sienna",
+    "silver",
+    "skyblue",
+    "slateblue",
+    "slategray",
+    "slategrey",
+    "snow",
+    "springgreen",
+    "steelblue",
+    "tan",
+    "teal",
+    "thistle",
+    "tomato",
+    "transparent",
+    "turquoise",
+    "violet",
+    "wheat",
+    "white",
+    "whitesmoke",
+    "yellow",
+    "yellowgreen",
+];
+
+/// Whether `value` (lowercase, `!important` gone) is one a template reads
+/// for `name` (round 3's grammar): a keyword, or a colour (`#rgb`, `#rgba`,
+/// `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()`/`hsl()`/`hsla()` of plain
+/// numbers and `%`, a named colour), and for `fill` a `url(#id)`, which the
+/// gradient reason refuses.
+fn value_read(name: &str, value: &str) -> bool {
+    let colour = |v: &str| {
+        let hex = v.strip_prefix('#').is_some_and(|h| {
+            matches!(h.len(), 3 | 4 | 6 | 8) && h.chars().all(|c| c.is_ascii_hexdigit())
+        });
+        let function = ["rgb(", "rgba(", "hsl(", "hsla("].iter().any(|f| {
+            v.strip_prefix(f)
+                .and_then(|r| r.strip_suffix(')'))
+                .is_some_and(|args| {
+                    args.chars()
+                        .all(|c| c.is_ascii_digit() || " .,%/+-".contains(c))
+                        || args
+                            .trim_end_matches("deg")
+                            .chars()
+                            .all(|c| c.is_ascii_digit() || " .,%/+-deg".contains(c))
+                })
+        });
+        hex || function || NAMED_COLOURS.contains(&v)
+    };
+    match name {
+        "fill-rule" => matches!(value, "nonzero" | "evenodd" | "inherit"),
+        "fill" => {
+            matches!(value, "none" | "currentcolor" | "inherit")
+                || colour(value)
+                || value
+                    .strip_prefix("url(#")
+                    .and_then(|r| r.strip_suffix(')'))
+                    .is_some_and(|id| {
+                        !id.is_empty()
+                            && id
+                                .chars()
+                                .all(|c| c.is_alphanumeric() || "-_.:".contains(c))
+                    })
+        }
+        "color" => matches!(value, "currentcolor" | "inherit") || colour(value),
+        _ => false,
+    }
+}
+
 /// What in a `style` attribute's text a template refuses rather than read
-/// (C2 round 2): CSS beyond plain `name: value;` declarations (a quote, an
-/// escape, a comment, a block, an at-rule), which an exporter's
-/// declarations never need, so no tokenizer has to agree with a browser's.
-fn style_refused(style: &str) -> Option<&'static str> {
-    [
+/// (C2 rounds 2-3, an allowlist): only `name: value` declarations parted by
+/// `;`, each name one [`STYLE_READ`] reads (its value in [`value_read`]'s
+/// grammar, `!important` allowed) or one refused by its own reason. A quote,
+/// an escape, a comment, a brace, an at-rule or a bracket, an unknown name
+/// (a custom property, `all`) or a value outside the grammar is refused,
+/// named, so no tokenizer has to agree with a browser's.
+fn style_refused(style: &str) -> Option<String> {
+    let token = [
         ("\"", "a quote"),
         ("'", "a quote"),
         ("\\", "a backslash"),
@@ -142,10 +365,46 @@ fn style_refused(style: &str) -> Option<&'static str> {
         ("{", "a brace"),
         ("}", "a brace"),
         ("@", "an at-rule (`@`)"),
+        ("[", "a bracket"),
+        ("]", "a bracket"),
     ]
     .into_iter()
-    .find(|(text, _)| style.contains(text))
-    .map(|(_, what)| what)
+    .find(|(text, _)| style.contains(text));
+    if let Some((_, what)) = token {
+        return Some(what.to_string());
+    }
+    for declaration in style.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+        let Some((name, value)) = declaration.split_once(':') else {
+            return Some(format!(
+                "`{declaration}`, which is no `name: value` declaration"
+            ));
+        };
+        let name = name.trim().to_ascii_lowercase();
+        if name == "all" {
+            return Some("`all`, which resets `fill-rule`".to_string());
+        }
+        if STYLE_REFUSED_ELSEWHERE.contains(&name.as_str()) {
+            continue;
+        }
+        if !STYLE_READ.contains(&name.as_str()) {
+            return Some(format!("`{name}`, not a property a template may set"));
+        }
+        let value = importance(value).1;
+        if !value_read(&name, &value) {
+            return Some(format!("`{name}: {value}`, not a value a template reads"));
+        }
+    }
+    None
+}
+
+/// A presentation attribute a template reads ([`STYLE_READ`]) whose value
+/// is outside the grammar (round 3, theme2's condition 3): `fill-rule="evenodd !important"`.
+fn attribute_refused(attrs: &[(&str, String)]) -> Option<String> {
+    attrs.iter().find_map(|(k, v)| {
+        let value = v.trim().to_ascii_lowercase();
+        (STYLE_READ.contains(k) && !value_read(k, &value))
+            .then(|| format!("`{k}=\"{v}\"`, not a value a template reads"))
+    })
 }
 
 /// A property's value on an element: its `style` declaration first, else
@@ -306,6 +565,12 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     format!("its `<{name}>` has a `style` with {what}"),
                     FIX_STYLE,
                 )
+            });
+        }
+        // A presentation attribute a template reads takes the same grammar.
+        if let Some(what) = (!in_defs).then(|| attribute_refused(&attrs)).flatten() {
+            note(&mut why, || {
+                (format!("its `<{name}>` has {what}"), FIX_STYLE)
             });
         }
         // What a template drawn filled, by one rule, at full opacity would lose.
@@ -731,6 +996,75 @@ mod tests {
                 read.fix
             );
         }
+        // Round 3: a `;` inside parentheses or brackets, and the `all`
+        // shorthand (which resets or inherits `fill-rule`), are refused.
+        for (svg, reason) in [
+            (
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" style="--x:(;fill-rule:evenodd;)" d="M0 0h1"/></svg>"#,
+                "its `<path>` has a `style` with `--x`, not a property a template may set",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" style="--x:[;fill-rule:evenodd;]" d="M0 0h1"/></svg>"#,
+                "its `<path>` has a `style` with a bracket",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" style="all:initial" d="M0 0h4v4H0Z M1 1h2v2H1Z"/></svg>"#,
+                "its `<path>` has a `style` with `all`, which resets `fill-rule`",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24" fill-rule="evenodd"><g style="all:initial"><path d="M0 0h4v4H0Z"/></g></svg>"#,
+                "its `<g>` has a `style` with `all`, which resets `fill-rule`",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path style="fill-rule:evenodd; all:initial" d="M0 0h1"/></svg>"#,
+                "its `<path>` has a `style` with `all`, which resets `fill-rule`",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><path style="ALL : unset" d="M0 0h1"/></svg>"#,
+                "its `<path>` has a `style` with `all`, which resets `fill-rule`",
+            ),
+            (
+                r#"<svg viewBox="0 0 24 24"><g style="all:inherit"><path d="M0 0h1"/></g></svg>"#,
+                "its `<g>` has a `style` with `all`, which resets `fill-rule`",
+            ),
+            // The allowlist (round 3): an unknown property, a value outside
+            // the grammar (a wide keyword, a function), in a style or an attribute.
+            (r#"<svg viewBox="0 0 24 24"><path style="--x: 1; fill: black" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `--x`, not a property a template may set"),
+            (r#"<svg viewBox="0 0 24 24"><path style="paint-order: stroke" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `paint-order`, not a property a template may set"),
+            (r#"<svg viewBox="0 0 24 24"><path style="fill-rule: initial" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `fill-rule: initial`, not a value a template reads"),
+            (r#"<svg viewBox="0 0 24 24"><path style="fill: var(--ink)" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `fill: var(--ink)`, not a value a template reads"),
+            (r#"<svg viewBox="0 0 24 24"><path style="fill-rule evenodd" d="M0 0h1"/></svg>"#, "its `<path>` has a `style` with `fill-rule evenodd`, which is no `name: value` declaration"),
+            (r#"<svg viewBox="0 0 24 24"><path fill="var(--ink)" d="M0 0h1"/></svg>"#, "its `<path>` has `fill=\"var(--ink)\"`, not a value a template reads"),
+            (r#"<svg viewBox="0 0 24 24"><g fill-rule="unset"><path d="M0 0h1"/></g></svg>"#, "its `<g>` has `fill-rule=\"unset\"`, not a value a template reads"),
+        ] {
+            let read = read(svg).unwrap();
+            let why = read.not_template.clone().unwrap_or_default();
+            assert!(why.starts_with(reason), "{svg}: {why}");
+            assert!(
+                read.fix
+                    .contains("drop the `<style>` block, or the offending style text"),
+                "{}",
+                read.fix
+            );
+        }
+        // What the grammar reads: colours of every form, the keywords.
+        for style in [
+            "fill: #000; fill-rule: evenodd",
+            "fill: rgb(0, 0, 0)",
+            "fill: RGBA(0 0 0 / 100%)",
+            "fill: hsl(0deg 0% 0%)",
+            "fill: Black",
+            "fill: currentColor; color: rebeccapurple",
+            "fill-rule: inherit; fill: #000F",
+        ] {
+            let svg =
+                format!(r#"<svg viewBox="0 0 24 24"><path style="{style}" d="M0 0h1"/></svg>"#);
+            let why = read(&svg).unwrap().not_template;
+            assert!(
+                why.as_deref().is_none_or(|w| !w.contains("`style`")),
+                "{style}: {why:?}"
+            );
+        }
         // Plain declarations still read, `!important` and case included.
         let plain = read(r#"<svg viewBox="0 0 24 24"><path style="fill-rule: EvenOdd; fill: black !important" d="M0 0h1"/></svg>"#).unwrap();
         assert_eq!(
@@ -745,7 +1079,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             important.not_template.as_deref(),
-            Some("its `<path>` has a `fill-rule`")
+            Some("its `<path>` has `fill-rule=\"evenodd !important\"`, not a value a template reads; its `<path>` has a `fill-rule`")
         );
         assert!(mixed.fix.contains("the same `fill-rule`"), "{}", mixed.fix);
         let wrong =
@@ -753,7 +1087,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             wrong.not_template.as_deref(),
-            Some("its `<path>` has a `fill-rule`")
+            Some("its `<path>` has `fill-rule=\"winding\"`, not a value a template reads; its `<path>` has a `fill-rule`")
         );
         // A rule written in `<defs>` paints nothing; `clip-rule` outside a
         // `<clipPath>` paints nothing either.

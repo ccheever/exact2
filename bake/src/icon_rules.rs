@@ -52,10 +52,10 @@ pub(crate) fn needed(
         }
     };
     let main = other.as_ref().or(compiled);
-    let any = main
-        .into_iter()
-        .chain(entries.iter().copied())
-        .any(even_odd);
+    let mut any = false;
+    for plan in main.into_iter().chain(entries.iter().copied()) {
+        any |= even_odd(plan)?;
+    }
     Ok(any.then(|| vec!["evenodd"]))
 }
 
@@ -65,7 +65,10 @@ pub(crate) fn needed(
 /// Astra 2), or a source inside a baked value, a resource's initial or
 /// placeholder value, whose strings are in the data pool, not interned
 /// (round 2, Astra 2); each read through `exact_kernel::Icon`, the one reader.
-pub(crate) fn even_odd(plan: &exact_plan::Plan) -> bool {
+/// A baked value that is there (not zero-length, which is none) and doesn't
+/// decode fails, naming its resource and field (round 3): an unread value
+/// could hold the rule.
+pub(crate) fn even_odd(plan: &exact_plan::Plan) -> Result<bool, String> {
     let source = |text: &str| {
         text.strip_prefix("symbol:")
             .and_then(exact_kernel::Icon::parse)
@@ -80,16 +83,29 @@ pub(crate) fn even_odd(plan: &exact_plan::Plan) -> bool {
             v => v.as_str().is_some_and(source),
         }
     }
-    let baked = plan.resources.iter().any(|r| {
-        [r.initial, r.placeholder_value].into_iter().any(|bytes| {
-            exact_plan::Value::from_bytes(plan.bytes(bytes)).is_ok_and(|v| within(&v, &source))
-        })
-    });
+    let mut baked = false;
+    for r in plan.resources.iter() {
+        for (field, bytes) in [
+            ("initial", r.initial),
+            ("placeholder_value", r.placeholder_value),
+        ] {
+            if bytes.len == 0 {
+                continue;
+            }
+            let value = exact_plan::Value::from_bytes(plan.bytes(bytes)).map_err(|e| {
+                format!(
+                    "the plan's resource `{}` has a malformed {field} value ({e:?})",
+                    plan.str(r.name)
+                )
+            })?;
+            baked |= within(&value, &source);
+        }
+    }
     let row = plan
         .icons
         .iter()
         .any(|i| exact_runner::icon_of(plan, i).is_some_and(|icon| icon.even_odd));
-    row || baked || plan.strings.iter().any(source)
+    Ok(row || baked || plan.strings.iter().any(source))
 }
 
 #[cfg(test)]
@@ -105,14 +121,15 @@ mod tests {
             b.icon("icon.a", "", "0 0 24 24", path, "icons/a.svg");
             b.finish().unwrap()
         };
-        assert!(even_odd(&plan("evenodd:M0 0h4v4H0Z")));
-        assert!(!even_odd(&plan("M0 0h4v4H0Z")));
-        assert!(!even_odd(&plan("")));
+        assert!(even_odd(&plan("evenodd:M0 0h4v4H0Z")).unwrap());
+        assert!(!even_odd(&plan("M0 0h4v4H0Z")).unwrap());
+        assert!(!even_odd(&plan("")).unwrap());
         assert!(!even_odd(
             &exact_plan::builder::PlanBuilder::new(0, 0)
                 .finish()
                 .unwrap()
-        ));
+        )
+        .unwrap());
     }
 
     fn app(name: &str, rule: &str) -> std::path::PathBuf {
@@ -217,7 +234,7 @@ mod tests {
         std::fs::write(dir.join("app.contract"), "component App\n  view\n    image \"symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z|\"\n").unwrap();
         let plan = crate::colors::compiled(&dir).unwrap().unwrap();
         assert!(plan.icons.is_empty(), "no row: {:?}", plan.icons);
-        assert!(even_odd(&plan));
+        assert!(even_odd(&plan).unwrap());
         let (now, main) = (compat(&dir, false), compat(&dir, true));
         assert_eq!(now.inputs["iconFillRules"], serde_json::json!(["evenodd"]));
         assert_ne!(now.id, main.id);
@@ -311,7 +328,10 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("app.contract"), "shape Glyph\n  srcs: string[]\ncomponent App\n  resource glyph = glyph() as shape Glyph\n  view\n    column\n      for s in glyph.srcs key = s\n        image s\n").unwrap();
         let compiled = crate::colors::compiled(&dir).unwrap().unwrap();
-        assert!(!even_odd(&compiled), "nothing even-odd before the bake");
+        assert!(
+            !even_odd(&compiled).unwrap(),
+            "nothing even-odd before the bake"
+        );
         let odd = "symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z|";
         for (answer, want) in [
             (odd, Some(vec!["evenodd"])),
@@ -329,6 +349,24 @@ mod tests {
                 "{answer}"
             );
         }
+        // A value that is there and doesn't decode fails the id, named
+        // (round 3); a zero-length one is none.
+        let mut broken = contract::bake(compiled.clone(), Glyph(odd)).unwrap();
+        let at = broken.data.len() as u32;
+        broken.data.to_mut().extend_from_slice(&[0xff, 0xff, 0xff]);
+        broken.resources[0].initial = exact_plan::Bytes { offset: at, len: 3 };
+        let err = even_odd(&broken).unwrap_err();
+        assert!(
+            err.contains("resource `glyph`") && err.contains("malformed initial value"),
+            "{err}"
+        );
+        std::fs::write(dir.join("out/app.plan"), broken.encode()).unwrap();
+        assert!(
+            super::needed(&dir, Some(&compiled), Some(&dir.join("out")), &[]).is_err(),
+            "the compat id fails"
+        );
+        broken.resources[0].initial = exact_plan::Bytes { offset: 0, len: 0 };
+        assert!(!even_odd(&broken).unwrap(), "a zero-length value is none");
         let _ = std::fs::remove_dir_all(dir);
     }
 
