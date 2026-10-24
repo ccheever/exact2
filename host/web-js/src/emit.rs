@@ -18,6 +18,8 @@ use std::fmt::Write as _;
 
 #[path = "motion.rs"]
 mod motion;
+#[path = "named_records.rs"]
+mod named_records;
 #[path = "regions.rs"]
 mod regions;
 #[path = "rows.rs"]
@@ -1173,25 +1175,7 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16 {
-                let value = self.f(b.expr, scope)?;
-                let p = self.uses.rt("P");
-                let record = self.uses.rt("decorationRecord");
-                let _ = write!(
-                    self.out,
-                    "{p}({e},\"data-decorations\",()=>{record}(({value})()));"
-                );
-                continue;
-            }
-            // A Markdown node's faces, as the runner's bridge names them (LLP 1045.000 D2).
-            if b.kind == BindingKind::Prop && b.id == PropId::AtomFaces as u16 {
-                let value = self.f(b.expr, scope)?;
-                let p = self.uses.rt("P");
-                let record = self.uses.rt("atomFacesRecord");
-                let _ = write!(
-                    self.out,
-                    "{p}({e},\"data-atom-faces\",()=>{record}(({value})()));"
-                );
+            if self.named_record(&b, &e, scope)? {
                 continue;
             }
             // tvOS's focus guide has no DOM property, whether literal or bound.

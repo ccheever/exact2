@@ -545,8 +545,7 @@ impl<D: DataSource> Bridge<D> {
             // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
             // with its code and repeat, and focusin (46) and focusout (47) with
             // their targets, toggle (50), scrollend (51), a file drag's enter
-            // and leave (55, 56), a paste with files (57) and an atom's press (58)
-            // (`Event::of_host_kind`).
+            // and leave (55, 56), a paste with files (57), an atom's press (58) (`Event::of_host_kind`).
             6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=58 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
