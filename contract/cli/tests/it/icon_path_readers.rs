@@ -12,9 +12,13 @@
 //!   `Icon::parse`.
 //! - JavaScript (`.js`, `.mjs`, `.ts`, tests aside), with no receiver
 //!   heuristics: any `evenodd:`, any string starting `icon|` (either quote or
-//!   a backtick), and, in a file that names a symbol source at all, any
-//!   split, search or slice on `"|"` or `":"`, outside the allowed function
-//!   (the page's `iconForm`) and the named lines.
+//!   a backtick), and, in a file that names a symbol source at all, any call
+//!   to split, indexOf, lastIndexOf, slice, substring, substr, search or
+//!   match whose first argument is a quoted `|` or `:` (whitespace and
+//!   newlines around it, more arguments after), outside the allowed function
+//!   (the page's `iconForm`) and the named lines. Comment lines (line
+//!   comments, and block comments from the line that opens one to the line
+//!   that closes it) are skipped; a line merely starting `*` is code.
 
 use std::path::{Path, PathBuf};
 
@@ -145,14 +149,74 @@ fn readers(rel: &str, text: &str) -> (Vec<String>, Vec<usize>, Vec<usize>) {
     let in_allowed = |n: usize| allowed.iter().any(|(_, a, b)| (*a..=*b).contains(&n));
     let js = [".js", ".mjs", ".ts"].iter().any(|x| rel.ends_with(x));
     let source_file = js && names_a_source(text);
+    // The code, comment lines blanked (round 3): a line comment (`//`,
+    // `///`, `//!`) where a line starts with one, and a block comment from
+    // a line that opens one (`/*`, `/**`) to the line that closes it. A
+    // line merely starting `*` is code (`*out = …`).
+    let mut in_block = false;
+    let code: Vec<&str> = text
+        .lines()
+        .map(|line| {
+            let t = line.trim();
+            if in_block {
+                in_block = !t.contains("*/");
+                return "";
+            }
+            if t.starts_with("/*") {
+                in_block = !t.contains("*/");
+                return "";
+            }
+            if t.starts_with("//") {
+                ""
+            } else {
+                t
+            }
+        })
+        .collect();
+    // A split, search or slice whose first argument is a quoted `|` or `:`,
+    // whitespace and newlines allowed around it and more arguments after
+    // (round 3): the lines each such call starts on.
+    let mut calls = std::collections::BTreeSet::new();
+    if source_file {
+        let joined = code.join("\n");
+        for op in [
+            "split",
+            "indexOf",
+            "lastIndexOf",
+            "slice",
+            "substring",
+            "substr",
+            "search",
+            "match",
+        ] {
+            for (at, _) in joined.match_indices(&format!("{op}(")) {
+                if joined[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                {
+                    continue;
+                }
+                let rest = joined[at + op.len() + 1..].trim_start();
+                let mut chars = rest.chars();
+                let (Some(q), Some(c), Some(q2)) = (chars.next(), chars.next(), chars.next())
+                else {
+                    continue;
+                };
+                let after = chars.as_str().trim_start();
+                if "\"'`".contains(q)
+                    && q2 == q
+                    && (c == '|' || c == ':')
+                    && (after.starts_with(',') || after.starts_with(')'))
+                {
+                    calls.insert(joined[..at].matches('\n').count());
+                }
+            }
+        }
+    }
     let (mut found, mut lines_seen) = (Vec::new(), Vec::new());
-    for (i, line) in text.lines().enumerate() {
-        let code = line.trim();
-        if code.starts_with("//")
-            || code.starts_with("///")
-            || code.starts_with("//!")
-            || code.starts_with('*')
-        {
+    for (i, code) in code.iter().enumerate() {
+        if code.is_empty() {
             continue;
         }
         let hit = if js {
@@ -160,22 +224,7 @@ fn readers(rel: &str, text: &str) -> (Vec<String>, Vec<usize>, Vec<usize>) {
                 || ["\"icon|", "'icon|", "`icon|"]
                     .iter()
                     .any(|q| code.contains(q));
-            let on_bar = source_file
-                && [
-                    "split",
-                    "indexOf",
-                    "lastIndexOf",
-                    "slice",
-                    "substring",
-                    "substr",
-                ]
-                .iter()
-                .any(|op| {
-                    ["\"|\"", "'|'", "`|`", "\":\"", "':'", "`:`"]
-                        .iter()
-                        .any(|arg| code.contains(&format!("{op}({arg}")))
-                });
-            marker || on_bar
+            marker || calls.contains(&i)
         } else {
             code.contains("raw_for_icon")
                 || (code.contains("\"icon|\"")
@@ -186,7 +235,7 @@ fn readers(rel: &str, text: &str) -> (Vec<String>, Vec<usize>, Vec<usize>) {
         if !hit || in_allowed(i + 1) {
             continue;
         }
-        match LINES.iter().position(|(f, l, _)| *f == rel && code == *l) {
+        match LINES.iter().position(|(f, l, _)| *f == rel && *code == *l) {
             Some(k) => lines_seen.push(k),
             None => found.push(format!("{rel}:{}: {code}", i + 1)),
         }
@@ -262,6 +311,17 @@ fn the_scan_catches_each_bypass() {
         !rust("let d = plan.str(row.path.raw_for_icon());").is_empty(),
         "the escape outside icon_of"
     );
+    // A line starting `*` is code, not a comment (round 3); a real block
+    // comment's lines are skipped.
+    assert!(!rust(
+        "fn f(out: &mut String) {\n    *out = plan.str(row.path.raw_for_icon()).to_owned();\n}"
+    )
+    .is_empty());
+    assert!(rust("/**\n * raw_for_icon is called by icon_of alone.\n */\nfn g() {}").is_empty());
+    assert!(
+        !rust("/* a comment */\nlet d = row.path.raw_for_icon();").is_empty(),
+        "a closed one-line comment ends there"
+    );
     assert!(!rust(
         "let parts: Vec<_> = form.strip_prefix(\"icon|\").unwrap().split('|').collect();"
     )
@@ -277,6 +337,14 @@ fn the_scan_catches_each_bypass() {
         "const rule = path.slice(0, path.indexOf(\":\")); // data-symbol-path",
         "const rule = d.startsWith('evenodd:');",
         "const s = el.getAttribute('data-symbol-source').substring(5);\nconst [a, b] = s.split(':');",
+        // Whitespace, newlines and more arguments (round 3).
+        "const f = el.dataset.symbolSource.split(\"|\", 4);",
+        "const at = el.dataset.symbolSource.indexOf(\"|\", i);",
+        "const f = el.dataset.symbolSource.split( \"|\" );",
+        "const f = el.dataset.symbolSource.split(\n  '|'\n);",
+        "const at = el.dataset.symbolSource.search(\":\");",
+        "const m = el.dataset.symbolSource.match('|');",
+        "const at = el.dataset.symbolSource.lastIndexOf(`:`, 9);",
     ] {
         assert!(!js(bypass).is_empty(), "missed: {bypass}");
     }
