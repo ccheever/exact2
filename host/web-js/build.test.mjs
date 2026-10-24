@@ -1,11 +1,15 @@
-import { test, expect, spyOn } from 'bun:test';
+import { test, expect, mock, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { moduleGrants, webCompiler } from './module.mjs';
 
-test.each(['', 'net.fetch https://api.example', 'fs.read app:/data\nsqlite.open app:/data/notes.db'])('module metadata preserves grants: %s', async grants => {
+test.each([
+  ['empty', ''],
+  ['network', 'net.fetch https://api.example'],
+  ['storage', 'fs.read app:/data\nsqlite.open app:/data/notes.db'],
+])('module metadata preserves grants: %s', async (_label, grants) => {
   const root = resolve(import.meta.dir, '../..');
   mkdirSync(resolve(root, 'target'), { recursive: true });
   const dir = mkdtempSync(resolve(root, 'target/module-grants-')), path = resolve(dir, 'app.module.wasm');
@@ -15,16 +19,19 @@ test.each(['', 'net.fetch https://api.example', 'fs.read app:/data\nsqlite.open 
   const string = s => { const b = new TextEncoder().encode(s); u32(b.length); bytes.push(...b); };
   u32(4); bytes.push(0); string('test.grants'); string(grants);
   new Uint8Array(memory.buffer, out, bytes.length).set(bytes);
+  const output = mock(() => out);
   const instantiate = spyOn(WebAssembly, 'instantiate').mockResolvedValue({ instance: { exports: {
     memory, exact_logic_abi: () => 4, exact_logic_create: () => 1, exact_logic_alloc: () => 0,
     exact_logic_call(_session, pointer, length) {
       const request = new DataView(memory.buffer, pointer, length);
       return length === 5 && request.getUint32(0, true) === 4 && request.getUint8(4) === 0 ? 0 : 1;
     },
-    exact_logic_output: () => out, exact_logic_output_len: () => bytes.length,
+    exact_logic_output: output, exact_logic_output_len: () => bytes.length,
   } } });
   try {
-    expect(await moduleGrants(path)).toBe(grants);
+    const actual = await moduleGrants(path);
+    expect(output).toHaveBeenCalledTimes(1);
+    expect(actual).toBe(grants);
   } finally {
     instantiate.mockRestore();
     rmSync(dir, { recursive: true, force: true });
