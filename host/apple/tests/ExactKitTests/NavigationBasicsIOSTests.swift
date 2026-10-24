@@ -185,16 +185,65 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(content.contentOffset, .zero, "hiding the keyboard releases its scroll accommodation")
     }
 
-    func testNativeBackRefusesToChooseBetweenEmbeddedSessions() throws {
-        let first = try fixture("native-back-first"), firstWindow = try XCTUnwrap(window)
+    func testNativeBackKeepsItsScopeInsideTheHostsTabController() throws {
+        let session = try fixture("native-back-host-tabs", plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let window = try XCTUnwrap(window), host = try XCTUnwrap(window.rootViewController)
+        let tabs = UITabBarController()
+        tabs.view.accessibilityIdentifier = "host-tabs"
+        window.rootViewController = nil
+        tabs.setViewControllers([host], animated: false)
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        tabs.view.layoutIfNeeded()
+        session.view?.frame = host.view.bounds
+        session.view?.layoutIfNeeded()
+        try tapNode(session, "start-open-detail")
+        until("the route settles inside the host's tabs") { !session.presenter.navigation.inTransition }
+        let navigation = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        XCTAssertTrue(navigation.tabBarController === tabs, "UIKit also sees the host's enclosing controller")
+        let container = try XCTUnwrap(session.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertEqual(container, navigation.view.accessibilityIdentifier)
+        XCTAssertNotEqual(container, tabs.view.accessibilityIdentifier, "the host's tabs can contain other sessions")
+    }
+
+    func testNativeBackIdentifiesEachEmbeddedNavigationContainer() throws {
+        let first = try fixture("native-back"), firstWindow = try XCTUnwrap(window)
+        let host = try XCTUnwrap(firstWindow.rootViewController), firstView = try XCTUnwrap(first.view)
+        let second = ExactApp.shared.makeSession(label: "native-back")
+        sessions.append(second)
+        let secondView = ExactView(session: second)
+        let frame = host.view.bounds
+        firstView.frame = CGRect(x: 0, y: 0, width: frame.width, height: frame.height / 2)
+        secondView.frame = firstView.frame.offsetBy(dx: 0, dy: frame.height / 2)
+        host.view.addSubview(secondView)
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        XCTAssertNil(second.boot(plan: plan, size: secondView.bounds.size).error)
+        firstView.layoutIfNeeded()
+        secondView.layoutIfNeeded()
+        XCTAssertNil(first.presenter.navigation.observation()["nativeBack"] as? String, "a root has no native Back")
         try tapNode(first, "open-plain")
+        try tapNode(second, "open-plain")
         until("the first route settles") { !first.presenter.navigation.inTransition }
-        XCTAssertEqual(first.presenter.navigation.observation()["nativeBack"] as? Bool, true)
-        let second = try fixture("native-back-second")
-        defer { firstWindow.isHidden = true }
-        XCTAssertEqual(first.presenter.navigation.observation()["nativeBack"] as? Bool, false)
-        XCTAssertEqual(second.presenter.navigation.observation()["nativeBack"] as? Bool, false,
-                       "the other session's Back cannot stand in for this session's")
+        until("the second route settles") { !second.presenter.navigation.inTransition }
+        let firstContainer = try XCTUnwrap(first.presenter.navigation.observation()["nativeBack"] as? String)
+        let secondContainer = try XCTUnwrap(second.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertNotEqual(firstContainer, secondContainer, "overlapping node ids and session labels cannot share Back's scope")
+        XCTAssertEqual(firstContainer, first.presenter.navigation.primaryOwner?.view.accessibilityIdentifier)
+        XCTAssertEqual(secondContainer, second.presenter.navigation.primaryOwner?.view.accessibilityIdentifier)
+        secondView.removeFromSuperview()
+        XCTAssertNil(second.presenter.navigation.observation()["nativeBack"] as? String, "an unmounted session cannot tap Back")
+        XCTAssertEqual(first.presenter.navigation.observation()["nativeBack"] as? String, firstContainer)
+        host.view.addSubview(secondView)
+        secondView.layoutIfNeeded()
+        let remountedContainer = try XCTUnwrap(second.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertNotEqual(remountedContainer, firstContainer)
+        XCTAssertEqual(remountedContainer, second.presenter.navigation.primaryOwner?.view.accessibilityIdentifier,
+                       "the driver reads the current native container after remounting")
+        _ = Agent(session: first).back()
+        until("the first route returns") { !first.presenter.navigation.inTransition }
+        XCTAssertNil(first.presenter.navigation.observation()["nativeBack"] as? String)
+        XCTAssertEqual(second.presenter.navigation.observation()["nativeBack"] as? String, remountedContainer,
+                       "popping one session leaves the other's Back available")
     }
 
     func testNativeRouteKeepsItsPopoverAnchoredAndWaitsForAFillBeforeRevealing() throws {

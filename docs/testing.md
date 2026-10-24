@@ -119,12 +119,21 @@ its time counts too.
   agent's `clock settle`), not a hardcoded sleep timeout.
 
 With an iOS session using `touch: 'platform'`, `await session.back({ native: true })`
-locates UIKit's Back button through XCTest and taps it. It requires the app's only
-mounted Exact session, so an embedded session cannot tap another session's control.
+locates UIKit's Back button through XCTest inside the active navigation container
+and taps it. Embedded sessions target their own container. The driver refuses missing
+or ambiguous containers or buttons, so it cannot choose another session's Back.
 Settle the session and assert its resulting route or screen.
 The ordinary `back()` invokes the platform's handler;
 it does not establish touch delivery. XCTest can wait a minute for the app and another
 minute for SpringBoard to idle before tapping, so the native call has a 150-second bound.
+
+With `EXACT_SIM` naming an iPhone Duo, rebuild Duo Lab and the host fixture, then run
+`bun scripts/smoke.mjs duo --only navigation,navigation-gestures,host-navigation`.
+These legs cover native Back taps, completed and cancelled edge and content swipes,
+and Back in independent embedded sessions. The gesture checks observe UIKit's held
+interactive transition and check content clearance within the moving route. After
+release they assert the route, draft, focus and scroll position. UIKit owns the
+[content swipe recognizer](https://developer.apple.com/documentation/uikit/uinavigationcontroller/interactivecontentpopgesturerecognizer).
 
 ## Browsers
 
