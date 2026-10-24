@@ -664,6 +664,16 @@ package final class Runtime {
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
     package func preferExtension(_ json: String) -> Batch { on { read(exact_extension(rt, write(json))) } }
     package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
+    /// A package picture's admission (LLP 1133.019 D11 item 1): nil for a
+    /// source of no package's scheme.
+    package func picture(_ source: String) -> [String: Any]? {
+        on(busy: ["error": "NotAllowedError", "message": "busy"]) {
+            let len = exact_picture(rt, write(source))
+            guard len > 0 else { return nil }
+            let data = Data(bytes: exact_out(rt), count: Int(len))
+            return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "NotAllowedError"]
+        }
+    }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     package func setPlace(locale: String, timeZone: String, seed: UInt64, formatLocale: String = "") -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed) + "\0" + formatLocale)) ) } }

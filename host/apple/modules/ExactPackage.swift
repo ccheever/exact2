@@ -85,15 +85,26 @@ public final class ExactPackageContext {
     private let changedFn: (String) -> Void
     private let logFn: (String) -> Void
     private let nowFn: () -> Double
+    private let pictureFn: (UInt32, String) -> Void
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
                 tracks: ExactTracks = ExactTracks(), file: @escaping (String) -> URL? = { _ in nil },
-                audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil }) {
+                audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
+                picture: @escaping (UInt32, String) -> Void = { _, _ in }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
-        self.tracks = tracks; fileFn = file; self.audioSession = audioSession
+        self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
     }
+
+    /// A picture of the interface's `img` scheme changed (LLP 1133.019 D11
+    /// item 1): the host loads `source` again wherever it is shown.
+    public func pictureChanged(_ source: String) { pictureFn(0, source) }
+    /// A picture the app may no longer read (D2): the host clears it from
+    /// every `img` that shows it and from its cache, cancels its loads and
+    /// drops a later reply to them; each such `img` fires `error`. A load
+    /// after `pictureChanged(source)` asks again.
+    public func revokePicture(_ source: String) { pictureFn(1, source) }
 
     /// The file an admitted `app:/` path names (LLP 1133.009 D10 item 4):
     /// the session's own directories, a scratch tree under the agent.
@@ -149,6 +160,15 @@ public protocol ExactPackage: AnyObject {
     /// on view `id`, by the origin of the commit that changed it; the value
     /// reaches the view as its props do.
     func bound(_ id: String, _ prop: String, origin: String)
+    /// A picture of the interface's `img` scheme (LLP 1133.019 D2, D11 item
+    /// 1), admitted by the runner: `source` drawn for a box of `width` by
+    /// `height` device pixels at `fit` (`object-fit`'s word), upright.
+    /// `owned`: let through as the app's own item only (D6). `reply` once,
+    /// on any thread, with the image or an error's code.
+    func image(_ source: String, width: Int, height: Int, fit: String, owned: Bool, reply: @escaping (CGImage?, String?) -> Void)
+    /// The runner's permission states for this interface, by name, when
+    /// bound under the agent and whenever one changes.
+    func permissions(_ states: [String: String])
 }
 
 public extension ExactPackage {
@@ -164,6 +184,10 @@ public extension ExactPackage {
     }
     func displayed(_ id: String, _ shown: Bool, origin: String) {}
     func bound(_ id: String, _ prop: String, origin: String) {}
+    func image(_ source: String, width: Int, height: Int, fit: String, owned: Bool, reply: @escaping (CGImage?, String?) -> Void) {
+        reply(nil, "NotSupportedError")
+    }
+    func permissions(_ states: [String: String]) {}
 }
 
 // MARK: the authenticator entry (LLP 1133.010 D13)

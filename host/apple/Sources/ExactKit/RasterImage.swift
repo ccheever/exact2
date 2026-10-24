@@ -394,6 +394,14 @@ final class RasterImage: @unchecked Sendable {
         return nil
         #endif
     }
+    /// A package's decoded picture (LLP 1133.019 D11 item 1), drawn into the
+    /// plan's storage, which the budget charges as any decode's.
+    static func picture(_ image: CGImage, metadata: RasterMetadata, plan: RasterDecodePlan,
+                        charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) throws -> RasterImage {
+        guard let drawn = normalized(image, plan: plan, adopt: false) else { throw RasterFailure.decode }
+        let owner = RasterOwner(charge: charge, sourceOwner: sourceOwner)
+        return RasterImage(image: owner.own(drawn), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil)
+    }
     private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0) {
         self.image = image; naturalSize = natural; residentBytes = bytes; self.animation = animation; self.headroom = headroom
     }

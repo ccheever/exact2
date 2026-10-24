@@ -66,13 +66,9 @@ android {
     // The modules' implementations the app binds (LLP 1133.001 D5): their Kotlin, and the roster naming them that
     // `agent-android.mjs` writes (`-PextensionDirs`).
     providers.gradleProperty("extensionDirs").orNull?.split(',')?.filter { it.isNotEmpty() }?.forEach { sourceSets["main"].kotlin.directories.add(it) }
-    // The runtime permissions the app's grant lines derive (`-Ppermissions`, LLP 1133.002 D6) and the intent actions the
-    // bound implementations query (`-Pqueries`, LLP 1133.012 D12 item 3: a service an app targeting API 30 reaches
-    // only by naming it), merged into the shell's manifest from the release source set's: an app that grants no
-    // device and binds no such implementation adds nothing.
-    val names = providers.gradleProperty("permissions").orNull?.split(',')?.filter { it.isNotEmpty() }.orEmpty()
-    val queries = providers.gradleProperty("queries").orNull?.split(',')?.filter { it.isNotEmpty() }.orEmpty()
-    if (names.isNotEmpty() || queries.isNotEmpty()) {
+    // The runtime permissions the app's grant lines derive (`-Ppermissions`, LLP 1133.002 D6), merged into the shell's
+    // manifest from the release source set's: an app that grants no device asks for none.
+    providers.gradleProperty("permissions").orNull?.split(',')?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }?.let { names ->
         val permissions = layout.buildDirectory.file("permissions/AndroidManifest.xml").get().asFile
         permissions.parentFile.mkdirs()
         // CAMERA implies the back camera and autofocus as required features, which would filter the app from a
@@ -80,9 +76,7 @@ android {
         val features = if ("android.permission.CAMERA" in names) listOf("camera.any", "camera", "camera.autofocus", "camera.flash") else emptyList()
         permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
             names.joinToString("") { "    <uses-permission android:name=\"$it\" />\n" } +
-            features.joinToString("") { "    <uses-feature android:name=\"android.hardware.$it\" android:required=\"false\" />\n" } +
-            (if (queries.isEmpty()) "" else "    <queries>\n" + queries.joinToString("") { "        <intent><action android:name=\"$it\" /></intent>\n" } + "    </queries>\n") +
-            "</manifest>\n")
+            features.joinToString("") { "    <uses-feature android:name=\"android.hardware.$it\" android:required=\"false\" />\n" } + "</manifest>\n")
         sourceSets["release"].manifest.srcFile(permissions)
     }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).

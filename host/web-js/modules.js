@@ -20,6 +20,7 @@
 import { data, Resources, commit, R, Failed, nextTicket, say, clock, Clocked, After, time } from "./rt.js";
 import { reportTime } from "./navigation.js";
 import { packageViews } from "./views.js";
+import { packagePictures } from "./pictures.js";
 import { appGrantSet, coversPath } from "./admission.js";
 import { samples, groupOf } from "./samples.js";
 
@@ -319,7 +320,8 @@ export function modules(rows, bound = {}, views = {}) {
   const instance = extension => {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
-      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession };
+      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
+        revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source) };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       ready.set(extension, impl);
@@ -333,6 +335,33 @@ export function modules(rows, bound = {}, views = {}) {
   const gestures = new Set([...byKey.values()].filter(r => r.send && r.sub.gesture && route(r) === "real").map(extensionOf));
   if (gestures.size) setTimeout(() => { for (const extension of gestures) instance(extension); });
   packageViews(views, chunk, instance);
+  // A package's `img` scheme (LLP 1133.019 D11 item 1): admitted as the runner's `modules/pictures.rs` admits it on
+  // target `web` — the app declares one of its grant lines, an implementation is bound, and under the agent its
+  // permission is granted and the app declares that permission's lines — then drawn by its implementation (pictures.js).
+  const schemes = {}, imageRows = {}, pictureCounts = new Map();
+  for (const row of byKey.values()) {
+    const scheme = row.sub.images?.scheme;
+    if (typeof scheme === "string" && !imageRows[extensionOf(row)]) { schemes[scheme] = extensionOf(row); imageRows[extensionOf(row)] = row; }
+  }
+  const pictureDecision = row => {
+    const images = row.sub.images, lines = (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/)[0]);
+    if (!images.grants.some(l => lines.includes(l))) return `grant-missing (needs ${images.grants.join(" or ")})`;
+    const r = route(row);
+    if (r === "substitute") return "no implementation bound";
+    const name = images.permission;
+    if (typeof name !== "string" || r === "real") return null;
+    const entries = [row.sub.permission, ...(row.sub.permissionList ?? []), ...Object.values(row.sub.permissionBy ?? {})].flat();
+    const read = entries.filter(p => p?.name === name).flatMap(p => p.grants ?? []).some(l => lines.includes(l));
+    if (!read) return `grant-missing (permission ${name})`;
+    return stateOf(name) === "granted" ? null : `permission ${name} is ${stateOf(name)}`;
+  };
+  const admitPicture = extension => {
+    const why = pictureDecision(imageRows[extension]), c = pictureCounts.get(extension) ?? { admitted: 0, refused: 0 };
+    if (why) { c.refused++; c.refusal = why; } else { c.admitted++; delete c.refusal; }
+    pictureCounts.set(extension, c);
+    return why;
+  };
+  const pictures = Object.keys(schemes).length ? packagePictures(schemes, admitPicture, instance, extension => pictureDecision(imageRows[extension])) : null;
   const tell = () => { sampled.visibility(!shown()); for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); };
   if (typeof addEventListener === "function") addEventListener("visibilitychange", tell);
   (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); } };
@@ -569,6 +598,7 @@ export function modules(rows, bound = {}, views = {}) {
       }
       for (const [extension, e] of Object.entries(out)) Object.assign(e, sampled.state(extension));
       for (const [h, entry] of listed) (out[extensionOf(h.row)].ceremonies ??= []).push(entry);
+      for (const [extension, c] of pictureCounts) if (out[extension]) out[extension].pictures = { ...c };
       return out;
     },
     // A call from data code (ts-data.js `__exact_module`): JSON, as the native runtime answers it.

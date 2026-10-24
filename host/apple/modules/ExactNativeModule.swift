@@ -522,6 +522,9 @@ final class ExactHatches {
     let onLineFn: OnLineFn?
     /// One of 136 or more: a capture's claim on the audio session and its release (LLP 1133.009 D7; ExactExtensions.swift).
     let audioClaimFn: AudioClaims.ClaimFn?, audioReleaseFn: AudioClaims.ReleaseFn?
+    /// One of 144 or more: a package picture changed (0) or revoked (1) (LLP 1133.019 D11 item 1).
+    typealias PictureFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+    let pictureFn: PictureFn?
     #if os(iOS) || os(tvOS)
     /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
     typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -569,6 +572,14 @@ final class ExactHatches {
         let audio = table.load(as: UInt32.self) >= 136
         audioClaimFn = audio ? table.load(fromByteOffset: 120, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ClaimFn.self) } : nil
         audioReleaseFn = audio ? table.load(fromByteOffset: 128, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ReleaseFn.self) } : nil
+        pictureFn = table.load(as: UInt32.self) >= 144
+            ? table.load(fromByteOffset: 136, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PictureFn.self) } : nil
+    }
+
+    /// A package picture changed (0) or revoked (1): the host's raster loader acts on it.
+    func picture(_ kind: UInt32, _ source: String) {
+        let bytes = Array(source.utf8)
+        bytes.withUnsafeBufferPointer { pictureFn?(host, kind, $0.baseAddress, UInt32($0.count)) }
     }
 
     func onLine() -> Bool? { onLineFn.flatMap { f in let answer = f(host); return answer > 1 ? nil : answer == 1 } }
@@ -1231,6 +1242,27 @@ private let moduleAuthenticate: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     }
 }
 
+/// `image(module, json, len, ctx, done)` (LLP 1133.019 D11 item 1): a
+/// picture of a package's `img` scheme, which the runner admitted; json
+/// {"extension", "source", "width", "height", "fit", "owned"}. done(ctx,
+/// image, error, len) once, from any thread: the `CGImage` retained once for
+/// the host, or nil and an error's code.
+private let moduleImage: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?,
+                                         (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void)?) -> Void = { raw, json, length, ctx, done in
+    guard let done else { return }
+    let fail = { (code: String) in
+        let bytes = Array(code.utf8)
+        bytes.withUnsafeBufferPointer { done(ctx, nil, $0.baseAddress, $0.count) }
+    }
+    guard let m = module(raw), let json,
+          let request = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: length)) as? [String: Any]
+    else { return fail("NotSupportedError") }
+    ExactExtensions.image(m, request) { image, error in
+        guard let image else { return fail(error ?? "UnknownError") }
+        done(ctx, Unmanaged.passRetained(image).toOpaque(), nil, 0)
+    }
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
 private let major: UInt32 = 3
 
@@ -1248,7 +1280,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 240
+    let size = 248
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1281,6 +1313,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.createView, to: UnsafeRawPointer.self), toByteOffset: 224, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleAuthenticate, to: UnsafeRawPointer.self), toByteOffset: 232, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleImage, to: UnsafeRawPointer.self), toByteOffset: 240, as: UnsafeRawPointer.self)
     return t
 }()
 

@@ -196,7 +196,21 @@ impl<D: DataSource> Runner<D> {
         let values: serde_json::Map<String, Json> = (self.extensions.preferred.iter())
             .filter_map(|(k, v)| Some((k.strip_prefix(&prefix)?.to_owned(), v.clone())))
             .collect();
-        let body = json!({ "extension": extension, "preferred": values });
+        // And the state of each permission it declares, which its answers
+        // follow (LLP 1133.019 §10: under `limited`, only the selection).
+        let permissions: serde_json::Map<String, Json> = (self.plan.modules.iter())
+            .filter(|m| self.plan.str(m.extension) == extension)
+            .flat_map(|m| {
+                let list = self.substitute(m)["permissionList"].clone();
+                list.as_array().cloned().unwrap_or_default()
+            })
+            .filter_map(|p| {
+                let name = p["name"].as_str()?.to_owned();
+                Some((name.clone(), json!(self.permission_state(&name))))
+            })
+            .collect();
+        let body =
+            json!({ "extension": extension, "preferred": values, "permissions": permissions });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));
     }
 
