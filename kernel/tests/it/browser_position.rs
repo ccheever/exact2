@@ -363,6 +363,9 @@ fn min_content_rows_remeasure_content_dependent_bases() {
 /// `Chrome 151 intrinsic ratio percentages` (151.0.7922.34, 2026-10-23)
 /// checks item heights and bounds against the ratio basis, including when
 /// content grows beyond it, wrapping, box sizing and a definite-width control.
+/// `Chrome 151 intrinsic ratio column percentages` (151.0.7922.34, 2026-10-24)
+/// checks the same basis after column cross sizing, including tall content,
+/// reverse directions, caps, box sizing, and definite-size and no-ratio controls.
 /// A max-content root offer must publish wrapped frames without a parent's
 /// definite-width pass.
 #[test]
