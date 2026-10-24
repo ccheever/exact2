@@ -435,6 +435,13 @@ pub(super) mod retained_actions {
     }
     impl DataSource for Rows {
         fn query(&mut self, source: &str, args: &[DataValue]) -> Result<DataValue, DataError> {
+            if source == "clockFault" {
+                return Ok(if args == [DataValue::Bool(true)] {
+                    DataValue::str("wrong shape")
+                } else {
+                    DataValue::Number(0.)
+                });
+            }
             if source == "extras" {
                 return Ok(DataValue::list(
                     self.extra_lengths

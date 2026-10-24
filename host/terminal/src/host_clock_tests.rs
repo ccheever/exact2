@@ -136,3 +136,81 @@ fn paste_and_pointer_input_clock_run_due_timers_before_routing() {
         }
     }
 }
+
+#[test]
+fn review_input_refuses_targets_invalidated_by_due_timer() {
+    let mut failures = Vec::new();
+    for barrier in [
+        "disabled=expired",
+        "inert=expired",
+        "display=(expired ? \"none\" : \"block\")",
+        "visibility=(expired ? \"hidden\" : \"visible\")",
+        "removed",
+    ] {
+        for kind in ["button", "field", "link"] {
+            for parent in [false, true] {
+                for input in ["press", "click", "key"] {
+                    let control = match kind {
+                        "field" => "input value=\"\" submit=go",
+                        "link" => {
+                            "text\n          text \"Go\" press=go href=\"https://example.com/\""
+                        }
+                        _ => "button \"Go\" press=go",
+                    };
+                    let (ancestor, own) = if parent { (barrier, "") } else { ("", barrier) };
+                    let target = if barrier == "removed" {
+                        format!("      if !expired\n        {control} testId=\"target\"")
+                    } else {
+                        format!(
+                            "      column {ancestor}\n        {control} testId=\"target\" {own}"
+                        )
+                    };
+                    let source = format!("component App\n  state expired = false\n  state pressed = false\n  action expire\n    expired = true\n  action go\n    pressed = true\n  task expiry mount\n    after(150, expire)\n  view\n    column\n{target}\n");
+                    let mut host = Host::boot(
+                        contract::compile(&source).unwrap(),
+                        (),
+                        Mode::Fullscreen,
+                        80,
+                        40,
+                    )
+                    .unwrap();
+                    host.arm = false;
+                    host.frame();
+                    let id = host.by_test_id("target").unwrap();
+                    let at = host.cells_of(id).unwrap();
+                    if input == "key" {
+                        host.focus(Some(id));
+                    }
+                    host.tick(100.);
+                    host.live_from(Instant::now() - Duration::from_millis(200));
+                    match input {
+                        "click" => host.click(at.x, at.y),
+                        "key" => {
+                            host.key(Key::Named("Enter"));
+                        }
+                        _ => {
+                            host.advance_for_input();
+                            if kind == "link" {
+                                host.press_run(id);
+                            } else {
+                                host.press(id);
+                            }
+                        }
+                    }
+                    if host.runner.slot("pressed") != Some(&Value::Bool(false))
+                        || host.focus == Some(id)
+                        || !host.outbound.is_empty()
+                    {
+                        failures.push(format!(
+                            "{barrier}, kind={kind}, parent={parent}, input={input}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "invalid targets accepted: {failures:?}"
+    );
+}

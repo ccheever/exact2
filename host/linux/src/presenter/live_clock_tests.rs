@@ -127,7 +127,12 @@ fn retained_input_clock_runs_due_timer_before_action_and_arms_from_input() {
         .unwrap();
     assert_eq!(
         p.host
-            .dispatch_retained(key, &binding, exact_plan::EventKind::Press, 200.),
+            .advance_retained_input(key, &binding, exact_plan::EventKind::Press, None, 200.),
+        Some(true)
+    );
+    assert_eq!(
+        p.host
+            .dispatch_retained(key, &binding, exact_plan::EventKind::Press, None),
         Ok(true)
     );
     assert_eq!(p.host.runner().slot("fired"), Some(&Value::Number(1.)));
@@ -180,8 +185,8 @@ fn retained_input_clock_refusals_do_not_sample_or_fire_timers() {
     for at in [f64::NAN, f64::INFINITY, 99.] {
         assert_eq!(
             p.host
-                .dispatch_retained(key, &binding, exact_plan::EventKind::Press, at),
-            Ok(false)
+                .advance_retained_input(key, &binding, exact_plan::EventKind::Press, None, at),
+            None
         );
     }
     assert_eq!(samples.get(), 0);
@@ -190,8 +195,8 @@ fn retained_input_clock_refusals_do_not_sample_or_fire_timers() {
     let before = p.host.runner().kernel().epoch();
     assert_eq!(
         p.host
-            .dispatch_retained(key, &binding, exact_plan::EventKind::Press, 200.),
-        Ok(false)
+            .advance_retained_input(key, &binding, exact_plan::EventKind::Press, None, 200.),
+        None
     );
     assert_eq!(p.host.runner().kernel().epoch(), before);
     assert_eq!(p.host.runner().now_ms(), 100.);
@@ -205,8 +210,8 @@ fn retained_input_clock_refusals_do_not_sample_or_fire_timers() {
     p.host.runner_mut().act("disable", vec![]).unwrap();
     assert_eq!(
         p.host
-            .dispatch_retained(key, &current, exact_plan::EventKind::Press, 200.),
-        Ok(false)
+            .advance_retained_input(key, &current, exact_plan::EventKind::Press, None, 200.),
+        None
     );
     assert_eq!(p.host.runner().now_ms(), 100.);
     assert_eq!(p.host.runner().slot("fired"), Some(&Value::Bool(false)));
@@ -250,8 +255,22 @@ fn retained_input_clock_keeps_live_release_time_and_coalesces_missed_beats() {
         .unwrap();
     p.set_live_clock(Some(Rc::new(|| 2600.)));
     assert_eq!(
-        p.host
-            .dispatch_retained_held(held.token, key, &binding, 2000.),
+        p.host.advance_retained_input(
+            key,
+            &binding,
+            exact_plan::EventKind::Swiperight,
+            Some(held.token),
+            2000.
+        ),
+        Some(true)
+    );
+    assert_eq!(
+        p.host.dispatch_retained(
+            key,
+            &binding,
+            exact_plan::EventKind::Swiperight,
+            Some(held.token)
+        ),
         Ok(true)
     );
     assert_eq!(ticks(&p), 1.);
@@ -265,9 +284,14 @@ fn retained_input_clock_keeps_live_release_time_and_coalesces_missed_beats() {
     );
     let before = p.host.runner().kernel().epoch();
     assert_eq!(
-        p.host
-            .dispatch_retained_held(held.token, key, &binding, 3000.),
-        Ok(false)
+        p.host.advance_retained_input(
+            key,
+            &binding,
+            exact_plan::EventKind::Swiperight,
+            Some(held.token),
+            3000.
+        ),
+        None
     );
     assert_eq!(p.host.runner().kernel().epoch(), before);
     assert_eq!(p.host.now(), 2000.);

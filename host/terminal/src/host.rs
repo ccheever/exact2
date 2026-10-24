@@ -694,49 +694,53 @@ impl<D: DataSource> Host<D> {
 
     /// The nearest node at or above `view` with a handler for `kind`.
     pub(crate) fn handler(&self, view: ViewId, kind: EventKind) -> Option<ViewId> {
+        if kind == EventKind::Press && !self.input_eligible(view) {
+            return None;
+        }
         let mut at = Some(view);
         while let Some(id) = at {
             if self.runner.handlers_of(id).contains(&kind) {
-                // A box that is disabled or inert swallows the press: it
-                // runs neither its own nor an ancestor's (a control keeps
-                // its own rule).
-                return (kind != EventKind::Press || self.presses(id) || self.is_control(id))
-                    .then_some(id);
+                // An ineligible hit never falls through to an ancestor.
+                return (kind != EventKind::Press || self.presses(id)).then_some(id);
             }
             at = self.kernel().node(id)?.parent;
         }
         None
     }
 
-    fn is_control(&self, id: ViewId) -> bool {
-        self.kernel().node(id).is_some_and(|n| {
-            matches!(
-                n.node_type,
-                NodeType::Pressable | NodeType::TextInput | NodeType::Control
-            )
-        })
-    }
-
-    /// Whether `id`'s own `press` can run: not while it is disabled, nor
-    /// inside an `inert` subtree (a control keeps its own rule).
-    fn presses(&self, id: ViewId) -> bool {
+    /// Presented cells identify a target, but its live ancestry can refuse it.
+    pub(crate) fn input_eligible(&self, id: ViewId) -> bool {
         let kernel = self.kernel();
         let Some(node) = kernel.node(id) else {
             return false;
         };
-        if node.props.bool(PropId::Disabled) == Some(true)
-            || !self.runner.handlers_of(id).contains(&EventKind::Press)
+        if node.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+            != exact_kernel::Visibility::Visible
         {
             return false;
         }
+        let top = self.layers.last().map(|(id, ..)| *id);
+        let mut in_top = top.is_none();
         let mut at = Some(id);
-        while let Some(n) = at.and_then(|a| kernel.node(a)) {
-            if n.props.bool(PropId::Inert) == Some(true) {
+        while let Some(id) = at {
+            let Some(node) = kernel.node(id) else {
+                return false;
+            };
+            if node.style.display == exact_kernel::Display::None
+                || node.props.bool(PropId::Disabled) == Some(true)
+                || node.props.bool(PropId::Inert) == Some(true)
+                || (Self::is_layer(&node) && !self.layers.iter().any(|(open, ..)| *open == id))
+            {
                 return false;
             }
-            at = n.parent;
+            in_top |= top == Some(id);
+            at = node.parent;
         }
-        true
+        in_top
+    }
+
+    fn presses(&self, id: ViewId) -> bool {
+        self.runner.handlers_of(id).contains(&EventKind::Press) && self.input_eligible(id)
     }
 
     pub(crate) fn is_field(&self, id: ViewId) -> bool {
@@ -779,6 +783,7 @@ impl<D: DataSource> Host<D> {
             let Some(n) = kernel.node(id) else { continue };
             if n.style.display == exact_kernel::Display::None
                 || n.props.bool(PropId::Disabled) == Some(true)
+                || n.props.bool(PropId::Inert) == Some(true)
                 || (Self::is_layer(&n) && !open.contains(&id))
             {
                 continue;
@@ -786,7 +791,8 @@ impl<D: DataSource> Host<D> {
             if matches!(
                 n.node_type,
                 NodeType::Pressable | NodeType::TextInput | NodeType::Control
-            ) {
+            ) && self.input_eligible(id)
+            {
                 out.push(id);
             }
             if n.node_type != NodeType::Text {
@@ -818,7 +824,7 @@ impl<D: DataSource> Host<D> {
 
     /// Move the focus to a node (or nowhere), telling the app.
     pub fn focus(&mut self, to: Option<ViewId>) {
-        if to == self.focus {
+        if to.is_some_and(|id| !self.input_eligible(id)) || to == self.focus {
             return;
         }
         if let Some(old) = self.focus.take() {
@@ -996,6 +1002,9 @@ impl<D: DataSource> Host<D> {
     }
 
     fn press_with_inner(&mut self, id: ViewId, take: bool) {
+        if !self.input_eligible(id) {
+            return;
+        }
         if self.is_field(id) {
             self.focus(Some(id));
             return;
