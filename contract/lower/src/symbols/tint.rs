@@ -26,7 +26,7 @@ pub(crate) fn tints(
     lowered: &TextStyles,
     out: &mut Vec<LowerError>,
 ) {
-    let mut seen = BTreeSet::new();
+    let (mut seen, mut faces, mut found) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
     walk(
         nodes,
         false,
@@ -34,15 +34,29 @@ pub(crate) fn tints(
             styles,
             lowered,
             seen: &mut seen,
-            out,
+            faces: &mut faces,
+            out: &mut found,
         },
     );
+    // A row a native face also takes (a class, a component's image) keeps its tint there: the
+    // repair is a `color` for the use that is no face, not that row's rewrite.
+    for mut warning in found {
+        if faces.contains(&place(warning.span)) {
+            warning.message = format!("{} (this row also colours a native button's face, which takes `-exact-tint-color` and refuses `color`: give this image its own `color`, or its own class)", warning.message.split("; ").next().unwrap_or_default());
+        }
+        out.push(warning);
+    }
+}
+
+fn place(span: contract_syntax::Span) -> (u32, u32, u32) {
+    (span.source_id, span.line, span.col)
 }
 
 struct Pass<'a> {
     styles: &'a [StyleDecl],
     lowered: &'a TextStyles,
     seen: &'a mut BTreeSet<(u32, u32, u32)>,
+    faces: &'a mut BTreeSet<(u32, u32, u32)>,
     out: &'a mut Vec<LowerError>,
 }
 
@@ -57,6 +71,10 @@ fn walk(nodes: &[Node], face: bool, pass: &mut Pass<'_>) {
                 ..
             } => {
                 let span = node.span();
+                if let (true, "image") = (face, tag.as_str()) {
+                    pass.faces
+                        .extend(tint(attrs, pass.styles).map(|t| place(t.span)));
+                }
                 if let (false, "image", Some(source)) = (face, tag.as_str(), positional.first()) {
                     // (Kept once warned: a component's image may be a raster in one use, a symbol in the next.)
                     let key = (span.source_id, span.line, span.col);
@@ -88,8 +106,9 @@ fn walk(nodes: &[Node], face: bool, pass: &mut Pass<'_>) {
 }
 
 /// Whether a button may be the platform's own, whose face keeps its tint: as lowering made it
-/// (`TextStyle::native`), unless it made it both ways, or unknown. With nothing lowered (a node
-/// lowering did not reach), not a literal `appearance="none"`.
+/// (`TextStyle::native`) when it made it so anywhere, or drew it everywhere it is known. Where
+/// that is not known (no node reached, or a shared slot's style merged away by its other rows),
+/// whether its `appearance` is anything but a literal `"none"`.
 fn native(node: &Node, attrs: &[Attr], lowered: &TextStyles) -> bool {
     let span = node.span();
     let made: Vec<_> = lowered
@@ -97,24 +116,23 @@ fn native(node: &Node, attrs: &[Attr], lowered: &TextStyles) -> bool {
         .filter(|((at, _, tag), _)| *at == span && tag == "button")
         .map(|(_, style)| style.as_ref().and_then(|s| s.native))
         .collect();
-    if made.is_empty() {
-        return !attrs
-            .iter()
-            .rev()
-            .find(|a| a.name == "appearance")
-            .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "none"));
+    if made.contains(&Some(true)) {
+        return true;
     }
-    made.iter().any(|native| *native != Some(false))
+    if !made.is_empty() && made.iter().all(|native| *native == Some(false)) {
+        return false;
+    }
+    !attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "appearance")
+        .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "none"))
 }
 
 /// The authored `-exact-tint-color` an element is drawn with: its own row, else its literal
 /// `class`'s (the last of each wins); none through a computed class.
 fn tint<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<&'a Attr> {
-    let named = |rows: &'a [Attr]| {
-        rows.iter()
-            .rev()
-            .find(|a| a.written && a.name == "-exact-tint-color")
-    };
+    let named = |rows: &'a [Attr]| rows.iter().rev().find(|a| a.written && tinted(&a.name));
     named(attrs).or_else(|| {
         attrs
             .iter()
@@ -130,6 +148,19 @@ fn tint<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<&'a Attr> {
     })
 }
 
+/// Whether a row names the tint: `-exact-tint-color`, or a state's (`:disabled -exact-tint-color`).
+fn tinted(name: &str) -> bool {
+    name == "-exact-tint-color" || (name.starts_with(':') && name.ends_with(" -exact-tint-color"))
+}
+
+/// Whether an element has an authored `color`, its own or its literal class's.
+fn coloured(attrs: &[Attr], styles: &[StyleDecl]) -> bool {
+    attrs.iter().any(|a| a.name == "color")
+        || attrs.iter().filter(|a| a.name == "class").any(|class| {
+            matches!(&class.value, Expr::Ident(name, _) if styles.iter().any(|s| &s.name == name && s.attrs.iter().any(|a| a.name == "color")))
+        })
+}
+
 /// The warning for an `image` whose source is `source` and whose attributes
 /// are `attrs`, if it is a symbol drawn with an authored `-exact-tint-color`.
 fn symbol_tint(source: &Expr, attrs: &[Attr], styles: &[StyleDecl]) -> Option<LowerError> {
@@ -137,10 +168,15 @@ fn symbol_tint(source: &Expr, attrs: &[Attr], styles: &[StyleDecl]) -> Option<Lo
     if !symbol(source) {
         return None;
     }
-    let repair = if attrs.iter().any(|a| a.name == "color") {
+    // (A state's row, `:disabled -exact-tint-color`, is that state's `color`.)
+    let state = tint
+        .name
+        .strip_suffix("-exact-tint-color")
+        .unwrap_or_default();
+    let repair = if state.is_empty() && coloured(attrs, styles) {
         "drop it: its `color` is what draws it".to_string()
     } else {
-        format!("write `color={}` instead", shown(tint))
+        format!("write `{state}color={}` instead", shown(tint))
     };
     Some(LowerError {
         id: "lower-symbol-tint",
