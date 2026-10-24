@@ -403,6 +403,9 @@ fn run_plan<D: DataSource>(
     while let Some(op) = ops.next() {
         let mut arg = || ops.next().unwrap_or_default();
         host.read_at = host.frames;
+        if matches!(op.as_str(), "tap" | "type" | "wheel") {
+            host.advance_for_input();
+        }
         match op.as_str() {
             "tap" => {
                 let id = arg();
