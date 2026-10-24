@@ -303,7 +303,7 @@ fn replacement_and_unmount_reject_old_tickets_and_remount_uses_new_origins() {
     let third = open(&mut r, 3);
     assert_eq!(text(&r, "valid-count"), "0 valid successes in this wave");
     r.fulfill(third[0].ticket, good(3, 0)).unwrap();
-    assert_eq!(text(&r, "valid-count"), "1 valid successes in this wave");
+    assert_eq!(text(&r, "valid-count"), "1 valid success in this wave");
     tap(&mut r, "interact");
     assert_eq!(r.slot("clicks"), Some(&Value::Number(1.)));
 }

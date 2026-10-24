@@ -209,10 +209,19 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             if value != "clear" && error_code(value).is_none() {
+                // Checked with the state the permission has, which is
+                // in the field's enum where `prompt` may not be (a
+                // permission no platform asks, LLP 1133.017 D14).
                 let mut checked = value.clone();
-                for field in statuses.iter().filter_map(|p| p["field"].as_str()) {
+                for permission in &statuses {
+                    let (Some(field), Some(name)) =
+                        (permission["field"].as_str(), permission["name"].as_str())
+                    else {
+                        continue;
+                    };
+                    let state = self.permission_state(name);
                     if let Some(object) = checked.as_object_mut() {
-                        object.insert(field.into(), json!("prompt"));
+                        object.insert(field.into(), json!(state));
                     }
                 }
                 // An implementation's own substitute takes a partial

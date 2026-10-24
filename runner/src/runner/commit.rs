@@ -632,6 +632,7 @@ impl<D: DataSource> Runner<D> {
         // A module's sends that answer nothing (LLP 1133.004 D5): the
         // runner's, run once the commit stands.
         let effects = self.take_module_effects(first_command);
+        self.refuse_in_wake(first_command);
         // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
@@ -752,6 +753,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn forget_ticket(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
+            self.wake_let_go(t, self.call_origin());
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
@@ -809,6 +811,7 @@ impl<D: DataSource> Runner<D> {
         }
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
+            self.wake_let_go(t, self.origin_for(Some(target)));
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }

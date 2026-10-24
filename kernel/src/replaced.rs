@@ -13,6 +13,72 @@ use taffy::geometry::{Rect, Size};
 use taffy::style::{AvailableSpace, BoxSizing};
 use taffy::tree::SizingMode;
 
+/// CSS `zoom` on an `iframe` (@ref LLP 1020.002 D6), else 1: the one
+/// element the compiler admits it on.
+pub(crate) fn zoom(arena: &NodeArena, slot: u32) -> f32 {
+    let z = arena.style(slot).rare.zoom;
+    if arena.node_type(slot) == NodeType::WebView && z.is_finite() && z > 0.0 {
+        z
+    } else {
+        1.0
+    }
+}
+
+/// Multiplies the element's own absolute lengths by its `zoom`, as Chrome
+/// zooms a frame: its sizes, margins, padding, borders and insets, never a
+/// percentage (a frame sized by its container keeps its size; Chrome 155,
+/// LLP 1020.002 D6). The default object size is zoomed in [`measure`].
+pub(crate) fn apply_zoom(arena: &NodeArena, slot: u32, s: &mut taffy::Style) {
+    use taffy::style::{CompactLength, Dimension, LengthPercentage, LengthPercentageAuto};
+    let z = zoom(arena, slot);
+    if z == 1.0 {
+        return;
+    }
+    let scaled =
+        |raw: CompactLength| (raw.tag() == CompactLength::LENGTH_TAG).then(|| raw.value() * z);
+    let dim = |d: &mut Dimension| {
+        if let Some(v) = scaled(d.into_raw()) {
+            *d = Dimension::length(v);
+        }
+    };
+    let lp = |d: &mut LengthPercentage| {
+        if let Some(v) = scaled(d.into_raw()) {
+            *d = LengthPercentage::length(v);
+        }
+    };
+    let lpa = |d: &mut LengthPercentageAuto| {
+        if let Some(v) = scaled(d.into_raw()) {
+            *d = LengthPercentageAuto::length(v);
+        }
+    };
+    dim(&mut s.size.width);
+    dim(&mut s.size.height);
+    for size in [&mut s.min_size, &mut s.max_size] {
+        lpa(&mut size.width);
+        lpa(&mut size.height);
+    }
+    for rect in [&mut s.padding, &mut s.border] {
+        for side in [
+            &mut rect.left,
+            &mut rect.right,
+            &mut rect.top,
+            &mut rect.bottom,
+        ] {
+            lp(side);
+        }
+    }
+    for rect in [&mut s.margin, &mut s.inset] {
+        for side in [
+            &mut rect.left,
+            &mut rect.right,
+            &mut rect.top,
+            &mut rect.bottom,
+        ] {
+            lpa(side);
+        }
+    }
+}
+
 /// The content size of `slot` given what is `known` and the `space` offered,
 /// or `None` when it is not a replaced element. `inset` is its padding plus
 /// border.
@@ -30,7 +96,10 @@ pub(crate) fn measure(
         return None;
     }
     let natural = arena.intrinsic(slot);
-    let default = node_type.default_object_size();
+    let zoom = zoom(arena, slot);
+    let default = node_type
+        .default_object_size()
+        .map(|((w, h), natural)| ((w * zoom, h * zoom), natural));
     // What the ratio relates: the content box, or the border box
     // (box-sizing, unless `auto <ratio>`).
     let (pw, ph) = if style.aspect_ratio_content_box || style.box_sizing == BoxSizing::ContentBox {

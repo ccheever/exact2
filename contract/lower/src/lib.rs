@@ -40,6 +40,7 @@ pub mod expr;
 mod fields;
 mod font_axes;
 mod fonts;
+mod frames;
 mod grouped;
 mod handlers;
 mod headings;
@@ -771,7 +772,14 @@ fn lower_body(
         let Some(i) = root.actions.iter().position(|a| &a.name == name) else {
             continue;
         };
-        l.b.module_event(&m.extension, &m.declared, l.actions[i], &m.raised, m.hold);
+        l.b.module_event(
+            &m.extension,
+            &m.declared,
+            l.actions[i],
+            &m.raised,
+            m.hold,
+            m.budget,
+        );
     }
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;

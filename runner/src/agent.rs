@@ -752,10 +752,14 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         runner.page(),
         runner.viewport().fold,
     );
-    let (files, pictures) = (page.can_share_files, page.can_share_pictures);
+    let (files, pictures, partition) = (
+        page.can_share_files,
+        page.can_share_pictures,
+        page.iframe_partition,
+    );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"iframePartition\":{partition},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -894,6 +898,11 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     crate::notify::state(runner, &mut s);
     // What a module's declared substitute keeps (LLP 1133.004 §7).
     runner.declared_state_json(&mut s);
+    // The wake running, else the last (LLP 1133.017 §10).
+    if let Some(wake) = runner.wake_state() {
+        s.push_str(",\"wake\":");
+        s.push_str(&wake.to_string());
+    }
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
     transport::state(runner, request, &mut s);

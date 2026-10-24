@@ -138,17 +138,11 @@ extension Agent {
         return out.filter { $0.window === sv.window && !$0.isHidden && $0.alpha > 0.01 }
     }
 
-    /// Before a press measures its target, the target at rest: a keyboard
-    /// change still waiting out its debounce applied now, the keyboard's own
-    /// show or hide run out (bounded at a second; r4 unit converter: Save,
-    /// tapped as the keyboard left, was refused as covered), and the
-    /// presenter's pump settled, as a screenshot settles it (r4 countdowns:
-    /// a just-inserted row's tap point was its provisional box).
+    /// Wait before measuring a press so keyboard motion cannot make its target
+    /// read as covered, and settle the pump so newly inserted rows have final boxes.
     func settleForPress() {
-        presenter.flushKeyboardResize()
         let until = min(KeyboardMotion.shared.until, Date(timeIntervalSinceNow: 1))
         while Date() < until { RunLoop.main.run(until: min(until, Date(timeIntervalSinceNow: 0.01))) }
-        presenter.flushKeyboardResize()
         presenter.settlePump()
     }
 }

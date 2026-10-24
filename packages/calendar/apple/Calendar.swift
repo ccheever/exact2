@@ -2,7 +2,8 @@
 // written under access, and an event added through the system's editor.
 // Under the agent it asks EventKit for nothing and answers from the agent's
 // calendars (AgentCalendar.swift, §10); the runner holds the permission,
-// editor and raise tickets and answers the status.
+// editor and raise tickets and answers the status. Otherwise EventKit
+// answers (EventStore.swift).
 //
 // - `calendarEvents` answers the occurrences overlapping `[start, end)`, at
 //   most four years, in one order on every target: `utcStart`, `utcEnd`,
@@ -18,12 +19,30 @@
 // - A change is announced, coalesced (D7): while the re-asks one
 //   announcement caused are in flight, further changes set a mark, and one
 //   more announcement follows them landing.
+// - Tier 3 (D10): the hatches below, called on the main thread, never under
+//   the agent.
+import EventKit
+#if canImport(UIKit)
+import EventKitUI
+#endif
 import ExactPackage
 import Foundation
 
 public final class CalendarModule: ExactPackage {
+    /// The module's one `EKEventStore`, when made and before its first access
+    /// request: the app may read reminders under its own usage key, and
+    /// recurrence and alarms. Its change observer and `reset()` are the module's.
+    public static var eventStore: ((EKEventStore) -> Void)?
+    #if canImport(UIKit)
+    /// After the module fills the editor's event, before it is presented: the
+    /// app may set the event's alarms, recurrence and structured location.
+    /// The delegate is the module's.
+    public static var eventEditor: ((EKEventEditViewController) -> Void)?
+    #endif
     let context: ExactPackageContext
     private let book = AgentCalendar()
+    /// EventKit, outside the agent.
+    private lazy var real = EventStore(log: { [weak self] in self?.say($0) }, changed: { [weak self] in self?.changedStore() })
     /// The live names read and not released, which observing follows.
     private var readers: Set<String> = []
     /// Coalescing (D7): an announcement's re-asks in flight; a change since.
@@ -36,7 +55,13 @@ public final class CalendarModule: ExactPackage {
     private func say(_ line: String) { context.log("calendar: \(line)") }
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
-        guard context.agent else { return reply(["error": "NotSupportedError", "message": "the store is read under the agent only in this build"]) }
+        guard context.agent else {
+            if name == "calendars" || name == "calendarEvents" { readers.insert(name) }
+            return real.later(name, args, origin: context.origin) { [weak self] answer in
+                reply(answer)
+                if name == "calendars" || name == "calendarEvents" { self?.asked() }
+            }
+        }
         switch name {
         case "calendarStatus": reply(status())
         case "calendars":
@@ -56,12 +81,14 @@ public final class CalendarModule: ExactPackage {
     }
 
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
-        name == "calendarStatus" && context.agent ? status() : ["error": "NotSupportedError"]
+        guard name == "calendarStatus" else { return ["error": "NotSupportedError"] }
+        return context.agent ? status() : real.status()
     }
 
     public func release(_ name: String) {
         guard readers.remove(name) != nil, readers.isEmpty else { return }
         say("no reader: observing stops")
+        if !context.agent { real.stopObserving() }
     }
 
     /// Under the agent: the access the runner's status gives, the store the
@@ -93,7 +120,10 @@ public final class CalendarModule: ExactPackage {
     }
 
     public func foreground(_ shown: Bool) {
-        if shown { changedStore() }
+        guard shown else { return }
+        // Access may have changed in Settings meanwhile (D5).
+        if !context.agent { real.refresh() }
+        changedStore()
     }
 
     // MARK: announcing (D7)

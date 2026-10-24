@@ -504,6 +504,11 @@ package final class Runtime {
         }
     }
     package func load(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 8, 0, now)) } }
+    /// An iframe's `navigate`, `currententrychange`, `navigatesuccess` or
+    /// `navigateerror` (58) with its `FrameNavigation` record as JSON (@ref LLP 1020.002 D2).
+    package func frameNavigation(_ view: UInt32, event: String, record: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 58, write(event + "\n" + record), now)) }
+    }
     package func surfaceRecord(_ name: String, _ json: String?) -> Batch {
         return on {
             let n = write(name + (json.map { "\0" + $0 } ?? ""))

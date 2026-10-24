@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 
 mod focus;
+pub(super) mod frame_navigation;
 mod keyboard;
 pub use keyboard::KeyboardEvent;
 
@@ -359,6 +360,10 @@ pub enum Event {
     },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
+    /// What an iframe's guest shows (@ref LLP 1020.002 D2): its
+    /// `navigate`, `currententrychange`, `navigatesuccess` or
+    /// `navigateerror`, with the `FrameNavigation` record.
+    FrameNavigation(EventKind, Box<frame_navigation::FrameNavigation>),
     /// An authored sheet handle released: logical height and signed pixels/second.
     HeightRelease {
         /// Finite logical pixels in [0, f32::MAX].
@@ -580,6 +585,7 @@ impl Event {
             Event::Wheel(w) => Some(w.value()),
             Event::MidiMessage(m) => Some(m.value()),
             Event::Drop(d) | Event::Dragenter(d) | Event::Dragleave(d) => Some(d.value()),
+            Event::FrameNavigation(_, n) => Some(n.value()),
             Event::Atompress(a) => Some(a.value()),
             Event::Resize(r) => Some(r.value()),
             Event::Intersect {
@@ -1107,6 +1113,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Drop(_) => "drop",
                 Event::Dragenter(_) => "dragenter",
                 Event::Dragleave(_) => "dragleave",
+                Event::FrameNavigation(kind, _) => frame_navigation::name(*kind),
                 Event::Atompress(_) => "atompress",
                 Event::Dblclick => "dblclick",
                 Event::Pointerdown(_) => "pointerdown",
@@ -1287,6 +1294,7 @@ impl<D: DataSource> Runner<D> {
             Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dragenter(_) => (EventKind::Dragenter, None, "dragenter"),
             Event::Dragleave(_) => (EventKind::Dragleave, None, "dragleave"),
+            Event::FrameNavigation(kind, _) => (*kind, None, frame_navigation::name(*kind)),
             Event::Atompress(_) => (EventKind::Atompress, None, "atompress"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),

@@ -4,6 +4,8 @@ import { calendarEvents, calendars } from '@exact/calendar';
 // The suite writes the id `exact new` gave the app, and may replace the grants.
 export const appId = '__APP_ID__';
 export const grants = 'device.calendar-write-only purpose.calendar\ndevice.calendar purpose.calendar';
+// False where a read would ask this Mac's person for their own store (apple.mjs).
+export const reads = true;
 
 /** 2026-09-01T00:00:00Z. */
 const SEPTEMBER = Date.UTC(2026, 8, 1), DAY = 86_400_000;
@@ -15,6 +17,7 @@ const key = (e: { id?: string | null; recurrenceId?: string | null }) => `${e.id
 
 const sources: Sources = {
   calendarList: async () => {
+    if (!reads) return { text: 'off' };
     try {
       return { text: (await calendars({})).calendars.map((c) => `${c.id}${c.writable ? '' : '(ro)'}${c.isDefault ? '*' : ''}`).join(',') };
     } catch (e) {
@@ -23,6 +26,7 @@ const sources: Sources = {
   },
   // Every occurrence from 1 September for `days` days, `limit` a page: the keys in order, then how many pages.
   walk: async ([days, limit]) => {
+    if (!reads) return { text: 'off' };
     try {
       const keys: string[] = [];
       let after: string | undefined, pages = 0;
@@ -39,6 +43,7 @@ const sources: Sources = {
   },
   // One page of September and October, after the cursor the Contract keeps.
   page: async ([limit, after]) => {
+    if (!reads) return { text: 'off', next: '' };
     try {
       const page = await calendarEvents({ start: SEPTEMBER, end: SEPTEMBER + 61 * DAY, limit, after: after || undefined });
       return { text: page.events.map(key).join(','), next: page.next ?? '' };

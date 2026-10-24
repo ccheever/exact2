@@ -10,9 +10,8 @@ import XCTest
 final class KeyboardFormIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
-    /// The keys' top: an iPhone 18 Pro's number pad, 302 points over the
-    /// screen's bottom.
-    private let keys: CGFloat = 572
+    /// Model a number pad occupying the bottom 302 points of this window.
+    private var keys: CGFloat { (window?.bounds.height ?? 0) - 302 }
 
     override func tearDown() {
         session?.destroy()
@@ -24,7 +23,7 @@ final class KeyboardFormIOSTests: XCTestCase {
 
     private func waitFor(_ what: String, file: StaticString = #filePath, line: UInt = #line, _ ready: () -> Bool) {
         func done() -> Bool {
-            guard let p = session?.presenter, !p.navigation.inTransition, !p.modals.inTransition else { return false }
+            guard let session, !Agent(session: session).nativeInFlight() else { return false }
             return ready()
         }
         let deadline = Date().addingTimeInterval(10)
@@ -41,12 +40,17 @@ final class KeyboardFormIOSTests: XCTestCase {
         }
     }
 
+    private func safeAreaBottom(_ p: Presenter) -> CGFloat? {
+        guard let view = p.navigation.activeRoute?.view else { return nil }
+        return view.convert(view.safeAreaLayoutGuide.layoutFrame, to: nil).maxY
+    }
+
     private func pinnedLayoutReady(_ p: Presenter) -> Bool {
         guard let bar = named("pinned-bar"), let memo = named("pinned-memo"), let node = named("pinned-scroll"),
-              let scroll = p.navigation.shownScroll(node), let tabs = p.navigation.tabController, let window else { return false }
-        return bar.window != nil && memo.window != nil && abs(box(bar).maxY - box(tabs.tabBar).minY) < 0.5
+              let scroll = p.navigation.shownScroll(node), let bottom = safeAreaBottom(p), let window else { return false }
+        return bar.window != nil && memo.window != nil && abs(box(bar).maxY - bottom) < 0.5
             && abs(box(scroll).maxY - window.bounds.maxY) < 0.5
-            && abs(scroll.adjustedContentInset.bottom - window.bounds.maxY + box(tabs.tabBar).minY) < 0.5
+            && abs(scroll.adjustedContentInset.bottom - window.bounds.maxY + bottom) < 0.5
     }
 
     private func fixture(_ plan: String = "EXACT_KEYBOARD_PLAN") throws -> ExactSession {
@@ -56,15 +60,16 @@ final class KeyboardFormIOSTests: XCTestCase {
         self.session = session
         let view = ExactView(session: session)
         let host = UIViewController()
-        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let scene = hostedWindowScene()
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: .zero)
+        window.frame = window.screen.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
+        view.frame = host.view.bounds
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         host.view.addSubview(view)
         self.window = window
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: CGSize(width: 402, height: 874)).error)
-        view.frame = host.view.bounds
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: view.bounds.size).error)
         view.layoutIfNeeded()
         waitFor("the initial field is laid out") {
             let field = self.named(plan == "EXACT_KEYBOARD_PLAN" ? "reps" : "note")
@@ -102,6 +107,9 @@ final class KeyboardFormIOSTests: XCTestCase {
     }
 
     func testAFocusedFieldAndItsAddButtonStayAboveTheKeyboardInATabsGroupedList() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture()
         let p = session.presenter
         let tabs = try XCTUnwrap(p.navigation.tabController, "the tabs are a UITabBarController")
@@ -112,21 +120,22 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertEqual(try node("weight").field?.keyboardType, .decimalPad)
         XCTAssertGreaterThan(box(add).minY, keys, "the fixture's Add button starts where the keys will be")
         let resting = box(tabs.tabBar)
-        reps.textFieldDidBeginEditing(try XCTUnwrap(reps.field))
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        XCTAssertTrue(try XCTUnwrap(reps.field).becomeFirstResponder())
+        setKeyboard(p, top: keys)
         let bar = box(nav.navigationBar).maxY
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
         waitFor("the field and its action clear the accessory") {
-            abs(self.box(p.viewport).maxY - self.keys - (reps.field?.inputAccessoryView?.bounds.height ?? 0)) < 0.5
+            abs(route.node.bounds.height - self.keys) < 0.5
                 && self.fieldsShown([reps, add], below: bar)
         }
         try assertReachable("reps", below: bar)
         try assertReachable("add-set", below: bar)
-        let accessory = try XCTUnwrap(reps.field?.inputAccessoryView)
-        XCTAssertEqual(box(p.viewport).maxY, keys + accessory.bounds.height, accuracy: 0.5, "content draws under the accessory")
-        XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the tab bar stays at the bottom, under the keys: \(box(tabs.tabBar))")
+        _ = try XCTUnwrap(reps.field?.inputAccessoryView)
+        XCTAssertEqual(box(p.viewport), try XCTUnwrap(window).bounds, "the native container remains full-size under the keyboard and accessory")
+        XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the native tab bar keeps its position: \(box(tabs.tabBar))")
 
         let field = try XCTUnwrap(reps.field)
-        XCTAssertTrue(field.becomeFirstResponder(), "the test host's window takes a first responder")
+        XCTAssertTrue(field.isFirstResponder, "the field keeps focus while the keyboard changes its viewport")
         _ = reps.textFieldShouldReturn(field)
         let weight = try node("weight")
         waitFor("Next focuses and reveals Weight") {
@@ -157,7 +166,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         try assertReachable("bench-reps", below: bar)
         try assertReachable("bench-add", below: bar)
         bench.field?.resignFirstResponder()
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
         waitFor("the tab bar returns after the keyboard") {
             p.keyboardTop == nil && abs(self.box(tabs.tabBar).minY - resting.minY) < 0.5
         }
@@ -190,10 +199,13 @@ final class KeyboardFormIOSTests: XCTestCase {
     }
 
     func testTheFocusedFieldIsShownAboveABarPinnedOverItsScroller() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture()
         let p = session.presenter
         _ = Agent(session: session).tap(["id": Int(try node("tab-pinned").id)])
-        waitFor("the pinned tab reaches its tab bar") { self.pinnedLayoutReady(p) }
+        waitFor("the pinned tab reaches its safe area") { self.pinnedLayoutReady(p) }
         let tabs = try XCTUnwrap(p.navigation.tabController)
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let author = try node("pinned-author"), memo = try node("pinned-memo"), bar = try node("pinned-bar")
@@ -212,7 +224,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         }
 
         memo.textFieldDidBeginEditing(try XCTUnwrap(memo.field))
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         waitFor("Memo clears the pinned bar") {
             self.fieldsShown([memo], below: top) && self.box(memo).maxY <= self.box(bar).minY + 0.5
                 && self.box(bar).maxY <= self.keys + 0.5 && scroll.contentInset.bottom > base
@@ -222,7 +234,7 @@ final class KeyboardFormIOSTests: XCTestCase {
 
         let room = scroll.contentInset.bottom
         author.textFieldDidBeginEditing(try XCTUnwrap(author.field))
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         waitFor("Author clears the pinned bar") {
             self.fieldsShown([author], below: top) && self.box(author).maxY <= self.box(bar).minY + 0.5
                 && self.box(bar).maxY <= self.keys + 0.5
@@ -232,7 +244,7 @@ final class KeyboardFormIOSTests: XCTestCase {
 
         memo.field?.resignFirstResponder()
         author.field?.resignFirstResponder()
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
         waitFor("the keyboard's extra room is removed") {
             let high = max(-scroll.adjustedContentInset.top, scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
             return p.keyboardTop == nil && abs(scroll.contentInset.bottom - base) < 0.5 && scroll.contentOffset.y <= high + 0.5
@@ -242,37 +254,38 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertLessThanOrEqual(scroll.contentOffset.y, high + 0.5, "and the offset is within the content again")
     }
 
-    /// The pinned tab at rest: its scroll is the route's bottom-edge
-    /// scroller, which reaches under the tab bar for UIKit to inset, and its
-    /// absolutely positioned bar (`bottom=0`) rests on the tab bar rather
-    /// than under it. Both hold after a keyboard comes and goes with the
-    /// field still focused, which once left the scroll padded above the bars
-    /// for good, and the room taken for the field goes with the keyboard.
-    func testABarPinnedOverTheEdgeScrollerRestsOnTheTabBar() throws {
+    /// A pinned bar rests at the route's native safe-area edge while its
+    /// scroller reaches the window's bottom. The keyboard leaves while Memo
+    /// remains the editing field; its extra room must be released.
+    func testAPinnedBarAndItsScrollerRespectTheRoutesSafeArea() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture()
         let p = session.presenter
         _ = Agent(session: session).tap(["id": Int(try node("tab-pinned").id)])
-        waitFor("the pinned tab reaches its tab bar") { self.pinnedLayoutReady(p) }
-        let tabs = try XCTUnwrap(p.navigation.tabController)
+        waitFor("the pinned tab reaches its safe area") { self.pinnedLayoutReady(p) }
+        let bottom = try XCTUnwrap(safeAreaBottom(p))
         let bar = try node("pinned-bar"), memo = try node("pinned-memo")
         let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("pinned-scroll")))
         let window = try XCTUnwrap(self.window)
         let base = scroll.contentInset.bottom
         func atRest(_ when: String, file: StaticString = #filePath, line: UInt = #line) {
-            XCTAssertEqual(box(bar).maxY, box(tabs.tabBar).minY, accuracy: 0.5, "the pinned bar rests on the tab bar \(when)", file: file, line: line)
-            XCTAssertEqual(box(scroll).maxY, window.bounds.maxY, accuracy: 0.5, "the scroll reaches under the tab bar \(when)", file: file, line: line)
-            XCTAssertEqual(scroll.adjustedContentInset.bottom, window.bounds.maxY - box(tabs.tabBar).minY, accuracy: 0.5, "UIKit insets it by the tab bar \(when)", file: file, line: line)
+            XCTAssertEqual(box(bar).maxY, bottom, accuracy: 0.5, "the pinned bar rests at the safe-area edge \(when)", file: file, line: line)
+            XCTAssertEqual(box(scroll).maxY, window.bounds.maxY, accuracy: 0.5, "the scroller reaches the window bottom \(when)", file: file, line: line)
+            XCTAssertEqual(scroll.adjustedContentInset.bottom, window.bounds.maxY - bottom, accuracy: 0.5, "UIKit preserves the native bottom inset \(when)", file: file, line: line)
         }
         atRest("at first")
         memo.textFieldDidBeginEditing(try XCTUnwrap(memo.field))
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         waitFor("the pinned scroller gives the field room above the keys") {
             scroll.contentInset.bottom > base && self.box(bar).maxY <= self.keys + 0.5
         }
         XCTAssertGreaterThan(scroll.contentInset.bottom, base, "room for the field at the end, above the pinned bar")
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
-        waitFor("the pinned bar and scroller return to the tab bar") {
-            p.keyboardTop == nil && abs(self.box(bar).maxY - self.box(tabs.tabBar).minY) < 0.5
+        setKeyboard(p, top: nil)
+        XCTAssertTrue(p.editing === memo, "hiding the keyboard leaves the field's edit active")
+        waitFor("the pinned bar and scroller return to the safe area") {
+            p.keyboardTop == nil && abs(self.box(bar).maxY - bottom) < 0.5
                 && abs(self.box(scroll).maxY - window.bounds.maxY) < 0.5 && abs(scroll.contentInset.bottom - base) < 0.5
         }
         atRest("after the keyboard")
@@ -280,13 +293,16 @@ final class KeyboardFormIOSTests: XCTestCase {
     }
 
     func testTheCaretOfAGrowingTextAreaStaysAboveTheKeyboard() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture("EXACT_CARET_REVEAL_PLAN")
         let p = session.presenter
         let note = try node("note"), text = try XCTUnwrap(note.textArea)
-        // Told it is edited, not made first responder: the viewport would
-        // follow the test host's own keyboard guide, which has no keys
+        // Model editing without opening a keyboard; setKeyboard supplies
+        // the guide and ownership for this caret-reveal test
         note.textViewDidBeginEditing(text)
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         waitFor("the text area's viewport follows the keys") { abs(self.box(p.viewport).maxY - self.keys) < 0.5 }
         XCTAssertEqual(box(p.viewport).maxY, keys, accuracy: 0.5, "the viewport ends at the keys")
         let start = box(note).height
@@ -301,19 +317,22 @@ final class KeyboardFormIOSTests: XCTestCase {
             XCTAssertTrue(hit?.isDescendant(of: note) == true, "nothing covers line \(i)'s caret: \(String(describing: hit))")
         }
         XCTAssertGreaterThan(box(note).height, start + 200, "the text area grew with its text: \(box(note))")
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
     }
 
     /// As in a browser, which shows the selection once an edit's `input`
     /// handlers have run: a handler that moves the focus elsewhere, or hides
     /// the text area, keeps the scroll it leaves.
     func testAnInputHandlerThatMovesTheFocusOrHidesTheTextAreaKeepsTheScroll() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture("EXACT_CARET_REVEAL_PLAN")
         let p = session.presenter
         let list = try XCTUnwrap(p.navigation.shownScroll(try node("list")))
         let jumper = try node("jumper"), far = try node("far"), jumping = try XCTUnwrap(jumper.textArea)
         jumper.textViewDidBeginEditing(jumping)
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        setKeyboard(p, top: keys)
         waitFor("the input-handler fixture follows the keys") { abs(self.box(p.viewport).maxY - self.keys) < 0.5 }
         // The text area scrolled above the port, the far field still under the keys
         list.contentOffset.y += box(jumper).maxY - box(p.viewport).minY + 20
@@ -331,16 +350,64 @@ final class KeyboardFormIOSTests: XCTestCase {
         vanishing.insertText("x")
         XCTAssertTrue(vanishing.isHidden, "the handler hid the text area (`visibility: hidden`)")
         XCTAssertEqual(list.contentOffset.y, offset, accuracy: 0.5, "the list is not scrolled to a hidden caret")
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
     }
 
-    func testTheAgentsFoldEndsWhereTheKeyboardEndsTheViewport() throws {
+    func testTheNativeRoutesEditorIsRevealedAfterItsPendingFill() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
+        let session = try fixture(), p = session.presenter
+        let route = try node("route-log"), field = try node("bench-reps")
+        let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("form-list")))
+        XCTAssertTrue(try XCTUnwrap(field.field).becomeFirstResponder())
+        p.collections.onFill?(route.id, Data())
+        XCTAssertTrue(session.fillInFlight)
+        let rest = -scroll.adjustedContentInset.top
+        scroll.contentOffset = CGPoint(x: 0, y: rest)
+        XCTAssertGreaterThan(box(field).maxY, keys, "the editor starts beneath the keyboard")
+        setKeyboard(p, top: keys)
+        NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
+        waitFor("the fill lands and the editor clears the keyboard") {
+            !session.fillInFlight && self.box(field).maxY <= self.keys + 0.5 && scroll.contentOffset.y > rest
+        }
+    }
+
+    func testNativeKeyboardAvoidanceKeepsTheWindowsFoldAndRootSize() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture()
         let p = session.presenter, agent = Agent(session: session)
         let view = try XCTUnwrap(session.view)
+        // Keep the safe-area assertion meaningful on windows without a home indicator
+        let host = try XCTUnwrap(self.window?.rootViewController)
+        host.additionalSafeAreaInsets.bottom += 20
+        host.view.layoutIfNeeded()
         let root = try XCTUnwrap(p.root.subviews.first as? NodeView)
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["viewportFit": "cover"]]]))
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        let safe = p.insets
+        XCTAssertGreaterThan(safe.bottom, 0)
         let window = session.screenSize ?? p.viewportSize
-        XCTAssertFalse(p.hasFold, "the agent supplies the fold on this phone")
+        if #available(iOS 27.1, *) {
+            waitFor("UIKit reports the device's fold") { p.hingeReported }
+        }
+        if p.hasFold {
+            let fold = p.fold
+            for policy in ["resizes-content", "resizes-visual", "overlays-content"] {
+                p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
+                setKeyboard(p, top: keys)
+                XCTAssertGreaterThan(p.keyboardInset, 0)
+                XCTAssertEqual(p.viewportSize, window)
+                XCTAssertEqual(p.insets, safe)
+                XCTAssertEqual(p.fold, fold, "keyboard avoidance preserves the device's real division regions")
+                setKeyboard(p, top: nil)
+                XCTAssertEqual(p.fold, fold)
+            }
+            return
+        }
         for policy in ["resizes-content", "resizes-visual", "overlays-content"] {
             p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
             XCTAssertEqual(p.keyboardPolicy, policy)
@@ -348,49 +415,35 @@ final class KeyboardFormIOSTests: XCTestCase {
                                     rects: try Segments.even(viewport: window, cols: 1, rows: 2, gap: 40))
             XCTAssertNil(agent.prefer(["fold": ["posture": "folded", "cols": 1, "rows": 2, "gap": 40]])["error"])
             XCTAssertEqual(p.fold, fold, "\(policy): the full grid before the keyboard")
-            p.applyKeyboard(top: keys, duration: 0, curve: 0)
+            setKeyboard(p, top: keys)
             XCTAssertGreaterThan(p.keyboardInset, 0, "\(policy): the keyboard overlaps the viewport")
-            let end = policy == "resizes-visual" ? p.viewportSize.height - p.keyboardInset : p.viewportSize.height
-            if policy == "overlays-content" {
-                XCTAssertEqual(p.fold, fold, "an overlay leaves the segments unchanged")
-            } else {
-                XCTAssertLessThan(end, fold.rects[1].maxY, "\(policy): the keyboard clips the lower segment")
-                XCTAssertEqual(p.fold.rects.first, fold.rects.first, "\(policy): the upper segment stays in place")
-                XCTAssertEqual(p.fold.rects.last?.minY, fold.rects[1].minY, "\(policy): the lower segment stays in place")
-                XCTAssertEqual(p.fold.rects.last?.maxY ?? -1, end, accuracy: 0.01, "\(policy): the lower segment ends at the keyboard")
-            }
-            if policy != "resizes-content" {
-                XCTAssertEqual(p.viewportSize, window, "\(policy): the layout viewport keeps its size")
-            }
-            // Change only posture while the grid is clipped; hiding must restore its full rectangles
-            XCTAssertNil(agent.prefer(["fold": ["posture": "continuous"]])["error"])
-            XCTAssertEqual(p.fold.posture, "continuous")
-            XCTAssertEqual(p.fold.rects.last?.maxY ?? -1, end, accuracy: 0.01)
-            p.applyKeyboard(top: nil, duration: 0, curve: 0)
-            fold.posture = "continuous"
-            XCTAssertEqual(p.fold, fold, "\(policy): dismissal restores the full grid and keeps the new posture")
+            XCTAssertEqual(p.insets, safe, "the owning route's keyboard preserves the other routes' safe area")
+            XCTAssertEqual(p.viewportSize, window, "\(policy): the native application root keeps its size")
+            XCTAssertEqual(p.fold, fold, "\(policy): keyboard avoidance does not change the window's division regions")
+            let route = try XCTUnwrap(p.navigation.activeRoute)
+            XCTAssertEqual(route.node.bounds.height, policy == "resizes-content" ? keys : window.height, accuracy: 0.5)
 
-            p.applyKeyboard(top: keys, duration: 0, curve: 0)
+            XCTAssertNil(agent.prefer(["fold": ["posture": "continuous"]])["error"])
+            fold.posture = "continuous"
+            XCTAssertEqual(p.fold, fold, "posture changes use the window's full regions while editing")
+            setKeyboard(p, top: nil)
+            XCTAssertEqual(p.fold, fold)
+
+            setKeyboard(p, top: keys)
             XCTAssertNil(agent.prefer(["fold": ["gap": 80]])["error"])
             fold.rects = try Segments.even(viewport: window, cols: 1, rows: 2, gap: 80)
-            XCTAssertEqual(p.fold.rects.last?.minY, fold.rects[1].minY, "\(policy): a new grid uses the window while the keyboard is up")
-            XCTAssertEqual(p.fold.rects.last?.maxY ?? -1, end, accuracy: 0.01, "\(policy): a new grid is clipped immediately")
-            p.applyKeyboard(top: nil, duration: 0, curve: 0)
-            XCTAssertEqual(p.fold, fold, "\(policy): the new grid is restored on dismissal")
+            XCTAssertEqual(p.fold, fold, "a new grid uses the full window while editing")
+            setKeyboard(p, top: nil)
+            XCTAssertEqual(p.fold, fold)
 
-            p.applyKeyboard(top: fold.rects[0].midY, duration: 0, curve: 0)
-            let upper = try XCTUnwrap(p.fold.rects.first), lower = try XCTUnwrap(p.fold.rects.last)
-            if policy == "resizes-content" {
-                XCTAssertLessThan(p.viewportSize.height, fold.rects[0].maxY)
-                XCTAssertEqual(upper.maxY, p.viewportSize.height, accuracy: 0.01, "content resizing clips the upper row too")
-                XCTAssertEqual(lower.height, 0)
-            } else if policy == "resizes-visual" {
-                XCTAssertEqual(upper, fold.rects[0], "visual resizing keeps the upper row even above the keys")
-                XCTAssertEqual(lower.height, 0, "the last row ends at zero height when the keys reach above it")
-            } else {
-                XCTAssertEqual(p.fold, fold)
-            }
-            p.applyKeyboard(top: nil, duration: 0, curve: 0)
+            let upperKeys = fold.rects[0].midY
+            setKeyboard(p, top: upperKeys)
+            XCTAssertEqual(p.viewportSize, window)
+            XCTAssertEqual(p.fold, fold)
+            XCTAssertEqual(route.node.bounds.height, policy == "resizes-content" ? upperKeys : window.height, accuracy: 0.5,
+                           "only the editing route's content area changes")
+            setKeyboard(p, top: nil)
+            XCTAssertEqual(route.node.bounds.size, window)
             XCTAssertEqual(p.fold, fold)
         }
         // Model a hardware fold reported after prefer's bounded discovery wait

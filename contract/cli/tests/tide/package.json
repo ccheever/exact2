@@ -1,0 +1,10 @@
+{
+  "name": "@fixture/tide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A module outside exact2's tree that proves the seam LLP 1133.017 stage 0 adds: an event of its own that a wake raises, with its budget, and registrations the agent's substitute lists and taps as wakes.",
+  "exports": {
+    ".": "./exact.json",
+    "./web": "./web/exact.json"
+  }
+}

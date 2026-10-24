@@ -102,7 +102,10 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .zip(&self.plan.timers)
             .filter(|(_, row)| !(row.frame && self.clock.presenting))
+            // No timer fires while a wake runs unseen (LLP 1133.017 D6).
+            .filter(|_| !self.wake_stops_timers())
             .map(|(timer, _)| timer.next_ms)
+            .chain(self.wake_due())
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())

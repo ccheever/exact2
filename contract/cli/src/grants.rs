@@ -248,7 +248,11 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         let lines: Vec<String> = grants.iter().map(|g| format!("`{g}`")).collect();
         let last = grants.last().cloned().unwrap_or_default();
         // A device line names its purpose key; any other its target (`auth.passkey <rp id>`).
+        let named = |d: &str| {
+            (exact_runner::device::DEVICES.iter()).any(|row| row.name == d && row.purpose)
+        };
         let add = match last.strip_prefix("device.") {
+            Some(device) if !named(device) => format!("`{last}` to the app's grants"),
             Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
             None => format!("`{last} <its target>` to the app's grants"),
         };
