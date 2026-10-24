@@ -84,7 +84,7 @@ export const READS = {
   'HeaderButton.tint': ['0/0 fill hb-base,hb-lead'],
   'HeaderButton.tintSmall': ['0/0 fill hb-small'],
   'ListRow.tint': ['0 tint_color lr-base,sample-lr-value,sample-lr-check-symbol'],
-  'ProfileHeader.alert': ['2/2/0/0/0 fill sample-ph-alerts', '2/2/0/1 text_color sample-ph-alerts', '2/2/1/0/0 fill sample-ph-alerts', '2/2/1/1 text_color sample-ph-alerts', '2/2/2/0/0 fill sample-ph-alerts', '2/2/2/1 text_color sample-ph-alerts', '2/2/3/0/0 fill sample-ph-alerts', '2/2/3/1 text_color sample-ph-alerts'],
+  'ProfileHeader.alert': ['2/2/0/0 text_color sample-ph-alerts', '2/2/0/1 text_color sample-ph-alerts', '2/2/1/0 text_color sample-ph-alerts', '2/2/1/1 text_color sample-ph-alerts', '2/2/2/0 text_color sample-ph-alerts', '2/2/2/1 text_color sample-ph-alerts', '2/2/3/0 text_color sample-ph-alerts', '2/2/3/1 text_color sample-ph-alerts'],
   'ProfileHeader.alertGround': ['2/2/0 background_color sample-ph-alerts', '2/2/1 background_color sample-ph-alerts', '2/2/2 background_color sample-ph-alerts', '2/2/3 background_color sample-ph-alerts'],
   'ProfileHeader.badge': ['2/1/0/1/0/0 fill sample-ph-verified,sample-ph-verifier'],
   'ProfileHeader.badgeMark': ['2/1/0/1/0/1 fill sample-ph-verified,sample-ph-verifier'],
