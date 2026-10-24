@@ -138,8 +138,9 @@ pub use window::{Chrome, Window};
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     /// Scrolled lists whose collection turn waits for the frame (see
-    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
-    deferred_collections: Option<Vec<ViewId>>,
+    /// [`Presenter::set_deferred_collections`]), with whether input moved the
+    /// acknowledged offset; `None` when turns run at once.
+    deferred_collections: Option<Vec<(ViewId, bool)>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
