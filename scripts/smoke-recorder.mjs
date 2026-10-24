@@ -2,7 +2,7 @@
 // @exact/media-capture and @exact/recording, each implementation its own
 // substitute under the agent. `smoke.mjs` runs this for `--app recorder`: on
 // the web, macOS and iOS, one session records on the agent's clock, its
-// waveform draws the level's bars, and the takes it files read the same on
+// waveform view draws the track's level, and the takes it files read the same on
 // every host (each label carries the take's average level, so the
 // implementations' synthetic signals cannot drift); on `host`, two sessions
 // of the sample host record from the one capture, each its own take, and one
@@ -15,7 +15,7 @@ import { decodePng } from './png.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // The synthetic signal's takes, the same on every host (pinned from the web).
-export const TAKES = ['Take 1 · 3.0 s · level 52%', 'Take 2 · 1.5 s · level 27%'];
+export const TAKES = ['Take 1 · 3.0 s · level 60%', 'Take 2 · 1.5 s · level 27%'];
 
 // Coloured waveform bars inside the waveform's box, in a screenshot: any pixel far from grey.
 async function bars(s, path) {
@@ -64,9 +64,9 @@ export async function recorderSmoke({ host, open, check: record_ }) {
     await record(s, 3000);
     st = await s.state();
     check(st.resources.rec?.state === 'recording' && st.resources.rec?.duration === 3000, `recording for 3 s of the agent's clock: ${JSON.stringify(st.resources.rec)}`);
-    check(st.resources.level?.levels?.length === 60, `the level covers every interval of the jump: ${st.resources.level?.levels?.length} levels`);
+    check(st.resources.level?.totalSamplesDuration === 3, `one ask of the level covers the whole jump: ${st.resources.level?.totalSamplesDuration} s`);
     const live = await bars(s, resolve(tmp, 'live.png'));
-    check(live > 200, `the waveform draws the level's bars (${live} coloured pixels)`);
+    check(live > 200, `the waveform view draws the track's level (${live} coloured pixels)`);
     await stop(s);
     check(JSON.stringify(await labels(s)) === JSON.stringify(TAKES.slice(0, 1)), `the first take reads the same on every host: ${JSON.stringify(await labels(s))}`);
     const extensions = (await s.state()).extensions;
