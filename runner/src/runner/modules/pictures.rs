@@ -142,6 +142,15 @@ impl<D: DataSource> Runner<D> {
         self.extensions.pictures.target = Some(target.to_owned());
     }
 
+    /// The target a declaration's per-target words are read by: the one the
+    /// host said, else the one this runner was built for.
+    pub(in crate::runner) fn host_target(&self) -> &str {
+        match self.extensions.pictures.target.as_deref() {
+            Some(target) => target,
+            None => super::ceremony::target(),
+        }
+    }
+
     /// Whether a call of `row` is let through as a read of the app's own
     /// item (LLP 1133.019 D11 item 4): on a target its `owned` names, the
     /// app declares that line, and its permission is not granted.

@@ -1,0 +1,34 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/calendar@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleCalendarStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|fullAccess|writeOnly>"
+    },
+    "AppleCalendarEvent": {
+      "availability": "enum<notSupported|busy|free|tentative|unavailable>",
+      "isDetached": "bool",
+      "occurrenceDate": "option<number>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "eventStore",
+    "eventEditor"
+  ],
+  "sources": {
+    "swift": [
+      "Calendar.swift",
+      "AgentCalendar.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "CalendarModule"
+}

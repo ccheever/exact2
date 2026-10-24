@@ -232,10 +232,17 @@ impl<D: DataSource> Runner<D> {
         }
         let decision = match self.route(row) {
             Route::Real => return Decision::Forward,
+            // A target's own restriction holds under the agent too (D14 step 2).
+            Route::Agent if self.unsupported_here(row) => {
+                Decision::Now(json!({ "error": "NotSupportedError" }))
+            }
             // No dialog: the implementation opens it as the app's own or fails.
             Route::Agent if self.owned_call(row) => Decision::Forward,
+            // The permission's ticket, a sheet's, or the raise's on the
+            // runner's own status (LLP 1133.018 D13 item 4); else the implementation.
             Route::Agent => (self.decide_permission(row, send, args))
                 .or_else(|| self.decide_choose(row, send))
+                .or_else(|| self.decide_raise(row, send))
                 .unwrap_or(Decision::Forward),
             Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
@@ -417,7 +424,8 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
             }
-            line @ Json::Array(_) if !granted(line) => {
+            // An empty list needs no line (a picker's, LLP 1133.018 D4).
+            line @ Json::Array(l) if !l.is_empty() && !granted(line) => {
                 return Err(format!("grant-missing ({})", named(line)));
             }
             _ => {}

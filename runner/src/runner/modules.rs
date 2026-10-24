@@ -489,7 +489,7 @@ impl<D: DataSource> Runner<D> {
 
     /// §6's transitions for a read (or a send) of `row` now.
     fn decide(&self, row: &ModulesRow, send: bool, args: &Json) -> Decision {
-        if self.unavailable(row) {
+        if self.unavailable(row) || self.unsupported_here(row) {
             return Decision::Now(json!({ "error": "NotSupportedError" }));
         }
         if let Some(decision) = self.decide_permission(row, send, args) {
@@ -641,7 +641,7 @@ impl<D: DataSource> Runner<D> {
         let sub = self.substitute(row);
         let default = (!sub["default"].is_null()).then(|| {
             let mut default = sub["default"].clone();
-            if let Some(restricted) = sub["targets"].get(ceremony::target()) {
+            if let Some(restricted) = sub["targets"].get(self.host_target()) {
                 admit::overlay(&mut default, restricted);
             }
             default
@@ -766,21 +766,31 @@ impl<D: DataSource> Runner<D> {
                 .flat_map(|c| c.keys().cloned()),
         );
         let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
+        // A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4).
+        let sheet: Vec<&str> = (sub["choose"]["choices"].as_array().into_iter().flatten())
+            .filter_map(Json::as_str)
+            .collect();
         let (capability, args, choices, value) = match waits {
-            Waits::Permission => (
-                "permission".to_owned(),
-                json!({ "capability": permission, "request": declared, "origin": origin.word() }),
-                &asked[..],
-                false,
-            ),
+            Waits::Permission => {
+                // What `allow` grants this request (`asks`, D13 item 3).
+                let line = self.asked_line(row);
+                let grants = self.permission_named(row, permission);
+                let asks = self.answer_fields(&grants, "allow", line.as_deref());
+                let mut args = json!({ "capability": permission, "request": declared, "origin": origin.word() });
+                if let (Some(asks), true) = (asks, line.is_some()) {
+                    args["asks"] = Json::Object(asks);
+                }
+                ("permission".to_owned(), args, &asked[..], false)
+            }
             Waits::Choose => (
                 sub["choose"]["ticket"]
                     .as_str()
                     .unwrap_or("choose")
                     .to_owned(),
-                json!({ "request": declared, "origin": origin.word() }),
-                &[][..],
-                true,
+                // The sheet shows what the call asked (the properties, the event).
+                json!({ "request": declared, "origin": origin.word(), "options": call }),
+                &sheet[..],
+                sub["choose"]["typed"] != false,
             ),
             Waits::Value => (
                 sub["ticket"].as_str().unwrap_or("value").to_owned(),
@@ -1105,7 +1115,9 @@ impl<D: DataSource> Runner<D> {
             return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
         }
         if h.waits == Waits::Choose {
-            return Some(Ok(()));
+            let row = self.module_row(&h.source);
+            let typed = self.choose_typed(&row, &h.args, text);
+            return Some(typed.map_err(|e| format!("@{ticket}: {e}")));
         }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
@@ -1176,11 +1188,17 @@ impl<D: DataSource> Runner<D> {
         match (waits, answer) {
             (Waits::Permission, HoldAnswer::Choice(c)) => {
                 let chosen = self.permission_named(&row, &name)["choices"][c.as_str()].is_object();
+                // The access the request asked (`asks`, LLP 1133.018 D13 item 3).
+                let asked = self.asked_line(&row);
                 match c.as_str() {
-                    "allow" => self.set_permission(&name, "granted"),
+                    "allow" => {
+                        self.set_permission_asked(&name, "granted", "allow", asked.as_deref())
+                    }
                     "deny" => self.set_permission(&name, "denied"),
                     // A grant of less than all (`limited`, LLP 1133.019 D11 item 3).
-                    choice if chosen => self.set_permission_as(&name, "granted", choice),
+                    choice if chosen => {
+                        self.set_permission_asked(&name, "granted", choice, asked.as_deref())
+                    }
                     // The dialog dismissed: the state stays, this request fails.
                     _ => {
                         let code = self.permission_named(&row, &name)["denied"].clone();
@@ -1232,6 +1250,10 @@ impl<D: DataSource> Runner<D> {
                     }
                 };
                 self.release(token, answer);
+                // An implementation answering beside the runner's status hears it.
+                if c == "allow" && self.route(&row) == Route::Agent {
+                    self.tell_preferred(self.plan.str(row.extension));
+                }
                 self.announce(&key);
             }
             (Waits::Check, HoldAnswer::Choice(c)) => {
