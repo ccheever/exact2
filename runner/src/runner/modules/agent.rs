@@ -58,7 +58,13 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
-        for entry in out.values_mut() {
+        for (extension, entry) in out.iter_mut() {
+            // Its streams, sampled readers and canvas inputs (LLP 1133.013 §9).
+            if let Some(samples) = self.samples_json(extension) {
+                for (k, v) in samples.as_object().into_iter().flatten() {
+                    entry[k] = v.clone();
+                }
+            }
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
                 .and_then(|p| p.values().next().cloned());
@@ -180,9 +186,13 @@ impl<D: DataSource> Runner<D> {
                 }
                 // An implementation's own substitute takes a partial
                 // overlay (LLP 1133.009 D10 item 11); a declared one, a value.
-                let checked = match sub["implementation"] == true {
-                    true => self.partial(&row, &checked),
-                    false => self.typed(&row, &checked.to_string()).map(|_| ()),
+                // A sampled source's takes a reading or a track of steps (§9).
+                let checked = if sub["track"] == true {
+                    self.track_checked(&row, &checked)
+                } else if sub["implementation"] == true {
+                    self.partial(&row, &checked)
+                } else {
+                    self.typed(&row, &checked.to_string()).map(|_| ())
                 };
                 if let Err(e) = checked {
                     return refuse(format!("prefer extension: {e}"));
@@ -196,6 +206,7 @@ impl<D: DataSource> Runner<D> {
             } else {
                 self.extensions.preferred.insert(key.clone(), value.clone());
             }
+            self.note_track(key, value);
             self.log(format!("prefer extension {key}"));
             self.announce(key);
             // An agent word is its extension's: any of its names stands for it.

@@ -11,6 +11,7 @@
 
 pub(crate) mod contact;
 mod held;
+mod sensors;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -1152,7 +1153,7 @@ fn clock_within<D: DataSource>(
     }
     let (mut rounds, mut hatch_drains) = (0, 0);
     loop {
-        let (landed, e) = clock_hatched(p, to, deadline);
+        let (landed, e) = sensors::clock_framed(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);

@@ -1,0 +1,703 @@
+{
+  "kind": "interface",
+  "name": "@exact/motion",
+  "version": "1.0.0",
+  "grants": [
+    "device.motion"
+  ],
+  "permission": {
+    "name": "motion",
+    "status": "motionStatus",
+    "field": "state",
+    "denied": "NotAllowedError",
+    "initial": "granted",
+    "whilePrompt": {
+      "error": "NotAllowedError",
+      "message": "requestMotionPermission"
+    }
+  },
+  "shapes": {
+    "AccelerometerSample": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number"
+    },
+    "Accelerometer": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "AccelerometerSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "LinearAccelerationSensorSample": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number"
+    },
+    "LinearAccelerationSensor": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "LinearAccelerationSensorSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "GravitySensorSample": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number"
+    },
+    "GravitySensor": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "GravitySensorSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "GyroscopeSample": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number"
+    },
+    "Gyroscope": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "GyroscopeSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "MagnetometerSample": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number"
+    },
+    "Magnetometer": {
+      "x": "number",
+      "y": "number",
+      "z": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "MagnetometerSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "AbsoluteOrientationSensorSample": {
+      "quaternion": "number[]",
+      "timestamp": "number"
+    },
+    "AbsoluteOrientationSensor": {
+      "quaternion": "number[]",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "AbsoluteOrientationSensorSample[]",
+      "dropped": "number",
+      "interrupted": "bool",
+      "apple": "option<AppleOrientationReading>"
+    },
+    "RelativeOrientationSensorSample": {
+      "quaternion": "number[]",
+      "timestamp": "number"
+    },
+    "RelativeOrientationSensor": {
+      "quaternion": "number[]",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "RelativeOrientationSensorSample[]",
+      "dropped": "number",
+      "interrupted": "bool",
+      "apple": "option<AppleOrientationReading>"
+    },
+    "DeviceAcceleration": {
+      "x": "option<number>",
+      "y": "option<number>",
+      "z": "option<number>"
+    },
+    "DeviceRotationRate": {
+      "alpha": "option<number>",
+      "beta": "option<number>",
+      "gamma": "option<number>"
+    },
+    "DeviceMotionEventSample": {
+      "acceleration": "option<DeviceAcceleration>",
+      "accelerationIncludingGravity": "option<DeviceAcceleration>",
+      "rotationRate": "option<DeviceRotationRate>",
+      "interval": "number",
+      "timeStamp": "number"
+    },
+    "DeviceMotionEvent": {
+      "acceleration": "option<DeviceAcceleration>",
+      "accelerationIncludingGravity": "option<DeviceAcceleration>",
+      "rotationRate": "option<DeviceRotationRate>",
+      "interval": "number",
+      "timeStamp": "number",
+      "sequence": "number",
+      "samples": "DeviceMotionEventSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "DeviceOrientationEventSample": {
+      "alpha": "option<number>",
+      "beta": "option<number>",
+      "gamma": "option<number>",
+      "absolute": "bool",
+      "timeStamp": "number"
+    },
+    "DeviceOrientationEvent": {
+      "alpha": "option<number>",
+      "beta": "option<number>",
+      "gamma": "option<number>",
+      "absolute": "bool",
+      "timeStamp": "number",
+      "sequence": "number",
+      "samples": "DeviceOrientationEventSample[]",
+      "dropped": "number",
+      "interrupted": "bool",
+      "apple": "option<AppleOrientationReading>"
+    },
+    "MotionSensors": {
+      "accelerometer": "bool",
+      "linearAcceleration": "bool",
+      "gravity": "bool",
+      "gyroscope": "bool",
+      "magnetometer": "bool",
+      "absoluteOrientation": "bool",
+      "relativeOrientation": "bool",
+      "deviceMotion": "bool",
+      "deviceOrientation": "bool"
+    },
+    "MotionStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "sensors": "MotionSensors",
+      "apple": "option<AppleMotionStatus>",
+      "android": "option<AndroidMotionStatus>"
+    },
+    "SensorInput": {
+      "surface": "string",
+      "sensor": "string"
+    }
+  },
+  "names": [
+    {
+      "source": "accelerometer",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "accelerometer",
+        "values": [
+          "x",
+          "y",
+          "z"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "Accelerometer",
+      "substitute": {
+        "default": {
+          "x": 0,
+          "y": 0,
+          "z": 9.80665
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "linearAccelerationSensor",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "linearAcceleration",
+        "values": [
+          "x",
+          "y",
+          "z"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "LinearAccelerationSensor",
+      "substitute": {
+        "default": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "gravitySensor",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "gravity",
+        "values": [
+          "x",
+          "y",
+          "z"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "GravitySensor",
+      "substitute": {
+        "default": {
+          "x": 0,
+          "y": 0,
+          "z": 9.80665
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "gyroscope",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "gyroscope",
+        "values": [
+          "x",
+          "y",
+          "z"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "Gyroscope",
+      "substitute": {
+        "default": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "magnetometer",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "magnetometer",
+        "values": [
+          "x",
+          "y",
+          "z"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "Magnetometer",
+      "substitute": {
+        "default": {
+          "x": 0,
+          "y": 22,
+          "z": -42
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "absoluteOrientationSensor",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "absoluteOrientation",
+        "values": [
+          "quaternion"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "AbsoluteOrientationSensor",
+      "substitute": {
+        "default": {
+          "quaternion": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "relativeOrientationSensor",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 60,
+        "stream": "relativeOrientation",
+        "values": [
+          "quaternion"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "RelativeOrientationSensor",
+      "substitute": {
+        "default": {
+          "quaternion": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "deviceMotion",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "rate": 60,
+        "stream": "deviceMotion",
+        "stamp": "timeStamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "DeviceMotionEvent",
+      "substitute": {
+        "default": {
+          "acceleration": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "accelerationIncludingGravity": {
+            "x": 0,
+            "y": 0,
+            "z": 9.80665
+          },
+          "rotationRate": {
+            "alpha": 0,
+            "beta": 0,
+            "gamma": 0
+          },
+          "interval": 16.667
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "deviceOrientation",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "rate": 60,
+        "stream": "deviceOrientation",
+        "stamp": "timeStamp"
+      },
+      "origin": "app",
+      "grants": [
+        "device.motion"
+      ],
+      "options": {
+        "absolute": "option<bool>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50,
+          "default": 100
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 1024,
+          "default": 0
+        }
+      },
+      "answers": "DeviceOrientationEvent",
+      "substitute": {
+        "default": {
+          "alpha": 0,
+          "beta": 0,
+          "gamma": 0,
+          "absolute": false
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "motionStatus",
+      "live": true,
+      "answers": "MotionStatus",
+      "sync": {
+        "name": "motionStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "sensors": {
+            "accelerometer": true,
+            "linearAcceleration": true,
+            "gravity": true,
+            "gyroscope": true,
+            "magnetometer": true,
+            "absoluteOrientation": true,
+            "relativeOrientation": true,
+            "deviceMotion": true,
+            "deviceOrientation": true
+          }
+        }
+      }
+    },
+    {
+      "send": "requestMotionPermission",
+      "request": true,
+      "gesture": true,
+      "options": {
+        "absolute": "option<bool>"
+      },
+      "answers": "MotionStatus",
+      "substitute": {
+        "answers": "motionStatus",
+        "deniedAnswers": true
+      }
+    },
+    {
+      "send": "startSensorInput",
+      "origin": "app",
+      "foreground": true,
+      "grants": [
+        "device.motion"
+      ],
+      "feeds": {
+        "surface": "surface",
+        "sensor": "sensor",
+        "frequency": "frequency",
+        "rate": 60
+      },
+      "options": {
+        "surface": "surface",
+        "sensor": "enum<accelerometer|linearAcceleration|gravity|gyroscope|magnetometer|absoluteOrientation|relativeOrientation>",
+        "frequency": "option<number>",
+        "referenceFrame": "option<enum<device|screen>>"
+      },
+      "answers": "SensorInput"
+    },
+    {
+      "send": "stopSensorInput",
+      "feeds": {
+        "surface": "surface",
+        "sensor": "sensor",
+        "stop": true
+      },
+      "options": {
+        "surface": "surface",
+        "sensor": "enum<accelerometer|linearAcceleration|gravity|gyroscope|magnetometer|absoluteOrientation|relativeOrientation>"
+      },
+      "answers": "SensorInput"
+    }
+  ]
+}

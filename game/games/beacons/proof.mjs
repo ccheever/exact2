@@ -230,4 +230,89 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   check('from one checkpoint a full pad stick and a held key reach the same world hash',
     stick.delivery === 'synthesized' && stick.tick === keyed.tick && stick.hash === keyed.hash, {keyed, stick});
   check('and a partial stick reaches another (the negative control)', partial.tick === keyed.tick && partial.hash !== keyed.hash, {keyed, partial});
+  // The wasm web host has no extension modules yet, the agent's substitute
+  // included (QUEUE.md): tilt is driven where they run.
+  if (host !== 'web') await tiltLeg({open, check, node, world});
+  else say('SKIP tilt on web: the wasm host has no extension modules; run this proof on linux, macos or ios.');
 });
+
+/// D6's map, as `exact_game::tilt_stick` computes it (game/engine/src/input/sensor.rs).
+export function tiltStick(g, n, max = 20, dead = 2) {
+  const deg = (v, i) => Math.asin(v[i] / Math.hypot(...v)) * 180 / Math.PI;
+  const raw = [(deg(g, 0) - deg(n, 0)) / max, -(deg(g, 1) - deg(n, 1)) / max];
+  const m = Math.hypot(...raw), zone = dead / max;
+  if (m <= zone) return [0, 0];
+  const scaled = Math.min(1, (m - zone) / (1 - zone));
+  return raw.map(r => r / m * scaled);
+}
+
+/// Metres walked from rest over `ticks` at 60 Hz toward `speed`, at the
+/// character's 12 m/s² (game/engine/src/character.rs; `walkTo`'s ramp).
+export function rampFromRest(speed, ticks) {
+  return Array.from({length:ticks}, (_, k) => Math.min(speed, 0.2 * (k + 1)) / 60).reduce((a, b) => a + b, 0);
+}
+
+/// LLP 1133.013 §10, drives 1–5: tilt to move under the agent's substitute.
+async function tiltLeg({open, check, node, world}) {
+  const t = await open({fresh:true});
+  const motion = async () => (await t.state()).extensions?.motion ?? {};
+  const angles = async () => node(await t.tree(), 'tilt-angles')?.props.text;
+  await t.prefer({'permission.motion':'prompt'});
+  await t.tap('play'); await t.tap('pause');
+  check('tilt 1: the paused world shows the tilt panel', !!node(await t.tree(), 'tilt-panel'));
+  await t.tap('tilt');
+  const pending = (await t.state()).pending ?? [];
+  check('tilt 1: turning tilt on holds the request under a ticket', pending.length === 1, pending);
+  await t.tap(`@${pending[0]?.ticket}`, {choice:'allow'});
+  await t.clock('settle');
+  check('tilt 1: allowed, the level reads flat', await angles() === '0° · 0°', await angles());
+  await t.prefer({extension:'motion.gravitySensor={"x":0,"y":4.9,"z":8.49}'});
+  await t.clock('+200'); await t.clock('settle');
+  check('tilt 2: held at 30°, the readout follows the reading', await angles() === '0° · 30° forward', await angles());
+  await t.tap('set-level'); await t.clock('settle');
+  check('tilt 2: Set level makes that angle level', await angles() === '0° · 0°', await angles());
+  // Resumed and preferred at one instant, the input's grid starts where the
+  // tilt does, so each of the next second's sixty ticks has it. The first
+  // walks nothing: the level posted while paused is the tick's message, which
+  // sets the neutral from the next tick, and until then the neutral is the
+  // input's first sample, this tilt (logic/src/lib.rs, Set level).
+  await t.tap('pause');
+  const resumed = await motion();
+  // The level's reader is the root's, as Contract's resources are, so it reads on.
+  check('tilt 2: resumed, one input on world at 60 Hz, the stream at its rate',
+    resumed.inputs?.length === 1 && resumed.inputs[0].surface === 'world' && resumed.inputs[0].frequency === 60
+      && resumed.streams?.gravity?.frequency === 60, resumed);
+  const g = [3.0, 4.9, 7.9], level = [0, 4.9, 8.49];
+  await t.prefer({extension:`motion.gravitySensor=${JSON.stringify({x:g[0], y:g[1], z:g[2]})}`});
+  const from = await world(t).local_position('player'), fromTick = (await world(t).snapshot()).tick;
+  await t.clock('+1000');
+  const to = await world(t).local_position('player'), ticks = (await world(t).snapshot()).tick - fromTick;
+  const stick = tiltStick(g, level), speed = 4 * Math.hypot(...stick), walked = rampFromRest(speed, 59);
+  const expected = [walked * stick[0] / Math.hypot(...stick), walked * -stick[1] / Math.hypot(...stick)];
+  const moved = [to[0] - from[0], to[2] - from[2]];
+  check('tilt 3: a second of 18° roll walks what the engine\'s stick gives, within a millimetre',
+    Math.abs(moved[0] - expected[0]) < 0.001 && Math.abs(moved[1] - expected[1]) < 0.001 && ticks === 60, {moved, expected, stick, ticks});
+  await t.tap('pause'); await t.clock('settle');
+  const paused = await motion();
+  check('tilt 4: paused, no input and the level\'s stream at 30 Hz',
+    !paused.inputs?.length && paused.streams?.gravity?.frequency === 30, paused);
+  await t.tap('tilt'); await t.tap('pause');
+  const braking = await world(t).local_position('player');
+  await t.clock('+500');
+  const rest = await world(t).local_position('player');
+  await t.clock('+500');
+  const after = await motion();
+  check('tilt 4: tilt off, the player brakes to rest within its stopping distance and stays',
+    Math.hypot(rest[0] - braking[0], rest[2] - braking[2]) < 0.35 && equal(rest, await world(t).local_position('player'))
+      && !after.inputs?.length, {braking, rest, after});
+  await t.close();
+  const d = await open({fresh:true});
+  await d.prefer({'permission.motion':'denied'});
+  await d.tap('play'); await d.tap('pause');
+  const denied = await d.tree();
+  check('tilt 5: denied, the panel says so and asks nothing', !!node(denied, 'tilt-denied') && !((await d.state()).pending ?? []).length);
+  await d.tap('pause');
+  await world(d).hold('KeyD', 500);
+  check('tilt 5: the keys still move the player', (await world(d).local_position('player'))[0] > 0.5);
+  await d.close();
+}

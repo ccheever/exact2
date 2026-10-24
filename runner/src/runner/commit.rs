@@ -132,12 +132,15 @@ impl<D: DataSource> Runner<D> {
                 self.journal_refused();
                 self.log_store_writes(c.store.writes);
                 self.transport_stood();
+                self.samples_stood();
             }
             Err(e) if self.poisoned && !was_poisoned => {
+                self.samples_refused();
                 self.store.restore(c.store);
                 self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
             }
             Err(e) => {
+                self.samples_refused();
                 self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
@@ -1222,7 +1225,7 @@ impl<D: DataSource> Runner<D> {
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
         } else if self.plan.module_named(&p.source).is_some() {
-            self.module_parse(ty, &p.source, outcome)
+            self.module_parse(p.target, ty, &p.source, outcome)
         } else {
             let parsed =
                 self.data
