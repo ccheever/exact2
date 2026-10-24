@@ -1,10 +1,10 @@
 //! `lower-symbol-tint`: `-exact-tint-color` on a `symbol:` image. A symbol
 //! is drawn in its computed `color` on every host (LLP 1081 stage 2;
 //! docs/agent-pitfalls.md), and `-exact-tint-color` colours a raster image
-//! and a native control's face, so on a symbol it does nothing on Apple,
-//! where the symbol falls back to the text colour (theme2's 17:23Z ruling,
-//! 2026-10-23: the action row's secondary-label icons drew opaque). The
-//! repair is `color=`. The tint is the image's own row or its `class`'s.
+//! and a native control's face, so on a symbol it does nothing: Apple draws
+//! the symbol's `color` (theme2's 17:23Z ruling, 2026-10-23: the action
+//! row's secondary-label icons drew opaque), and lowering answers the tint
+//! with `currentcolor` for the web (`super::ink`). The repair is `color=`. The tint is the image's own row or its `class`'s.
 //! A native button's face (an `image` among its children, the button one
 //! lowering made the platform's own) keeps the button's tint (LLP 1115 D4)
 //! and is not warned. A source the compiler can't read as a symbol, such as
@@ -149,7 +149,7 @@ fn tint<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<&'a Attr> {
 }
 
 /// Whether a row names the tint: `-exact-tint-color`, or a state's (`:disabled -exact-tint-color`).
-fn tinted(name: &str) -> bool {
+pub(super) fn tinted(name: &str) -> bool {
     name == "-exact-tint-color" || (name.starts_with(':') && name.ends_with(" -exact-tint-color"))
 }
 
@@ -182,14 +182,14 @@ fn symbol_tint(source: &Expr, attrs: &[Attr], styles: &[StyleDecl]) -> Option<Lo
     };
     Some(LowerError {
         id: "lower-symbol-tint",
-        message: format!("`-exact-tint-color` on a `symbol:` image does nothing: a symbol is drawn in its `color` on every host (Apple draws this one in the text colour), and `-exact-tint-color` colours a raster image or a native control's face; {repair}"),
+        message: format!("`-exact-tint-color` on a `symbol:` image does nothing: a symbol is drawn in its `color` on every host, and `-exact-tint-color` colours a raster image or a native control's face; {repair}"),
         span: tint.span,
     })
 }
 
 /// Whether a source is a symbol: a literal `symbol:…`, a template that starts
 /// so, or a choice between two such.
-fn symbol(e: &Expr) -> bool {
+pub(super) fn symbol(e: &Expr) -> bool {
     match e {
         Expr::Str(s, _) => s.starts_with("symbol:"),
         Expr::Template(parts, _) => {
