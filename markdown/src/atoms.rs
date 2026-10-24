@@ -9,7 +9,7 @@
 
 use crate::block::B;
 use crate::inline::Out;
-use crate::{IMAGE, LINK};
+use crate::{CODE, IMAGE, LINK};
 use std::collections::BTreeMap;
 
 /// How an atom kind is written in the source (LLP 1045.000 D1's forms).
@@ -252,10 +252,15 @@ pub(crate) fn recognize(source: &str, content: &[B], out: &Out, atoms: &Atoms) -
             }
         }
     }
-    // Prefix tokens, in text runs only: never in a code span, a link's text
-    // or destination, an autolink, a bare URL, a footnote reference or hidden
-    // syntax other than an escape (which a quoted token may hold).
-    let mut excluded: Vec<B> = out.constructs.iter().map(|c| c.outer.clone()).collect();
+    // Prefix tokens, outside code, links, images, autolinks, bare URLs and
+    // footnote references; inside emphasis, strong and strikethrough too, as
+    // the reference finds them in its plain text.
+    let mut excluded: Vec<B> = out
+        .constructs
+        .iter()
+        .filter(|c| c.kind & (CODE | LINK | IMAGE) != 0)
+        .map(|c| c.outer.clone())
+        .collect();
     excluded.extend(
         out.marks
             .iter()
@@ -263,12 +268,6 @@ pub(crate) fn recognize(source: &str, content: &[B], out: &Out, atoms: &Atoms) -
             .map(|m| m.range.clone()),
     );
     excluded.extend(out.footnotes.iter().map(|(r, _)| r.clone()));
-    excluded.extend(
-        out.hidden
-            .iter()
-            .map(|(m, _)| m.clone())
-            .filter(|m| &source[m.clone()] != "\\"),
-    );
     excluded.retain(|x| !x.is_empty());
     let overlaps = |r: &B| excluded.iter().any(|x| x.start < r.end && r.start < x.end);
     for (kind, k) in atoms.kinds.iter().enumerate() {

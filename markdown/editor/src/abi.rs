@@ -365,11 +365,11 @@ pub extern "C" fn mde_facts(h: u32) -> u32 {
     )
 }
 
-/// The input as plain text, each atom its label, for "copy plain", into
-/// [`mde_text`].
+/// The source's `from..to` as plain text, each atom its label, for "copy
+/// plain", into [`mde_text`].
 #[no_mangle]
-pub extern "C" fn mde_plain(h: u32, len: u32) -> u32 {
-    let plain = with(h, len, |e, input| e.plain(&String::from_utf16_lossy(input)));
+pub extern "C" fn mde_plain(h: u32, from: u32, to: u32) -> u32 {
+    let plain = with(h, 0, |e, _| e.plain(from, to));
     put_text(&plain)
 }
 
