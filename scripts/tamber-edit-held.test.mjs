@@ -196,20 +196,23 @@ test('the scope: one\'s own at propose, another client\'s at write, as drop', ()
   expect(p.ops[0].value).toBe('#000');
 });
 
-/** A stand-in for `contract tamber serve` whose plan of an op valued `#barrier` waits for `release()`. */
+/** A stand-in for `contract tamber serve` whose plan of an op valued `#barrier` waits for `release()`, and of one
+ * valued `#refused` planned again (after its first plan) waits for `refuse()` and then is refused. */
 function barrierServe() {
-  let release, gate = new Promise(ok => { release = ok; });
+  let release, gate = new Promise(ok => { release = ok; }), refuseNow, later = new Promise(ok => { refuseNow = ok; });
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
   child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
-  let buf = '';
+  let buf = '', seen = 0;
   child.stdin.on('data', chunk => {
     buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
     for (const line of lines) {
       const r = JSON.parse(line), answer = () => child.stdout.write(`${JSON.stringify({ id: r.id, ok: { files: {}, diff: '', changed: [], class: 'live' } })}\n`);
-      if ((r.ops ?? []).some(o => o?.value === '#barrier')) gate.then(answer); else answer();
+      const refuse = () => child.stdout.write(`${JSON.stringify({ id: r.id, error: { message: 'refused at the gate' } })}\n`);
+      const refused = (r.ops ?? []).some(o => o?.value === '#refused') && seen++ > 0;
+      if ((r.ops ?? []).some(o => o?.value === '#barrier')) gate.then(answer); else if (refused) later.then(refuse); else answer();
     }
   });
-  return { child, release: () => release() };
+  return { child, release: () => release(), refuse: () => refuseNow() };
 }
 
 test('while an edit plans, its proposal is held and counted but no one else\'s: an accept, a drop or an edit finds none, and a hold at the cap evicts another', async () => {
@@ -260,10 +263,51 @@ test('with every held proposal being edited, a new hold is refused, never held a
     for (let i = 0; i < 64; i++) ids.push((await call({ method: 'propose', hold: true, client: `c-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] })).ok.proposal);
     const edits = ids.map(id => call({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#barrier' }));
     await Bun.sleep(30);
+    const at = await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events');
     const refused = await call({ method: 'propose', hold: true, client: 'late', ops: [{ op: 'set-token', name: 'a', value: '#000002' }] });
     expect([refused.status, refused.error?.message]).toEqual([409, '64 proposals are held and each is being edited: try again shortly']);
+    // Never held: no event since, the same 64 listed.
+    const since = await call({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool' }, '/__tamber/events');
+    expect([since.seq, since.events]).toEqual([at.seq, []]);
+    expect(since.proposals.map(q => q.proposal).sort()).toEqual([...ids].sort());
     serve.release();
     expect((await Promise.all(edits)).map(e => e.status)).toEqual(ids.map(() => 200));
+    expect((await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals).toHaveLength(64);
+  } finally { await wire.close(); }
+}, 60_000);
+
+test('an accept that cannot hold again, its slot taken and every other held proposal being edited, is dropped, never held past 64', async () => {
+  const serve = barrierServe();
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: () => serve.child, log: () => {} });
+  const call = async (body, path = '/__tamber') => {
+    let text = '', status = 0;
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': wire.token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify(body)));
+    await wire.handle(req, Object.assign(new EventEmitter(), { writeHead(s) { status = s; }, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }), new URL(`http://127.0.0.1${path}`), { allowed: true, local: true });
+    return { status, ...JSON.parse(text) };
+  };
+  try {
+    // P, two operations, accepted in part: its recompute is refused once released, so the accept would put P back.
+    const p = (await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'a', value: '#refused' }, { op: 'set-token', name: 'b', value: '#000001' }] })).ok.proposal;
+    for (let i = 1; i < 64; i++) await call({ method: 'propose', hold: true, client: `c-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] });
+    const accepting = call({ method: 'accept', client: 'person', proposal: p, items: [0] });
+    await Bun.sleep(20);
+    // Its slot taken, then every held proposal (64) edited, each planning.
+    await call({ method: 'propose', hold: true, client: 'late', ops: [{ op: 'set-token', name: 'a', value: '#000002' }] });
+    const listed = (await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals.map(q => q.proposal);
+    expect(listed).toHaveLength(64);
+    const edits = listed.map(id => call({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#barrier' }));
+    await Bun.sleep(30);
+    // The accept's re-plan refused while all 64 still plan their edits: P is dropped, never held as a 65th.
+    serve.refuse();
+    const accepted = await accepting;
+    expect(accepted.status).toBeGreaterThanOrEqual(400);
+    const during = await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events');
+    expect(during.proposals).toHaveLength(64);
+    expect(during.proposals.map(q => q.proposal)).not.toContain(p);
+    expect(during.events.some(e => e.event === 'proposal-dropped' && e.proposal === p && e.reason === 'too many held')).toBe(true);
+    serve.release();
+    await Promise.all(edits);
     expect((await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals).toHaveLength(64);
   } finally { await wire.close(); }
 }, 60_000);
