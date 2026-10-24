@@ -1,23 +1,34 @@
 // The platform's Back in a headless session (LLP 1126.002 D5, LLP 1115 D5):
 // each route may hold its own `id="back"`; Back from a route presses only its
-// own (HeadlessLiveTests). Compiled by build.mjs --test.
+// own, and a pop of several levels stops at a route whose Back keeps it. A
+// link to a route goes there with no `navigate` on the root
+// (HeadlessLiveTests). Compiled by build.mjs --test.
 routes nav
   tab home "/"
     detail "/detail"
+    more "/more"
 
 component HeadlessBack
   state own = true
+  state stay = true
   state pressed = "none"
   action open
     nav = push(nav, "/detail")
   action openPlain
     own = false
     nav = push(nav, "/detail")
+  action openMore
+    nav = push(nav, "/more")
+  action openMoreGoing
+    stay = false
+    nav = push(nav, "/more")
   action baseBack
     pressed = "base"
   action detailBack
     pressed = "detail"
     nav = back(nav)
+  action moreBack
+    pressed = "more"
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="root"
       text pressed testId="pressed"
@@ -31,7 +42,17 @@ component HeadlessBack
                 text "Open"
               button press=openPlain testId="open-plain"
                 text "Open plain"
+              link href="/detail" testId="link-detail"
+                text "Detail"
             if e.name == "detail"
               if own
                 button id="back" press=detailBack testId="detail-back"
                   text "Detail"
+              button press=openMore testId="open-more"
+                text "More"
+              button press=openMoreGoing testId="open-more-going"
+                text "More, going"
+            if e.name == "more"
+              if stay
+                button id="back" press=moreBack testId="more-back"
+                  text "Stay"
