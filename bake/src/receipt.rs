@@ -50,6 +50,7 @@ pub(crate) fn emit(
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
         "EXACT_BAKE_OUTPUT",
+        "EXACT_BAKE_INPUTS",
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
         "EXACT_GPU_PRODUCT",

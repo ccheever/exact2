@@ -1,10 +1,65 @@
 // Cargo's exact unit dep-info, including the nightly's copied products.
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { existsSync, statSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, statSync, readFileSync, readdirSync, readlinkSync, renameSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 const under = (root, file) => {
   const child = relative(root, file);
   return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
 };
+
+// Match Cargo's directory watches: descend into directories, but not links
+// found inside them. A directly watched link also watches its target.
+function watchedDigest(paths) {
+  const hash = createHash('sha256');
+  const row = (...values) => hash.update(JSON.stringify(values) + '\n');
+  const visit = (path, watched = false) => {
+    let info;
+    try { info = lstatSync(path); }
+    catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error; row(path, 'missing'); return; }
+    if (info.isSymbolicLink()) {
+      row(path, 'link', readlinkSync(path));
+      try { info = statSync(path); }
+      catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error; row(path, 'missing'); return; }
+      if (info.isDirectory() && !watched) return;
+    }
+    if (info.isDirectory()) {
+      const names = readdirSync(path).sort(); row(path, 'directory', names);
+      for (const name of names) visit(resolve(path, name));
+    } else if (info.isFile()) row(path, 'file', createHash('sha256').update(readFileSync(path)).digest('hex'));
+    else throw new Error(`unsupported bake input ${path}`);
+  };
+  for (const path of paths) visit(path, true);
+  return hash.digest('hex');
+}
+
+/** Supply Cargo with a content revision for the selected bake, then retain
+ * its actual watches after success. File watches still serve direct Cargo. */
+export function cargoBakeInputs(pkg, target, profile, env) {
+  if (!pkg.targets.some(t => t.kind.includes('custom-build')) || env.EXACT_BAKED) return () => {};
+  const key = createHash('sha256').update(JSON.stringify([pkg.manifest_path, target, profile])).digest('hex');
+  const file = resolve(env.CARGO_TARGET_DIR, 'bake-inputs', key + '.json');
+  let previous;
+  try { previous = JSON.parse(readFileSync(file, 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
+  const digest = previous?.version === 1 ? watchedDigest(previous.paths) : null;
+  // Keep the revision Cargo consumed when the bake discovers new watches.
+  // Hashing the enlarged list as the next revision would rebake unchanged inputs.
+  const revision = digest !== null && digest === previous.digest ? previous.revision : digest ?? randomUUID();
+  env.EXACT_BAKE_INPUTS = revision;
+  return messages => {
+    const script = messages.find(m => m.reason === 'build-script-executed' && m.package_id === pkg.id);
+    if (!script) return;
+    const stdout = [resolve(script.out_dir, '../output'), resolve(script.out_dir, '../run/stdout')].find(existsSync);
+    const paths = [...new Set(readFileSync(stdout, 'utf8').split('\n').flatMap(line => {
+      const path = /^cargo::?rerun-if-changed=(.*)$/.exec(line)?.[1];
+      return path === undefined ? [] : [resolve(dirname(pkg.manifest_path), path)];
+    }))].sort();
+    const record = {version:1, paths, digest:watchedDigest(paths), revision};
+    mkdirSync(dirname(file), {recursive:true});
+    writeFileSync(`${file}.${process.pid}.tmp`, JSON.stringify(record));
+    renameSync(`${file}.${process.pid}.tmp`, file);
+  };
+}
 
 export function compilerPaths(text, workspace) {
   const first = text.replace(/\\\r?\n/g, '').split('\n')[0];

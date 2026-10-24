@@ -4,7 +4,7 @@ import { test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
@@ -74,6 +74,69 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
       before = changed;
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 300000);
+
+// Real Cargo and the TypeScript baker must agree even when a restore keeps an old mtime.
+test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('restored and equal-mtime Contract sources rebake and then stay quiet', () => {
+  const root = resolve(import.meta.dir, '..'), dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-restored-bake-')));
+  const write = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), {recursive:true}); writeFileSync(resolve(dir, path), bytes); };
+  try {
+    write('rust-toolchain.toml', readFileSync(resolve(root, 'rust-toolchain.toml')));
+    write('Cargo.lock', readFileSync(resolve(root, 'Cargo.lock')));
+    write('Cargo.toml', `[workspace]\nmembers=["linux"]\nresolver="2"\n[patch.crates-io]\ntaffy={path=${JSON.stringify(resolve(root, 'vendor/taffy'))}}\n`);
+    write('linux/Cargo.toml', `[package]\nname="restored-bake-linux"\nversion="0.1.0"\nedition="2021"\n[build-dependencies]\nexact-js-bake={path=${JSON.stringify(resolve(root, 'js/bake'))}}\n`);
+    write('linux/build.rs', 'fn main() { exact_js_bake::build(std::path::Path::new(".."), "linux").unwrap(); std::fs::write(std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("ran"), b"ran").unwrap(); }');
+    write('linux/src/main.rs', 'fn main() { let _ = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan")); }');
+    const id = 'com.exact.restoredbake';
+    write('app.json', JSON.stringify({app:{id, name:'Restored bake'}, rust:false, deploy:{store:{linux:'0'}}}));
+    write('app.ts', `export const appId = '${id}'; export const grants = ''; export const answer = () => { throw new Error('no sources'); };`);
+    const source = text => `component App\n  view\n    text "${text}"\n`;
+    write('app.contract', source('ORIGINAL'));
+    const path = resolve(dir, 'app.contract'), original = resolve(dir, 'app.contract.orig');
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(path, old, old);
+    copyFileSync(path, original); utimesSync(original, old, old);
+    const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:dir, encoding:'utf8'});
+    assert.equal(lock.status, 0, lock.stderr);
+    const target = bakeTarget('linux'), output = resolve(dir, 'target/bakes');
+    const app = {dir, workspace:dir, target:process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), name:'restored-bake', id,
+      manifest:{app:{id, name:'Restored bake'}, rust:false}, crate:kind=>`restored-bake-${kind}`};
+    const bake = () => buildBake(app, 'linux', target, {profile:'dev', output,
+      env:{EXACT_UPDATE_TRUST:'development', EXACT_RUST_BUNDLE:undefined, EXACT_UPDATE_RECEIPT:undefined}});
+    const plan = () => readFileSync(resolve(output, `linux-${target}.plan`));
+    bake();
+    const first = plan(); assert.ok(first.includes(Buffer.from('ORIGINAL')));
+    write('app.contract', source('EDITED'));
+    bake(); assert.ok(plan().includes(Buffer.from('EDITED')));
+    renameSync(original, path);
+    bake();
+    assert.deepEqual(plan(), first, 'restoring the older source must restore the original plan');
+    assert.equal(statSync(path).mtimeMs, old.getTime(), 'the builder must not touch the source');
+    write('app.contract', source('EQUALNEW')); utimesSync(path, old, old);
+    bake(); assert.ok(plan().includes(Buffer.from('EQUALNEW')), 'changed bytes at the same mtime and size must rebake');
+    const builds = resolve(app.target, target, 'debug/build');
+    const unit = readdirSync(builds).find(name => name.startsWith('restored-bake-linux-') && (() => {
+      try { return readFileSync(resolve(builds, name, 'output'), 'utf8').includes(dir); } catch { return false; }
+    })());
+    assert.ok(unit);
+    const ran = resolve(builds, unit, 'out/ran'), stamp = statSync(ran, {bigint:true}).mtimeNs;
+    const expected = plan();
+    bake();
+    assert.deepEqual(plan(), expected);
+    assert.equal(statSync(ran, {bigint:true}).mtimeNs, stamp, 'an unchanged build must not run the bake');
+    write('node_modules/@fixture/ui/package.json', JSON.stringify({name:'@fixture/ui', exports:'./child.contract'}));
+    write('node_modules/@fixture/ui/child.contract', 'component Child\n  view\n    text "IMPORTED"\n');
+    const library = resolve(dir, 'node_modules/@fixture/ui/child.contract');
+    utimesSync(library, old, old);
+    write('app.contract', 'use Child from "@fixture/ui"\ncomponent App\n  view\n    Child()\n');
+    bake(); assert.ok(plan().includes(Buffer.from('IMPORTED')));
+    const importedStamp = statSync(ran, {bigint:true}).mtimeNs;
+    bake();
+    assert.equal(statSync(ran, {bigint:true}).mtimeNs, importedStamp, 'discovering an import must not dirty the next build');
+    writeFileSync(library, 'component Child\n  view\n    text "CHANGED!"\n');
+    utimesSync(library, old, old);
+    bake(); assert.ok(plan().includes(Buffer.from('CHANGED!')), 'installed Contract imports must be watched by content');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 300000);
 
 // Real Cargo units include named game logic for the lint and absent-art receipt.
