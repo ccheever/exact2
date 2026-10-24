@@ -89,7 +89,9 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
                 announce()
                 reply(shape(t))
             }
-            "mediaStreamTrack" -> reply(t?.let(::shape) ?: error("NotFoundError"))
+            // A read of no track (`track=""`): an app reads before it holds one.
+            "mediaStreamTrack" -> reply(if (args.optString("track").isEmpty()) JSONObject().put("id", "").put("kind", "audio").put("label", "")
+                .put("enabled", false).put("muted", true).put("readyState", "ended").put("settings", JSONObject()) else t?.let(::shape) ?: error("NotFoundError"))
             "enumerateDevices" -> reply(devices())
             "microphoneStatus" -> reply(status())
             else -> reply(error("NotSupportedError"))
@@ -330,9 +332,9 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
             hatch?.invoke(builder)
             val r = builder.build()
             if (r.state != AudioRecord.STATE_INITIALIZED) { r.release(); throw IllegalStateException("NotReadableError: the microphone did not open") }
-            if (echo && AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(r.audioSessionId)?.enabled = true
-            if (constraints.optBoolean("noiseSuppression") && NoiseSuppressor.isAvailable()) NoiseSuppressor.create(r.audioSessionId)?.enabled = true
-            if (constraints.optBoolean("autoGainControl") && AutomaticGainControl.isAvailable()) AutomaticGainControl.create(r.audioSessionId)?.enabled = true
+            if (echo && AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(r.audioSessionId)?.setEnabled(true)
+            if (constraints.optBoolean("noiseSuppression") && NoiseSuppressor.isAvailable()) NoiseSuppressor.create(r.audioSessionId)?.setEnabled(true)
+            if (constraints.optBoolean("autoGainControl") && AutomaticGainControl.isAvailable()) AutomaticGainControl.create(r.audioSessionId)?.setEnabled(true)
             r.startRecording()
             record = r
             if (Build.VERSION.SDK_INT >= 29) {
