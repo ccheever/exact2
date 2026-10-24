@@ -60,6 +60,10 @@ export function failureCode(e) {
 export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
 
 /** The compiler's positional `TextDecorations(value, spans)` as the named JSON the web host reads (LLP 1114.007). */
+/** `atomFaces`' `AtomFace` records as the named JSON the runner's bridge writes (LLP 1045.000 D2). */
+export function atomFacesRecord(v) {
+  return v == null ? null : JSON.stringify(v.map(([source, label, icon, title]) => ({ source, label, icon, title })));
+}
 export function decorationRecord(v) {
   return v == null ? null : JSON.stringify({ value: v[0], spans: v[1].map(([name, start, end]) => ({ name, start, end })) });
 }

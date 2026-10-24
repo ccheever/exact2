@@ -959,6 +959,14 @@ impl Loader<'_> {
                 .collect();
             aliases.sort();
             unit.file.decoration_scopes.insert(index as u32, aliases);
+            let mut atoms: Vec<_> = scope
+                .names
+                .iter()
+                .filter(|((kind, _), _)| *kind == Kind::Atom)
+                .map(|((_, alias), target)| (alias.clone(), target.clone()))
+                .collect();
+            atoms.sort();
+            unit.file.atom_scopes.insert(index as u32, atoms);
             rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
             // Refusals that are no `use` line's to fix, reported with the rest.
             refused.extend(scope.refused.take().into_iter().map(CompileError::from));
@@ -1354,6 +1362,11 @@ impl Loader<'_> {
                 .iter_mut()
                 .flat_map(|file| std::mem::take(&mut file.decoration_scopes))
                 .collect(),
+            atoms: all!(atoms),
+            atom_scopes: files
+                .iter_mut()
+                .flat_map(|file| std::mem::take(&mut file.atom_scopes))
+                .collect(),
             keyframes: all!(keyframes),
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
@@ -1399,6 +1412,7 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
                 .iter()
                 .map(|s| (Kind::Decoration, &*s.name)),
         )
+        .chain(file.atoms.iter().map(|s| (Kind::Atom, &*s.name)))
         .chain(file.keyframes.iter().map(|k| (Kind::Keyframes, &*k.name)))
         .chain(file.timelines.iter().map(|t| (Kind::Timeline, &*t.name)))
 }
@@ -1421,6 +1435,7 @@ fn unknown(u: &UseDecl, n: &UseName, from: &Scope) -> CompileError {
         (Kind::Call, "shapes and functions"),
         (Kind::Style, "styles"),
         (Kind::Decoration, "decorations"),
+        (Kind::Atom, "atoms"),
         (Kind::Keyframes, "keyframes"),
         (Kind::Timeline, "timelines"),
     ] {

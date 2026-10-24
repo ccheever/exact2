@@ -40,6 +40,10 @@ pub struct File {
     pub decorations: Vec<StyleDecl>,
     /// Loaded files' visible decoration aliases, by source identity.
     pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
+    /// `atom` declarations: the inline atoms' source forms (LLP 1045.000 D3).
+    pub atoms: Vec<StyleDecl>,
+    /// Loaded files' visible atom aliases, by source identity.
+    pub atom_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
     /// scoped to their file as in CSS Modules (LLP 1091 D5).
     pub keyframes: Vec<KeyframesDecl>,

@@ -57,9 +57,12 @@ pub fn parts_with(
     let node = kernel.node(id)?;
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
-    if let Some(raw) = props.get("data-decoration-styles") {
-        let css = crate::css::decoration_styles(raw, &font_names(plan));
-        props.insert("data-decoration-styles".into(), css);
+    // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+    for name in ["data-decoration-styles", "data-atom-styles"] {
+        if let Some(raw) = props.get(name) {
+            let css = crate::css::decoration_styles(raw, &font_names(plan));
+            props.insert(name.into(), css);
+        }
     }
     svg_props(kernel, &node, &mut props);
     let style = super::element::css_style_of(

@@ -887,7 +887,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     .then_some(crate::link::linked().markup)
     .flatten();
     if let (Some(pieces), Some(source)) = (markup, node.props.str(PropId::Text)) {
-        out.insert("markupPieces".into(), pieces(source));
+        let atoms = node.props.str(PropId::Atoms).unwrap_or("");
+        let faces = node.props.str(PropId::AtomFaces).unwrap_or("");
+        out.insert("markupPieces".into(), pieces(source, atoms, faces));
     }
     for (id, value) in node.props.iter() {
         if markup.is_some() && id == PropId::Text {
@@ -931,6 +933,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Markup => "markup",
             PropId::Decorations => "data-decorations",
             PropId::DecorationStyles => "data-decoration-styles",
+            // LLP 1045.000: a Markdown node's atom kinds, paint and faces.
+            PropId::Atoms => "data-atoms",
+            PropId::AtomStyles => "data-atom-styles",
+            PropId::AtomFaces => "data-atom-faces",
             PropId::TestId => "data-testid",
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.
