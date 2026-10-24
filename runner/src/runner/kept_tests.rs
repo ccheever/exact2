@@ -3,6 +3,8 @@ use super::*;
 
 #[path = "kept_identity_tests.rs"]
 mod identity;
+#[path = "kept_presence_tests.rs"]
+mod presence;
 #[path = "kept_secrets_tests.rs"]
 mod secrets;
 #[path = "kept_time_tests.rs"]

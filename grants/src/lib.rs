@@ -18,7 +18,11 @@
 //! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
 
 use std::collections::BTreeSet;
+mod presence;
 mod windows_path;
+pub use presence::{
+    line_presence, presence_words, Policy, Presence, PLATFORM_WORDS, PRESENCE_PREFIX,
+};
 pub use windows_path::WindowsPath;
 
 /// An origin, for the two network capabilities.
@@ -452,6 +456,17 @@ impl GrantSet {
                             index + 1
                         ));
                     }
+                    if target.starts_with(PRESENCE_PREFIX) {
+                        return Err(format!(
+                            "line {}: `{target}`: `{PRESENCE_PREFIX}` names are the runner's own",
+                            index + 1
+                        ));
+                    }
+                    // The words after the name are its presence policy
+                    // (LLP 1133.010 D4), which this grammar checks and the
+                    // runner reads; the grant is the name's either way.
+                    let rest: Vec<&str> = parts.by_ref().collect();
+                    presence_words(&rest).map_err(|e| format!("line {}: {e}", index + 1))?;
                     Grant::SecretKeep(target.to_string())
                 }
                 "storage.kv" => {
@@ -956,6 +971,8 @@ mod tests {
         // first word.
         assert!(GrantSet::parse("storage.kv payments cache").is_err());
         assert!(GrantSet::parse("secret.keep castle.session old").is_err());
+        // A presence policy is the one thing a `secret.keep` line may add.
+        assert!(GrantSet::parse("secret.keep castle.session user-presence").is_ok());
         assert!(GrantSet::parse("fs.read /data /backup").is_err());
         assert!(GrantSet::parse("net.fetch http://a.example # prod").is_err());
         assert!(GrantSet::parse("env.read HOME PATH").is_err());

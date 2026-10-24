@@ -85,7 +85,7 @@ impl<D: DataSource> Runner<D> {
                 self.plan.str(row.sync)
             );
             let answer = (self.route(row) != Route::Real).then(|| {
-                let answer = match self.decide(row, row.send) {
+                let answer = match self.decide(row, row.send, &json!({})) {
                     Decision::Now(answer) => answer,
                     Decision::Hold(_) | Decision::Forward => {
                         match &self.substitute(row)["cancel"] {

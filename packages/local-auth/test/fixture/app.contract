@@ -1,0 +1,50 @@
+// The conformance fixture (LLP 1133.001 D7): both names of @exact/local-auth
+// and the store's presence operations, each answer shown by testId for the
+// suite. `token` is a lock the person chooses; `key` is always locked.
+use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
+
+shape Line
+  text: string
+
+component Fixture
+  state version = 0
+  resource status = localAuthStatus() as shape LocalAuthStatus else empty()
+  resource facts = facts(version) as shape Line
+  mutation checked as shape LocalAuthentication
+  mutation wrote as shape Line refreshes facts
+  action check
+    send checked = authenticate(reason="reason.unlock")
+  action run(op: string)
+    send wrote = storeOp(op)
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.presenceSecrets} ${status.state} ${status.biometry}` testId="status"
+      text facts.text testId="facts"
+      match checked
+        case some(c)
+          text "passed" testId="check"
+        case none
+          match failure(checked)
+            case some(f)
+              text f.code testId="check"
+            case none
+              text "" testId="check"
+      match wrote
+        case some(w)
+          text w.text testId="wrote"
+        case none
+          text "" testId="wrote"
+      button press=check testId="authenticate"
+        text "Authenticate"
+      button press=run("set-token") testId="set-token"
+        text "Keep the token"
+      button press=run("set-key") testId="set-key"
+        text "Keep the key"
+      button press=run("protect") testId="protect"
+        text "Lock the token"
+      button press=run("unlock") testId="unlock"
+        text "Unlock the token"
+      button press=run("unprotect") testId="unprotect"
+        text "Unlock the token for good"
+      button press=run("read-key") testId="read-key"
+        text "Read the key"

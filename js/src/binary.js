@@ -1,4 +1,5 @@
-// The data seam's bytes, for prelude.js: base64 for what crosses the seam
+// The data seam's bytes, and the store's presence calls (below), for
+// prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, and a stream message's data. Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
 // names only its size, and the host fills an ArrayBuffer of it through the
@@ -54,11 +55,58 @@
   function gateDecode(track, type, timestamp, data) {
     door(8, data.byteOffset + " " + data.byteLength, data.buffer);
   }
+  // The store's presence calls (LLP 1133.010 D5), for prelude.js's `store`,
+  // over its host door: a name's occupancy (op 18 kept, 19 locked or
+  // pending, 20 this device keeps locked secrets now), and a call that waits
+  // on the host's backend as a request of its own, whose reply carries an
+  // unlocked value to its promise alone, never through the store. A refusal
+  // whose message names its error (`InvalidAccessError: …`) carries that name.
+  function presence(host, get, refuse) {
+    // Own properties: a hardened realm's frozen `Error.prototype` refuses an
+    // assigned `name`.
+    function as(e, name) {
+      Object.defineProperty(e, "name", { value: name, writable: true, configurable: true });
+      Object.defineProperty(e, "code", { value: name, writable: true, enumerable: true, configurable: true });
+      return e;
+    }
+    function named(e) {
+      var m = /^(InvalidAccessError|NotSupportedError): /.exec(e && e.message);
+      return m ? as(e, m[1]) : e;
+    }
+    function call(op, name, options) {
+      name = String(name);
+      try {
+        refuse("store." + op + "()");
+        var locked = host(19, name, "") === "1";
+        if (op === "unlock" && !locked) return Promise.resolve(get(name));
+        if (op === "unprotect" && !locked || op === "protect" && locked) return Promise.resolve();
+        if (op === "protect" && host(20, "", "") !== "1") throw new Error("NotSupportedError: " + name + " cannot be locked: this device keeps no locked secret now");
+      } catch (e) { return Promise.reject(named(e)); }
+      var body = JSON.stringify({ presence: op, name: name, reason: options && options.reason != null ? String(options.reason) : "" });
+      return global.fetch("exact-native:", { method: "POST", body: body, exactIndependentHttp: { maxResponseBytes: 1048576 } })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            var v = r.status === 200 ? JSON.parse(t) : { error: "UnknownError", message: t };
+            if (v.error) throw as(new Error(v.message || v.error), v.error);
+            return op === "unlock" ? (v.value == null ? null : v.value) : undefined;
+          });
+        });
+    }
+    return Object.freeze({
+      door: function (op, a, b) { try { return host(op, a, b); } catch (e) { throw named(e); } },
+      has: function (name) { refuse("store.has()"); return host(18, String(name), "") === "1"; },
+      locked: function (name) { refuse("store.locked()"); return host(19, String(name), "") === "1"; },
+      unlock: function (name, options) { return call("unlock", name, options); },
+      protect: function (name) { return call("protect", name); },
+      unprotect: function (name, options) { return call("unprotect", name, options); },
+    });
+  }
   global.__exact_binary = Object.freeze({
     fromBase64: fromBase64,
     toBase64: toBase64,
     utf8Length: utf8Length,
     messageData: messageData,
     gateDecode: door ? gateDecode : undefined,
+    presence: presence,
   });
 })(globalThis);

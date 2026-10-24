@@ -110,6 +110,16 @@ so these rules bind every lane:
 The token is kept with `secret.keep` and never logged, written to the journal,
 or sent anywhere but `discord.com`.
 
+**Lock Excord** (amended 2026-10-23, LLP 1133.010 §9). The token is the whole
+account, so the person may keep it behind Face ID, Touch ID or the passcode, as
+WhatsApp, Signal and Telegram offer: the line is `secret.keep discord-token
+user-presence optional`, and the account menu's switch moves the token between
+plain and locked. Excord's lock gates the token itself, not only the screen:
+while it is on, a launch shows nothing of the account and opens no gateway socket
+until the person passes the platform's check, every token the gateway rotates in
+is kept locked, and every return from the background covers the transcript until
+the check passes again.
+
 ## 3. The bar: what a perfect transcript does
 
 Each property is checked by an `app.test.contract` test on the fixture, where a

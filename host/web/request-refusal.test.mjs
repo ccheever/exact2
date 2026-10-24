@@ -346,6 +346,11 @@ test('the TypeScript secret facade has native Store null, reservation, read and 
   expect(() => malformed.set('token', 'x')).toThrow('line 1');
 });
 
+test('the web refuses a locked secret and keeps an optional one plain (LLP 1133.010 D15)', async () => {
+  const backing = new Map([['key', 'older']]), store = createSecretFacade(backing, normalized('secret.keep token user-presence optional\nsecret.keep key user-presence\ndevice.local-auth purpose.lock'), () => Promise.resolve(null));
+  expect(() => store.set('key', 's')).toThrow(expect.objectContaining({ name: 'NotSupportedError' })); store.set('token', 'open'); await expect(store.protect('token')).rejects.toMatchObject({ name: 'NotSupportedError' }); expect([store.get('key'), store.has('key'), store.locked('key'), backing.get('key'), store.get('token'), store.has('token'), store.locked('token'), await store.unlock('token')]).toEqual([null, false, false, 'older', 'open', true, false, 'open']);
+});
+
 test('filesystem admission is component-based and refuses traversal', () => {
   const set = normalized('fs.read app:/data\nfs.write app:/data/out');
   expect(coversPath(set, 'fs.read', 'app:/data/note.txt')).toBe(true);

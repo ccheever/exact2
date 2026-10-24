@@ -13,6 +13,7 @@
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use Badge from "exact:content"
+use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 
 shape Time
   epochAtZero: number
@@ -96,12 +97,19 @@ component Excord
   state slow = false
   state lagAnchor = ""
   state lagVersion = 0
+  // Lock Excord (LLP 1133.010 §9): the launch asks for the check once; every
+  // return covers the transcript until the person passes it again
+  // (`lockedOut`), the return task skipping its own first run (`launched`).
+  state launchAsked = false
+  state launched = false
+  state lockedOut = false
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
   // The gateway opens once the kept credentials are read, which only `session` reads, so
   // keeping a new identify or token re-asks it and not the socket. The launch's epoch makes
   // the session clock real from its first step.
   resource session = loadSession() as shape Session else empty()
+  resource lock = localAuthStatus() as shape LocalAuthStatus else empty(available=false)
   resource gateway = gatewayState(session.ready) with time.epochAtZero as shape Gateway else empty(state="connecting")
   // A large frame (a login's READY) waits for `digest`, which works through it a slice a turn and
   // answers a newer snapshot than the stream's last; the stream's next one is newer again.
@@ -145,6 +153,13 @@ component Excord
   // A token kept re-asks the session and the gateway, which then connects with it.
   mutation signedIn as shape Ack refreshes session, gateway then afterSignIn
   mutation signedOut as shape Ack refreshes session, gateway, guilds, categories, dms, chan, win
+  // The launch's unlock reads the token behind the check; a return's check
+  // gates the screen, the token being in memory already. Turning the lock on
+  // asks first, as WhatsApp does, then keeps the token locked.
+  mutation unlocked as shape Ack refreshes session
+  mutation returned as shape LocalAuthentication then afterReturn
+  mutation lockChecked as shape LocalAuthentication then lockAfterCheck
+  mutation lockSet as shape Ack refreshes session
   derive rows = win.channel == open ? win.rows : []
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
@@ -157,10 +172,15 @@ component Excord
   derive reading = top(nav).name == "channel"
   derive draft = draftOf(drafts, open)
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
-  derive signedOutNow = gw.state == "signed-out" and not gw.fixture
+  // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
+  derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
+  derive signedOutNow = gw.state == "signed-out" and (not gw.fixture or droppedLock)
   derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive clock = time.epochAtZero + now
   derive newCount = max(0, chan.arrived - baseArrived)
+  // The lock is offered where the device can keep the token locked (on the web it cannot).
+  derive lockable = session.signedIn and lock.available and lock.presenceSecrets
+  derive lockLabel = lock.biometry == "faceID" ? "Require Face ID" : lock.biometry == "touchID" ? "Require Touch ID" : lock.biometry == "opticID" ? "Require Optic ID" : "Require Passcode"
   derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 and not win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
 
   task tick mount
@@ -210,6 +230,14 @@ component Excord
     after(1, holdUnread)
   task pumping when slow
     every(150, pumpNow)
+  // A launch that begins locked asks for the check once, right after the first
+  // data answer; a cancel leaves the lock screen and its Unlock button.
+  task unlockAtLaunch when session.locked and not launchAsked
+    after(1, unlockFirst)
+  // A gate follows a state, and the page is visible at launch: the action skips
+  // its own first run and then hears every return (docs/agent-pitfalls.md).
+  task returnLock when page.visibilityState == "visible"
+    after(1, onReturn)
 
   action step
     now = performanceNow()
@@ -558,6 +586,29 @@ component Excord
   action pumpNow
     lagAnchor = anchor
     lagVersion = histVersion
+  action unlockFirst
+    launchAsked = true
+    send unlocked = unlockSession()
+  action onReturn
+    if launched and session.ready and session.lockOn
+      lockedOut = true
+    launched = true
+  action unlockTap
+    if session.locked
+      send unlocked = unlockSession()
+    else
+      send returned = authenticate(reason="reason.unlock")
+  action afterReturn
+    lockedOut = false
+  action toggleLock
+    if session.lockOn
+      send lockSet = unprotectToken()
+    else
+      send lockChecked = authenticate(reason="reason.unlock")
+  action lockAfterCheck
+    send lockSet = protectToken()
+  action signInFixture
+    send unlocked = signInAgain()
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
@@ -567,6 +618,12 @@ component Excord
             header display="flex" align-items="center" padding="8px 16px"
               h1 "Sign In to Discord" flex=1 min-width=0
             list id="sign-in" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              if droppedLock
+                section
+                  text "Sign in again: this device no longer keeps your token behind its lock." testId="signed-out"
+                  if gw.fixture
+                    button press=signInFixture testId="sign-in-fixture"
+                      text "Sign In"
               section
                 header
                   text "Token"
@@ -599,6 +656,10 @@ component Excord
                   text (g.mentions > 0 ? `${g.name} (${g.mentions})` : g.name)
             column id="account-menu" popover="auto" role="menu" aria-label="Account"
               text (gw.meName != "" ? `Signed in as ${gw.meName}` : "Connecting…") font="-exact-footnote" color="-exact-secondary-label" padding="6px 12px"
+              if lockable
+                hr
+                button press=toggleLock popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=session.lockOn testId="lock-switch"
+                  text lockLabel
               if not gw.fixture
                 hr
                 button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"
@@ -748,3 +809,11 @@ component Excord
                 button press=post disabled=(draft.trim() == "") buttonStyle="filled"
                   retainFocus=true aria-label="Send" testId="send"
                   image "symbol:send"
+      // Nothing of the account shows while the launch is locked or a return
+      // has covered it.
+      if session.locked or lockedOut
+        column position="absolute" inset=0 align-items="center" justify-content="center" gap=16 padding=24 background-color="-exact-background" testId="lock-screen"
+          image "symbol:lock" font-size=44 color="-exact-secondary-label"
+          text "Excord is locked" font="-exact-title3"
+          button press=unlockTap buttonStyle="filled" testId="unlock"
+            text "Unlock"

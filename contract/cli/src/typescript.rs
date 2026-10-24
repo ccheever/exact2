@@ -132,9 +132,21 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
           * `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`). */\n\
          export type Result<S extends Source> = SourceMap[S]['result'];\n\
          export interface Store {\n\
+           /** The value kept under `name`; throws `InvalidAccessError` for a locked presence secret, read with `unlock` (LLP 1133.010). */\n\
            get(name: string): string | null;\n\
+           /** Throws `NotSupportedError` when the name would be kept locked and this device keeps no locked secret. */\n\
            set(name: string, value: string): void;\n\
            forget(name: string): void;\n\
+           /** A value is kept under `name`, locked or not. */\n\
+           has(name: string): boolean;\n\
+           /** `name` is kept under its presence policy, or awaits the move to it. */\n\
+           locked(name: string): boolean;\n\
+           /** The value: after the person's check when `name` is locked, at once when not; `null` when nothing is kept. Rejects with `code` `USER_CANCEL`, `AUTHENTICATION_FAILED`, `LOCKOUT`, `NOT_AVAILABLE`, `PERMISSION_DENIED` or `NotSupportedError`. */\n\
+           unlock(name: string, options?: { reason?: string }): Promise<string | null>;\n\
+           /** Lock an `optional` presence name for good; rejects `NotSupportedError` where no locked secret can be kept. */\n\
+           protect(name: string): Promise<void>;\n\
+           /** After the person's check, unlock an `optional` presence name for good. */\n\
+           unprotect(name: string, options?: { reason?: string }): Promise<void>;\n\
            /** Keep a P-256 pair under the `secret.keep <name>` grant (LLP 1069.005 D1b). */\n\
            keepKey(name: string, pair: CryptoKeyPair): Promise<void>;\n\
            /** The pair kept under `name`, its private key non-extractable. */\n\

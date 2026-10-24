@@ -192,6 +192,18 @@ impl<D: DataSource> Runner<D> {
         send: bool,
         timeout: Option<f64>,
     ) -> Decision {
+        // Presence is not delegable (LLP 1133.010 D12): a person's check
+        // fails for a tool or a wake before anything is asked, in every state.
+        if self.substitute(row)["origin"] == "person" && origin != CallOrigin::App {
+            self.log(format!(
+                "{}: refused, person-required ({} origin)",
+                self.key(row),
+                origin.word()
+            ));
+            return Decision::Now(
+                json!({ "error": "PERMISSION_DENIED", "message": "person-required" }),
+            );
+        }
         if let Err(why) = self.admit(row, args, origin) {
             self.log(format!("{}: refused, {why}", self.key(row)));
             return Decision::Now(json!({ "error": "NotAllowedError" }));
@@ -199,9 +211,9 @@ impl<D: DataSource> Runner<D> {
         let decision = match self.route(row) {
             Route::Real => return Decision::Forward,
             Route::Agent => self
-                .decide_permission(row, send)
+                .decide_permission(row, send, args)
                 .unwrap_or(Decision::Forward),
-            Route::Substitute => self.decide_timed(row, send, timeout),
+            Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
         // A name whose grants are per argument asks permission only for an
         // argument it was given: `getUserMedia(audio=false)` asks for no

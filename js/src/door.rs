@@ -29,12 +29,19 @@ pub(crate) unsafe extern "C" fn host_door(
             },
             Err(_) => Err("fetch: a ticket that is not a number".into()),
         },
-        2 => Ok(state.store.and_then(|s| (*s).get(&a).map(str::to_string))),
-        3 => match state.store {
+        // A locked presence name throws `InvalidAccessError` (LLP 1133.010 D5).
+        2 => match state.store {
             Some(s) => (*s)
-                .set(&a, &b)
-                .map(|_| None)
-                .map_err(|e| format!("store.set: {e:?}")),
+                .read(&a)
+                .map(|v| v.map(str::to_string))
+                .map_err(store_error),
+            None => Ok(None),
+        },
+        3 => match state.store {
+            Some(s) => (*s).set(&a, &b).map(|_| None).map_err(|e| match e {
+                exact_runner::StoreError::NotSupported(_) => store_error(e),
+                e => format!("store.set: {e:?}"),
+            }),
             None => Err(
                 "store.set: no store at bake or in background work, which no answer waits for"
                     .into(),
@@ -199,6 +206,20 @@ pub(crate) unsafe extern "C" fn host_door(
             state.requests.retain(|(t, _)| Some(*t) != ticket);
             Ok(None)
         }
+        // A presence name's occupancy, never its value (LLP 1133.010 D5): a
+        // value is kept, locked or not (18); kept locked or awaiting the move
+        // (19); this device keeps locked secrets now (20). Each a device read.
+        18..=20 => Ok(state.store.map(|s| {
+            let yes = match op {
+                18 => (*s).has(&a),
+                19 => (*s).locked(&a),
+                _ => {
+                    (*s).observe_external_read();
+                    (*s).presence_capable()
+                }
+            };
+            if yes { "1" } else { "0" }.to_string()
+        })),
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
@@ -212,6 +233,15 @@ pub(crate) unsafe extern "C" fn host_door(
             *out = c_string(&text);
             1
         }
+    }
+}
+
+/// A store refusal as the prelude names it: its message starts with the
+/// error's name (`InvalidAccessError: …`, `NotSupportedError: …`).
+pub(crate) fn store_error(e: exact_runner::StoreError) -> String {
+    match exact_runner::DataError::from(e) {
+        exact_runner::DataError::Unavailable(message) => message,
+        other => other.to_string(),
     }
 }
 

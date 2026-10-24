@@ -358,8 +358,10 @@ impl<D: DataSource> Runner<D> {
             // A native module's send (LLP 1133.002 D13): the runner's substitute.
             self.module_send(m, source, args)
         } else {
-            self.data
-                .answer_for(Target::Mutation(m), &mut self.store, source, args)
+            let answer = self
+                .data
+                .answer_for(Target::Mutation(m), &mut self.store, source, args);
+            self.refuse_locked(answer)
         };
         // What its source staged on sockets goes out only with an answer
         // now that conforms (LLP 1016.000 D7); what the turns after its

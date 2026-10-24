@@ -201,8 +201,9 @@ impl ibex2::secrets::SecretStore for Shared {
 fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
     // Appended, so an error's line number is the app's own.
     let spec = format!(
-        "{}\nstorage.kv {KEPT}\nstorage.kv {STATE}",
-        exact_runner::io_grants(grants)
+        "{}\nstorage.kv {KEPT}\nstorage.kv {STATE}\n{}",
+        exact_runner::io_grants(grants),
+        crate::presence_secrets::scopes(),
     );
     let set = ibex2::grant::GrantSet::parse(&spec)
         .map_err(|e| format!("the app's grants did not parse: {e}"))?;
@@ -298,6 +299,10 @@ pub struct Endowed {
     pub secrets: Option<Box<dyn KeptStore>>,
     /// Why the grants bound nothing.
     pub unbound: Option<String>,
+    /// The presence backend, reconciled before boot (LLP 1133.010 D4): the
+    /// host installs it in the runner it boots. Its occupancy is in the
+    /// snapshot.
+    pub presence: Option<exact_runner::presence::Backend>,
 }
 
 impl Endowed {
@@ -308,6 +313,7 @@ impl Endowed {
             snapshot: Vec::new(),
             secrets: None,
             unbound: None,
+            presence: None,
         }
     }
 }
@@ -317,12 +323,19 @@ impl Endowed {
 pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     let (bindings, unbound) = endow_bound(grants, app_id, fresh);
     let prefs = Prefs::of(app_id);
+    let agent = std::env::var_os("EXACT_AGENT").is_some();
+    let presence = crate::presence_secrets::agent_backend(bindings.as_ref(), grants, agent);
+    let mut snapshot = if fresh {
+        snapshot_in(bindings.as_ref(), &prefs)
+    } else {
+        Vec::new()
+    };
+    if let Some(backend) = presence.as_ref().filter(|_| fresh) {
+        snapshot.extend(backend.snapshot_entries(true));
+    }
     Endowed {
-        snapshot: if fresh {
-            snapshot_in(bindings.as_ref(), &prefs)
-        } else {
-            Vec::new()
-        },
+        snapshot,
+        presence,
         secrets: bindings
             .as_ref()
             .map(|b| Box::new(Platform::of(b).with_prefs(prefs.clone())) as Box<dyn KeptStore>),

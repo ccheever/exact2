@@ -2,7 +2,7 @@
 //! `state.extensions`, and `prefer extension` and `prefer permission`.
 
 use super::super::{CommitReceipt, DataSource, Runner};
-use super::{error_code, Json, ModulesRow, Route, Waits};
+use super::{error_code, Json, ModulesRow, Route};
 use serde_json::{json, Map};
 
 impl<D: DataSource> Runner<D> {
@@ -49,7 +49,7 @@ impl<D: DataSource> Runner<D> {
                 h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
             }) {
                 if let Some(held) = entry["held"].as_array_mut() {
-                    held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": match h.waits { Waits::Permission => "permission", Waits::Value => "value", Waits::Raise => "raise" } }));
+                    held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": h.waits.word() }));
                 }
             }
         }

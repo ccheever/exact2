@@ -175,6 +175,13 @@ export const inOverlay = api => {
   return e;
 };
 const effect = api => { if (overlaying.on) throw inOverlay(api); };
+// The `secret.keep` names whose line carries a presence policy (LLP 1133.010 D4), each with whether the person may
+// leave it plain (`optional`). The web keeps no locked secret (D15): a name that must be locked is never kept here.
+const mustLock = (set, name) => (set?.entries ?? []).some(([, source, grant]) => {
+  const words = source.split(/\s+/);
+  return grant?.[0] === 'secret-keep' && words[1] === String(name) && words.length > 2 && words[3] !== 'optional';
+});
+const unsupported = name => Object.assign(new Error(`NotSupportedError: ${name} is kept locked, and the web keeps no locked secret`), { name: 'NotSupportedError', code: 'NotSupportedError' });
 export function createSecretFacade(store, admitted, keys) {
   const refused = name => {
     const parse = grantError(admitted);
@@ -189,9 +196,14 @@ export function createSecretFacade(store, admitted, keys) {
       effect('store.get()');
       if (String(name).startsWith('exact.kept.')) return null;
       seen.read = true;
-      return admitsSecret(admitted, name) ? store.get(name) ?? null : null;
+      return admitsSecret(admitted, name) && !mustLock(admitted, name) ? store.get(name) ?? null : null;
     },
-    set(name, value) { effect('store.set()'); allowed(name); store.set(name, String(value)); },
+    has(name) { return seen.get(name) !== null; },
+    locked(name) { effect('store.locked()'); seen.read = true; return false; },
+    unlock(name) { try { return Promise.resolve(seen.get(name)); } catch (e) { return Promise.reject(e); } },
+    protect(name) { return overlaying.on ? Promise.reject(inOverlay('store.protect()')) : Promise.reject(unsupported(name)); },
+    unprotect() { return overlaying.on ? Promise.reject(inOverlay('store.unprotect()')) : Promise.resolve(); },
+    set(name, value) { effect('store.set()'); allowed(name); if (mustLock(admitted, name)) throw unsupported(name); store.set(name, String(value)); },
     forget(name) { effect('store.forget()'); allowed(name); store.set(name, null); },
     keepKey(name, pair) { if (overlaying.on) return Promise.reject(inOverlay('store.keepKey()')); allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
     key(name) { if (overlaying.on) return Promise.reject(inOverlay('store.key()')); const handle = seen.get(name); return handle == null ? Promise.resolve(null) : keys().then(service => service.get(handle) ?? null); },

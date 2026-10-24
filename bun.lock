@@ -9,6 +9,7 @@
         "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/lists": "workspace:*",
+        "@exact/local-auth": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
@@ -37,6 +38,10 @@
     "packages/lists": {
       "name": "@exact/lists",
       "version": "0.1.0",
+    },
+    "packages/local-auth": {
+      "name": "@exact/local-auth",
+      "version": "1.0.0",
     },
     "packages/media-capture": {
       "name": "@exact/media-capture",
@@ -73,6 +78,8 @@
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
+
+    "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
 
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
 

@@ -7,6 +7,14 @@ import { admitsNetwork, grantError, sameGrantDeclaration, scopedGrantSet } from 
 import { faultMatches } from './faults.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+// A presence name's occupancy in the call's snapshot (LLP 1133.010 D5): the door's op 18 (a value is kept), 19
+// (locked or pending), 20 (this device keeps locked secrets, which a browser never does), never a value.
+const presenceRead = (store, op, name) => {
+  const said = store.get(`exact.presence.${name}`);
+  if (op === 20) return '0';
+  if (op === 19) return said === 'locked' || said === 'pending' ? '1' : '0';
+  return (said ? said !== 'absent' : store.has(name)) ? '1' : '0';
+};
 const realms = new Map();
 const turns = new Map();
 let nextTurn = 1;
@@ -140,6 +148,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (op === 11) return stream ? hex(stream(Number(value))) : undefined;
     // `authCallback()`: this page's callback page, a device fact (LLP 1069.006 D2).
     if (op === 12) { if (name !== 'callback') return; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
+    if (op >= 18 && op <= 20) { context.externalRead = true; return presenceRead(context.store, op, name); }
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
     context.writes.push([name, op === 3 ? value : null]);
     if (op === 3) context.store.set(name, value); else context.store.delete(name);
