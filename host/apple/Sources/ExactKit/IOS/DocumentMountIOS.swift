@@ -18,6 +18,9 @@ extension Presenter {
     /// the document in the viewport.
     func mountDocument() {
         guard let home = viewport.superview, documentMount.superview === home else { return }
+        // A new header can overflow until navigation lifts it into its bar.
+        // Keep UIKit's containers out of the scroller during that projection.
+        guard !applying, !navigation.syncing else { return }
         let still = navigation.wantsWholeView && !viewport.hasRange
         // With no range the rest offset is the only one: a page that shrank
         // while scrolled stands still there.
