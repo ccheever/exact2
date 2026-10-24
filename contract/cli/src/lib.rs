@@ -510,6 +510,8 @@ pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Ve
 /// edit to a used file or a library rebuilds the plan, not only an edit to
 /// the root.
 pub fn rerun_if_changed(path: &Path) {
+    // The builder also detects restored bytes whose mtime predates the bake.
+    println!("cargo:rerun-if-env-changed=EXACT_BAKE_INPUTS");
     println!("cargo:rerun-if-changed={}", path.display());
     let graph = source_graph(path);
     for source in &graph.sources {
