@@ -1,4 +1,5 @@
 use PickerTarget from "../composer/composer-shapes.contract"
+use PaletteRow from "../palette/palette.contract"
 use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
 use ComposerDraftState, ComposerMenuState, ConfirmationState from "./app-protocols.contract"
 use HoverState, KeybindingEditorState, PaletteSessionState from "./app-protocols.contract"
@@ -112,10 +113,10 @@ fn transitionConfirmUiGuard1(
     accept
   )
   : stepConfirmClose(
-  d,
-  s,
-  accept
-)
+    d,
+    s,
+    accept
+  )
 )
 
 fn stepHoverTipAt(
@@ -328,9 +329,9 @@ fn transitionNewThreadGuard2(
     s
   )
   : transitionNewThreadWrites4(
-  d,
-  s
-)
+    d,
+    s
+  )
 )
 
 fn transitionNewThreadGuard1(
@@ -482,7 +483,7 @@ fn transitionSelectModelWrites3(
     hostFocus=true,
     focus=TextArgs(
       p0=s.composerMenu.modelTarget.id.startsWith("review-guide-model:")
-        ? "setting-review-guide-model" : "setting-source-control-writer-model"
+      ? "setting-review-guide-model" : "setting-source-control-writer-model"
     ),
     writeComposerMenu=true,
     composerMenu=ComposerMenuState(
@@ -516,7 +517,7 @@ fn transitionSelectModelWrites4(
     hostFocus=true,
     focus=TextArgs(
       p0=additive and s.composerMenu.modelTarget.id == "" and s.catalog.multiple ? "model-search"
-        : (s.composerMenu.modelTarget.id == "" ? "composer"
+      : (s.composerMenu.modelTarget.id == "" ? "composer"
         : `setting-${s.composerMenu.modelTarget.id.slice(0, s.composerMenu.modelTarget.id.indexOf(":"))}`)
     ),
     writeComposerMenu=true,
@@ -628,13 +629,13 @@ fn transitionPaletteCloseGuard1(
     s
   )
   : stepPaletteFocusBack(
-  transitionPaletteCloseWrites3(
-    d,
-    s
-  ),
-  s,
-  s.paletteSession.page
-)
+    transitionPaletteCloseWrites3(
+      d,
+      s
+    ),
+    s,
+    s.paletteSession.page
+  )
 )
 
 fn stepPaletteEdit(
@@ -698,10 +699,10 @@ fn transitionPaletteEditGuard2(
     true
   )
   : transitionPaletteEditWrites3(
-  d,
-  s,
-  value
-)
+    d,
+    s,
+    value
+  )
 )
 
 fn stepPaletteKey(
@@ -763,7 +764,7 @@ fn transitionPaletteKeyMatch3(
   s: UiStart,
   name: string
 ): UiDecision = match first(s.palette.rows.filter((r) => r.index == ((s.paletteHighlight < 0
-  or s.paletteHighlight + 1 >= s.palette.count) ? 0 : s.paletteHighlight + 1))) {
+        or s.paletteHighlight + 1 >= s.palette.count) ? 0 : s.paletteHighlight + 1))) {
   case some(r) => transitionPaletteKeyWrites4(
     d,
     s,
@@ -820,7 +821,7 @@ fn transitionPaletteKeyWrites8(
     paletteSession=PaletteSessionState(
       d.root.paletteSession,
       scroll=s.paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - s.paletteListHeight)
-        : min(s.paletteSession.scroll, max(0, r.top - 24))
+      : min(s.paletteSession.scroll, max(0, r.top - 24))
     )
   )
 )
@@ -830,7 +831,7 @@ fn transitionPaletteKeyMatch7(
   s: UiStart,
   name: string
 ): UiDecision = match first(s.palette.rows.filter((r) => r.index == (s.paletteHighlight <= 0
-  ? s.palette.count - 1 : s.paletteHighlight - 1))) {
+      ? s.palette.count - 1 : s.paletteHighlight - 1))) {
   case some(r) => transitionPaletteKeyWrites8(
     d,
     s,

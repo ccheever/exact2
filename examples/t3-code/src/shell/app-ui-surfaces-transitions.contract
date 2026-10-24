@@ -2,6 +2,7 @@ use AppDecision, CommandArgs, TextArgs, TwoTextArgs from "./app-decisions.contra
 use ComposerDraftState, SettingsPageState from "./app-protocols.contract"
 use UiDecision from "./app-ui-decisions.contract"
 use UiStart from "./app-ui-start.contract"
+use ShellSurface from "./shell-shapes.contract"
 
 // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment's first row
 fn stepCoreScope(
@@ -313,7 +314,7 @@ fn transitionCoreThemeDialogWrites1(
     settingsThemeDialog=kind,
     writeSettingsThemeSubject=true,
     settingsThemeSubject=kind == "create" or kind == "edit" or kind == "duplicate"
-      ? `${theme}#${s.settingsThemeRequest + 1}` : theme,
+    ? `${theme}#${s.settingsThemeRequest + 1}` : theme,
     writeModalError=true,
     modalError=""
   ),
@@ -489,10 +490,10 @@ fn transitionPanelUiWrites1(
     d.root,
     writeRightPanelAt=true,
     rightPanelAt=(what == "tab-close" and s.shell.panel.tabs.filter((tab) => tab.id == id
-      and tab.closeTitle != "").length > 0) ? s.rightPanelAt : (what == "toggle"
+        and tab.closeTitle != "").length > 0) ? s.rightPanelAt : (what == "toggle"
       or what == "close" or what == "tab-close" ? ((what == "toggle" and not s.data.diffOpen
-      and not s.rightPanel and not s.shell.panel.open) or (what == "tab-close"
-      and s.shell.panel.count > 1)) : (s.rightPanel or what == "choose")) ? s.shell.panel.key : ""
+          and not s.rightPanel and not s.shell.panel.open) or (what == "tab-close"
+          and s.shell.panel.count > 1)) : (s.rightPanel or what == "choose")) ? s.shell.panel.key : ""
   )
 )
 
@@ -720,11 +721,11 @@ fn transitionPanelUiGuard9(
     id
   )
   : transitionPanelUiWrites14(
-  d,
-  s,
-  what,
-  id
-)
+    d,
+    s,
+    what,
+    id
+  )
 )
 
 fn transitionPanelUiGuard8(
@@ -846,12 +847,12 @@ fn transitionPanelUiGuard17(
     id
   )
   : (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D"
-    or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p"
-    or id == "P" or id == "t" or id == "T"))) and (s.data.threadId != "" or id == "browser"
+        or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p"
+        or id == "P" or id == "t" or id == "T"))) and (s.data.threadId != "" or id == "browser"
     or id == "b" or id == "B" or id == "files" or id == "f" or id == "F"
     or (s.shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T"))
     or (s.data.projectId != "" and (id == "device" or id == "m" or id == "M")))
-    and not s.commandPending
+  and not s.commandPending
   ? transitionPanelUiWrites19(
     d,
     s,
@@ -1032,10 +1033,10 @@ fn transitionSidebarLocalGuard1(
     value
   )
   : transitionSidebarLocalWrites3(
-  d,
-  s,
-  op,
-  id,
-  value
-)
+    d,
+    s,
+    op,
+    id,
+    value
+  )
 )
