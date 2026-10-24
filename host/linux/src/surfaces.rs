@@ -26,7 +26,7 @@ pub(crate) use android::acquire_fd;
 #[cfg(target_os = "android")]
 pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
-pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
+pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu, sensors};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;

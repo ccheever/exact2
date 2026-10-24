@@ -20,6 +20,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn requests(&mut self) -> Option<Vec<i32>> {
         self.echo_journal();
         crate::canvas::jni::jni_extensions::stamp(self.p.host().runner().now_ms());
+        self.p.surfaces.publish_names();
         if let Some(names) = crate::canvas::jni::jni_extensions::take_bound() {
             self.bind_extensions(&names);
         }

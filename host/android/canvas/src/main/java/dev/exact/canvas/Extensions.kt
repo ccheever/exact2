@@ -82,6 +82,17 @@ abstract class ExactExtension(val context: ExtensionContext) {
      * is made.
      */
     open fun webauthnField(view: android.widget.EditText, present: Boolean) {}
+
+    /**
+     * The canvases of [surface], which this extension's input feeds ([ExtensionSurfaces]), were displayed or hidden,
+     * by the origin of the commit that did it (LLP 1133.013 D6, D12 item 3). The lease: hidden, the input pauses;
+     * shown by an `app` commit, it resumes; shown by a `tool`'s or a `wake`'s, it stays paused. A start on a hidden
+     * canvas is told this before the start.
+     */
+    open fun displayed(surface: String, shown: Boolean, origin: String) {}
+
+    /** The display's angle changed ([ExtensionContext.orientation]). */
+    open fun orientation(angle: Int) {}
 }
 
 /**
@@ -145,6 +156,15 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** The session's clock, ms: the agent's under the agent (LLP 1133.009 D10 item 2). */
     fun now(): Double = Native.now()
 
+    /** The page's canvases, whose input an extension may feed (LLP 1133.013 D6). */
+    val surfaces = ExtensionSurfaces()
+
+    /**
+     * The display's angle as the web's `screen.orientation.angle` (0, 90, 180, 270; LLP 1133.013 D12 item 4), from
+     * `Display.getRotation`: [ExactExtension.orientation] is told each change.
+     */
+    val orientation: Int get() = Extensions.angle(activity)
+
     /** The readers of [topic] are asked again (LLP 1016.002). */
     fun changed(topic: String) = Exact.changed(topic)
 
@@ -182,6 +202,40 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     }
 }
 
+/** The page's canvases, as an extension feeds them ([ExtensionContext.surfaces]). */
+class ExtensionSurfaces internal constructor() {
+    /**
+     * The input of surface [surface]'s canvas: what is written there the host delivers to the live canvas of that
+     * surface once a display frame, before the frame's input reaches its module, every sample in order. Null when the
+     * page places no canvas of that surface, or the library predates canvas inputs.
+     */
+    fun input(surface: String): SurfaceInput? = try {
+        if (Native.surfaceHas(surface)) SurfaceInput(surface) else null
+    } catch (e: UnsatisfiedLinkError) { null }
+}
+
+/**
+ * A canvas's input that an extension writes ([ExtensionSurfaces.input]), from any thread: each call waits for nothing.
+ * The host keeps about a second at the fastest rate a phone samples; past it the oldest samples go, and the next
+ * sample of their sensor delivered counts them in its `dropped`.
+ */
+class SurfaceInput internal constructor(val surface: String) {
+    /**
+     * One sample of [sensor] (a Generic Sensor name: `gravity`, `gyroscope`, …): x, y, z, and w for an orientation's
+     * quaternion, finite, in the frame the input asked for. [dropped] counts the samples lost before it (a pause); [at]
+     * is the session clock's time (ms, [ExtensionContext.now]) when it was taken, which also stamps the canvas's keys
+     * and touches.
+     */
+    fun sample(sensor: String, values: DoubleArray, dropped: Int = 0, at: Double) = write(sensor, values, dropped, at, false)
+
+    /** The input of [sensor] ended (`stopSensorInput`, the canvas gone): its last sample no longer stands. */
+    fun end(sensor: String, at: Double) = write(sensor, DoubleArray(0), 0, at, true)
+
+    private fun write(sensor: String, values: DoubleArray, dropped: Int, at: Double, ended: Boolean) {
+        if (Native.sensorInput(surface, sensor, values, dropped, at, ended)) Exact.wake()
+    }
+}
+
 /** A runtime permission's state and the platform's words for it ([ExtensionContext.permission]). */
 class PermissionState(val state: String, val shouldShowRationale: Boolean, val permanentlyDenied: Boolean)
 
@@ -201,8 +255,36 @@ internal object Extensions {
     private var asking = false
     private val waiting = ArrayList<() -> Unit>()
 
+    /** The display's angle last told the extensions ([ExtensionContext.orientation]). */
+    private var told = -1
+
+    /** [activity]'s display's rotation in degrees, as the web's `screen.orientation.angle`. */
+    fun angle(activity: Activity?): Int = when (activity?.display?.rotation) {
+        android.view.Surface.ROTATION_90 -> 90
+        android.view.Surface.ROTATION_180 -> 180
+        android.view.Surface.ROTATION_270 -> 270
+        else -> 0
+    }
+
+    /** A display changed: the extensions made are told a new angle. */
+    private val displays = object : android.hardware.display.DisplayManager.DisplayListener {
+        override fun onDisplayAdded(id: Int) {}
+        override fun onDisplayRemoved(id: Int) {}
+        override fun onDisplayChanged(id: Int) {
+            val angle = angle(Exact.reader?.get())
+            if (angle == told) return
+            told = angle
+            made.values.forEach { it.orientation(angle) }
+        }
+    }
+
     /** The activity was made: the host binds the names of the extensions the APK carries. */
     fun bind(activity: Activity) {
+        if (application == null) {
+            val dm = activity.applicationContext.getSystemService(android.hardware.display.DisplayManager::class.java)
+            dm?.registerDisplayListener(displays, android.os.Handler(android.os.Looper.getMainLooper()))
+            told = angle(activity)
+        }
         if (application == null) application = activity.applicationContext
         Presence.application = activity.applicationContext
         if (roster.isNotEmpty()) Exact.bindExtensions(roster.keys.joinToString("\n"))
@@ -211,7 +293,8 @@ internal object Extensions {
     /**
      * Request [id]'s call, the runner's body: `{"extension", "source"|"send", "args", "preferred"?}`, `{"extension",
      * "release", "args"?}`, `{"extension", "preferred"}`, `{"extension", "dispose"}`, `{"extension", "foreground"}`, or
-     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2).
+     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2), or
+     * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6).
      */
     fun call(id: Int, body: String) {
         var answered = false
@@ -227,6 +310,10 @@ internal object Extensions {
                     val (view, origin) = request.getString("view") to request.optString("origin", "app")
                     if (request.has("displayed")) extension.displayed(extension.context.session, view, request.getBoolean("displayed"), origin)
                     if (request.has("bound")) extension.bound(extension.context.session, view, request.getString("bound"), origin)
+                    reply(JSONObject())
+                }
+                request.has("surface") && request.has("displayed") -> {
+                    extension.displayed(request.getString("surface"), request.getBoolean("displayed"), request.optString("origin", "app"))
                     reply(JSONObject())
                 }
                 released.isNotEmpty() -> {

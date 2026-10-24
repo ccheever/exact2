@@ -1355,6 +1355,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             // An act a hatch's moment queued runs at the next turn.
             || self.p.hatch_in_flight() > 0
             || self.surfaces
+            || crate::surfaces::sensors::waiting()
     }
 
     fn owed_at(&self, now: f64) -> bool {
