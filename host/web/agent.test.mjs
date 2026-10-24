@@ -697,7 +697,7 @@ function inputFixture() {
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
     cancelAnimationFrame(id) { frames.delete(id); },
-    wasm: { exact_dispatch: (...args) => args }, writeIn: value => value, now: () => 0,
+    wasm: { exact_dispatch: (...args) => args }, writeIn: value => value, now: () => 0, performance: { now: () => 0 }, // (a pressable's press dims from a key too: its start, bf527d835f)
     send: value => sent.push(value),
     // The window's capture listeners: they hear a contact's events wherever they land.
     addEventListener(kind, fn) { const list = windowListeners.get(kind) ?? []; list.push(fn); windowListeners.set(kind, list); },
@@ -769,10 +769,10 @@ test('pan rejects foreign and editable contacts and drops cancelled or stale que
 
 test('a pan under a nested button hears its contact on the window until it begins, and a release anywhere ends it (kanban F6)', () => {
   const nested = { target: { closest: s => s.startsWith('button') ? {} : null }, pointerType: 'mouse', buttons: 1 };
-  const watching = h => ['pointermove', 'pointerup', 'pointercancel'].map(k => h.windowListeners.get(k)?.length ?? 0);
+  const count = h => ['pointermove', 'pointerup', 'pointercancel'].map(k => h.windowListeners.get(k)?.length ?? 0), fixture = () => { const h = inputFixture(); h.load(); h.base = count(h); return h; }, watching = h => count(h).map((n, i) => n - h.base[i]); // the contact's own, beyond those kept from load (a press's dim fade, bf527d835f)
   // Released outside the node inside the slop: the contact ends, and a later
   // buttonless move back over the node pans nothing (it did, stale, before).
-  let h = inputFixture(); h.load();
+  let h = fixture();
   const down = h.pointer('pointerdown', nested);
   expect([down.prevented, down.stopped, h.captured]).toEqual([false, false, []]); // a tap stays the button's
   expect(watching(h)).toEqual([1, 1, 1]);
@@ -781,19 +781,19 @@ test('a pan under a nested button hears its contact on the window until it begin
   h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
   expect(h.sent).toEqual([]);
   // Dragged out past the slop and released there: the pan begins and ends once.
-  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h = fixture(); h.pointer('pointerdown', nested);
   h.outside('pointermove', { ...nested, clientX: 60 });
   h.outside('pointerup', { ...nested, clientX: 60, buttons: 0 });
   expect(h.sent).toEqual([[7, 20, '60,0', 0]]);
   h.pointer('pointermove', { ...nested, clientX: 90, buttons: 0 }); h.tick();
   expect(h.sent.length).toBe(1);
   // An up no one heard (outside the window): the next move without the button ends it.
-  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h = fixture(); h.pointer('pointerdown', nested);
   h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
   expect([h.sent, watching(h)]).toEqual([[], [0, 0, 0]]);
   // Dragged inside: once the pan begins it captures, the window stops
   // watching, and each later event is handled once.
-  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h = fixture(); h.pointer('pointerdown', nested);
   h.pointer('pointermove', { ...nested, clientX: 10 }); h.tick();
   expect([h.sent, h.captured, watching(h)]).toEqual([[[7, 20, '10,0', 0]], [1], [0, 0, 0]]);
   h.pointer('pointermove', { ...nested, clientX: 15 }); h.tick();
@@ -1255,8 +1255,8 @@ test('tree --ax: parity reports a state one side can observe and does not, befor
 });
 
 test('tree --ax: an aria-pressed toggle is a button on every source', () => {
-  const web = axReply([el(0, 'button', 'Shown', { testId: 'pressed', states: {} })]);
-  const mac = axReply([el(0, 'checkbox', 'Shown', { testId: 'pressed', native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], { source: 'appkit' });
+  const web = axReply([el(0, 'button', 'Shown', { testId: 'pressed', states: { pressed: true } })]);
+  const mac = axReply([el(0, 'checkbox', 'Shown', { testId: 'pressed', states: { pressed: true }, native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], { source: 'appkit' });
   const ios = axReply([el(0, 'toggleButton', 'Shown', { testId: 'pressed', value: '1', native: { role: ['toggleButton'] } })], { source: 'uikit' });
   expect(axParity(web, mac).findings).toEqual([]);
   expect(axParity(web, ios).findings).toEqual([]);
