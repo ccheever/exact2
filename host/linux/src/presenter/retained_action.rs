@@ -9,13 +9,13 @@ use exact_runner::runner::ActionBinding;
 use std::rc::{Rc, Weak};
 
 pub(super) struct Target {
+    hit: NodeKey,
     pub(super) key: NodeKey,
     pub(super) kind: EventKind,
     binding: Weak<ActionBinding>,
     picture: Weak<()>,
 }
 pub(super) struct RetainedContact {
-    hit: NodeKey,
     pub(super) press: Option<Target>,
     pub(super) swipe: Option<Target>,
 }
@@ -59,7 +59,8 @@ impl MotionPermit {
 }
 impl Target {
     fn matches(&self, other: &Self) -> bool {
-        self.key == other.key
+        self.hit == other.hit
+            && self.key == other.key
             && self.kind == other.kind
             && Weak::ptr_eq(&self.picture, &other.picture)
             && Weak::ptr_eq(&self.binding, &other.binding)
@@ -121,6 +122,7 @@ impl<D: DataSource> Presenter<D> {
                             .validate_action_binding(binding, kind)
                             .map_err(|_| ())?;
                         selected = Some(Target {
+                            hit,
                             key,
                             kind,
                             binding: Rc::downgrade(binding),
@@ -162,7 +164,7 @@ impl<D: DataSource> Presenter<D> {
             .retained_route(hit, EventKind::Swiperight)
             .ok()
             .flatten();
-        (press.is_some() || swipe.is_some()).then_some(RetainedContact { hit, press, swipe })
+        (press.is_some() || swipe.is_some()).then_some(RetainedContact { press, swipe })
     }
     pub(super) fn retained_swipe_candidate(&self, hit: NodeKey) -> Option<NodeKey> {
         self.retained_route(hit, EventKind::Swiperight)
@@ -178,7 +180,7 @@ impl<D: DataSource> Presenter<D> {
                 // A's stale text descendant may cease to be a hit in a later
                 // A repaint. Keep its captured chain/barriers, but require the
                 // selected action node and ancestors in the actual ACK witness.
-                self.retained_captured_route(contact.hit, old.kind)
+                self.retained_captured_route(old.hit, old.kind)
                     .ok()
                     .flatten()
                     .is_some_and(|t| old.matches(&t))
@@ -254,7 +256,7 @@ impl<D: DataSource> Presenter<D> {
     }
     fn retained_binding(&self, target: &Target) -> Option<Rc<ActionBinding>> {
         let current = self
-            .retained_route(target.key, target.kind)
+            .retained_captured_route(target.hit, target.kind)
             .ok()
             .flatten()?;
         target
