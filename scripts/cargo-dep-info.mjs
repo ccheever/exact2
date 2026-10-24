@@ -22,8 +22,9 @@ function watchedDigest(paths, outputs) {
   const excluded = outputs.map(outputPath), ancestors = new Set();
   const row = (...values) => hash.update(JSON.stringify(values) + '\n');
   const visit = path => {
+    let info;
     try {
-      let info = lstatSync(path);
+      info = lstatSync(path);
       if (info.isSymbolicLink()) {
         row(path, 'link', readlinkSync(path));
         info = statSync(path);
@@ -42,6 +43,9 @@ function watchedDigest(paths, outputs) {
     } catch (error) {
       if (error.code === 'ELOOP') row(path, 'cycle');
       else if (error.code === 'ENOENT' || error.code === 'ENOTDIR') row(path, 'missing');
+      // Directory watches include unused files. The baker decides which must be readable.
+      else if (error.code === 'EACCES' || error.code === 'EPERM')
+        row(path, 'unreadable', info?.mode, info?.size, info?.mtimeMs, info?.ctimeMs);
       else throw error;
     }
   };
