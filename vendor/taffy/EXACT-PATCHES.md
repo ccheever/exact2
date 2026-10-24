@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64 and 65 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65 and 66 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -2098,3 +2098,30 @@ without the item's ratio is covered. An explicit-width wrapping root was
 wrapping, explicit widths and heights, alignment overrides, auto margins,
 item minima, hidden overflow, padding and borders under both box-sizing modes.
 The grid control matches Chrome at 50×70 with a 70×70 item.
+
+## Patch 66: justify in-flow block children
+
+Block layout resolves a child's `justify-self` against the container's
+`justify-items`. Non-stretch alignment gives an automatic width fit-content
+sizing; placement aligns the margin box, with auto margins taking precedence
+and `safe` overflow falling back to the container's start edge. Self-relative
+values use the child's direction. `normal` and `stretch` retain block sizing.
+The block style traits expose both properties, and their existing `Style`
+fields are available with block layout as well as grid.
+
+This follows [CSS Box Alignment 3 §6.1.1](https://www.w3.org/TR/css-align-3/#justify-block)
+and Chrome 151.0.7922.34, measured on 2026-10-24. A centered 20px child in a
+100px block moves from x=0 to x=40; an automatic-width wrapper around it
+changes from 100px to 20px wide. A 120px child centers at x=-10, or x=0 with
+`safe center` in LTR. In RTL with an LTR child, `start` puts a 20px child at
+x=80 and `self-start` at x=0.
+
+**Held by** `browser_position::block_justify_items_matches_chrome`: 82 in-flow
+cases covering fixed and automatic widths, physical and logical alignment,
+RTL, overflow safety, margins, bounds, percentages, insets, box sizing,
+text, and block-level flex/grid children. The 72 mismatched frames before
+the patch now match Chrome. `block_justify_self_overrides_the_container_default`
+also failed before the patch and holds the vendor's per-item override; no
+Contract attribute is added. The remaining fixture records the absolute-child
+follow-up in `QUEUE.md`: automatic insets still give x=0 instead of Chrome's
+x=40. Floats remain disabled in Exact.
