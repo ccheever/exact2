@@ -12,18 +12,30 @@ test "tapbacks have names for their meanings"
   tap "message-actions-demo-1" contextmenu
   tap "Heart"
   expect state selected == ""
+  clock data
+  expect text "reaction-demo-1" == "❤️"
   tap "message-actions-demo-1" contextmenu
   tap "Like"
   expect state selected == ""
+  clock data
+  expect text "reaction-demo-1" == "👍"
   tap "message-actions-demo-1" contextmenu
   tap "Dislike"
   expect state selected == ""
+  clock data
+  expect text "reaction-demo-1" == "👎"
   tap "message-actions-demo-1" contextmenu
   tap "Laugh"
   expect state selected == ""
+  clock data
+  expect text "reaction-demo-1" == "😂"
   tap "message-actions-demo-1" contextmenu
   tap "Emphasize"
   expect state selected == ""
+  clock data
+  expect text "reaction-demo-1" == "‼️"
   tap "message-actions-demo-1" contextmenu
   tap "Question"
   expect state selected == ""
+  clock data
+  expect text "reaction-demo-1" == "❓"
