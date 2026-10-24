@@ -3,7 +3,7 @@ import { open } from '../../scripts/agent.mjs';
 import { checkOp } from '../../scripts/agent-check.mjs';
 
 // Build first: bun host/web/build.mjs caltrain.
-test('the plain home and web deck stay readable in both schemes', async () => {
+test('the plain home and both decks stay readable in both schemes', async () => {
   const app = await open({ host: 'web', app: 'caltrain' });
   const findings: string[] = [];
   const check = async (screen: string) => {
@@ -18,6 +18,8 @@ test('the plain home and web deck stay readable in both schemes', async () => {
     await app.tap('deck-back');
     await app.tap('sky-toggle');
     await check('plain home');
+    await app.tap('deck-toggle');
+    await check('plain departure deck');
     await app.tap('open-deck');
     await check('plain deck');
     expect(findings).toEqual([]);

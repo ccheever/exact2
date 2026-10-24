@@ -390,7 +390,7 @@ component Content
               canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
                 for d in northBoard key=d.id
                   button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%" text-align="start"
-                    column border-radius=16 padding=16 gap=6 background-color="-exact-secondary-background" width="100%" box-sizing="border-box"
+                    column border-radius=16 padding=16 gap=6 background-color="-exact-secondary-grouped-background" width="100%" box-sizing="border-box"
                       row gap=8 align-items="flex-end"
                         text countdownText(d.at, nowMs) font-size="1.875em" font-weight=800
                         text "min" font-size="0.8125em" color="-exact-secondary-label"
