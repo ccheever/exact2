@@ -314,6 +314,38 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertGreaterThan(sv.adjustedContentInset.top, 0, "inset under the bar")
     }
 
+    func testAPoppingRouteKeepsItsSideClearanceUntilItLeavesTheWindow() throws {
+        for left in [false, true] {
+            let (session, nav, route) = try pushed("tall")
+            let navigation = session.presenter.navigation
+            let host = try XCTUnwrap(window?.rootViewController)
+            host.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: left ? 84 : 0, bottom: 0, right: left ? 0 : 84)
+            host.view.layoutIfNeeded()
+            func side() -> CGFloat? {
+                guard case .edges(let edges)? = navigation.covers[route.node.id] else { return nil }
+                return left ? edges.left : edges.right
+            }
+            until("the route clears the side safe area") { (side() ?? 0) >= 83.5 }
+            let clearance = try XCTUnwrap(side())
+            let content = try node(session, "tall-scroll")
+            let contentWidth = content.bounds.width
+            XCTAssertTrue(nav.popViewController(animated: true) === route)
+            let transition = try XCTUnwrap(nav.transitionCoordinator)
+            XCTAssertTrue(transition.viewController(forKey: .from) === route)
+            XCTAssertFalse(nav.viewControllers.contains(route), "UIKit removes the source before its visible transition ends")
+            XCTAssertNotNil(route.view.window)
+            navigation.reportCovers()
+            XCTAssertEqual(side() ?? 0, clearance, accuracy: 0.5, "the departing screen retains its side clearance")
+            XCTAssertEqual(content.bounds.width, contentWidth, accuracy: 0.5, "its content does not reflow as Back begins")
+            until("the pop ends") { nav.transitionCoordinator == nil && route.view.window == nil }
+            navigation.reportCovers()
+            XCTAssertNil(navigation.covers[route.node.id], "the departed screen releases its clearance")
+            session.destroy()
+            sessions.removeLast()
+            window?.isHidden = true
+        }
+    }
+
     /// D11.1, several scrollers: the bar's is the one the status bar's tap
     /// already picked, the first that scrolls vertically, by one rule for
     /// both; `navigationScroll` is how a route names a different one.

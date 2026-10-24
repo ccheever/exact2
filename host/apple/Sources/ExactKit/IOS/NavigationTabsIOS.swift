@@ -104,6 +104,9 @@ extension NavigationHost {
 
     private func mount(_ holder: UIViewController, in parent: UIViewController, at root: NodeView) {
         parent.addChild(holder)
+        if holder.view.accessibilityIdentifier == nil {
+            holder.view.accessibilityIdentifier = "exact-navigation-\(UUID().uuidString)"
+        }
         // Sized before it enters the window, where UIKit lays it out.
         holder.view.frame = ownerFrame(holder, in: root)
         holder.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

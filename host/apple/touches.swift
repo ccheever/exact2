@@ -83,10 +83,14 @@ final class ExactTouches: XCTestCase {
             case "tap":
                 if req["back"] as? Bool == true {
                     guard target.state == .runningForeground else { session.send(["error": "Native Back requires the app in the foreground; reopen its agent session and retry"]); continue }
-                    let buttons = target.buttons.matching(identifier: "BackButton")
+                    guard let container = req["container"] as? String, !container.isEmpty else { session.send(["error": "Native Back requires its navigation container; rebuild the app and retry"]); continue }
+                    let containers = target.descendants(matching: .any).matching(identifier: container)
+                    let owners = containers.count
+                    guard owners == 1 else { session.send(["error": "Native Back found \(owners) navigation containers; settle the route and give each container a unique accessibility identifier"]); continue }
+                    let buttons = containers.element.buttons.matching(identifier: "BackButton")
                     let count = buttons.count
                     guard count == 1 else { session.send(["error": "Native Back found \(count) Back buttons; settle a pushed route with a native bar and retry"]); continue }
-                    buttons.element(boundBy: 0).tap()
+                    buttons.element.tap()
                     session.send(["done": true]); continue
                 }
                 guard let p = req["point"] as? [Double], p.count == 2, p.allSatisfy(\.isFinite) else { session.send(["error": "tap needs a finite point"]); continue }
