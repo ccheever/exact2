@@ -267,10 +267,11 @@ extension ScrollView {
     /// depth, where its later place puts it over them. One with a depth of
     /// its own (the indicators' 1000, a view sent behind) keeps it. After a
     /// ranking, and after UIKit's layout, which adds and moves its views.
-    /// Not the viewport, whose children are the host's document and
-    /// presentations.
+    /// Skip the session viewport, whose children include native presentations.
+    /// A route viewport holds only its document and keeps UIKit's effects above it.
     func keepPlatformViewsOver() {
-        guard !(self is Viewport), let top = DensePaintRanks.existing(self)?.top, top > 0 else { return }
+        if let viewport = self as? Viewport, viewport.documentNode == nil { return }
+        guard let top = DensePaintRanks.existing(self)?.top, top > 0 else { return }
         for view in subviews.reversed() {
             if view is NodeView || view is FlightClip || view.paintForeground { return }
             let z = view.layer.zPosition
