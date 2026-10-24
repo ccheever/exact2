@@ -435,9 +435,7 @@ function closeLetGo() {
 function ask(source, args, name, mutation = false) {
   if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
   let a; try { a = data.reserved?.[source] ? (v => v?.then ? v : { v })(data.reserved[source](source, args, name)) : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
-  // (A lazy chunk of a build kept no more fails here, the source's failure: the page loads again, generation-reload.js.)
-  if (a && a.then) a.then(undefined, e => globalThis.exact?.generationGone?.(e));
-  return a && a.then ? { promise: a } : a;
+  return a && a.then ? (a.then(undefined, e => globalThis.exact?.generationGone?.(e)), { promise: a }) : a; // (a reaped build's lazy chunk fails here: the page loads again, generation-reload.js)
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
  * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
@@ -1395,8 +1393,7 @@ export function mount(f) {
     if (!(t.closest?.("input, textarea, select") || t.isContentEditable) && t.closest?.('[retainFocus="true"]')) ev.preventDefault();
   });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
-  clock.agent = agentMode();
-  if (!clock.agent && typeof window !== "undefined") reloadOnGone(window); // a build kept no more: the page again, once
+  clock.agent = agentMode(); if (!clock.agent && typeof window !== "undefined") reloadOnGone(window); // (a build kept no more: the page again, once)
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
