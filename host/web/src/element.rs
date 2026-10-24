@@ -543,7 +543,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::SvgTSpan => "tspan",
         NodeType::ScrollView => "div",
         NodeType::Text => {
-            if node.is_inline_run() {
+            if node.is_inline_run() || node.style.display == exact_kernel::Display::InlineBlock {
                 "span"
             } else if exact_kernel::control::is_option_node(node.node_type, node.props) {
                 // @ref LLP 1069.001 D2 — the select's own options.

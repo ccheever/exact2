@@ -30,7 +30,7 @@ pub struct NodeFacts<'a> {
 impl NodeFacts<'_> {
     /// Whether the node is an inline run of its parent paragraph.
     pub fn is_inline_run(&self) -> bool {
-        self.inline_run
+        self.inline_run && self.style.display != crate::Display::InlineBlock
     }
 }
 
@@ -66,7 +66,7 @@ impl<'a> NodeRef<'a> {
 
 impl NodeType {
     /// Whether `SetChildren` may target this type. A `Text` holds only inline
-    /// runs (its `Text` children), which are measured with it, never laid out.
+    /// text runs and atomic image/text boxes, measured in its paragraph.
     /// A `Canvas` holds children laid out in its box — the web's
     /// `layoutsubtree` — that never size it (LLP 1014 D1). A `Control` holds
     /// a `select`'s options, which a closed select never lays out (LLP

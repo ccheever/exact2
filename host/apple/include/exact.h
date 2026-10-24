@@ -108,7 +108,9 @@ typedef struct ExactTextRun {
     uint8_t has_line_height; /* 0 normal, 1 explicit used length */
     float line_height;     /* points; zero is a real length */
     float letter_spacing;  /* points per glyph */
-    uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
+    uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums */
+    uint8_t has_inline_box;
+    float inline_width, inline_height, inline_baseline;
     float font_stretch;    /* CSS font-stretch, percent of normal width */
     uint8_t variation_count;      /* CSS font-variation-settings: axes set */
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
@@ -191,6 +193,8 @@ void exact_textflow_free(uint64_t handle);
 size_t exact_text_line_breaks(const uint8_t *utf8, size_t len,
     const uint32_t *words, size_t word_count, uint32_t *out, size_t cap);
 
+typedef struct ExactInlinePosition { float x, y; } ExactInlinePosition;
+
 typedef struct ExactMeasureRequest {
     uint32_t view, node_index, node_generation;
     uint64_t revision;
@@ -215,6 +219,8 @@ typedef struct ExactMeasureRequest {
     uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
     uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
     uint8_t text_wrap_style; /* CSS text-wrap-style: 0 auto, 1 balance (LLP 1001 §6) */
+    /* Optional geometry output; a non-null pointer requests the last-line baseline. */
+    ExactInlinePosition *inline_positions;
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */

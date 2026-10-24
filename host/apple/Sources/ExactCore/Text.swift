@@ -44,6 +44,7 @@ package struct Run: Hashable {
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums`, the face's own
     /// `tnum` feature. It changes advances: a metric (LLP 1053 G4).
     package var numeric: Int = 0
+    package var inlineBox: TextInlineBox? = nil
     /// CSS `font-stretch`, percent of normal width: a metric (LLP 1019 D8).
     package var stretch: CGFloat = 100
     /// CSS `font-variation-settings`: a metric (LLP 1019 D9).
@@ -84,7 +85,7 @@ package struct Run: Hashable {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.stretch == rhs.stretch,
-              lhs.variations == rhs.variations, lhs.color == rhs.color,
+              lhs.variations == rhs.variations, lhs.color == rhs.color, lhs.inlineBox == rhs.inlineBox,
               lhs.decoration == rhs.decoration, lhs.underlineColor == rhs.underlineColor,
               lhs.strikeColor == rhs.strikeColor, lhs.href == rhs.href,
               lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
@@ -110,6 +111,7 @@ package struct Run: Hashable {
         hasher.combine(lineHeight)
         hasher.combine(letterSpacing)
         hasher.combine(numeric)
+        hasher.combine(inlineBox)
         hasher.combine(stretch)
         hasher.combine(variations)
         hasher.combine(color)
@@ -127,7 +129,7 @@ package struct Run: Hashable {
         hasher.combine(indent)
         hasher.combine(hang)
     }
-    package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
+    package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false, inlineBox: TextInlineBox? = nil) {
         self.text = text
         self.size = size
         self.weight = weight
@@ -148,6 +150,7 @@ package struct Run: Hashable {
         self.stroke = stroke
         self.indent = indent
         self.hang = hang
+        self.inlineBox = inlineBox
     }
 
     /// Adds the lines a decorating ancestor box draws through this run
@@ -840,6 +843,10 @@ package final class TextEngine {
             var a: [NSAttributedString.Key: Any] = [.font: font(r)]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             presentation?.attributes(r, color: spec.color, attributes: &a)
+            if let box = r.inlineBox {
+                a[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = box.delegate()
+                a[.foregroundColor] = PlatformColor.clear
+            }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
@@ -1151,7 +1158,9 @@ package final class TextEngine {
                     if offset >= range.location + range.length { break }
                     let authored = spec.runs[index]
                     matched = true
-                    if authored.lineHeight != nil {
+                    if let inline = authored.inlineBox {
+                        box.include(TextLineBox(inline))
+                    } else if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         box.include(authoredExtents(authored))
@@ -1320,6 +1329,7 @@ package final class TextEngine {
     package var refusedMarkdown: UInt32?
     package func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
+        if request.inline_positions != nil { return measureInline(request) }
         if requiresMarkdownExpansion, request.markup != 0, presentation == nil {
             refusedMarkdown = request.view
             return ExactMetrics(width: 0, height: 0, baseline: -1)
@@ -1405,7 +1415,7 @@ package final class TextEngine {
     /// The paragraph a request describes, as the presenter paints it.
     package func requestSpec(_ request: ExactMeasureRequest) -> Spec {
         func run(_ run: ExactTextRun) -> Run {
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run))
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run), inlineBox: TextInlineBox(run))
         }
         var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
         // Markdown source arrives as one run; the archive expands it the

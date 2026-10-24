@@ -1,10 +1,6 @@
 //! Style grammars (dimensions, colors, grid tracks/placements) and Taffy lowering.
 //! Generated `StyleProps` holds rows; `to_taffy` converts authored to engine style.
 //! Percentages use points (0–100) on the wire/in storage, becoming fractions here.
-
-use std::borrow::Cow;
-use taffy::prelude::{auto, length, percent};
-
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
@@ -12,7 +8,8 @@ use crate::generated::{
     GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType, StyleId,
     StyleMask, StyleProps,
 };
-
+use std::borrow::Cow;
+use taffy::prelude::{auto, length, percent};
 mod backdrop;
 pub use backdrop::{link as link_backdrop_filter, BackdropFilter, BackdropOp};
 mod border;
@@ -1240,7 +1237,7 @@ impl StyleProps {
         s.display = match self.display {
             // A document's metadata takes no space (LLP 1048.003 D1).
             _ if node_type.is_metadata() => taffy::style::Display::None,
-            Display::Block => taffy::style::Display::Block,
+            Display::Block | Display::InlineBlock => taffy::style::Display::Block,
             Display::Flex => taffy::style::Display::Flex,
             Display::None => taffy::style::Display::None,
             Display::Grid => taffy::style::Display::Grid,
@@ -1289,6 +1286,9 @@ impl StyleProps {
             width: self.width.floor_taffy(env),
             height: self.height.floor_taffy(env),
         };
+        if self.display == Display::InlineBlock && self.width == Dimension::Auto {
+            s.size.width = taffy::style::Dimension::fit_content();
+        }
         s.min_size = taffy::geometry::Size {
             width: self.min_width.floor_lpa(env),
             height: self.min_height.floor_lpa(env),

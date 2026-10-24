@@ -45,6 +45,7 @@ package struct InlineText {
     }
 
     package var text: String { lightRun.text }
+    package var isBox: Bool { lightRun.inlineBox != nil }
     /// A run with an `href`: the web's `<a>` in its paragraph.
     package var isLink: Bool { !(props["href"] ?? "").isEmpty }
 

@@ -163,6 +163,7 @@ extension BatchReader {
     }
     package mutating func inlineStyle() throws -> InlineStyle {
         var style = InlineStyle(), height: BatchValue?
+        var inlineWidth: Double?, inlineHeight: Double?, inlineBaseline: Double?
         try object { r, key in
             switch key {
             case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "font_variation_settings", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
@@ -170,10 +171,16 @@ extension BatchReader {
                  "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
                 try style.set(key, r.value(), colorChannels: r.colorChannels)
             case "line_height": height = try r.value()
+            case "inline_width": inlineWidth = try r.value().number
+            case "inline_height": inlineHeight = try r.value().number
+            case "inline_baseline": inlineBaseline = try r.value().number
             default: try r.skip()
             }
         }
         try style.height(height)
+        if let w = inlineWidth, let h = inlineHeight, let b = inlineBaseline {
+            style.run.inlineBox = TextInlineBox(width: CGFloat(Float(w)), height: CGFloat(Float(h)), baseline: CGFloat(Float(b)))
+        }
         return style
     }
 }

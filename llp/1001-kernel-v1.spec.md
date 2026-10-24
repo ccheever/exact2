@@ -1123,9 +1123,8 @@ no block lays out exactly as before. Refused: a block for a root, for an
 inline run, and beside a registered content region.
 
 `SetChildren` rejects: duplicate children, self-child, a root as a child, a cycle
-(child is an ancestor of the parent), children on a leaf type, a non-`Text`
-child under a `Text` (a text node's children are its inline runs; anything else
-would be a node the engine never lays out — `InlineRunNotText`), and a node
+(child is an ancestor of the parent), children on a leaf type, a child other
+than `Text` or `Image` under a `Text` (`InlineRunNotText`), and a node
 more than `MAX_DEPTH` (128) levels below the top of its tree, inline runs
 included (`TooDeep`, 2026-09-23). Layout recurses once per level: release
 Taffy takes up to ~3.5 KiB of stack a level (flex; block 1.9, inline runs
@@ -1331,6 +1330,27 @@ preserved for the host to resolve.
 `kernel/tests/apply.rs` holds colour (reparenting, cleared overrides) and the
 text rows (a bare, a bold and a small run; the touched set after an ancestor
 change, a move and a clear; an identical write touching nothing).
+
+**Atomic inline content (Codex, 2026-10-21).** A `text` paragraph holds
+ordinary text runs, `image` elements (custom emoji), and `text` elements with
+`display="inline-block"` (mention pills). An atomic text box has its own text
+layout, padding, borders, background and handlers. Its automatic width shrinks
+to fit its containing paragraph; its last line supplies its baseline (the
+bottom margin edge when overflow is not visible). Images align their bottom
+margin edge to the shared baseline. The host's paragraph shaper reserves one
+U+FFFC run with the box's advance, height and baseline; it returns the same
+line positions used for painting. The kernel publishes actual frames for
+these boxes. Ordinary inline text still has zero frames. A second bounded
+size pass resolves percentage widths against the settled paragraph width;
+resizing an object invalidates its owner's measurement. Clamped and suppressed
+boxes have no painted frame. `text` with its own `text` prop still suppresses
+its descendants.
+
+The browser uses its own inline layout. The compiler supplies inline display
+for paragraph images, overriding the host's block image reset. General inline
+formatting in non-text containers is outside this slice: the compiler refuses
+literal `inline-block` there. `contract/corpus/inline-chat.contract` is the
+interactive fixture. No new tag or app-specific text value is required.
 
 Text measurement is a **per-kernel injected trait object** (`Box<dyn TextMeasurer>`),
 never a process-global callback. The kernel hands the measurer a paragraph as

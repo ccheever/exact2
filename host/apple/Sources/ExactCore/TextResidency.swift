@@ -16,6 +16,7 @@ package enum TextMetricKey {
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
         fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, r.stretch, r.variations, &h)
+        h.combine(r.inlineBox)
         // Only an expanded Markdown run has these; a plain run hashes as
         // its request's does (LLP 1045 D4).
         if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
@@ -24,6 +25,7 @@ package enum TextMetricKey {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
                Int(r.font_variant_numeric), CGFloat(r.font_stretch), FontAxis.of(r), &h)
+        h.combine(TextInlineBox(r))
     }
     package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -74,6 +76,7 @@ package enum TextMetricKey {
             && Int(raw.font_variant_numeric) == owned.numeric
             && CGFloat(raw.font_stretch) == owned.stretch
             && FontAxis.of(raw) == owned.variations
+            && TextInlineBox(raw) == owned.inlineBox
     }
     package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;

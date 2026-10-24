@@ -21,29 +21,27 @@ mod differential_tests;
 mod fields;
 mod fit;
 mod hoist;
+mod inline;
 #[cfg(test)]
 mod memo_tests;
 mod order;
 mod publication;
 mod rebuild;
-pub use publication::compute;
-
+use crate::arena::NodeArena;
+use crate::error::LayoutError;
+use crate::generated::{FieldSizing, NodeType};
+use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::id::{IdMap, IdSet};
+use crate::kernel::PresentedHeight;
 use crate::shared_style::Interner;
+use crate::style::taffy_style;
+use crate::text::{TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
+pub use publication::compute;
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput, RequestedAxis};
 use taffy::util::{MaybeResolve, ResolveOrZero};
 use taffy::TraversePartialTree;
-
-use crate::arena::NodeArena;
-use crate::error::LayoutError;
-use crate::generated::{FieldSizing, NodeType};
-use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
-use crate::kernel::PresentedHeight;
-use crate::style::taffy_style;
-use crate::text::{TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
-
 /// What a layout pass changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayoutReceipt {
@@ -73,7 +71,6 @@ pub struct LayoutReceipt {
     /// Zero when settlement is skipped (no exclusions or a content region).
     pub flow_comparisons: usize,
 }
-
 fn to_available(offer: AxisOffer) -> AvailableSpace {
     match offer {
         AxisOffer::Definite(v) => AvailableSpace::Definite(v),
@@ -81,7 +78,6 @@ fn to_available(offer: AxisOffer) -> AvailableSpace {
         AxisOffer::MinContent => AvailableSpace::MinContent,
     }
 }
-
 fn from_available(space: AvailableSpace) -> AxisOffer {
     match space {
         AvailableSpace::Definite(v) => AxisOffer::Definite(v),
@@ -89,11 +85,9 @@ fn from_available(space: AvailableSpace) -> AxisOffer {
         AvailableSpace::MinContent => AxisOffer::MinContent,
     }
 }
-
 /// Keep the full block/flex offer working set; four slots evicted within one
 /// pass and repeated native measurement (LLP 1044 F6).
 const LEAF_OFFERS: usize = 16;
-
 // @ref LLP 1043.000 §3 D3 — keep the proof with Taffy's measured leaf.
 #[derive(Default)]
 struct MeasureContext {
@@ -124,6 +118,7 @@ struct Measurement {
 /// The engine tree. Measured leaves retain their height proof and bounded offers.
 pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
+    inline_frames: IdMap<u32, Frame>,
     pass: u64,
     fault: Option<String>,
     field_chrome: IdMap<NodeId, crate::FieldChrome>,
@@ -389,6 +384,7 @@ impl LayoutTree {
         taffy.set_calc_resolver(crate::style::resolve_calc);
         LayoutTree {
             taffy,
+            inline_frames: IdMap::default(),
             pass: 0,
             fault: None,
             field_chrome: IdMap::default(),
@@ -516,6 +512,7 @@ impl LayoutTree {
         self.walks.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
             self.flowing.remove(&slot);
+            self.inline_frames.remove(&slot);
             if let Some(prefix) = self.alert_prefixes.remove(&slot) {
                 self.remove(prefix);
             }

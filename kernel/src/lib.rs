@@ -105,8 +105,8 @@ pub use text::case::{
     linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
 };
 pub use text::{
-    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
-    TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
+    InlineBox, InlinePosition, Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest,
+    TextEdges, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};

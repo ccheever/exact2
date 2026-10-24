@@ -46,6 +46,7 @@ pub fn expand(source: &Run) -> Vec<Run> {
             // stretching it back to a full line (as Apple's runs).
             let gap = p.scale < 1.0 && p.text == "\n";
             Run {
+                inline_box: None,
                 size: source.size * p.scale,
                 // A piece's own weight (bold) is stepped as its run's was.
                 weight: match p.weight {

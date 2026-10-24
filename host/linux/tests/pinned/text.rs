@@ -256,6 +256,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default()),
                 ),
                 runs: vec![Run {
+                    inline_box: None,
                     text: "Change station".into(),
                     size: 13.0,
                     weight,

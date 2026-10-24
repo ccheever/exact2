@@ -411,6 +411,7 @@ fn padded_leaves_are_measured_in_content_space_and_line_clamp_holds() {
         .map(|s| s.translate(-8., -5.))
         .collect();
     let runs = [TextRun {
+        inline_box: None,
         text: PROSE.into(),
         style: node.text_style(),
     }];

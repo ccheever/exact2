@@ -164,6 +164,19 @@ impl<D: DataSource> Host<D> {
         self.height_projection.clear();
         self.height_projection
             .extend_from_slice(&self.height_sampling);
+        for key in &self.pending_layout {
+            if let Some(n) = self
+                .runner
+                .kernel()
+                .node_by_key(*key)
+                .filter(|n| n.is_inline_box())
+            {
+                if let Some(parent) = n.parent.and_then(|id| self.paragraph_owner(id)) {
+                    self.dirty_paragraphs.insert(parent);
+                }
+            }
+        }
+        self.emit_paragraphs(batch);
         self.emit_layout(batch)
     }
 
@@ -258,6 +271,26 @@ impl<D: DataSource> Host<D> {
             if node.is_inline_run() {
                 continue;
             }
+            if node.is_inline_box() {
+                let (mut css, _) = style::style_json_for(&node, &kernel.env());
+                if node.frame.width == 0.0 && node.frame.height == 0.0 {
+                    if css.contains("\"display\":") {
+                        css = css
+                            .replace("\"display\":\"inline-block\"", "\"display\":\"none\"")
+                            .replace("\"display\":\"block\"", "\"display\":\"none\"");
+                    } else {
+                        css.pop();
+                        if css.len() > 1 {
+                            css.push(',');
+                        }
+                        css.push_str("\"display\":\"none\"}");
+                    }
+                }
+                if self.mirror.get(&id).is_none_or(|m| m.style.as_ref() != css) {
+                    batch.style(id, &css);
+                    self.mirror.entry(id).or_default().style = self.style_texts.share(css);
+                }
+            }
             let m = self.mirror.entry(id).or_default();
             // Silent list settling already updated kernel flow. Compare final
             // shapes with what the presenter saw, just like frames; destroyed
@@ -277,7 +310,16 @@ impl<D: DataSource> Host<D> {
             // takes or loses the block, with the block's used size.
             let block = kernel.host_block_size(id);
             let parent = node.parent.filter(|_| block.is_none());
-            let parent = parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
+            let parent = parent
+                .and_then(|mut p| {
+                    if node.is_inline_box() {
+                        while let Some(n) = kernel.node(p).filter(|n| n.is_inline_run()) {
+                            p = n.parent.expect("inline parent");
+                        }
+                    }
+                    kernel.node(p)
+                })
+                .map(|p| p.frame);
             let rel = relative(node.frame, parent);
             // A sheet sized to its route's content reads that extent too
             // (LLP 1075.003 §9.11). A route that scrolls itself keeps its

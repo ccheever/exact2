@@ -266,7 +266,11 @@ pub(crate) fn reserve(
     );
     for value in values.lines() {
         let shown = arena.reservation_text(slot, value);
-        let runs = [TextRun { text: shown, style }];
+        let runs = [TextRun {
+            inline_box: None,
+            text: shown,
+            style,
+        }];
         let request = TextMeasureRequest {
             runs: &runs,
             paragraph: arena.paragraph(slot),

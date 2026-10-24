@@ -43,7 +43,7 @@ impl Lowerer<'_> {
         else {
             unreachable!("prepare_element only receives elements")
         };
-        let Some(t) = tags::tag(tag).or_else(|| native::tag(tag)) else {
+        let Some(mut t) = tags::tag(tag).or_else(|| native::tag(tag)) else {
             return Err(unknown_tag(tag, *span));
         };
         // Two layout refusals the compiler can make without measuring
@@ -132,6 +132,7 @@ impl Lowerer<'_> {
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
         crate::alert_parts::check_authored(expanded)?;
+        inline_content(tag, &mut t, expanded, parent_tag, *span)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         // @ref LLP 1121 D3 — a motion token an expansion carried in (a
         // component's prop, a sheet) is written in before the longhands
@@ -751,7 +752,7 @@ impl Lowerer<'_> {
             // paragraph's each/when still produces only text runs.
             fn run(c: &Node) -> bool {
                 match c {
-                    Node::Element { tag, .. } => matches!(tag.as_str(), "text" | "time"),
+                    Node::Element { tag, .. } => matches!(tag.as_str(), "text" | "time" | "image"),
                     Node::Each { body, .. } => body.iter().all(run),
                     Node::When {
                         then, otherwise, ..
@@ -762,7 +763,7 @@ impl Lowerer<'_> {
             if let Some(bad) = children.iter().find(|c| !run(c)) {
                 return err(
                     "lower-leaf-children",
-                    "a text paragraph holds `text` or `time` runs",
+                    "a text paragraph holds `text` or `time` runs and inline `image` boxes",
                     bad.span(),
                 );
             }
@@ -950,4 +951,33 @@ impl Lowerer<'_> {
             },
         })
     }
+}
+
+/// Atomic text boxes are supported in paragraphs; images there remain inline despite the host reset.
+fn inline_content(
+    tag: &str,
+    t: &mut tags::Tag,
+    attrs: &[contract_syntax::Attr],
+    parent: Option<&str>,
+    span: contract_syntax::Span,
+) -> Result<(), crate::LowerError> {
+    use contract_syntax::Expr;
+    if attrs
+        .iter()
+        .any(|a| a.name == "display" && matches!(&a.value,Expr::Str(v,_) if v=="inline-block"))
+        && !((matches!(tag, "text" | "time" | "image")) && matches!(parent, Some("text" | "time")))
+    {
+        return crate::err(
+            "lower-inline-block",
+            "`inline-block` is supported on `text` and `image` inside a `text` paragraph",
+            span,
+        );
+    }
+    if t.node_type == NodeType::Image
+        && matches!(parent, Some("text" | "time"))
+        && !attrs.iter().any(|a| a.name == "display")
+    {
+        t.fixed_styles = &[(StyleId::Display, "inline-block")];
+    }
+    Ok(())
 }

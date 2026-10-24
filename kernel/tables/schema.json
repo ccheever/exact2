@@ -1896,7 +1896,8 @@
         "block",
         "flex",
         "grid",
-        "none"
+        "none",
+        "inline-block"
       ],
       "default": "block"
     },

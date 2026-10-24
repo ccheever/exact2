@@ -32,6 +32,10 @@ package enum TextAnswerKey {
         put(Int32(variations.count), &out)
         for v in variations { put(v.tag, &out); put(v.value.bitPattern, &out) }
     }
+    private static func box(_ value: TextInlineBox?, _ out: inout [UInt8]) {
+        out.append(value == nil ? 0 : 1)
+        if let b = value { put(Float(b.width).bitPattern, &out); put(Float(b.height).bitPattern, &out); put(Float(b.baseline).bitPattern, &out) }
+    }
     private static func paragraph(_ align: Int, _ clamp: Int, _ wrap: Int, _ direction: Int, _ space: Int,
                                   _ indent: Double, _ hyphens: Int, _ out: inout [UInt8]) {
         put(Int32(truncatingIfNeeded: align), &out); put(Int32(truncatingIfNeeded: clamp), &out)
@@ -54,6 +58,7 @@ package enum TextAnswerKey {
                 put(Int32(truncatingIfNeeded: bytes.count), &out)
                 out.append(contentsOf: bytes)
             }
+            box(r.inlineBox, &out)
             fields(single(r.size), Int32(truncatingIfNeeded: r.weight), Int32(truncatingIfNeeded: r.family), r.italic,
                    r.lineHeight.map(single), single(r.letterSpacing), Int32(truncatingIfNeeded: r.numeric),
                    single(r.stretch), r.variations, &out)
@@ -63,6 +68,7 @@ package enum TextAnswerKey {
         }
         out.append(spec.strut == nil ? 0 : 1)
         if let s = spec.strut {
+            box(s.inlineBox, &out)
             fields(single(s.size), Int32(truncatingIfNeeded: s.weight), Int32(truncatingIfNeeded: s.family), s.italic,
                    s.lineHeight.map(single), single(s.letterSpacing), Int32(truncatingIfNeeded: s.numeric),
                    single(s.stretch), s.variations, &out)
@@ -84,6 +90,7 @@ package enum TextAnswerKey {
     package static func write(_ request: ExactMeasureRequest, into out: inout [UInt8]) -> Int {
         out.removeAll(keepingCapacity: true)
         func run(_ r: ExactTextRun) {
+            box(TextInlineBox(r), &out)
             fields(Double(r.font_size), Int32(r.font_weight), Int32(r.font_family), r.italic != 0,
                    r.has_line_height != 0 ? Double(r.line_height) : nil, Double(r.letter_spacing),
                    Int32(r.font_variant_numeric), Double(r.font_stretch), FontAxis.of(r), &out)

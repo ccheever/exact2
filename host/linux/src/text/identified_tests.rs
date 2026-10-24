@@ -559,6 +559,7 @@ mod owned_spec {
     }
     fn run(text: &str) -> Run {
         Run {
+            inline_box: None,
             text: text.into(),
             size: 16.,
             weight: 400,

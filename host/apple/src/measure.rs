@@ -47,6 +47,14 @@ pub struct CRun {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums` (LLP 1053 G4).
     pub font_variant_numeric: u8,
+    /// Atomic inline margin-box metrics.
+    pub has_inline_box: u8,
+    /// Margin-box advance.
+    pub inline_width: f32,
+    /// Margin-box height.
+    pub inline_height: f32,
+    /// Alphabetic baseline from the top.
+    pub inline_baseline: f32,
     /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
     pub font_stretch: f32,
     /// CSS `font-variation-settings` (LLP 1019 D9): how many axes are set.
@@ -118,6 +126,19 @@ pub struct CRequest {
     pub text_box_under: u8,
     /// CSS `text-wrap-style`: 0 auto, 1 balance (LLP 1001 §6).
     pub text_wrap_style: u8,
+    /// Optional shaper output, one position per input run; NaN for hidden runs.
+    /// When set, CMetrics returns the last line's baseline.
+    pub inline_positions: *mut CInlinePosition,
+}
+
+/// One atomic run's margin-box origin, written synchronously by the shaper.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CInlinePosition {
+    /// Content-space horizontal origin; NaN for a run hidden by line clamp.
+    pub x: f32,
+    /// Content-space vertical origin.
+    pub y: f32,
 }
 
 /// What the callback returns.
@@ -349,6 +370,10 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         line_height: style.line_height.unwrap_or(0.0),
         letter_spacing: style.letter_spacing,
         font_variant_numeric: style.font_variant_numeric,
+        has_inline_box: 0,
+        inline_width: 0.0,
+        inline_height: 0.0,
+        inline_baseline: 0.0,
         font_stretch: style.font_stretch,
         variation_count: style.font_variations.axes().len() as u8,
         variation_tags: std::array::from_fn(|i| {
@@ -404,9 +429,14 @@ impl CallbackMeasurer {
         &mut self,
         request: &TextMeasureRequest<'_>,
         stamp: Option<&ParagraphStamp>,
+        positions: *mut CInlinePosition,
     ) -> CMetrics {
         let f = self.f;
-        self.foreign(request, stamp, |ctx, c| f(ctx, c))
+        self.foreign(request, stamp, |ctx, c| {
+            let mut c = *c;
+            c.inline_positions = positions;
+            f(ctx, &c)
+        })
     }
 
     // The request as the C seam carries it, alive for `call`.
@@ -426,17 +456,27 @@ impl CallbackMeasurer {
                 .as_ref()
                 .map_or(&*request.runs[i].text, |c| c.runs[i].as_str())
         };
+        let c_inline = |text: &str, run: &exact_kernel::TextRun<'_>| {
+            let mut c = c_run(text, run.style);
+            if let Some(b) = run.inline_box {
+                c.has_inline_box = 1;
+                c.inline_width = b.width;
+                c.inline_height = b.height;
+                c.inline_baseline = b.baseline;
+            }
+            c
+        };
         let single;
         let owned;
         let runs: &[CRun] = if let [run] = request.runs {
-            single = c_run(text(0), run.style);
+            single = c_inline(text(0), run);
             std::slice::from_ref(&single)
         } else {
             owned = request
                 .runs
                 .iter()
                 .enumerate()
-                .map(|(i, r)| c_run(text(i), r.style))
+                .map(|(i, r)| c_inline(text(i), r))
                 .collect::<Vec<CRun>>();
             &owned
         };
@@ -469,6 +509,7 @@ impl CallbackMeasurer {
             exclusions: shapes.flat.as_ptr(),
             exclusion_count: shapes.flat.len(),
             markup: u8::from(request.paragraph.markup == exact_kernel::Markup::Markdown),
+            inline_positions: std::ptr::null_mut(),
             text_indent: request.paragraph.text_indent,
             hyphens: match request.paragraph.hyphens {
                 exact_kernel::Hyphens::Manual => 0,
@@ -505,6 +546,44 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn inline_baseline(&mut self, request: &TextMeasureRequest<'_>) -> Option<f32> {
+        let mut points = vec![
+            CInlinePosition {
+                x: f32::NAN,
+                y: f32::NAN
+            };
+            request.runs.len()
+        ];
+        let m = self.foreign_measure(request, None, points.as_mut_ptr());
+        (m.baseline.is_finite() && m.baseline >= 0.0).then_some(m.baseline)
+    }
+
+    fn inline_positions(
+        &mut self,
+        request: &TextMeasureRequest<'_>,
+    ) -> Vec<exact_kernel::InlinePosition> {
+        let mut points = vec![
+            CInlinePosition {
+                x: f32::NAN,
+                y: f32::NAN
+            };
+            request.runs.len()
+        ];
+        self.foreign_measure(request, None, points.as_mut_ptr());
+        points
+            .into_iter()
+            .enumerate()
+            .filter_map(|(run, p)| {
+                (request.runs[run].inline_box.is_some() && p.x.is_finite() && p.y.is_finite())
+                    .then_some(exact_kernel::InlinePosition {
+                        run,
+                        x: p.x,
+                        y: p.y,
+                    })
+            })
+            .collect()
+    }
+
     fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
         match self.time_format {
             Some(f) => crate::time::format(f, self.ctx, r),
@@ -575,7 +654,7 @@ impl TextMeasurer for CallbackMeasurer {
     }
 
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
-        sanitize(self.foreign_measure(request, None))
+        sanitize(self.foreign_measure(request, None, std::ptr::null_mut()))
     }
 
     /// The callback answers by width alone (`CRequest::height`), as the
@@ -623,7 +702,7 @@ impl TextMeasurer for CallbackMeasurer {
         if let Some(metrics) = self.memo.get(stamp, request.width, request.height) {
             return metrics;
         }
-        let raw = self.foreign_measure(request, Some(stamp));
+        let raw = self.foreign_measure(request, Some(stamp), std::ptr::null_mut());
         if raw.baseline == -2.0 {
             self.memo.defer_to_owner(stamp);
         }

@@ -131,6 +131,7 @@ fn measure_request_and_fragment_paint_have_identical_metrics() {
     let shared = TextEngine::shared();
     let style = exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default());
     let runs = [exact_kernel::TextRun {
+        inline_box: None,
         text: "Measure what we paint. ".into(),
         style,
     }];

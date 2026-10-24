@@ -60,6 +60,7 @@ fn stamp(k: &Kernel) -> ParagraphStamp {
 }
 fn run(text: &str) -> TextRun<'_> {
     TextRun {
+        inline_box: None,
         text: text.into(),
         style: exact_kernel::TextStyle::from_style(&StyleProps::default()),
     }

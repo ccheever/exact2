@@ -18,7 +18,6 @@
 //! Two backends draw what the walk emits: [`crate::gpu`] (vello over wgpu,
 //! the main one) and [`crate::raster`] (tiny-skia on the CPU — the fallback
 //! where there is no adapter, and the deterministic oracle for pixels).
-
 use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
 use exact_kernel::style::{BackdropFilter, BackdropOp};
@@ -74,7 +73,6 @@ use inline::{presented_color, presented_text_colors, text_backgrounds, text_pale
 pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 pub use svg::{resolve_with, Ink, SvgPaint};
-
 // Only an explicit row makes a raster a template; motion may supply its ink.
 // `currentcolor` is the node's `color` (feed F1).
 fn image_tint(node: &NodeRef<'_>, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
@@ -93,10 +91,8 @@ fn image_tint(node: &NodeRef<'_>, presented: &Presented, dark: bool) -> Option<[
             })
     })
 }
-
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
-
 /// A rectangle with per-corner radii (top-left, top-right, bottom-right,
 /// bottom-left), reduced by CSS's one factor so neighbours never overlap.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -108,14 +104,12 @@ pub struct Shape {
     /// CSS `corner-shape` when any corner is not `round` (LLP 1077 D1).
     pub corners: Option<exact_kernel::corner::CornerShape>,
 }
-
 impl Shape {
     /// A box with radii, reduced as CSS reduces them: every corner by the
     /// one factor that fits the tightest edge.
     pub fn new(rect: Rect4, radii: [f32; 4]) -> Shape {
         Self::elliptical(rect, radii.map(|r| (r.max(0.0), r.max(0.0))))
     }
-
     /// A box with independent horizontal and vertical corner radii.
     pub fn elliptical(rect: Rect4, radii: [(f32, f32); 4]) -> Shape {
         Shape {
@@ -124,7 +118,6 @@ impl Shape {
             corners: None,
         }
     }
-
     /// A plain box.
     pub fn rect(rect: Rect4) -> Shape {
         Shape {
@@ -133,18 +126,15 @@ impl Shape {
             corners: None,
         }
     }
-
     /// The same box with these corner shapes; `round` ones are none.
     pub fn with_corners(mut self, corners: Option<exact_kernel::corner::CornerShape>) -> Shape {
         self.corners = corners.filter(|c| !c.is_round());
         self
     }
-
     /// Whether any corner is rounded.
     pub fn rounded(&self) -> bool {
         self.radii.iter().any(|r| r.0 > 0.0 && r.1 > 0.0)
     }
-
     /// The same box inset on every side (radii shrink with it).
     pub fn inset(&self, by: f32) -> Shape {
         Shape::elliptical(
@@ -160,7 +150,6 @@ impl Shape {
         .with_corners(self.corners)
     }
 }
-
 // Frozen numeric/style operands. Capture resolves environment and appearance
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
@@ -955,8 +944,8 @@ impl Painter {
             return;
         }
         if (walk.scene.hidden)(id)
-            || node.is_inline_run()
             || node.style.display == Display::None
+            || (node.is_inline_box() && node.frame.width == 0.0 && node.frame.height == 0.0)
             || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.dialog != Some(id))
         {
             return;
@@ -964,6 +953,14 @@ impl Painter {
         // The roles drawn in the accent read the nearest authored
         // `accent-color`, for this node and, until one authors its own, below.
         let _accent = accent_scope(&node);
+        if node.is_inline_run() {
+            if node.props.str(PropId::Text).is_none() {
+                for child in node.children() {
+                    self.node(walk, child, ts, offset, clip_rect);
+                }
+            }
+            return;
+        }
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);

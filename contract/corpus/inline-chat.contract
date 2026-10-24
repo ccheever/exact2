@@ -1,0 +1,22 @@
+// Chat content uses one paragraph; the image and mention are atomic inline boxes.
+component InlineChat
+  state narrow = false
+  state large = false
+  state selected = false
+  action resize
+    narrow = not narrow
+  action emojiSize
+    large = not large
+  action mention
+    selected = not selected
+  view
+    column padding=24 gap=16
+      text "Inline chat" font-size=24
+      text testId="chat-message" width=(narrow ? 150 : 310) font-size=17 line-height="24px"
+        text "Thanks "
+        text "@Alice" testId="chat-mention" display="inline-block" white-space="nowrap" color="#17408b" padding-left=6 padding-right=6 background-color=(selected ? "#aaccff" : "#ddeeff") border-radius=8 press=mention
+        text " for the "
+        image "assets/caltrain.png" testId="chat-emoji" aria-label="custom train emoji" width=(large ? 36 : 20) height=(large ? 36 : 20) object-fit="contain"
+        text " — see you at the station!"
+      button "Wrap message" testId="wrap-message" press=resize
+      button "Resize emoji" testId="resize-emoji" press=emojiSize

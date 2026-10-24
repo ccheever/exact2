@@ -4,7 +4,8 @@
 //! [`TextMeasurer`] per kernel — there is no process-global callback — and the
 //! kernel hands it a paragraph as ordered [`TextRun`]s with the offer it must
 //! fit. A `Text` node with its own `text` prop is one run; otherwise its `Text`
-//! children are its runs, flattened in order. The same runs feed measurement,
+//! children are flattened in order; images and atomic text contribute a box run.
+//! The same runs feed measurement,
 //! export, and (later) selection: one traversal, per-consumer projections.
 //!
 //! [`MonospaceMeasurer`] is the deterministic reference measurer used by tests
@@ -21,6 +22,7 @@ use std::sync::Arc;
 
 pub(crate) mod case;
 pub mod decorations;
+mod inline;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -326,6 +328,30 @@ pub struct TextRun<'a> {
     pub text: Cow<'a, str>,
     /// Its style.
     pub style: TextStyle,
+    /// An atomic inline box, represented by U+FFFC rather than glyph ink.
+    pub inline_box: Option<InlineBox>,
+}
+
+/// Typographic dimensions of an atomic inline box, including its margins.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct InlineBox {
+    /// Advance along the line.
+    pub width: f32,
+    /// Above and below the shared alphabetic baseline.
+    pub height: f32,
+    /// Distance from the margin box's top to the baseline.
+    pub baseline: f32,
+}
+
+/// A run's margin-box origin in paragraph content coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlinePosition {
+    /// Index in the request's canonical runs.
+    pub run: usize,
+    /// Horizontal origin.
+    pub x: f32,
+    /// Vertical origin.
+    pub y: f32,
 }
 
 impl AsRef<str> for TextRun<'_> {
@@ -561,6 +587,29 @@ pub trait TextMeasurer {
         Some(self.measure(request))
     }
 
+    /// Last line's alphabetic baseline, used by CSS inline-block text.
+    fn inline_baseline(&mut self, request: &TextMeasureRequest<'_>) -> Option<f32> {
+        let m = self.measure(request);
+        let line = request
+            .runs
+            .iter()
+            .map(|r| r.style.line_height.unwrap_or(r.style.font_size * 1.2))
+            .fold(
+                request
+                    .paragraph
+                    .strut
+                    .line_height
+                    .unwrap_or(request.paragraph.strut.font_size * 1.2),
+                f32::max,
+            );
+        m.first_baseline.map(|b| m.height - line + b)
+    }
+
+    /// Locate atomic inline boxes with the same shaping and line breaks as measurement.
+    fn inline_positions(&mut self, request: &TextMeasureRequest<'_>) -> Vec<InlinePosition> {
+        MonospaceMeasurer::default().inline_layout(request).1
+    }
+
     /// Size a kernel-identified paragraph. Existing measurers use the ordinary
     /// synchronous path; callers constructing requests still need no stamp.
     /// The stamp identifies exactly this owner's canonical runs, not a subset
@@ -794,6 +843,9 @@ impl MonospaceMeasurer {
 
 impl MonospaceMeasurer {
     fn measure_lines(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        if request.runs.iter().any(|r| r.inline_box.is_some()) {
+            return self.inline_layout(request).0;
+        }
         if let AxisOffer::Definite(width) = request.width {
             if !request.exclusions.is_empty() {
                 return self.flow(request, width);

@@ -218,7 +218,10 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             assert_eq!(values, expected);
             // Use the actual diagnostic's choices as authored literals.
             for value in values.split(", ") {
-                let corrected = source.replace(&format!("\"{invalid}\""), value);
+                let mut corrected = source.replace(&format!("\"{invalid}\""), value);
+                if row == StyleId::Display && value == "\"inline-block\"" {
+                    corrected = corrected.replace("    view ", "    text\n      text ");
+                }
                 let plan =
                     contract::compile(&corrected).unwrap_or_else(|e| panic!("{corrected}: {e}"));
                 let r = Runner::boot(

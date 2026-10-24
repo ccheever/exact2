@@ -176,7 +176,10 @@ extension TextEngine {
     /// Explicit CSS line boxes permit fallback ink to overflow without growing.
     package func lineBox(_ spec: Spec, line: CTLine) -> TextLineBox {
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
+        func extents(_ run: Run) -> TextLineBox {
+            if let inline = run.inlineBox { return TextLineBox(inline) }
+            return TextLineBox(font(run) as CTFont, height: run.lineHeight)
+        }
         var box = strut.map(extents) ?? TextLineBox()
         for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
             let range = CTRunGetStringRange(glyphRun)
@@ -187,7 +190,7 @@ extension TextEngine {
                 defer { offset = end }
                 guard offset < range.location + range.length && end > range.location else { continue }
                 matched = true
-                if authored.lineHeight != nil {
+                if authored.lineHeight != nil || authored.inlineBox != nil {
                     box.include(extents(authored))
                 } else { includesNormal = true }
             }

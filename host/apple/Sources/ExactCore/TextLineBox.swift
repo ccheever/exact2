@@ -15,6 +15,12 @@ package struct TextLineBox: Sendable {
 
     package init() {}
 
+    package init(_ inline: TextInlineBox) {
+        above = inline.baseline; below = inline.height - inline.baseline
+        baseline = inline.baseline
+        aboveExplicit = true; belowExplicit = true
+    }
+
     package init(_ font: CTFont, height: CGFloat?) {
         (above, below) = CSSLineBox.extents(font, height: height)
         aboveExplicit = height != nil; belowExplicit = aboveExplicit

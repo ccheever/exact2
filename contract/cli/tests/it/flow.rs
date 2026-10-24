@@ -16,7 +16,10 @@ fn source(attrs: &str) -> String {
 fn auto_values_follow_each_rows_codec_and_vocabulary() {
     // @ref LLP 1017.000 P1a — enum keywords use the kernel's vocabulary.
     for (property, reason) in [
-        ("display", "one of \"block\", \"flex\", \"grid\", \"none\""),
+        (
+            "display",
+            "one of \"block\", \"flex\", \"grid\", \"none\", \"inline-block\"",
+        ),
         ("font-size", "number"),
         ("opacity", "number"),
     ] {

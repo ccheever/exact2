@@ -84,6 +84,8 @@ pub struct Run {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
     pub font_variant_numeric: u8,
+    /// Atomic inline margin-box metrics.
+    pub inline_box: Option<exact_kernel::InlineBox>,
     /// A Markdown list item's head indent, points: where its paragraph's
     /// lines start (LLP 1045 D4).
     pub indent: f32,
@@ -114,6 +116,7 @@ impl Clone for Run {
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            inline_box: self.inline_box,
             indent: self.indent,
             hang: self.hang,
             mark: self.mark,
@@ -124,6 +127,12 @@ impl Clone for Run {
 }
 
 impl Run {
+    /// The kernel's complete run, including an atomic box.
+    pub fn from_run(run: &exact_kernel::TextRun<'_>) -> Self {
+        let mut value = Self::from_style(&run.text, run.style);
+        value.inline_box = run.inline_box;
+        value
+    }
     /// Project the kernel's resolved text style for measuring and painting.
     pub fn from_style(text: &str, style: exact_kernel::TextStyle) -> Self {
         #[cfg(test)]
@@ -139,6 +148,7 @@ impl Run {
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
+            inline_box: None,
             indent: 0.0,
             hang: false,
             mark: 0,
@@ -221,11 +231,7 @@ impl Spec {
         }
         let spec = Spec {
             strut: Run::from_style("", request.paragraph.strut),
-            runs: request
-                .runs
-                .iter()
-                .map(|r| Run::from_style(&r.text, r.style))
-                .collect(),
+            runs: request.runs.iter().map(Run::from_run).collect(),
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
@@ -983,6 +989,9 @@ impl TextEngine {
         let paint = PixmapPaint::default();
         let slots = ink::slots(&mut catalog, paragraph.layouts());
         let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {
+            if paragraph.source.spec.runs[g.run()].inline_box.is_some() {
+                return;
+            }
             #[cfg(test)]
             {
                 self.ink_visits += 1;
@@ -1054,6 +1063,9 @@ impl TextEngine {
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
         for (g, baseline, _) in paragraph.paint_glyphs(palette) {
+            if paragraph.source.spec.runs[g.run()].inline_box.is_some() {
+                continue;
+            }
             let key = (g.face, g.font_size.to_bits(), g.run());
             let y = baseline + g.y;
             match runs.last_mut() {
@@ -1106,6 +1118,52 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn inline_baseline(&mut self, request: &TextMeasureRequest<'_>) -> Option<f32> {
+        let spec = Spec::from_request(request);
+        let width = match request.width {
+            AxisOffer::Definite(w) => Some(w),
+            _ => None,
+        };
+        self.0
+            .borrow_mut()
+            .paragraph(&spec, width)
+            .baselines()
+            .last()
+            .copied()
+    }
+
+    fn inline_positions(
+        &mut self,
+        request: &TextMeasureRequest<'_>,
+    ) -> Vec<exact_kernel::InlinePosition> {
+        let spec = Spec::from_request(request);
+        let width = match request.width {
+            AxisOffer::Definite(w) => Some(w),
+            _ => None,
+        };
+        let mut engine = self.0.borrow_mut();
+        let paragraph = if let Some(width) = width.filter(|_| !request.exclusions.is_empty()) {
+            engine.paragraph_flow(&spec, width, request.exclusions, None)
+        } else {
+            engine.paragraph(&spec, width)
+        };
+        let runs = &spec.runs;
+        paragraph
+            .layout_runs()
+            .flat_map(|line| {
+                line.glyphs.iter().filter_map(move |g| {
+                    runs[g.run()]
+                        .inline_box
+                        .map(|b| exact_kernel::InlinePosition {
+                            run: g.run(),
+                            x: g.x,
+                            y: line.line_y - b.baseline,
+                        })
+                })
+            })
+            .collect()
+    }
+
     fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
         #[cfg(target_os = "android")]
         if let Some(text) = crate::canvas::time::format(r) {
@@ -1302,3 +1360,7 @@ mod live_time_tests;
 
 #[cfg(test)]
 mod variable_face_tests;
+
+#[cfg(test)]
+#[path = "text/inline_tests.rs"]
+mod inline_tests;

@@ -1007,6 +1007,12 @@ The compiler's built-in tag vocabulary is grouped here by use. It is not an
 HTML parser: arbitrary HTML names outside this table are not implicitly accepted.
 Several tags share a kernel node type with different fixed properties.
 
+A `text` paragraph can contain text runs and inline `image` children. Use
+`text display="inline-block"` for an atomic mention pill with its own padding,
+background and press handler. Images and atomic text share the surrounding
+text's baseline and wrap as whole boxes; see `contract/corpus/inline-chat.contract`.
+`inline-block` is supported only on text and images inside a text paragraph.
+
 | Family | Names |
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |

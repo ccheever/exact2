@@ -273,10 +273,20 @@ impl ShapedSource {
             #[cfg(test)]
             SHAPE_LINES.with(|n| n.set(n.get() + 1));
             text_bytes += text.len();
+            // Preserve source ranges while the inline box owns the placeholder's advance.
+            let mut shown = None;
+            for (range, index) in &runs {
+                if spec.runs[*index].inline_box.is_some() {
+                    shown
+                        .get_or_insert_with(|| text.clone())
+                        .replace_range(range.clone(), "\u{200b}");
+                }
+            }
+            let shown = shown.as_deref().unwrap_or(&text);
             let catalog = &mut *catalog;
             let mut builder = catalog
                 .layout
-                .ranged_builder(&mut catalog.fonts, &text, 1.0, false);
+                .ranged_builder(&mut catalog.fonts, shown, 1.0, false);
             builder.push_default(StyleProperty::TextWrapMode(wrap));
             builder.push_default(StyleProperty::OverflowWrap(overflow_wrap));
             if let Some((_, first)) = runs.first() {
@@ -284,6 +294,15 @@ impl ShapedSource {
                 builder.push_default(StyleProperty::FontSize(spec.runs[*first].size.max(0.5)));
             }
             for (range, index) in &runs {
+                if let Some(b) = spec.runs[*index].inline_box {
+                    builder.push_inline_box(parley::InlineBox {
+                        id: ((*index as u64) << 32) | range.start as u64,
+                        kind: parley::InlineBoxKind::InFlow,
+                        index: range.start,
+                        width: b.width,
+                        height: b.baseline,
+                    });
+                }
                 push_style(
                     &mut builder,
                     &spec.runs[*index],
@@ -302,7 +321,7 @@ impl ShapedSource {
                 BaseDirection::Ltr
             });
             builder.set_line_break_override(Some(CHROME));
-            let mut layout = builder.build(&text);
+            let mut layout = builder.build(shown);
             let inset = line_inset(&spec, &runs, &mut layout);
             // CSS `text-indent`: the paragraph's first line only.
             let indent = if h == 0 { spec.text_indent } else { 0.0 } + inset.0 - inset.1;
@@ -468,7 +487,7 @@ impl ShapedSource {
             let styles = layout.styles();
             for (i, line) in layout.lines().enumerate() {
                 let start = out.glyphs.len() as u32;
-                let content = lines::extract(&line, styles, shift, &mut out);
+                let content = lines::extract(&line, styles, shift, &mut out, Some(spec));
                 let m = line.metrics();
                 // A collapsible space that ends a line hangs; a preserved
                 // one counts where the hard line ends (`pre`, `pre-wrap`).
@@ -595,7 +614,7 @@ impl ShapedSource {
         let mut ink = Lines::default();
         let mut advance = 0.0;
         if let Some(l) = symbol.lines().next() {
-            advance = lines::extract(&l, symbol.styles(), 0.0, &mut ink);
+            advance = lines::extract(&l, symbol.styles(), 0.0, &mut ink, None);
         }
         // Visual clusters, kept from the line's start edge.
         let extent = |g: &LayoutGlyph| (g.x, g.x + g.w);
@@ -813,6 +832,13 @@ pub(super) fn line_box<'a>(
     let mut below_explicit = above_explicit;
     let mut last: Option<(u16, u32, u32)> = None;
     for glyph in glyphs {
+        if let Some(b) = spec.runs[glyph.run()].inline_box {
+            above = above.max(b.baseline);
+            below = below.max(b.height - b.baseline);
+            above_explicit = true;
+            below_explicit = true;
+            continue;
+        }
         let key = (glyph.face, glyph.font_size.to_bits(), glyph.metadata);
         if last == Some(key) {
             continue;

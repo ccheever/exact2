@@ -54,7 +54,9 @@ extension NodeView {
     /// the source, which selection still reads.
     var visibleParagraphText: String {
         guard !inlineText.isEmpty else { return paragraphText }
-        return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map(\.text).joined()
+        return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map { run in
+            run.isBox ? (run.props["accessibilityLabel"] ?? presenter?.views[run.id]?.visibleParagraphText ?? "") : run.text
+        }.joined()
     }
 
     func visibleInlineText(in range: NSRange, source: NSString) -> String {
@@ -108,7 +110,7 @@ extension NodeView {
         #else
         // UIKit does not visit a container's children when it is itself an
         // accessibility element. Expose the paragraph plus its link targets.
-        isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
+        isAccessibilityElement = !inlineText.contains(where: { $0.isBox || !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
         accessibilityTraits.insert(.staticText)
         // A heading says so, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
         if headingLevel != nil { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
@@ -117,6 +119,7 @@ extension NodeView {
         #endif
     }
     func textAccessibilityChildren() -> [Any]? {
+        let boxes: [Any] = inlineText.filter(\.isBox).compactMap { presenter?.views[$0.id] }.filter { !$0.isHidden }
         #if os(macOS)
         // Made at the first ask and kept until the runs change (`inlineText`):
         // an element made per ask is invalid to another process, VoiceOver
@@ -129,21 +132,21 @@ extension NodeView {
             children = key == nil ? inlineElements() : groupElements()
             inlineAccessibility = (key, children)
         }
-        return children.isEmpty && key == nil ? nil : children
+        return children.isEmpty && boxes.isEmpty && key == nil ? nil : children + boxes
         #else
         let children: [Any] = inlineElements()
-        guard !children.isEmpty else { return nil }
+        guard !children.isEmpty || !boxes.isEmpty else { return nil }
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
         paragraph.accessibilityValue = spokenValue
         paragraph.accessibilityLanguage = presenter?.documentLanguage
         paragraph.accessibilityTraits = .staticText
         paragraph.accessibilityFrameInContainerSpace = contentBox()
-        return [paragraph] + children
+        return [paragraph] + children + boxes
         #endif
     }
     private var interactiveRuns: [InlineText] {
-        inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil || ownsMenu($0)) }
+        inlineText.filter { !$0.isBox && !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil || ownsMenu($0)) }
     }
     /// A run with its own `contextPopover` is an element on macOS, whose
     /// show menu opens it (X77), as one with its own `contextmenu` is.
@@ -183,7 +186,7 @@ extension NodeView {
         }
         for run in inlineText {
             if links.contains(run.id) { stretch(); children.append(InlineAccessibility(owner: self, run: run, text: text)) }
-            else if run.paints, !run.run(dark: drawsDark).hidden { words.append(run) }
+            else if !run.isBox, run.paints, !run.run(dark: drawsDark).hidden { words.append(run) }
         }
         stretch()
         return children

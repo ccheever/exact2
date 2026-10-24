@@ -488,16 +488,22 @@ mod storage {
         };
         let runs = [
             TextRun {
+                inline_box: None,
                 text: source.as_str().into(),
                 style,
             },
             TextRun {
+                inline_box: None,
                 text: "".into(),
                 style: strut,
             },
         ];
         let expected_runs = [
             CRun {
+                has_inline_box: 0,
+                inline_width: 0.0,
+                inline_height: 0.0,
+                inline_baseline: 0.0,
                 text: source.as_ptr(),
                 len: source.len(),
                 font_size: sizes[variant],
@@ -514,6 +520,10 @@ mod storage {
                 variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             },
             CRun {
+                has_inline_box: 0,
+                inline_width: 0.0,
+                inline_height: 0.0,
+                inline_baseline: 0.0,
                 text: "".as_ptr(),
                 len: 0,
                 font_size: 19.5,
@@ -566,6 +576,7 @@ mod storage {
         };
         let mut probe = RequestProbe {
             expected: CRequest {
+                inline_positions: std::ptr::null_mut(),
                 view: 0,
                 node_index: 0,
                 node_generation: 0,

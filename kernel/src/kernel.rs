@@ -254,9 +254,19 @@ impl<'a> NodeRef<'a> {
         self.arena.is_inline_run(self.slot)
     }
 
-    /// The canonical ordered runs used to measure this paragraph. Inline
-    /// descendants have no independent boxes; painting uses the owner's
-    /// content width and these same inherited metric styles.
+    /// Whether this node participates as an atomic box in its parent's paragraph.
+    pub fn is_inline_box(&self) -> bool {
+        self.arena.is_inline_box(self.slot)
+    }
+
+    /// Its resolved typographic size, available after native layout.
+    pub fn inline_box(&self) -> Option<crate::text::InlineBox> {
+        self.arena.inline_boxes.get(&self.slot).copied()
+    }
+
+    /// The canonical ordered text and atomic box runs used to measure this
+    /// paragraph. Styled text shares the owner's content width; atomic boxes
+    /// retain their own geometry.
     pub fn text_runs(&self) -> Vec<TextRun<'a>> {
         let mut runs = Vec::new();
         self.arena.text_runs(self.slot, &mut runs);

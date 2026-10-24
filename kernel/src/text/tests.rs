@@ -63,6 +63,7 @@ fn paragraph() -> Paragraph {
 #[test]
 fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
     let runs = [TextRun {
+        inline_box: None,
         text: "Ab".into(),
         style: style(10.0),
     }];
@@ -106,6 +107,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     let mut short = style(10.0);
     short.line_height = Some(4.0);
     let runs = [TextRun {
+        inline_box: None,
         text: "Ab\nAb".into(),
         style: short,
     }];
@@ -140,6 +142,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     assert_eq!(bottoms.last(), Some(&measured.height));
 
     let empty = [TextRun {
+        inline_box: None,
         text: "".into(),
         style: style(20.0),
     }];
@@ -152,6 +155,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
 
 fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {
     let runs = [TextRun {
+        inline_box: None,
         text: text.into(),
         style: style(10.0),
     }];
@@ -197,6 +201,7 @@ fn min_content_is_the_longest_word() {
 
 fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> TextMetrics {
     let runs = [TextRun {
+        inline_box: None,
         text: text.into(),
         style: style(10.0),
     }];
@@ -285,10 +290,12 @@ fn empty_text_measures_zero() {
 fn runs_take_the_tallest_line_height() {
     let runs = [
         TextRun {
+            inline_box: None,
             text: "ab".into(),
             style: style(10.0),
         },
         TextRun {
+            inline_box: None,
             text: "cd".into(),
             style: style(20.0),
         },
@@ -307,6 +314,7 @@ fn runs_take_the_tallest_line_height() {
 #[test]
 fn overflow_wrap_changes_emergency_breaks_and_only_anywhere_changes_min_content() {
     let runs = [TextRun {
+        inline_box: None,
         text: "abcdefghijklmnopqrst".into(),
         style: style(10.0),
     }];

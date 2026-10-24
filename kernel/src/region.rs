@@ -230,6 +230,7 @@ impl RegionTextRequest {
             .runs
             .iter()
             .map(|(text, style)| TextRun {
+                inline_box: None,
                 text: (&**text).into(),
                 style: *style,
             })

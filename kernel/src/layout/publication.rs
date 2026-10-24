@@ -81,7 +81,9 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             tree.work.0 += 1;
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
-        let hidden = hidden || own_hidden;
+        let hidden = hidden
+            || own_hidden
+            || (arena.is_inline_box(slot) && !tree.inline_frames.contains_key(&slot));
         if hidden {
             arena.flags_mut(slot).insert(NodeFlags::HIDDEN);
         } else {
@@ -121,6 +123,19 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 x: ox,
                 y: oy,
                 ..Frame::default()
+            }
+        } else if let Some(relative) = tree
+            .inline_frames
+            .get(&slot)
+            .copied()
+            .filter(|_| arena.is_inline_box(slot))
+        {
+            let owner = arena.measure_owner(arena.parent(slot).expect("inline parent"));
+            let origin = arena.frame(owner);
+            Frame {
+                x: origin.x + relative.x,
+                y: origin.y + relative.y,
+                ..relative
             }
         } else if inline {
             Frame::default()
@@ -260,7 +275,11 @@ pub fn compute(
     let root = arena
         .taffy(root_slot)
         .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
+    inline::prepare(arena, tree, measurer, root_slot)?;
     tree.compute(root, offer, arena, measurer)?;
+    if inline::prepare(arena, tree, measurer, root_slot)? {
+        tree.compute(root, offer, arena, measurer)?;
+    }
     let (flow_passes, flow_comparisons) =
         tree.settle_flow(root, root_slot, offer, arena, measurer)?;
     crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
@@ -270,6 +289,7 @@ pub fn compute(
         }
     }
     let refitted = fit::settle(arena, tree);
+    inline::place(arena, tree, measurer, root_slot)?;
     let mut receipt = publish(arena, tree, root_slot);
     for key in refitted {
         if !receipt.updated.contains(&key) {

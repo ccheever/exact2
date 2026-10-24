@@ -344,6 +344,7 @@ pub(crate) fn button_lines(
         .or(face.label.as_deref())
         .unwrap_or("");
     let runs = [TextRun {
+        inline_box: None,
         text: title.into(),
         style: exact_kernel::text::TextStyle::from_style(&style.title),
     }];
@@ -490,6 +491,7 @@ mod tests {
             ("界界", 2, vec![("界", 2), ("界", 2)]),
         ] {
             let runs = [TextRun {
+                inline_box: None,
                 text: text.into(),
                 style: paragraph.strut,
             }];
@@ -559,10 +561,12 @@ mod tests {
                 second.font_weight = 700;
                 let runs = [
                     TextRun {
+                        inline_box: None,
                         text: text[..split].into(),
                         style: paragraph.strut,
                     },
                     TextRun {
+                        inline_box: None,
                         text: text[split..].into(),
                         style: second,
                     },
@@ -585,6 +589,7 @@ mod tests {
         let mut paragraph = Paragraph::from_style(&StyleProps::default());
         for text in ["a \u{ad}b", "a  \u{ad}b", "a\t\u{ad}b"] {
             let runs = [TextRun {
+                inline_box: None,
                 text: text.into(),
                 style: paragraph.strut,
             }];
@@ -620,10 +625,12 @@ mod tests {
                 second.font_weight = 700;
                 let runs = [
                     TextRun {
+                        inline_box: None,
                         text: text[..split].into(),
                         style: paragraph.strut,
                     },
                     TextRun {
+                        inline_box: None,
                         text: text[split..].into(),
                         style: second,
                     },
@@ -660,6 +667,7 @@ mod tests {
             ),
         ] {
             let runs = [TextRun {
+                inline_box: None,
                 text: text.into(),
                 style: paragraph.strut,
             }];
@@ -697,6 +705,7 @@ mod tests {
         }
         paragraph.overflow_wrap = OverflowWrap::Anywhere;
         let runs = [TextRun {
+            inline_box: None,
             text: "👩🏽‍💻\u{200b}é界".into(),
             style: paragraph.strut,
         }];
@@ -713,6 +722,7 @@ mod tests {
     fn nonwrapping_and_preserved_paint_skip_discretionary_controls() {
         let mut paragraph = Paragraph::from_style(&StyleProps::default());
         let runs = ["ab\u{ad}", "cd\u{200b}", "界\u{1b}"].map(|text| TextRun {
+            inline_box: None,
             text: text.into(),
             style: paragraph.strut,
         });
@@ -751,6 +761,7 @@ mod tests {
         for space in ['\u{2028}', '\u{85}', '\u{c}'] {
             let text = format!("A{space}{space}B\u{1b}");
             let runs = [TextRun {
+                inline_box: None,
                 text: text.as_str().into(),
                 style: paragraph.strut,
             }];
@@ -765,6 +776,7 @@ mod tests {
                 (format!("AA{space}"), vec![("AA", 2)]),
             ] {
                 let runs = [TextRun {
+                    inline_box: None,
                     text: text.as_str().into(),
                     style: paragraph.strut,
                 }];
@@ -778,6 +790,7 @@ mod tests {
     fn empty_text_has_no_line_box() {
         let style = StyleProps::default();
         let runs = [TextRun {
+            inline_box: None,
             text: "".into(),
             style: TextStyle::from_style(&style),
         }];
@@ -814,6 +827,7 @@ mod tests {
         ] {
             for split in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
                 let runs = [&text[..split], &text[split..]].map(|text| TextRun {
+                    inline_box: None,
                     text: text.into(),
                     style: TextStyle::from_style(&style),
                 });
@@ -1097,6 +1111,7 @@ mod tests {
     fn measuring_and_painting_keep_wrapping_whitespace_and_cluster_boundaries() {
         let style = StyleProps::default();
         let runs = ["  ab", "c 界 é\nxy  "].map(|text| TextRun {
+            inline_box: None,
             text: text.into(),
             style: TextStyle::from_style(&style),
         });
@@ -1149,6 +1164,7 @@ mod tests {
         for space in ['\u{a0}', '\u{202f}', '\u{2007}', '\u{feff}'] {
             let text = format!("XX{space}YY");
             let runs = [TextRun {
+                inline_box: None,
                 text: text.as_str().into(),
                 style: paragraph.strut,
             }];
@@ -1189,6 +1205,7 @@ mod tests {
         ] {
             paragraph.white_space = white_space;
             let runs = [TextRun {
+                inline_box: None,
                 text: text.into(),
                 style: paragraph.strut,
             }];
@@ -1216,6 +1233,7 @@ mod tests {
         ] {
             paragraph.white_space = white_space;
             let runs = [TextRun {
+                inline_box: None,
                 text: text.into(),
                 style: paragraph.strut,
             }];
@@ -1239,6 +1257,7 @@ mod tests {
         for space in ['\u{2009}', '\u{3000}'] {
             let source = format!("XX{space}YY");
             let runs = [TextRun {
+                inline_box: None,
                 text: source.as_str().into(),
                 style: paragraph.strut,
             }];
@@ -1267,6 +1286,7 @@ mod tests {
         }
         paragraph.white_space = WhiteSpace::PreWrap;
         let runs = [TextRun {
+            inline_box: None,
             text: "A\r\nB".into(),
             style: paragraph.strut,
         }];

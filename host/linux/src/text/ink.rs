@@ -269,6 +269,9 @@ impl Index {
             result.lines += 1;
             let mut span = Bounds::EMPTY;
             for glyph in lines.glyphs_of(line) {
+                if p.source.spec.runs[glyph.run()].inline_box.is_some() {
+                    continue;
+                }
                 #[cfg(test)]
                 count(|n| n.glyphs += 1);
                 let (x, y) = (glyph.x, glyph.y);

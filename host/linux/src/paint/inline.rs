@@ -29,8 +29,18 @@ pub(crate) fn text_palette(
         });
     } else {
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
-                text_palette(kernel, &child, dark, reveal, out);
+            if let Some(child) = kernel.node(child).filter(|c| {
+                (c.node_type == NodeType::Text || c.is_inline_box())
+                    && c.style.display != exact_kernel::Display::None
+            }) {
+                if child.is_inline_box() {
+                    out.push(RunPaint {
+                        color: [0, 0, 0, 0],
+                        source: child.id,
+                    });
+                } else {
+                    text_palette(kernel, &child, dark, reveal, out);
+                }
             }
         }
     }
@@ -101,7 +111,14 @@ fn collect_backgrounds(
     } else {
         let mut emitted = false;
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+            if let Some(child) = kernel.node(child).filter(|c| {
+                (c.node_type == NodeType::Text || c.is_inline_box())
+                    && c.style.display != exact_kernel::Display::None
+            }) {
+                if child.is_inline_box() {
+                    out.push(None);
+                    continue;
+                }
                 // A hidden box contributes no background; a visible ancestor
                 // still covers its characters.
                 let own = super::paints(kernel, child.id, reveal)

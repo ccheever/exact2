@@ -48,6 +48,7 @@ pub(super) fn measure(
         title.font_weight = 600;
         let shown = title.hyphens.shown(title.text_transform.apply(label, ""));
         let run = TextRun {
+            inline_box: None,
             text: shown,
             style: crate::TextStyle::from_style(&title),
         };

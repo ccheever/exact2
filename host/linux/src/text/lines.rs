@@ -163,11 +163,23 @@ pub(super) fn extract(
     styles: &[parley::Style<u32>],
     shift: f32,
     out: &mut Lines,
+    spec: Option<&super::Spec>,
 ) -> f32 {
+    let inline = spec.filter(|s| s.runs.iter().any(|r| r.inline_box.is_some()));
+    let first = out.glyphs.len();
     let m = line.metrics();
     let mut pen = m.offset + m.inline_min_coord + shift;
     let mut content = 0.0f32;
     for run in line.runs() {
+        if inline.is_some() {
+            pen = run
+                .visual_clusters()
+                .next()
+                .and_then(|c| c.visual_offset())
+                .unwrap_or(m.offset)
+                + m.inline_min_coord
+                + shift;
+        }
         let synthesis = run.synthesis();
         let face = out.face(Face {
             font: run.font().clone(),
@@ -190,6 +202,10 @@ pub(super) fn extract(
             }
             for glyph in cluster.glyphs() {
                 let style = styles.get(glyph.style_index()).map_or(0, |s| s.brush);
+                if inline.is_some_and(|s| s.runs[style as usize].inline_box.is_some()) {
+                    pen += glyph.advance;
+                    continue;
+                }
                 out.glyphs.push(LayoutGlyph {
                     start: range.start as u32,
                     end: range.end as u32,
@@ -205,6 +221,28 @@ pub(super) fn extract(
                 pen += glyph.advance;
             }
         }
+    }
+    if let Some(spec) = inline {
+        for item in line.items() {
+            if let parley::PositionedLayoutItem::InlineBox(b) = item {
+                let run = (b.id >> 32) as usize;
+                let start = b.id as u32;
+                out.glyphs.push(LayoutGlyph {
+                    start,
+                    end: start + 3,
+                    x: b.x + shift,
+                    y: 0.0,
+                    w: b.width,
+                    font_size: spec.runs[run].size,
+                    glyph_id: 0,
+                    metadata: run as u32,
+                    face: 0,
+                    level: 0,
+                });
+                content += b.width;
+            }
+        }
+        out.glyphs[first..].sort_by(|a, b| a.x.total_cmp(&b.x));
     }
     content
 }

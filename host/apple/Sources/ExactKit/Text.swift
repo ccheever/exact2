@@ -69,7 +69,7 @@ final class PresentedText: TextPresentation {
             a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             if !r.decoration.contains("line-through"), let c = r.strikeColor { a[.strikethroughColor] = TextEngine.color(c) }
         }
-        if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+        if r.inlineBox == nil, !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
             let f = a[.font] as! PlatformFont
             let (ascent, descent) = CSSLineBox.content(f as CTFont)
             a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent,
