@@ -40,7 +40,9 @@ use std::collections::BTreeMap;
 /// Who a call comes from (LLP 1133.002 D12), least privileged first.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CallOrigin {
-    /// A background wake (LLP 1114.001).
+    /// The device: an event a package emitted (LLP 1133.004 D6).
+    Device,
+    /// A background wake (LLP 1133.017 D5).
     Wake,
     /// A tool invocation (LLP 1111).
     Tool,
@@ -53,6 +55,7 @@ impl CallOrigin {
     /// Its word in the journal, a ticket and `state.extensions`.
     pub fn word(self) -> &'static str {
         match self {
+            CallOrigin::Device => "device",
             CallOrigin::Wake => "wake",
             CallOrigin::Tool => "tool",
             CallOrigin::App => "app",
@@ -73,6 +76,9 @@ pub(in crate::runner) struct Origins {
     /// A re-ask the device causes is being made: each resource asks under
     /// its own last ask's origin.
     reasking: bool,
+    /// Each armed `then`, by mutation, whose answer's commit was not the
+    /// app's: the `then` runs under it (LLP 1133.002 D12).
+    thens: BTreeMap<usize, CallOrigin>,
 }
 
 /// What answers a module's name.
@@ -173,6 +179,20 @@ impl<D: DataSource> Runner<D> {
             .fold(o.now, CallOrigin::min)
     }
 
+    /// Mutation `m`'s `then` is armed by the commit being made.
+    pub(in crate::runner) fn note_then(&mut self, m: usize) {
+        let o = &mut self.extensions.origins;
+        match o.now {
+            CallOrigin::App => o.thens.remove(&m),
+            other => o.thens.insert(m, other),
+        };
+    }
+
+    /// The origin mutation `m`'s armed `then` runs under; spent here.
+    pub(in crate::runner) fn then_origin(&mut self, m: usize) -> CallOrigin {
+        (self.extensions.origins.thens.remove(&m)).unwrap_or_default()
+    }
+
     /// Forget the origins of requests no longer in flight.
     pub(in crate::runner) fn prune_origins(&mut self) {
         let pending = &self.pending;
@@ -232,10 +252,17 @@ impl<D: DataSource> Runner<D> {
         }
         let decision = match self.route(row) {
             Route::Real => return Decision::Forward,
+            // A target's own restriction holds under the agent too (D14 step 2).
+            Route::Agent if self.unsupported_here(row) => {
+                Decision::Now(json!({ "error": "NotSupportedError" }))
+            }
             // No dialog: the implementation opens it as the app's own or fails.
             Route::Agent if self.owned_call(row) => Decision::Forward,
+            // The permission's ticket, a sheet's, or the raise's on the
+            // runner's own status (LLP 1133.018 D13 item 4); else the implementation.
             Route::Agent => (self.decide_permission(row, send, args))
                 .or_else(|| self.decide_choose(row, send))
+                .or_else(|| self.decide_raise(row, send))
                 .unwrap_or(Decision::Forward),
             Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
@@ -391,7 +418,12 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The checks before any decision: why the call is refused, if it is.
-    fn admit(&self, row: &ModulesRow, args: &Json, origin: CallOrigin) -> Result<(), String> {
+    pub(super) fn admit(
+        &self,
+        row: &ModulesRow,
+        args: &Json,
+        origin: CallOrigin,
+    ) -> Result<(), String> {
         let sub = self.substitute(row);
         let lines: Vec<&str> = (self.data.grants().lines())
             .filter_map(|l| l.split_whitespace().next())
@@ -417,7 +449,8 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
             }
-            line @ Json::Array(_) if !granted(line) => {
+            // An empty list needs no line (a picker's, LLP 1133.018 D4).
+            line @ Json::Array(l) if !l.is_empty() && !granted(line) => {
                 return Err(format!("grant-missing ({})", named(line)));
             }
             _ => {}

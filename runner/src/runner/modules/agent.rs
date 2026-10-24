@@ -90,6 +90,16 @@ impl<D: DataSource> Runner<D> {
                 entry["permission"] = state;
             }
         }
+        // Each module event not yet heard (LLP 1133.004 D6).
+        for (extension, event) in self.queued_events() {
+            let entry = out.entry(extension).or_insert_with(
+                || json!({ "bound": false, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            match entry["queued"].as_array_mut() {
+                Some(queued) => queued.push(event),
+                None => entry["queued"] = json!([event]),
+            }
+        }
         // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
         for row in &self.plan.views {
             let extension = self.plan.str(row.extension);

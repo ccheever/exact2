@@ -361,6 +361,7 @@ public final class ExactSession {
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     var pendingLaunchLocations: [String] = []
+    var heldModuleEvents: [String] = [] // module events before first pixel (SessionActivation.swift)
     var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
@@ -1452,8 +1453,6 @@ public final class ExactSession {
         #endif
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
-    /// The scene became active (iOS): the canvases follow.
-    public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
     #if os(iOS) || os(tvOS)
     /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
     /// holds the focus: an app's last responder forwards it here, as macOS's
@@ -1480,6 +1479,7 @@ public final class ExactSession {
         #if os(macOS)
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif
+        endModuleEvents()
         presenter.reset(); viewsEpoch += 1
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()

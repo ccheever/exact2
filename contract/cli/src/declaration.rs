@@ -197,31 +197,68 @@ fn fields(map: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
         .collect()
 }
 
-/// One entry of `names`: a source or a send.
+/// One entry of `names`: a source, a send, or an event (LLP 1133.004 D6).
 fn module(
     entry: &Value,
     package: &str,
     interface: &Value,
     span: Span,
 ) -> Result<ModuleDecl, String> {
-    let (kind, name) = match (entry["source"].as_str(), entry["send"].as_str()) {
-        (Some(name), None) => (ModuleKind::Source, name),
-        (None, Some(name)) => (ModuleKind::Send, name),
-        _ => return Err("each of `names` is a `source` or a `send`".into()),
+    let (kind, name) = match (
+        entry["source"].as_str(),
+        entry["send"].as_str(),
+        entry["event"].as_str(),
+    ) {
+        (Some(name), None, None) => (ModuleKind::Source, name),
+        (None, Some(name), None) => (ModuleKind::Send, name),
+        (None, None, Some(name)) => (ModuleKind::Event, name),
+        _ => return Err("each of `names` is a `source`, a `send` or an `event`".into()),
     };
+    // A send may answer nothing (`"answers": null`), and is then a statement
+    // (LLP 1133.004 D5); a source always answers, and an event never does.
     // An answer typed by an argument (LLP 1133.016 D15 item 4), `{"shape":
     // "<option>", "else": "<Shape>"}`: a call whose literal option names a
     // shape answers that shape, any other `else`.
-    let answers = match &entry["answers"] {
-        Value::Object(by) if by.get("shape").is_some_and(Value::is_string) => by["else"].as_str(),
-        other => other.as_str(),
-    }
-    .ok_or_else(|| format!("`{name}` names what it `answers`"))?;
-    let request = match &entry["request"] {
-        Value::Bool(true) => "always",
-        Value::String(s) if s == "when-prompt" => "when-prompt",
-        Value::Null | Value::Bool(false) => "never",
-        other => return Err(format!("`{name}`'s `request` is `{other}`")),
+    let written = match &entry["answers"] {
+        Value::Object(by) if by.get("shape").is_some_and(Value::is_string) => {
+            by.get("else").cloned().unwrap_or(Value::Null)
+        }
+        other => other.clone(),
+    };
+    let answers = match (&written, kind) {
+        (Value::String(t), ModuleKind::Source | ModuleKind::Send) => Some(type_expr(t, span)?),
+        (Value::Null, ModuleKind::Send) if entry.get("answers").is_some() => None,
+        (Value::Null, ModuleKind::Event) => None,
+        (_, ModuleKind::Event) => return Err(format!("the event `{name}` answers nothing")),
+        _ => {
+            return Err(format!(
+                "`{name}` names what it `answers`, or `null` for a send that answers nothing"
+            ))
+        }
+    };
+    // Per name, how the interface's permission admits it (LLP 1133.004 §7):
+    // `asks` holds a request while `prompt` and refuses while `denied`;
+    // `request` asks while `prompt` and answers the status in every state;
+    // `none` is never held or refused. Without it, `request` says. Where
+    // the interface declares several permissions, a name's `permission`
+    // names the one it asks instead (`permission_of`).
+    let admission = match &entry["permission"] {
+        Value::Null => None,
+        Value::String(s) if matches!(s.as_str(), "asks" | "request" | "none") => Some(s.as_str()),
+        _ if interface["permission"].is_array() => None,
+        other => {
+            return Err(format!(
+                "`{name}`'s `permission` is `asks`, `request` or `none`, not `{other}`"
+            ))
+        }
+    };
+    let request = match (&entry["request"], admission) {
+        (_, Some("asks" | "request")) => "always",
+        (_, Some(_)) => "never",
+        (Value::Bool(true), None) => "always",
+        (Value::String(s), None) if s == "when-prompt" => "when-prompt",
+        (Value::Null | Value::Bool(false), None) => "never",
+        (other, None) => return Err(format!("`{name}`'s `request` is `{other}`")),
     };
     // A WebAuthn dictionary passed whole (`json<T>`, LLP 1133.011 D10) is a
     // string to Contract, which may not call a name that takes or answers one.
@@ -242,6 +279,49 @@ fn module(
             "`{name}` takes or answers a `json<…>`, which only a name for data code alone (`\"contract\": false`) may"
         ));
     }
+    let (raised, hold) = if kind == ModuleKind::Event {
+        let raised = match entry["raised"].as_str() {
+            Some(r @ ("activation" | "emit")) => r,
+            _ => {
+                return Err(format!(
+                    "the event `{name}` is `raised` by `activation` or `emit`"
+                ))
+            }
+        };
+        if entry["on"] != "root" {
+            return Err(format!(
+                "the event `{name}` is heard `on` `root`, the one place every app has"
+            ));
+        }
+        let hold = entry["hold"]
+            .as_u64()
+            .filter(|h| (1..=256).contains(h))
+            .ok_or_else(|| format!("the event `{name}` `hold`s from 1 to 256 deliveries"))?;
+        (raised.to_owned(), hold as u32)
+    } else {
+        (String::new(), 0)
+    };
+    let args = (entry["args"].as_array().into_iter().flatten())
+        .map(|a| {
+            a.as_str()
+                .ok_or_else(|| format!("`{name}`'s `args` are types"))
+                .and_then(|t| type_expr(t, span))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut substitute = substitute(entry, interface)?;
+    let effect = kind == ModuleKind::Send && answers.is_none();
+    if admission.is_some() || effect {
+        let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
+        if let Some(admission) = admission {
+            json["admission"] = admission.into();
+        }
+        // A send that answers nothing (LLP 1133.004 D5), which the runner
+        // runs once its commit stands; a send answering `unit` still answers.
+        if effect {
+            json["effect"] = true.into();
+        }
+        substitute = json.to_string();
+    }
     Ok(ModuleDecl {
         name: name.to_owned(),
         declared: name.to_owned(),
@@ -250,12 +330,16 @@ fn module(
         kind,
         options: fields(object(&entry["options"]), span)?,
         words: Vec::new(),
-        answers: type_expr(answers, span)?,
+        answers,
+        args,
+        raised,
+        hold,
+        handler: None,
         live: entry["live"] == true,
         request: request.to_owned(),
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
         data_only,
-        substitute: substitute(entry, interface)?,
+        substitute,
         span,
     })
 }
@@ -307,13 +391,22 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             return Err("an interface's `agent` names each word's type".into());
         }
     }
-    // A send that shows the person a choice (`choose`, LLP 1133.019 §10):
-    // its ticket's answer is the agent word it names.
+    // A send that shows the person a choice (`choose`, LLP 1133.019 §10;
+    // a sheet, LLP 1133.018 D13 item 4): its ticket, the agent word its
+    // typed answer sets if it names one, its taps besides `cancel`, whether
+    // it takes a typed answer, and the option that lets it take several ids.
     if let Some(choose) = out.get("choose") {
-        let word = choose["word"].as_str().unwrap_or_default();
-        if !choose["ticket"].is_string() || interface["agent"][word].is_null() {
+        let word_ok = choose["word"].is_null()
+            || (choose["word"].as_str()).is_some_and(|w| !interface["agent"][w].is_null());
+        let choices_ok = choose["choices"].is_null()
+            || (choose["choices"].as_array())
+                .is_some_and(|c| c.iter().all(|c| c.is_string() && c != "cancel"));
+        let many_ok = choose["many"].is_null()
+            || (choose["many"].as_str()).is_some_and(|o| !object(&entry["options"])[o].is_null());
+        let typed_ok = choose["typed"].is_null() || choose["typed"].is_boolean();
+        if !choose["ticket"].is_string() || !word_ok || !choices_ok || !many_ok || !typed_ok {
             return Err(format!(
-                "`{name}`'s `choose` names its ticket and one of the interface's `agent` words"
+                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, and the option that allows `many`"
             ));
         }
     }
@@ -484,6 +577,18 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             )?,
             // A send made inside the press that asks it (D12 item 5).
             "gesture" => check(value.is_boolean(), "`gesture` is true or false")?,
+            // The grant lines a request is satisfied by, narrowest first: a
+            // permission decision grants the first the app declares (LLP
+            // 1133.018 D13 item 3).
+            "asks" => check(
+                (value.as_array())
+                    .is_some_and(|l| !l.is_empty() && l.iter().all(Value::is_string)),
+                "`asks` lists the grant lines that satisfy it, narrowest first",
+            )?,
+            // A module name that writes the person's store under its line,
+            // which derives the line's write permission where a platform
+            // splits it (Android's `WRITE_CALENDAR`, D11).
+            "writes" => check(value.is_boolean(), "`writes` is true or false")?,
             // A read of the app's own item, let through under another grant
             // line on the targets named (LLP 1133.019 D11 item 4).
             "owned" => check(

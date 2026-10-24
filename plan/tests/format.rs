@@ -986,15 +986,16 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// The `views` table joins the plan (LLP 1133.008 D8 items 1 and 2), and
-/// `currententrychange`, `navigatesuccess` and `navigateerror` the event
-/// kinds (LLP 1020.002 D2). Every host needs a new binary for this plan format.
-/// The format digest is pinned: a change to `tables/format.json`, a comment
-/// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
+/// The `module_events` table joins the plan (LLP 1133.004 D6): a native
+/// module's event the root hears; and `currententrychange`,
+/// `navigatesuccess` and `navigateerror` the event kinds (LLP 1020.002 D2).
+/// Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
+/// comment included, moves it, and every host then needs a new binary (LLP
+/// 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x591e_0b51_ea63_4aa8,
+        FORMAT_DIGEST, 0x9d9e_188e_7969_b752,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

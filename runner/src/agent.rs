@@ -273,6 +273,10 @@ pub fn answer<D: DataSource>(
         s.push('}');
         return Some((s, None));
     }
+    // A module's listed entry: `tap @ref`, or a relaunch's launch flag (LLP 1133.004 §7).
+    if let Some(reply) = runner.listed_op(&op, request) {
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
     if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
         return None;
     }
@@ -891,15 +895,9 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
-    // Notifications posted under the agent, where none reaches the system.
-    s.push_str(",\"notifications\":[");
-    for (i, n) in runner.notifications().iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        n.summary(&mut s);
-    }
-    s.push(']');
+    crate::notify::state(runner, &mut s);
+    // What a module's declared substitute keeps (LLP 1133.004 §7).
+    runner.declared_state_json(&mut s);
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
     transport::state(runner, request, &mut s);

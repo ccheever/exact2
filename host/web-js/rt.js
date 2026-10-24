@@ -154,7 +154,7 @@ export const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
 /** A host command inside an action: run after the commit. */
-export function C(name, args) { Commands.push([name, args]); Rev++; }
+export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "app" }; // who caused the commit (modules.js, LLP 1133.002 D12), taken as a command is queued, so a deferred tail runs it under its own commit's origin
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
 /** A topic its resource watched changed while ticket `t` was in flight (`t.again`, ts-data.js `changed`, LLP 1016.002 D4): its reply landed or failed, so the resource is asked again. */
@@ -270,11 +270,11 @@ export const Hosts = {
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess"]), gate: null, stood: null, seq: null, midi: null, midiApply: null, beatAt: null }; // The voice table's and the MIDI queue's commands (LLP 1096 D5, LLP 1125 D7): the runtime's own, never a host's; sounds.js and midi.js apply a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2).
-function command(name, args) {
+function command(name, args, origin) {
   const f = Hosts[name];
   say(`command ${name}`);
   if (Sounds.own.has(name)) return;
-  if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
+  if (f) f.origin ? f(origin, ...args) : f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };

@@ -6,6 +6,10 @@
 
 mod backdrop;
 mod canvas;
+mod geometry;
+pub use geometry::rounded_rect;
+#[cfg(test)]
+mod geometry_tests;
 mod mask;
 mod reach;
 #[cfg(target_arch = "x86_64")]
@@ -394,20 +398,6 @@ fn tiny_path(ops: &[PathOp]) -> Option<Path> {
         }
     }
     b.finish()
-}
-
-/// A shape as a path: a rectangle, or rounded corners as cubic arcs.
-pub fn rounded_rect(shape: &Shape) -> Option<Path> {
-    let (x, y, w, h) = shape.rect;
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    if !shape.rounded() {
-        return Some(PathBuilder::from_rect(Rect::from_xywh(x, y, w, h)?));
-    }
-    let mut ops = Vec::new();
-    crate::paint::border::shape_path(&mut ops, shape);
-    tiny_path(&ops)
 }
 
 /// The largest frame side, in device pixels, either painter draws.
@@ -799,6 +789,7 @@ impl Backend for Raster {
     }
 
     fn fill_gradient(&mut self, shape: &Shape, gradient: &GradientPaint, ts: Transform) {
+        let dev = self.device(ts);
         let Some(path) = rounded_rect(shape) else {
             return;
         };
@@ -849,7 +840,6 @@ impl Backend for Raster {
             anti_alias: true,
             ..Paint::default()
         };
-        let dev = self.device(ts);
         let mask = self.active_clip().cloned();
         if let Some(t) = self.target.path_pixels(&path, dev) {
             t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
@@ -857,10 +847,10 @@ impl Backend for Raster {
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let dev = self.device(ts);
         let Some(region) = tiny_path(&part.region) else {
             return;
         };
-        let dev = self.device(ts);
         let parent = self.active_clip().cloned();
         // A clipped part: its quadrilaterals as a mask, under whatever clip
         // is already in force. Only rounded multicolour borders have one.

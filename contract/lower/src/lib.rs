@@ -565,8 +565,9 @@ fn lower_body(
     // A used module's other names are there too, unread: its substitute reads
     // them (its status, the source a send answers from).
     let mut sources = root_types.sources.clone();
+    // An event the root hears uses its module too (LLP 1133.004 D6).
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name))
+        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some())
         .map(|m| m.extension.as_str())
         .collect();
     // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
@@ -590,17 +591,20 @@ fn lower_body(
             _ => {}
         }
     }
-    for m in file
-        .modules
-        .iter()
-        .filter(|m| used.contains(&m.extension.as_str()))
-    {
+    for m in file.modules.iter().filter(|m| {
+        used.contains(&m.extension.as_str()) && m.kind != contract_syntax::ModuleKind::Event
+    }) {
         let options = format!("{}__options", m.name);
         let params = match l.types.shapes.map.contains_key(&options) {
             true => vec![Ty::Record(options)],
             false => Vec::new(),
         };
-        if let Ok(ty) = l.types.shapes.resolve(&m.answers) {
+        // A send that answers nothing answers `unit` (LLP 1133.004 D5).
+        let answers = match &m.answers {
+            Some(a) => l.types.shapes.resolve(a),
+            None => Ok(Ty::Unit),
+        };
+        if let Ok(ty) = answers {
             sources.entry(m.name.clone()).or_insert((params, ty));
         }
     }
@@ -753,6 +757,14 @@ fn lower_body(
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
+    }
+    // Each module event the root hears, and the action it runs (LLP 1133.004 D6).
+    for m in &file.modules {
+        let Some(name) = &m.handler else { continue };
+        let Some(i) = root.actions.iter().position(|a| &a.name == name) else {
+            continue;
+        };
+        l.b.module_event(&m.extension, &m.declared, l.actions[i], &m.raised, m.hold);
     }
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;

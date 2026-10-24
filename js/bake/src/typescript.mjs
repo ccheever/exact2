@@ -1061,14 +1061,55 @@ function rustSources(app) {
   return walk(join(app,'data','src')).join('\n');
 }
 
+/** The app's own source text that can name an interface: `app.ts`, and every
+ * `.contract` file in the app's tree, since a root `app.contract` may import
+ * the components that use one from a subdirectory. */
+function appText(app) {
+  const contracts=(d)=>{ try { return readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory() ? (/^(\.|node_modules$|target$)/.test(e.name) ? [] : contracts(join(d,e.name))) : e.name.endsWith('.contract') ? [join(d,e.name)] : []); } catch { return []; } };
+  return [join(app,'app.ts'),...contracts(app)].map(f=>{ try { return readFileSync(f,'utf8'); } catch { return ''; } }).join('\n');
+}
+
+/** The packages the app imports, wherever it imports them (LLP 1133.004
+ * stage 0, LLP 1133 D6 rule 6): every Contract file `app.contract` reaches
+ * through relative `use … from "./…"`, and every TypeScript file `app.ts`
+ * reaches through relative imports, each bare specifier taken to its
+ * package's name. `text` is those files' text, where a literal option a
+ * build reads (an Info.plist key) is found. */
+export function usedPackages(app) {
+  const names=new Set(), seen=new Set(), texts=[];
+  const packageName=(spec)=>{ const parts=spec.split('/'); return spec.startsWith('@') ? parts.slice(0,2).join('/') : parts[0]; };
+  // A TypeScript import may name the emitted file (`./x.js` for `./x.ts`).
+  const tsFile=(base)=>[...['', '.ts', '.tsx', '.mts', '.js', '.mjs', '/index.ts', '/index.js'].map(e=>base+e), base.replace(/\.m?js$/,'.ts'), base.replace(/\.m?js$/,'.tsx')].find(f=>{ try { return statSync(f).isFile(); } catch { return false; } });
+  const visit=(file, contract)=>{
+    if (!file || seen.has(file) || file.split(sep).includes('node_modules')) return;
+    seen.add(file);
+    let text='';
+    try { text=readFileSync(file,'utf8'); } catch { return; }
+    texts.push(text);
+    // Comments name nothing, and a type-only import links nothing.
+    const code=text.replace(/\/\*[\s\S]*?\*\//g,'').replace(/(^|[^:'"\\])\/\/.*$/gm,'$1');
+    const specs=contract
+      ? [...code.matchAll(/^\s*use\b[^\n]*?\bfrom\s+"([^"]+)"/gm)].map(m=>m[1])
+      : [...code.matchAll(/\b(import|export)(\s+type\b)?[^'";]*?\bfrom\s*(['"])([^'"\n]+)\3|\bimport\s*\(?\s*(['"])([^'"\n]+)\5/g)]
+          .filter(m=>!m[2]).map(m=>m[4] ?? m[6]);
+    for (const spec of specs) {
+      if (spec.startsWith('.')) visit(contract ? resolve(dirname(file),spec) : tsFile(resolve(dirname(file),spec)), contract);
+      else if (!spec.startsWith('exact:') && !spec.startsWith('node:')) names.add(packageName(spec));
+    }
+  };
+  visit(join(app,'app.contract'), true);
+  visit(tsFile(join(app,'app')), false);
+  return { names, text: texts.join('\n') };
+}
+
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
  * its class, its source files, and the system frameworks it needs from an OS
  * version (`frameworks`, LLP 1133.016 D15). */
 export function appleImplementations(app, target) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
+  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+  return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,target);
     const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
     if (!impl || !files?.length || !impl.json.class) return [];
@@ -1085,6 +1126,7 @@ export function appleImplementations(app, target) {
     }).filter(p=>p.keys.length);
     // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
     const authenticator=!!i.declaration?.authenticator?.apple;
+    const events=(i.declaration.names ?? []).some(n=>n.event);
     return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,frameworks:impl.json.frameworks??{}}];
   });
 }
@@ -1105,8 +1147,8 @@ function usesInterface(i, named) {
  * its class, its source directories, which join the APK's Kotlin, and the Maven coordinates it names, which join the
  * one locked Gradle graph (LLP 1133.008 D8 item 5). */
 export function androidImplementations(app) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>usesInterface(i,named)).flatMap(i=>{
+  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+  return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
     return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : []}];
@@ -1190,6 +1232,8 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
   const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
   const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
   for (const entry of declaration.names ?? []) {
+    // An event is the root's to hear, never data code's (LLP 1133.004 §11).
+    if (entry.event) continue;
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
     const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
     for (const i of implementations) {
@@ -1201,8 +1245,10 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
     const answers=entry.answers && typeof entry.answers==='object' ? entry.answers.else : entry.answers;
     const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
     const verb=entry.source ? 'source' : 'send';
-    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(answers)}> {`,
-      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');
+    // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
+    const promised=entry.answers===null ? 'void' : moduleType(answers);
+    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${promised}> {`,
+      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options })${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
     // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
     if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
       `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
@@ -1211,14 +1257,14 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
     'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
     '  const via = (globalThis as any).__exact_module;',
     '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
-    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw new Error(t || "the module did not answer"); }));',
+    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw failed(t || "the module did not answer", "UnknownError"); }));',
     '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
     '}',
     'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
     '  const now = (globalThis as any).__exact_module_sync;',
     '  let v: any;',
     '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
-    '  catch (e: any) { throw Object.assign(new Error(`${body.extension}.${body.sync}: NotSupportedError (${e?.message ?? e})`), { code: "NotSupportedError" }); }',
+    '  catch (e: any) { throw failed(`${body.extension}.${body.sync}: ${e?.message ?? e}`, "NotSupportedError"); }',
     '  return answered(v, `${body.extension}.${body.sync}`);',
     '}',
     // A module's error (LLP 1133.006 D8 item 2): a `DOMException` of its name where the runtime has one, else an
@@ -1234,6 +1280,10 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
     '    throw e;',
     '  }',
     '  return v;',
+    '}',
+    'function failed(message: string, name: string): Error {',
+    '  const D = (globalThis as any).DOMException;',
+    '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
     '}', '');
   // The web's objects (LLP 1133.011 D10 item 3): each group's members, a declared name or a source's field.
   for (const [group,members] of Object.entries(declaration.groups ?? {})) {

@@ -34,6 +34,8 @@
     "@exact/speech-synthesis": "workspace:*",
     "@exact/scale-fixture-notes": "workspace:*",
     "@exact/reading": "workspace:*",
-    "@exact/passkeys": "workspace:*"
+    "@exact/passkeys": "workspace:*",
+    "@exact/contacts": "workspace:*",
+    "@exact/calendar": "workspace:*"
   }
 }

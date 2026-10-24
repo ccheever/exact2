@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/bell",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A module outside exact2's tree that proves the seam LLP 1133.004 stage 0 adds: a send that answers nothing, an activation event and an emitted one, and the declared list, value and admission forms of the agent's substitute.",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}
