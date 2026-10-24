@@ -23,8 +23,8 @@ final class InvokerButtonIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    /// A page (1) holding an invoker (2) of a menu (6), the invoker holding `children`.
-    private func page(_ children: [[String: Any]], ids: [Int], rootHandlers: [String] = []) -> Presenter {
+    /// A page (1) holding an invoker (2) of a popover (6) with `role`, the invoker holding `children`.
+    private func page(_ children: [[String: Any]], ids: [Int], rootHandlers: [String] = [], role: String = "menu") -> Presenter {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
@@ -34,7 +34,7 @@ final class InvokerButtonIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "handlers": rootHandlers],
             ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "menu"]],
-            ["op": "create", "id": 6, "kind": "view", "props": ["id": "menu", "popover": "auto", "role": "menu"]],
+            ["op": "create", "id": 6, "kind": "view", "props": ["id": "menu", "popover": "auto", "accessibilityRole": role]],
             ["op": "create", "id": 7, "kind": "button", "props": ["text": "Row"], "handlers": ["press"]],
             ["op": "children", "id": 6, "ids": [7]],
         ] + children + [
@@ -56,6 +56,34 @@ final class InvokerButtonIOSTests: XCTestCase {
     private func hit(_ p: Presenter, x: CGFloat) throws -> UIView? {
         let invoker = try XCTUnwrap(p.views[2])
         return window?.hitTest(invoker.convert(CGPoint(x: x, y: 22), to: nil), with: nil)
+    }
+
+    func testAPanCancelsAConfirmationInvokerButKeepsPrimaryMenuTracking() throws {
+        let scroll = ScrollView()
+        let confirmationPage = page([], ids: [], role: "alertdialog")
+        let confirmation = try overlay(confirmationPage)
+        XCTAssertTrue(type(of: confirmation) == InvokerButton.self, "the initial confirmation uses the ordinary wrapper")
+        XCTAssertFalse(confirmation.showsMenuAsPrimaryAction)
+        XCTAssertTrue(scroll.touchesShouldCancel(in: confirmation), "a pan cancels a fresh confirmation button")
+
+        let invoker = try XCTUnwrap(confirmationPage.views[2])
+        confirmation.isHighlighted = true
+        XCTAssertTrue(invoker.pressed)
+        confirmation.touchesCancelled([], with: nil)
+        XCTAssertFalse(invoker.pressed, "cancellation releases the invoker's press look")
+        window?.isHidden = true
+
+        let p = page([], ids: [])
+        let menu = try overlay(p)
+        XCTAssertTrue(menu.showsMenuAsPrimaryAction)
+        XCTAssertFalse(scroll.touchesShouldCancel(in: menu), "a touch-down menu keeps UIKit's tracking")
+
+        p.apply(wireBatch([["op": "props", "id": 6, "set": ["accessibilityRole": "alertdialog"]]]))
+        let retargeted = try overlay(p)
+        XCTAssertFalse(retargeted.showsMenuAsPrimaryAction)
+        XCTAssertTrue(scroll.touchesShouldCancel(in: retargeted), "a reused menu wrapper follows its current primary action")
+        XCTAssertFalse(scroll.touchesShouldCancel(in: UISlider()))
+        XCTAssertFalse(scroll.touchesShouldCancel(in: UITextField()))
     }
 
     func testAFlatLeafOverAnInteractiveChildKeepsTheMenu() throws {
