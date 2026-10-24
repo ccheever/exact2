@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63 and 64 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64 and 65 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -2063,3 +2063,38 @@ already measured 60×60 before Patch 64; it remains an owed case in `QUEUE.md`.
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
 Exact worktree does not attach this excluded path dependency to the enclosing
 checkout. This is an Exact integration patch to retain when updating.
+
+## Patch 65: measure stretched items at a ratio row's definite height
+
+A single-line flex row with a ratio-derived automatic height measures a
+stretched auto-height item at that definite cross size, clamped by the item's
+authored height bounds and padding/border floor. Its overflowing descendants
+no longer inflate the row's content-based height minimum. Wrapping rows,
+non-stretched items, auto cross margins and explicit item heights keep their
+content measurement. The row's automatic height remains a floor that those
+items can exceed; columns, block and grid retain their content minima.
+
+This follows [Flexbox §9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)
+and Chrome 151's
+[`BuildSpaceForLayout`](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc#702),
+which applies definite stretch during measurement as well as final layout.
+Rows with a supplied outer height retain their existing intrinsic measurement:
+that measurement does not determine the container's height.
+
+The root solver transfers its filled width only when the width was automatic.
+Transferring an explicit width twice had mistaken its derived height minimum
+for an authored minimum and fixed the height. Explicit-width roots now retain
+the same content-based floor as automatic-width roots.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`
+and `ratio_roots_in_a_definite_offer_match_chrome`: 29 literal
+`Chrome 151 ratio root overflow` cases measured in Chrome 151.0.7922.34 on
+2026-10-24, in a 50px block and as direct roots offered 50×600 and 50×1000.
+The ten existing `ratio definite cross` cases were remeasured in both offers.
+Before the fix, the auto-width flex root and its ratio item were 50×70;
+both are now Chrome's 50×50, with the 10×70 child overflowing. The same defect
+without the item's ratio is covered. An explicit-width wrapping root was
+50×50 instead of Chrome's 50×70. Controls cover block, grid, columns,
+wrapping, explicit widths and heights, alignment overrides, auto margins,
+item minima, hidden overflow, padding and borders under both box-sizing modes.
+The grid control matches Chrome at 50×70 with a 70×70 item.
