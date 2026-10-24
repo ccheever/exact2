@@ -38,9 +38,17 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
     /// The app's access hatch (D5): the capture's engine, once per capture,
     /// before `start()`.
     public static var hatch: ((AVAudioEngine) -> Void)?
+    /// The camera's capture session, inside each configuration, on its queue
+    /// (LLP 1133.008 D5): add outputs, never touch UI.
+    public static var sessionHatch: ((AVCaptureSession) -> Void)?
+    /// The camera after the module's constraints, under its lock, on the
+    /// session's queue (LLP 1133.008 D5).
+    public static var deviceHatch: ((AVCaptureDevice) -> Void)?
 
     private let context: ExactPackageContext
     private var next = 0
+    /// The cameras (VideoCapture.swift, LLP 1133.008).
+    private lazy var cameras = VideoTracks(context: context) { [unowned self] in next += 1; return next }
     private var tracks: [String: Track] = [:]
     /// The agent's preferred `mediaStreamTrack`: an interruption begun while it says muted.
     private var overlay: String?
@@ -67,8 +75,17 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
     // MARK: the names
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
+        let trackId = args["track"] as? String
         switch name {
+        case "getUserMedia" where args["video"] as? Bool == true || args["videoConstraints"] is [String: Any]:
+            withCamera(args, reply)
         case "getUserMedia": getUserMedia(args, reply)
+        case "applyConstraints" where cameras.owns(trackId): cameras.applyConstraints(args, origin: context.origin, reply: reply)
+        case "applyConstraints": reply(["error": tracks[trackId ?? ""] == nil ? "NotFoundError" : "NotSupportedError"])
+        case "cameraStatus": reply(cameras.status)
+        case "stopTrack" where cameras.owns(trackId): reply(cameras.stop(trackId!))
+        case "setTrackEnabled" where cameras.owns(trackId): reply(cameras.setEnabled(trackId!, args["enabled"] as? Bool ?? true, origin: context.origin))
+        case "mediaStreamTrack" where cameras.owns(trackId): reply(cameras.state(trackId!))
         case "stopTrack":
             guard let t = track(args) else { return reply(["error": "NotFoundError"]) }
             end(t, "stopTrack")
@@ -81,14 +98,43 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
             announce()
             reply(shape(t))
         case "mediaStreamTrack": reply(track(args).map(shape) ?? ["error": "NotFoundError"])
-        case "enumerateDevices": reply(devices())
+        case "enumerateDevices":
+            let microphones = devices()["devices"] as? [[String: Any]] ?? []
+            reply(["devices": microphones + cameras.devices])
         case "microphoneStatus": reply(status())
         default: reply(["error": "NotSupportedError"])
         }
     }
 
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
-        name == "microphoneStatusSync" ? status() : ["error": "NotSupportedError"]
+        switch name {
+        case "microphoneStatusSync": status()
+        case "cameraStatusSync": cameras.status
+        default: ["error": "NotSupportedError"]
+        }
+    }
+
+    /// A stream with a camera's track, and the microphone's first where it asks for both (LLP 1133.008 D1).
+    private func withCamera(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
+        next += 1
+        let stream = "stream-\(context.session)-\(next)"
+        let video = { [self] (made: [[String: Any]]) in
+            cameras.open(args, stream: stream) { [self] v in
+                // What opened first is let go when the camera fails (LLP 1133.009 D3).
+                if v["error"] != nil {
+                    for m in made { if let id = m["id"] as? String, let t = tracks[id] { end(t, "the camera failed") } }
+                    return reply(v)
+                }
+                let all = made + [v]
+                context.tracks.add(ExactTrackEntry(id: stream, kind: "stream", tracks: all.compactMap { $0["id"] as? String }))
+                reply(["id": stream, "active": true, "tracks": all])
+            }
+        }
+        guard args["audio"] as? Bool == true || args["audioConstraints"] != nil else { return video([]) }
+        getUserMedia(args) { a in
+            guard a["error"] == nil else { return reply(a) }
+            video(a["tracks"] as? [[String: Any]] ?? [])
+        }
     }
 
     private func track(_ args: [String: Any]) -> Track? { (args["track"] as? String).flatMap { tracks[$0] } }
@@ -228,7 +274,8 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
     /// The app left the foreground or came back (D8): without the background
     /// mode on iOS a capture's tracks mute, `background`, and its lease goes.
     public func foreground(_ shown: Bool) {
-        if shown { context.changed("media-capture.microphoneStatus") }
+        cameras.foreground(shown)
+        if shown { context.changed("media-capture.microphoneStatus"); context.changed("media-capture.cameraStatus") }
         #if os(iOS)
         guard !context.agent, !Permission.recordsInBackground else { return }
         for t in tracks.values where t.readyState == "live" && t.active {
@@ -252,6 +299,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
             t.platformMute = overlay
             if t.active { settle(t) }
         }
+        cameras.preferred(value)
     }
 
     /// Handles a dropped reply carried: the stream's tracks end (D6).
@@ -259,11 +307,13 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         for id in ids {
             if let t = tracks[id] { end(t, "disposed") }
             for t in tracks.values where t.stream == id { end(t, "disposed") }
+            cameras.dispose(id)
         }
     }
 
     public func destroy(_ done: @escaping () -> Void) {
         for t in tracks.values { end(t, "the session ended") }
+        cameras.endAll("the session ended")
         ProcessCapture.shared.forget(self)
         done()
     }

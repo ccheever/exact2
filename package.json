@@ -23,6 +23,8 @@
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
     "@exact/local-auth": "workspace:*",
+    "@exact/camera": "workspace:*",
+    "@exact/media-capture": "workspace:*",
     "@exact/scale-fixture-notes": "workspace:*",
     "@exact/reading": "workspace:*"
   }

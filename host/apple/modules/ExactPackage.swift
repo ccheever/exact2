@@ -7,7 +7,7 @@
 // reachable from here.
 //
 // Every entry is on the main thread (LLP 1067.000 D4).
-import AVFAudio
+import AVFoundation
 import Foundation
 import Security
 #if os(macOS)
@@ -205,6 +205,12 @@ public final class ExactSubscription {
 public final class ExactTrackEntry {
     public let id: String, kind: String, tracks: [String]
     public weak var owner: ExactTrackOwner?
+    /// A track's state as `mediaStreamTrack` answers it (`muted`,
+    /// `readyState`, `settings`, …), for a package that consumes it.
+    public var state: (() -> [String: Any])?
+    /// A video track's running capture, while its lease is held (LLP
+    /// 1133.008 D3, D8 item 3); nil otherwise and under the agent.
+    public var video: (() -> ExactVideoSource?)?
     public init(id: String, kind: String, tracks: [String] = [], owner: ExactTrackOwner? = nil) {
         self.id = id; self.kind = kind; self.tracks = tracks; self.owner = owner
     }
@@ -222,11 +228,45 @@ public protocol ExactTrackOwner: AnyObject {
 public protocol ExactTrackConsumer: AnyObject {
     /// The capture runs: its source, or nil under the agent (no device).
     func live(_ source: ExactAudioSource?)
+    /// A video track's capture runs: its source, or nil under the agent.
+    func live(video source: ExactVideoSource?)
     /// The track is muted: `idle`, `interrupted`, `background`, `silenced`, …
     func muted(_ reason: String)
     func unmuted()
     /// The track ended; nothing more follows.
     func ended()
+}
+
+public extension ExactTrackConsumer {
+    func live(_ source: ExactAudioSource?) {}
+    func live(video source: ExactVideoSource?) {}
+}
+
+/// A running camera capture (LLP 1133.008 D3, D8 item 3): the platform's
+/// capture graph, which a consumer attaches outputs to rather than reading
+/// frames. A video track's consumer is told `live(video:)` instead of
+/// `live(_:)`, with nil under the agent.
+public protocol ExactVideoSource: AnyObject {
+    /// The capture session. A preview layer is attached to it on the main
+    /// thread; inputs and outputs only inside `configure`.
+    var session: AVCaptureSession { get }
+    /// The camera it captures from.
+    var device: AVCaptureDevice { get }
+    /// Run `change` on the session's queue between `beginConfiguration()`
+    /// and `commitConfiguration()`: add or remove inputs and outputs only.
+    /// Never waited for from the main thread.
+    func configure(_ change: @escaping (AVCaptureSession) -> Void)
+    /// Run `work` on the session's queue, after every configuration asked
+    /// before it: a capture from an output it added.
+    func run(_ work: @escaping (AVCaptureSession) -> Void)
+    /// A package's process object for this capture, made by `make` on first
+    /// ask and kept while the capture lives (the camera's photo output).
+    func shared<T: AnyObject>(_ key: String, _ make: () -> T) -> T
+    /// Constraints that keep the camera (`zoom`, `torch`), applied to the
+    /// device and reported by the tracks on it, as `applyConstraints` would.
+    func apply(_ constraints: [String: Any])
+    /// Focus and expose at `point`, in the device's unit square.
+    func focus(at point: CGPoint)
 }
 
 /// A running audio capture, which a consumer taps.

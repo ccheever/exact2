@@ -1,0 +1,20 @@
+{
+  "name": "@exact/camera",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The camera: a viewfinder and Image Capture's photo, over @exact/media-capture's video tracks (LLP 1133.008).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  },
+  "peerDependencies": {
+    "@exact/media-capture": "1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@exact/media-capture": {
+      "optional": true
+    }
+  }
+}

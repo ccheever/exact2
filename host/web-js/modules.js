@@ -53,8 +53,18 @@ export function modules(rows, bound = {}, views = {}) {
   // The web's own facts over a source's (`web`: local authentication's `later` cell, LLP 1133.010 D15).
   const valueOf = row => row.sub.web ? { ...(prefers(row) ?? row.sub.default ?? {}), ...row.sub.web } : prefers(row) ?? row.sub.default;
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
-  const decidePermission = (row, send) => {
-    const p = row.sub.permission;
+  // The permission a call asks: its declared one, or, where the interface declares several and the name's grants
+  // are a line per argument (`permissionBy`), the one of the arguments it was given that settles the call now: a
+  // denied one, else one still to ask, else the first (LLP 1133.008 D6, LLP 1133.009 D3), as the runner's `admit.rs`.
+  const permissionOf = (row, args) => {
+    const by = row.sub.permissionBy;
+    if (!by) return row.sub.permission;
+    const given = Object.entries(by).filter(([a]) => args?.[a] != null && args[a] !== false).map(([, p]) => p);
+    return given.find(p => stateOf(p.name) === "denied") ?? given.find(p => stateOf(p.name) === "prompt") ?? given[0] ?? row.sub.permission;
+  };
+  const permissionsOf = row => [row.sub.permission, ...Object.values(row.sub.permissionBy ?? {})].filter(Boolean);
+  const permissionNamed = (row, name) => permissionsOf(row).find(p => p.name === name);
+  const decidePermission = (row, send, p = row.sub.permission) => {
     if (!p) return null;
     const state = stateOf(p.name);
     if (!send && isStatus(row)) return { now: { ...(valueOf(row) ?? {}), [p.field]: row.sub.web?.[p.field] ?? state } };
@@ -91,10 +101,11 @@ export function modules(rows, bound = {}, views = {}) {
   const supersede = (row, name) => {
     for (const h of held.filter(h => h.name === name)) { retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${row.key}: superseded`)); }
   };
-  const hold = (row, waits, name, json = false, timeout = null, forward = null) => {
+  // `args` choose the permission the call waits on (`permissionOf`), kept by name.
+  const hold = (row, waits, name, json = false, timeout = null, forward = null, args = {}) => {
     supersede(row, name);
     return new Promise((resolve, reject) => {
-      const h = { ticket: nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
+      const h = { ticket: nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, args, permission: permissionOf(row, args)?.name, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
       held.push(h);
       say(`device ${capability(h)} ${h.ticket} held (agent)`);
     });
@@ -255,12 +266,13 @@ export function modules(rows, bound = {}, views = {}) {
     if (why) { say(`${row.key}: refused, ${why}`); return { now: { error: "NotAllowedError" } }; }
     const r = route(row);
     if (r === "real") return { forward: true };
-    let d = r === "agent" ? decidePermission(row, send) ?? { forward: true } : decideTimed(row, send, timeout);
+    const p = permissionOf(row, args);
+    let d = r === "agent" ? decidePermission(row, send, p) ?? { forward: true } : decideTimed(row, send, timeout);
     // A name whose grants are per argument asks permission only for an argument it was given (LLP 1133.009 D3).
     const g = row.sub.nameGrants, asks = !g || Array.isArray(g) || Object.keys(g).some(a => args?.[a] != null && args[a] !== false);
     if (d.hold === "permission" && !asks) d = r === "agent" ? { forward: true } : { now: { error: "TypeError" } };
     // Only a person answers a prompt (D12).
-    if (d.hold === "permission" && origin !== "app") { say(`${row.key}: refused, person-required (${origin} origin)`); return { now: { error: row.sub.permission.denied } }; }
+    if (d.hold === "permission" && origin !== "app") { say(`${row.key}: refused, person-required (${origin} origin)`); return { now: { error: p.denied } }; }
     return d;
   };
   // The last reader of a live source gone, its acquisition stops (D5).
@@ -295,7 +307,7 @@ export function modules(rows, bound = {}, views = {}) {
       const reader = row.send ? null : name, n = (asked.get(name) ?? 0) + 1;
       asked.set(name, n);
       if (d.forward) return viaImplementation(row, given, reader).then(json => { disposeDropped(row, json, name, n); return answer(row, json); });
-      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given, reader) : null);
+      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? () => viaImplementation(row, given, reader) : null, given);
       return answer(row, d.now);
     };
   }
@@ -318,14 +330,21 @@ export function modules(rows, bound = {}, views = {}) {
     say(`permission ${name}: ${state}`);
     if (state === "granted") allow(name);
     for (const h of [...held]) {
-      if (h.row.sub.permission?.name !== name) continue;
-      if (state === "denied") { release(h, { error: h.row.sub.permission.denied }); continue; }
+      if (h.permission !== name) continue;
+      if (state === "denied") { release(h, { error: permissionNamed(h.row, name).denied }); continue; }
       if (state !== "granted" || h.waits !== "permission") continue;
+      // A call that needs another permission too asks it next (`getUserMedia(audio=true, video=true)`).
+      const next = permissionOf(h.row, h.args);
+      if (next && next.name !== name) {
+        const d = decidePermission(h.row, h.send, next);
+        if (d?.now) { release(h, d.now); continue; }
+        if (d?.hold) { h.permission = next.name; h.ticket = nextTicket(); say(`device ${capability(h)} ${h.ticket} held (agent)`); continue; }
+      }
       if (h.forward) { releaseForward(h); continue; }
       const d = decideTimed(h.row, h.send, h.timeout);
       if (d.hold) { h.waits = d.hold; h.ticket = nextTicket(); h.deadline = d.hold === "value" && h.timeout != null ? clock.now + h.timeout : null; say(`device ${capability(h)} ${h.ticket} held (agent)`); } else release(h, d.now);
     }
-    reask([...byKey.values()].filter(r => r.sub.permission?.name === name).map(r => r.key));
+    reask([...byKey.values()].filter(r => permissionNamed(r, name)).map(r => r.key));
   };
   const settleValues = () => {
     for (const h of held.filter(h => h.waits === "value")) {
@@ -358,7 +377,10 @@ export function modules(rows, bound = {}, views = {}) {
         const [extension, declared] = [row.key.slice(0, row.key.indexOf(".")), row.key.slice(row.key.indexOf(".") + 1)];
         const e = out[extension] ??= { bound: !clock.agent && !!bound[extension], preferred: {}, readers: {}, held: [] };
         if (route(row) === "agent") e.agent = true;
-        if (row.sub.permission) e.permission = stateOf(row.sub.permission.name);
+        // Each permission by name; `permission` too where it has one.
+        for (const p of permissionsOf(row)) (e.permissions ??= {})[p.name] = stateOf(p.name);
+        const names = Object.keys(e.permissions ?? {});
+        if (names.length === 1) e.permission = e.permissions[names[0]]; else delete e.permission;
         if (preferred.has(row.key)) e.preferred[declared] = preferred.get(row.key);
         if (!row.send) e.readers[declared] = [...new Set([...Resources.filter(r => r.source === row.source || r.watches?.includes(row.key)).map(r => r.name), ...(globalThis.exact?.moduleReaders?.(row.key) ?? [])])];
         for (const h of held.filter(h => h.row === row)) e.held.push({ ticket: h.ticket, name: declared, origin: "app", waits: h.waits });
@@ -371,11 +393,11 @@ export function modules(rows, bound = {}, views = {}) {
       if (!row || row.send !== !!body.send) return Promise.resolve({ error: "NotSupportedError" });
       const timeout = row.send ? timeoutOf(row, body.args) : null, d = admitted(row, body.args ?? {}, "app", row.send, timeout);
       if (d.forward) return viaImplementation(row, body.args).then(json => complete(json, row.type));
-      if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? () => viaImplementation(row, body.args) : null);
+      if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? () => viaImplementation(row, body.args) : null, body.args ?? {});
       say(`native ${row.key} (${route(row) === "substitute" ? "substituted" : "refused"})`);
       return Promise.resolve(complete(d.now, row.type));
     },
-    holds: () => held.map(h => ({ name: h.name, ticket: h.ticket, device: { capability: capability(h), args: h.waits === "permission" ? { capability: h.row.sub.permission.name, request: h.row.key.split(".")[1], origin: "app" } : { request: h.row.key.split(".")[1] } } })),
+    holds: () => held.map(h => ({ name: h.name, ticket: h.ticket, device: { capability: capability(h), args: h.waits === "permission" ? { capability: h.permission, request: h.row.key.split(".")[1], origin: "app" } : { request: h.row.key.split(".")[1] } } })),
     // `tap @t allow|deny|cancel`, `type @t <value>`; undefined for a ticket that is not a module's.
     answer(req) {
       const h = held.find(x => x.ticket === req.ticket);
@@ -385,9 +407,9 @@ export function modules(rows, bound = {}, views = {}) {
         if (req.op !== "tap") return { error: `@${h.ticket} (permission): answered by tap, not type` };
         if (!["allow", "deny", "cancel"].includes(req.choice)) return { error: `@${h.ticket} (permission): tap takes cancel | allow | deny, not ${req.choice}` };
         say(`device permission ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
-        if (req.choice === "allow") setPermission(h.row.sub.permission.name, "granted");
-        else if (req.choice === "deny") setPermission(h.row.sub.permission.name, "denied");
-        else release(h, { error: h.row.sub.permission.denied });
+        if (req.choice === "allow") setPermission(h.permission, "granted");
+        else if (req.choice === "deny") setPermission(h.permission, "denied");
+        else release(h, { error: permissionNamed(h.row, h.permission).denied });
         return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
       }
       if (h.waits === "raise") {
@@ -418,7 +440,7 @@ export function modules(rows, bound = {}, views = {}) {
     // `prefer extension` and `prefer permission` (LLP 1124 D7, LLP 1133.002 §6).
     prefer(req) {
       for (const [name, state] of Object.entries(req.permission ?? {})) {
-        if (![...byKey.values()].some(r => r.sub.permission?.name === name)) return { error: `prefer permission: no module here asks for \`${name}\`` };
+        if (![...byKey.values()].some(r => permissionNamed(r, name))) return { error: `prefer permission: no module here asks for \`${name}\`` };
         if (!["granted", "denied", "prompt"].includes(state)) return { error: `prefer permission.${name}: granted, denied or prompt` };
       }
       const group = req.extension ?? {};

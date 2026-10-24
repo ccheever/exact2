@@ -1,0 +1,38 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/camera@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "takePhoto": {
+      "captureMode": "enum<minimizeLatency|maximizeQuality|zeroShutterLag>",
+      "flashMode": "enum<auto|on|off>",
+      "jpegQuality": "number",
+      "shutterSound": "bool"
+    }
+  },
+  "names": [],
+  "views": [
+    "exact-camera"
+  ],
+  "hatches": [
+    "useCases",
+    "imageCaptureBuilder",
+    "camera"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "androidx.camera:camera-camera2:1.6.2",
+    "androidx.camera:camera-lifecycle:1.6.2",
+    "androidx.camera:camera-view:1.6.2"
+  ],
+  "artifacts": [],
+  "class": "exact.camera.CameraModule"
+}

@@ -235,7 +235,7 @@ impl<D: DataSource> Runner<D> {
         match decision {
             // Only a person answers a prompt (D12).
             Decision::Hold(Waits::Permission) if origin != CallOrigin::App => {
-                let code = self.substitute(row)["permission"]["denied"].clone();
+                let code = self.permission_of(row, args)["denied"].clone();
                 self.log(format!(
                     "{}: refused, person-required ({} origin)",
                     self.key(row),
@@ -245,6 +245,108 @@ impl<D: DataSource> Runner<D> {
             }
             decision => decision,
         }
+    }
+
+    /// The permission a call of `row` with `args` asks: its declared one,
+    /// or, where its interface declares several and the name's grants are a
+    /// line per argument (`permissionBy`), the one of the arguments it was
+    /// given that settles the call now: a denied one, else one still to ask,
+    /// else the first (LLP 1133.008 D6, LLP 1133.009 D3).
+    pub(in crate::runner) fn permission_of(&self, row: &ModulesRow, args: &Json) -> Json {
+        let sub = self.substitute(row);
+        let Some(by) = sub["permissionBy"].as_object() else {
+            return sub["permission"].clone();
+        };
+        let given: Vec<&Json> = (by.iter())
+            .filter(|(a, _)| !args[a.as_str()].is_null() && args[a.as_str()] != false)
+            .map(|(_, p)| p)
+            .collect();
+        let state = |p: &&Json| self.permission_state(p["name"].as_str().unwrap_or_default());
+        (given.iter().find(|p| state(p) == "denied"))
+            .or_else(|| given.iter().find(|p| state(p) == "prompt"))
+            .or(given.first())
+            .map_or_else(|| sub["permission"].clone(), |p| (*p).clone())
+    }
+
+    /// `row`'s substitute with the permission a call with `args` asks.
+    pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
+        let mut sub = self.substitute(row);
+        if sub["permissionBy"].is_object() {
+            sub["permission"] = self.permission_of(row, args);
+        }
+        sub
+    }
+
+    /// [`Self::permission_of`]'s name; empty for none.
+    pub(in crate::runner) fn permission_name(&self, row: &ModulesRow, args: &Json) -> String {
+        (self.permission_of(row, args)["name"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    /// The permission `name` as `row` declares it.
+    pub(in crate::runner) fn permission_named(&self, row: &ModulesRow, name: &str) -> Json {
+        let sub = self.substitute(row);
+        let by = sub["permissionBy"].as_object().into_iter().flatten();
+        (std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)))
+            .find(|p| p["name"] == name)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Whether `row` asks permission `name` for some call.
+    pub(in crate::runner) fn asks_permission(&self, row: &ModulesRow, name: &str) -> bool {
+        !self.permission_named(row, name).is_null()
+    }
+
+    /// Permission `granted` was just granted to held call `token`: when the
+    /// call needs another that is not yet settled, it is denied with it, or
+    /// held under its ticket, and `true`; `false` when nothing more is asked.
+    pub(in crate::runner) fn ask_next(
+        &mut self,
+        row: &ModulesRow,
+        send: bool,
+        token: u64,
+        granted: &str,
+        args: &Json,
+    ) -> bool {
+        let name = self.permission_name(row, args);
+        if name.is_empty() || name == granted {
+            return false;
+        }
+        match self.decide_permission(row, send, args) {
+            Some(Decision::Now(answer)) => self.release(token, answer),
+            Some(Decision::Hold(waits)) => {
+                if let Some((held_by, origin)) = self.held_name(token, row) {
+                    let hold = self.device_hold(row, held_by, waits, origin, &name);
+                    if let Some(h) = self.extensions.held.iter_mut().find(|h| h.token == token) {
+                        h.hold = hold;
+                        h.permission = name;
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// What held call `token` is held for, as its ticket names it (a
+    /// resource or mutation, or a data-code call's key), and its origin.
+    pub(in crate::runner) fn held_name(
+        &self,
+        token: u64,
+        row: &ModulesRow,
+    ) -> Option<(String, CallOrigin)> {
+        let target = (self.pending.iter())
+            .find(|p| p.continuation == Some(token))
+            .map(|p| p.target);
+        let held = self.extensions.held.iter().find(|h| h.token == token)?;
+        let name = match (target, held.reply.is_some()) {
+            (Some(target), _) => self.target_name(target),
+            (None, true) => self.key(row),
+            (None, false) => return None,
+        };
+        Some((name, held.origin))
     }
 
     /// The checks before any decision: why the call is refused, if it is.

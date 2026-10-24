@@ -1,0 +1,43 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/camera@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleDimensions": {
+      "width": "number",
+      "height": "number"
+    }
+  },
+  "options": {
+    "takePhoto": {
+      "codec": "enum<jpeg|hevc>",
+      "photoQualityPrioritization": "enum<speed|balanced|quality>",
+      "maxPhotoDimensions": "AppleDimensions",
+      "flashMode": "enum<auto|on|off>",
+      "isAutoRedEyeReductionEnabled": "bool",
+      "isShutterSoundSuppressionEnabled": "bool"
+    }
+  },
+  "names": [],
+  "views": [
+    "exact-camera"
+  ],
+  "hatches": [
+    "photoOutput",
+    "photoSettings",
+    "photoDelegate",
+    "viewfinder"
+  ],
+  "sources": {
+    "swift": [
+      "Camera.swift",
+      "Viewfinder.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "CameraModule"
+}

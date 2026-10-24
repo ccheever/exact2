@@ -21,6 +21,8 @@
 //   the browser's `getSettings()`.
 // - The page's Audio Session is `play-and-record` while a lease is held (D7).
 
+import { video } from './video.js';
+
 const GRACE = 1000; // ms a fresh browser track waits for its first consumer
 
 /** The written constraints, and only those (D2). */
@@ -32,9 +34,11 @@ function constraints(args) {
 
 const failure = e => ({ error: typeof e?.name === 'string' && /Error$/.test(e.name) ? e.name : 'NotReadableError' });
 
-export function implementation({ changed, agent, log, tracks, audioSession }) {
+export function implementation({ changed, agent, log, tracks, audioSession, foreground: shown = () => true }) {
   const media = typeof navigator === 'object' ? navigator.mediaDevices : undefined;
   let next = 0, opened = false, overlay = null, devices = null;
+  // The cameras (video.js, LLP 1133.008).
+  const cameras = video({ changed, agent, log, tracks, nextId: () => ++next, media, shown });
   /** Each track this implementation opened: its record. */
   const own = new Map();
   const say = line => log?.(`media-capture: ${line}`);
@@ -140,10 +144,27 @@ export function implementation({ changed, agent, log, tracks, audioSession }) {
 
   const agentSettings = { deviceId: 'agent-microphone', groupId: 'agent', sampleRate: 48000, sampleSize: 16, channelCount: 1, echoCancellation: false, autoGainControl: false, noiseSuppression: false, latency: 0.01 };
 
-  return {
-    async getUserMedia(args) {
-      // No kind asked for is Media Capture's TypeError, before anything opens.
-      if (!args?.audio && !args?.audioConstraints) return { error: 'TypeError' };
+  /** A stream of the tracks `getUserMedia` asked for: the microphone's, then the camera's (LLP 1133.008 D1). */
+  async function getUserMedia(args) {
+    const audio = args?.audio || args?.audioConstraints, camera = args?.video || args?.videoConstraints;
+    // No kind asked for is Media Capture's TypeError, before anything opens.
+    if (!audio && !camera) return { error: 'TypeError' };
+    if (!camera) return openAudio(args);
+    const stream = `stream-${++next}`, made = [];
+    if (audio) {
+      const a = await openAudio(args, stream);
+      if (a.error) return a;
+      made.push(...a.tracks);
+    }
+    const v = await cameras.open(args, stream);
+    // What opened first is let go when the camera fails (LLP 1133.009 D3).
+    if (v.error) { for (const t of made) own.has(t.id) && end(own.get(t.id), 'the camera failed'); return v; }
+    made.push(v);
+    tracks.add({ id: stream, kind: 'stream', tracks: made.map(t => t.id), extension: 'media-capture' });
+    return { id: stream, active: true, tracks: made };
+  }
+
+  async function openAudio(args, inStream) {
       if (!agent && !media?.getUserMedia) return { error: 'NotSupportedError' };
       let source = null;
       if (!agent) {
@@ -151,7 +172,7 @@ export function implementation({ changed, agent, log, tracks, audioSession }) {
         catch (e) { return failure(e); }
       }
       opened = true;
-      const n = ++next, stream = `stream-${n}`;
+      const n = ++next, stream = inStream ?? `stream-${n}`;
       const t = {
         id: `track-${n}`, stream, label: agent ? 'Agent microphone' : source.label, enabled: true,
         muted: true, muteReason: 'idle', readyState: 'live', settings: agent ? agentSettings : null,
@@ -164,19 +185,41 @@ export function implementation({ changed, agent, log, tracks, audioSession }) {
       }
       own.set(t.id, t);
       tracks.add({ id: t.id, kind: 'audio', owner, extension: 'media-capture' });
-      tracks.add({ id: stream, kind: 'stream', tracks: [t.id], extension: 'media-capture' });
+      if (!inStream) tracks.add({ id: stream, kind: 'stream', tracks: [t.id], extension: 'media-capture' });
       say(`${stream}: opened with ${t.id}`);
       announce();
       changed('media-capture.enumerateDevices');
       return { id: stream, active: true, tracks: [shape(t)] };
-    },
+  }
+
+  async function microphones() {
+      if (agent) {
+        const known = opened;
+        return { devices: [{ deviceId: known ? 'agent-microphone' : '', kind: 'audioinput', label: known ? 'Agent microphone' : '', groupId: known ? 'agent' : '', facingMode: null }] };
+      }
+      if (!media?.enumerateDevices) return { error: 'NotSupportedError' };
+      // Firefox says `devicechange` as a list is read after a grant: readers are asked again only when it differs.
+      const read = async () => JSON.stringify((await media.enumerateDevices()).filter(d => d.kind === 'audioinput')
+        .map(d => ({ deviceId: d.deviceId, kind: d.kind, label: d.label, groupId: d.groupId, facingMode: null })));
+      if (!media.ondevicechange) media.ondevicechange = () => read().then(now => { if (now !== devices) changed('media-capture.enumerateDevices'); }, () => {});
+      devices = await read();
+      return { devices: JSON.parse(devices) };
+  }
+
+  return {
+    getUserMedia,
+    applyConstraints: args => cameras.owns(args?.track) ? cameras.applyConstraints(args)
+      : Promise.resolve({ error: own.has(args?.track) ? 'NotSupportedError' : 'NotFoundError' }),
+    cameraStatus: () => cameras.cameraStatus(),
     async stopTrack({ track }) {
+      if (cameras.owns(track)) return cameras.stopTrack(track);
       const t = own.get(track);
       if (!t) return { error: 'NotFoundError' };
       end(t, 'stopTrack');
       return shape(t);
     },
     async setTrackEnabled({ track, enabled }) {
+      if (cameras.owns(track)) return cameras.setTrackEnabled(track, enabled);
       const t = own.get(track);
       if (!t) return { error: 'NotFoundError' };
       t.enabled = enabled;
@@ -187,21 +230,13 @@ export function implementation({ changed, agent, log, tracks, audioSession }) {
       return shape(t);
     },
     async mediaStreamTrack({ track }) {
+      if (cameras.owns(track)) return cameras.track(track);
       const t = own.get(track);
       return t ? shape(t) : { error: 'NotFoundError' };
     },
     async enumerateDevices() {
-      if (agent) {
-        const known = opened;
-        return { devices: [{ deviceId: known ? 'agent-microphone' : '', kind: 'audioinput', label: known ? 'Agent microphone' : '', groupId: known ? 'agent' : '' }] };
-      }
-      if (!media?.enumerateDevices) return { error: 'NotSupportedError' };
-      // Firefox says `devicechange` as a list is read after a grant: readers are asked again only when it differs.
-      const read = async () => JSON.stringify((await media.enumerateDevices()).filter(d => d.kind === 'audioinput')
-        .map(d => ({ deviceId: d.deviceId, kind: d.kind, label: d.label, groupId: d.groupId })));
-      if (!media.ondevicechange) media.ondevicechange = () => read().then(now => { if (now !== devices) changed('media-capture.enumerateDevices'); }, () => {});
-      devices = await read();
-      return { devices: JSON.parse(devices) };
+      const listed = await microphones();
+      return listed.error ? listed : { devices: [...listed.devices, ...await cameras.devices()] };
     },
     async microphoneStatus() {
       if (!media?.getUserMedia) return { available: false, state: 'unknown', apple: null, android: null };
@@ -222,14 +257,18 @@ export function implementation({ changed, agent, log, tracks, audioSession }) {
         t.overlayMuted = reason;
         if (t.active) muteNow(t);
       }
+      cameras.preferred(overlay);
     },
     /** Handles a dropped reply carried: the stream's tracks end (D6). */
     dispose(ids) {
       for (const id of ids) {
         const entry = tracks.lookup(id);
-        if (entry?.kind === 'stream') for (const t of entry.tracks) own.has(t) && end(own.get(t), 'disposed');
-        else if (own.has(id)) end(own.get(id), 'disposed');
+        for (const t of entry?.kind === 'stream' ? entry.tracks : [id]) {
+          if (own.has(t)) end(own.get(t), 'disposed');
+          else cameras.end(t, 'disposed');
+        }
       }
     },
+    foreground: visible => cameras.foreground(visible),
   };
 }
