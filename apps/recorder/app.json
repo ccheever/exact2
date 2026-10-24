@@ -12,9 +12,6 @@
     "id": "com.exact.recorder",
     "name": "Recorder"
   },
-  "modules": [
-    "waveform-view"
-  ],
   "host": {
     "ios": {
       "minimumOS": "17.0",

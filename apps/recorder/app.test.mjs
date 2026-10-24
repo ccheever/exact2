@@ -6,9 +6,10 @@ import { checkOp, ratio } from '../../scripts/agent-check.mjs';
 // Build first with `bun host/web/build.mjs recorder`.
 test('Recorder follows the scheme with readable recording and saved states', async () => {
   const manifest = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8'));
-  const session = await open({ host: 'web', app: 'recorder', size: [420, 720],
+  const session = await open({ host: 'web', app: 'recorder', size: [420, 720], storage: `scheme-${Date.now()}`,
     env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } });
   try {
+    await session.prefer({ 'permission.microphone': 'granted' });
     const readPaint = () => {
       const node = id => document.querySelector(`[data-testid="${id}"]`);
       const rgba = value => value.match(/[\d.]+/g).map(Number);
@@ -25,7 +26,7 @@ test('Recorder follows the scheme with readable recording and saved states', asy
         schemes: getComputedStyle(node('recorder')).colorScheme.split(' '),
         preference: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
         page: paint(node('recorder'), node('recorder').firstElementChild),
-        status: paint(node('status')),
+        status: paint(node('status') ?? node('elapsed')),
         toggle: paint(node('toggle'), node('toggle').firstElementChild),
         label: node('toggle').textContent,
         saved: node('saved-message') ? paint(node('saved-message')) : null,
@@ -38,8 +39,8 @@ test('Recorder follows the scheme with readable recording and saved states', asy
       if (state !== 'idle') await session.tap('toggle');
       await session.clock('settle');
       const data = (await session.state()).resources;
-      expect(data.status.available).toBe(true);
-      expect(data.status.recording).toBe(state === 'recording');
+      expect(data.mic.available).toBe(true);
+      expect(data.rec.state === 'recording').toBe(state === 'recording');
       expect(data.library.takes.length).toBe(state === 'saved' ? 1 : 0);
       const paints = [];
       for (const scheme of ['light', 'dark']) {

@@ -534,7 +534,7 @@ and paint their own colours and sizes, so take their structure, not their style:
 | [Caltrain](apps/caltrain) | A Rust data crate, authored tests, routes, an optional GPU module |
 | [Weatherlight](apps/weatherlight) | TypeScript with `fetch` and grants |
 | [Fieldnotes](apps/fieldnotes) | Storage: SQLite, files, backup and restore |
-| [Recorder](apps/recorder) | Localized strings and native modules |
+| [Recorder](apps/recorder) | The microphone through `@exact/media-capture` and `@exact/recording` |
 
 <table>
   <tr>
@@ -604,7 +604,7 @@ and paint their own colours and sizes, so take their structure, not their style:
 | [Fieldnotes](apps/fieldnotes) | A local notebook with pins, search, SQLite storage, and JSON backup and restore | TypeScript + Rust |
 | [Messages](apps/messages) | A port of Expo's chat demo, talking to models through OpenRouter | Needs `bun apps/messages/service.ts` and an OpenRouter key |
 | [Type Tour](apps/typetour) | Phone-OS screens as a type specimen for the Expose fonts | No JavaScript at all |
-| [Recorder](apps/recorder), [Map Demo](apps/map-demo) | Native modules: a microphone waveform, MapKit on Apple and OpenStreetMap on the web | |
+| [Map Demo](apps/map-demo) | Native modules: MapKit on Apple and OpenStreetMap on the web | |
 | [Carousel](apps/carousel) | A horizontal virtualized list of 25,000 cards | |
 | [Motion Gallery](apps/motion-gallery) | Animated GIF and WebP images and CSS keyframes, compared across hosts | |
 | [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |

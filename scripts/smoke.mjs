@@ -353,12 +353,12 @@ if (host === 'deploy') {
 // (unmounted, alive) and pops it (remounted) with both intact; a bad
 // candidate plan is refused and the running apps kept; a session destroyed
 // under the other is refused by name after, and the other still answers.
-// The recorder's sample host (LLP 1067.000 Q6): two sessions, two recorders.
-if ((host === 'host' || host === 'host-ios') && app.modules.tags.includes('waveform-view')) {
+// The recorder's sample host (LLP 1133.009 D6): two sessions over one capture.
+if ((host === 'host' || host === 'host-ios') && app.id === 'com.exact.recorder') {
   const { recorderSessions } = await import('./smoke-recorder.mjs');
   const failures = await recorderSessions({ host, open });
   for (const f of failures) console.log('  ' + f);
-  console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions, each its own recorder, one outliving the other`);
+  console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions, over one capture, one recording on after the other ends`);
   process.exit(failures.length ? 1 : 0);
 }
 if (host === 'host' || host === 'host-ios') {
@@ -516,7 +516,7 @@ if (host === 'web') {
 }
 
 // A fresh named store admits app storage without sharing another drive's profile or port.
-const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : app.name === 'messages' ? { storage: `smoke-${randomUUID()}`, touch: host === 'ios' ? 'platform' : 'agent' } : {};
+const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : app.name === 'messages' ? { storage: `smoke-${randomUUID()}`, touch: host === 'ios' ? 'platform' : 'agent' } : app.name === 'recorder' ? { storage: `smoke-${randomUUID()}` } : {};
 const s = await open({ host, browser: 'chrome', ...appDrive });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
@@ -1434,8 +1434,8 @@ if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includ
 // A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
 if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });
 if (app.modules.tags.includes('exact-swatch') && ['macos', 'ios'].includes(host)) await (await import('./smoke-tamber.mjs')).tamberSmoke({ host, open, check }); // LLP 1121 D12
-// 15. The recorder (LLP 1067.000): one native object, a view and functions.
-if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includes(host)) {
+// 15. The recorder (LLP 1133.009 §11): the microphone through the standard packages.
+if (app.id === 'com.exact.recorder' && ['web', 'macos', 'ios'].includes(host)) {
   const { recorderSmoke } = await import('./smoke-recorder.mjs');
   await recorderSmoke({ host, open, check });
 }

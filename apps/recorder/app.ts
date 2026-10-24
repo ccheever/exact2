@@ -1,54 +1,50 @@
-// The recorder's source (LLP 1067.000): every answer asks the app's one
-// native object, the page module on the web and the Swift module on Apple.
-// Work goes through `native.later`, which every host answers; the status is a
-// cheap query, so it asks `native.call` first and falls back to `later` where
-// no synchronous call exists (the web). `native.watch` re-asks an answer when
-// the recorder announces.
-import type { Answer, NativeModule } from './app.contract.d.ts';
+// The recorder's data (LLP 1133.009 §11): the takes are the files
+// @exact/recording wrote to app:/data/takes; each one's length and level,
+// which the Contract passes when it files a take, are kept beside them in
+// index.json.
+import type { Answer, Storage } from './app.contract.d.ts';
 
 export const appId = 'com.exact.recorder';
-export const grants = 'device.microphone purpose.microphone';
+const DIR = 'app:/data/takes';
+const INDEX = `${DIR}/index.json`;
+export const grants = `device.microphone purpose.microphone\nfs.read ${DIR}\nfs.write ${DIR}`;
 
-type Native = NativeModule | null | undefined;
-const unavailable = { available: false, recording: false, message: 'Recording is not available here.' };
+type Kept = { name: string; seconds: number; level: number };
 
-// `available` is the device's fact: asking it keeps the bake from compiling
-// an answer that depends on the recorder (LLP 1067 D4).
-function recorder(native: Native): NativeModule | null {
-  return native && native.available ? native : null;
+async function index(storage: Storage): Promise<Kept[]> {
+  try {
+    return JSON.parse(new TextDecoder().decode(await storage.fs.readFile(INDEX))) as Kept[];
+  } catch {
+    return [];
+  }
 }
 
-const sources: Record<string, (native: Native) => unknown> = {
-  async recorderStatus(native) {
-    const r = recorder(native);
-    if (!r) return unavailable;
-    r.watch('status');
+const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]*$/, '');
+const label = (k: Kept) => `${k.name.replace('take-', 'Take ')} · ${k.seconds.toFixed(1)} s · level ${k.level}%`;
+
+// Typed here rather than by `Sources`: the smoke builds this file against fixture plans that read neither source.
+const sources: Record<string, (args: any, store: unknown, storage: Storage) => Promise<unknown>> = {
+  takes: async (_args, _store, storage) => {
+    let files: string[] = [];
     try {
-      return r.call({ op: 'status' });
+      files = await storage.fs.readdir(DIR);
     } catch {
-      return await r.later({ op: 'status' });
+      // No takes yet: the directory is made by the first.
     }
+    const kept = await index(storage);
+    const takes = files.filter((f) => f !== 'index.json').map((f) => {
+      const name = nameOf(f), k = kept.find((t) => t.name === name);
+      return { name, label: k ? label(k) : name.replace('take-', 'Take '), path: `${DIR}/${f}` };
+    }).sort((a, b) => Number(a.name.slice(5)) - Number(b.name.slice(5)));
+    return { takes, next: takes.reduce((n, t) => Math.max(n, Number(t.name.slice(5)) || 0), 0) + 1 };
   },
-  async takes(native) {
-    const r = recorder(native);
-    if (!r) return { takes: [] };
-    r.watch('takes');
-    return await r.later({ op: 'takes' });
-  },
-  async startRecording(native) {
-    const r = recorder(native);
-    if (!r) throw { kind: 'Unavailable', message: unavailable.message };
-    return await r.later({ op: 'start' });
-  },
-  async stopRecording(native) {
-    const r = recorder(native);
-    if (!r) throw { kind: 'Unavailable', message: unavailable.message };
-    return await r.later({ op: 'stop' });
+  keepTake: async ([path, duration, level], _store, storage) => {
+    const take: Kept = { name: nameOf(path), seconds: Math.round(duration / 100) / 10, level: Math.round(level * 100) };
+    const kept = (await index(storage)).filter((t) => t.name !== take.name);
+    await storage.fs.mkdir(DIR);
+    await storage.fs.writeFile(INDEX, new TextEncoder().encode(JSON.stringify([...kept, take])));
+    return { name: take.name, message: `Saved ${label(take)}` };
   },
 };
 
-export const answer: Answer = ((source: string, _args: unknown[], _store: unknown, _storage: unknown, native: Native) => {
-  const run = sources[source];
-  if (!run) throw { kind: 'UnknownSource', message: source };
-  return run(native);
-}) as unknown as Answer;
+export const answer = ((source: string, args: unknown, store: unknown, storage: Storage) => sources[source](args, store, storage)) as unknown as Answer;
