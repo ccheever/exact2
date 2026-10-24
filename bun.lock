@@ -9,6 +9,7 @@
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
@@ -51,6 +52,10 @@
     },
     "packages/geolocation": {
       "name": "@exact/geolocation",
+      "version": "1.0.0",
+    },
+    "packages/language-model": {
+      "name": "@exact/language-model",
       "version": "1.0.0",
     },
     "packages/lists": {
@@ -122,6 +127,8 @@
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
+    "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
 
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
 

@@ -1,0 +1,102 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/language-model's names
+// read and sent as an app would, each answer shown by testId for the suite.
+// A session made here lists a tool, `findNotes`, which app.ts answers; data
+// code's own session (`ask`) is made and prompted in app.ts.
+use languageModelAvailability, createLanguageModel, prompt, promptStreaming, languageModelResponse, abortLanguageModelResponse, destroyLanguageModel, LanguageModelTool, LanguageModelExpected, LanguageModelMessage, LanguageModelAvailability, LanguageModelInfo, LanguageModelResponseInfo, LanguageModelResponse, LanguageModelDone from "@exact/language-model"
+
+shape Title
+  title: string
+
+shape NoteQuery
+  query: string
+
+shape Line
+  text: string
+
+component Fixture
+  state draft = "Hello"
+  state tick = 0
+  resource availability = languageModelAvailability() as shape LanguageModelAvailability else empty()
+  resource tooled = languageModelAvailability(expectedOutputs=[LanguageModelExpected(type="tool-call", languages=none)]) as shape LanguageModelAvailability else empty()
+  mutation created as shape LanguageModelInfo
+  mutation titled as shape Title
+  mutation started as shape LanguageModelResponseInfo
+  mutation stopped as shape LanguageModelDone
+  mutation asked as shape Line
+  mutation prepared as shape Line
+  mutation reentered as shape Line
+  derive session = match created { case some(c) => c.id, case none => "" }
+  derive responseId = match started { case some(s) => s.id, case none => "" }
+  resource reply = languageModelResponse(response=responseId) as shape LanguageModelResponse else empty()
+  action create
+    send created = createLanguageModel(initialPrompts=[LanguageModelMessage(role="system", content="You answer in one sentence.")], tools=[LanguageModelTool(name="findNotes", description="Finds the person's notes about a topic", inputSchema="NoteQuery")])
+  action title
+    send titled = prompt(session=session, input="Suggest a title for a conversation about Rust lifetimes.", responseConstraint="Title")
+  action stream
+    send started = promptStreaming(session=session, input=draft)
+  action stop
+    send stopped = abortLanguageModelResponse(response=responseId)
+  action again
+    tick = tick + 1
+    send asked = ask(tick)
+  action prepare
+    send prepared = prepare()
+  action reenter
+    send reentered = reenter()
+  view
+    column gap=8 padding=16
+      text `${availability.availability} ${match availability.reason { case some(r) => r, case none => "-" }} ${match availability.progress { case some(p) => p, case none => -1 }}` testId="availability"
+      text `${tooled.availability} ${tooled.tools}` testId="tooled"
+      match created
+        case some(c)
+          text `${c.id} ${c.contextWindow} ${c.tools.join(",")} ${c.overflowed}` testId="created"
+        case none
+          text "" testId="created"
+      match failure(created)
+        case some(f)
+          text f.code testId="created-error"
+        case none
+          text "" testId="created-error"
+      match titled
+        case some(t)
+          text t.title testId="title"
+        case none
+          text "" testId="title"
+      match failure(titled)
+        case some(f)
+          text f.code testId="title-error"
+        case none
+          text "" testId="title-error"
+      text `${reply.state} ${reply.toolCalls.length}` testId="reply-state"
+      text reply.text testId="reply"
+      for c in reply.toolCalls key=c.id
+        text `${c.name} ${c.state} ${match c.result { case some(r) => r, case none => "" }}` testId="tool"
+      match asked
+        case some(a)
+          text a.text testId="asked"
+        case none
+          text "" testId="asked"
+      button press=create testId="create"
+        text "Create"
+      button press=title testId="make-title"
+        text "Title"
+      button press=stream testId="stream"
+        text "Stream"
+      button press=stop testId="stop"
+        text "Stop"
+      button press=again testId="ask"
+        text "Ask from data code"
+      match prepared
+        case some(p)
+          text p.text testId="prepared"
+        case none
+          text "" testId="prepared"
+      match reentered
+        case some(r)
+          text r.text testId="reentered"
+        case none
+          text "" testId="reentered"
+      button press=prepare testId="prepare"
+        text "Prepare"
+      button press=reenter testId="reenter"
+        text "Reenter"
