@@ -147,6 +147,39 @@ fn a_variable_face_declares_its_file_range_or_the_written_one() {
     assert_eq!(node.style.font_stretch, 75.0);
 }
 
+/// LLP 1019 D2: one variable file declared at several weights is one face
+/// over their span, so the web fetches it once; a span another face of the
+/// same style overlaps, a static file, and the italics stay apart.
+#[test]
+fn pinned_weights_of_one_variable_file_are_one_face() {
+    let app = AppDir::new(
+        "font \"Inter\"\n  400 = \"assets/InterVariable.ttf\"\n  500 = \"assets/InterVariable.ttf\"\n  700 = \"assets/InterVariable.ttf\"\n  400 italic = \"assets/InterVariable.ttf\"\nfont \"Split\"\n  400 = \"assets/InterVariable.ttf\"\n  500 = \"assets/DejaVuSans.ttf\"\n  700 = \"assets/InterVariable.ttf\"\nfont \"Static\"\n  400 = \"assets/DejaVuSans.ttf\"\n  600 = \"assets/DejaVuSans.ttf\"\ncomponent App\n  view\n    text \"hello\" font-family=\"Inter\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let faces: Vec<_> = plan
+        .families
+        .iter()
+        .map(|family| {
+            family
+                .faces
+                .iter()
+                .map(|id| {
+                    let f = plan.face(id);
+                    (f.weight, f.weight_max, f.italic)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        faces,
+        [
+            vec![(400, 700, false), (400, 400, true)],
+            vec![(400, 400, false), (500, 500, false), (700, 700, false)],
+            vec![(400, 400, false), (600, 600, false)],
+        ]
+    );
+}
+
 /// LLP 1019 D9: `font-variation-settings` reaches the kernel's row as CSS
 /// writes it, and a value CSS refuses is refused at compile.
 #[test]
