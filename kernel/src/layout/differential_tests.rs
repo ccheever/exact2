@@ -333,6 +333,47 @@ fn alert_prefix_lifecycle_keeps_the_engine_count_and_rebuild_exact() {
 }
 
 #[test]
+fn bold_text_remeasures_alert_prefix_with_the_title_weight() {
+    use std::sync::{Arc, Mutex};
+    struct TitleWeights(Arc<Mutex<Vec<u16>>>);
+    impl TextMeasurer for TitleWeights {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            if request.runs[0].text.starts_with("A title") {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(request.runs[0].style.font_weight);
+            }
+            MonospaceMeasurer::default().measure(request)
+        }
+    }
+    for (family, steps) in [(0, true), (8, false)] {
+        let weights = Arc::new(Mutex::new(Vec::new()));
+        let mut k = alert_fixture().rehydrate(Box::new(TitleWeights(weights.clone())));
+        k.apply(
+            0,
+            1,
+            &[style(1, &[(StyleId::FontFamily, n(family as f64))])],
+        )
+        .unwrap();
+        for (batch, bold) in [false, true, false].into_iter().enumerate() {
+            weights.lock().unwrap().clear();
+            k.set_bold_text(bold);
+            k.apply(0, batch as u64 + 2, &[]).unwrap();
+            k.set_alert_prefix(1, true).unwrap();
+            k.compute_layout(1, Offer::definite(160., 300.)).unwrap();
+            let seen = weights.lock().unwrap();
+            assert!(!seen.is_empty(), "title remeasured");
+            let expected = if bold && steps { 800 } else { 600 };
+            assert!(
+                seen.iter().all(|w| *w == expected),
+                "{seen:?}, expected {expected}"
+            );
+        }
+    }
+}
+
+#[test]
 fn alert_prefix_is_the_same_first_child_in_fresh_trial_and_adopted_trees() {
     let mut k = alert_fixture();
     k.set_alert_prefix(1, true).unwrap();
