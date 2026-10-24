@@ -15,6 +15,8 @@
 //   from 0 to 1; `totalAudioEnergy` and `totalSamplesDuration` integrate it;
 //   `levels` holds the last `history` intervals, one entry per interval since
 //   the last answer, however many polls were skipped.
+// - `<audio-waveform>` (D13) draws a track's level each animation frame from
+//   a meter of its own, so no level crosses into Contract.
 // - Under the agent (§10) no browser API is used: the level is the synthetic
 //   signal on the session clock, and a stopped recorder's file is WAV, 16-bit
 //   PCM, of a tone that follows the signal, answered as `audio/wav`.
@@ -50,7 +52,7 @@ function tone(spans, rate = 8000) {
 
 export function implementation({ changed, agent, now, log, tracks, files }) {
   const recorders = new Map(), meters = new Map();
-  let next = 0;
+  let next = 0, views = 0;
   const say = line => log?.(`recording: ${line}`);
   const announce = () => changed('recording.mediaRecorderState');
 
@@ -268,6 +270,12 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       const m = meter({ track: args.track, interval: args.interval ?? null, history: args.history ?? null });
       return m.error ? m : read(m);
     },
+    /** The waveform view's own meter of `track` (D13): its levels, the last `fit`, at each frame. */
+    waveform(track) {
+      const m = meter({ track, interval: STEP, history: 1000, view: ++views });
+      if (m.error) return { error: m.error, levels: () => [], stop() {} };
+      return { levels: fit => read(m).levels.slice(-fit), stop: () => { m.stop(); meters.delete(m.key); } };
+    },
     /** A level's argument group has no reader left: its meter goes (D10 item 12). */
     releaseArgs(name, args) {
       if (name !== 'audioLevel') return;
@@ -277,8 +285,8 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
     },
     release(name) {
       if (name !== 'audioLevel') return;
-      for (const m of meters.values()) m.stop();
-      meters.clear();
+      // A waveform view's meter is the view's, not a reader's.
+      for (const [key, m] of meters) if (!key.includes('"view":')) { m.stop(); meters.delete(key); }
     },
     /** A recorder whose reply was dropped: stopped, its file finished, never the app's (D6). */
     dispose(ids) {
@@ -286,3 +294,47 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
     },
   };
 }
+
+// ---------------------------------------------------------------- the waveform (D13)
+/** `<audio-waveform track=…>`: the track's levels as bars, newest at the right, drawn each animation frame from a
+ * meter of its own below the runner, so no level crosses into Contract. A reader of the track, never a start: an idle
+ * track draws silence. Its colour is `tint=`, else the element's `color`. */
+class Waveform {
+  constructor({ implementation, element, props }) {
+    this.implementation = implementation;
+    this.canvas = element.ownerDocument.createElement('canvas');
+    this.canvas.style.cssText = 'width:100%;height:100%;display:block';
+    element.append(this.canvas);
+    this.element = element;
+    this.bars = [];
+    this.setProps(props);
+    const frame = () => { if (!this.gone) { this.draw(); this.raf = requestAnimationFrame(frame); } };
+    this.raf = requestAnimationFrame(frame);
+  }
+  setProps(props) {
+    this.color = props.tint || '';
+    if (props.track === this.track) return;
+    this.meter?.stop();
+    this.track = props.track ?? '';
+    this.meter = this.track ? this.implementation.waveform(this.track) : null;
+    this.bars = [];
+  }
+  draw() {
+    const c = this.canvas, scale = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (!w || !h) return;
+    if (c.width !== Math.round(w * scale) || c.height !== Math.round(h * scale)) { c.width = Math.round(w * scale); c.height = Math.round(h * scale); }
+    const fit = Math.max(0, Math.floor((w + GAP) / (BAR + GAP)));
+    if (this.meter && !this.meter.error) this.bars = this.meter.levels(fit);
+    const g = c.getContext('2d');
+    g.setTransform(scale, 0, 0, scale, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = this.color || getComputedStyle(this.element).color;
+    this.bars.slice(-fit).forEach((level, i, shown) => {
+      const x = w - (shown.length - i) * (BAR + GAP) + GAP, half = Math.max(1, level * (h / 2 - 2));
+      g.fillRect(x, h / 2 - half, BAR, half * 2);
+    });
+  }
+  destroy() { this.gone = true; cancelAnimationFrame(this.raf); this.meter?.stop(); this.canvas.remove(); }
+}
+const BAR = 3, GAP = 2;
+export const roster = { 'audio-waveform': { view: Waveform } };

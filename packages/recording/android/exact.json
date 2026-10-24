@@ -13,7 +13,7 @@
     }
   },
   "names": [],
-  "views": [],
+  "views": ["audio-waveform"],
   "hatches": [],
   "sources": {
     "kotlin": [
