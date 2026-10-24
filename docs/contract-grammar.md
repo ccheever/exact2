@@ -1949,7 +1949,9 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   included, so an Enter or Escape handler skips it with `not e.isComposing`,
   as web code does. On macOS and iOS the only composing keys a handler hears
   are a modifier's own press and release, which are `isComposing` as
-  Chrome's are; a ⌘ chord is not, since its keydown has committed the text.
+  Chrome's are; a ⌘ chord is not, and neither are the keys after it, ⌘'s
+  release included, since its keydown has committed the text (Chrome's
+  stay composing).
   Linux, Windows, the terminal and Android hand handlers no composing key,
   and it is always false there.
 - **Release.** `keyup` hears the key coming up, at the focus, bubbling as

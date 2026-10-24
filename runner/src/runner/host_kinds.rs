@@ -20,8 +20,8 @@ impl Event {
     /// (beforeinput/input metadata) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
-            // A key's down (6), up (43) or capture (44, #140): the chord, then its code
-            // and repeat (`KeyboardEvent::parse`).
+            // A key's down (6), up (43) or capture (44, #140): the chord, then its code,
+            // repeat and isComposing (`KeyboardEvent::parse`).
             6 => super::KeyboardEvent::parse(payload)
                 .map(Event::Key)
                 .ok_or("invalid key event"),

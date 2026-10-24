@@ -813,8 +813,9 @@ modifier's own press and release, and a ⌘ chord (CDP's
 - **macOS and iOS** (`Presenter.composes`, `NodeView.composes`): true on a
   modifier's own press or release while the field has marked text, the only
   composing keys that reach handlers there (`passesComposition`). A ⌘ chord
-  is false: its keydown commits the composition before its handlers run
-  (above), where Chrome's arrives still composing.
+  is false, and so are the keys after it, ⌘'s own release included: its
+  keydown commits the composition before its handlers run (above), where
+  Chrome's chord and the keys after it arrive still composing.
 - **Linux, Windows, the terminal and Android:** false. No input method's
   composition reaches their key handlers.
 
