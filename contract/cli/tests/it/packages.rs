@@ -936,24 +936,20 @@ component App
                 .into_iter()
                 .find(|n| n.node_type == NodeType::Image)
                 .unwrap();
+            // (A symbol draws in its `color`: no tint, `lower-symbol-tint`.)
+            assert_eq!(image.style.tint_color, None);
             (
                 image.props.str(PropId::ImageSource).unwrap().to_owned(),
-                image.style.tint_color,
+                image.style.text_color,
             )
         })
         .collect();
     assert_eq!(
         tints,
         [
-            (
-                "symbol:select-fill".into(),
-                Some(named("-exact-system-green"))
-            ),
-            ("symbol:circle".into(), Some(named("-exact-tertiary-label"))),
-            (
-                "symbol:select-fill".into(),
-                Some(named("-exact-system-green"))
-            ),
+            ("symbol:select-fill".into(), named("-exact-system-green")),
+            ("symbol:circle".into(), named("-exact-tertiary-label")),
+            ("symbol:select-fill".into(), named("-exact-system-green")),
         ]
     );
 }

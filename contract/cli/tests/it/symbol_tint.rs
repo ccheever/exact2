@@ -133,3 +133,49 @@ fn a_native_face_under_an_if_or_with_a_button_style_keeps_its_tint() {
         assert!(!warned(&src).iter().any(|(id, _)| id == TINT), "{src}");
     }
 }
+
+#[test]
+fn a_drawn_button_in_a_component_used_twice_with_other_rows_still_warns() {
+    // Its two uses' widths differ, so lowering's record of the shared button is merged away: the literal
+    // `appearance="none"` still says it draws itself.
+    let src = "component App\n  action go\n  view\n    column\n      Lock(w=40, press=go)\n      Lock(w=80, press=go)\ncomponent Lock\n  props\n    w: number\n    press: action\n  view\n    button appearance=\"none\" width=w press=press\n      image \"symbol:heart\" -exact-tint-color=\"-exact-secondary-label\"\n";
+    let tints: Vec<_> = warned(src)
+        .into_iter()
+        .filter(|(id, _)| id == TINT)
+        .collect();
+    assert_eq!(tints, [(TINT.to_string(), 13)]);
+}
+
+#[test]
+fn a_class_colour_a_state_tint_and_a_row_a_face_shares_get_their_own_repairs() {
+    let message = |src: &str| {
+        let (_, warnings) = contract::compile_warned(src);
+        warnings
+            .into_iter()
+            .find(|w| w.id == TINT)
+            .map(|w| w.message)
+    };
+    // The class's `color` draws it: the tint is dropped, not turned into a second `color`.
+    let class = "style Icon\n  color=\"-exact-secondary-label\"\n  -exact-tint-color=\"-exact-tertiary-label\"\n\ncomponent App\n  view\n    column\n      image \"symbol:heart\" class=Icon\n";
+    assert!(
+        message(class).is_some_and(|m| m.contains("drop it")),
+        "{:?}",
+        message(class)
+    );
+    // A state's tint is that state's `color`.
+    let state = "component App\n  view\n    column\n      image \"symbol:heart\" color=\"-exact-label\"\n        :disabled\n          -exact-tint-color=\"-exact-tertiary-label\"\n";
+    assert!(
+        message(state).is_some_and(|m| m.contains("write `:disabled color=")),
+        "{:?}",
+        message(state)
+    );
+    // A class a native face also takes: the free use gets its own colour, the shared row is kept.
+    let shared = "style Tint\n  -exact-tint-color=\"-exact-secondary-label\"\n\ncomponent App\n  action go\n  view\n    column\n      button press=go\n        image \"symbol:lock\" class=Tint\n        text \"Lock\"\n      image \"symbol:heart\" class=Tint\n";
+    assert!(
+        message(shared)
+            .is_some_and(|m| m.contains("also colours a native button's face")
+                && !m.contains("write `color=")),
+        "{:?}",
+        message(shared)
+    );
+}
