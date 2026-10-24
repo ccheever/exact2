@@ -398,7 +398,7 @@ impl PlanBuilder {
             name: self.str(name),
             sf: self.str(sf),
             view_box: self.str(view_box),
-            path: self.str(path),
+            path: crate::IconPathId(self.str(path).0),
             svg: self.str(svg),
         };
         self.plan.icons.push(row);

@@ -893,10 +893,8 @@ fn a_short_name_writes_a_library_params_line_in_full() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A kept icon's path, read through `exact_kernel::Icon` (stage 14 C2: the
-/// one reader of an `icons` row, which strips an even-odd icon's marker).
+/// A kept icon's path, read through `exact_runner::icon_of` (stage 14 C2:
+/// the one reader of an `icons` row, which strips an even-odd icon's marker).
 fn icon_path<'a>(plan: &'a exact_plan::Plan, row: &exact_plan::IconsRow) -> &'a str {
-    let s = |id| plan.strings.get(id as usize).unwrap_or("");
-    exact_kernel::Icon::of_row(s(row.sf.0), s(row.view_box.0), s(row.path.0), s(row.svg.0))
-        .map_or("", |icon| icon.path)
+    exact_runner::icon_of(plan, row).map_or("", |icon| icon.path)
 }

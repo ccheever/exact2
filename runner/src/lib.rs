@@ -43,6 +43,7 @@
 pub mod agent;
 pub mod auth;
 pub mod bridge;
+pub use bridge::icon_of;
 pub mod commands;
 pub mod compare;
 mod conform;

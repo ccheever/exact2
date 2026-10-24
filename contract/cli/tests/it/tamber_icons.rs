@@ -707,13 +707,7 @@ fn an_even_odd_icon_carries_its_rule_in_the_row_and_the_form() {
             .unwrap()
     };
     let ring = row("icon.ring");
-    let icon = exact_kernel::Icon::of_row(
-        plan.str(ring.sf),
-        plan.str(ring.view_box),
-        plan.str(ring.path),
-        plan.str(ring.svg),
-    )
-    .unwrap();
+    let icon = exact_runner::icon_of(&plan, ring).unwrap();
     assert_eq!(
         (icon.path, icon.even_odd),
         ("M2 2H22V22H2Z M8 8H16V16H8Z;M0 0h1v1H0Z", true)
@@ -730,13 +724,7 @@ fn an_even_odd_icon_carries_its_rule_in_the_row_and_the_form() {
         plan.strings
     );
     let nonzero = row("icon.reply");
-    let icon = exact_kernel::Icon::of_row(
-        plan.str(nonzero.sf),
-        plan.str(nonzero.view_box),
-        plan.str(nonzero.path),
-        plan.str(nonzero.svg),
-    )
-    .unwrap();
+    let icon = exact_runner::icon_of(&plan, nonzero).unwrap();
     assert_eq!((icon.path, icon.even_odd), ("M760-200v-160H200Z", false));
     // Rules mixed across the paths: no template, so Linux has no source.
     std::fs::write(
@@ -753,4 +741,48 @@ fn an_even_odd_icon_carries_its_rule_in_the_row_and_the_form() {
         e.message
     );
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Stage 14 C2 round 2 (theme2): an Illustrator-style export (a `<style>`
+/// block of class rules) is no template, refused where a template is
+/// needed with the fix named; an app that ships only the web draws it as
+/// the file, unaffected.
+#[test]
+fn a_style_block_is_no_template_but_the_web_draws_the_file() {
+    const AI: &str = r#"<svg viewBox="0 0 24 24"><defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M2 2H22V22H2Z"/></svg>"#;
+    let web = app(
+        "style-web",
+        "\"web\": {}",
+        "  icon.ai = icon(svg \"icons/ai.svg\")\n",
+        &view("symbol:icon.ai"),
+    );
+    std::fs::write(web.parent().unwrap().join("assets/icons/ai.svg"), AI).unwrap();
+    let plan = contract::compile_path(&web).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        plan.strings
+            .iter()
+            .any(|s| s == "symbol:icon||0 0 24 24||icons/ai.svg"),
+        "the web draws the file: {:?}",
+        plan.strings
+    );
+    let linux = app(
+        "style-linux",
+        "\"web\": {}, \"linux\": {}",
+        "  icon.ai = icon(svg \"icons/ai.svg\")\n",
+        &view("symbol:icon.ai"),
+    );
+    std::fs::write(linux.parent().unwrap().join("assets/icons/ai.svg"), AI).unwrap();
+    let e = contract::compile_path(&linux).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message.contains("it has a `<style>` block")
+            && e.message.contains("`fill=\"currentColor\"`")
+            && e.message
+                .contains("drop the `<style>` block, or the offending style text"),
+        "{}",
+        e.message
+    );
+    for p in [web, linux] {
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
 }

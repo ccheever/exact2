@@ -47,7 +47,12 @@ const draw = (e, name) => {
   const form = name.startsWith("icon|") ? iconForm(name) : undefined;
   const [path, filled, box, file, evenOdd] = form === undefined ? Table[name] ?? [""] : form ?? ["", 0, "", "", 0];
   e.toggleAttribute("data-symbol-file", !!file);
-  if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
+  // A file shown as written: no path, viewBox, rule or mask of a path drawn before.
+  if (file) {
+    for (const a of ["data-symbol-path", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-evenodd"]) e.removeAttribute(a);
+    e.style.removeProperty("--exact-symbol-mask"); e.symbolKey = e.symbolMask = null;
+    e.src = `assets/${file}`; return;
+  }
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
   // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`), or
   // even-odd where its SVG says so (the mask's `fill-rule`, `refresh`).

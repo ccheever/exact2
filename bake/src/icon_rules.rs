@@ -21,11 +21,13 @@ thread_local! {
 /// `app.contract` plan the compatibility id already compiled (`compiled`,
 /// `colors::compiled`: no second compile), else a game's `app/app.contract`,
 /// compiled here. A contract that is there and doesn't compile fails the id
-/// (no fail-open: the rule could be missed).
+/// (no fail-open: the rule could be missed). `entries`: the entry plans that
+/// ship beside it (widgets, activities), each read the same way.
 pub(crate) fn needed(
     app_dir: &Path,
     compiled: Option<&exact_plan::Plan>,
     out: Option<&Path>,
+    entries: &[&exact_plan::Plan],
 ) -> Result<Option<Vec<&'static str>>, String> {
     #[cfg(test)]
     if SKIP.with(std::cell::Cell::get) {
@@ -49,27 +51,45 @@ pub(crate) fn needed(
             Some(contract::compile_path(&game).map_err(|e| format!("app/app.contract: {e}"))?)
         }
     };
-    let Some(plan) = other.as_ref().or(compiled) else {
-        return Ok(None);
-    };
-    Ok(even_odd(plan).then(|| vec!["evenodd"]))
+    let main = other.as_ref().or(compiled);
+    let any = main
+        .into_iter()
+        .chain(entries.iter().copied())
+        .any(even_odd);
+    Ok(any.then(|| vec!["evenodd"]))
 }
 
 /// Whether `plan` draws an icon even-odd: a row of its `icons` table (what a
-/// computed source names) or a literal source among its strings (`symbol:`
+/// computed source names), a literal source among its strings (`symbol:`
 /// and a form the build or an author wrote, which makes no row; C2 round 1,
-/// Astra 2), each read through `exact_kernel::Icon`, the one reader.
+/// Astra 2), or a source inside a baked value, a resource's initial or
+/// placeholder value, whose strings are in the data pool, not interned
+/// (round 2, Astra 2); each read through `exact_kernel::Icon`, the one reader.
 pub(crate) fn even_odd(plan: &exact_plan::Plan) -> bool {
-    let row = plan.icons.iter().any(|i| {
-        let s = |id| plan.str(id);
-        exact_kernel::Icon::of_row(s(i.sf), s(i.view_box), s(i.path), s(i.svg))
-            .is_some_and(|icon| icon.even_odd)
-    });
-    row || plan.strings.iter().any(|text| {
+    let source = |text: &str| {
         text.strip_prefix("symbol:")
             .and_then(exact_kernel::Icon::parse)
             .is_some_and(|icon| icon.even_odd)
-    })
+    };
+    fn within(v: &exact_plan::Value, source: &dyn Fn(&str) -> bool) -> bool {
+        match v {
+            exact_plan::Value::List(items) | exact_plan::Value::Record(items) => {
+                items.iter().any(|v| within(v, source))
+            }
+            exact_plan::Value::Option(Some(v)) => within(v, source),
+            v => v.as_str().is_some_and(source),
+        }
+    }
+    let baked = plan.resources.iter().any(|r| {
+        [r.initial, r.placeholder_value].into_iter().any(|bytes| {
+            exact_plan::Value::from_bytes(plan.bytes(bytes)).is_ok_and(|v| within(&v, &source))
+        })
+    });
+    let row = plan
+        .icons
+        .iter()
+        .any(|i| exact_runner::icon_of(plan, i).is_some_and(|icon| icon.even_odd));
+    row || baked || plan.strings.iter().any(source)
 }
 
 #[cfg(test)]
@@ -141,7 +161,8 @@ mod tests {
             super::needed(
                 &plain,
                 crate::colors::compiled(&plain).unwrap().as_ref(),
-                None
+                None,
+                &[]
             )
             .unwrap(),
             None
@@ -159,7 +180,13 @@ mod tests {
     fn a_plan_with_an_even_odd_icon_gets_the_rule_and_another_id() {
         let odd = app("odd", "evenodd");
         assert_eq!(
-            super::needed(&odd, crate::colors::compiled(&odd).unwrap().as_ref(), None).unwrap(),
+            super::needed(
+                &odd,
+                crate::colors::compiled(&odd).unwrap().as_ref(),
+                None,
+                &[]
+            )
+            .unwrap(),
             Some(vec!["evenodd"])
         );
         let (now, main) = (compat(&odd, false), compat(&odd, true));
@@ -224,18 +251,18 @@ mod tests {
         );
         std::fs::write(out.join("app.plan"), b.finish().unwrap().encode()).unwrap();
         assert_eq!(
-            super::needed(&plain, compiled.as_ref(), Some(&out)).unwrap(),
+            super::needed(&plain, compiled.as_ref(), Some(&out), &[]).unwrap(),
             Some(vec!["evenodd"]),
             "the baked plan's row"
         );
         assert_eq!(
-            super::needed(&plain, compiled.as_ref(), None).unwrap(),
+            super::needed(&plain, compiled.as_ref(), None, &[]).unwrap(),
             None,
             "the contract's own"
         );
         std::fs::write(out.join("app.plan"), b"not a plan").unwrap();
         assert!(
-            super::needed(&plain, compiled.as_ref(), Some(&out)).is_err(),
+            super::needed(&plain, compiled.as_ref(), Some(&out), &[]).is_err(),
             "an invalid baked plan fails"
         );
         let game =
@@ -243,7 +270,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&game);
         std::fs::create_dir_all(game.join("app")).unwrap();
         assert_eq!(
-            super::needed(&game, None, None).unwrap(),
+            super::needed(&game, None, None, &[]).unwrap(),
             None,
             "no contract, no plan"
         );
@@ -252,11 +279,88 @@ mod tests {
             "component App\n  view\n    nonsense here\n",
         )
         .unwrap();
-        let err = super::needed(&game, None, None).unwrap_err();
+        let err = super::needed(&game, None, None, &[]).unwrap_err();
         assert!(err.starts_with("app/app.contract:"), "{err}");
         for dir in [plain, game] {
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+
+    /// C2 round 2 (Astra 2): a source inside a baked value (a resource's
+    /// initial value, the data source's answer at bake) is in the data pool,
+    /// not among the plan's strings, and still needs the rule: the plan a
+    /// bake writes is read whole, its resources' values walked.
+    #[test]
+    fn a_baked_answer_holding_an_even_odd_source_needs_the_rule() {
+        use exact_runner::{DataError, DataSource, Value};
+        struct Glyph(&'static str);
+        impl DataSource for Glyph {
+            fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+                assert_eq!(name, "glyph");
+                Ok(Value::record(vec![Value::list(vec![Value::str(self.0)])]))
+            }
+        }
+        let dir =
+            std::env::temp_dir().join(format!("exact-icon-rules-baked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("out")).unwrap();
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{"app":{"id":"dev.test.rules","name":"Rules"}}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("app.contract"), "shape Glyph\n  srcs: string[]\ncomponent App\n  resource glyph = glyph() as shape Glyph\n  view\n    column\n      for s in glyph.srcs key = s\n        image s\n").unwrap();
+        let compiled = crate::colors::compiled(&dir).unwrap().unwrap();
+        assert!(!even_odd(&compiled), "nothing even-odd before the bake");
+        let odd = "symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z|";
+        for (answer, want) in [
+            (odd, Some(vec!["evenodd"])),
+            ("symbol:icon||0 0 24 24|M2 2H22V22H2Z|", None),
+        ] {
+            let baked = contract::bake(compiled.clone(), Glyph(answer)).unwrap();
+            assert!(
+                !baked.strings.iter().any(|s| s == answer),
+                "the answer is a baked value, not an interned string"
+            );
+            std::fs::write(dir.join("out/app.plan"), baked.encode()).unwrap();
+            assert_eq!(
+                super::needed(&dir, Some(&compiled), Some(&dir.join("out")), &[]).unwrap(),
+                want,
+                "{answer}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// C2 round 2 (Astra 3): an even-odd icon a widget alone draws ships in
+    /// its entry plan (`plans/<kind>.plan`): the compatibility id reads every
+    /// entry plan beside the app's.
+    #[test]
+    fn an_even_odd_icon_in_a_widget_alone_moves_the_id() {
+        let dir =
+            std::env::temp_dir().join(format!("exact-icon-rules-widget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.contract"), "shape Props\n  title: string\ncomponent App\n  view\n    text \"app\"\ncomponent Card\n  props\n    title: string\n  view\n    image \"symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z|\"\n").unwrap();
+        std::fs::write(dir.join("app.json"), r#"{"app":{"id":"test.widget","name":"Test"},"widgets":[{"kind":"card","component":"Card","props":"Props","families":["systemSmall"],"refresh":"refresh","preview":{"title":"Hello"}}]}"#).unwrap();
+        let compiled = crate::colors::compiled(&dir).unwrap();
+        let entries = contract::snapshot::entries(&dir).unwrap();
+        let plans: Vec<&exact_plan::Plan> = entries.values().map(|e| &e.plan).collect();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(
+            super::needed(&dir, compiled.as_ref(), None, &[]).unwrap(),
+            None,
+            "the app's own plan draws none"
+        );
+        assert_eq!(
+            super::needed(&dir, compiled.as_ref(), None, &plans).unwrap(),
+            Some(vec!["evenodd"]),
+            "its widget's does"
+        );
+        let (now, main) = (compat(&dir, false), compat(&dir, true));
+        assert_eq!(now.inputs["iconFillRules"], serde_json::json!(["evenodd"]));
+        assert_ne!(now.id, main.id);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// What the extra compile costs (theme2, C2 round 1), on the apps named in
@@ -320,7 +424,7 @@ mod tests {
             };
             // Reading the fill rules from the plan compat already compiled.
             let plan = crate::colors::compiled(dir).ok().flatten();
-            let needed = median(&mut || drop(super::needed(dir, plan.as_ref(), None)));
+            let needed = median(&mut || drop(super::needed(dir, plan.as_ref(), None, &[])));
             println!(
                 "ICON-RULES {}: compiles {:?}; own compile {own:.1} ms; compat with {with:.1} ms, without {without}; reading the rules {:.3} ms",
                 dir.display(),
