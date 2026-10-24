@@ -748,7 +748,7 @@ fn an_even_odd_icon_carries_its_rule_in_the_row_and_the_form() {
     assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
     assert!(
         e.message
-            .contains("its paths mix fill rules (evenodd: path 1; nonzero: path 2)"),
+            .contains("its paths mix fill rules (evenodd: drawn path 1; nonzero: drawn path 2)"),
         "{}",
         e.message
     );

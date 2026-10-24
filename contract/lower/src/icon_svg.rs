@@ -126,14 +126,34 @@ fn decode(v: &str) -> String {
     out
 }
 
+/// A `style` attribute's text with its CSS comments consumed, as CSS's
+/// tokenizer does (an unclosed one runs to the end; C2 round 1, Astra 1).
+fn uncommented(style: &str) -> String {
+    let (mut out, mut rest) = (String::new(), style);
+    while let Some(at) = rest.find("/*") {
+        out.push_str(&rest[..at]);
+        // A comment separates what it sits between, as whitespace.
+        out.push(' ');
+        rest = rest[at + 2..]
+            .find("*/")
+            .map_or("", |end| &rest[at + 2 + end + 2..]);
+    }
+    out.push_str(rest);
+    out
+}
+
 /// A property's value on an element: its `style` declaration first, else
-/// its presentation attribute (SVG's cascade).
+/// its presentation attribute (SVG's cascade). A declaration's
+/// `!important` is CSS's; a presentation attribute takes no `!important`
+/// (SVG reads `fill-rule="evenodd !important"` as invalid, C2 round 1,
+/// Astra 6), so its value is kept whole.
 fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
     // The last declaration wins, an `!important` one over any other.
     let styled = attrs
         .iter()
         .find(|(k, _)| *k == "style")
         .and_then(|(_, s)| {
+            let s = uncommented(s);
             let declared = s.split(';').filter_map(|d| {
                 let (k, v) = d.split_once(':')?;
                 // A property's name in any case, as CSS reads it (round 2, R2-5).
@@ -152,7 +172,7 @@ fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
         attrs
             .iter()
             .find(|(k, _)| *k == name)
-            .map(|(_, v)| clean(v))
+            .map(|(_, v)| v.trim().to_ascii_lowercase())
     })
 }
 
@@ -413,9 +433,10 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 .join(", ")
         };
         let (odd, nonzero) = (named(true), named(false));
+        // Numbered among the drawn paths (those not in `<defs>`, C2 round 1).
         note(&mut why, || {
             (
-                format!("its paths mix fill rules (evenodd: path {odd}; nonzero: path {nonzero})"),
+                format!("its paths mix fill rules (evenodd: drawn path {odd}; nonzero: drawn path {nonzero})"),
                 "give every path the same `fill-rule`, or none (nonzero): a template fills its paths by one rule",
             )
         });
@@ -641,7 +662,40 @@ mod tests {
         let mixed = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path d="M2 2h1"/><g style="fill-rule:evenodd"><path d="M4 4h1"/></g></svg>"#).unwrap();
         assert_eq!(
             mixed.not_template.as_deref(),
-            Some("its paths mix fill rules (evenodd: path 1, 3; nonzero: path 2)")
+            Some("its paths mix fill rules (evenodd: drawn path 1, 3; nonzero: drawn path 2)")
+        );
+        // A CSS comment is consumed, not part of a declaration (Astra 1):
+        // the style's `nonzero` wins over the attribute's `evenodd`.
+        let commented = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M0 0h1"/><path fill-rule="evenodd" style="/* override */ fill-rule:nonzero" d="M2 2h1"/></svg>"#).unwrap();
+        assert_eq!(
+            commented.not_template.as_deref(),
+            Some("its paths mix fill rules (evenodd: drawn path 1; nonzero: drawn path 2)")
+        );
+        for svg in [
+            r#"<svg viewBox="0 0 24 24"><path style="fill-rule:/* a */evenodd/* b */" d="M0 0h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><path style="fill-rule:nonzero; /* fill-rule:nonzero */ fill-rule:evenodd" d="M0 0h1"/></svg>"#,
+        ] {
+            let read = read(svg).unwrap();
+            assert_eq!(
+                (read.not_template.as_deref(), read.even_odd),
+                (None, true),
+                "{svg}"
+            );
+        }
+        let unclosed = read(r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" style="/* fill-rule:nonzero" d="M0 0h1"/></svg>"#).unwrap();
+        assert_eq!(
+            (unclosed.not_template.as_deref(), unclosed.even_odd),
+            (None, true)
+        );
+        // `!important` belongs to a declaration, not to a presentation
+        // attribute (Astra 6): the attribute's value is invalid.
+        let important = read(
+            r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd !important" d="M0 0h1"/></svg>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            important.not_template.as_deref(),
+            Some("its `<path>` has a `fill-rule`")
         );
         assert!(mixed.fix.contains("the same `fill-rule`"), "{}", mixed.fix);
         let wrong =
