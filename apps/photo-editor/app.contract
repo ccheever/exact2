@@ -4,6 +4,17 @@
 // the web. The edit lives in the module; it reports its state when a gesture
 // ends, and the Contract shows it. The two buttons are the way to edit
 // without gestures: they change the module's props, never its internals.
+//
+// Take Photo opens the camera (LLP 1133.008 §10): the standard packages'
+// viewfinder in a sheet over the editor, whose shutter's photo becomes the
+// one edited. A sheet dismissed by a swipe hides the viewfinder, which lets
+// the camera go; Take Photo shows the same track again.
+use getUserMedia, applyConstraints, stopTrack, mediaStreamTrack, enumerateDevices, cameraStatus, MediaStream, MediaStreamTrack, MediaDeviceList, CameraStatus, MediaTrackConstraints from "@exact/media-capture"
+use takePhoto, Photo from "@exact/camera"
+
+routes nav
+  editor "/"
+    camera "/camera"
 
 component PhotoEditor
   state turns = 0
@@ -11,6 +22,24 @@ component PhotoEditor
   state edit = "scale 1.00× · rotation 0.0° · pan x 0.00 y 0.00 · crop x 0.00 y 0.00 w 1.00 h 1.00"
   state edits = 0
   state ready = false
+  state photo = "assets/sample.jpg"
+  state track = ""
+  state facing = "environment"
+  resource camera = cameraStatus() as shape CameraStatus else empty()
+  resource devices = enumerateDevices() as shape MediaDeviceList else empty()
+  resource live = mediaStreamTrack(track=track) as shape MediaStreamTrack else empty()
+  mutation opened as shape MediaStream then show
+  mutation shot as shape Photo then taken
+  mutation adjusted as shape MediaStreamTrack
+  mutation stopped as shape MediaStreamTrack
+  // A track the app holds that has not ended: Take Photo shows it again rather than asking for another.
+  derive holding = track != "" and live.readyState == "live"
+  derive canFlip = devices.devices.map(d => d.facingMode == some("user")).includes(true) and devices.devices.map(d => d.facingMode == some("environment")).includes(true)
+  derive hasTorch = match live.capabilities { case some(c) => c.torch == some(true), case none => false }
+  derive torchOn = live.settings.torch == some(true)
+  // The camera that faces `facing`; every other constraint the platform's (LLP 1133.008 D2).
+  derive facingOnly = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some(facing), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
+  derive shotError = match failure(shot) { case some(f) => f.code, case none => "" }
   action rotate
     turns = turns + 1
   action reset
@@ -23,19 +52,83 @@ component PhotoEditor
       edits = edits + 1
   action loaded
     ready = true
+  action takePicture
+    if not holding
+      send opened = getUserMedia(video=true, videoConstraints=facingOnly)
+    nav = push(nav, "/camera")
+  action show
+    match opened
+      case some(s)
+        track = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+      case none
+        track = track
+  action flip
+    send adjusted = applyConstraints(track=track, facingMode=(facing == "environment" ? "user" : "environment"))
+    facing = facing == "environment" ? "user" : "environment"
+  action torch
+    send adjusted = applyConstraints(track=track, torch=not torchOn)
+  action shutter
+    send shot = takePhoto(track=track)
+  action taken
+    match shot
+      case some(p)
+        photo = p.path
+        turns = 0
+        resets = resets + 1
+        send stopped = stopTrack(track=track)
+        nav = back(nav)
+      case none
+        photo = photo
+  action cancel
+    send stopped = stopTrack(track=track)
+    nav = back(nav)
+  action back
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  action openSettings
+    openURL("app-settings:")
   view
-    main testId="photo-editor-app" color-scheme="dark" accent-color="light-dark(#245b9e, #bed6ff)" width="100%" height="100%" display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label" font-family="system-ui"
-      row flex-shrink=0 align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
-        text "Photo Editor" flex=1 font-size=19 font-weight=600
-        text (ready ? "Ready" : "Loading…") testId="status" font-size=13 color="-exact-secondary-label"
-      photo-editor testId="editor" flex=1 min-height=0 width="100%" photo="assets/sample.jpg" turns=turns reset=resets aria-label="Photo. Pinch to zoom, turn two fingers to rotate, drag to move, drag the crop corners or edges, double-tap to reset; the buttons below do the same without gestures" load=loaded change=changed message=told
-      column flex-shrink=0 gap=10 padding=16 background-color="-exact-secondary-background"
-        text "Edit" font-size=12 font-weight=600 color="-exact-secondary-label"
-        text edit testId="edit" aria-live="polite" font-size=15 font-variant-numeric="tabular-nums"
-        text ("Edited " + edits.toString() + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="-exact-secondary-label"
-        row gap=10
-          // Apple's AccentColorText stays white on this pale dark-scheme accent.
-          button press=rotate testId="rotate" aria-label="Rotate the photo 90 degrees clockwise" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="AccentColor" color="light-dark(#ffffff, #000000)"
-            text "Rotate 90°" font-size=15 font-weight=600
-          button press=reset testId="reset" aria-label="Reset zoom, rotation, position and crop" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
-            text "Reset" font-size=15 font-weight=600
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow color-scheme="dark" accent-color="light-dark(#245b9e, #bed6ff)" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "editor"
+          column navigationKey=`${e.id}` testId="photo-editor-app" position="absolute" inset=0 display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label" font-family="system-ui"
+            row flex-shrink=0 align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              text "Photo Editor" flex=1 font-size=19 font-weight=600
+              text (ready ? "Ready" : "Loading…") testId="status" font-size=13 color="-exact-secondary-label"
+            photo-editor testId="editor" flex=1 min-height=0 width="100%" photo=photo turns=turns reset=resets aria-label="Photo. Pinch to zoom, turn two fingers to rotate, drag to move, drag the crop corners or edges, double-tap to reset; the buttons below do the same without gestures" load=loaded change=changed message=told
+            column flex-shrink=0 gap=10 padding=16 background-color="-exact-secondary-background"
+              text "Edit" font-size=12 font-weight=600 color="-exact-secondary-label"
+              text edit testId="edit" aria-live="polite" font-size=15 font-variant-numeric="tabular-nums"
+              text ("Edited " + edits.toString() + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="-exact-secondary-label"
+              if camera.state == "denied"
+                row align-items="center" gap=12 flex-wrap="wrap" testId="camera-denied"
+                  text "The camera is off for Photo Editor. Turn it on in Settings." font-size=13 color="-exact-secondary-label" flex=1
+                  button press=openSettings testId="open-settings" aria-label="Open Settings"
+                    text "Open Settings"
+              row gap=10 flex-wrap="wrap"
+                // Apple's AccentColorText stays white on this pale dark-scheme accent.
+                button press=rotate testId="rotate" aria-label="Rotate the photo 90 degrees clockwise" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="AccentColor" color="light-dark(#ffffff, #000000)"
+                  text "Rotate 90°" font-size=15 font-weight=600
+                button press=reset testId="reset" aria-label="Reset zoom, rotation, position and crop" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
+                  text "Reset" font-size=15 font-weight=600
+                if camera.available and camera.state != "denied"
+                  button press=takePicture testId="take-photo" aria-label="Take a photo to edit" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
+                    text "Take Photo" font-size=15 font-weight=600
+        if e.name == "camera"
+          column navigationKey=`${e.id}` navigationPresentation="modal" testId="camera" position="absolute" inset=0 display="flex" flex-direction="column" background-color="#000000" color="#ffffff"
+            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              button press=cancel testId="cancel" aria-label="Cancel"
+                text "Cancel"
+              text "Camera" role="heading" aria-level=2
+              if hasTorch
+                button press=torch testId="torch" aria-label=(torchOn ? "Turn the torch off" : "Turn the torch on")
+                  text (torchOn ? "Torch Off" : "Torch On")
+            exact-camera srcObject=track testId="viewfinder" flex=1 min-height=0 width="100%" aria-label="Viewfinder"
+            if shotError != ""
+              text shotError testId="shot-error" font-size=13 text-align="center" padding=8
+            row flex-shrink=0 align-items="center" justify-content="center" gap=40 padding=20
+              if canFlip
+                button press=flip testId="flip" aria-label="Switch camera" appearance="none" color="#ffffff" padding=12
+                  text "Flip"
+              button press=shutter testId="shutter" aria-label="Take Photo" width=72 height=72 border-radius="50%" background-color="#ffffff" border="4px solid #8a8a8a"
