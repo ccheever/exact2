@@ -189,10 +189,10 @@ fn unknown_presentation_only_matters_where_a_heading_could_be() {
         (HEADER.replace("text \"3 items\"", "row class=(shown ? Loud : Quiet)\n    text \"3 items\""), true),
         (HEADER.replace("text \"3 items\"", "row role=(shown ? \"group\" : \"status\")\n    text \"3 items\""), true),
         (HEADER.replace("text \"3 items\"", "text \"3 items\" role=(shown ? \"heading\" : \"status\")"), false),
-        (HEADER.replace("role=\"heading\"", "role=\"heading\" class=(shown ? Loud : Quiet)"), false),
+        (HEADER.replace("role=\"heading\"", "role=\"heading\" class=(shown ? Loud : Quiet)"), true),
         (HEADER.replace("role=\"heading\"", "role=\"heading\" display=(shown ? \"none\" : \"flex\")"), false),
         (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row display=(shown ? \"none\" : \"flex\")\n    text \"Household\" role=\"heading\""), false),
-        (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row class=(shown ? Loud : Quiet)\n    text \"Household\" role=\"heading\""), false),
+        (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row class=(shown ? Loud : Quiet)\n    text \"Household\" role=\"heading\""), true),
         (HEADER.replace("text \"Household\" role=\"heading\" aria-level=1", "row role=(shown ? \"group\" : \"tablist\")\n    text \"Household\" role=\"heading\""), false),
     ];
     for (header, expected) in cases {
@@ -201,5 +201,36 @@ fn unknown_presentation_only_matters_where_a_heading_could_be() {
             app(&screen(&header))
         );
         assert_eq!(warnings(&src).len(), usize::from(expected), "{src}");
+    }
+}
+
+#[test]
+fn a_keyed_child_with_navigation_back_may_be_a_route() {
+    for back in ["", "back"] {
+        let route = screen(HEADER).replacen(
+            "column",
+            &format!("column navigationKey=\"home\" navigationBack=\"{back}\""),
+            1,
+        );
+        let root = screen(&route).replacen("column", "main navigationKey=\"home\"", 1);
+        let src = app(&root);
+        assert!(warnings(&src).is_empty(), "{src}");
+    }
+}
+
+#[test]
+fn a_class_cannot_remove_a_heading_from_the_count() {
+    for second in [
+        "row class=Hidden\n    text \"Other\" role=\"heading\"",
+        "text \"Other\" role=\"heading\" class=Hidden",
+    ] {
+        let src = format!(
+            "style Hidden\n  display=\"none\"\n{}",
+            app(&screen(&format!("{HEADER}\n  {second}")))
+        );
+        assert!(warnings(&src).is_empty(), "{src}");
+        // The element's own display follows the route warning's `part` rule.
+        let own_display = src.replace("class=Hidden", "display=\"none\"");
+        assert_eq!(warnings(&own_display).len(), 1, "{own_display}");
     }
 }
