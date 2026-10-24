@@ -54,7 +54,8 @@ final class GpuModule {
     static var bakedCompatibility: [String: Any] { BakedCompatibility.json }
     static func modulePath(defaultPath: String, compat: [String: Any], environment: [String: String]) -> String {
         let gpu = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any]
-        return gpu?["trust"] as? String == "development" ? environment["EXACT_GPU_DYLIB"] ?? defaultPath : defaultPath
+        let development = gpu?["trust"] as? String == "development" && !BakedCompatibility.production(compat)
+        return development ? environment["EXACT_GPU_DYLIB"] ?? defaultPath : defaultPath
     }
     static func verify(path: String, compat: [String: Any], artifact: String = "") -> GpuLoadError? {
         func refusal(_ reason: String) -> GpuLoadError { GpuLoadError(message:"GPU module \(path): \(reason)") }

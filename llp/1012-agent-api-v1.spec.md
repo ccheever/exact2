@@ -766,8 +766,8 @@ deterministic and a smoke against real credentials leaves nothing behind.
 
 - **Only where agent mode is admitted.** A build baked with
   `EXACT_UPDATE_TRUST=production` never enters agent mode (ruled). Native:
-  the binary's own `compat.json` `inputs.trust`
-  (`exact_runner::delivery::production`); Linux drops `EXACT_AGENT` and every
+  the binary's own `compat.json` `embedded.trust`
+  (`exact_runner::delivery::production`; LLP 1030 D4); Linux drops `EXACT_AGENT` and every
   `EXACT_AGENT_*` variable in `Config::from_env`, Apple in
   `ExactEnv.environment`, each before anything reads one, and says so on
   stderr. Web: every host file that reads `?agent` declares
