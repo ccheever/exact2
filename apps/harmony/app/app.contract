@@ -773,7 +773,7 @@ component RoomScreen
       column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto"
         text "Pinned Messages" role="heading" aria-level=3 font="-exact-headline"
         if thread.pins.length == 0
-          text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-secondary-label" font="-exact-footnote"
+          text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-label" font="-exact-footnote"
         for p in thread.pins key=p.id
           column gap=2 padding=10 border-radius=10 background-color="-exact-secondary-background" testId=`pin-${p.id}`
             row gap=8 align-items="baseline"
