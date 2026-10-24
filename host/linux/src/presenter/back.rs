@@ -174,7 +174,7 @@ impl<D: DataSource> Presenter<D> {
     /// Whether system Back would be taken now: what a shell's back callback
     /// is enabled by, so that Back with nowhere to go leaves the app with
     /// the system's own animation (D6).
-    pub fn back_goes(&self) -> bool {
+    pub fn back_goes(&mut self) -> bool {
         self.top_open() || self.back().is_some() || self.remote_back_target().is_some()
     }
 
