@@ -225,6 +225,16 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             out.insert(field.into(), interface[field].clone());
         }
     }
+    if let Value::Array(permissions) = &interface["permission"] {
+        let (permission, by) = permission_of(entry, name, permissions)?;
+        match permission {
+            Some(p) => out.insert("permission".into(), p),
+            None => out.remove("permission"),
+        };
+        if !by.is_empty() {
+            out.insert("permissionBy".into(), Value::Object(by));
+        }
+    }
     match &interface["substitute"] {
         Value::Null => {}
         Value::String(s) if s == "implementation" => {
@@ -288,6 +298,57 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         out.insert(key.into(), value.clone());
     }
     Ok(Value::Object(out).to_string())
+}
+
+/// The permission a name asks, where an interface declares several, each
+/// with the grant lines it covers (`"grants"`; LLP 1133.008 D6, LLP 1133.009
+/// D3: `camera` and `microphone`). A status source asks its own; a name
+/// whose grants are a line per argument asks, per argument, the permission
+/// of that argument's line (`permissionBy`; the runtime asks the ones the
+/// call's arguments need), and the first as its default; a name with a list
+/// of lines asks the permission that covers them; a name with no lines asks
+/// none.
+fn permission_of(
+    entry: &Value,
+    name: &str,
+    permissions: &[Value],
+) -> Result<(Option<Value>, Map<String, Value>), String> {
+    let lines = |v: &Value| -> Vec<String> {
+        match v {
+            Value::String(l) => vec![l.clone()],
+            Value::Array(ls) => ls
+                .iter()
+                .filter_map(|l| l.as_str().map(str::to_owned))
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    let covering = |line: &Value| -> Result<Value, String> {
+        let wanted = lines(line);
+        (permissions.iter())
+            .find(|p| lines(&p["grants"]).iter().any(|g| wanted.contains(g)))
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "`{name}`'s grant {} is covered by no declared `permission`",
+                    wanted.join(" or ")
+                )
+            })
+    };
+    if let Some(own) = permissions.iter().find(|p| p["status"] == name) {
+        return Ok((Some(own.clone()), Map::new()));
+    }
+    match &entry["grants"] {
+        Value::Object(by_argument) => {
+            let mut by = Map::new();
+            for (argument, line) in by_argument {
+                by.insert(argument.clone(), covering(line)?);
+            }
+            Ok((by.values().next().cloned(), by))
+        }
+        Value::Null => Ok((None, Map::new())),
+        line => Ok((Some(covering(line)?), Map::new())),
+    }
 }
 
 /// A declaration's type (LLP 1133.002 D13): `number`, `string`, `bool`,

@@ -28,8 +28,13 @@ impl<D: DataSource> Runner<D> {
             if self.route(row) == Route::Agent {
                 entry["agent"] = json!(true);
             }
-            if let Some(name) = self.substitute(row)["permission"]["name"].as_str() {
-                entry["permission"] = json!(self.permission_state(name));
+            // Each permission by name; `permission` too where it has one.
+            let sub = self.substitute(row);
+            let by = sub["permissionBy"].as_object().into_iter().flatten();
+            for p in std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)) {
+                if let Some(name) = p["name"].as_str() {
+                    entry["permissions"][name] = json!(self.permission_state(name));
+                }
             }
             if let Some(v) = self.extensions.preferred.get(&key) {
                 entry["preferred"][&declared] = v.clone();
@@ -51,6 +56,14 @@ impl<D: DataSource> Runner<D> {
                 if let Some(held) = entry["held"].as_array_mut() {
                     held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": h.waits.word() }));
                 }
+            }
+        }
+        for entry in out.values_mut() {
+            let one = (entry["permissions"].as_object())
+                .filter(|p| p.len() == 1)
+                .and_then(|p| p.values().next().cloned());
+            if let Some(state) = one {
+                entry["permission"] = state;
             }
         }
         // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
@@ -87,8 +100,7 @@ impl<D: DataSource> Runner<D> {
                 );
             };
             for (name, state) in group {
-                let known = (self.plan.modules.iter())
-                    .any(|m| self.substitute(m)["permission"]["name"].as_str() == Some(name));
+                let known = (self.plan.modules.iter()).any(|m| self.asks_permission(m, name));
                 let state = state
                     .as_str()
                     .filter(|s| matches!(*s, "granted" | "denied" | "prompt"));

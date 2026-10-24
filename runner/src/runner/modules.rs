@@ -127,8 +127,11 @@ struct Held {
     forward: Option<Vec<u8>>,
     origin: CallOrigin,
     /// The call's arguments: a denial fails it only where they ask for what
-    /// the permission gates (`permission.continues`).
+    /// the permission gates (`permission.continues`), and which of an
+    /// interface's permissions it asks (`permission_of`).
     args: Json,
+    /// The permission it waits on or asked, by name; empty for none.
+    permission: String,
 }
 
 /// A held data-code call's two halves, whichever comes first: the host's
@@ -395,7 +398,7 @@ impl<D: DataSource> Runner<D> {
     /// What the runner's permission decides of `row` now: its status
     /// source's answer, a denial, or a ticket; `None` when it allows the call.
     fn decide_permission(&self, row: &ModulesRow, send: bool, args: &Json) -> Option<Decision> {
-        let sub = self.substitute(row);
+        let sub = self.substitute_for(row, args);
         let permission = &sub["permission"];
         let name = permission["name"].as_str()?;
         let state = self.permission_state(name);
@@ -555,7 +558,8 @@ impl<D: DataSource> Runner<D> {
         let token = TOKENS.start + self.extensions.next;
         self.extensions.next += 1;
         let name = self.target_name(target);
-        let hold = self.device_hold(&row, name, waits, origin);
+        let permission = self.permission_name(&row, &args);
+        let hold = self.device_hold(&row, name, waits, origin, &permission);
         let deadline = timeout
             .filter(|_| waits == Waits::Value)
             .map(|t| self.now_ms + t);
@@ -572,6 +576,7 @@ impl<D: DataSource> Runner<D> {
             forward,
             origin,
             args,
+            permission,
         });
         let verb = if row.send { "send" } else { "source" };
         let body =
@@ -588,6 +593,7 @@ impl<D: DataSource> Runner<D> {
         name: String,
         waits: Waits,
         origin: CallOrigin,
+        permission: &str,
     ) -> u64 {
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
@@ -595,7 +601,7 @@ impl<D: DataSource> Runner<D> {
         let (capability, args, choices, value) = match waits {
             Waits::Permission => (
                 "permission".to_owned(),
-                json!({ "capability": sub["permission"]["name"], "request": declared, "origin": origin.word() }),
+                json!({ "capability": permission, "request": declared, "origin": origin.word() }),
                 &["allow", "deny"][..],
                 false,
             ),
@@ -767,7 +773,8 @@ impl<D: DataSource> Runner<D> {
             Decision::Hold(waits) => {
                 let token = TOKENS.start + self.extensions.next;
                 self.extensions.next += 1;
-                let hold = self.device_hold(&row, key, waits, origin);
+                let permission = self.permission_name(&row, &args);
+                let hold = self.device_hold(&row, key, waits, origin, &permission);
                 let slot = Arc::new(Mutex::new(Pending::default()));
                 let deadline = timeout
                     .filter(|_| waits == Waits::Value)
@@ -789,6 +796,7 @@ impl<D: DataSource> Runner<D> {
                     forward,
                     origin,
                     args: held_args,
+                    permission,
                 });
                 Some(Dispatch::Run(Work::Later(Box::new(move |reply| {
                     let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
@@ -895,19 +903,19 @@ impl<D: DataSource> Runner<D> {
             return;
         };
         let (token, source, waits) = (h.token, h.source.clone(), h.waits);
+        let name = h.permission.clone();
         let row = self.module_row(&source);
         let sub = self.substitute(&row);
         match (waits, answer) {
             (Waits::Permission, HoldAnswer::Choice(c)) => {
-                let name = sub["permission"]["name"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned();
                 match c.as_str() {
                     "allow" => self.set_permission(&name, "granted"),
                     "deny" => self.set_permission(&name, "denied"),
                     // The dialog dismissed: the state stays, this request fails.
-                    _ => self.release(token, json!({ "error": sub["permission"]["denied"] })),
+                    _ => {
+                        let code = self.permission_named(&row, &name)["denied"].clone();
+                        self.release(token, json!({ "error": code }))
+                    }
                 }
             }
             (Waits::Value, HoldAnswer::Choice(_)) => {
@@ -982,7 +990,7 @@ impl<D: DataSource> Runner<D> {
             .insert(name.to_owned(), state.to_owned());
         self.log(format!("permission {name}: {state}"));
         let rows: Vec<ModulesRow> = (self.plan.modules.iter())
-            .filter(|m| self.substitute(m)["permission"]["name"].as_str() == Some(name))
+            .filter(|m| self.asks_permission(m, name))
             .cloned()
             .collect();
         if state == "granted" {
@@ -990,6 +998,7 @@ impl<D: DataSource> Runner<D> {
         }
         type Waiting = (u64, u64, String, bool, Waits, Option<f64>, Json);
         let held: Vec<Waiting> = (self.extensions.held.iter())
+            .filter(|h| h.permission == name)
             .map(|h| {
                 (
                     h.token,
@@ -1007,12 +1016,17 @@ impl<D: DataSource> Runner<D> {
             if !rows.iter().any(|r| r.source == row.source) {
                 continue;
             }
-            let fails = self.denial_fails(&self.substitute(&row), &args);
+            let fails = self.denial_fails(&self.substitute_for(&row, &args), &args);
             match (state, waits) {
                 ("granted", Waits::Permission) | ("denied", Waits::Permission)
                     if state == "granted" || !fails =>
                 {
                     self.retire_hold(hold);
+                    // A call that needs another permission too asks it next
+                    // (`getUserMedia(audio=true, video=true)`, LLP 1133.009 D3).
+                    if state == "granted" && self.ask_next(&row, send, token, name, &args) {
+                        continue;
+                    }
                     let forward = (self.extensions.held.iter())
                         .any(|h| h.token == token && h.forward.is_some());
                     if forward {
@@ -1023,21 +1037,8 @@ impl<D: DataSource> Runner<D> {
                         Decision::Now(answer) => self.release(token, answer),
                         Decision::Forward => self.release_forward(token),
                         Decision::Hold(waits) => {
-                            let target = (self.pending.iter())
-                                .find(|p| p.continuation == Some(token))
-                                .map(|p| p.target);
-                            let reply = (self.extensions.held.iter())
-                                .any(|h| h.token == token && h.reply.is_some());
-                            let name = match (target, reply) {
-                                (Some(target), _) => Some(self.target_name(target)),
-                                (None, true) => Some(self.key(&row)),
-                                (None, false) => None,
-                            };
-                            if let Some(name) = name {
-                                let origin = (self.extensions.held.iter())
-                                    .find(|h| h.token == token)
-                                    .map_or(CallOrigin::App, |h| h.origin);
-                                let hold = self.device_hold(&row, name, waits, origin);
+                            if let Some((held_by, origin)) = self.held_name(token, &row) {
+                                let hold = self.device_hold(&row, held_by, waits, origin, name);
                                 let deadline = timeout
                                     .filter(|_| waits == Waits::Value)
                                     .map(|t| self.now_ms + t);
@@ -1054,7 +1055,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 ("denied", _) if fails => {
                     self.retire_hold(hold);
-                    let code = self.substitute(&row)["permission"]["denied"].clone();
+                    let code = self.permission_named(&row, name)["denied"].clone();
                     self.release(token, json!({ "error": code }));
                 }
                 _ => {}

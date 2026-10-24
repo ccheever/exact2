@@ -1097,11 +1097,12 @@ async function main(args, lockHeld = false) {
   const seam = resolve(root, 'host/apple/modules/ExactPackage.swift');
   const composed = resolve(linkRoot, `ExactComposed-${app.id}.swift`), packageObjects = packages.length ? [resolve(packageDir, 'ExactPackage.o'), ...packages.map(p => resolve(packageDir, `${p.module}.o`))] : [];
   // Each package's Swift copied as it is when the build begins (an edit meanwhile lands in the next build, as the app's
-  // own sources do): what it compiles from and what an arm linking it is keyed by.
+  // own sources do): what it compiles from and what an arm linking it is keyed by. Each copy says where it came from
+  // (`#sourceLocation`), so a diagnostic names the package's file and `#filePath` its place in the package.
   const packageCopies = packages.map(p => p.sources.map((f, i) => {
     const copy = resolve(packageDir, `src-${p.module}`, `${i}-${basename(f)}`);
     mkdirSync(dirname(copy), { recursive: true });
-    copyFileSync(f, copy);
+    writeFileSync(copy, `#sourceLocation(file: ${JSON.stringify(realpathSync(f))}, line: 1)\n${readFileSync(f, 'utf8')}`);
     return copy;
   })), packageSources = packages.length ? [seam, ...packageCopies.flat()] : [];
   if (composing) writeFileSync(composed, composedModule(packages, modules.apple.length > 0));
