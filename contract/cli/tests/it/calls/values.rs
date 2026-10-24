@@ -10,6 +10,27 @@ const STATE: &str = "state pick = 7";
 const DEVICE: &str = "resource pick = exactViewport() as shape Viewport";
 
 #[test]
+fn lean_components_preserve_child_device_resources() {
+    let src = include_str!("../../../../../semantics/corpus/components/device-facts.contract");
+    let emitted = contract::lean::lean_components(src, "facts").unwrap();
+    let child = emitted.split("name := \"Child\", props :=").nth(1).unwrap();
+    let resources = child
+        .split("resources := ")
+        .nth(1)
+        .unwrap()
+        .split(",\n      mutations :=")
+        .next()
+        .unwrap();
+    assert_eq!(
+        resources,
+        "[{ name := \"pick\", ty := (.record \"Viewport\"), source := \"exactViewport\", args := [] },\n    \
+         { name := \"online\", ty := (.record \"Page\"), source := \"exactPage\", args := [] }]"
+    );
+    assert!(!emitted.contains("pick@Child"));
+    assert!(!emitted.contains("online@Child"));
+}
+
+#[test]
 fn state_values_leave_function_calls_intact() {
     let mut r = boot(include_str!(
         "../../../../../semantics/corpus/components/state-fn.contract"

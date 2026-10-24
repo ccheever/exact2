@@ -126,7 +126,7 @@ structure Subst where
   binders : List (String × Option String) := []
   /-- Whether a call's head is replaced too. -/
   calls : Bool := true
-  /-- States and derives replace value reads only, including derives whose bodies are calls. -/
+  /-- States, derives and device resources replace value reads only. -/
   valueOnly : List String := []
   /-- Record constructors: a call naming one keeps its head. -/
   records : List String := []
@@ -259,7 +259,11 @@ def substStmts (s : Subst) (names : List (String × String)) : List Stmt → Lis
     | .call a args =>
       .call ((names.find? (·.1 == a)).map (·.2) |>.getD a) (substList s args) :: substStmts s names rest
     | .send t src args => .send t src (substList s args) :: substStmts s names rest
-    | .refresh t => .refresh t :: substStmts s names rest
+    | .refresh t =>
+      let target := match s.get t with
+        | .some (.name n) | .some (.expr (.var n)) => n
+        | _ => t
+      .refresh target :: substStmts s names rest
     | .ifS c a b => .ifS (substExpr s c) (substStmts s names a) (substStmts s names b) :: substStmts s names rest
     | .matchS subj x a b =>
       let (x', s') := s.enter x (stmtsAllNames a)
@@ -843,17 +847,22 @@ def injectArgs (provides : List (String × Expr)) (c : CComponent) :
     | .none => .error s!"`{c.name}` injects `{pd.name}`, and no component above this use provides it"
 
 /-- The first part of a use's substitution (inline.rs `child_subst`): its
-props, then its injects, then its states as their lifted names `x#n`. -/
+props, injects, states as `x#n`, and device resources as `x@Component`. -/
 def baseMap (s : Subst) (c : CComponent) (args provides : List (String × Expr)) (n : Nat) :
     Except String SMap := do
   let pa ← propArgs s c args
   let ia ← injectArgs provides c
-  pure (insertAll (insertAll (insertAll [] pa) ia) (c.states.map fun st => (st.name, .var (lifted st.name n))))
+  let m := insertAll (insertAll (insertAll [] pa) ia) (c.states.map fun st => (st.name, .var (lifted st.name n)))
+  pure (insertAll m (c.deviceResources.map fun r => (r.name, .var (hoisted c.name r.name))))
+
+/-- State and device-resource reads leave same-named function calls intact. -/
+def valueNames (c : CComponent) : List String :=
+  c.states.map (·.name) ++ c.deviceResources.map (·.name)
 
 /-- The derives, each resolved expression substituted against `m`, inserted
-as value-only bindings. States also leave call heads intact while resolving them. -/
-def withDerives (records states : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
-  let valueOnly := states ++ derives.map (·.1)
+as value-only bindings, alongside states and device resources. -/
+def withDerives (records values : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
+  let valueOnly := values ++ derives.map (·.1)
   { map := insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records, valueOnly } e)),
     valueOnly, records }
 
@@ -969,8 +978,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       let derives ← match resolvedDerives c with
         | .ok ds => pure ds
         | .error e => refuse e
-      let stateNames := c.states.map (·.name)
-      let cs := withDerives p.records stateNames child derives
+      let cs := withDerives p.records (valueNames c) child derives
       let owner' : Option (Nat × Nat) := match owner with
         | .arm t a => Option.some (t, a)
         | _ => Option.none
@@ -984,7 +992,9 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           if src != "" then act := act.insert src (.var param)
         for st in c.states do
           act := act.insert st.name (.var (nameOf st.name))
-        let mut asub := withDerives p.records stateNames act derives
+        for r in c.deviceResources do
+          act := act.insert r.name (.var (hoisted c.name r.name))
+        let mut asub := withDerives p.records (valueNames c) act derives
         for (q, _) in a.params do
           asub := { asub with map := asub.map.erase q }
         let body := callMarked called
@@ -1021,7 +1031,7 @@ def expand (p : CProgram) : Except String Program := do
   let (actions, _) ← (hygiene p.records actions).run 0
   pure { shapes := p.shapes, fns := p.fns,
          states := routerState ++ p.localeStates ++ root.states ++ ctx.extraStates,
-         derives := root.derives, resources := root.resources, mutations := root.mutations,
+         derives := root.derives, resources := p.resources, mutations := root.mutations,
          actions, tasks := root.tasks, view, routes := p.routes, router := p.router,
          strings := p.strings, locale := p.locale }
 
