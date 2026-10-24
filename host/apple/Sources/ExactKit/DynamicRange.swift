@@ -217,6 +217,15 @@ extension NodeView {
         for l in own?.sublayers ?? [] where l.name == SvgHost.rootName { l.applyColorRange(limit: limit, deep: true) }
     }
 
+    func paragraphHeadroom(drawing: Bool) -> Float {
+        if let h = cachedTextHeadroom { return h }
+        // Outside a draw only an already-made spec counts, so a paragraph's spec stays lazy.
+        guard let spec = drawing ? paragraphSpec() : cachedTextSpec else { return 0 }
+        let h = spec.headroom
+        cachedTextHeadroom = h
+        return h
+    }
+
     /// The peak of what this view draws itself (a drawn box, a paragraph
     /// drawn rather than rastered), or 0.
     func drawnHeadroom(drawing: Bool) -> Float {
@@ -234,8 +243,7 @@ extension NodeView {
                 h = max(h, ColorRange.headroom(cgColor(key)))
             }
         }
-        // Outside a draw only an already-made spec counts, so a paragraph's spec stays lazy.
-        if text, let spec = drawing ? paragraphSpec() : cachedTextSpec { h = max(h, spec.headroom) }
+        if text { h = max(h, paragraphHeadroom(drawing: drawing)) }
         return h
     }
 

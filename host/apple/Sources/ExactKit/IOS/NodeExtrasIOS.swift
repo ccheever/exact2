@@ -23,7 +23,8 @@ struct AimedGradient {
 final class TextSpecs {
     var rasterKey: TextRasterKey?
     var rasterSpec: Spec?
-    var cached: Spec?
+    var cached: Spec? { didSet { headroom = nil } }
+    var headroom: Float?
     var raster: CGImage?
     var rasterLayer: CALayer?
     /// The view whose layer `rasterLayer` is when the ink is one colour.
@@ -204,6 +205,7 @@ extension NodeView {
     /// have left behind since (`invalidateText` keeps the old pixels up).
     var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
+    var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
     var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
