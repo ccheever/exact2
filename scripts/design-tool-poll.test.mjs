@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnOwned } from './test-children.mjs';
-import { DRIVEN, ROOT, SLOW, TOOL_ORIGIN, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, HEARTBEAT_RACE, ROOT, SLOW, TOOL_ORIGIN, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -64,7 +64,7 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
     expect([idle.answer, idle.seq, idle.epoch, idle.recent]).toEqual([opened.answer, opened.seq, opened.epoch, opened.recent]);
     expect(idle.stream).toBe(true);
     // The write: one reply on, folded from the stream, attributed.
-    expect(after.answer).toBe(idle.answer + 1);
+    expect(after.answer, HEARTBEAT_RACE).toBe(idle.answer + 1);
     expect(after.stream).toBe(true);
     expect(after.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
   } finally {

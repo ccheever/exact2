@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { spawnOwned } from './test-children.mjs';
-import { ROOT, SLOW, TOOL_DIST, TOOL_ORIGIN, drive, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
+import { HEARTBEAT_RACE, ROOT, SLOW, TOOL_DIST, TOOL_ORIGIN, drive, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
 
@@ -122,7 +122,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     // The frame's build and the other, each with the facts it reports.
     const builds = states[0].resources.changes.builds;
     const frame = builds.find(b => b.host === 'web-js');
-    expect(frame).toMatchObject({ pin: '', caughtUp: true });
+    expect(frame, HEARTBEAT_RACE).toMatchObject({ pin: '', caughtUp: true });
     // It said the plan it runs: dist's app.plan, whose map the loop keeps.
     driving = false;
     const plan = createHash('sha256').update(readFileSync(join(dist, 'app.plan'))).digest('hex');
