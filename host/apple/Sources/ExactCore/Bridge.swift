@@ -178,6 +178,11 @@ package final class Runtime {
         let ctx = UInt(bitPattern: ctx)
         on { exact_set_fonts(rt, fonts, UnsafeMutableRawPointer(bitPattern: ctx)) }
     }
+    /// The host's clock in the runner's milliseconds, or nil for the seekable one that
+    /// tests and the agent move (the timers RFC, D1); later boots take it too.
+    package func setLiveClock(_ wall: (@convention(c) () -> Double)?) {
+        on { () -> Void in _ = exact_set_live_clock(rt, wall) }
+    }
     /// The wake for a request's reply (LLP 1016 D2), on the executor's thread.
     package func setWake(_ wake: ExactWakeFn?, ctx: UnsafeMutableRawPointer?) {
         let ctx = UInt(bitPattern: ctx)

@@ -297,6 +297,27 @@
         }
       }
     },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "component"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]*\\.contract$",
+          "description": "The Contract file of the watch entry, beside `app.contract`; the phone's plan does not use it."
+        },
+        "component": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "description": "The root of the watch entry (LLP 1126.002 D4): the first component of `source`, compiled to its own live plan, which the watch app boots."
+        }
+      },
+      "description": "The app's watch entry: its own live plan (state, resources, timers, handlers), the app's screen on Apple Watch. Not a widget: no families, preview props or refresh."
+    },
     "widgets": {
       "type": "array",
       "items": {

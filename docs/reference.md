@@ -611,8 +611,12 @@ to LLP 1126.001 §5 Q6's pending ruling.
 
 `bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
 companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
---watch-sim <watch udid>` installs it on an existing, booted pair and opens its
-placeholder gallery. Add a complication through the watch face's editor.
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens it.
+An app whose `app.json` declares a `watch` entry (`{"source", "component"}`:
+its own Contract file and root component, LLP 1126.002 D4) runs that entry live
+on the watch; the bake refuses what the watch does not draw. An app with none
+opens its complications' placeholders. Add a complication through the watch
+face's editor.
 The watch extension keeps the accessory families (`accessoryCircular`,
 `accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
 `accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
@@ -620,7 +624,7 @@ families; `families` still names its iOS families. An app with `app.ts` has all
 watch entries omitted with a message, including its Rust refreshes, until the
 watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
 refresh against the watch's own App Group and store. No account transfer is
-performed. The watch app is a placeholder gallery until the live driver lands.
+performed.
 For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
 optional image. Only that leaf and image survive the inline archive; a
 container's background and layout do not. The bake evaluates the preview at
