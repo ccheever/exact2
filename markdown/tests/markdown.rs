@@ -711,6 +711,46 @@ fn angle_figure_destinations_match_inline_targets() {
 }
 
 #[test]
+fn angle_embed_targets_with_spaces_or_parentheses_stay_inline() {
+    for prefix in [
+        "https://youtu.be/ab",
+        "https://youtube.com/watch?v=ab",
+        "https://youtube.com/shorts/ab",
+        "https://youtube.com/embed/ab",
+        "https://youtube.com/live/ab",
+        "https://instagram.com/p/ab",
+        "https://instagram.com/reel/ab",
+        "https://instagram.com/tv/ab",
+        "https://vm.tiktok.com/ab",
+        "https://vt.tiktok.com/ab",
+    ] {
+        for suffix in [")c", "(c", "c def", "c\tdef", r"\)c"] {
+            let target = format!("{prefix}{suffix}");
+            let source = format!("[Watch](<{target}>)");
+            assert_eq!(segments(&source, 0), [Segment::Text(&source)], "{source}");
+            let styled = style(&source, None);
+            assert_eq!(styled.paragraphs[0].kind, ParagraphKind::Body, "{source}");
+            assert_eq!(styled.spans[0].href, target.replace(r"\)", ")"), "{source}");
+            let empty = format!("[](<{target}>)");
+            assert_eq!(segments(&empty, 0), [Segment::Text(&empty)], "{empty}");
+            assert_eq!(
+                style(&empty, None).paragraphs[0].kind,
+                ParagraphKind::Body,
+                "{empty}"
+            );
+        }
+    }
+    for source in [
+        "https://youtu.be/abc.",
+        "[Watch](<https://youtu.be/abc%29>)",
+    ] {
+        assert!(
+            matches!(&segments(source, 0)[0], Segment::Embed { embed, .. } if embed.id == "abc")
+        );
+    }
+}
+
+#[test]
 fn malformed_angle_figures_and_other_refused_shapes_stay_text() {
     for source in [
         "![a](<a<b.png>)",
