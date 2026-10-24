@@ -7,9 +7,15 @@
   ],
   "shapes": {
     "AndroidTrack": {
-      "isClientSilenced": "bool"
+      "isClientSilenced": "bool",
+      "cameraId": "option<string>",
+      "lensFacing": "option<string>"
     },
     "AndroidMicrophoneStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    },
+    "AndroidCameraStatus": {
       "shouldShowRationale": "bool",
       "permanentlyDenied": "bool"
     }

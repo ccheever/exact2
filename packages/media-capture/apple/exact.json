@@ -9,10 +9,19 @@
   "shapes": {
     "AppleTrack": {
       "portType": "option<string>",
-      "portName": "option<string>"
+      "portName": "option<string>",
+      "deviceType": "option<string>",
+      "position": "option<string>"
     },
     "AppleMicrophoneStatus": {
       "recordPermission": "enum<undetermined|denied|granted|notDetermined|restricted|authorized>"
+    },
+    "AppleCameraStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorized>"
+    },
+    "AppleUnitPoint": {
+      "x": "number",
+      "y": "number"
     }
   },
   "options": {
@@ -22,17 +31,28 @@
       "prefersNoInterruptionsFromSystemAlerts": "bool",
       "preferredIOBufferDuration": "number",
       "inputDataSource": "string",
-      "polarPattern": "enum<stereo|cardioid|omnidirectional>"
+      "polarPattern": "enum<stereo|cardioid|omnidirectional>",
+      "deviceType": "enum<builtInWideAngleCamera|builtInUltraWideCamera|builtInTelephotoCamera|builtInDualCamera|builtInDualWideCamera|builtInTripleCamera|builtInTrueDepthCamera|builtInLiDARDepthCamera|continuityCamera|deskViewCamera|external>"
+    },
+    "applyConstraints": {
+      "deviceType": "enum<builtInWideAngleCamera|builtInUltraWideCamera|builtInTelephotoCamera|builtInDualCamera|builtInDualWideCamera|builtInTripleCamera|builtInTrueDepthCamera|builtInLiDARDepthCamera|continuityCamera|deskViewCamera|external>",
+      "focusMode": "enum<locked|autoFocus|continuousAutoFocus>",
+      "exposureMode": "enum<locked|autoExpose|continuousAutoExposure>",
+      "focusPointOfInterest": "AppleUnitPoint",
+      "exposurePointOfInterest": "AppleUnitPoint"
     }
   },
   "names": [],
   "views": [],
   "hatches": [
-    "audioEngine"
+    "audioEngine",
+    "captureSession",
+    "captureDevice"
   ],
   "sources": {
     "swift": [
-      "MediaCapture.swift"
+      "MediaCapture.swift",
+      "VideoCapture.swift"
     ]
   },
   "artifacts": [],

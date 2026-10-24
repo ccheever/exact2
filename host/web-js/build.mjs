@@ -751,11 +751,14 @@ if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
 // first use (files.js; a source's `storage`, ts-data.js and rust-data.js; an
-// `app:/` image's file, symbols.js, or media element's, media.js): what
-// host/web/build.mjs ships.
-if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
+// `app:/` image's file, symbols.js, or media element's, media.js; a module
+// implementation's files, modules.js; a module view's `app:/` file, native.js):
+// what host/web/build.mjs ships.
+const extensionFiles = moduleFlag.extensions.length > 0;
+if (files || moduleStorage || extensionFiles || pageModules || /^\s*(?:fs|sqlite)\./m.test(grants)) {
   const storageGrants = /^\s*(?:fs|sqlite)\./m.test(grants);
-  const seeds = [resolve(gen, 'symbols.js'), files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js')].filter(Boolean);
+  const seeds = [resolve(gen, 'symbols.js'), files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js'),
+    extensionFiles && resolve(gen, 'modules.js'), (pageModules || extensionFiles) && resolve(gen, 'native.js')].filter(Boolean);
   const roots = seeds.flatMap(seed => literalModuleURLs(readFileSync(seed, 'utf8'))).map(specifier => specifier.replace(/^\.\//, ''));
   await copyLazyModules(roots);
 }
