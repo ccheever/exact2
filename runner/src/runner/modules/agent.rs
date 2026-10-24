@@ -10,8 +10,10 @@ impl<D: DataSource> Runner<D> {
     /// names, by its extension: whether a host's implementation answers it
     /// (`bound`, and `agent` where it answers under the agent), its
     /// permission's state, the preferred values, each source's readers (a
-    /// resource that reads it, or whose data code did), and the tickets held
-    /// with their calls' origins. `None` for a plan that names none.
+    /// resource that reads it, or whose data code did), the tickets held
+    /// with their calls' origins, and its ceremonies and signals, each by
+    /// name, RP ID, origin and outcome, never a response (LLP 1133.011 §9).
+    /// `None` for a plan that names none.
     pub fn extensions_json(&self) -> Option<String> {
         if self.plan.modules.is_empty() && self.plan.views.is_empty() {
             return None;
@@ -50,8 +52,13 @@ impl<D: DataSource> Runner<D> {
                     .collect();
                 entry["readers"][&declared] = json!(readers);
             }
+            let ceremonies = self.ceremonies_of(&extension);
+            if !ceremonies.is_empty() {
+                entry["ceremonies"] = json!(ceremonies);
+            }
             for h in self.extensions.held.iter().filter(|h| {
                 h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
+                    && !h.queued
             }) {
                 if let Some(held) = entry["held"].as_array_mut() {
                     held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": h.waits.word() }));
@@ -185,11 +192,12 @@ impl<D: DataSource> Runner<D> {
                     object.insert(field.into(), json!("prompt"));
                 }
                 // An implementation's own substitute takes a partial
-                // overlay (LLP 1133.009 D10 item 11); a declared one, a value.
-                // A sampled source's takes a reading or a track of steps (§9).
+                // overlay (LLP 1133.009 D10 item 11), as a `partial` source
+                // does over its default; a declared one, a value. A sampled
+                // source's takes a reading or a track of steps (§9).
                 let checked = if sub["track"] == true {
                     self.track_checked(&row, &checked)
-                } else if sub["implementation"] == true {
+                } else if sub["implementation"] == true || sub["partial"] == true {
                     self.partial(&row, &checked)
                 } else {
                     self.typed(&row, &checked.to_string()).map(|_| ())

@@ -38,6 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod admit;
 mod agent;
 mod bound;
+mod ceremony;
 mod handles;
 mod poll;
 mod presence;
@@ -97,6 +98,9 @@ pub(super) struct Extensions {
     presence: presence::Presence,
     /// Sampled sources' cursors, tracks and canvas inputs (`samples.rs`).
     samples: samples::Samples,
+    /// The ceremonies and signals held or answered, by held token, with
+    /// their extension (`ceremony.rs`).
+    ceremonies: Vec<(u64, String, Json)>,
 }
 
 /// A Contract read or send of a module's name, as admission saw it.
@@ -144,6 +148,10 @@ struct Held {
     args: Json,
     /// The permission it waits on or asked, by name; empty for none.
     permission: String,
+    /// A data-code call's request, whose reply carries handles (`handles.rs`).
+    request: Option<u64>,
+    /// A ceremony waiting behind a modal one, with no ticket yet (`ceremony.rs`).
+    queued: bool,
 }
 
 /// A held data-code call's two halves, whichever comes first: the host's
@@ -182,6 +190,9 @@ enum Waits {
     /// A send that is a person's check (`check`: LLP 1133.010 §7), answered
     /// by a tap: `allow` passes it, each other choice fails it.
     Check,
+    /// A sheet the person answers (`ceremony`: LLP 1133.011 §9), with a
+    /// typed response or a tap that fails it.
+    Ceremony,
 }
 
 impl Waits {
@@ -191,6 +202,7 @@ impl Waits {
             Waits::Value => "value",
             Waits::Raise => "raise",
             Waits::Check => "check",
+            Waits::Ceremony => "ceremony",
         }
     }
 }
@@ -466,8 +478,18 @@ impl<D: DataSource> Runner<D> {
         if self.unavailable(row) {
             return Decision::Now(json!({ "error": "NotSupportedError" }));
         }
-        self.decide_permission(row, send, args)
-            .unwrap_or_else(|| self.decide_value(row, &self.substitute(row), send, args))
+        if let Some(decision) = self.decide_permission(row, send, args) {
+            return decision;
+        }
+        let sub = self.substitute(row);
+        if send && sub["ceremony"].is_object() {
+            return self.decide_ceremony(row, &sub, args);
+        }
+        // A signal the substitute records (LLP 1133.011 §9) answers nothing.
+        if send && sub["records"] == true {
+            return Decision::Now(Json::Null);
+        }
+        self.decide_value(row, &sub, send, args)
     }
 
     /// What the runner's permission decides of `row` now: its status
@@ -590,23 +612,29 @@ impl<D: DataSource> Runner<D> {
     /// A source's preferred value, completed by its `fill`; else its
     /// default. An interface that is its own substitute takes a partial
     /// preferred value (LLP 1133.009 D10 item 11), laid over the default
-    /// where the runner answers itself (a status). Its `facts` are the
-    /// runner's own, over either.
+    /// where the runner answers itself (a status), as does a `partial`
+    /// source's. A default has this target's restrictions laid over it
+    /// (`targets`). Its `facts` are the runner's own, over either.
     fn value_of(&self, row: &ModulesRow) -> Option<Json> {
         let sub = self.substitute(row);
-        let default = &sub["default"];
-        let mut value = match self.preferred(row) {
-            Some(p)
-                if sub["implementation"] == true
-                    && default.is_object()
-                    && error_code(&p).is_none() =>
-            {
-                let mut v = default.clone();
-                admit::overlay(&mut v, &p);
-                Some(v)
+        let default = (!sub["default"].is_null()).then(|| {
+            let mut default = sub["default"].clone();
+            if let Some(restricted) = sub["targets"].get(ceremony::target()) {
+                admit::overlay(&mut default, restricted);
             }
-            p => p.or_else(|| (!default.is_null()).then(|| default.clone())),
-        }?;
+            default
+        });
+        let partial = sub["partial"] == true
+            || (sub["implementation"] == true && default.as_ref().is_some_and(Json::is_object));
+        let mut value = match self.preferred(row) {
+            Some(p) if partial && error_code(&p).is_none() => {
+                let mut value = default.unwrap_or(json!({}));
+                admit::overlay(&mut value, &p);
+                value
+            }
+            Some(p) => p,
+            None => default?,
+        };
         for (field, fact) in sub["facts"].as_object().into_iter().flatten() {
             let known = match fact.as_str() {
                 // The host keeps locked secrets (LLP 1133.010 D7).
@@ -664,7 +692,7 @@ impl<D: DataSource> Runner<D> {
         self.extensions.next += 1;
         let name = self.target_name(target);
         let permission = self.permission_name(&row, &args);
-        let hold = self.device_hold(&row, name, waits, origin, &permission);
+        let hold = self.device_hold(&row, name, waits, origin, &permission, &args);
         let deadline = timeout
             .filter(|_| waits == Waits::Value)
             .map(|t| self.now_ms + t);
@@ -682,6 +710,8 @@ impl<D: DataSource> Runner<D> {
             origin,
             args,
             permission,
+            request: None,
+            queued: false,
         });
         let verb = if row.send { "send" } else { "source" };
         let body =
@@ -699,10 +729,13 @@ impl<D: DataSource> Runner<D> {
         waits: Waits,
         origin: CallOrigin,
         permission: &str,
+        call: &Json,
     ) -> u64 {
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let checks = check_choices(&sub);
+        let taps = self.ceremony_choices(&sub);
+        let taps: Vec<&str> = taps.iter().map(String::as_str).collect();
         let (capability, args, choices, value) = match waits {
             Waits::Permission => (
                 "permission".to_owned(),
@@ -733,6 +766,14 @@ impl<D: DataSource> Runner<D> {
                 json!({ "request": declared, "origin": origin.word() }),
                 &checks[..],
                 false,
+            ),
+            Waits::Ceremony => (
+                (sub["ceremony"]["ticket"].as_str())
+                    .unwrap_or("ceremony")
+                    .to_owned(),
+                self.ceremony_args(row, call, origin),
+                &taps[..],
+                true,
             ),
         };
         let ticket = self.hold(&capability, None, &args.to_string(), choices, value);
@@ -791,6 +832,7 @@ impl<D: DataSource> Runner<D> {
             return;
         };
         let held = self.extensions.held.remove(at);
+        let answer = self.ceremony_ended(&held, answer);
         match held.reply {
             Some(slot) => {
                 let row = self.module_row(&held.source);
@@ -862,6 +904,8 @@ impl<D: DataSource> Runner<D> {
         let reader = self.data_reader(&row, &args);
         self.extensions.samples.asking = Some((reader.clone(), origin));
         self.sampled_ask(&row, &args);
+        // The call's request, when its reply carries handles (`handles.rs`).
+        let request = self.claim_request(body);
         let decision = self.admitted(&row, &args, origin, send, timeout);
         let out = match decision {
             Decision::Forward => {
@@ -870,7 +914,10 @@ impl<D: DataSource> Runner<D> {
                 }
                 let sampled = self.samples_of(&row);
                 let body = self.forward_body(&row, args, None);
-                let work = self.to_implementation(body);
+                let work = match request {
+                    Some(ticket) => self.watched(body, ticket),
+                    None => self.to_implementation(body),
+                };
                 Some(match (sampled, reader) {
                     (Some(decl), samples::Reader::Data(id)) => {
                         self.cursored(work, id, decl["cursor"].as_str().unwrap_or("sequence"))
@@ -888,13 +935,25 @@ impl<D: DataSource> Runner<D> {
                 if error_code(&answer).is_none() {
                     self.sampled_answered(&row, &answer);
                 }
+                let sub = self.substitute(&row);
+                if sub["ceremony"].is_object() || sub["records"] == true {
+                    let token = TOKENS.start + self.extensions.next;
+                    self.extensions.next += 1;
+                    let outcome = error_code(&answer).unwrap_or("recorded").to_owned();
+                    self.record_ceremony(token, &row, &args, &outcome);
+                }
                 Some(now(self.completed(&row, answer)))
             }
             Decision::Hold(waits) => {
                 let token = TOKENS.start + self.extensions.next;
                 self.extensions.next += 1;
                 let permission = self.permission_name(&row, &args);
-                let hold = self.device_hold(&row, key, waits, origin, &permission);
+                // One sheet at a time (`ceremony.rs`): behind a modal one, no ticket yet.
+                let queued = waits == Waits::Ceremony && self.ceremony_begins(&row);
+                let hold = match queued {
+                    true => u64::MAX,
+                    false => self.device_hold(&row, key, waits, origin, &permission, &args),
+                };
                 let slot = Arc::new(Mutex::new(Pending::default()));
                 let deadline = timeout
                     .filter(|_| waits == Waits::Value)
@@ -915,9 +974,19 @@ impl<D: DataSource> Runner<D> {
                     deadline,
                     forward,
                     origin,
-                    args: held_args,
+                    args: held_args.clone(),
                     permission,
+                    request,
+                    queued,
                 });
+                if waits == Waits::Ceremony {
+                    self.record_ceremony(
+                        token,
+                        &row,
+                        &held_args,
+                        if queued { "queued" } else { "held" },
+                    );
+                }
                 Some(Dispatch::Run(Work::Later(Box::new(move |reply| {
                     let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
                     match s.outcome.take() {
@@ -984,6 +1053,11 @@ impl<D: DataSource> Runner<D> {
     /// can be corrected. `None` when the hold is not a module's.
     pub(super) fn module_check(&self, ticket: u64, text: &str) -> Option<Result<(), String>> {
         let h = self.extensions.held.iter().find(|h| h.hold == ticket)?;
+        if h.waits == Waits::Ceremony {
+            let row = self.module_row(&h.source);
+            let typed = self.ceremony_typed(&row, text);
+            return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
+        }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
         }
@@ -1121,6 +1195,15 @@ impl<D: DataSource> Runner<D> {
                 };
                 self.release(token, answer);
             }
+            (Waits::Ceremony, HoldAnswer::Choice(c)) => {
+                let answer = self.ceremony_tapped(&sub, c);
+                self.release(token, answer);
+            }
+            (Waits::Ceremony, HoldAnswer::Value(text)) => {
+                if let Ok(response) = self.ceremony_typed(&row, text) {
+                    self.release(token, response);
+                }
+            }
             (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_)) => {}
         }
     }
@@ -1182,7 +1265,8 @@ impl<D: DataSource> Runner<D> {
                         Decision::Forward => self.release_forward(token),
                         Decision::Hold(waits) => {
                             if let Some((held_by, origin)) = self.held_name(token, &row) {
-                                let hold = self.device_hold(&row, held_by, waits, origin, name);
+                                let hold =
+                                    self.device_hold(&row, held_by, waits, origin, name, &args);
                                 let deadline = timeout
                                     .filter(|_| waits == Waits::Value)
                                     .map(|t| self.now_ms + t);
@@ -1333,9 +1417,12 @@ impl<D: DataSource> Runner<D> {
 
 /// The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`, which
 /// may say more in a `message`.
+/// Each platform's own code may travel beside it (`apple`, `android`; LLP
+/// 1133.011 D1).
 fn error_code(json: &Json) -> Option<&str> {
     let object = json.as_object()?;
-    let only = object.len() == 1 || (object.len() == 2 && object.contains_key("message"));
+    let only =
+        (object.keys()).all(|k| matches!(k.as_str(), "error" | "message" | "apple" | "android"));
     only.then(|| object.get("error")?.as_str())?
 }
 

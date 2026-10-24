@@ -717,12 +717,17 @@
           "additionalProperties": false
         },
         "android": {
-          "description": "Android: `minimumOS` (default 12).",
+          "description": "Android: `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
           "type": "object",
           "properties": {
             "minimumOS": {
               "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
               "enum": ["10", "11", "12", "13", "14", "15", "16"]
+            },
+            "certificates": {
+              "description": "The SHA-256 fingerprints of every certificate that signs the app (the debug key, the upload key, Play App Signing's), as `AB:CD:…`: the origin's `/.well-known/assetlinks.json` lets each use the app's passkeys (LLP 1133.011 D6).",
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){31}$" }
             }
           },
           "additionalProperties": false

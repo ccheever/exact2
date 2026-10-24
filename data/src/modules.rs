@@ -111,6 +111,27 @@ impl<T: ModuleValue> ModuleValue for Vec<T> {
     }
 }
 
+/// A WebAuthn dictionary passed whole (`json<T>`, LLP 1133.011 D10): the
+/// module checks only that it is JSON, the platform the rest.
+impl ModuleValue for Json {
+    fn encode(&self) -> Result<Option<Json>, String> {
+        Ok((!self.is_null()).then(|| self.clone()))
+    }
+    fn decode(json: &Json) -> Result<Self, String> {
+        Ok(json.clone())
+    }
+}
+
+/// A name that answers nothing (`unit`): a signal.
+impl ModuleValue for () {
+    fn encode(&self) -> Result<Option<Json>, String> {
+        Ok(None)
+    }
+    fn decode(_: &Json) -> Result<Self, String> {
+        Ok(())
+    }
+}
+
 /// A record's field into `object`, under its declared name.
 pub fn put<T: ModuleValue>(
     object: &mut Map<String, Json>,
@@ -162,15 +183,19 @@ pub fn reply(name: &str, outcome: &Outcome) -> Result<Json, ModuleError> {
     };
     let json: Json = serde_json::from_slice(body)
         .map_err(|e| unsupported(format!("the reply is not JSON: {e}")))?;
-    match json
-        .as_object()
-        .filter(|o| o.len() == 1)
-        .and_then(|o| o.get("error")?.as_str())
-    {
-        Some(code) => Err(ModuleError::new(code, format!("{name}: {code}"))),
+    let error = (json.as_object())
+        .filter(|o| o.keys().all(|k| ERROR_KEYS.contains(&k.as_str())))
+        .and_then(|o| Some((o.get("error")?.as_str()?, o.get("message")?.as_str())));
+    match error {
+        Some((code, Some(said))) => Err(ModuleError::new(code, format!("{name}: {code}: {said}"))),
+        Some((code, None)) => Err(ModuleError::new(code, format!("{name}: {code}"))),
         None => Ok(json),
     }
 }
+
+/// The keys of a module's error answer: its code, what it says, and each
+/// platform's own code (LLP 1133.011 D1: `apple.code`, `android.type`).
+const ERROR_KEYS: [&str; 4] = ["error", "message", "apple", "android"];
 
 /// A reply that is not the declared shape.
 pub fn malformed(name: &str, why: String) -> ModuleError {

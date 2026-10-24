@@ -3,14 +3,16 @@
 //! or a bound implementation, in production or under the agent.
 //!
 //! In order: the grant lines the name or its arguments list (LLP 1133.009
-//! D10 item 9; the interface's own lines are the bake's, `grant-missing`);
+//! D10 item 9; the interface's own lines are the bake's, `grant-missing`),
+//! and those an argument's value must be the target of (LLP 1133.011 D6,
+//! `ceremony.rs`), which refuse with their own code;
 //! the name's `origin` (`"app"`: a tool invocation or a wake is refused,
 //! `person-required`, item 8; `{"whenAny", "is": "app"}`, only when the call
 //! gives one of the options named, LLP 1133.012 D12 item 5); its
 //! `foreground` (refused while the page is
 //! hidden, item 3); each conditioned by its `when` where it has one; then the
-//! permission. Every refusal answers `NotAllowedError`, an origin's with the
-//! `message` `person-required`.
+//! permission. Every other refusal answers `NotAllowedError`, with the
+//! message `person-required` for the origin's.
 //!
 //! **Routes.** A name is answered by its implementation as in production
 //! where the host bound it so (outside the agent, or `--bind`), and the
@@ -212,6 +214,12 @@ impl<D: DataSource> Runner<D> {
                 json!({ "error": "PERMISSION_DENIED", "message": "person-required" }),
             );
         }
+        // A grant matched by the argument's value fails with its own code
+        // (`SecurityError` for an RP ID, LLP 1133.011 D6).
+        if let Err((code, why)) = self.value_grants(row, args) {
+            self.log(format!("{}: refused, {why}", self.key(row)));
+            return Decision::Now(json!({ "error": code, "message": why }));
+        }
         if let Err(why) = self.admit(row, args, origin) {
             self.log(format!("{}: refused, {why}", self.key(row)));
             if why.starts_with("person-required") {
@@ -329,7 +337,7 @@ impl<D: DataSource> Runner<D> {
             Some(Decision::Now(answer)) => self.release(token, answer),
             Some(Decision::Hold(waits)) => {
                 if let Some((held_by, origin)) = self.held_name(token, row) {
-                    let hold = self.device_hold(row, held_by, waits, origin, &name);
+                    let hold = self.device_hold(row, held_by, waits, origin, &name, args);
                     if let Some(h) = self.extensions.held.iter_mut().find(|h| h.token == token) {
                         h.hold = hold;
                         h.permission = name;
