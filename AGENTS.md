@@ -106,8 +106,8 @@ section binds (`rules/RULES.md`, "Agents").
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
   plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
-  and the Windows host with Windows Desk, and Weatherlight's Android APK (its Rust
-  for `aarch64-linux-android` and the reader's and its module's Kotlin). Tier 2 needs both Rust cross targets,
+  and the Windows host with Windows Desk (x64 and ARM64), and Weatherlight's Android APK (its Rust
+  for `aarch64-linux-android` and the reader's and its module's Kotlin). Tier 2 needs the three Rust cross targets,
   Zig (C and C++) and the pinned Linux Hermes bundle on this Mac, and for Android the SDK
   with platform 37.2, an NDK, a JDK 17 or newer and the `aarch64-linux-android` target and Hermes bundle. These checks qualify
   compilation, not native window, KMS, or input behavior. Building
