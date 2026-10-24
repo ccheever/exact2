@@ -140,6 +140,24 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(facts.contains(#""atom":"[Quote](t3-citation:1)""#), facts)
     }
 
+    func testAClickOnAPillSelectsTheAtom() throws {
+        let (_, f, window) = editor()
+        defer { window.close() }
+        let hit = try XCTUnwrap(f.atomFrames().first)
+        let p = f.convert(CGPoint(x: hit.frame.midX, y: hit.frame.midY), to: nil)
+        // As the window routes a click: from its frame view, in window coordinates.
+        let frameView = try XCTUnwrap(window.contentView?.superview)
+        let hitView = frameView.hitTest(frameView.convert(p, from: nil))
+        XCTAssertTrue(hitView is AtomCatcher, "a pill's click is the atom's: \(String(describing: hitView))")
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        NSApp.postEvent(up, atStart: true)
+        hitView?.mouseDown(with: down)
+        XCTAssertEqual(f.selectedRange(), hit.range)
+        // Beside the pill, the text's own click.
+        XCTAssertTrue(frameView.hitTest(frameView.convert(f.convert(CGPoint(x: hit.frame.maxX + 30, y: hit.frame.midY), to: nil), from: nil)) === f)
+    }
+
     func testAPillIsDrawnAgainForAnotherAppearance() throws {
         let (node, f, window) = editor()
         defer { window.close() }

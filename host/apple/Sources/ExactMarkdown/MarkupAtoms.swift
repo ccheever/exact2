@@ -95,6 +95,12 @@ final class AtomAttachment: NSTextAttachment {
         allowsTextAttachmentView = false
     }
     required init?(coder: NSCoder) { fatalError("not coded") }
+    /// No view: TextKit draws the picture (§5.1).
+    #if os(macOS)
+    override func viewProvider(for parentView: NSView?, location: NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
+    #else
+    override func viewProvider(for parentView: UIView?, location: NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
+    #endif
 
     /// Horizontal padding, of the label's font size, as the web's pill has.
     static let padding: CGFloat = 0.3

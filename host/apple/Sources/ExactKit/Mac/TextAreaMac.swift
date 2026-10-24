@@ -37,7 +37,7 @@ package final class TextArea: NSTextView {
     var atomElements: [AtomElement] = []
     package override func accessibilityChildren() -> [Any]? { atomElements.isEmpty ? super.accessibilityChildren() : (super.accessibilityChildren() ?? []) + atomElements }
     // A press on a pill is the atom's (D7); the arrow over one, as over a token.
-    package override func mouseDown(with event: NSEvent) { if !pressAtom(with: event) { super.mouseDown(with: event) } }
+    package override func hitTest(_ point: NSPoint) -> NSView? { atomHit(point) ?? super.hitTest(point) }
     package override func resetCursorRects() { super.resetCursorRects(); addAtomCursorRects() }
     // A pill is a picture drawn for one appearance: drawn again for another.
     package override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); if markup != nil { owner?.restyleMarkup() } }

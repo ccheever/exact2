@@ -81,7 +81,8 @@ enum MarkupRuns {
                 if let atom = p.atom, p.atom_len > 0, let detail = try? JSONSerialization.jsonObject(with: Data(bytes: atom, count: p.atom_len)) as? [String: Any] {
                     let kind = detail["kind"] as? String ?? ""
                     run.text = "\u{202F}" + run.text + "\u{202F}"
-                    run.decoration = p.strike != 0 ? "line-through" : ""
+                    // Its press is the atom's, not a link's: never underlined as one.
+                    run.decoration = p.strike != 0 ? "line-through" : "none"
                     run.background = paint[kind]?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
                     if let ink = paint[kind]?.ink { run.color = ink }
                     boxes += 1

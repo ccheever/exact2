@@ -95,6 +95,16 @@ extension TextArea {
     func addAtomCursorRects() {
         for (_, _, frame) in atomFrames() { addCursorRect(frame, cursor: .arrow) }
     }
+    /// The view a click on a pill lands on: TextKit 2's text view takes a
+    /// click through its own gesture recognizers, before any `mouseDown`, so
+    /// a pill's click goes to a view of its own (`AtomCatcher`) instead.
+    func atomHit(_ point: NSPoint) -> NSView? {
+        guard markup != nil, isSelectable, atom(at: convert(point, from: superview)) != nil else { return nil }
+        if let catcher = subviews.first(where: { $0 is AtomCatcher }) { return catcher }
+        let catcher = AtomCatcher(field: self)
+        addSubview(catcher)
+        return catcher
+    }
     /// A press on a pill: the atom's, not the text's.
     func pressAtom(with event: NSEvent) -> Bool {
         guard markup != nil, isSelectable, let hit = atom(at: convert(event.locationInWindow, from: nil)) else { return false }
@@ -102,6 +112,18 @@ extension TextArea {
         pressAtom(hit.range, held: (flags.contains(.shift), flags.contains(.control), flags.contains(.option), flags.contains(.command)))
         return true
     }
+}
+
+/// What a click on a pill lands on: it draws nothing and is hit only where
+/// `TextArea.atomHit` says.
+final class AtomCatcher: NSView {
+    weak var field: TextArea?
+    init(field: TextArea) { self.field = field; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("not coded") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { _ = field?.pressAtom(with: event) }
+    override func isAccessibilityElement() -> Bool { false }
 }
 
 /// An atom as assistive technology sees it: a button (or link, as

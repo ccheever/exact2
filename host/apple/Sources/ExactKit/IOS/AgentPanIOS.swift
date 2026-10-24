@@ -277,6 +277,7 @@ extension Agent {
               let node = reach.reached?.live(in: presenter), !node.disabled else { return ["pressed": NSNull()] }
         if let run = reach.run, !node.inert, node.activateInline(run) { return ["pressed": Int(run)] }
         if let href = reach.href {
+            if node.pressReaderAtom(href) { return ["pressed": Int(node.id)] } // an inline atom (LLP 1045.000 D7)
             presenter.session?.follow(href)
             return ["followed": href]
         }
