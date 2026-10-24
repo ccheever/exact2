@@ -918,13 +918,13 @@ component T3Code
   action focusSettingsTarget
     if settingsJumpReady
       let before = settingsPageState
-      let page = settingsPage
+      let targetPage = settingsPage
       let top = (
         max(0, frame(before.focusTarget).y - frame("settings-content-column").y +
           frame(before.focusTarget).height / 2 - frame("settings-content-scroll").height / 2) +
         (before.scrollTop == floor(before.scrollTop) ? 0.25 : 0)
       )
-      settingsPageState = SettingsPageState(before, scrollPage=page, scrollTop=top, focusTarget="")
+      settingsPageState = SettingsPageState(before, scrollPage=targetPage, scrollTop=top, focusTarget="")
       focus(before.focusTarget)
   // As scrollToSettingsTarget runs once the hash target mounts: a native `after(1, …)` runs after the layout the
   // change made. The poll below is a backstop.
