@@ -3,7 +3,7 @@
 // serves it at its own URL, and the agent drives that page (`agent web
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
-// apps/design-tool/app.test.contract.
+// apps/design-tool/*.test.contract.
 // Its heaviest drives are files of their own, so a lane runs them side by side (design-tool-ops, -canvas and
 // -scrub.test.mjs); each claims its own port and temp dirs (design-tool-harness.mjs).
 import { expect, test } from 'bun:test';
