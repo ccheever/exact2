@@ -1,6 +1,7 @@
 # On the web, a list stops 2 points short of its end after a touch drag
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed in 16ed05d9c7: the glue holds a request's correction while the port coasts and lands it at rest; runners count only landed corrections
 **Systems:** web host (the JS target's `list.js`), the virtualized `list`
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Excord's transcript lane (`apps/excord/llp/0001-excord.rfc.md` §3.9)
