@@ -755,3 +755,28 @@ fn a_tvs_back_presses_an_escape_button_a_bar_shows() {
     let surface = p.surface().expect("Back opened More's menu");
     assert_eq!(surface.kind, crate::presenter::top::SurfaceKind::Menu);
 }
+
+/// A page whose root listens for keys holds the bars' targets: from no
+/// focus on a screen whose only controls are the bars', an arrow reaches
+/// them, not the root.
+#[test]
+fn a_root_with_a_key_handler_does_not_hold_the_remote_from_the_bars() {
+    let source = APP
+        .replace(
+            "  action share\n",
+            "  action heard(k: string)\n    said = said\n  action share\n",
+        )
+        .replace(
+            "    main navigationKey=",
+            "    main key=heard navigationKey=",
+        );
+    assert_ne!(source, APP);
+    let mut p = barred_tv(&source);
+    tap(&mut p, "tab-other").unwrap();
+    p.run_commands(|| Nothing);
+    p.set_focus(None, 0.);
+    remote(&mut p, "ArrowDown", "ArrowDown");
+    assert_eq!(p.focus(), Some(id(&p, "tab-home")));
+    remote(&mut p, "ArrowRight", "ArrowRight");
+    assert_eq!(p.focus(), Some(id(&p, "tab-other")));
+}
