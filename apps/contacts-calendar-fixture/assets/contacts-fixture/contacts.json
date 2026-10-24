@@ -1,0 +1,198 @@
+{
+  "contacts": [
+    {
+      "id": "c1",
+      "name": [
+        "Ana Lima"
+      ],
+      "email": [
+        "ana@example.com"
+      ],
+      "tel": [
+        "+1 415 555 0101"
+      ],
+      "address": [
+        {
+          "addressLine": [
+            "1 Market St"
+          ],
+          "city": "San Francisco",
+          "country": "US",
+          "dependentLocality": "",
+          "organization": "",
+          "phone": "",
+          "postalCode": "94105",
+          "recipient": "Ana Lima",
+          "region": "CA",
+          "sortingCode": ""
+        }
+      ],
+      "icon": [
+        "c1.png"
+      ]
+    },
+    {
+      "id": "c2",
+      "name": [
+        "Ben Okafor"
+      ],
+      "email": [
+        "ben@example.com",
+        "ben.okafor@example.org"
+      ],
+      "tel": [
+        "+1 415 555 0102"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c3",
+      "name": [
+        "Chen Wei"
+      ],
+      "email": [
+        "chen@example.com"
+      ],
+      "tel": [],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c4",
+      "name": [
+        "Dana Kowalski"
+      ],
+      "email": [
+        "dana@example.com"
+      ],
+      "tel": [
+        "+48 22 555 0104"
+      ],
+      "address": [],
+      "icon": [
+        "c4.png"
+      ]
+    },
+    {
+      "id": "c5",
+      "name": [
+        "Eli Navarro"
+      ],
+      "email": [
+        "eli@example.com"
+      ],
+      "tel": [
+        "+34 91 555 0105"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c6",
+      "name": [
+        "Fatima Haddad"
+      ],
+      "email": [],
+      "tel": [
+        "+1 650 555 0106"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c7",
+      "name": [
+        "Gus Andersen"
+      ],
+      "email": [
+        "gus@example.com"
+      ],
+      "tel": [
+        "+45 32 555 0107"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c8",
+      "name": [
+        "Hana Sato"
+      ],
+      "email": [
+        "hana@example.com"
+      ],
+      "tel": [
+        "+81 3 5555 0108"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c9",
+      "name": [
+        "Ivan Petrov"
+      ],
+      "email": [
+        "ivan@example.com"
+      ],
+      "tel": [
+        "+1 212 555 0109"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c10",
+      "name": [
+        "Julia Rossi"
+      ],
+      "email": [
+        "julia@example.com"
+      ],
+      "tel": [
+        "+39 06 555 0110"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c11",
+      "name": [
+        "Kofi Mensah"
+      ],
+      "email": [
+        "kofi@example.com"
+      ],
+      "tel": [
+        "+233 30 555 0111"
+      ],
+      "address": [],
+      "icon": []
+    },
+    {
+      "id": "c12",
+      "name": [
+        "Lena Fischer"
+      ],
+      "email": [
+        "lena@example.com"
+      ],
+      "tel": [
+        "+49 30 555 0112"
+      ],
+      "address": [],
+      "icon": []
+    }
+  ],
+  "limited": [
+    "c1",
+    "c2",
+    "c3",
+    "c5"
+  ],
+  "icons": {
+    "c1.png": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAOklEQVR42u3OQQ0AAAgEoGtkQkPayBbOBxsBSPW8EiEhISEhISEhISEhISEhISEhISEhISEhISGhOwsMtmXEcf0AKAAAAABJRU5ErkJggg==",
+    "c4.png": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAOklEQVR42u3OQQ0AAAgEoGtkMNPayBbOBxsByHS9EiEhISEhISEhISEhISEhISEhISEhISEhISGhOwvARsO1iXTXjwAAAABJRU5ErkJggg=="
+  }
+}
