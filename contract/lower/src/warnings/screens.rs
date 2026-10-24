@@ -1,5 +1,5 @@
-//! `lower-screen-by-state` (LLP 1116.005 D1.1): an `if`/`else` or a
-//! `match` that swaps the page between screens, in an app that declares no
+//! `lower-screen-by-state` (LLP 1116.005 D1.1): an `if`/`else`, complementary
+//! sibling `if`s or a `match` that swaps the page between screens, in an app that declares no
 //! `routes`. recipe-finder and event-rsvp (round 7) did: a list and its
 //! detail, or a detail and a create form, chosen by a state, each holding a
 //! heading as a screen does, so the browser's Back left the app, a reload
@@ -15,7 +15,7 @@
 
 use super::{computed, has, literal};
 use crate::LowerError;
-use contract_syntax::{Component, Expr, Node, Stmt, TemplatePart};
+use contract_syntax::{BinOp, Component, Expr, Node, Stmt, TemplatePart, UnOp};
 use contract_types::Checked;
 use std::collections::BTreeSet;
 
@@ -82,10 +82,16 @@ impl<'a> App<'a> {
                 idents(&d.expr, &mut names);
             } else if r.states.iter().any(|s| s.name == name) {
                 reads.states.insert(name);
-            } else if r.resources.iter().any(|x| x.name == name)
-                || r.mutations.iter().any(|m| m.name == name)
-            {
+            } else if let Some(resource) = r.resources.iter().find(|x| x.name == name) {
+                if resource.source == "exactViewport" {
+                    reads.viewport = true;
+                } else {
+                    reads.data = true;
+                }
+            } else if r.mutations.iter().any(|m| m.name == name) {
                 reads.data = true;
+            } else {
+                reads.unknown = true;
             }
         }
         reads
@@ -107,7 +113,11 @@ impl<'a> App<'a> {
     /// Looks for swaps in `nodes`, outside every row, control, tab panel,
     /// dialog and popover.
     fn walk(&self, nodes: &[Node], out: &mut Vec<LowerError>) {
-        for node in nodes {
+        let mut paired = BTreeSet::new();
+        for (i, node) in nodes.iter().enumerate() {
+            if paired.contains(&i) {
+                continue;
+            }
             match node {
                 Node::Element { tag, attrs, .. } => {
                     let closed = CONTROLS.contains(&tag.as_str())
@@ -122,7 +132,24 @@ impl<'a> App<'a> {
                     }
                 }
                 Node::When { .. } | Node::Match { .. } => {
-                    let arms = choice(node);
+                    let mut arms = choice(node);
+                    if let Some((cond, then)) = single_when(node) {
+                        for (j, sibling) in nodes.iter().enumerate().skip(i + 1) {
+                            if paired.contains(&j) {
+                                continue;
+                            }
+                            if let Some((other, body)) = single_when(sibling) {
+                                if self.complementary(cond, other) {
+                                    let pair = vec![(Some(cond), then), (Some(other), body)];
+                                    if self.swaps(&pair) {
+                                        arms = pair;
+                                        paired.insert(j);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if self.swaps(&arms) {
                         let what = if matches!(node, Node::Match { .. }) {
                             "match"
@@ -145,6 +172,29 @@ impl<'a> App<'a> {
                 Node::Use { children, .. } => self.walk(children, out),
             }
         }
+    }
+
+    fn viewport_only(&self, cond: &Expr) -> bool {
+        let reads = self.reads(cond);
+        reads.viewport && !reads.data && !reads.unknown && reads.states.is_empty()
+    }
+
+    fn complementary(&self, a: &Expr, b: &Expr) -> bool {
+        if complements(a, b) {
+            return true;
+        }
+        if let (Expr::Binary(BinOp::Or, av, ap, _), Expr::Binary(BinOp::Or, bv, bp, _)) = (a, b) {
+            // Both panes coexist under the same viewport predicate. Different
+            // predicates do not establish a split, even if the states oppose.
+            for (av, ap) in [(av, ap), (ap, av)] {
+                for (bv, bp) in [(bv, bp), (bp, bv)] {
+                    if same(av, bv) && self.viewport_only(av) && complements(ap, bp) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Whether a choice between `arms` swaps the page's screens: two arms
@@ -193,8 +243,10 @@ impl<'a> App<'a> {
 #[derive(Default)]
 struct Reads {
     states: BTreeSet<String>,
-    /// A resource or mutation: a loading, error or empty view.
+    /// A resource other than the viewport, or a mutation: loading, error or empty.
     data: bool,
+    viewport: bool,
+    unknown: bool,
 }
 
 /// What one arm holds.
@@ -243,6 +295,54 @@ fn pressed<'n>(nodes: &'n [Node], out: &mut Vec<&'n Expr>) {
             );
         }
         lists(node).into_iter().for_each(|l| pressed(l, out));
+    }
+}
+
+fn single_when(node: &Node) -> Option<(&Expr, &[Node])> {
+    match node {
+        Node::When {
+            cond,
+            then,
+            otherwise,
+            ..
+        } if otherwise.is_empty() => Some((cond, then)),
+        _ => None,
+    }
+}
+
+fn complements(a: &Expr, b: &Expr) -> bool {
+    if matches!(a, Expr::Unary(UnOp::Not, x, _) if same(x, b))
+        || matches!(b, Expr::Unary(UnOp::Not, x, _) if same(a, x))
+    {
+        return true;
+    }
+    match (a, b) {
+        (Expr::Binary(aop, al, ar, _), Expr::Binary(bop, bl, br, _))
+            if matches!((aop, bop), (BinOp::Eq, BinOp::Ne) | (BinOp::Ne, BinOp::Eq)) =>
+        {
+            same(al, bl) && same(ar, br)
+        }
+        _ => false,
+    }
+}
+
+/// Compare simple predicates without their source spans. Unrecognised forms
+/// stay quiet; this does not try to prove arbitrary expressions equivalent.
+fn same(a: &Expr, b: &Expr) -> bool {
+    match (a, b) {
+        (Expr::Ident(a, _), Expr::Ident(b, _)) | (Expr::Str(a, _), Expr::Str(b, _)) => a == b,
+        (Expr::Number(a, _), Expr::Number(b, _)) => a == b,
+        (Expr::Bool(a, _), Expr::Bool(b, _)) => a == b,
+        (Expr::None(_), Expr::None(_)) => true,
+        (Expr::Member(a, af, _), Expr::Member(b, bf, _)) => af == bf && same(a, b),
+        (Expr::Unary(ao, a, _), Expr::Unary(bo, b, _)) => ao == bo && same(a, b),
+        (Expr::Binary(ao, al, ar, _), Expr::Binary(bo, bl, br, _)) => {
+            ao == bo && same(al, bl) && same(ar, br)
+        }
+        (Expr::Call(an, aa, _), Expr::Call(bn, ba, _)) => {
+            an == bn && aa.len() == ba.len() && aa.iter().zip(ba).all(|(a, b)| same(a, b))
+        }
+        _ => false,
     }
 }
 
