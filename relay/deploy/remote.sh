@@ -16,6 +16,8 @@
 #   accounts-add <label>        a relay account; its connector token printed once, to this terminal only
 #   accounts-revoke <label>     revoked for good
 set -euo pipefail
+# (ufw and sshd print words this script reads: in English, whatever the host's locale)
+export LC_ALL=C
 
 APP=tamber-relay
 OPT=/opt/$APP
@@ -26,6 +28,9 @@ KEEP=5
 say() { printf '%s: %s\n' "$APP" "$*"; }
 die() { printf '%s: %s\n' "$APP" "$*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "run as root (deploy.sh runs this through sudo when its user isn't root)"
+# One change at a time on this host: provision, release, rollback, install-cert and accounts share links and state.
+exec 9>/run/$APP-deploy.lock
+flock -w 120 9 || die "another deploy.sh command holds this host (/run/$APP-deploy.lock) after 2 minutes"
 
 # Writes stdin to $1 (mode $2, owner $3) only when it differs; says so when it does, and sets CHANGED.
 CHANGED=0
@@ -40,12 +45,12 @@ put() {
 # Points symlink $1 at $2 in one rename. Returns 1 when it couldn't (never half-done).
 relink() { ln -sfn "$2" "$1.new" && mv -T "$1.new" "$1"; }
 
-# An upload removed: its private directory when it is one deploy.sh made (/tmp/tamber-relay-upload.<random>/<file>),
-# else nothing but the file itself.
+# An upload removed: its private directory, when it is one deploy.sh made (/tmp/tamber-relay-upload.<random>/<file>);
+# any other path is left alone.
 unload() {
   local f
   for f in "$@"; do
-    if [[ $f =~ ^/tmp/tamber-relay-upload\.[A-Za-z0-9]+/[A-Za-z0-9._-]+$ ]]; then rm -rf "$(dirname "$f")"; else rm -f "$f"; fi
+    if [[ $f =~ ^/tmp/tamber-relay-upload\.[A-Za-z0-9]+/[A-Za-z0-9._-]+$ ]]; then rm -rf "$(dirname "$f")"; else say "not removing $f: no upload of deploy.sh's"; fi
   done
 }
 
@@ -56,14 +61,20 @@ current() { readlink $OPT/current 2>/dev/null | xargs -r basename; }
 tls_new() { local d; d=$ETC/tls.d/$(date +%Y%m%d%H%M%S)-$RANDOM; install -d -m 0750 -o root -g $APP "$d"; printf '%s' "$d"; }
 tls_prune() { local keep; keep=$(readlink -f $ETC/tls); for d in $ETC/tls.d/*; do [ "$d" = "$keep" ] || [ "$d" = "${1:-}" ] || rm -rf "$d"; done; }
 
-# Deletes every inbound rule but 22/tcp and 443/tcp, one at a time (rules show only while ufw is active).
+# Deletes every inbound rule but 22/tcp and 443/tcp, one at a time (rules show only while ufw is active). A status
+# ufw can't give stops the run, never reads as "nothing to delete".
+KEEP_RULE='^[0-9]+ (22|443)/tcp( \(v6\))? ALLOW IN Anywhere( \(v6\))?$'
+rules() { local out; out=$(ufw status numbered) || die "firewall: ufw status failed"; printf '%s\n' "$out" | sed -nE 's/^\[ *([0-9]+)\] (.*)$/\1 \2/p' | sed -E 's/ +/ /g; s/ $//'; }
 prune_rules() {
-  local n
-  while n=$(ufw status numbered | sed -nE 's/^\[ *([0-9]+)\] (.*)$/\1 \2/p' | sed -E 's/ +/ /g; s/ $//' \
-      | grep -vE '^[0-9]+ (22|443)/tcp( \(v6\))? ALLOW IN Anywhere( \(v6\))?$' | awk 'NR == 1 {print $1}') && [ -n "$n" ]; do
-    say "firewall: deleting inbound rule $n ($(ufw status numbered | sed -nE "s/^\[ *$n\] (.*)$/\1/p" | sed -E 's/ +/ /g'))"
-    ufw --force delete "$n" >/dev/null
+  local all n
+  for _ in $(seq 1 64); do
+    all=$(rules)
+    n=$(printf '%s\n' "$all" | grep -vE "$KEEP_RULE" | awk 'NF && NR >= 1 {print $1; exit}' || true)
+    [ -n "$n" ] || return 0
+    say "firewall: deleting inbound rule $n ($(printf '%s\n' "$all" | awk -v n="$n" '$1 == n {$1 = ""; print substr($0, 2)}'))"
+    ufw --force delete "$n" >/dev/null || die "firewall: could not delete rule $n"
   done
+  die "firewall: rules kept coming back after 64 deletions"
 }
 
 provision() {
@@ -71,6 +82,8 @@ provision() {
   [[ $domain =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || die "domain: lowercase and dotted, not $domain"
   . /etc/os-release
   case "$ID" in ubuntu|debian) ;; *) die "Ubuntu or Debian only (this is $PRETTY_NAME)";; esac
+  # (systemd 249 or later: older ones ignore the unit's SocketBindAllow, and the relay could bind any low port)
+  case "$ID:${VERSION_ID%%.*}" in ubuntu:2[2-9]|ubuntu:[3-9]?|debian:1[2-9]) ;; *) die "Ubuntu 22.04+ or Debian 12+ only (this is $PRETTY_NAME)";; esac
 
   # SSH first, before anything changes: the firewall keeps 22 alone, so sshd must be what answers on 22, and this
   # very connection must have come in on 22 (deploy.sh passes the port it reached, RELAY_SSH_SERVER_PORT).
@@ -78,9 +91,9 @@ provision() {
   ports=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' || true)
   printf '%s\n' "$ports" | grep -qx 22 || die "sshd is not configured on port 22 (sshd -T: port ${ports:-none}): the firewall would shut it out; nothing changed"
   [ -n "$(ss -Hltn 'sport = :22' || true)" ] || die "nothing listens on port 22: the firewall would shut SSH out; nothing changed"
-  if [ -n "${RELAY_SSH_SERVER_PORT:-}" ] && [ "$RELAY_SSH_SERVER_PORT" != 22 ]; then
-    die "this SSH connection came in on port $RELAY_SSH_SERVER_PORT, not 22: the firewall would shut it out; nothing changed"
-  fi
+  local conn=(${RELAY_SSH_CONNECTION:-})
+  [ ${#conn[@]} = 4 ] || die "provision needs the SSH connection it runs over (deploy.sh passes it as RELAY_SSH_CONNECTION); run it through deploy.sh"
+  [ "${conn[3]}" = 22 ] || die "this SSH connection came in on port ${conn[3]}, not 22: the firewall would shut it out; nothing changed"
 
   # Packages: the firewall, openssl (the placeholder certificate and health checks), security updates.
   local need=()
@@ -116,24 +129,40 @@ EOF
     sshd -t || { rm -f /etc/ssh/sshd_config.d/10-$APP.conf; die "sshd rejects its config: the drop-in removed, nothing reloaded"; }
     systemctl reload ssh 2>/dev/null || systemctl reload sshd
   fi
-  local eff
-  eff=$(sshd -T 2>/dev/null || true)
-  for want in 'passwordauthentication no' 'kbdinteractiveauthentication no' 'pubkeyauthentication yes'; do
-    printf '%s\n' "$eff" | grep -qx "$want" || die "sshd's effective config is not '$want' (an earlier setting wins over the drop-in): fix it in /etc/ssh, then provision again"
+  # A Match block can turn passwords back on for some connections, which sshd -T alone doesn't show: refused outright,
+  # and the settings checked as sshd evaluates them for this very connection, as root and as the operator's user.
+  if awk 'FNR == 1 {m = 0} tolower($1) == "match" {m = 1} m && tolower($1) ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && tolower($2) == "yes" {f = 1} END {exit !f}' \
+       /etc/ssh/sshd_config $(ls /etc/ssh/sshd_config.d/*.conf 2>/dev/null); then
+    die "a Match block in /etc/ssh turns password or keyboard-interactive login back on: remove it, then provision again"
+  fi
+  local who eff
+  for who in root "${RELAY_SSH_USER:-root}"; do
+    eff=$(sshd -T -C "user=$who,host=${conn[0]},addr=${conn[0]},laddr=${conn[2]},lport=${conn[3]}" 2>/dev/null) || die "sshd -T -C failed for $who from ${conn[0]}"
+    for want in 'passwordauthentication no' 'kbdinteractiveauthentication no' 'pubkeyauthentication yes'; do
+      printf '%s\n' "$eff" | grep -qx "$want" || die "sshd's effective config for $who from ${conn[0]} is not '$want' (an earlier setting wins over the drop-in): fix it in /etc/ssh, then provision again"
+    done
+    printf '%s\n' "$eff" | grep -qxE 'permitrootlogin (prohibit-password|without-password|no)' || die "sshd's effective config lets root log in by password: fix it in /etc/ssh, then provision again"
   done
-  printf '%s\n' "$eff" | grep -qxE 'permitrootlogin (prohibit-password|without-password|no)' || die "sshd's effective config lets root log in by password: fix it in /etc/ssh, then provision again"
 
   # Firewall: in, only 22 and 443 (TCP, v4 and v6); out, anything (ACME, apt, the DNS provider's API). Never reset or
   # disabled on the way: 22 and 443 allowed first, any other inbound rule deleted one by one, then enabled.
   CHANGED=0
   if grep -q '^IPV6=' /etc/default/ufw && ! grep -qx 'IPV6=yes' /etc/default/ufw; then sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw; CHANGED=1; say "firewall: IPv6 filtered too"; fi
+  # (22 allowed before anything can deny it)
+  ufw allow 22/tcp >/dev/null || die "firewall: could not allow 22/tcp"
+  ufw allow 443/tcp >/dev/null || die "firewall: could not allow 443/tcp"
   ufw default deny incoming >/dev/null
   ufw default allow outgoing >/dev/null
-  ufw allow 22/tcp >/dev/null
-  ufw allow 443/tcp >/dev/null
   prune_rules
   if ! ufw status | grep -q '^Status: active'; then say "firewall: enabled, only 22/tcp and 443/tcp in"; ufw --force enable >/dev/null; prune_rules
   elif [ $CHANGED = 1 ]; then ufw reload >/dev/null; fi
+  ufw allow 22/tcp >/dev/null; ufw allow 443/tcp >/dev/null
+  # What it ends as, checked: active, deny in by default, and exactly 22 and 443 on both families.
+  local got
+  got=$(rules | sed -E 's/^[0-9]+ //' | sort)
+  ufw status verbose | grep -q '^Status: active' && ufw status verbose | grep -q 'deny (incoming)' \
+    && [ "$got" = "$(printf '%s\n' '22/tcp ALLOW IN Anywhere' '22/tcp (v6) ALLOW IN Anywhere (v6)' '443/tcp ALLOW IN Anywhere' '443/tcp (v6) ALLOW IN Anywhere (v6)' | sort)" ] \
+    || die "firewall: not as wanted after the change (rules: $(printf '%s' "$got" | tr '\n' ';'))"
 
   # Logs: the journal, capped (the relay logs one line an event to stdout, never a token).
   install -d -m 0755 /etc/systemd/journald.conf.d
@@ -172,7 +201,9 @@ EOF
   "dns": { "command": "$ETC/dns-hook" }
 }
 EOF
-  [ -f $VAR/accounts.json ] || put $VAR/accounts.json 0640 $APP:$APP <<<'{ "accounts": {}, "revoked": [] }'
+  # (made by the service's user: root never writes, chmods or chowns through a path in the relay's own directory)
+  [ -e $VAR/accounts.json ] || runuser -u $APP -- sh -c 'umask 027 && cd "$1" && printf "%s\n" "{ \"accounts\": {}, \"revoked\": [] }" > accounts.json.new && mv -n accounts.json.new accounts.json; rm -f accounts.json.new' sh "$VAR"
+  [ -f $VAR/accounts.json ] || die "could not make $VAR/accounts.json"
 
   # Its certificate: one for the relay's own name alone, a pair under tls.d/ that $ETC/tls links to. With none
   # installed (or a placeholder for another name), a self-signed placeholder so the service runs and can be checked;
@@ -214,7 +245,7 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 # 443 is the only port it binds; the cloud's metadata service and link-local are out of its reach.
 SocketBindAllow=tcp:443
 SocketBindDeny=any
-IPAddressDeny=169.254.0.0/16 fe80::/10
+IPAddressDeny=169.254.0.0/16 fe80::/10 ::ffff:169.254.0.0/112 fd00:ec2::254
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -293,13 +324,19 @@ release() {
   [ "$(sha256sum "$path" | cut -d' ' -f1)" = "$sha" ] || die "the upload's digest is not $sha"
   id=${sha:0:16}; bin=$OPT/releases/$id/$APP
   was=$(current || true); before=$(cat $OPT/previous 2>/dev/null || true)
-  if [ "$was" = "$id" ] && systemctl is-active -q $APP; then say "release $id is already current and running"; health || exit 1; systemctl enable -q $APP; return; fi
+  if [ "$was" = "$id" ]; then
+    # Already current: started if it isn't, never cleaned up as a first release (its recovery state stays).
+    systemctl is-active -q $APP && say "release $id is already current and running" || { say "release $id is current but not running: starting it"; systemctl restart $APP || true; }
+    health || die "the current release $id fails its health check: rollback, or release another build"
+    systemctl enable -q $APP; return
+  fi
   install -d -m 0755 -o root -g root $OPT/releases/$id
   install -m 0755 -o root -g root "$path" "$bin"
   # It must run here (its architecture, its libc) before anything switches to it: as the service's user, sandboxed
   # and with no network, never as root.
   if ! systemd-run --quiet --wait --pipe --collect -p User=$APP -p NoNewPrivileges=yes -p ProtectSystem=strict \
-      -p ProtectHome=yes -p PrivateTmp=yes -p PrivateDevices=yes -p PrivateNetwork=yes "$bin" --help >/dev/null; then
+      -p ProtectHome=yes -p PrivateTmp=yes -p PrivateDevices=yes -p PrivateNetwork=yes -p PrivateIPC=yes \
+      -p InaccessiblePaths=$ETC -p RuntimeMaxSec=30 -p MemoryMax=512M -p TasksMax=64 "$bin" --help >/dev/null; then
     [ "$was" = "$id" ] || rm -rf "${OPT:?}/releases/$id"
     die "the new binary doesn't run on this host (architecture or libc): nothing switched"
   fi
