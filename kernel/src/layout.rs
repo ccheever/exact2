@@ -32,7 +32,7 @@ use crate::id::{IdMap, IdSet};
 use crate::shared_style::Interner;
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
-use taffy::tree::{Baselines, LayoutInput};
+use taffy::tree::{Baselines, LayoutInput, RequestedAxis};
 use taffy::util::{MaybeResolve, ResolveOrZero};
 use taffy::TraversePartialTree;
 
@@ -1046,8 +1046,6 @@ impl LayoutTree {
                 record.parent_width = inputs.parent_size.width;
             }
 
-            // Patch 2's separate API is unnecessary: the upstream callback owns
-            // LayoutOutput, including baselines in border-box coordinates.
             let inset = style
                 .padding
                 .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc)
@@ -1088,7 +1086,9 @@ impl LayoutTree {
                         context.pass = pass;
                         context.height_measured = false;
                     }
-                    context.height_measured |= !height_known;
+                    // Keep height dependence through stretching, but ignore width-only probes.
+                    context.height_measured |=
+                        !height_known && inputs.axis != RequestedAxis::Horizontal;
                     let slot = context.slot;
                     if let Some((size, metrics)) = alert::measure(
                         arena,
