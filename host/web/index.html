@@ -205,9 +205,11 @@
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-areas, "title space image"); }
   #exact-root button[data-button-style]:has(> img):has(> [data-exact-text] ~ [data-exact-text]) { grid-template-areas: var(--exact-button-leading-subtitle-areas, "image space title" "image space subtitle"); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-subtitle-areas, "title space image" "subtitle space image"); }
-  #exact-root button[data-button-style]:has(> img:only-child) { grid-template-areas: "image"; grid-template-columns: auto; }
-  #exact-root button[data-button-style]:has(> img):has(> [data-exact-text])::before { content: var(--exact-button-space); white-space: pre; grid-area: space; line-height: 0; --exact-said-line-height: ; width: var(--exact-button-space-width,var(--exact-button-column-gap,auto)); height: var(--exact-button-space-height,0px); }
+  #exact-root button[data-button-style]:has(> img):not(:has(> :not(img, [data-exact-text]:empty))) { grid-template-areas: "image"; grid-template-columns: auto; }
+  #exact-root button[data-button-style]:has(> img):has(> [data-exact-text]:not(:empty))::before { content: var(--exact-button-space); white-space: pre; grid-area: space; line-height: 0; --exact-said-line-height: ; width: var(--exact-button-space-width,var(--exact-button-column-gap,auto)); height: var(--exact-button-space-height,0px); }
   #exact-root button[data-button-style] > [data-exact-text] { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; display: var(--exact-button-title-display, block) !important; -webkit-box-orient: vertical; -webkit-line-clamp: var(--exact-button-clamp, none); }
+  /* Empty face text takes no grid track (LLP 1011 §3; LLP 1115.000). */
+  #exact-root button[data-button-style] > [data-exact-text]:empty { display: none !important; }
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   /* An image stacked over its title is centred on it, as the Linux host paints it. */
   #exact-root button[data-button-style] > img { grid-area: image; justify-self: center; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: calc(var(--exact-symbol-scale, 1) * 1em); height: calc(var(--exact-symbol-scale, 1) * 1em); }
