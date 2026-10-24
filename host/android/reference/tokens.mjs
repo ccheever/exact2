@@ -113,7 +113,7 @@ function value(objects, text, depth) {
 /** Each Material row of the schema against its source. True when all agree. */
 function check({ files, objects }) {
   const schema = JSON.parse(readFileSync(join(root, 'kernel/tables/schema.json'), 'utf8'));
-  const material = Object.fromEntries(schema.metrics.filter((r) => r.length === 7).map((r) => [r[0], r[6]]));
+  const material = Object.fromEntries(schema.metrics.filter((r) => r.length === 7 && r[6] !== 'unset').map((r) => [r[0], r[6]]));
   const { rows } = JSON.parse(readFileSync(join(here, 'rows.json'), 'utf8'));
   const defaultsFile = join(build, 'oracle/defaults.json');
   const defaults = existsSync(defaultsFile) ? JSON.parse(readFileSync(defaultsFile, 'utf8')) : null;
