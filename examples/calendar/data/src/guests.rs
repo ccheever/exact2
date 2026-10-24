@@ -29,16 +29,14 @@ pub(crate) fn read(id: &str) -> Answer {
     if id.is_empty() {
         return Answer::Now(list(Vec::new()));
     }
-    // Not a transaction: a write transaction takes only executes.
+    // A read writes nothing: before the first add there is no table, and the
+    // failed query reads as no guests.
     sql(
         false,
-        vec![
-            execute(TABLE, json!([])),
-            query(
-                "SELECT name,email FROM guests WHERE schedule_id = ? ORDER BY position",
-                json!([id]),
-            ),
-        ],
+        vec![query(
+            "SELECT name,email FROM guests WHERE schedule_id = ? ORDER BY position",
+            json!([id]),
+        )],
     )
 }
 
