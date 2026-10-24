@@ -297,6 +297,72 @@ fn cross_axis_auto_margins_match_chrome() {
     );
 }
 
+/// Chrome 151.0.7922.34, 2026-10-24: block item sizing and placement,
+/// direction, overflow safety and auto margins. Text advances are 10px;
+/// the 800px offer takes the root's direction, as the kernel root solver does.
+#[test]
+fn block_justify_items_matches_chrome() {
+    check(
+        failures(include_str!("fixtures/browser_block_justify.tsv"), false),
+        // QUEUE: absolute children still use the unaligned static position.
+        &["Chrome 151 block justify absolute automatic insets"],
+    );
+}
+
+/// The vendor's per-item override is not a Contract attribute. Chrome's
+/// automatic-width children are 20px wide unless explicitly stretched.
+#[test]
+fn block_justify_self_overrides_the_container_default() {
+    use taffy::{prelude::*, TaffyTree};
+    let mut tree: TaffyTree = TaffyTree::new();
+    let mut children = Vec::new();
+    for alignment in [None, Some(JustifySelf::END), Some(JustifySelf::STRETCH)] {
+        let content = tree
+            .new_leaf(Style {
+                size: Size {
+                    width: length(20.0),
+                    height: length(10.0),
+                },
+                ..Style::default()
+            })
+            .unwrap();
+        children.push(
+            tree.new_with_children(
+                Style {
+                    display: Display::Block,
+                    justify_self: alignment,
+                    ..Style::default()
+                },
+                &[content],
+            )
+            .unwrap(),
+        );
+    }
+    let root = tree
+        .new_with_children(
+            Style {
+                display: Display::Block,
+                size: Size {
+                    width: length(100.0),
+                    height: auto(),
+                },
+                justify_items: Some(JustifyItems::CENTER),
+                ..Style::default()
+            },
+            &children,
+        )
+        .unwrap();
+    tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+    let frames: Vec<_> = children
+        .into_iter()
+        .map(|id| {
+            let layout = tree.layout(id).unwrap();
+            (layout.location.x, layout.size.width)
+        })
+        .collect();
+    assert_eq!(frames, [(40.0, 20.0), (80.0, 20.0), (0.0, 100.0)]);
+}
+
 /// Chrome 151.0.7922.34, 2026-10-18: overflowing and fitting flex lines,
 /// reversed main axes, RTL, and grid/block controls.
 #[test]

@@ -1,6 +1,6 @@
 //! Computes the CSS block layout algorithm in the case that the block container being laid out contains only block-level boxes
 use crate::geometry::{Line, Point, Rect, Size};
-use crate::style::{AvailableSpace, CoreStyle, LengthPercentageAuto, Overflow, Position};
+use crate::style::{AlignItemsKeyword, AvailableSpace, CoreStyle, JustifyItems, JustifySelf, LengthPercentageAuto, Overflow, Position};
 use crate::style_helpers::TaffyMaxContent;
 use crate::tree::{
     Baselines, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, RunMode, SizingMode, StaticPosition,
@@ -283,6 +283,9 @@ struct BlockItem {
     /// and controls the order in which the nodes are placed
     order: u32,
 
+    /// The child's alignment with `auto` and self-relative keywords resolved.
+    justify_self: Option<JustifySelf>,
+
     /// Items that are tables don't have stretch sizing applied to them
     is_table: bool,
 
@@ -558,6 +561,7 @@ fn compute_inner(
         || matches!(min_size.height, Some(h) if h > 0.0);
 
     let text_align = style.text_align();
+    let justify_items = style.justify_items();
     let align_content = style.align_content();
     drop(style);
     // EXACT PATCH 30: the height bounds the caller cuts the columns by
@@ -578,7 +582,7 @@ fn compute_inner(
     }
 
     // 1. Generate items
-    let mut items = generate_item_list(tree, node_id, container_content_box_size);
+    let mut items = generate_item_list(tree, node_id, container_content_box_size, justify_items, direction);
 
     // 2. Compute container width
     let container_outer_width = known_dimensions.width.unwrap_or_else(|| {
@@ -848,6 +852,8 @@ fn generate_item_list(
     tree: &impl LayoutBlockContainer,
     node: NodeId,
     node_inner_size: Size<Option<f32>>,
+    justify_items: Option<JustifyItems>,
+    direction: Direction,
 ) -> Vec<BlockItem> {
     tree.child_ids(node)
         .map(|child_node_id| (child_node_id, tree.get_block_child_style(child_node_id)))
@@ -901,6 +907,9 @@ fn generate_item_list(
             BlockItem {
                 node_id: child_node_id,
                 order: order as u32,
+                justify_self: child_style.justify_self().or(justify_items).map(|alignment| {
+                    alignment.resolve_self_relative(child_style.direction(), direction, true)
+                }),
                 is_table,
                 is_replaced,
                 is_in_same_bfc,
@@ -1350,12 +1359,36 @@ fn perform_final_layout_on_in_flow_children(
                     item_non_auto_margin.vertical_axis_sum(),
                 );
 
+                // EXACT PATCH 66: non-stretch alignment makes an auto width
+                // fit-content, even when auto margins take over placement.
+                let auto_width = if item.size.width.is_none()
+                    && keyword_width.is_none()
+                    && item.justify_self.is_some_and(|alignment| alignment.keyword() != AlignItemsKeyword::Stretch)
+                {
+                    let mut measure = |width| {
+                        tree.measure_child_size(
+                            item.node_id,
+                            Size { width: None, height: item.size.height },
+                            parent_size,
+                            Size { width, height: AvailableSpace::MaxContent },
+                            SizingMode::InherentSize,
+                            crate::AbsoluteAxis::Horizontal,
+                            Line::TRUE,
+                        )
+                    };
+                    let min_content = measure(AvailableSpace::MinContent);
+                    let max_content = measure(AvailableSpace::MaxContent);
+                    stretch_width.max(min_content).min(max_content)
+                } else {
+                    stretch_width
+                };
+
                 item.size
                     .map_width(|width| {
                         Some(
                             width
                                 .or(keyword_width)
-                                .unwrap_or(stretch_width)
+                                .unwrap_or(auto_width)
                                 .maybe_clamp(item.min_size.width, item.max_size.width),
                         )
                     })
@@ -1571,7 +1604,22 @@ fn perform_final_layout_on_in_flow_children(
 
             // Apply alignment
             let item_outer_width = item_layout.size.width + resolved_margin.horizontal_axis_sum();
-            if item_outer_width < container_inner_width {
+            if let Some(alignment) = item.justify_self {
+                // Auto margins win even when there is no positive free space.
+                if item_margin.left.is_some() && item_margin.right.is_some() {
+                    let free = container_inner_width - item_outer_width;
+                    let offset = if alignment.is_safe() && free < 0.0 {
+                        0.0
+                    } else {
+                        match alignment.keyword() {
+                            AlignItemsKeyword::End | AlignItemsKeyword::FlexEnd => free,
+                            AlignItemsKeyword::Center => free / 2.0,
+                            _ => 0.0,
+                        }
+                    };
+                    location.x += if direction.is_rtl() { -offset } else { offset };
+                }
+            } else if item_outer_width < container_inner_width {
                 let free_x_space = container_inner_width - item_outer_width;
                 match (text_align, direction) {
                     (TextAlign::Auto, _) => {

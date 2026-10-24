@@ -694,11 +694,11 @@ pub struct Style<S: CheapCloneStr = DefaultCheapStr> {
     #[cfg(any(feature = "flexbox", feature = "grid"))]
     pub align_self: Option<AlignSelf>,
     /// How this node's children should be aligned in the inline axis
-    #[cfg(feature = "grid")]
+    #[cfg(any(feature = "grid", feature = "block_layout"))]
     pub justify_items: Option<AlignItems>,
     /// How this node should be aligned in the inline axis
     /// Falls back to the parents [`JustifyItems`] if not set
-    #[cfg(feature = "grid")]
+    #[cfg(any(feature = "grid", feature = "block_layout"))]
     pub justify_self: Option<AlignSelf>,
     /// How should content contained within this item be aligned in the cross/block axis
     #[cfg(any(feature = "flexbox", feature = "grid", feature = "block_layout"))]
@@ -789,9 +789,9 @@ impl<S: CheapCloneStr> Style<S> {
         align_items: None,
         #[cfg(any(feature = "flexbox", feature = "grid"))]
         align_self: None,
-        #[cfg(feature = "grid")]
+        #[cfg(any(feature = "grid", feature = "block_layout"))]
         justify_items: None,
-        #[cfg(feature = "grid")]
+        #[cfg(any(feature = "grid", feature = "block_layout"))]
         justify_self: None,
         #[cfg(any(feature = "flexbox", feature = "grid", feature = "block_layout"))]
         align_content: None,
@@ -994,6 +994,11 @@ impl<T: CoreStyle> CoreStyle for &'_ T {
 #[cfg(feature = "block_layout")]
 impl<S: CheapCloneStr> BlockContainerStyle for Style<S> {
     #[inline(always)]
+    fn justify_items(&self) -> Option<JustifyItems> {
+        self.justify_items
+    }
+
+    #[inline(always)]
     fn text_align(&self) -> TextAlign {
         self.text_align
     }
@@ -1012,6 +1017,11 @@ impl<S: CheapCloneStr> BlockContainerStyle for Style<S> {
 #[cfg(feature = "block_layout")]
 impl<T: BlockContainerStyle> BlockContainerStyle for &'_ T {
     #[inline(always)]
+    fn justify_items(&self) -> Option<JustifyItems> {
+        (*self).justify_items()
+    }
+
+    #[inline(always)]
     fn text_align(&self) -> TextAlign {
         (*self).text_align()
     }
@@ -1029,6 +1039,11 @@ impl<T: BlockContainerStyle> BlockContainerStyle for &'_ T {
 
 #[cfg(feature = "block_layout")]
 impl<S: CheapCloneStr> BlockItemStyle for Style<S> {
+    #[inline(always)]
+    fn justify_self(&self) -> Option<JustifySelf> {
+        self.justify_self
+    }
+
     #[inline(always)]
     fn is_table(&self) -> bool {
         self.item_is_table
@@ -1049,6 +1064,11 @@ impl<S: CheapCloneStr> BlockItemStyle for Style<S> {
 
 #[cfg(feature = "block_layout")]
 impl<T: BlockItemStyle> BlockItemStyle for &'_ T {
+    #[inline(always)]
+    fn justify_self(&self) -> Option<JustifySelf> {
+        (*self).justify_self()
+    }
+
     #[inline(always)]
     fn is_table(&self) -> bool {
         (*self).is_table()
@@ -1472,9 +1492,9 @@ mod tests {
             align_items: Default::default(),
             #[cfg(any(feature = "flexbox", feature = "grid"))]
             align_self: Default::default(),
-            #[cfg(feature = "grid")]
+            #[cfg(any(feature = "grid", feature = "block_layout"))]
             justify_items: Default::default(),
-            #[cfg(feature = "grid")]
+            #[cfg(any(feature = "grid", feature = "block_layout"))]
             justify_self: Default::default(),
             #[cfg(any(feature = "flexbox", feature = "grid", feature = "block_layout"))]
             align_content: Default::default(),
