@@ -23,7 +23,9 @@
 //!   failure would, and its `then`s, held calls and queued sends are
 //!   dropped. Invocations not yet delivered end with nothing delivered.
 //! - **Timers** do not fire while a wake runs in a session with no view or
-//!   a hidden one ([`WakeHow::hidden`]).
+//!   a hidden one ([`WakeHow::hidden`]), and its page reads hidden
+//!   (`exactPage().visibilityState`), as the platform's background is; a
+//!   page the wake hid is shown again when it ends.
 //! - **Refused** in a commit of the wake's origin: the host commands that
 //!   open system UI or play sound, journaled `<name>: refused: during a wake`.
 //!   A module name declared `"origin": "app"` and a permission request are
@@ -110,6 +112,8 @@ struct Wake {
     budget: f64,
     invocations: Vec<Invocation>,
     expired: bool,
+    /// The wake hid a page that was shown.
+    hid: bool,
 }
 
 #[derive(Default)]
@@ -176,6 +180,7 @@ impl<D: DataSource> Runner<D> {
                         budget: 0.0,
                         invocations: Vec::new(),
                         expired: false,
+                        hid: false,
                     });
                     w.waiting.back_mut().expect("pushed")
                 }
@@ -229,11 +234,20 @@ impl<D: DataSource> Runner<D> {
         loop {
             let w = &mut self.extensions.wakes;
             if w.current.is_none() {
-                match w.waiting.pop_front() {
-                    Some(next) => w.current = Some(next),
-                    None => break,
+                let Some(mut next) = w.waiting.pop_front() else {
+                    break;
+                };
+                next.hid = next.how.hidden && !self.page.hidden;
+                let hide = next.hid;
+                self.extensions.wakes.current = Some(next);
+                if hide {
+                    match self.wake_page(true) {
+                        Ok(receipt) => receipts.extend(receipt),
+                        Err(e) => return (receipts, Some(e)),
+                    }
                 }
             }
+            let w = &mut self.extensions.wakes;
             let wake = w.current.as_ref().expect("set above");
             let running = (wake.invocations.iter()).position(|i| i.state == State::Running);
             let next = (wake.invocations.iter()).position(|i| i.state == State::Queued);
@@ -255,9 +269,19 @@ impl<D: DataSource> Runner<D> {
             if self.background_operations() > 0 {
                 break;
             }
-            self.end_wake();
+            match self.end_wake() {
+                Ok(receipt) => receipts.extend(receipt),
+                Err(e) => return (receipts, Some(e)),
+            }
         }
         (receipts, None)
+    }
+
+    /// The page hidden for a wake, or shown again after it.
+    fn wake_page(&mut self, hidden: bool) -> Result<Option<CommitReceipt>, RunnerError> {
+        let mut page = self.page();
+        page.hidden = hidden;
+        self.set_page(page)
     }
 
     /// Run invocation `i` of the current wake: its event's action, under
@@ -334,9 +358,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The current wake ends: the host takes it, and `state.wake` shows it.
-    fn end_wake(&mut self) {
+    fn end_wake(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
         let Some(wake) = self.extensions.wakes.current.take() else {
-            return;
+            return Ok(None);
         };
         let outcome = if wake.expired || wake.invocations.iter().any(|i| i.state == State::Expired)
         {
@@ -350,6 +374,10 @@ impl<D: DataSource> Runner<D> {
         w.ended.push(described.clone());
         w.last = Some(described);
         self.native_slot().changed("");
+        if wake.hid {
+            return self.wake_page(false);
+        }
+        Ok(None)
     }
 
     fn describe_wake(&self, wake: &Wake, outcome: Option<&str>) -> Json {

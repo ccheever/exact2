@@ -993,7 +993,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
           try {
             if (row.sub.implementation || row.sub.partial) partial(v, row.type, row.key);
             else if (sampled.sampled(row)) sampled.check(row, v, (reading, key) => value(filled(row, reading), row.type, key));
-            else typed(row, JSON.stringify(field ? { ...v, [field]: "prompt" } : v));
+            else typed(row, JSON.stringify(field ? { ...v, [field]: stateOf(p.name) } : v));
           } catch (e) { return { error: `prefer extension: ${e.message}` }; }
         }
       }
