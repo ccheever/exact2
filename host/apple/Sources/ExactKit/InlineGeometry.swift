@@ -44,8 +44,18 @@ extension Presenter {
     /// `rangeFrame` (LLP 1114.007): a textarea's UTF-16 range as TextKit
     /// last laid it out, a plain one's or a Markdown one's source alike, in
     /// viewport points; collapsed, the caret's rectangle. Nil past the
-    /// field's text, while text is marked, or when the field is hidden.
+    /// field's text, while text is marked, or when the field is hidden. A
+    /// Markdown reader answers its atoms' pills (LLP 1045.000 D7).
     func rangeFrame(_ id: UInt32, start: UInt32, end: UInt32) -> CGRect? {
+        if let node = views[id], node.textArea == nil, node.props["markup"] == "markdown" {
+            var ancestor: PlatformView? = node
+            while let view = ancestor {
+                if view.isHidden { return nil }
+                ancestor = view.superview
+            }
+            guard start <= end, node.window != nil, let rect = node.readerAtomFrame(Int(start), Int(end)) else { return nil }
+            return Agent.box(rect, of: node, viewport: viewport)
+        }
         guard start <= end, let node = views[id], node.window != nil, !node.isHidden, !node.fieldComposing,
               let field = node.textArea, end <= node.fieldText.utf16.count else { return nil }
         var ancestor: PlatformView? = field
@@ -157,13 +167,19 @@ extension NodeView {
     }
 
     func inlineRects(_ run: InlineText) -> [CGRect] {
-        guard let paragraph = paragraphLayout(), let text else { return [] }
-        let spec = paragraphSpec(), box = paragraphBox()
+        guard let text else { return [] }
+        let spec = paragraphSpec()
         // Source ranges precede whitespace collapse and inserted hyphens.
         let start = spec.source.collapsed(run.range.location), end = spec.source.collapsed(NSMaxRange(run.range))
-        let empty = run.range.length == 0
         let fit = props["fitScale"].flatMap(Float.init) ?? 1
-        let font = text.font(run.run(dark: drawsDark).scaled(fit)) as CTFont
+        return shapedRects(start, end, empty: run.range.length == 0, font: text.font(run.run(dark: drawsDark).scaled(fit)) as CTFont)
+    }
+
+    /// The fragments of the shaped text `start..<end` as the paragraph lays it
+    /// out, each its line's slice of `font`'s content area.
+    func shapedRects(_ start: Int, _ end: Int, empty: Bool, font: CTFont) -> [CGRect] {
+        guard let paragraph = paragraphLayout() else { return [] }
+        let spec = paragraphSpec(), box = paragraphBox()
         let (above, below) = CSSLineBox.content(font)
         #if os(iOS) || os(tvOS)
         let scale = traitCollection.displayScale

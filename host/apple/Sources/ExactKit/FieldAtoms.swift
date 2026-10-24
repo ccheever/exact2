@@ -4,6 +4,7 @@
 // the `title` tooltip over it on the Mac (D2), and gives assistive
 // technology an element for it (D8): a child of the text view on the Mac, an
 // element beside it on iOS, where UIKit visits no element's own elements.
+import CoreText
 #if canImport(UIKit)
 import UIKit
 #else
@@ -248,19 +249,54 @@ package final class AtomElement: UIAccessibilityElement {
 #endif
 
 extension NodeView {
-    /// An atom's press, as the field's or the text's `atompress` (host kind 58).
+    /// An atom's press, as the field's or the text's `atompress` (host kind 59).
     package func pressAtom(kind: String, source: String, href: String, range: NSRange, held: (shift: Bool, ctrl: Bool, alt: Bool, meta: Bool)) {
         guard handlers.contains("atompress"), !disabled, !inert, let session = presenter?.session else { return }
         let mods = [(held.shift, "Shift+"), (held.ctrl, "Control+"), (held.alt, "Alt+"), (held.meta, "Meta+")].filter(\.0).map(\.1).joined()
         session.atomPress(node: id, payload: "\(range.location),\(NSMaxRange(range)),\(mods)\n\(kind)\n\(href)\n\(source)")
     }
 
+    /// A reader atom's run detail, `[kind, source, href, start, end, …]`,
+    /// from the `href` its run carries (`MarkupRuns.atomScheme`); nil for
+    /// any other run.
+    static func readerAtom(_ url: String) -> (detail: [Any], range: NSRange)? {
+        guard url.hasPrefix("exact-atom:"), let json = String(url.dropFirst("exact-atom:".count)).removingPercentEncoding,
+              let detail = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any], detail.count >= 5,
+              let start = detail[3] as? Int, let end = detail[4] as? Int, end >= start else { return nil }
+        return (detail, NSRange(location: start, length: end - start))
+    }
+
+    /// A Markdown reader's `rangeFrame` over source offsets (D7): the union
+    /// of the pills whose source ranges meet `start..<end`; collapsed at a
+    /// pill's edge, that edge, on the side the paragraph's direction puts
+    /// it. Nil where no pill is, and on the Mac for a paragraph its region
+    /// reader draws (LLP 1072, 64 KB of text or more), which lays out off
+    /// the main thread.
+    func readerAtomFrame(_ start: Int, _ end: Int) -> CGRect? {
+        guard props["markup"] == "markdown", let text else { return nil }
+        let spec = paragraphSpec(), fit = props["fitScale"].flatMap(Float.init) ?? 1
+        var at = 0, frame = CGRect.null
+        for run in spec.runs {
+            let length = (run.text as NSString).length
+            defer { at += length }
+            guard let atom = Self.readerAtom(run.href)?.range else { continue }
+            let (s, e) = (atom.location, NSMaxRange(atom))
+            guard start == end ? start == s || start == e : s < end && start < e else { continue }
+            let rects = shapedRects(at, at + length, empty: false, font: text.font(run.scaled(fit)) as CTFont)
+            if start == end {
+                guard let piece = start == s ? rects.first : rects.last else { continue }
+                let x = (start == s) != (spec.direction == 1) ? piece.minX : piece.maxX
+                return CGRect(x: x, y: piece.minY, width: 0, height: piece.height)
+            }
+            frame = rects.reduce(frame) { $0.union($1) }
+        }
+        return frame.isNull ? nil : frame
+    }
+
     /// A reader atom's press: the `href` its run carries (`MarkupRuns.atomScheme`).
     func pressReaderAtom(_ url: String) -> Bool {
         guard url.hasPrefix("exact-atom:") else { return false }
-        guard let json = String(url.dropFirst("exact-atom:".count)).removingPercentEncoding,
-              let detail = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any], detail.count >= 5,
-              let start = detail[3] as? Int, let end = detail[4] as? Int else { return true }
+        guard let (detail, range) = Self.readerAtom(url) else { return true }
         #if os(macOS)
         let flags = NSApp.currentEvent?.modifierFlags ?? []
         let held = (flags.contains(.shift), flags.contains(.control), flags.contains(.option), flags.contains(.command))
@@ -268,15 +304,15 @@ extension NodeView {
         let held = (false, false, false, false)
         #endif
         pressAtom(kind: detail[0] as? String ?? "", source: detail[1] as? String ?? "", href: detail[2] as? String ?? "",
-                  range: NSRange(location: start, length: end - start), held: held)
+                  range: range, held: held)
         return true
     }
 }
 
 extension ExactSession {
-    /// An atom's press, to a node that hears `atompress` (host kind 58, LLP 1045.000 D7).
+    /// An atom's press, to a node that hears `atompress` (host kind 59, LLP 1045.000 D7).
     package func atomPress(node: UInt32, payload: String) {
         guard booted, state != .destroyed, presenter.views[node]?.handlers.contains("atompress") == true else { return }
-        apply(runtime.fieldEvent(node, 58, payload, now: now()))
+        apply(runtime.fieldEvent(node, 59, payload, now: now()))
     }
 }

@@ -359,3 +359,79 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
     }
 }
+
+/// A Markdown reader's `rangeFrame` (D7): an atom's source range answers its
+/// pill, where an app anchors a popover to it.
+final class InlineAtomReaderRangeFrameTests: XCTestCase {
+    private var session: ExactSession?
+    #if os(macOS)
+    private var window: NSWindow?
+    #else
+    private var window: UIWindow?
+    #endif
+    override func setUp() { super.setUp(); ExactMarkdown.install() }
+    override func tearDown() {
+        #if os(macOS)
+        window?.close()
+        #endif
+        session?.destroy(); session = nil; window = nil; super.tearDown()
+    }
+
+    private func reader(_ text: String = source, width: Double = 400) -> (Presenter, NodeView) {
+        let made = ExactApp.shared.makeSession(label: "inline-atom-reader")
+        session = made
+        let p = made.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["id": "reader", "text": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "handlers": ["atompress"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": width, "h": 120.0],
+        ]))
+        #if os(macOS)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        #else
+        let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 600, height: 300))
+        p.viewport.frame = w.bounds
+        w.addSubview(p.viewport)
+        w.makeKeyAndVisible()
+        #endif
+        window = w
+        return (p, p.views[2]!)
+    }
+
+    func testAnAtomsSourceRangeIsItsPill() throws {
+        let (p, node) = reader()
+        let pill = try XCTUnwrap(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)))
+        XCTAssertGreaterThan(pill.width, 20)
+        XCTAssertGreaterThan(pill.height, 10)
+        // Its piece is the label on its box, in the piece's font: the frame is that piece's.
+        let piece = try XCTUnwrap(node.paragraphSpec().runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        let font = try XCTUnwrap(node.text?.font(piece))
+        XCTAssertEqual(pill.width, (piece.text as NSString).size(withAttributes: [.font: font]).width, accuracy: 1)
+        // Part of the range is the whole pill; text around it adds nothing.
+        XCTAssertEqual(p.rangeFrame(2, start: UInt32(a + 2), end: UInt32(a + 3)), pill)
+        XCTAssertEqual(p.rangeFrame(2, start: 0, end: UInt32((source as NSString).length)), pill)
+        // Collapsed at its start or end: that edge, the pill's height.
+        let start = try XCTUnwrap(p.rangeFrame(2, start: UInt32(a), end: UInt32(a)))
+        let end = try XCTUnwrap(p.rangeFrame(2, start: UInt32(b), end: UInt32(b)))
+        XCTAssertEqual(start, CGRect(x: pill.minX, y: pill.minY, width: 0, height: pill.height))
+        XCTAssertEqual(end, CGRect(x: pill.maxX, y: pill.minY, width: 0, height: pill.height))
+        // Where no pill is, unavailable.
+        XCTAssertNil(p.rangeFrame(2, start: 0, end: 2))
+        XCTAssertNil(p.rangeFrame(2, start: 1, end: 1))
+        node.isHidden = true
+        XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "a hidden text answers nothing")
+    }
+
+    func testAPillOnALaterLineAnswersThere() throws {
+        let long = "Words that fill the first line of this narrow reader before " + cite + " ends"
+        let (p, _) = reader(long, width: 200)
+        let at = (long as NSString).range(of: cite)
+        let pill = try XCTUnwrap(p.rangeFrame(2, start: UInt32(at.location), end: UInt32(NSMaxRange(at))))
+        XCTAssertGreaterThan(pill.minY, 15, "below the first line")
+        XCTAssertGreaterThan(pill.width, 20)
+    }
+}
