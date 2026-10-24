@@ -118,7 +118,10 @@ pub(crate) fn figure(text: &str) -> Option<(&str, Cow<'_, str>, bool)> {
         }
         Cow::Borrowed(target.split_whitespace().next().unwrap_or(""))
     };
-    if target.is_empty() && !image {
+    if !image
+        && (target.is_empty()
+            || target.contains(|c: char| c.is_whitespace() || matches!(c, '(' | ')')))
+    {
         return None;
     }
     Some((caption.trim(), target, image))
