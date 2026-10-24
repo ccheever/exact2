@@ -45,6 +45,7 @@ private final class WebModule {
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias SetReaderFn = @convention(c) (WebAssetReadFn?) -> Void
     typealias ClearDoneFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias SetReaderlessFn = @convention(c) (UnsafePointer<UInt8>?, UInt32) -> Void
     typealias ClearFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ClearDoneFn?) -> Void
 
     let library: UnsafeMutableRawPointer
@@ -60,6 +61,7 @@ private final class WebModule {
     let configure: PostFn
     let command: PostFn
     let clearSiteData: ClearFn
+    let endSession: SetReaderlessFn
 
     static func load(path: String) -> Result<WebModule, WebLoadError> {
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
@@ -80,7 +82,8 @@ private final class WebModule {
               let setReader = symbol("exact_web_set_reader", SetReaderFn.self),
               let configure = symbol("exact_web_configure", PostFn.self),
               let command = symbol("exact_web_command", PostFn.self),
-              let clearSiteData = symbol("exact_web_clear_site_data", ClearFn.self)
+              let clearSiteData = symbol("exact_web_clear_site_data", ClearFn.self),
+              let endSession = symbol("exact_web_end_session", SetReaderlessFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
@@ -89,7 +92,7 @@ private final class WebModule {
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
             setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
-            evaluate: evaluate, destroy: destroy, configure: configure, command: command, clearSiteData: clearSiteData))
+            evaluate: evaluate, destroy: destroy, configure: configure, command: command, clearSiteData: clearSiteData, endSession: endSession))
     }
 
     private init(
@@ -97,7 +100,7 @@ private final class WebModule {
         platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
         setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn,
-        configure: @escaping PostFn, command: @escaping PostFn, clearSiteData: @escaping ClearFn
+        configure: @escaping PostFn, command: @escaping PostFn, clearSiteData: @escaping ClearFn, endSession: @escaping SetReaderlessFn
     ) {
         self.library = library
         self.create = create
@@ -112,6 +115,7 @@ private final class WebModule {
         self.configure = configure
         self.command = command
         self.clearSiteData = clearSiteData
+        self.endSession = endSession
     }
 }
 
@@ -247,7 +251,10 @@ final class WebViews {
     /// `partition`, `zoom` and the `apple.*` words as the arm takes them
     /// (`exact_web_configure`), before its web view is made.
     private func configuration(_ owner: NodeView) -> Data {
-        var values: [String: Any] = ["agent": ExactEnv.agentMode]
+        // The app's data root names the app (its directories are by app id), so
+        // two apps embedded in one process keep apart their `persist:` partitions.
+        var values: [String: Any] = ["agent": ExactEnv.agentMode, "session": sessionKey,
+                                     "app": session?.appFileRoots["data"] ?? Bundle.main.bundleIdentifier ?? "exact"]
         if let partition = owner.props["partition"] { values["partition"] = partition }
         if let zoom = owner.style["zoom"]?.number, zoom > 0 { values["zoom"] = zoom }
         for (prop, key) in WebViews.appleWords {
@@ -400,6 +407,18 @@ final class WebViews {
 
     func reset() {
         for id in Array(entries.keys) { destroy(id: id) }
+    }
+
+    /// The session's own key for its in-memory partitions.
+    private lazy var sessionKey = UUID().uuidString
+
+    /// The session ended: its frames are gone, and its in-memory partitions go
+    /// with them (an arm never loaded made none).
+    func endSession() {
+        reset()
+        guard let module else { return }
+        let data = Data("{\"session\":\"\(sessionKey)\"}".utf8)
+        data.withUnsafeBytes { module.endSession($0.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count)) }
     }
 
     fileprivate func receivedEvent(id: UInt32, kind: UInt32, data: Data) {

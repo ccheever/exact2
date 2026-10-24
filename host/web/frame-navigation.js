@@ -11,10 +11,14 @@
 //   `currententrychange`.
 // - A browser without the Navigation API: `load` commits and ends a
 //   navigation, and `hashchange` and `popstate` are same-document ones;
-//   `canGoBack` and `canGoForward` are false, and `traverseHistory` cannot
-//   tell a missing entry.
+//   `canGoBack` and `canGoForward` are false, and `traverseHistory` is
+//   `history.go(delta)`, which cannot tell a missing entry and moves the
+//   joint session history (the page's own entries too), a declared difference.
 // - A cross-origin guest: `load` only, no records; of the commands only
-//   `navigate`, which a parent may do to its frame's `location`.
+//   `navigate`, which a parent may do to its frame's `location`. A
+//   same-origin guest that navigates to another origin (or fails to load,
+//   showing the browser's error page) ends its navigation with
+//   `navigateerror` (`NotSupportedError`): the page cannot see the outcome.
 // - `partition` is never honoured (a browser partitions by top-level site),
 //   so every record says `partitioned: false`.
 import { frameURL } from './navigation.js';
@@ -96,10 +100,13 @@ function changed(e) {
  * finished, then watch its own navigations. */
 function loaded(e) {
   const s = state(e), g = guest(e);
+  clearInterval(s.poll); s.poll = 0;
   if (!g) {
-    // Another origin's document: no record of it, but a navigation this frame announced still ends.
+    // Another origin's document, or the browser's error page for a load that
+    // failed: the page sees neither where it landed nor whether it loaded, so
+    // a navigation this frame announced ends without claiming a URL.
     s.watched = null;
-    if (s.flight) { s.committed = s.flight.destination; s.flight.committed = true; end(e, 'navigatesuccess'); }
+    end(e, 'navigateerror', 'NotSupportedError', 'the frame left this page\'s origin; where it went and whether it loaded are not the page\'s to see');
     return;
   }
   if (s.watched === g.doc) return;
@@ -114,6 +121,11 @@ function loaded(e) {
     nav.addEventListener('navigate', ev => {
       if (!here()) return;
       begin(e, ev.destination.url, ev.navigationType); // a cross-document one is committed by the next document's `load`
+      // Firefox shows its error page for a load that fails with no `load` event: a frame whose document can no
+      // longer be read, with no `load`, has left the page's origin all the same.
+      if (ev.hashChange || ev.downloadRequest != null) return;
+      clearInterval(s.poll);
+      s.poll = setInterval(() => { if (!s.flight) { clearInterval(s.poll); s.poll = 0; } else if (!guest(e)) loaded(e); }, 250);
     });
     nav.addEventListener('currententrychange', () => {
       if (!here() || !nav.currentEntry || nav.currentEntry.url === s.committed && !s.flight) return;

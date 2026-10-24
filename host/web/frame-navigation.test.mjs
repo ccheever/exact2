@@ -27,7 +27,7 @@ function serve() {
       window.run = (name, ...args) => nav.command(name, ['tab', ...args], t => logs.push(t));
     </script>`);
   } });
-  const cross = Bun.serve({ port: CROSS, hostname: '127.0.0.1', fetch: () => guest('X') });
+  const cross = Bun.serve({ port: CROSS, hostname: '127.0.0.1', fetch: request => new URL(request.url).pathname === '/r' ? Response.redirect(`http://127.0.0.1:${CROSS}/final`, 302) : guest('X') });
   return { stop() { same.stop(true); cross.stop(true); } };
 }
 
@@ -137,13 +137,41 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
         expect([stopped.loading, stopped.url]).toEqual([false, before]);
       }
 
+      // Leaving the page's origin, by a link through a redirect or to a port that refuses: the page cannot see
+      // where the frame landed or whether it loaded, so the navigation ends with NotSupportedError, its URL unclaimed.
+      // WebKit keeps the old document for a load that fails and tells the page nothing: that navigation stays in flight.
+      for (const [how, target] of [['link', `http://127.0.0.1:${CROSS}/r`], ...(engine === 'webkit' ? [] : [['refused', 'http://127.0.0.1:16589/dead'], ['restricted port', 'http://127.0.0.1:1/dead']])]) {
+        n = await count(page);
+        const from = await page.evaluate(() => events.at(-1)[1].url);
+        await page.evaluate(href => { const d = document.querySelector('#tab').contentDocument, a = d.createElement('a'); a.href = href; d.body.append(a); a.click(); }, target);
+        await settle(page, n, 'navigateerror', 'NotSupportedError').catch(async e => { throw new Error(`${how}: ${JSON.stringify(await since(page, n))} ${await page.evaluate(() => { try { return document.querySelector('#tab').contentDocument?.URL } catch { return 'cross' } })}`); });
+        const left = await since(page, n);
+        expect(left.some(([e]) => e === 'navigatesuccess')).toBe(false);
+        expect([how, left.at(-1)[2]]).toEqual([how, from]);
+        n = await count(page);
+        await page.evaluate(port => run('navigate', `http://127.0.0.1:${port}/g/a`), SAME);
+        await settle(page, n, 'navigatesuccess', '/g/a');
+      }
+
+      if (engine === 'webkit') {
+        // The failed load WebKit says nothing of: still in flight, until the next navigation supersedes it.
+        n = await count(page);
+        await page.evaluate(() => { const d = document.querySelector('#tab').contentDocument, a = d.createElement('a'); a.href = 'http://127.0.0.1:16589/dead'; d.body.append(a); a.click(); });
+        await page.waitForTimeout(1500);
+        expect((await since(page, n)).map(([e, loading]) => [e, loading])).toEqual([['navigate', true]]);
+        await page.evaluate(port => run('navigate', `http://127.0.0.1:${port}/g/a`), SAME);
+        await settle(page, n, 'navigatesuccess', '/g/a');
+        expect((await since(page, n)).find(([e]) => e === 'navigateerror')?.[5]).toBe('AbortError');
+      }
+
       // A cross-origin guest: `navigate` reaches it; it reports nothing of its own, and the other commands are refused.
       n = await count(page);
       await page.evaluate(port => run('navigate', `http://127.0.0.1:${port}/x`), CROSS);
       await page.waitForFunction(port => { try { return document.querySelector('#tab').contentDocument === null; } catch { return true; } }, CROSS);
-      await page.waitForFunction(n => events.slice(n).some(([e]) => e === 'navigatesuccess'), n);
+      await page.waitForFunction(n => events.slice(n).some(([e]) => e === 'navigateerror'), n);
       const crossed = await since(page, n);
-      expect(crossed.at(-1)[2]).toBe(`http://127.0.0.1:${CROSS}/x`);
+      expect(crossed.some(([e]) => e === 'navigatesuccess')).toBe(false);
+      expect(crossed.at(-1)[2]).not.toBe(`http://127.0.0.1:${CROSS}/x`);
       n = await count(page);
       await page.evaluate(() => { run('reload'); run('traverseHistory', -1); run('stopLoading'); });
       await page.waitForFunction(n => events.slice(n).filter(([e, r]) => e === 'navigateerror' && r.error === 'NotSupportedError').length === 3, n);

@@ -32,7 +32,7 @@ final class IframePartitionTests: XCTestCase {
 
     private struct Arm {
         let create: CreateFn, view: ViewFn, setSrc: SetFn, setSandbox: SetFn, setDocument: SetFn, configure: PostFn, command: PostFn
-        let post: PostFn, destroy: DestroyFn, clear: ClearFn
+        let post: PostFn, destroy: DestroyFn, clear: ClearFn, endSession: @convention(c) (UnsafePointer<UInt8>?, UInt32) -> Void
     }
 
     private func arm() throws -> Arm {
@@ -45,7 +45,8 @@ final class IframePartitionTests: XCTestCase {
                    setSrc: try symbol("exact_web_set_src", SetFn.self), setSandbox: try symbol("exact_web_set_sandbox", SetFn.self),
                    setDocument: try symbol("exact_web_set_document", SetFn.self), configure: try symbol("exact_web_configure", PostFn.self),
                    command: try symbol("exact_web_command", PostFn.self), post: try symbol("exact_web_post_message", PostFn.self),
-                   destroy: try symbol("exact_web_destroy", DestroyFn.self), clear: try symbol("exact_web_clear_site_data", ClearFn.self))
+                   destroy: try symbol("exact_web_destroy", DestroyFn.self), clear: try symbol("exact_web_clear_site_data", ClearFn.self),
+                   endSession: try symbol("exact_web_end_session", (@convention(c) (UnsafePointer<UInt8>?, UInt32) -> Void).self))
     }
 
     private static let event: EventFn = { context, _, kind, bytes, length in
@@ -176,6 +177,16 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertEqual(events(seen), ["currententrychange"])
         XCTAssertEqual(seen.records.last?.record["title"] as? String, "Retitled")
 
+        // A same-document traversal starts no provisional navigation; the next
+        // navigation is a push again, not the traversal's type.
+        step(seen) { json(["op": "traverseHistory", "delta": -1], arm.command, handle) }
+        spin { self.events(seen).contains("navigatesuccess") }
+        XCTAssertEqual(seen.records.last?.record["navigationType"] as? String, "traverse", "\(seen.records)")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/b")
+        step(seen) { web.evaluateJavaScript("location.assign('/a')") { _, _ in } }
+        spin { self.events(seen).contains("navigatesuccess") }
+        XCTAssertEqual(seen.records.first?.record["navigationType"] as? String, "push", "\(seen.records)")
+
         // Back to the first page: a traversal.
         step(seen) { json(["op": "traverseHistory", "delta": -2], arm.command, handle) }
         spin { self.events(seen).contains("navigatesuccess") }
@@ -288,6 +299,23 @@ final class IframePartitionTests: XCTestCase {
         }
     }
 
+    /// A refusal while a navigation is in flight: that navigation ends as
+    /// itself, and the `about:blank` shown in its place reports nothing.
+    func testARefusalMidNavigationReportsNothingOfTheBlankPage() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-mid"], src: "http://127.0.0.1:16584/slow")
+        defer { arm.destroy(handle) }
+        spin { self.events(seen).contains("navigate") }
+        send("allow-scripts", arm.setSandbox, handle)
+        spin { self.events(seen).filter { $0 == "navigateerror" }.count >= 2 }
+        pause(1)
+        XCTAssertEqual(events(seen), ["navigate", "navigateerror", "navigateerror"], "\(seen.records)")
+        XCTAssertEqual(seen.records.dropFirst().first?.record["error"] as? String, "AbortError")
+        XCTAssertEqual(seen.records.last?.record["error"] as? String, "NotSupportedError")
+        XCTAssertEqual(seen.loads, 0)
+        XCTAssertEqual(web.url?.absoluteString ?? "about:blank", "about:blank")
+    }
+
     func testAnUnpartitionedFrameRefusesTheCommands() throws {
         let arm = try arm(), seen = Seen()
         let (handle, _) = mount(arm, seen, configuration: [:], src: "http://127.0.0.1:16584/a")
@@ -296,6 +324,38 @@ final class IframePartitionTests: XCTestCase {
         spin { !seen.records.isEmpty }
         XCTAssertEqual(events(seen), ["navigateerror"])
         XCTAssertEqual(seen.records.first?.record["error"] as? String, "NotSupportedError")
+    }
+
+    /// Under the agent a `persist:` partition is in memory, so a drive never
+    /// touches a person's saved logins; outside it, it persists, by app (D1).
+    func testPersistentPartitionsAreTheAppsAndInMemoryUnderTheAgent() throws {
+        let arm = try arm(), seen = Seen()
+        func store(_ configuration: [String: Any]) -> WKWebsiteDataStore {
+            let (handle, web) = mount(arm, seen, configuration: configuration, src: nil)
+            defer { arm.destroy(handle) }
+            return web.configuration.websiteDataStore
+        }
+        XCTAssertFalse(store(["partition": "persist:drive", "agent": true]).isPersistent)
+        let one = store(["partition": "persist:kept", "app": "dev.exact.test.one"])
+        XCTAssertTrue(one.isPersistent)
+        XCTAssertTrue(one === store(["partition": "persist:kept", "app": "dev.exact.test.one"]))
+        let two = store(["partition": "persist:kept", "app": "dev.exact.test.two"])
+        XCTAssertFalse(one === two, "two apps never share a partition's files")
+        if #available(macOS 14.0, iOS 17.0, *) { XCTAssertNotEqual(one.identifier, two.identifier) }
+        // An in-memory partition is its session's, and goes when the session ends.
+        let first = store(["partition": "tab", "session": "s1"])
+        XCTAssertTrue(first === store(["partition": "tab", "session": "s1"]))
+        XCTAssertFalse(first === store(["partition": "tab", "session": "s2"]))
+        Array("{\"session\":\"s1\"}".utf8).withUnsafeBufferPointer { arm.endSession($0.baseAddress, UInt32($0.count)) }
+        XCTAssertFalse(first === store(["partition": "tab", "session": "s1"]), "the ended session's store was let go")
+        // The test's own persistent stores go; a store still in use may refuse, which leaves only its folder.
+        if #available(macOS 14.0, iOS 17.0, *) {
+            for id in [one.identifier, two.identifier].compactMap({ $0 }) {
+                var done = false
+                WKWebsiteDataStore.remove(forIdentifier: id) { _ in done = true }
+                spin { done }
+            }
+        }
     }
 
     /// A partitioned frame changing its partition gets a new web view, in the new store.

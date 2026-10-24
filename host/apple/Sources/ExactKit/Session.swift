@@ -1484,6 +1484,7 @@ public final class ExactSession {
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
         rasters.shutdown(); sound.shutdown(); midi.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
+        webviews.endSession() // its frames and in-memory partitions (LLP 1020.002 D1)
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()
         natives.destroyModule()

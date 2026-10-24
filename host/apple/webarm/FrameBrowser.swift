@@ -6,10 +6,15 @@ import CryptoKit
 import Foundation
 import WebKit
 
-/// Partition names and their data stores (@ref LLP 1020.002 D1). A store is
-/// made once per name and kept for the process, as Electron keeps a session.
+/// Partition names and their data stores (@ref LLP 1020.002 D1). A
+/// `persist:` store is the app's, made once per name and kept for the
+/// process; an in-memory one is its session's, let go when the session ends
+/// (`exact_web_end_session`), as an Electron in-memory partition lives until
+/// the app quits.
 enum Partitions {
-    nonisolated(unsafe) static var stores: [String: WKWebsiteDataStore] = [:]
+    struct Store { let name: String; let session: String; let store: WKWebsiteDataStore }
+    /// By `app\0name` for a persistent store, `session\0name` for one in memory.
+    nonisolated(unsafe) static var stores: [String: Store] = [:]
 
     /// `persist:` and 1 to 64 of `[A-Za-z0-9._-]`, or the same without it.
     static func valid(_ name: String) -> Bool {
@@ -21,23 +26,30 @@ enum Partitions {
 
     /// Under the agent every partition is in memory, so a drive never reads
     /// or writes a person's saved logins.
-    static func store(_ name: String, agent: Bool) -> WKWebsiteDataStore {
-        if let store = stores[name] { return store }
+    static func store(_ name: String, agent: Bool, app: String, session: String) -> WKWebsiteDataStore {
+        let persistent = name.hasPrefix("persist:") && !agent
+        let key = persistent ? "\(app)\u{0}\(name)" : "\(session)\u{0}\(name)"
+        if let found = stores[key] { return found.store }
         let store: WKWebsiteDataStore
-        if name.hasPrefix("persist:"), !agent, #available(macOS 14.0, iOS 17.0, *) {
-            store = WKWebsiteDataStore(forIdentifier: identifier(name))
+        if persistent, #available(macOS 14.0, iOS 17.0, *) {
+            store = WKWebsiteDataStore(forIdentifier: identifier(name, app: app))
         } else {
             store = .nonPersistent()
         }
-        stores[name] = store
+        stores[key] = Store(name: name, session: persistent ? "" : session, store: store)
         return store
     }
 
-    /// A UUID per app and name: SHA-256 of the bundle id and the name, with
+    /// The session ended: its in-memory partitions go with it.
+    static func end(session: String) {
+        stores = stores.filter { $0.value.session.isEmpty || $0.value.session != session }
+    }
+
+    /// A UUID per app and name: SHA-256 of the app's id and the name, with
     /// RFC 9562's version 8 and variant bits, so two apps naming one
-    /// partition never share its files.
-    static func identifier(_ name: String) -> UUID {
-        var bytes = Array(SHA256.hash(data: Data("\(Bundle.main.bundleIdentifier ?? "exact")\u{0}\(name)".utf8)).prefix(16))
+    /// partition, embedded in one process or not, never share its files.
+    static func identifier(_ name: String, app: String) -> UUID {
+        var bytes = Array(SHA256.hash(data: Data("\(app)\u{0}\(name)".utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0f) | 0x80
         bytes[8] = (bytes[8] & 0x3f) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -47,8 +59,11 @@ enum Partitions {
     /// `clearSiteData(partition, types)` (@ref LLP 1020.002 D4): the Clear
     /// Site Data header's type names over a whole partition. `nil` is success;
     /// otherwise a DOMException name and message.
+    /// Every live store of that name is cleared: a package call names no
+    /// session, so two embedded sessions that name one partition clear both.
     static func clear(_ name: String, types: [String], done: @escaping ((String, String)?) -> Void) {
-        guard let store = stores[name] else {
+        let named = stores.values.filter { $0.name == name }.map(\.store)
+        guard !named.isEmpty else {
             return done(("NotFoundError", "clearSiteData: this session has never named the partition \(name)"))
         }
         var kinds = Set<String>()
@@ -65,7 +80,8 @@ enum Partitions {
             default: return done(("SyntaxError", "clearSiteData: \(type) is not a type; the types are \"cookies\", \"storage\", \"cache\" and \"*\""))
             }
         }
-        store.removeData(ofTypes: kinds, modifiedSince: .distantPast) { done(nil) }
+        var left = named.count
+        for store in named { store.removeData(ofTypes: kinds, modifiedSince: .distantPast) { left -= 1; if left == 0 { done(nil) } } }
     }
 }
 
@@ -147,6 +163,8 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
             web.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in self?.stateChanged() },
             web.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in self?.stateChanged() },
             web.observe(\.url, options: [.new]) { [weak self] _, _ in self?.urlChanged() },
+            // A same-document traversal can move `url` while WebKit says it is loading: looked at again when it is not.
+            web.observe(\.isLoading, options: [.new]) { [weak self] web, _ in if !web.isLoading { self?.urlChanged() } },
         ]
         rememberHistory()
     }
@@ -294,12 +312,18 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
             self.urlScheduled = false
             guard let web = self.web, self.flight == nil, !web.isLoading, let now = web.url?.absoluteString, now != self.committed, !self.committed.isEmpty else { return }
             let type: String
-            if let policy = self.policy, policy.url == now {
+            let back = web.backForwardList.backList.count, current = web.backForwardList.currentItem.map(ObjectIdentifier.init)
+            if let command = self.commandType {
+                // `traverseHistory` to an entry of this document starts no provisional navigation.
+                type = command
+            } else if let policy = self.policy, policy.url == now {
                 type = policy.type
+            } else if back < self.history.back || !web.backForwardList.forwardList.isEmpty && current != self.history.current {
+                type = "traverse"
             } else {
-                let back = web.backForwardList.backList.count, current = web.backForwardList.currentItem.map(ObjectIdentifier.init)
                 type = back > self.history.back || (current != self.history.current && back == self.history.back + 1) ? "push" : "replace"
             }
+            self.commandType = nil
             self.policy = nil
             self.begin(now, type: type, navigation: nil)
             self.committed = now

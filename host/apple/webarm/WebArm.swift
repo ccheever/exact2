@@ -195,13 +195,17 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// and no script in the page's world (@ref LLP 1020.002 D1).
     var partition: String?
     var agent = false
+    /// The session's app and the session (`exact_web_configure`): a
+    /// persistent partition is the app's, an in-memory one the session's.
+    var app = Bundle.main.bundleIdentifier ?? "exact"
+    var session = ""
     var options: [String: Any] = [:]
     /// The words `applyOptions` set on the current web view.
     var applied = Set<String>()
     var browser: FrameBrowser?
-    /// Loading `about:blank` in place of a refused source: its own
-    /// navigation reports nothing.
-    var blanking = false
+    /// The `about:blank` load shown in place of a refused source: its own
+    /// navigation reports nothing, and one it cancels still ends as itself.
+    var blank: WKNavigation?
     var src: String?
     /// A local `src`'s bytes, as the host read them (`exact_web_set_document`).
     var suppliedDocument: Data?
@@ -340,7 +344,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// on iOS a `playsinline` video plays in the tab (@ref LLP 1020.002 D1).
     func buildPartitioned() -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = Partitions.store(partition!, agent: agent)
+        configuration.websiteDataStore = Partitions.store(partition!, agent: agent, app: app, session: session)
         configuration.userContentController = controller
         let preferences = WKPreferences()
         preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -380,7 +384,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             default: web.configuration.preferences.inactiveSchedulingPolicy = partition != nil || options["inactiveSchedulingPolicy"] != nil ? .throttle : .suspend
             }
         }
-        applied = Set(options.keys).subtracting(["partition", "agent"])
+        applied = Set(options.keys).subtracting(["partition", "agent", "app", "session"])
     }
 
     /// `partition`, `zoom` and the `apple.*` words, before the web view is
@@ -388,6 +392,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// view; the presenter takes the new one from `exact_web_platform_view`.
     func configure(_ values: [String: Any]) {
         agent = values["agent"] as? Bool ?? false
+        if let app = values["app"] as? String, !app.isEmpty { self.app = app }
+        session = values["session"] as? String ?? ""
         let name = values["partition"] as? String
         options = values
         guard name != partition || built == nil else {
@@ -493,8 +499,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             browser.flight = nil
             browser.emitEnd(flight, "navigateerror", error: "AbortError", message: "superseded")
         }
-        blanking = true
-        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        blank = webView.load(URLRequest(url: URL(string: "about:blank")!))
         emit(kind: 2)
         browser?.send("navigateerror", error: Partitions.valid(partition!) ? "NotSupportedError" : "SyntaxError", message: refusal)
     }
@@ -866,7 +871,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     ) {
         guard !invalidated else { decisionHandler(.cancel); return }
         if let browser {
-            if !blanking { browser.decided(navigationAction) }
+            if blank == nil || navigationAction.request.url?.absoluteString != "about:blank" { browser.decided(navigationAction) }
             decisionHandler(.allow)
             return
         }
@@ -901,25 +906,25 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        guard !invalidated, !blanking, let browser else { return }
+        guard !invalidated, navigation !== blank, let browser else { return }
         if browser.flight == nil { emit(kind: 3) }
         browser.started(navigation)
     }
 
     func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
-        guard !invalidated, !blanking else { return }
+        guard !invalidated, navigation !== blank else { return }
         browser?.redirected(navigation)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        guard !invalidated, !blanking else { return }
+        guard !invalidated, navigation !== blank else { return }
         browser?.committed(navigation)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard !invalidated, let browser else { return }
         serving = false
-        if blanking { blanking = false; return }
+        if navigation === blank { blank = nil; return }
         emit(kind: 2)
         browser.failed(navigation, error)
     }
@@ -928,7 +933,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         serving = false
         guard !invalidated else { return }
         if let browser {
-            if blanking { blanking = false; return }
+            if navigation === blank { blank = nil; return }
             emit(kind: 2)
             return browser.failed(navigation, error)
         }
@@ -947,7 +952,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         serving = false
         recovering = false
         guard direct, !invalidated else { return }
-        if blanking { blanking = false; return }
+        if navigation === blank { blank = nil; return }
         // A direct guest's document loaded: the iframe's `load`.
         emit(kind: 2)
         if suppressLoad { suppressLoad = false } else { emit(kind: 0) }
@@ -1113,6 +1118,13 @@ private func json(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32) -> [String: 
 @_cdecl("exact_web_configure")
 public func exactWebConfigure(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
     arm(handle)?.configure(json(bytes, length))
+}
+
+/// A session ended (`{session}`): its in-memory partitions are let go.
+@_cdecl("exact_web_end_session")
+public func exactWebEndSession(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
+    let session = json(bytes, length)["session"] as? String ?? ""
+    if Thread.isMainThread { Partitions.end(session: session) } else { DispatchQueue.main.async { Partitions.end(session: session) } }
 }
 
 /// A frame command (@ref LLP 1020.002 D3): `{op: "navigate", url}`,

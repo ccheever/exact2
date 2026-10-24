@@ -1241,7 +1241,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   record's fields, not the ones `navigatesuccess` had. The commands (`navigate`,
   `traverseHistory`, `reload(id)`, `stopLoading`) move only a frame with
   `partition=` on Apple; without one they fire `navigateerror` with
-  `NotSupportedError`. (LLP 1020.002, stage 1, 2026-10-23.)
+  `NotSupportedError`. `clearSiteData` from data code answers `NotSupportedError`
+  unless the Contract also names the send (`use clearSiteData from
+  "@exact/browser"` and a `send` of it): a module call is admitted only by name
+  (LLP 1133.002 D14). (LLP 1020.002, stage 1, 2026-10-23.)
 
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
