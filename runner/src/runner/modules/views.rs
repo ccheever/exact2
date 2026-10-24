@@ -35,7 +35,7 @@ pub(in crate::runner) struct Views {
     seen: BTreeMap<ViewId, Viewed>,
     /// The origin of the last commit applied: what a change found after it
     /// (the host's covers set as it lays the commit out) is reported with.
-    last: CallOrigin,
+    pub(in crate::runner) last: CallOrigin,
 }
 
 struct Viewed {
@@ -53,7 +53,7 @@ impl<D: DataSource> Runner<D> {
     /// After a commit is applied: its origin is the one a change it made is
     /// reported with.
     pub(in crate::runner) fn views_committed(&mut self) {
-        if self.plan.views.is_empty() {
+        if self.plan.views.is_empty() && !self.fed_any() {
             return;
         }
         self.extensions.views.last = self.call_origin();
@@ -65,6 +65,8 @@ impl<D: DataSource> Runner<D> {
     /// commit (a cover set as it lays the commit out), as it reads the wake
     /// lock's holders.
     pub fn report_views(&mut self) {
+        // A canvas a package feeds, by the same rule (`fed.rs`).
+        self.report_fed();
         let none_placed = !self.kernel.has_prop(PropId::NativeViewModuleName);
         if self.plan.views.is_empty() || (none_placed && self.extensions.views.seen.is_empty()) {
             return;
