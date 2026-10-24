@@ -562,6 +562,10 @@ fn the_style_hint_suggests_only_what_compiles() {
         ("border-bottom: 0", "border-bottom=\"0\""),
         ("border-left: 0", "border-left=\"0\""),
         ("columns: 2", "columns=\"2\""),
+        ("columns: 1", "columns=\"1\""),
+        ("columns: 65535", "columns=\"65535\""),
+        ("columns: 02", "columns=\"02\""),
+        ("columns: 12px", "columns=\"12px\""),
         ("column-rule: 0", "column-rule=\"0\""),
         (
             "column-count: 2; column-rule-width: 0; padding: 8",
@@ -633,6 +637,8 @@ fn the_style_hint_keeps_importance_for_properties_with_shared_rows() {
         ("border-color: red", "border-bottom-color: blue"),
         ("border-width: 2px", "border-top: 1px solid red"),
         ("border-top: 1px solid red", "border-color: blue"),
+        ("animation: pulse 1s", "animation-duration: 2s"),
+        ("animation-duration: 1s", "animation-duration: 2s"),
     ] {
         for (first, last) in [(a, b), (b, a)] {
             let style = format!("{first} !important; {last}");
@@ -644,6 +650,49 @@ fn the_style_hint_keeps_importance_for_properties_with_shared_rows() {
                 .message
                 .contains("a look nodes share is a `style Name` block"));
         }
+    }
+    // Distinct animation longhands compose into parts of one row without competing.
+    let app = |attrs: &str| {
+        format!("keyframes pulse\n  to opacity=0\ncomponent A\n  view\n    text \"a\" {attrs}\n")
+    };
+    let longhands: Vec<_> = exact_motion::animation::LONGHANDS
+        .into_iter()
+        .zip([
+            "pulse", "1s", "linear", "0s", "infinite", "reverse", "both", "paused",
+        ])
+        .collect();
+    for (i, a) in longhands.iter().enumerate() {
+        for b in &longhands[i + 1..] {
+            for ((first, x), (last, y)) in [(a, b), (b, a)] {
+                for importance in ["", " !important"] {
+                    let style = format!("{first}: {x}{importance}; {last}: {y}");
+                    let e = contract::compile(&app(&format!("style={style:?}"))).unwrap_err();
+                    let attrs = format!("{first}=\"{x}\" {last}=\"{y}\"");
+                    assert!(
+                        e.message
+                            .contains(&format!("write the declarations as attributes, `{attrs}`")),
+                        "{style}: {e}"
+                    );
+                    contract::compile(&app(&attrs)).unwrap_or_else(|e| panic!("{attrs}: {e}"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_style_hint_does_not_turn_invalid_column_counts_into_widths() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    for value in ["2.0", "2.5", "2.", "0.5", "0", "65536"] {
+        let style = format!("columns: {value}");
+        let e = contract::compile(&app(&format!("style={style:?}"))).unwrap_err();
+        let attrs = format!("columns={value}");
+        assert!(
+            e.message
+                .contains(&format!("write the declarations as attributes, `{attrs}`")),
+            "{style}: {e}"
+        );
+        contract::compile(&app(&attrs)).expect_err("invalid counts must remain refused");
     }
 }
 
