@@ -250,6 +250,41 @@ test('the events GET long poll through the TLS door: a paired read token gets it
   } finally { await doors.close(); await wire.close(); }
 }, 30_000);
 
+test('edit-held through the TLS door: a paired propose client edits its own held proposal, not another\'s; a write client edits another\'s, which stays its client\'s', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  try {
+    const port = Number(new URL(doors.info().origin).port);
+    let token = null;
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const local = async body => {
+      let text = '';
+      const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+      queueMicrotask(() => req.end(JSON.stringify(body)));
+      await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+      return JSON.parse(text);
+    };
+    const pair = async (scope, name) => {
+      const code = (await local({ method: 'pair-code', scope, name })).ok.code;
+      return JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) })).text).ok;
+    };
+    const remote = async (paired, body) => {
+      const r = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': paired.token }, body: JSON.stringify(body) });
+      return { status: r.status, ...JSON.parse(r.text) };
+    };
+    const proposer = await pair('propose', 'laptop'), writer = await pair('write', 'desk');
+    const agents = (await local({ method: 'propose', hold: true, client: 'agent:codex', ops: [{ op: 'set-token', name: 'ink', value: '#010101' }] })).ok.proposal;
+    const own = (await remote(proposer, { method: 'propose', hold: true, client: proposer.client, ops: [{ op: 'set-token', name: 'ink', value: '#020202' }] })).ok.proposal;
+    const edit = (paired, proposal) => remote(paired, { method: 'edit-held', client: paired.client, proposal, index: 0, value: '#0a0a0a' });
+    const mine = await edit(proposer, own);
+    expect([mine.status, mine.ok?.client, mine.ok?.replaces]).toEqual([200, proposer.client, own]);
+    const theirs = await edit(proposer, agents);
+    expect([theirs.status, theirs.error?.needs]).toEqual([403, 'write']);
+    const written = await edit(writer, agents);
+    expect([written.status, written.ok?.client]).toEqual([200, 'agent:codex']);
+  } finally { await doors.close(); await wire.close(); }
+}, 30_000);
+
 // The ghost builds' follow-up (review2's condition 1): under Bun a request on a socket handed to the HTTP server, as
 // every TLS door request is, never fires req 'close'. A paired client's subscription there still ends when the client
 // goes, on res 'close': it is present while the stream is open and not after.

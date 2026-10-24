@@ -400,6 +400,19 @@ Bun.serve({ hostname, port: Number(port), routes: {
         }
         return send({ ok: { files: FILES, written: ['app.tamber'], client: p.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       }
+      // `edit-held` (1.17): one value of a held proposal, held again in its place as `edited-N` (the server's
+      // `tamber-edit-held.mjs`, by shape: its op's value or `when`th branch's set, `items` kept, the client kept).
+      if (request.method === 'edit-held' && longPolls) {
+        const old = held.find(h => h.proposal === request.proposal);
+        if (!old) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        const ops = old.ops.map((o: any) => ({ ...o, op: { ...o.op, whens: o.op.whens?.map((w: any) => ({ ...w })) } }));
+        const at = ops[request.index]?.op;
+        if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
+        const keep: number[] = request.items ?? ops.map((_: unknown, i: number) => i);
+        const id = `edited-${++holds}`;
+        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), review: { ...old.review, kept: true, from: request.proposal }, editedBy: request.client }]);
+        return send({ ok: { recomputed: true, replaces: request.proposal, proposal: id, client: old.client, editedBy: request.client } });
+      }
       if (request.method === 'drop') { held = held.filter(h => h.proposal !== request.proposal); return send({ ok: { dropped: request.proposal } }); }
       if (request.method === 'undo') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: null, changed: [], class: 'live', diff: '' } });
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
