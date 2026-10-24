@@ -1,8 +1,75 @@
-//! Native tokens never cross a numeric bridge or enter a historical handle map.
+//! Retained actions and native motion holds. Tokens stay native.
 use super::*;
 use exact_motion::{HoldEnd, HoldStart, HoldToken, Value};
 
 impl<D: DataSource> Host<D> {
+    pub(crate) fn dispatch_retained(
+        &mut self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        now_ms: f64,
+    ) -> Result<bool, String> {
+        self.dispatch_retained_input(key, binding, kind, now_ms, None)
+    }
+
+    fn dispatch_retained_input(
+        &mut self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        now_ms: f64,
+        held: Option<HoldToken>,
+    ) -> Result<bool, String> {
+        let event = match kind {
+            exact_plan::EventKind::Press => Event::Press,
+            exact_plan::EventKind::Swiperight => Event::Swiperight,
+            _ => return Ok(false),
+        };
+        // Refuse before consuming the input sample or running timers.
+        if !now_ms.is_finite()
+            || now_ms < self.now_ms
+            || !self.retained_action_eligible(key)
+            || self.runner.validate_action_binding(binding, kind).is_err()
+        {
+            return Ok(false);
+        }
+        // Presentation stays at the input sample: a live commit can finish
+        // later, but the release that follows still carries this timestamp.
+        self.now_ms = now_ms;
+        let advanced = self.runner.advance_timed(now_ms);
+        let advance_error = self.commit(
+            &advanced.receipts,
+            advanced.error.map(|error| format!("{error:?}")),
+        );
+        // Timers may retire the binding, hide its node or consume its hold.
+        // Their commits stand even when the input no longer has a target.
+        if !self.retained_action_eligible(key)
+            || held.is_some_and(|token| !self.has_hold(token))
+            || self.runner.validate_action_binding(binding, kind).is_err()
+        {
+            return advance_error.map_or(Ok(false), Err);
+        }
+        let result = self.runner.dispatch_bound(binding, event);
+        if matches!(
+            result,
+            Err(exact_runner::runner::ActionBindingError::Refused(_))
+        ) {
+            return advance_error.map_or(Ok(false), Err);
+        }
+        let error = match result {
+            Ok(receipt) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+        };
+        advance_error.or(error).map_or(Ok(true), Err)
+    }
+
     /// A distinct acknowledged picture cannot inherit an old contact's hold.
     /// Only its exact held/returning Translate token may snap to the current target;
     /// this never ends a replacement hold/curve or advances either clock.
@@ -42,7 +109,13 @@ impl<D: DataSource> Host<D> {
         {
             return Ok(false);
         }
-        self.dispatch_retained(key, binding, exact_plan::EventKind::Swiperight, now_ms)
+        self.dispatch_retained_input(
+            key,
+            binding,
+            exact_plan::EventKind::Swiperight,
+            now_ms,
+            Some(token),
+        )
     }
     /// Sample at recognition, in milliseconds. Unknown/inert nodes do not adopt slots.
     pub fn hold_begin(

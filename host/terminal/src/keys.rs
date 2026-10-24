@@ -41,6 +41,7 @@ impl<D: DataSource> Host<D> {
     /// must not fire a shortcut). A single-line field takes line breaks as
     /// spaces.
     pub fn paste(&mut self, text: &str) {
+        self.advance_for_input();
         let Some(f) = self.focus.filter(|f| self.is_field(*f) && self.armed(*f)) else {
             return;
         };
@@ -165,6 +166,7 @@ impl<D: DataSource> Host<D> {
 
     /// A key, routed as the module comment says.
     pub fn key(&mut self, key: Key) -> After {
+        self.advance_for_input();
         let chord = key.chord();
         // A focused control the screen has not shown yet (a dialog this
         // read opened) takes no typed-ahead key: not its handler, not its

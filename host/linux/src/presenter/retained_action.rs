@@ -270,11 +270,19 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn retained_press_target(&mut self, target: &Target, now_ms: f64) -> Option<ViewId> {
         let binding = self.retained_binding(target)?;
         let view = self.host.kernel().node_by_key(target.key)?.id;
+        let epoch = self.host.kernel().epoch();
         match self
             .host
             .dispatch_retained(target.key, &binding, EventKind::Press, now_ms)
         {
-            Ok(false) => return None,
+            Ok(false) => {
+                if self.host.kernel().epoch() != epoch {
+                    if let Some(error) = self.after_commit() {
+                        self.host.log(error);
+                    }
+                }
+                return None;
+            }
             Err(error) => self.host.log(error),
             Ok(true) => {}
         }
@@ -297,14 +305,15 @@ impl<D: DataSource> Presenter<D> {
         let Some(binding) = self.retained_binding(target) else {
             return Ok(false);
         };
+        let epoch = self.host.kernel().epoch();
         let accepted = self
             .host
-            .dispatch_retained_held(token, target.key, &binding, now_ms)?;
-        if accepted {
+            .dispatch_retained_held(token, target.key, &binding, now_ms);
+        if accepted != Ok(false) || self.host.kernel().epoch() != epoch {
             if let Some(error) = self.after_commit() {
                 return Err(error);
             }
         }
-        Ok(accepted)
+        accepted
     }
 }

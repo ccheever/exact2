@@ -1235,3 +1235,56 @@ fn retained_membership_lookup_cost_is_independent_of_paint_order() {
         "first={first_time:?}, last={last_time:?}"
     );
 }
+
+#[test]
+fn retained_actions_input_clock_presents_timer_that_invalidates_event() {
+    let _service = crate::content_region::test_service();
+    for swipe in [false, true] {
+        for change in ["changed = true", "disabled = true"] {
+            let source = actions::source().replace(
+                "  action body\n",
+                &format!("  action expire\n    {change}\n    replying = \"expired\"\n  task expiry mount\n    after(150, expire)\n  action body\n"),
+            );
+            let mut p = actions::boot(&source, true, actions::Rows::default());
+            let reply = actions::id(
+                &p,
+                if swipe {
+                    "reply-hit-message-0"
+                } else {
+                    "reply-message-0"
+                },
+            );
+            let at = actions::point(&mut p, reply);
+            let key = p.host.kernel().node(reply).unwrap().key;
+            let _gate = actions::block_body(&mut p, 100.);
+            actions::ack(&mut p);
+            assert!(!p.dirty());
+            if swipe {
+                let contact = p.retained_down(key).unwrap();
+                let held = p
+                    .host
+                    .hold_begin(reply, exact_motion::Property::Translate, 100.)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    p.retained_swipe_dispatch(contact.swipe.as_ref().unwrap(), held.token, 200.),
+                    Ok(false),
+                    "{change}"
+                );
+            } else {
+                assert_eq!(p.press_at(at.0, at.1, 200.), None, "{change}");
+            }
+            assert_eq!(actions::selected(&p), Value::str("expired"));
+            assert_eq!(p.host.now(), 200.);
+            assert!(p.dirty(), "the timer's commit must reach the presenter");
+            let frame = p.display_frame().unwrap();
+            assert!(
+                p.last_frame_succeeded,
+                "paint after {change}, swipe={swipe}"
+            );
+            assert!(p.display_complete(&frame));
+            assert!(!frame.pixels.data().is_empty());
+            assert!(!p.dirty());
+        }
+    }
+}
