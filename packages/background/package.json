@@ -1,0 +1,10 @@
+{
+  "name": "@exact/background",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Work the platform runs while the app is unseen, with Background Sync's and Periodic Background Sync's names (LLP 1133.017).",
+  "exports": {
+    ".": "./exact.json",
+    "./web": "./web/exact.json"
+  }
+}

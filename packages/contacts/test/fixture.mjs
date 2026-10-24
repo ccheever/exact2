@@ -17,8 +17,9 @@ export const run = (cmd, args, cwd, env = process.env) => {
 };
 
 /** The fixture app of package `name` (`contacts` or `calendar`): its
- * directory, name and bundle id. `grants` replaces the fixture's grant lines. */
-export function makeFixture(name, { grants } = {}) {
+ * directory, name and bundle id. `grants` replaces the fixture's grant
+ * lines; `reads: false` makes its data code read nothing. */
+export function makeFixture(name, { grants, reads = true } = {}) {
   const pkg = resolve(root, 'packages', name), here = join(pkg, 'test/fixture');
   const dir = mkdtempSync(join(tmpdir(), `exact-${name}-`)), app = join(dir, `${name}fixture`);
   run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
@@ -27,6 +28,7 @@ export function makeFixture(name, { grants } = {}) {
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
   let ts = readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id);
   if (grants) ts = ts.replace(/export const grants = '[^']*';/, `export const grants = '${grants}';`);
+  if (!reads) ts = ts.replace('export const reads = true;', 'export const reads = false;');
   writeFileSync(join(app, 'app.ts'), ts);
   const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
   manifest.dependencies = { ...manifest.dependencies, [`@exact/${name}`]: `file:${pkg}` };

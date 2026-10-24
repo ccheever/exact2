@@ -915,11 +915,18 @@ says. Every roster function has a row and an example, and each example written
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `string[]`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
-On Apple, `frame` of an inline `text` run returns the viewport-space union of
-its line fragments, using the run's own font metrics and excluding hanging
-wrap spaces. An empty run has a zero-width rectangle at its insertion point
-with its font's height. Scrolling moves this rectangle; clipping does not trim
-it. Other native hosts currently report inline runs unavailable.
+On Apple, Linux and Windows, `frame` of an inline `text` run returns the
+viewport-space union of its line fragments, using the run's own font ascent
+and descent and excluding collapsible spaces at a soft wrap. Preserved spaces
+and tabs remain in the rectangle, including at a soft wrap. An empty run has a
+zero-width rectangle at its insertion point with its font's height. Scrolling
+moves this rectangle; clipping does not trim it. Linux and Windows read the acknowledged
+paragraph, including multi-column placement and affine transforms; a
+perspective-projected paragraph is unavailable. These readers give a cross-run
+ligature's advance to its first character's run; later runs have zero-width
+rectangles at its end, as in Chrome. Windows shares the Linux presenter;
+runtime verification was on Linux. Android and the terminal have no inline-run
+reader.
 
 For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
 includes that ancestor once before lower layers. This keeps its first entry
@@ -1988,19 +1995,30 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   Chrome's mousedown ends one, where AppKit would leave it marked: a Send
   button's action reads committed text, and no syllable stays with the
   input method once the action clears the field. On the web, Chrome hands
-  the `key` handlers every key while composing (`isComposing`, which
-  Contract does not carry) and commits nothing before a chord's handlers.
+  the `key` handlers every key while composing, each `isComposing` (below),
+  and commits nothing before a chord's handlers.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
-  bool }`, the DOM's fields (`altKey` is Option and `metaKey` Command on a
-  Mac). A key typed with Control or Meta held is a shortcut: it types
+  bool, isComposing: bool }`, the DOM's fields (`altKey` is Option and
+  `metaKey` Command on a Mac). A key typed with Control or Meta held is a shortcut: it types
   nothing. `code` is the physical key, whatever the layout or input source
   types there (`"KeyB"`, `"Digit1"`, `"Space"`, `"MetaLeft"`), so a shortcut
   can match the key under a Korean or Russian layout; `""` where the host
   cannot tell (a software keyboard's key). `repeat` is true on the keydowns
   the platform repeats while a key is held, so an action can act once per
   press (iOS reports none: UIKit's presses carry no auto-repeat).
+  `isComposing` is true on a key that comes while an input method composes
+  text, between its `compositionstart` and `compositionend` (UI Events). On
+  the web that is every such key, the Enter that picks a candidate
+  included, so an Enter or Escape handler skips it with `not e.isComposing`,
+  as web code does. On macOS and iOS the only composing keys a handler hears
+  are a modifier's own press and release, which are `isComposing` as
+  Chrome's are; a ⌘ chord is not, and neither are the keys after it, ⌘'s
+  release included, since its keydown has committed the text (Chrome's
+  stay composing).
+  Linux, Windows, the terminal and Android hand handlers no composing key,
+  and it is always false there.
 - **Release.** `keyup` hears the key coming up, at the focus, bubbling as
   `key` does (`stopPropagation()` stops it the same way), with the same
   name and record (`repeat` is false). A modifier's release is one too
@@ -2254,6 +2272,7 @@ argument validation. Use the working implementation when selecting arguments:
 | Operation | Starting point |
 | --- | --- |
 | `postMessage(text, target)`: ordered messages to a canvas by literal surface name, or string replies and host updates to a live iframe by `id` on Apple and both web executors; iframe targets may compute. Missing, ambiguous, replaced or navigation-revoked iframe targets are dropped without entering the canvas queue. | [LLP 1020 §11](../llp/1020-webview.rfc.md#11-addressed-string-replies-and-host-updates-2026-10-19), [iframe fixture](../scripts/fixtures/iframe-post-messages.contract), [compiler tests](../contract/cli/tests/it/post_message.rs) |
+| `navigate(id, url)`, `traverseHistory(id, delta)`, `reload(id)` or `reload(id, ignoreCache=true)`, `stopLoading(id)`: move the mounted `iframe` with that `id`, by the Navigation API's and WebDriver BiDi's names; bare `reload()` stays the development host's reboot. The frame reports with `navigate=`, `currententrychange=`, `navigatesuccess=` and `navigateerror=`, each with a `FrameNavigation` record as the action's optional last parameter. On Apple a frame with `partition=` is a top-level page in that partition's own storage (`persist:` names last across launches) and takes them all; an unpartitioned frame refuses the commands (`navigateerror`, `NotSupportedError`). The web honours no `partition` (`exactPage().iframePartition` is false) and gives a same-origin frame what the browser lets a page see. A literal id no `iframe` carries is refused here; `partition` beside `sandbox` (`lower-iframe-partition-sandbox`), beside `message=` or a `postMessage` to it (`lower-iframe-partition-message`), or with a literal `src` that is not a web page (`lower-iframe-partition-src`) is refused. A partition is cleared with `clearSiteData` from `@exact/browser`: `send m = clearSiteData(partition=…, types=[…])`, or from data code `await clearSiteData({ partition, types })` once the Contract names the send (LLP 1133.002 D14) | [LLP 1020.002](../llp/1020.002-a-browser-shell.rfc.md), [fixture](../scripts/fixtures/iframe-partition.contract) |
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |

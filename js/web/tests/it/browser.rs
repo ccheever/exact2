@@ -1178,6 +1178,9 @@ try {
     // the native fixture separately executes the Rust source through ABI2.
     const rows=await request('sqlite',{path:db,commands:[command('query','SELECT id,title,body,pinned FROM notes ORDER BY pinned DESC,id DESC')]});
     check(!rows.error,'portable SQL opens TS database: '+JSON.stringify(rows));
+    // Two at once take turns: a second open waiting in the worker's one queue for the first's lock would hold back the first's close until the lock's bound refused it EBUSY.
+    const both=await Promise.all([1,2].map(n=>request('sqlite',{path:db,commands:[command('query','SELECT ?',[{integer:String(n)}])]})));
+    check(both.every(r=>!r.error)&&both[1][0].rows[0][0].integer==='2','overlapping portable requests to one database both answer: '+JSON.stringify(both));
     const notes=rows[0].rows.map(r=>({id:r[0].integer,title:r[1],body:r[2],pinned:r[3].integer==='1'}));
     const text=JSON.stringify({version:1,notes},null,2);check(text===expected.backupText,'portable backup preserves exact TypeScript format');
     check(!(await request('fs.mkdir',{path:'app:/data/backups'}))?.error,'portable mkdir');

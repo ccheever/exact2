@@ -367,6 +367,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         }
     }
     private weak var textDelegate: UITextFieldDelegate?
+    private var editingCompletion: (value: String, finish: () -> Void)?
     init(host: NavigationHost) {
         self.host = host
         super.init()
@@ -405,6 +406,8 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         #endif
     }
     func updateSearchResults(for search: UISearchController) {
+        // Ignore the dismissed bar's reset while its final edit is being committed
+        guard editingCompletion == nil else { return }
         let text = search.searchBar.text ?? ""
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
         field.typedText(text)
@@ -444,9 +447,27 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         bar.resignFirstResponder()
     }
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
-        guard let field else { return }
-        host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
-        host?.presenter.blur(field.id)
+        let completion = editingCompletion
+        editingCompletion = nil
+        if let field, let presenter = host?.presenter, presenter.views[field.id] === field {
+            // UIKit can clear a dismissed bar before delivering its end-of-editing callback
+            let value = completion?.value ?? bar.text ?? ""
+            presenter.commitEdit(field.id, value, change: field.handlers.contains("change"))
+            presenter.blur(field.id)
+        }
+        if let completion { host?.presenter.afterBatch(completion.finish) }
+    }
+
+    /// Keep the authored field alive until UIKit delivers its final edit and blur.
+    func endEditing(completion: @escaping () -> Void) -> Bool {
+        guard let field, let presenter = host?.presenter, presenter.views[field.id] === field,
+              let editor = field.headerField, editor.isEditing else { return false }
+        if editingCompletion == nil {
+            editingCompletion = (editor.text ?? "", completion)
+            controller.isActive = false
+            controller.searchBar.endEditing(true)
+        }
+        return true
     }
 }
 
@@ -524,8 +545,7 @@ final class BarPress: NSObject {
 
 /// One stack Exact built: its delegate, whether its routes may show the bar
 /// (they may unless the app's `navigation` hatch says no; which of them
-/// shows it is each route's, LLP 1115.000 D5.3), and what the development
-/// check last saw.
+/// shows it is each route's, LLP 1115.000 D5.3), and its last written controllers.
 final class NavigationStack {
     let proxy = NavigationDelegateProxy()
     var showsBar: Bool

@@ -9,8 +9,12 @@
 // generated module calls, kept keys, storage, openAuthSession), or in `inflight` itself (the storage queue). The
 // runner hosts get this for free: an answer with more than one operation out is a continuation, never held.
 const HeldAsks = new Set(), Candidates = new Set(), loose = { n: 0 }, Replies = new Map();
+/** The tickets `inflight` counts now: a wake owns those that were not counted at its delivery (wakes.js). */
+export const Counting = new Set();
 const current = t => t?.owner?.ticket === t && !t.owner.gone;
 export const heldAsks = () => [...HeldAsks].filter(current).map(t => ({ name: t.name, ticket: t.id }));
+/** The held tickets themselves (wakes.js tells a stream's from an answer's). */
+export const heldTickets = () => [...HeldAsks].filter(current);
 /** Replies landed for held fetches, by target: `clock held`'s evidence (the runner's `held_replies`). */
 export const heldReplies = () => Object.fromEntries(Replies);
 export function heldReply(call) { if (current(call.ticket)) Replies.set(call.ticket.name, (Replies.get(call.ticket.name) ?? 0) + 1); }
@@ -23,6 +27,7 @@ export function counted(t, inflight) {
   const waits = !!t.waiting && !t.closed, candidate = waits && t.call?.held > 0;
   const held = candidate && !t.call.plain && !loose.n, counts = waits && !held;
   if (counts !== !!t.counted) { t.counted = counts; inflight.n += counts ? 1 : -1; }
+  if (counts) Counting.add(t); else Counting.delete(t);
   if (held) HeldAsks.add(t); else HeldAsks.delete(t);
   if (candidate) Candidates.add(t); else Candidates.delete(t);
 }

@@ -95,7 +95,7 @@ fn an_atom_press_and_the_selected_atom_reach_the_actions() {
     let mut runner = boot(APP);
     let editor = id(&runner, "editor");
     let event = exact_runner::Event::of_host_kind(
-        58,
+        59,
         "0,18,Meta+\ncitation\nt3-citation:1\n[q](t3-citation:1)",
     )
     .unwrap();
@@ -106,7 +106,7 @@ fn an_atom_press_and_the_selected_atom_reach_the_actions() {
     );
     let reader = id(&runner, "reader");
     let event =
-        Event::of_host_kind(58, "0,18,\ncitation\nt3-citation:1\n[q](t3-citation:1)").unwrap();
+        Event::of_host_kind(59, "0,18,\ncitation\nt3-citation:1\n[q](t3-citation:1)").unwrap();
     runner.dispatch(reader, event).unwrap();
     assert!(prop(&runner, "pressed", PropId::Text)
         .unwrap()
@@ -128,7 +128,7 @@ fn a_malformed_atom_press_is_refused_before_it_runs() {
         "0,2,\n\n\n@a",
         "0.5,2,\nmention\n\n@a",
     ] {
-        assert!(Event::of_host_kind(58, payload).is_err(), "{payload:?}");
+        assert!(Event::of_host_kind(59, payload).is_err(), "{payload:?}");
     }
 }
 

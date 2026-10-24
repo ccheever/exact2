@@ -1,12 +1,15 @@
 //! `key`'s and `keyup`'s record (#140): DOM's `KeyboardEvent` as a host
 //! reports a keydown or a keyup — the key's name, the modifiers held, the
-//! physical key and whether a keydown is the platform's auto-repeat.
+//! physical key, whether a keydown is the platform's auto-repeat and whether
+//! the key came while an input method composed text.
 //!
 //! The wire is the chord every host already writes (`Event::key`: the
 //! modifiers before the key in Playwright's spelling, `Shift+Meta+b`), then,
 //! where the host knows them, `\n` and the `code`, `\n` and `true` or
-//! `false` for `repeat`. A chord alone is `code` "" (DOM's value for a key
-//! with no physical position, such as a synthesized one) and no repeat.
+//! `false` for `repeat`, and optionally `\n` and `true` or `false` for
+//! `isComposing`. A chord alone is `code` "" (DOM's value for a key with no
+//! physical position, such as a synthesized one), no repeat and not
+//! composing.
 
 use super::KeyModifiers;
 use exact_plan::Value;
@@ -23,6 +26,10 @@ pub struct KeyboardEvent {
     /// `KeyboardEvent.repeat`: a keydown the platform repeats while the key
     /// is held. Never true on a keyup.
     pub repeat: bool,
+    /// `KeyboardEvent.isComposing`: the key came between an input method's
+    /// `compositionstart` and `compositionend` (UI Events). False where the
+    /// host hands handlers no key during a composition.
+    pub is_composing: bool,
     /// The modifiers held as the event fires. A modifier's own keydown
     /// holds it (`Meta`'s says `metaKey`) and its keyup no longer does.
     pub held: KeyModifiers,
@@ -40,8 +47,9 @@ impl KeyboardEvent {
     }
 
     /// Decode the wire: a chord, or a chord, its `code` (ASCII letters and
-    /// digits, or "") and `true` or `false` on three lines. `None` for any
-    /// other shape, which a host reports as the batch's error.
+    /// digits, or "") and `true` or `false` on three lines, then optionally
+    /// `true` or `false` for `isComposing` on a fourth. `None` for any other
+    /// shape, which a host reports as the batch's error.
     pub fn parse(payload: &str) -> Option<Self> {
         let mut lines = payload.split('\n');
         let mut event = Self::chord(lines.next()?);
@@ -52,11 +60,15 @@ impl KeyboardEvent {
             return None;
         }
         event.code = code.into();
-        event.repeat = match lines.next()? {
-            "true" => true,
-            "false" => false,
-            _ => return None,
+        let flag = |line: Option<&str>| match line? {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
         };
+        event.repeat = flag(lines.next())?;
+        if let Some(composing) = lines.next() {
+            event.is_composing = flag(Some(composing))?;
+        }
         lines.next().is_none().then_some(event)
     }
 
@@ -71,6 +83,7 @@ impl KeyboardEvent {
             Value::Bool(self.held.meta),
             Value::str(&self.code),
             Value::Bool(self.repeat),
+            Value::Bool(self.is_composing),
         ])
     }
 }
@@ -85,6 +98,7 @@ mod tests {
         assert_eq!(e.key, "b");
         assert_eq!(e.code, "");
         assert!(!e.repeat);
+        assert!(!e.is_composing);
         let held = KeyModifiers {
             shift: true,
             meta: true,
@@ -113,12 +127,32 @@ mod tests {
     }
 
     #[test]
+    fn is_composing_rides_on_an_optional_fourth_line() {
+        assert!(
+            !KeyboardEvent::parse("Enter\nEnter\nfalse")
+                .unwrap()
+                .is_composing
+        );
+        assert!(
+            !KeyboardEvent::parse("Enter\nEnter\nfalse\nfalse")
+                .unwrap()
+                .is_composing
+        );
+        let e = KeyboardEvent::parse("Enter\nEnter\nfalse\ntrue").unwrap();
+        assert_eq!(
+            (e.key.as_str(), e.code.as_str(), e.repeat, e.is_composing),
+            ("Enter", "Enter", false, true)
+        );
+    }
+
+    #[test]
     fn a_malformed_wire_is_refused() {
         for refused in [
             "a\nKeyA",
             "a\nKeyA\nyes",
             "a\nKey A\nfalse",
             "a\nKeyA\nfalse\nx",
+            "a\nKeyA\nfalse\ntrue\nfalse",
         ] {
             assert_eq!(KeyboardEvent::parse(refused), None, "{refused:?}");
         }

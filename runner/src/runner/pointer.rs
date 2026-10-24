@@ -338,7 +338,7 @@ pub struct AtomEvent {
 }
 
 impl AtomEvent {
-    /// Decode ABI kind 58: `start,end,modifiers`, then the kind, the
+    /// Decode ABI kind 59: `start,end,modifiers`, then the kind, the
     /// destination and the source a line each, the source verbatim. `None`
     /// for a malformed line, a range that is not whole and ordered, or a
     /// range whose length is not the source's.

@@ -662,6 +662,7 @@ impl PlanBuilder {
         action: ActionsId,
         raised: &str,
         hold: u32,
+        budget: u32,
     ) {
         let row = ModuleEventsRow {
             extension: self.str(extension),
@@ -669,6 +670,7 @@ impl PlanBuilder {
             action,
             raised: self.str(raised),
             hold,
+            budget,
         };
         self.plan.module_events.push(row);
     }

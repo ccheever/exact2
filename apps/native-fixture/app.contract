@@ -256,6 +256,8 @@ component NativeFixture
   action openFocusedPlain
     focusPlain = true
     nav = push(nav, "/plain")
+  action openAnotherEditor
+    nav = push(nav, "/plain?editor")
   action openPlain
     nav = push(nav, "/plain")
   action openNote
@@ -763,6 +765,8 @@ component NativeFixture
                 if e.name == "plain" and focusPlain
                   input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
                   input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
+                  button press=openAnotherEditor testId="plain-push" height=44
+                    text "Push another editor"
                 if e.name == "note" and focusNote
                   textarea testId="note-text" aria-label="Note" autofocus=true margin=12 height=120
                 if e.name == "photo"

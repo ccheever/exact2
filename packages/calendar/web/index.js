@@ -85,6 +85,7 @@ export function implementation({ agent, log }) {
         say(`editor ${tap ?? 'cancel'}: ${event.title} (${file.length} bytes of .ics, not downloaded under the agent)`);
         return { action: tap === 'save' ? 'unknown' : 'canceled' };
       }
+      const activation = navigator.userActivation ? String(navigator.userActivation.isActive) : 'unknown';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([file], { type: 'text/calendar' }));
       a.download = `${event.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'event'}.ics`;
@@ -92,7 +93,8 @@ export function implementation({ agent, log }) {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-      say(`editor: ${a.download} downloaded`);
+      // Whether the call came inside the person's transient activation (HTML's `navigator.userActivation`).
+      say(`editor: ${a.download} downloaded, activation ${activation}`);
       return { action: 'unknown' };
     },
   };

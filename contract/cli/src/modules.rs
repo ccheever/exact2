@@ -635,6 +635,7 @@ const RESERVED_STATES: &[&str] = &[
     "logic",
     "collections",
     "clock",
+    "wake",
     "epoch",
     "incarnation",
     "error",

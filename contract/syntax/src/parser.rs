@@ -1178,7 +1178,7 @@ impl Parser {
         matches!(
             (self.peek_kind(), self.peek2()),
             (TokenKind::Ident(_), TokenKind::Punct("="))
-        )
+        ) || self.platform_attr_ahead()
     }
 
     /// One line of an element: `attr=expr` pairs and, on the element's own
@@ -1190,11 +1190,20 @@ impl Parser {
         continuation: bool,
     ) -> R<()> {
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
-            if let (TokenKind::Ident(name), TokenKind::Punct("=")) =
-                (self.peek_kind().clone(), self.peek2().clone())
+            let platform = self.platform_attr_ahead();
+            if let (true, _, _) | (_, TokenKind::Ident(_), TokenKind::Punct("=")) =
+                (platform, self.peek_kind().clone(), self.peek2().clone())
             {
-                let aspan = self.next().span;
-                self.next();
+                let (name, aspan) = if platform {
+                    self.platform_attr_name()
+                } else {
+                    let TokenKind::Ident(name) = self.peek_kind().clone() else {
+                        unreachable!()
+                    };
+                    let aspan = self.next().span;
+                    self.next();
+                    (name, aspan)
+                };
                 let value = self.attr_value()?;
                 self.unquoted_unit(&name, &value)?;
                 if attrs.iter().any(|a: &Attr| a.name == name) {

@@ -674,6 +674,9 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "nexttrack"
             | "stop"
             | "navigate"
+            | "currententrychange"
+            | "navigatesuccess"
+            | "navigateerror"
             | "cancel"
             | "close"
             | "toggle"
@@ -775,7 +778,6 @@ fn refine_params_from_view(
                 // carries its formats.
                 let payload_control = contract_syntax::payload_control(tag, attrs);
                 let field = payload_control == Some("field");
-                let edits = contract_syntax::edits_text(payload_control);
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -850,7 +852,9 @@ fn refine_params_from_view(
                             // Event payloads: change/input/key/message are
                             // strings (a checkbox's are bools); hover is
                             // whether the pointer is over.
+                            let event = contract_syntax::typed_event(&a.name, payload_control);
                             let mut payload = match a.name.as_str() {
+                                "navigate" if event == "framenavigate" => vec![],
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
                                 "change" | "input" if range => vec![Ty::Number],
@@ -881,11 +885,7 @@ fn refine_params_from_view(
                             // of its type or none: another type there is an
                             // argument left unbound, analysis's arity
                             // refusal (`handler_accepts`).
-                            if let Some(record) = if a.name == "selectionchange" && edits {
-                                Some("InputEvent")
-                            } else {
-                                crate::event_record(&a.name)
-                            } {
+                            if let Some(record) = crate::event_record(event) {
                                 let n = args.len() + payload.len() + 1;
                                 let fits = ct.actions[ai].len() == n
                                     && match &ct.actions[ai][n - 1] {

@@ -37,6 +37,10 @@ routes nav
 component PushedTitle
   state rows = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60"]
   state query = ""
+  state searchBlurs = 0
+  state searchChanges = 0
+  state committedQuery = ""
+  state searching = false
   state swapped = false
   state failed = false
   state pageOverflow = false
@@ -63,6 +67,18 @@ component PushedTitle
     nav = replace(nav, "/" + name)
   action search(v: string)
     query = v
+  action searchBegan
+    searching = true
+  action searchEnded
+    searching = false
+    searchBlurs = searchBlurs + 1
+    if query == "redirect"
+      nav = push(back(nav), "/find")
+    else if query == "replace"
+      nav = replace(nav, "/find")
+  action searchCommitted(v: string)
+    committedQuery = v
+    searchChanges = searchChanges + 1
   action swapContent
     swapped = not swapped
   action fail
@@ -79,7 +95,7 @@ component PushedTitle
                   if e.name == "find"
                     input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="find-search"
                   else if e.name == "seek"
-                    input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="seek-search" autofocus=true
+                    input type="search" value=query input=search change=searchCommitted placeholder="Search" aria-label="Search" testId="seek-search" autofocus=true focus=searchBegan blur=searchEnded
                 if e.name == "rows"
                   list appearance="auto" listStyle="inset-grouped" testId="rows-scroll" flex=1 min-height=0
                     section

@@ -14,6 +14,8 @@ export const HOST_WEB_GLUE = [
   'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'menu-rows.js',
   // Virtualized lists' browser half; animated images on the agent's clock (agent.js only); Canvas 2D's replayer.
   'collection-glue.js', 'image-glue.js', 'canvas2d-glue.js',
+  // An iframe's navigation records and commands (commands.js, rt.js `onFrameNavigation`; LLP 1020.002).
+  'frame-navigation.js',
   // Sign-in, storage, request bodies and injected faults (ts-data.js, auth.js, admission.js, agent.js).
   'auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js',
 ];

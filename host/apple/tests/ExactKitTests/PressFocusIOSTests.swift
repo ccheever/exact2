@@ -29,7 +29,9 @@ final class PressFocusIOSTests: XCTestCase {
     private func presenter(_ ops: [[String: Any]], useSession: Bool = false) -> Presenter {
         if useSession { session = ExactApp.shared.makeSession(label: "press-inline") }
         let p = session?.presenter ?? Presenter()
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
@@ -481,6 +483,9 @@ final class PressFocusIOSTests: XCTestCase {
     /// A plain button keeps the keyboard and its field, as a `UIButton` does:
     /// what was typed is committed (`change`) and the field is not blurred.
     func testAPlainButtonKeepsTheKeyboardAndCommitsTheEdit() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "a keyboard-preserving press needs the hosted app responder chain")
+        }
         let p = composer()
         try XCTUnwrap(p.views[2]).handlers = ["change", "blur"]
         var pressed: [UInt32] = [], changed: [String] = [], blurred: [UInt32] = []
@@ -544,6 +549,9 @@ final class PressFocusIOSTests: XCTestCase {
     /// composer) while another field keeps the keyboard: the new field takes
     /// the focus, as it would from the button.
     func testAButtonPressMountingAnAutofocusTakesTheKeptFieldsFocus() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "a keyboard-preserving press needs the hosted app responder chain")
+        }
         let p = composer()
         let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
         XCTAssertTrue(field.becomeFirstResponder())

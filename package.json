@@ -19,6 +19,7 @@
   "dependencies": {
     "@exact/scale-fixture-cards": "workspace:*",
     "@exact/actions": "workspace:*",
+    "@exact/browser": "workspace:*",
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
@@ -35,6 +36,7 @@
     "@exact/reading": "workspace:*",
     "@exact/passkeys": "workspace:*",
     "@exact/contacts": "workspace:*",
-    "@exact/calendar": "workspace:*"
+    "@exact/calendar": "workspace:*",
+    "@exact/background": "workspace:*"
   }
 }

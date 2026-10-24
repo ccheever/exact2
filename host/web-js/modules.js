@@ -15,9 +15,10 @@
 // (`implementation` in its declaration) is answered by its implementation,
 // told `agent: true`, behind the permission and tickets here, with the
 // agent's preferred value laid over each answer; every other by the
-// substitute. The web has no wake door, so a call's origin is `app`, `tool`
-// from a handler a module called back (`invoke`, LLP 1133.016 D9), or
-// `device` from an event a package emitted (LLP 1133.004 D6).
+// substitute. A call's origin is `app`, `tool` from a handler a module
+// called back (`invoke`, LLP 1133.016 D9), `device` from an event a package
+// emitted (LLP 1133.004 D6), or `wake` while a wake's work runs (LLP
+// 1133.017 D5, wakes.js).
 //
 // A send that answers nothing (type `u`) is a host command of the source's
 // name, run once its commit stands (LLP 1133.004 D5), and its declared list,
@@ -31,12 +32,14 @@ import { packageViews } from "./views.js";
 import { packagePictures } from "./pictures.js";
 import { appGrantSet, coversPath } from "./admission.js";
 import { samples, groupOf } from "./samples.js";
+import { wakes, REFUSED } from "./wakes.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
 // (LLP 1133.001 D4), which answers outside the agent;
 // `views`: a package view's tag → [extension, displayed, binding props] (views.js);
-// `events`: extension.event → [its action, taken when heard; activation | emit; hold; its parameters' types; its name].
+// `events`: extension.event → [its action, taken when heard; activation | emit | wake; hold; its parameters' types; its
+// name; a wake's budget].
 export function modules(rows, bound = {}, views = {}, events = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
   for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
@@ -44,9 +47,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // The origin of the commit running now (LLP 1133.002 D12): the device's while an emitted event's handler runs, and,
   // since data code and an answer's commit cannot say which request they follow, while any request such a handler
   // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.
-  let origin = "app", deviceBase = null;
-  const originNow = () => deviceBase !== null ? "device" : origin;
+  let origin = "app", deviceBase = null, wk = null;
+  const originNow = () => deviceBase !== null ? "device" : wk?.active() ? "wake" : origin;
   Origin.now = originNow;
+  // What a commit of a wake's origin may not run (LLP 1133.017 D6): journaled, never run.
+  Origin.refused = (name, from) => from === "wake" && REFUSED.has(name) && (say(`${name}: refused: during a wake`), true);
   After.push(() => { if (deviceBase !== null && inflight.n <= deviceBase) deviceBase = null; });
   const asks = (row, send) => row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
   // A request's own timeout, the option its declaration's `timeout` names: from a Contract call's record, or data code's object.
@@ -67,7 +72,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const wordFits = (ty, v) => ty === "string" ? typeof v === "string" : ty === "number" ? typeof v === "number" : ty === "bool" ? typeof v === "boolean"
     : ty.endsWith("[]") ? Array.isArray(v) && v.every(x => wordFits(ty.slice(0, -2), x)) : true;
   const isStatus = row => row.sub.permission?.status === row.key.slice(row.key.indexOf(".") + 1);
-  const stateOf = name => permission.get(name) ?? "prompt";
+  // A permission no platform asks starts as its declaration says (`initial`, LLP 1133.017 D14).
+  const stateOf = name => permission.get(name) ?? [...byKey.values()].flatMap(permissionsOf).find(p => p.name === name)?.initial ?? "prompt";
   const now = () => reportTime(clock.now)[0] + clock.now; // the agent clock's date, as `exactTime` reads it
   const filled = (row, v) => {
     if (errorCode(v)) return v;
@@ -86,7 +92,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const partial = row.sub.partial || (row.sub.implementation && d && typeof d === "object");
     return partial && p && !errorCode(p) ? overlay(structuredClone(d ?? {}), p) : p;
   };
-  const valueOf = row => row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
+  const valueOf = row => row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
   // The permission a call asks: its declared one, or, where the interface declares several and the name's grants
   // are a line per argument (`permissionBy`), the one of the arguments it was given that settles the call now: a
@@ -349,6 +355,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source), invoke: invoker(extension),
         // A package's own raising has the device's origin; a person's is the host's to give (LLP 1133.004 D6).
         emit: (name, args) => raise(`${extension}.${name}`, args, "device"),
+        // The web's wake is the page's own (LLP 1133.017 D8): an implementation raises a declared wake event, and is
+        // answered the invocation's outcome (`completed`, `expired`, `refused`, `unheard`).
+        wakes: { raise: (name, args, how = {}) => wk.raise(`${extension}.${name}`, args, { hidden: !shown(), ...how }) },
         // Only an event that is the web's user activation (HTML's activation-triggering input events, and `click`), and
         // trusted, is a person's; any other type binds nothing.
         activation: (target, type, name, args, { navigate } = {}) => !ACTIVATING.has(type) ? say(`${extension}.${name}: a ${type} is no person's activation; nothing is bound`) : target.addEventListener(type, e => {
@@ -452,14 +461,20 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const applyEffect = (row, args) => {
     const name = row.key.split(".")[1], sub = row.sub;
     if (sub.list) {
-      const entries = lists.get(sub.list.state) ?? [], value = args[sub.list.key] ?? null, ref = nextTicket();
-      const kept = value == null ? entries : entries.filter(e => e.fields[sub.list.key] !== value);
-      kept.push({ ref, row, fields: { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args } });
+      // A registration's kind keys it beside its key (LLP 1133.017 §10).
+      const entries = lists.get(sub.list.state) ?? [], value = args[sub.list.key] ?? null, ref = nextTicket(), kind = sub.list.kind;
+      const same = e => e.fields[sub.list.key] === value && e.fields.kind === kind, replaced = value == null ? null : entries.find(same)?.ref;
+      const kept = value == null ? entries : entries.filter(e => !same(e));
+      kept.push({ ref, row, fields: { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args, ...(kind ? { kind } : {}) } });
       lists.set(sub.list.state, kept);
       say(`${name}: listed${typeof value === "string" ? ` (${value})` : ""} @${ref}`);
+      if (kind) wk.registered(ref, replaced);
+      listedChanged(sub.list.state);
     }
-    if (sub.unlist) {
-      for (const state of listOf(row)) lists.set(state, (lists.get(state) ?? []).filter(e => e.fields[sub.unlist] !== args[sub.unlist]));
+    // `"unlist": key`, or `{key, kind}` for the entries of one kind.
+    const unlist = typeof sub.unlist === "object" ? sub.unlist?.key : sub.unlist, unkind = sub.unlist?.kind;
+    if (unlist) {
+      for (const state of listOf(row)) { lists.set(state, (lists.get(state) ?? []).filter(e => e.fields[unlist] !== args[unlist] || (unkind != null && e.fields.kind !== unkind))); listedChanged(state); }
       say(`${name}: unlisted`);
     }
     if (sub.set) {
@@ -479,6 +494,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const name = row.key.split(".")[1];
     const byValue = ceremonies.grants(row, args);
     if (byValue) { say(`${row.key}: refused, ${byValue.message}`); return Promise.resolve(byValue); }
+    // A target's own restriction holds under the agent too: the web has no periodic sync (LLP 1133.017 D17).
+    if (row.sub.unsupported?.includes("web") && route(row) !== "real") { say(`${name}: refused: NotSupportedError`); return Promise.resolve({ error: "NotSupportedError" }); }
     const why = admit(row, args, from);
     if (why) { say(`${row.key}: refused, ${why}`); return Promise.resolve(why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" }); }
     const real = route(row) === "real" ? viaImplementation(row, args, null, { origin: from }) : null;
@@ -503,12 +520,18 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   };
   for (const row of byKey.values()) if (row.send && row.sub.effect) Hosts[row.source] = Object.assign((from, record) => { effect(row, object(record, row.options) ?? {}, from); }, { origin: true });
   const delivered = e => { const at = e.row.sub.list.at, t = at ? e.fields[at] : null; return t == null || t <= now(); };
+  // A source declared `"listed"` answers from a list: asked again when it changes.
+  const listedChanged = state => { const keys = [...byKey.values()].filter(r => r.sub.listed?.state === state).map(r => r.key); if (keys.length) reask(keys); };
+  wk = wakes({ events, say, value, lists, changed: listedChanged, toEpoch: ms => reportTime(ms)[0] + ms,
+    onLine: () => (globalThis.exact?.page?.read?.().online ?? globalThis.navigator?.onLine) !== false,
+    run: f => { const before = origin; origin = "wake"; try { f(); } finally { origin = before; } } });
   // ---- events (LLP 1133.004 D6)
   const unheard = [];
   const raise = (key, args, from) => {
     const declared = events[key];
     if (!declared) return say(`${key}: no handler hears it`);
     const [, raised, bound] = declared;
+    if (raised === "wake") return say(`${key}: a wake raises it, at the platform's call`);
     unheard.push({ key, args: Array.isArray(args) ? args : [], origin: raised === "activation" ? from : "device" });
     // Each event's own bound: past it, its own oldest is dropped.
     while (unheard.filter(q => q.key === key).length > bound) { const old = unheard.splice(unheard.findIndex(q => q.key === key), 1)[0]; say(`${key}: dropped (${typeof old.args[0] === "string" ? old.args[0] : JSON.stringify(old.args[0] ?? null)})`); }
@@ -802,13 +825,22 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     declared() {
       const out = {};
       for (const row of byKey.values()) {
-        if (row.sub.list) out[row.sub.list.state] = (lists.get(row.sub.list.state) ?? []).map(e => ({ ...e.fields, delivered: delivered(e), ref: e.ref }));
+        if (row.sub.list) out[row.sub.list.state] = (lists.get(row.sub.list.state) ?? []).map(e => ({ ...e.fields, delivered: delivered(e), ref: e.ref, ...wk.fields(e) }));
         if (row.sub.set) out[row.sub.set.state] = setValues.get(`${extensionOf(row)}/${row.sub.set.state}`) ?? null;
       }
       return out;
     },
     // A relaunched page's launch flag (`--notification '<entry>'`): the entry as its tap would deliver it.
+    // `state.wake` (LLP 1133.017 §10).
+    wake: () => wk.state(),
     launch(req) {
+      // `--wake '<entry>'`: a registration a cold wake runs for.
+      if (req.launch === "wake") {
+        let entry;
+        try { entry = typeof req.entry === "string" ? JSON.parse(req.entry) : req.entry; } catch (e) { return { error: `--wake: not JSON: ${e.message}` }; }
+        const row = [...byKey.values()].find(r => r.sub.list?.kind === entry?.kind && r.sub.list?.tap?.as === "wake");
+        return row ? wk.launch(row, entry, nextTicket()) : { error: `--wake: no module of this app lists registrations of kind \`${entry?.kind}\`` };
+      }
       const row = [...byKey.values()].find(r => r.sub.list?.launch === req.launch);
       if (!row) return { error: `--${req.launch}: no module of this app lists entries a launch hands over` };
       let entry;
@@ -843,6 +875,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const entry = req.op === "tap" && [...lists.values()].flat().find(e => e.ref === req.ticket);
       if (entry) {
         if (!delivered(entry)) return { error: `@${req.ticket} is not delivered yet: advance the clock past its time` };
+        // A registration's tap is a wake, and leaves it listed.
+        if (entry.row.sub.list.tap?.as === "wake") return wk.tap(entry);
         const state = entry.row.sub.list.state;
         lists.set(state, lists.get(state).filter(e => e !== entry));
         say(`${state} @${req.ticket}: tapped`);
@@ -959,7 +993,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
           try {
             if (row.sub.implementation || row.sub.partial) partial(v, row.type, row.key);
             else if (sampled.sampled(row)) sampled.check(row, v, (reading, key) => value(filled(row, reading), row.type, key));
-            else typed(row, JSON.stringify(field ? { ...v, [field]: "prompt" } : v));
+            else typed(row, JSON.stringify(field ? { ...v, [field]: stateOf(p.name) } : v));
           } catch (e) { return { error: `prefer extension: ${e.message}` }; }
         }
       }
