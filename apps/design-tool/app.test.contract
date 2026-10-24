@@ -859,17 +859,6 @@ test "the changes' long poll by cursor (tamber/1.17): a reply folds as it comes 
   clock data
   expect state changes.stream == true
   expect text "entry-text-5" == "app.tamber: text.secondary · agent:codex"
-  // Another name is another client, read again with hello; hello refused (the files unreadable) while the events
-  // still read: said, and asked again in 3 s, not a read and a hello each commit.
-  request POST "/__stub/refuse-hello" {} as ada
-  tap "person"
-  type "name" "Grace"
-  tap "save-name"
-  clock data
-  clock +1
-  clock data
-  expect state changes.ok == false
-  expect state changes.stream == false
   // Another run of the server: the poll held there answers that, which is read again by POST (it starts again), and
   // a new poll goes on in the new run.
   request POST "/__stub/restart" {} as ada
@@ -901,6 +890,17 @@ test "the changes' long poll by cursor (tamber/1.17): a reply folds as it comes 
   clock data
   expect state changes.stream == true
   expect tree missing "entry-text-2"
+  // Another name is another client, read again with hello; hello refused (the files unreadable) while the events
+  // still read: said, and asked again in 3 s, not a read and a hello each commit.
+  request POST "/__stub/refuse-hello" {} as ada
+  tap "person"
+  type "name" "Grace"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect state changes.ok == false
+  expect state changes.stream == false
   request POST "/__stub/restart" {} as ada
 
 test "history reads as edits, and revert holds a proposal"
