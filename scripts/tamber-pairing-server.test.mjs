@@ -72,6 +72,10 @@ test("the local token's body may be 16 MiB (a CLI import's sources); a paired cl
   expect(local.status, JSON.stringify(local).slice(0, 300)).toBe(200);
   expect(local.ok.ops.length).toBeGreaterThan(2000);
   await post({ method: 'drop', client: 'big-local', proposal: local.ok.proposal });
+  // Past 1 MiB the local token reaches only an import (Astra's round 2).
+  const review = { importer: 'dtcg', tokens: 1, offers: [], note: 'n'.repeat(2 << 20) };
+  const big = await post({ method: 'propose', hold: true, client: 'big-local', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }], review });
+  expect(big.status).toBe(413);
   const p = await paired('write', 'far');
   const remote = await post({ method: 'import', kind: 'dtcg', client: 'far', name: 'tokens.json', source }, p.token);
   expect(remote.status).toBe(413);

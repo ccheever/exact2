@@ -332,3 +332,50 @@ fn an_import_past_the_axes_cap_is_refused_with_its_id() {
     let d = exact_tamber::import::shadcn::import(css, "shadcn", &design, &vocab()).unwrap_err();
     assert_eq!(d[0].id, "tamber-axes", "{d:?}");
 }
+
+/// An axis of many values is checked for repeats by a set; an import's
+/// mixed runs (new tokens, then values) are each parsed once; a run with a
+/// bad value at its end is refused after the rest are taken in one parse
+/// (Astra's round 2).
+#[test]
+fn mixed_runs_and_long_axes_apply_in_moments() {
+    let n = 20_000;
+    let src = theme((0..n).map(|k| format!("  t{k} = #111111")));
+    let values: Vec<String> = (0..100_000).map(|k| format!("v{k}")).collect();
+    let axis = Op::AddAxis {
+        name: "wide".into(),
+        values,
+        under_dark: false,
+    };
+    let _ = within(10, "add-axis", || {
+        exact_tamber::apply(&src, &axis, &vocab()).map(|_| ())
+    });
+    let add = |k: usize, value: &str| Op::AddToken {
+        name: format!("new.t{k}"),
+        kind: None,
+        value: value.into(),
+        meta: Vec::new(),
+        whens: Vec::new(),
+        comment: None,
+        before: None,
+    };
+    let set = |k: usize| Op::SetToken {
+        name: format!("t{k}"),
+        when: Vec::new(),
+        value: "#333333".into(),
+        at: None,
+        comment: None,
+    };
+    let mut ops: Vec<Op> = (0..1500).map(|k| add(k, "#222222")).collect();
+    ops.extend((0..1500).map(set));
+    let edited = within(10, "mixed", || {
+        exact_tamber::apply_all(&src, &ops, &vocab()).unwrap()
+    });
+    assert_eq!(edited.text.matches("#333333").count(), 1500);
+    let mut bad: Vec<Op> = (0..3000).map(|k| add(k, "#222222")).collect();
+    bad.push(add(3000, ""));
+    let refused = within(10, "a bad last value", || {
+        exact_tamber::apply_all(&src, &bad, &vocab())
+    });
+    assert!(refused.is_err());
+}
