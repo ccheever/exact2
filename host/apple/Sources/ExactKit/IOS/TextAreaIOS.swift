@@ -187,11 +187,7 @@ package final class TextArea: UITextView {
     /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
     var atomElements: [AtomElement] = []
     var atomTap: (AnyObject, UITapGestureRecognizer)?
-    // A pill is a picture drawn for one appearance: drawn again for another.
-    package override func traitCollectionDidChange(_ previous: UITraitCollection?) {
-        super.traitCollectionDidChange(previous)
-        if markup != nil, traitCollection.hasDifferentColorAppearance(comparedTo: previous) { owner?.restyleMarkup() }
-    }
+    var atomLook: (any UITraitChangeRegistration)?
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
@@ -352,7 +348,7 @@ package final class TextArea: UITextView {
     @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain((text as NSString).substring(with: selectedRange), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
         UIPasteboard.general.string = plain
         #endif
     }
@@ -494,6 +490,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            f.atomsChanged()
         }
     }
     func applyTextArea() {

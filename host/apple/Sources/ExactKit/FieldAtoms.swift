@@ -60,37 +60,62 @@ extension TextArea {
         owner.pressAtom(kind: atom.kind, source: source, href: atom.href, range: range, held: held)
     }
 
-    /// The atoms changed (a restyle): what is read and pointed at follows.
+    /// The atoms changed (a restyle, a new width, markup turned off): what
+    /// is read and pointed at follows. An element whose atom keeps its
+    /// range, label and role is kept, so VoiceOver's focus on it stays.
     package func atomsChanged() {
         let frames = atomFrames()
-        #if os(macOS)
-        removeAllToolTips()
-        for (_, atom, frame) in frames where !atom.title.isEmpty { addToolTip(frame, owner: atom.title as NSString, userData: nil) }
-        window?.invalidateCursorRects(for: self)
         let old = atomElements
         atomElements = frames.map { range, atom, _ in
-            old.first { $0.range == range && $0.atom.label == atom.label && $0.atom.role == atom.role } ?? AtomElement(field: self, range: range, atom: atom)
+            guard let kept = old.first(where: { $0.range == range && $0.atom.label == atom.label && $0.atom.role == atom.role }) else {
+                return AtomElement(field: self, range: range, atom: atom)
+            }
+            kept.atom = atom
+            return kept
         }
-        for element in atomElements { element.atom = frames.first { $0.range == element.range }?.atom ?? element.atom }
-        if old.count != atomElements.count || zip(old, atomElements).contains(where: { $0 !== $1 }) {
-            NSAccessibility.post(element: self, notification: .layoutChanged)
-        }
+        let changed = old.count != atomElements.count || zip(old, atomElements).contains { $0 !== $1 }
+        #if os(macOS)
+        // The tooltip's text is asked of this view when it shows (below).
+        removeAllToolTips()
+        for (_, atom, frame) in frames where !atom.title.isEmpty { addToolTip(frame, owner: self, userData: nil) }
+        window?.invalidateCursorRects(for: self)
+        observeAtomLook(!frames.isEmpty)
+        if changed { NSAccessibility.post(element: self, notification: .layoutChanged) }
         #else
         installAtomTap(!frames.isEmpty)
-        guard let owner else { return }
-        if frames.isEmpty {
-            if atomElements.isEmpty == false { atomElements = []; owner.accessibilityElements = nil }
-            return
-        }
-        atomElements = frames.map { AtomElement(field: self, range: $0.range, atom: $0.atom) }
-        owner.accessibilityElements = [self] + atomElements
+        watchAtomLook(!frames.isEmpty)
+        guard changed, let owner else { return }
+        owner.accessibilityElements = atomElements.isEmpty ? nil : [self] + atomElements
         UIAccessibility.post(notification: .layoutChanged, argument: nil)
         #endif
     }
 }
 
 #if os(macOS)
-extension TextArea {
+extension TextArea: NSViewToolTipOwner {
+    /// A pill's `title` (D2), for the tooltip rectangle under `point`.
+    package func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData: UnsafeMutableRawPointer?) -> String {
+        atom(at: point)?.atom.title ?? ""
+    }
+
+    /// A selected pill draws in the selection's colour, emphasized only in
+    /// the key window, and a token pill in the accent colour: each change
+    /// restyles it.
+    func observeAtomLook(_ on: Bool) {
+        let target = on ? window : nil
+        guard target.map(ObjectIdentifier.init) != atomLook.window else { return }
+        atomLook.tokens.forEach(NotificationCenter.default.removeObserver)
+        atomLook = (target.map(ObjectIdentifier.init), [])
+        guard let target else { return }
+        let restyle = { [weak self] (_: Notification) in
+            if let self, self.markup != nil { self.owner?.restyleMarkup() }
+        }
+        let center = NotificationCenter.default
+        atomLook.tokens = [center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: target, queue: .main, using: restyle),
+                           center.addObserver(forName: NSWindow.didResignKeyNotification, object: target, queue: .main, using: restyle),
+                           center.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: restyle)]
+    }
+
     /// The arrow over a pill, as over a token; the I-beam elsewhere.
     func addAtomCursorRects() {
         for (_, _, frame) in atomFrames() { addCursorRect(frame, cursor: .arrow) }
@@ -164,8 +189,12 @@ extension TextArea {
         @objc func tapped(_ g: UITapGestureRecognizer) {
             guard let field, g.state == .ended, let hit = field.atom(at: g.location(in: field)) else { return }
             field.pressAtom(hit.range)
-            // UIKit's own tap may place a caret after this: the atom stays selected.
-            DispatchQueue.main.async { [weak field] in if field?.selectedRange.length == 0 { field?.selectedRange = hit.range } }
+            // UIKit's own tap may place a caret after this: the atom stays
+            // selected, if it is still there.
+            DispatchQueue.main.async { [weak field] in
+                guard let field, field.selectedRange.length == 0, field.textStorage.atomRange(at: hit.range.location) == hit.range else { return }
+                field.selectedRange = hit.range
+            }
         }
     }
     func installAtomTap(_ on: Bool) {
@@ -179,6 +208,14 @@ extension TextArea {
             atomTap = nil
         }
     }
+    /// A pill is a picture drawn for one appearance: drawn again for
+    /// another (light or dark, Increase Contrast).
+    func watchAtomLook(_ on: Bool) {
+        guard on, atomLook == nil else { return }
+        atomLook = registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (field: TextArea, _: UITraitCollection) in
+            if field.markup != nil { field.owner?.restyleMarkup() }
+        }
+    }
 }
 
 /// An atom as assistive technology sees it, beside the text view in its
@@ -187,7 +224,7 @@ extension TextArea {
 package final class AtomElement: UIAccessibilityElement {
     weak var field: TextArea?
     let range: NSRange
-    let atom: MarkupAtom
+    var atom: MarkupAtom { didSet { accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init(accessibilityContainer: field.owner ?? field)

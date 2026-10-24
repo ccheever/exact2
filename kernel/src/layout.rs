@@ -1248,16 +1248,7 @@ impl LayoutTree {
                                     .collect(),
                                 _ => Vec::new(),
                             };
-                            // Direction and alignment inherit (a paragraph inside a
-                            // centred column centres, as in CSS); the rest are its own.
-                            let request = TextMeasureRequest {
-                                atoms: arena.markup_atoms(slot),
-                                exclusions: &shapes,
-                                runs: &runs,
-                                paragraph: arena.paragraph(slot),
-                                width,
-                                height,
-                            };
+                            let request = fit::request(arena, slot, &runs, &shapes, width, height);
                             fields::text(arena, slot, measurer, stamp.as_ref(), &request)
                         };
                         if !metrics.is_valid() {

@@ -17,8 +17,8 @@ final class MarkdownHost: MarkdownCapability {
         MarkupRuns.expand(source, base: base, color: color, boldText: boldText, atoms: atoms)
     }
     func editor() -> MarkdownEditing { MarkupEditor() }
-    func plain(_ source: String, atoms: String, faces: String) -> String? {
-        MarkupCommands.plain(source, atoms: AtomHandle.of(MarkdownAtoms(kinds: atoms, faces: faces)))
+    func plain(_ source: String, range: NSRange?, atoms: String, faces: String) -> String? {
+        MarkupCommands.plain(source, atoms: AtomHandle.of(MarkdownAtoms(kinds: atoms, faces: faces)), range: range)
     }
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool {
         #if os(macOS)

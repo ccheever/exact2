@@ -7,6 +7,28 @@
 //! painter reads are at it, and a host that draws from style rows reads it.
 use super::*;
 
+/// A leaf's request at its own size, flowed around `exclusions`. Direction
+/// and alignment inherit (a paragraph inside a centred column centres, as in
+/// CSS); the rest are its own, a Markdown leaf's atoms among them (LLP
+/// 1045.000 D2), which a label's width depends on.
+pub(super) fn request<'a>(
+    arena: &'a NodeArena,
+    slot: u32,
+    runs: &'a [TextRun<'a>],
+    exclusions: &'a [exact_textflow::FlowShape],
+    width: AxisOffer,
+    height: AxisOffer,
+) -> TextMeasureRequest<'a> {
+    TextMeasureRequest {
+        atoms: arena.markup_atoms(slot),
+        exclusions,
+        runs,
+        paragraph: arena.paragraph(slot),
+        width,
+        height,
+    }
+}
+
 /// The least scale a text is drawn at (UIKit's 0.5 `minimumScaleFactor`).
 const HALF: f32 = 0.5;
 

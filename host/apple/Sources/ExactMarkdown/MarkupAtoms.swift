@@ -134,13 +134,15 @@ final class AtomAttachment: NSTextAttachment {
         let face = Self.font(attributes), atom = atom
         let fill = TextEngine.color(atom.background ?? AtomPaint.token(dark: atom.dark, contrast: atom.contrast))
         #if os(macOS)
-        let selected = NSColor.selectedContentBackgroundColor, selectedInk = NSColor.alternateSelectedControlTextColor
+        // As a token field's selected token: emphasized only in the key window.
+        let selected = atom.emphasized ? NSColor.selectedContentBackgroundColor : .unemphasizedSelectedContentBackgroundColor
+        let selectedInk = NSColor.alternateSelectedControlTextColor
         let plainInk = atom.ink.map(TextEngine.color) ?? attributes[.foregroundColor] as? NSColor ?? .labelColor
         #else
         let selected = UIColor.tintColor, selectedInk = UIColor.white
         let plainInk = atom.ink.map(TextEngine.color) ?? attributes[.foregroundColor] as? UIColor ?? .label
         #endif
-        let ink = atom.selected ? selectedInk : plainInk
+        let ink = atom.selected && atom.emphasized ? selectedInk : plainInk
         let symbol = icon(face.capHeight)
         let draw = { (rect: CGRect) in
             let radius = min(rect.height / 2, face.pointSize * 0.3)
@@ -173,7 +175,8 @@ final class AtomAttachment: NSTextAttachment {
         #if os(macOS)
         return NSImage(size: bounds.size, flipped: true) { rect in draw(rect); return true }
         #else
-        let format = UIGraphicsImageRendererFormat.preferred()
+        // TextKit asks for the picture with the text view's traits current.
+        let format = UIGraphicsImageRendererFormat(for: UITraitCollection.current)
         format.opaque = false
         return UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in draw(CGRect(origin: .zero, size: bounds.size)) }
         #endif
@@ -189,6 +192,6 @@ extension MarkupAtom {
         let selected = selection.length > 0 && selection.location <= start && end <= NSMaxRange(selection)
         return (range, MarkupAtom(kind: kind, label: text(3), icon: text(4), title: text(5), role: text(6), href: text(7),
                                   ink: paint[kind]?.ink, background: paint[kind]?.background, selected: selected,
-                                  dark: atoms.dark, contrast: atoms.contrast))
+                                  emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast))
     }
 }

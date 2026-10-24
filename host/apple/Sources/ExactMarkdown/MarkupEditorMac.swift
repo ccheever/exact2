@@ -12,6 +12,7 @@ extension NodeView {
             size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", .textColor))
         look.atoms = markdownAtoms
+        look.atoms.emphasized = f.window?.isKeyWindow ?? true
         if let content = f.textContentStorage, content.delegate !== editor { content.delegate = editor }
         editor.restyle(storage, selection: f.selectedRange(), look: look)
         f.typingAttributes = editor.baseAttributes(look)

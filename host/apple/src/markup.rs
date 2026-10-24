@@ -357,12 +357,15 @@ pub fn selection(
     )
 }
 
-/// Copy Markdown as plain UTF-8 text, each atom its label; the caller frees
+/// Copy the UTF-16 range `start..end` of Markdown as plain UTF-8 text, each
+/// atom the whole source recognizes inside it as its label; the caller frees
 /// the returned handle.
 pub fn plain(
     text: *const u8,
     len: usize,
     atoms: u64,
+    start: u32,
+    end: u32,
     out: *mut *const u8,
     count: *mut usize,
 ) -> u64 {
@@ -370,7 +373,11 @@ pub fn plain(
         return 0;
     };
     hold_json(
-        exact_markdown::plain_with(source, &atoms_of(atoms)),
+        exact_markdown::plain_range(
+            source,
+            exact_markdown::Range::new(start, end),
+            &atoms_of(atoms),
+        ),
         out,
         count,
     )
@@ -378,15 +385,12 @@ pub fn plain(
 
 /// Release one expansion or styling. Zero, stale, and repeated frees are no-ops.
 pub fn free(handle: u64) {
-    STYLES.with_borrow_mut(|held| {
-        held.remove(&handle);
-    });
-    HELD.with_borrow_mut(|held| {
-        held.remove(&handle);
-    });
-    ATOMS.with_borrow_mut(|held| {
-        held.remove(&handle);
-    });
+    // A handle freed from a thread's own destructors at its exit (the
+    // atoms' per-thread cache) may find these tables already gone, and
+    // with them everything there was to free.
+    let _ = STYLES.try_with(|held| held.borrow_mut().remove(&handle));
+    let _ = HELD.try_with(|held| held.borrow_mut().remove(&handle));
+    let _ = ATOMS.try_with(|held| held.borrow_mut().remove(&handle));
 }
 
 /// Export the markup seam from the application's static archive.
@@ -467,16 +471,18 @@ macro_rules! markup_exports {
         ) -> u64 {
             $crate::markup::selection(text, len, atoms, start, end, out, count)
         }
-        /// Copy Markdown as plain UTF-8 text.
+        /// Copy a range of Markdown as plain UTF-8 text.
         #[no_mangle]
         pub extern "C" fn exact_markup_plain(
             text: *const u8,
             len: usize,
             atoms: u64,
+            start: u32,
+            end: u32,
             out: *mut *const u8,
             count: *mut usize,
         ) -> u64 {
-            $crate::markup::plain(text, len, atoms, out, count)
+            $crate::markup::plain(text, len, atoms, start, end, out, count)
         }
         /// Release one expansion or styling.
         #[no_mangle]
@@ -549,7 +555,15 @@ mod tests {
             r#"{"formats":"bold","mixed":false,"link":"","unavailable":"","atom":""}"#
         );
         free(handle);
-        let handle = plain(source.as_ptr(), source.len(), 0, &mut out, &mut count);
+        let handle = plain(
+            source.as_ptr(),
+            source.len(),
+            0,
+            0,
+            u32::MAX,
+            &mut out,
+            &mut count,
+        );
         assert_eq!(unsafe { std::slice::from_raw_parts(out, count) }, b"bold");
         free(handle);
         assert_eq!(
@@ -664,8 +678,28 @@ mod tests {
             "{json}"
         );
         free(facts);
-        let copied = plain(source.as_ptr(), source.len(), atoms, &mut out, &mut count);
+        let copied = plain(
+            source.as_ptr(),
+            source.len(),
+            atoms,
+            0,
+            u32::MAX,
+            &mut out,
+            &mut count,
+        );
         assert_eq!(read(out, count), "a Quote b");
+        free(copied);
+        // A selection of exactly the atom copies its label.
+        let copied = plain(
+            source.as_ptr(),
+            source.len(),
+            atoms,
+            2,
+            20,
+            &mut out,
+            &mut count,
+        );
+        assert_eq!(read(out, count), "Quote");
         free(copied);
         let (mut flat, mut n) = (std::ptr::null(), 0usize);
         let expanded = pieces(source.as_ptr(), source.len(), atoms, &mut flat, &mut n);

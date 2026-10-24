@@ -160,26 +160,111 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(frameView.hitTest(frameView.convert(f.convert(CGPoint(x: hit.frame.maxX + 30, y: hit.frame.midY), to: nil), from: nil)) === f)
     }
 
-    func testAPillIsDrawnAgainForAnotherAppearance() throws {
+    private func drawnAtom(_ f: TextArea) -> MarkupAtom? { f.textStorage?.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+    private func drain() { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+
+    func testAPillIsDrawnAgainForAnotherAppearanceUnasked() throws {
         let (node, f, window) = editor()
         defer { window.close() }
-        node.appearance = NSAppearance(named: .darkAqua)
-        node.restyleMarkup()
+        // The window's appearance changes; nothing calls a restyle.
+        window.appearance = NSAppearance(named: .darkAqua)
+        drain()
         XCTAssertTrue(node.drawsDark, "dark")
-        XCTAssertTrue((f.textStorage?.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.dark == true, "restyled dark")
+        XCTAssertTrue(drawnAtom(f)?.dark == true, "restyled dark")
         XCTAssertTrue(attachments(f).first?.atom.dark == true)
-        node.appearance = NSAppearance(named: .aqua)
-        node.restyleMarkup()
+        window.appearance = NSAppearance(named: .aqua)
+        drain()
         XCTAssertFalse(node.drawsDark, "light")
-        XCTAssertTrue((f.textStorage?.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.dark == false, "restyled light")
+        XCTAssertTrue(drawnAtom(f)?.dark == false, "restyled light")
         XCTAssertTrue(attachments(f).first?.atom.dark == false)
+    }
+
+    func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
+        let (_, f, window) = editor(selection: NSRange(location: a, length: b - a))
+        defer { window.close() }
+        let before = try XCTUnwrap(drawnAtom(f))
+        XCTAssertTrue(before.selected)
+        XCTAssertEqual(before.emphasized, window.isKeyWindow, "emphasized as the window is key")
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        drain()
+        XCTAssertFalse(drawnAtom(f) === before, "a key change restyles the pills")
+        let after = try XCTUnwrap(drawnAtom(f))
+        NotificationCenter.default.post(name: NSColor.systemColorsDidChangeNotification, object: nil)
+        drain()
+        XCTAssertFalse(drawnAtom(f) === after, "an accent colour change restyles the pills")
+    }
+
+    func testTheTooltipIsAskedOfTheTextViewAndFollowsARewrap() throws {
+        let (_, f, window) = editor("Ask about this long line of words before it " + cite + " now")
+        defer { window.close() }
+        let element = try XCTUnwrap(f.atomElements.first)
+        let old = try XCTUnwrap(f.atomFrames().first).frame
+        let tip = { (p: CGPoint) in f.view(f, stringForToolTip: 0, point: p, userData: nil) }
+        XCTAssertEqual(tip(CGPoint(x: old.midX, y: old.midY)), "The quoted passage")
+        XCTAssertEqual(tip(CGPoint(x: old.maxX + 40, y: old.midY)), "", "beside it, no tooltip")
+        // A narrower width rewraps the line: the pill moves, the tooltip with it.
+        f.setFrameSize(NSSize(width: 160, height: f.frame.height))
+        let moved = try XCTUnwrap(f.atomFrames().first).frame
+        XCTAssertNotEqual(moved.origin, old.origin, "rewrapped")
+        XCTAssertEqual(tip(CGPoint(x: moved.midX, y: moved.midY)), "The quoted passage")
+        XCTAssertTrue(f.atomElements.first === element, "its element is kept across a rewrap")
+    }
+
+    func testALineKeepsItsHeightWithAnAtom() throws {
+        func lineHeight(_ text: String) throws -> CGFloat {
+            let (_, f, window) = editor(text)
+            defer { window.close() }
+            let manager = try XCTUnwrap(f.textLayoutManager)
+            manager.ensureLayout(for: manager.documentRange)
+            var height: CGFloat = 0
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                height = fragment.textLineFragments.first?.typographicBounds.height ?? 0
+                return false
+            }
+            return height
+        }
+        let plain = try lineHeight("Ask Quote now"), atom = try lineHeight(source)
+        XCTAssertGreaterThan(plain, 0)
+        XCTAssertEqual(atom, plain, accuracy: 0.01, "the pill sits inside the font's ascender and descender (§5.1)")
+    }
+
+    func testMarkupTurnedOffClearsTheAtoms() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        XCTAssertEqual(f.atomElements.count, 1)
+        node.props["markup"] = nil
+        node.applyTextArea()
+        XCTAssertNil(f.markup)
+        XCTAssertTrue(f.atomElements.isEmpty, "no element for an atom that is not drawn")
+        XCTAssertEqual(f.view(f, stringForToolTip: 0, point: .zero, userData: nil), "")
     }
 
     func testCopyTakesTheSourceAndPlainCopyTheLabel() {
         let (node, f, window) = editor(selection: NSRange(location: a + 2, length: 2))
         defer { window.close() }
         XCTAssertEqual(f.markup?.copyRange(NSRange(location: a + 2, length: b - a), in: f.textStorage!), NSRange(location: a, length: b - a + 2))
-        XCTAssertEqual(MarkdownLink.installed?.plain(source, atoms: node.props["atoms"]!, faces: node.props["atomFaces"]!), "Ask A quote now")
+        XCTAssertEqual(MarkdownLink.installed?.plain(source, range: nil, atoms: node.props["atoms"]!, faces: node.props["atomFaces"]!), "Ask A quote now")
+        // ⌘⇧C of a selection of exactly a prefix atom: the token is found in
+        // the whole source, where the space before it decides it.
+        let mention = "see @x here"
+        let faced = #"[{"source":"@x","label":"x.rs","icon":"","title":""}]"#
+        XCTAssertEqual(MarkdownLink.installed?.plain(mention, range: NSRange(location: 4, length: 2), atoms: kinds, faces: faced), "x.rs")
+        // The text view's command copies the selection's labels (the
+        // person's clipboard is put back after).
+        let board = NSPasteboard.general, kept = board.pasteboardItems?.map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { $0[$1] = item.data(forType: $1) }
+        } ?? []
+        defer {
+            board.clearContents()
+            board.writeObjects(kept.map { types in
+                let item = NSPasteboardItem()
+                for (type, data) in types { item.setData(data, forType: type) }
+                return item
+            })
+        }
+        f.setSelectedRange(NSRange(location: a, length: b - a))
+        f.copyPlainText(nil)
+        XCTAssertEqual(board.string(forType: .string), "A quote")
     }
 }
 #else
@@ -228,6 +313,16 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertTrue(atom.accessibilityTraits.contains(.button))
         XCTAssertTrue(atom.accessibilityActivate())
         XCTAssertEqual(f.selectedRange, NSRange(location: a, length: b - a))
+    }
+
+    func testATraitChangeRedrawsThePillsAndKeepsTheElements() throws {
+        let (_, node, f) = field()
+        let element = try XCTUnwrap(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first)
+        window.overrideUserInterfaceStyle = .dark
+        window.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue((f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.dark == true, "restyled dark, unasked")
+        XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "a restyle keeps the element VoiceOver may be on")
     }
 
     func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {

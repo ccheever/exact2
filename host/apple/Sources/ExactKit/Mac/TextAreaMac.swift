@@ -33,14 +33,23 @@ package final class TextArea: NSTextView {
     /// The source's length at the last selection change: a change that
     /// comes with a new length is an edit's.
     var markupLength = 0
-    /// Its inline atoms' accessibility children (FieldAtoms.swift, LLP 1045.000 D8).
+    /// Its inline atoms' accessibility children, and the window and colour
+    /// changes their pills are drawn again for (FieldAtoms.swift, LLP 1045.000 D8).
     var atomElements: [AtomElement] = []
+    var atomLook: (window: ObjectIdentifier?, tokens: [NSObjectProtocol]) = (nil, [])
     package override func accessibilityChildren() -> [Any]? { atomElements.isEmpty ? super.accessibilityChildren() : (super.accessibilityChildren() ?? []) + atomElements }
     // A press on a pill is the atom's (D7); the arrow over one, as over a token.
     package override func hitTest(_ point: NSPoint) -> NSView? { atomHit(point) ?? super.hitTest(point) }
     package override func resetCursorRects() { super.resetCursorRects(); addAtomCursorRects() }
     // A pill is a picture drawn for one appearance: drawn again for another.
     package override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); if markup != nil { owner?.restyleMarkup() } }
+    package override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); observeAtomLook(!atomElements.isEmpty) }
+    // A new width rewraps the text: the pills' tooltip and cursor rectangles follow.
+    package override func setFrameSize(_ size: NSSize) {
+        let rewraps = size.width != frame.width
+        super.setFrameSize(size)
+        if rewraps, !atomElements.isEmpty { atomsChanged() }
+    }
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
@@ -277,7 +286,7 @@ package final class TextArea: NSTextView {
 
     @objc package func copyPlainText(_ sender: Any?) {
         guard markup != nil, selectedRange().length > 0,
-              let plain = MarkdownLink.installed?.plain((string as NSString).substring(with: selectedRange()), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
+              let plain = MarkdownLink.installed?.plain(string, range: selectedRange(), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(plain, forType: .string)
     }
@@ -409,6 +418,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            f.atomsChanged()
         }
     }
     func applyTextArea() {

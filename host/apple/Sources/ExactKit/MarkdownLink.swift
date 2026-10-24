@@ -18,9 +18,10 @@ package protocol MarkdownCapability: AnyObject {
     func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
     /// A Markdown text area's styler.
     func editor() -> MarkdownEditing
-    /// `source` without its Markdown syntax, each atom its label (Copy
-    /// Plain Text); `atoms` and `faces` are the node's (LLP 1045.000).
-    func plain(_ source: String, atoms: String, faces: String) -> String?
+    /// `range` (UTF-16, the whole source when nil) of `source` without its
+    /// Markdown syntax, each atom the whole source recognizes inside it its
+    /// label (Copy Plain Text); `atoms` and `faces` are the node's (LLP 1045.000).
+    func plain(_ source: String, range: NSRange?, atoms: String, faces: String) -> String?
     /// Apply a formatting command to `node`'s editor.
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool
     /// Ask for a link and apply it to `node`'s selection.
@@ -83,9 +84,11 @@ package struct MarkdownAtoms: Hashable {
     package var kinds = ""
     package var faces = ""
     package var styles = ""
-    /// The appearance a pill is drawn for: dark, and Increase Contrast.
+    /// The appearance a pill is drawn for: dark, and Increase Contrast;
+    /// and whether a selected one is emphasized (its window is key).
     package var dark = false
     package var contrast = false
+    package var emphasized = true
     package init(kinds: String = "", faces: String = "", styles: String = "", dark: Bool = false, contrast: Bool = false) {
         (self.kinds, self.faces, self.styles, self.dark, self.contrast) = (kinds, faces, styles, dark, contrast)
     }
@@ -99,12 +102,14 @@ package final class MarkupAtom: NSObject {
     package let kind: String, label: String, icon: String, title: String, role: String, href: String
     /// Its paint: the kind's `color` and `background-color`, as RGBA, if declared.
     package let ink: [Double]?, background: [Double]?
-    /// The selection covers it: drawn in the selection's colour (D4).
-    package let selected: Bool
+    /// The selection covers it: drawn in the selection's colour (D4),
+    /// emphasized or not.
+    package let selected: Bool, emphasized: Bool
     package let dark: Bool, contrast: Bool
-    package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?, selected: Bool, dark: Bool, contrast: Bool) {
+    package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?,
+                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool) {
         (self.kind, self.label, self.icon, self.title, self.role, self.href) = (kind, label, icon, title, role, href)
-        (self.ink, self.background, self.selected, self.dark, self.contrast) = (ink, background, selected, dark, contrast)
+        (self.ink, self.background, self.selected, self.emphasized, self.dark, self.contrast) = (ink, background, selected, emphasized, dark, contrast)
     }
 }
 

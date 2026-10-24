@@ -57,10 +57,13 @@ enum MarkupCommands {
         return MarkupEdit(source: source, object: object)
     }
 
-    static func plain(_ source: String, atoms: UInt64 = 0) -> String? {
+    /// `range` (UTF-16) of `source` as plain text, each atom inside it its
+    /// label; the whole source when nil.
+    static func plain(_ source: String, atoms: UInt64 = 0, range: NSRange? = nil) -> String? {
         var text = source
+        let (start, end) = range.map { (UInt32(clamping: $0.location), UInt32(clamping: NSMaxRange($0))) } ?? (0, .max)
         let data = text.withUTF8 { text in read { out, count in
-            exact_markup_plain(text.baseAddress, text.count, atoms, out, count)
+            exact_markup_plain(text.baseAddress, text.count, atoms, start, end, out, count)
         } }
         return data.flatMap { String(data: $0, encoding: .utf8) }
     }

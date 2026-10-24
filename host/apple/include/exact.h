@@ -251,7 +251,7 @@ uint64_t exact_markup_edit(const uint8_t *utf8, size_t len, uint32_t start, uint
 uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end,
     const uint8_t **out, size_t *count);
 /* Raw UTF-8 plain text, sharing the same handle lifetime. */
-uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, const uint8_t **out, size_t *count);
+uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end, const uint8_t **out, size_t *count);
 void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {
