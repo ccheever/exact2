@@ -458,6 +458,14 @@ impl GrantSet {
                             index + 1
                         ));
                     }
+                    if target.starts_with("exact.presence.") {
+                        return Err(format!(
+                            "line {}: `{target}`: `exact.presence.` names are the runner's own",
+                            index + 1
+                        ));
+                    }
+                    let rest: Vec<&str> = parts.by_ref().collect();
+                    presence_words(&rest).map_err(|e| format!("line {}: {e}", index + 1))?;
                     Grant::SecretKeep(target.to_string())
                 }
                 "storage.kv" => {
@@ -484,6 +492,65 @@ impl GrantSet {
         }
         Ok(set)
     }
+}
+
+/// Exact patch: the words after a `secret.keep` name are its presence policy
+/// (exact2 LLP 1133.010 D4, D10): one of four policies, then `optional`, then
+/// platform words, each once and in that order. The grant is the name's
+/// either way; exact2's runner and hosts read the policy. Mirrors
+/// `exact_grants::presence_words`, word for word.
+fn presence_words(words: &[&str]) -> Result<(), String> {
+    const POLICIES: [&str; 4] = [
+        "user-presence",
+        "biometry-any",
+        "biometry-current-set",
+        "device-credential",
+    ];
+    const PLATFORM: [&str; 5] = [
+        "apple.accessible=whenPasscodeSetThisDeviceOnly",
+        "apple.accessible=whenUnlockedThisDeviceOnly",
+        "apple.orWatch",
+        "apple.orCompanion",
+        "android.strongBox",
+    ];
+    let Some((first, rest)) = words.split_first() else {
+        return Ok(());
+    };
+    if !POLICIES.contains(first) {
+        let why = if *first == "optional" {
+            "`optional` needs a presence policy before it".to_string()
+        } else if PLATFORM.contains(first) {
+            format!("`{first}`: a platform word needs a presence policy before it")
+        } else {
+            format!("`{first}` is not a presence policy")
+        };
+        return Err(format!(
+            "grant-policy-unknown: {why}; write one of {} after the name, then `optional`, then platform words",
+            POLICIES.join(", ")
+        ));
+    }
+    let (mut optional, mut platform) = (false, Vec::<&str>::new());
+    for word in rest {
+        if *word == "optional" && !optional && platform.is_empty() {
+            optional = true;
+        } else if PLATFORM.contains(word) {
+            let key = word.split('=').next().unwrap_or(word);
+            if platform.iter().any(|w| w.split('=').next() == Some(key)) {
+                return Err(format!("grant-policy-unknown: `{key}` is written twice"));
+            }
+            platform.push(word);
+        } else if *word == "optional" || POLICIES.contains(word) {
+            return Err(format!(
+                "grant-policy-unknown: `{word}` is out of order: one policy, then `optional`, then platform words"
+            ));
+        } else {
+            return Err(format!(
+                "grant-policy-unknown: `{word}` is not a presence word ({})",
+                PLATFORM.join(", ")
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -864,6 +931,10 @@ mod tests {
         // first word.
         assert!(GrantSet::parse("storage.kv payments cache").is_err());
         assert!(GrantSet::parse("secret.keep castle.session old").is_err());
+        // A presence policy is the one thing a `secret.keep` line may add.
+        assert!(GrantSet::parse("secret.keep castle.session user-presence optional").is_ok());
+        assert!(GrantSet::parse("secret.keep castle.session optional").is_err());
+        assert!(GrantSet::parse("secret.keep exact.presence.castle").is_err());
         assert!(GrantSet::parse("fs.read /data /backup").is_err());
         assert!(GrantSet::parse("net.fetch http://a.example # prod").is_err());
         assert!(GrantSet::parse("env.read HOME PATH").is_err());

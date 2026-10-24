@@ -50,13 +50,14 @@ export function modules(rows, bound = {}, views = {}) {
     return out;
   };
   const prefers = row => preferred.has(row.key) ? filled(row, preferred.get(row.key)) : undefined;
-  const valueOf = row => prefers(row) ?? row.sub.default;
+  // The web's own facts over a source's (`web`: local authentication's `later` cell, LLP 1133.010 D15).
+  const valueOf = row => row.sub.web ? { ...(prefers(row) ?? row.sub.default ?? {}), ...row.sub.web } : prefers(row) ?? row.sub.default;
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
   const decidePermission = (row, send) => {
     const p = row.sub.permission;
     if (!p) return null;
     const state = stateOf(p.name);
-    if (!send && isStatus(row)) return { now: { ...(valueOf(row) ?? {}), [p.field]: state } };
+    if (!send && isStatus(row)) return { now: { ...(valueOf(row) ?? {}), [p.field]: row.sub.web?.[p.field] ?? state } };
     if (state === "denied") return { now: { error: p.denied } };
     const asks = row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
     return state === "prompt" && asks ? { hold: "permission" } : null;

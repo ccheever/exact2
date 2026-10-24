@@ -205,7 +205,8 @@ fn module(
 /// `origin`, `foreground` and the `when` that conditions them, its grant
 /// lines (`nameGrants`: a list, or a line per argument), the answer's
 /// `handles`, the option a polled source's period is (`poll`), and its path
-/// options (`paths`).
+/// options (`paths`). An `origin` of `"person"` refuses a tool or a wake
+/// `PERMISSION_DENIED`, `person-required`, in every state (LLP 1133.010 D12).
 fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     let name = entry["source"]
         .as_str()
@@ -216,7 +217,10 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         Value::Object(map) => map.clone(),
         other => return Err(format!("a `substitute` is an object, not `{other}`")),
     };
-    for field in ["permission", "grants"] {
+    // An interface's `authenticator` is the entry a data capability calls in
+    // process, with the store's operations' substitute (LLP 1133.010 D13, §7):
+    // the runner reads it from any name of the interface.
+    for field in ["permission", "grants", "authenticator"] {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
         }

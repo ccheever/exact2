@@ -267,12 +267,63 @@ pub(crate) fn parsed(
                 .into_iter()
                 .map(move |e| format!("grant-parse: {source}: {e}"))
         })
+        .chain(presence(app_dir, &sources))
         .collect();
     if errors.is_empty() {
         Ok(())
     } else {
         Err(errors.join("\n"))
     }
+}
+
+/// A presence line's refusals (LLP 1133.010 D4, D13): a name whose sources
+/// keep it under two policies (`grant-policy-conflict`); a presence line in
+/// an app that grants no `device.local-auth`, which Face ID will not run
+/// without (`grant-missing`); and one in an app that does not depend on
+/// `@exact/local-auth`, whose implementation shows the sheet.
+fn presence(app_dir: &Path, sources: &[(Option<&str>, &str); 2]) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut lines: BTreeMap<String, (String, &str)> = BTreeMap::new();
+    let mut device = false;
+    for (spec, source) in sources {
+        let Some(Ok(set)) = spec.map(exact_runner::grants::parse) else {
+            continue;
+        };
+        device |= set
+            .lines()
+            .iter()
+            .any(|l| l.starts_with("device.local-auth "));
+        for (name, policy) in set.presence() {
+            let words = policy.line_words();
+            match lines.get(name) {
+                Some((other, at)) if *other != words => errors.push(format!(
+                    "grant-policy-conflict: `secret.keep {name}` is `{other}` in {at} and `{words}` in {source}; a name is kept under one policy"
+                )),
+                Some(_) => {}
+                None => {
+                    lines.insert(name.to_owned(), (words, source));
+                }
+            }
+        }
+    }
+    let Some((name, (words, _))) = lines.iter().next() else {
+        return errors;
+    };
+    if !device {
+        errors.push(format!(
+            "grant-missing: `secret.keep {name} {words}` needs `device.local-auth <purposeKey>` beside it: the strings key whose text says why the app asks for Face ID"
+        ));
+    }
+    let manifest = std::fs::read_to_string(app_dir.join("package.json")).unwrap_or_default();
+    let depends = serde_json::from_str::<Value>(&manifest)
+        .is_ok_and(|m| !m["dependencies"]["@exact/local-auth"].is_null());
+    if !depends {
+        errors.push(format!(
+            "grant-missing: `secret.keep {name} {words}` needs `\"@exact/local-auth\"` in package.json's dependencies, whose implementation shows the check: `bun scripts/exact.mjs add local-auth {}`",
+            app_dir.display()
+        ));
+    }
+    errors
 }
 
 /// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
@@ -567,6 +618,50 @@ mod tests {
             assert_eq!(c.reach["usage"], json!({}));
             assert_eq!(c.reach["android"], json!([]));
         }
+    }
+
+    #[test]
+    fn a_presence_line_needs_its_permission_line_its_module_and_one_policy() {
+        let dir = app(&[("en", r#"{"purpose.lock": "Unlocks your session."}"#)]);
+        let line = "secret.keep token user-presence optional";
+        let refused = parsed(&dir.0, Some(line), None).unwrap_err();
+        assert!(
+            refused.contains("grant-missing: `secret.keep token user-presence optional` needs `device.local-auth"),
+            "{refused}"
+        );
+        assert!(refused.contains("\"@exact/local-auth\""), "{refused}");
+        std::fs::write(
+            dir.0.join("package.json"),
+            r#"{"dependencies":{"@exact/local-auth":"file:../packages/local-auth"}}"#,
+        )
+        .unwrap();
+        let both = format!("{line}\ndevice.local-auth purpose.lock");
+        parsed(&dir.0, Some(&both), None).unwrap();
+        let rust = "secret.keep token biometry-any\ndevice.local-auth purpose.lock";
+        let conflict = parsed(&dir.0, Some(&both), Some(rust)).unwrap_err();
+        assert!(
+            conflict.starts_with("grant-policy-conflict: "),
+            "{conflict}"
+        );
+        let unknown = parsed(&dir.0, Some("secret.keep token face-id"), None).unwrap_err();
+        assert!(unknown.contains("grant-policy-unknown"), "{unknown}");
+        // Face ID's usage key on iOS, nothing on macOS, the biometric permission on Android.
+        let text = json!({"en": "Unlocks your session."});
+        let mut ios = compat(&both);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(
+            ios.reach["usage"],
+            json!({"NSFaceIDUsageDescription": text})
+        );
+        let mut mac = compat(&both);
+        derive(&dir.0, "macos", &mut mac).unwrap();
+        assert_eq!(mac.reach["usage"], json!({}));
+        let mut android = compat(&both);
+        derive(&dir.0, "linux", &mut android).unwrap();
+        assert_eq!(
+            android.reach["android"],
+            json!(["android.permission.USE_BIOMETRIC"])
+        );
     }
 
     #[test]

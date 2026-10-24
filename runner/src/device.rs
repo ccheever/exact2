@@ -186,6 +186,17 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSLocalNetworkUsageDescription"],
         ..ROW
     },
+    // @ref LLP 1133.010 D12 — local authentication. iOS shows the purpose the
+    // first time Face ID is used, and refuses Face ID without the key; Touch ID
+    // and macOS ask nothing. A declared deviation: the web has no name (its
+    // cell is `later`, over passkeys). Not on tvOS, which has no biometry.
+    Device {
+        name: "local-auth",
+        ios: &["NSFaceIDUsageDescription"],
+        android: &["android.permission.USE_BIOMETRIC"],
+        tvos: false,
+        ..ROW
+    },
     // @ref LLP 1125 D6 — Web MIDI's permission and policy feature. Apple asks
     // for nothing, so no usage key; tvOS has no CoreMIDI (`unavailable`).
     Device {
