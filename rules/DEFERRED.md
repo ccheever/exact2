@@ -236,6 +236,13 @@ hooks and reusable shader-packaging support in shared build tools are within
 that optional add-on's scope. The same take holds; core apps gain no engine
 dependency. Weird Waters may prove the hooks privately alongside independent
 public fixtures on web, macOS and iOS.
+**Expanded (Charlie, 2026-10-23, #905):** a game surface's published record
+carries a host-owned readiness fact: true once the game's renderer has drawn a
+complete frame for the current generation, false again after a restore or a
+lost device. The app binds its own pause and loading cover to it; `PENDING`
+still permits ticks and the runtime adds no barrier. The Minecraft consumer,
+whose player took damage before its terrain drew, is the consumer. Take: none
+offered; waived by Charlie. It follows Nathan Schroeder's #967.
 
 **Expanded (Charlie, 2026-09-23: "ok let's do pre-rendering etc."; "let's use
 Interview as our website"):** web rendering across the curve (LLP 1048), with
@@ -320,6 +327,12 @@ configure this on platforms that support it"):** a sheet route's
 tall over a half-height stop, is the consumer. Take: none offered; waived by
 James, whom Charlie gave the call. Still out: reading or binding the detent
 a person drags the sheet to.
+**Expanded (Charlie, 2026-10-23, #854; part of LLP 1123 D7):** a presented
+route's `navigationSizing` is `page` (the default) or `form`, which iPadOS
+shows as UIKit's centred `.formSheet`; a host whose sheets have one size
+ignores it. T3 Code's Add environment sheet (#216) is the consumer, and Nathan
+Schroeder implements it. Take: none offered; waived by Charlie. Still out:
+D7's `automatic` and `fitted`, which stay in stage 6.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
