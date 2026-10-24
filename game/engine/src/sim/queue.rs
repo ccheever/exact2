@@ -201,12 +201,24 @@ impl<G: Game> Sim<G> {
                 });
             }
         }
+        // Every event applies over the world's sensor state, which the last
+        // tick may have changed (`World::set_tilt_neutral`).
+        self.load_sensors();
         if paused {
             self.input.apply_paused(event, at_us);
         } else {
             self.input.apply(event, at_us);
         }
         self.store_applied();
+    }
+    /// Bring the world's sensor state into input.
+    pub(super) fn load_sensors(&mut self) {
+        let state = self
+            .world
+            .try_resource::<crate::SensorState>()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        self.input.load_sensors(state);
     }
     /// Write input's applied state back to the world, where it is hashed, when
     /// it changed. An unused world never gains the resource.
@@ -218,6 +230,17 @@ impl<G: Game> Sim<G> {
             .map(|g| g.clone());
         if stored.as_ref() != Some(&applied) && (stored.is_some() || !applied.is_empty()) {
             self.world.insert_resource(applied);
+        }
+        let sensors = self.input.sensor_state();
+        let stored = self.world.try_resource::<crate::SensorState>();
+        let changed = match &stored {
+            Some(s) => **s != *sensors,
+            None => !sensors.is_empty(),
+        };
+        drop(stored);
+        if changed {
+            let sensors = sensors.clone();
+            self.world.insert_resource(sensors);
         }
     }
     /// Mature holds and let windows lapse up to a tick's end (in µs × HZ).
@@ -241,6 +264,7 @@ impl<G: Game> Sim<G> {
         for line in self.input.sync(&contexts, &bindings) {
             self.world.log(line);
         }
+        self.load_sensors();
         self.store_applied();
     }
 }

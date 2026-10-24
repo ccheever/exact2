@@ -156,6 +156,12 @@ impl<G: Game> Sim<G> {
             .unwrap_or_default();
         input.validate_applied(&applied).map_err(DataError::new)?;
         input.load_applied(applied);
+        let sensors = validated
+            .try_resource::<crate::SensorState>()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        sensors.validate().map_err(DataError::new)?;
+        input.load_sensors(sensors);
         let mut next =
             Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;
         let tables = next.world.assets.tables.clone();
