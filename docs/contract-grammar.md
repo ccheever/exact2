@@ -914,11 +914,17 @@ says. Every roster function has a row and an example, and each example written
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `string[]`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
-On Apple, `frame` of an inline `text` run returns the viewport-space union of
-its line fragments, using the run's own font metrics and excluding hanging
-wrap spaces. An empty run has a zero-width rectangle at its insertion point
-with its font's height. Scrolling moves this rectangle; clipping does not trim
-it. Other native hosts currently report inline runs unavailable.
+On Apple, Linux and Windows, `frame` of an inline `text` run returns the
+viewport-space union of its line fragments, using the run's own font ascent
+and descent and excluding hanging wrap spaces. An empty run has a zero-width
+rectangle at its insertion point with its font's height. Scrolling moves this
+rectangle; clipping does not trim it. Linux and Windows read the acknowledged
+paragraph, including multi-column placement and affine transforms; a
+perspective-projected paragraph is unavailable. These readers give a cross-run
+ligature's advance to its first character's run; later runs have zero-width
+rectangles at its end, as in Chrome. Windows shares the Linux presenter;
+runtime verification was on Linux. Android and the terminal have no inline-run
+reader.
 
 For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
 includes that ancestor once before lower layers. This keeps its first entry
