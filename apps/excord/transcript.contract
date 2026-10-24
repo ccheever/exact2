@@ -53,7 +53,7 @@ component MessageRow
         row position="relative" padding="2px 16px" gap=12 align-items="flex-start" testId=`row-${m.id}`
           background-color=(m.mentionsMe ? "-exact-tertiary-fill" : "transparent")
           translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
-          pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-y"
+          pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-left pan-y"
           contextmenu=aim(m.key, m.id, m.mine, m.source, m.author) contextPopover="message-menu"
           opacity=(m.state == "pending" ? 0.5 : 1)
           // A jump's target: Discord's yellow wash, fading once the reader has seen it.
