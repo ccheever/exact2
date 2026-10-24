@@ -27,6 +27,7 @@ mod nested_header;
 mod parts;
 mod roles;
 mod root_replace;
+mod routeless_header;
 mod rows;
 mod screens;
 mod scroll_bound;
@@ -35,7 +36,6 @@ mod states;
 mod svg;
 mod title;
 mod width;
-
 pub(crate) use width::horizontal_flex;
 
 /// At most this many warnings from one compile. A blank SF Symbol's uses,
@@ -66,9 +66,9 @@ pub(crate) struct TextStyle {
 pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let mut out = Vec::new();
-    // Each node, whether a navigation root (the outermost element with a `navigationKey`)
-    // encloses it, and the id that root's `navigationBack` names, when it is a literal:
-    // an element with a `navigationKey` inside a root is a route.
+    routeless_header::check(checked, &mut out);
+    // Track the enclosing navigation root (the outermost `navigationKey`) and its
+    // literal `navigationBack`: a keyed element inside that root is a route.
     crate::menu_rows::notes(&root.view, &mut out);
     crate::symbols::tints(&root.view, &checked.file.styles, lowered, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
