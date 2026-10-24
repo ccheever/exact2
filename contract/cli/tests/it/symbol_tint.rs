@@ -75,3 +75,61 @@ fn a_native_buttons_face_keeps_its_tint_and_a_drawn_buttons_symbol_warns() {
     // A button that draws itself is a box: its symbol is any symbol.
     assert!(warned(&button(" appearance=\"none\"")).contains(&(TINT.to_string(), 6)));
 }
+
+#[test]
+fn a_drawn_default_button_a_class_tint_and_a_components_second_use_are_warned() {
+    // A default button lowering draws itself (a `background-color` makes it the bare box): its symbol is warned.
+    let drawn = "component App\n  action go\n  view\n    column\n      button press=go background-color=\"-exact-secondary-label\"\n        image \"symbol:lock\" -exact-tint-color=\"-exact-secondary-label\"\n        text \"Lock\"\n";
+    assert!(
+        warned(drawn).contains(&(TINT.to_string(), 6)),
+        "{:?}",
+        warned(drawn)
+    );
+    // A class's tint is the image's.
+    let class = "style Muted\n  -exact-tint-color=\"-exact-secondary-label\"\n\ncomponent App\n  view\n    column\n      image \"symbol:heart\" class=Muted\n";
+    assert!(
+        warned(class).iter().any(|(id, _)| id == TINT),
+        "{:?}",
+        warned(class)
+    );
+    // A component's image, a raster in its first use and a symbol in its second: the second is warned, at the
+    // component's line, once.
+    let uses = |first: &str, second: &str| {
+        format!("component App\n  view\n    column\n      Icon(src=\"{first}\")\n      Icon(src=\"{second}\")\ncomponent Icon\n  props\n    src: string\n  view\n    image src -exact-tint-color=\"-exact-secondary-label\"\n")
+    };
+    for (first, second) in [
+        ("https://example.com/a.png", "symbol:heart"),
+        ("symbol:heart", "https://example.com/a.png"),
+        ("symbol:heart", "symbol:star"),
+    ] {
+        let tints: Vec<_> = warned(&uses(first, second))
+            .into_iter()
+            .filter(|(id, _)| id == TINT)
+            .collect();
+        assert_eq!(tints, [(TINT.to_string(), 10)], "{first} then {second}");
+    }
+}
+
+#[test]
+fn a_tint_from_a_components_prop_is_shown_as_written_not_as_one_uses_value() {
+    let src = "component App\n  view\n    column\n      Icon(tint=\"-exact-secondary-label\")\n      Icon(tint=\"-exact-tertiary-label\")\ncomponent Icon\n  props\n    tint: string\n  view\n    image \"symbol:heart\" -exact-tint-color=tint\n";
+    let (_, warnings) = contract::compile_warned(src);
+    let tints: Vec<_> = warnings.iter().filter(|w| w.id == TINT).collect();
+    assert_eq!(tints.len(), 1, "{warnings:?}");
+    assert!(
+        tints[0].message.contains("write `color=…` instead"),
+        "{}",
+        tints[0].message
+    );
+}
+
+#[test]
+fn a_native_face_under_an_if_or_with_a_button_style_keeps_its_tint() {
+    for (attrs, image) in [
+        (" buttonStyle=\"filled\"", "        image \"symbol:lock\" -exact-tint-color=\"-exact-secondary-label\"\n"),
+        ("", "        if on\n          image \"symbol:lock\" -exact-tint-color=\"-exact-secondary-label\"\n"),
+    ] {
+        let src = format!("component App\n  state on = true\n  action go\n  view\n    column\n      button{attrs} press=go\n{image}        text \"Lock\"\n");
+        assert!(!warned(&src).iter().any(|(id, _)| id == TINT), "{src}");
+    }
+}
