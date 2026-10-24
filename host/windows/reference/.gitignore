@@ -1,0 +1,4 @@
+# What draw.mjs and dotnet build write.
+bin/
+obj/
+build/

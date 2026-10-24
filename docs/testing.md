@@ -168,7 +168,14 @@ on the tailnet (LLP 1115.004 D13). As recorded on 2026-10-23:
 - **SSH is not the desktop.** An SSH session sees one 1024×768 stand-in
   display (`WinDisc`), so a window it opens is never shown. Headless drives
   work (`bun scripts/agent.mjs windows --app shelf --storage <name> …`); a
-  real window must open in the signed-in console session.
+  real window must open in the signed-in console session, as
+  `host/windows/reference/draw.mjs` opens WinUI's, with a one-off scheduled
+  task whose principal logs on interactively. WinUI launched from SSH exits
+  with `0xC000027B` before its first frame.
+- **The WinUI reference** pins Windows App SDK 1.8.260921001
+  (`host/windows/reference/Reference.csproj` and its `packages.lock.json`) and
+  builds with the .NET 9 SDK: `bun host/windows/reference/draw.mjs` draws each
+  specimen of `specimens.json` in light and dark, at the display's 100%.
 - **The drive's font.** The agent pins DejaVu Sans on Windows as on Linux
   (`scripts/agent-stdio.mjs`), so a drive draws the fixture font, not Segoe UI
   Variable. Set `EXACT_FONT` to a family to draw another, or to a name that
