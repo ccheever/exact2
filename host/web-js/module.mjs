@@ -194,12 +194,13 @@ function ownModule(app, out, dir) {
   return module(manifest, pkg.replaceAll('-', '_'), out, `${app}: ${pkg}`);
 }
 
-/** A logic module's grants (ABI 3's first call, `meta`): what its storage
+/** A logic module's grants (the seam's first call, `meta`): what its storage
  * requests may name, which decides whether the page ships the storage
  * adapters. */
 export async function moduleGrants(path) {
   const { instance } = await WebAssembly.instantiate(readFileSync(path), {}), e = instance.exports;
-  const session = e.exact_logic_create(), request = new Uint8Array([3, 0, 0, 0, 0]), p = e.exact_logic_alloc(request.length);
+  const session = e.exact_logic_create(), request = new Uint8Array(5), p = e.exact_logic_alloc(request.length);
+  new DataView(request.buffer).setUint32(0, e.exact_logic_abi(), true);
   new Uint8Array(e.memory.buffer, p, request.length).set(request);
   if (e.exact_logic_call(session, p, request.length) !== 0) return '';
   const out = new Uint8Array(e.memory.buffer, e.exact_logic_output(session), e.exact_logic_output_len(session)).slice(), d = new DataView(out.buffer);

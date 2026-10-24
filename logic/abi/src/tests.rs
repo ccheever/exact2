@@ -584,7 +584,7 @@ fn web_wire_enum_strings_cross_calls_and_nested_overlay_replies() {
 const src = await Bun.file(process.argv[1]).text();
 const api = new Function(src.replace(/^import .*;$/gm, '').replace(/^export /gm, '') + ';return {writer,encode};')();
 const w = api.writer(), value = ['a|b', 'n🥳', ['a|b']];
-w.u32(3); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
+w.u32(Number(process.argv[3])); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
 w.u8(6); w.u32(2); api.encode(w, 'a|b', 's'); api.encode(w, value, '{s?s[s}');
 if (process.argv[2] === 'true') {
   api.encode(w, value, '{s?s[s}'); w.u32(1); w.u64(7); w.str('save'); w.str('save');
@@ -596,6 +596,7 @@ process.stdout.write(w.done());
             .args(["--eval", js])
             .arg(&bridge)
             .arg(overlay.to_string())
+            .arg(ABI.to_string())
             .output()
             .unwrap();
         assert!(
