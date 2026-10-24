@@ -75,6 +75,9 @@ test('refused: a directory that does not exist (or is a file), a directory for t
   await expect(clock('+6000 real until https://example.test/go')).rejects.toThrow(/not a URL or a glob/);
   await expect(clock(`+6000 real until ${tmpdir()}/*.go`)).rejects.toThrow(/not a URL or a glob/);
   expect(sent).toEqual([]);
-  // A Windows drive path is a path (its one-letter "scheme" is a drive): here, under this directory, it waits its bound.
-  expect((await harness().clock('+200 real until C:\\signals\\go')).until).toBe('bound');
+  // A Windows drive path is a path (its one-letter "scheme" is a drive), never refused as a URL: it waits its bound, or
+  // (where C:\\signals is missing, on Windows) is refused for its directory.
+  const drive = await harness().clock('+200 real until C:\\signals\\go').then(r => r.until, e => e.message);
+  expect(drive).not.toMatch(/not a URL or a glob/);
+  expect(drive).toMatch(/^bound$|its directory .* does not exist/);
 });
