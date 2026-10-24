@@ -100,14 +100,41 @@ impl Tree {
             })
             .unwrap_or_else(|| c.index.leading());
         let offset = (at - origin).max(-c.index.leading());
-        let position = c.index.row_at(offset.max(0.0)).ok()??;
+        // The first row shown in the port, and how far into it the port
+        // starts as shown. A host that draws edges on device pixels puts its
+        // scroll offsets on them too (iOS's `PixelGrid`; a browser:
+        // Chromium's `PixelSnappedIntRect`), each edge taken to a layout
+        // unit (1/64) and rounded to the nearest pixel with a half up, so a
+        // jump to a row whose start is off the grid lands up to half a
+        // device pixel from it: a row ending less than half a device pixel
+        // past the port's start is drawn wholly before it, and a row
+        // starting within half a device pixel of it is drawn at it. Where a
+        // host draws fractional edges, that row is a fainter line than one
+        // pixel's, and is not counted either.
+        let half = 0.5 / f64::from(kernel.display_scale());
+        let unit = |v: f64| (v * 64.0).round() / 64.0;
+        let mut position = c.index.row_at(offset.max(0.0)).ok()??;
+        // Past each row drawn before the port: `row_at` passes rows of no
+        // height, and this, rows too short to reach it.
+        while let Some(end) = c.index.prefix(position + 1) {
+            match c.index.row_at(end).ok().flatten() {
+                Some(next) if next > position && unit(end) - offset < half => position = next,
+                _ => break,
+            }
+        }
         let start = c.index.prefix(position)?;
         if port <= 0.0 || start >= offset + port {
             return None;
         }
+        let within = offset - start;
+        let drawn = offset - unit(start);
         Some((
             Value::str(&super::super::key_text(c.keys.get(position)?)?[2..]),
-            offset - start,
+            if drawn > -half && drawn <= half {
+                0.0
+            } else {
+                within
+            },
         ))
     }
     /// O(live instances) snapshots. No unmounted record/key serialization.

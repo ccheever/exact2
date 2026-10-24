@@ -401,3 +401,31 @@ test('relative corrections and drop eligibility survive later commits', async ()
     {mode:'landed-group', offset:180, pending:false},
   ]);
 }, 60_000);
+
+// Rows of 100.3 px: a keyed jump to row 18 asks for 1805.4, which the
+// browser rounds to the device pixel at 1805. The 0.4 px of row 17 above
+// the port's start is painted nowhere (edges snap to device pixels), so the
+// first visible row is 18, as the reader sees it.
+test('a jump reports the row it put at the start, not a sliver above it', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div'); port.id = 'sliver-feed';
+    port.style.cssText = 'height:300px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    let heard;
+    rt.onScroll(port, 'scroll', (x, y, e) => { heard = e; }, (kind, f) => port.addEventListener(kind, f));
+    const own = rt.scope(() => list.vl(port, () => Array.from({length:100}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '100.3px'; w.append(row);
+    }, {est:100.3, pw:[], ph:[300]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    rt.Hosts.scrollIntoView('sliver-feed', 18, 'start', 'nearest', 'instant', null, null);
+    await exact.lists.settle();
+    port.dispatchEvent(new Event('scroll'));
+    const top = port.scrollTop, row = port.querySelector('[data-listitemkey="n:18"]');
+    const drawn = row.getBoundingClientRect().top - port.getBoundingClientRect().top;
+    rt.end(own); port.remove(); rt.settled();
+    return {top, drawn, key:heard[6], offset:heard[7]};
+  })()`);
+  expect(result.top).toBe(1805);
+  expect(result.key).toBe('18');
+  expect(result.offset).toBe(0);
+}, 60_000);
