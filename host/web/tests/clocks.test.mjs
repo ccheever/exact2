@@ -48,7 +48,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
       return reply.result.value;
     };
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
-    const frame = () => evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const twoFrames = () => evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     // How far apart two times are on the 1600 ms cycle, either way round: a
     // whole number of cycles apart in float can read as a hair under one.
     const apart = (a, b) => { const d = (((a - b) % 1600) + 1600) % 1600; return Math.min(d, 1600 - d); };
@@ -72,7 +72,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     // The CSS play state still applies after `startTime` was set.
     await evaluate(`document.getElementById('engine').style.animationPlayState = 'paused'; sync()`);
     expect((await phase('engine'))[1]).toBe('paused');
-    await frame();
+    await twoFrames();
     await evaluate(`document.getElementById('engine').style.animationPlayState = 'running'; sync()`);
     const [[l2], [e2, state]] = await phases('lock', 'engine');
     expect(state).toBe('running');
@@ -82,9 +82,9 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     // the member's own resume, both take the phase it started on.
     await evaluate(`add('solo', 'pulse 800ms infinite alternate', 'Solo')`);
     const origin = await evaluate(`anim('solo').startTime`);
-    await frame();
+    await twoFrames();
     await evaluate(`document.getElementById('solo').style.animationPlayState = 'paused'; sync()`);
-    await frame();
+    await twoFrames();
     await evaluate(`add('late', 'pulse 800ms infinite alternate', 'Solo')`);
     await evaluate(`document.getElementById('solo').style.animationPlayState = 'running'; sync()`);
     const [late, solo] = await evaluate(`[anim('late').startTime, anim('solo').startTime]`);
@@ -94,9 +94,9 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     // A running pulse moved to another clock joins that one: a later
     // joiner there shares its start.
     await evaluate(`add('mover', 'pulse 800ms infinite alternate', 'Before')`);
-    await frame();
+    await twoFrames();
     await evaluate(`document.getElementById('mover').style.setProperty('--exact-animation-clock', 'After'); sync()`);
-    await frame();
+    await twoFrames();
     await evaluate(`add('after', 'pulse 800ms infinite alternate', 'After')`);
     const [mover, after] = await evaluate(`[anim('mover').startTime, anim('after').startTime]`);
     expect(apart(after, mover)).toBeLessThan(1);
@@ -109,7 +109,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     // Two commits at one time: the second still lets go of a member the
     // first kept, so a replacement on an idle clock starts now.
     await evaluate(`add('gone', 'pulse 800ms infinite alternate', 'Same')`);
-    await frame();
+    await twoFrames();
     const [t, fresh] = await evaluate(`(() => {
       const t = document.timeline.currentTime;
       syncAt(t);
@@ -131,11 +131,11 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
 
     // The page's last clock taken away and given back: it joins again.
     await evaluate(`document.getElementById('exact-root').replaceChildren(); add('back', 'pulse 800ms infinite alternate', 'Back')`);
-    await frame();
+    await twoFrames();
     await evaluate(`document.getElementById('back').style.removeProperty('--exact-animation-clock'); sync()`);
-    await frame();
+    await twoFrames();
     await evaluate(`document.getElementById('back').style.setProperty('--exact-animation-clock', 'Back'); sync()`);
-    await frame();
+    await twoFrames();
     await evaluate(`add('back2', 'pulse 800ms infinite alternate', 'Back')`);
     const [back, back2] = await evaluate(`[anim('back').startTime, anim('back2').startTime]`);
     expect(apart(back2, back)).toBeLessThan(1);

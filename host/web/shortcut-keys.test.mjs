@@ -6,10 +6,14 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { Script } from 'node:vm';
 
-const moduleSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, moduleSource);
-const source = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
-const inputScript = new Script(`${source}\ncreateInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });`, { filename: 'input-glue.js' });
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+for (const name of ['prompt-glue', 'alert-message']) {
+  const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
+  if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
+  inputSource = stripped;
+}
+const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputScript = new Script(`${inputCode}\ncreateInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });`, { filename: 'input-glue.js' });
 // `shown`: the buttons have boxes; `marked`: each is a Back control its route's bar stands for (navigation.js).
 function page(chords, { shown = true, marked = false } = {}) {
   const clicks = [], listeners = [];

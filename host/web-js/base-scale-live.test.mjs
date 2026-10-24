@@ -22,7 +22,7 @@ test('a live edit of a base name the app sets moves its row and its alias on the
   const dir = mkdtempSync(resolve(target, 'base-live-out-'));
   const sheet = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
   const bin = resolve(target, 'debug/exact-web-js');
-  let server, context;
+  let server, browser;
   try {
     writeFileSync(resolve(app, 'app.contract'), VIEW);
     writeFileSync(resolve(app, 'app.tamber'), design('40px'));
@@ -51,8 +51,8 @@ test('a live edit of a base name the app sets moves its row and its alias on the
         .map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
-    context = await (await suiteBrowser()).newContext({ viewport: { width: 400, height: 300 } });
-    const page = await context.newPage();
+    browser = await suiteBrowser();
+    const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
     await page.goto(server.url.href);
     const direct = page.getByTestId('direct'), alias = page.getByTestId('alias');
     await alias.waitFor({ state: 'attached' });
@@ -65,7 +65,7 @@ test('a live edit of a base name the app sets moves its row and its alias on the
     // The same page: no reload.
     expect(await page.evaluate(() => window.__kept)).toBe(marker);
   } finally {
-    await context?.close();
+    await browser?.close();
     server?.stop(true);
     rmSync(app, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
@@ -81,7 +81,7 @@ test('an alias switched between base names goes live; the first base name moves 
   const dir = mkdtempSync(resolve(target, 'base-switch-out-'));
   const bin = resolve(target, 'debug/exact-web-js');
   const alias = base => `tamber t\n\ntheme\n  card.pad: length = ${base}\n`;
-  let server, context;
+  let server, browser;
   try {
     writeFileSync(resolve(app, 'app.contract'), `component App\n  view\n    column testId="alias" padding="card.pad"\n      text "a"\n`);
     const build = (design) => {
@@ -123,8 +123,8 @@ test('an alias switched between base names goes live; the first base name moves 
         .map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
-    context = await (await suiteBrowser()).newContext({ viewport: { width: 400, height: 300 } });
-    const page = await context.newPage();
+    browser = await suiteBrowser();
+    const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
     await page.goto(server.url.href);
     const row = page.getByTestId('alias');
     await row.waitFor({ state: 'attached' });
@@ -136,7 +136,7 @@ test('an alias switched between base names goes live; the first base name moves 
     expect(await padding()).toBe('24px');
     expect(await page.evaluate(() => window.__kept)).toBe(1);
   } finally {
-    await context?.close();
+    await browser?.close();
     server?.stop(true);
     rmSync(app, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
@@ -149,12 +149,12 @@ test('a bound grid track naming a base name or an alias keeps its length', async
   const target = resolve(root, 'target');
   const app = mkdtempSync(resolve(target, 'base-grid-app-'));
   const bin = resolve(target, 'debug/exact-web-js');
-  let server, context;
+  let server, browser;
   const dirs = [];
   try {
     writeFileSync(resolve(app, 'app.tamber'), 'tamber t\n\ntheme\n  card.pad: length = space.lg\n');
     writeFileSync(resolve(app, 'app.contract'), `component App\n  state direct = "space.md"\n  state alias = "card.pad"\n  view\n    column\n      column display="grid" grid-template-columns=direct testId="direct"\n        text "a"\n      column display="grid" grid-template-columns=alias testId="alias"\n        text "b"\n`);
-    context = await (await suiteBrowser()).newContext({ viewport: { width: 400, height: 300 } });
+    browser = await suiteBrowser();
     for (const dev of [false, true]) {
       const dir = mkdtempSync(resolve(target, 'base-grid-out-'));
       dirs.push(dir);
@@ -169,7 +169,7 @@ test('a bound grid track naming a base name or an alias keeps its length', async
           .map(base => resolve(base, path)).find(existsSync);
         return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
       } });
-      const page = await context.newPage();
+      const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
       await page.goto(server.url.href);
       await page.getByTestId('alias').waitFor({ state: 'attached' });
       const tracks = id => page.getByTestId(id).evaluate(n => [n.style.gridTemplateColumns, getComputedStyle(n).gridTemplateColumns]);
@@ -179,7 +179,7 @@ test('a bound grid track naming a base name or an alias keeps its length', async
       await page.close();
     }
   } finally {
-    await context?.close();
+    await browser?.close();
     server?.stop(true);
     rmSync(app, { recursive: true, force: true });
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });

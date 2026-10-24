@@ -7,16 +7,16 @@ import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 const fixtures = new Map();
 afterAll(async () => {
-  for (const result of await Promise.allSettled(fixtures.values())) {
-    if (result.status !== 'fulfilled') continue;
-    const { server, dir } = result.value;
+  for (const pending of fixtures.values()) {
+    const fixture = await pending.catch(() => null);
+    if (!fixture) continue;
+    const { server, dir } = fixture;
     server.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-// Only the reveal case needs content below the scrollport. Build each immutable
-// fixture once; every case still opens and closes its own browser session.
+// Cache the two page layouts; each input case opens a fresh browser session.
 function fixture(reveal) {
   if (!fixtures.has(reveal)) fixtures.set(reveal, buildFixture(reveal));
   return fixtures.get(reveal);
@@ -27,7 +27,6 @@ async function buildFixture(reveal) {
   const root = resolve(import.meta.dir, '../..');
   mkdirSync(resolve(root, 'target'), { recursive: true });
   const dir = mkdtempSync(resolve(root, 'target/modal-agent-test-'));
-  let server;
   try {
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Modal Agent Test', app: { id: 'test.modal-agent', name: 'Modal Agent Test' }, host: { web: {} }, file_handlers: [{ action: '/', accept: { 'text/plain': ['.txt'] } }] }));
     writeFileSync(resolve(dir, 'app.contract'), `component ModalAgent
@@ -87,7 +86,7 @@ ${reveal ? `        box height=1200
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
       const path = new URL(req.url).pathname;
       if (path.startsWith('/shared/')) return new Response(Bun.file(resolve(root, 'host/web', path.slice('/shared/'.length))));
       const file = resolve(dist, path === '/' ? 'index.html' : path.slice(1));
@@ -95,7 +94,6 @@ ${reveal ? `        box height=1200
     } });
     return { dir, server };
   } catch (error) {
-    server?.stop(true);
     rmSync(dir, { recursive: true, force: true });
     throw error;
   }

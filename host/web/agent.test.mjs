@@ -669,12 +669,15 @@ test('non-flow operation transcripts remain byte-for-byte equal to the existing 
   expect(actual).toBe(expected);
 });
 
-// Exercise the moved module through the real attach() adapter, with browser
-// scheduling under the test's control. Geometry remains a browser concern.
-const inputModule = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, inputModule);
-const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
-const inputScript = new vm.Script(tested + '\n' + declaration('attach'), { filename: 'input-glue.js' });
+// Run the input adapter with controlled scheduling; browser tests cover geometry.
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+for (const name of ['prompt-glue', 'alert-message']) {
+  const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
+  if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
+  inputSource = stripped;
+}
+const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputScript = new vm.Script(inputCode + '\n' + declaration('attach'), { filename: 'input-glue.js' });
 
 function inputFixture() {
   const listeners = new Map(), windowListeners = new Map(), frames = new Map(), sent = [], captured = [];
@@ -1323,8 +1326,7 @@ test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded
   expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
 });
 
-// files F11: a held device request is named by the node its answer arrives at
-// or by its capability, whatever ticket the host's counter gave it.
+// A held request is addressed by node or capability, independently of its ticket.
 test('a hold is addressed by its node or capability, and an unclear name is refused', () => {
   const pending = [{ name: 'notes', ticket: 4 }, { name: 'folder-input', ticket: 7, device: { capability: 'open-directory', args: { id: 'folder-input' } } },
     { name: 'share', ticket: 9, device: { capability: 'share', args: {} } }, { name: 'export-input', ticket: 11, device: { capability: 'export', args: { id: 'export-input' } } }];
@@ -1342,7 +1344,6 @@ test('a pick answer keeps a path with a space when it comes one per line', () =>
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
 });
 
-// A mouse drag holds the left button and delivers pointerdown and pointerup.
 test('a mouse drag presses and releases the left button on the web', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, `component MouseDrag
@@ -1376,7 +1377,6 @@ test('a mouse drag presses and releases the left button on the web', async () =>
   }
 }, 120000);
 
-// A released, cancelled or refused mouse contact cannot affect the next touch.
 test('a native mouse contact holds the button until it lifts or its down fails', async () => {
   const { mouseContact } = await import('../../scripts/agent.mjs');
   const sent = [], c = mouseContact(), send = (reply) => (button) => { sent.push(button.mouse === true); if (reply instanceof Error) throw reply; return reply; };
