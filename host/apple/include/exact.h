@@ -460,6 +460,10 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
  * for a route with no authored Back control. Not a batch. */
 uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* A retained visit's canonical location, UTF-8 in exact_out; 0 when absent. */
+uint32_t exact_visit_location(ExactRuntime rt, uint64_t id);
+/* Return from source to an earlier destination in the selected stack, one commit. A batch. */
+uint32_t exact_host_back_to(ExactRuntime rt, uint64_t source, uint64_t destination, double now_ms);
 /* LLP 1133.016 D15 item 1: a package's call of the app's handler, the JSON
  * {"extension","handle","handler","args"} in the input buffer. The runner's
  * answer, JSON ({"text"} or {"error","message"}), goes to reply(ctx, answer,

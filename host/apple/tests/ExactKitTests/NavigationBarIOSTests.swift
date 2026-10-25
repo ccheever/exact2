@@ -714,7 +714,7 @@ final class NavigationBarIOSTests: XCTestCase {
         header.applyHiding()
         XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling)
         search.searchBar.text = "abc"
-        search.searchResultsUpdater?.updateSearchResults(for: search)
+        search.searchBar.delegate?.searchBar?(search.searchBar, textDidChange: "abc")
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
         XCTAssertFalse(top.navigationItem.hidesSearchBarWhenScrolling, "a search in effect keeps its field in view, as UIKit keeps an active search's")
         // LLP 1115.000 D9.2: the keyboard's Search key puts the keyboard
@@ -726,6 +726,10 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertFalse(field.isFirstResponder, "Search puts the keyboard away")
         XCTAssertEqual(search.searchBar.text, "abc")
         XCTAssertEqual(state(session, "query") as? String, "abc")
+        search.searchBar.text = ""
+        XCTAssertEqual(state(session, "query") as? String, "abc", "programmatic text projection is not user input")
+        search.searchBar.delegate?.searchBar?(search.searchBar, textDidChange: "")
+        until("clearing the search field reaches its input handler") { state(session, "query") as? String == "" }
     }
 
     /// A search colour changes only the ink; clearing it restores UIKit's placeholder.
