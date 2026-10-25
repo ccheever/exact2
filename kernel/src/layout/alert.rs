@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(super) enum Kind {
     #[default]
     Node,

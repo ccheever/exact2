@@ -562,6 +562,19 @@ impl NodeArena {
         })
     }
 
+    /// A copy for a trial layout that is dropped after it
+    /// (`Kernel::measure_block`): the same text, so each paragraph keeps its
+    /// stamp, and a measurer that holds paragraphs by stamp answers the trial
+    /// from what it holds instead of taking the text for new (a plain clone
+    /// is another kernel's, in a namespace of its own).
+    pub(crate) fn trial_copy(&self) -> Self {
+        let mut copy = self.clone();
+        copy.text_revisions.clone_from(&self.text_revisions);
+        copy.text_domain = self.text_domain.clone();
+        copy.text_serial = self.text_serial;
+        copy
+    }
+
     pub(crate) fn renew_text_namespace(&mut self) {
         self.text_domain = TextDomain::default();
         self.text_serial = 0;
