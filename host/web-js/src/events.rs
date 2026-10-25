@@ -55,6 +55,8 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         | EventKind::Currententrychange
         | EventKind::Navigatesuccess
         | EventKind::Navigateerror => Some("onFrameNavigation"),
+        // @ref LLP 1020.002 D7 — a capture's `FrameCapture`, always refused on the web.
+        EventKind::Capture => Some("onFrameCapture"),
         _ => None,
     }
 }
@@ -103,6 +105,7 @@ mod tests {
             Currententrychange,
             Navigatesuccess,
             Navigateerror,
+            Capture,
         ] {
             assert!(binder(k).is_some(), "{k:?}");
         }

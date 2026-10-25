@@ -106,6 +106,9 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         // it started, by Electron's `DownloadItem` states.
         "newwindow" => Some("FrameNewWindow"),
         "download" => Some("FrameDownload"),
+        // @ref LLP 1020.002 D7 — the answer to `captureScreenshot`: the file
+        // and its size, or why there is none.
+        "capture" => Some("FrameCapture"),
         _ => None,
     }
 }
@@ -131,6 +134,27 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("message".into(), Ty::String),
             ("recovering".into(), Ty::Bool),
         ],
+    );
+    // @ref LLP 1020.002 D7 — the runner's `frame_navigation::other` builds it
+    // in this order: the `app:/` path the command named, the PNG's size in
+    // pixels, and on failure a DOMException name and the platform's words.
+    shapes.map.insert(
+        "FrameCapture".into(),
+        vec![
+            ("path".into(), Ty::String),
+            ("width".into(), Ty::Number),
+            ("height".into(), Ty::Number),
+            ("error".into(), Ty::String),
+            ("message".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1020.002 D7 — Geometry's `DOMRect`, by its constructor's fields:
+    // what `getBoundingClientRect()` gives, and a capture's `clip=`.
+    shapes.map.insert(
+        "DOMRect".into(),
+        ["x", "y", "width", "height"]
+            .map(|f| (f.into(), Ty::Number))
+            .to_vec(),
     );
     // @ref LLP 1020.002 D5 — the runner's `frame_navigation::new_window` and
     // `download` build these in this order.

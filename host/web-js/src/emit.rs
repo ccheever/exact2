@@ -1330,9 +1330,9 @@ impl Em<'_> {
                 | EventKind::Currententrychange
                 | EventKind::Navigatesuccess
                 | EventKind::Navigateerror
-                // @ref LLP 1020.002 D5 — the browser opens its own; nothing fires them.
-                | EventKind::Newwindow
-                | EventKind::Download
+                | EventKind::Newwindow // @ref LLP 1020.002 D5, D7: nothing fires them,
+                | EventKind::Download // the browser opening its own and downloading,
+                | EventKind::Capture // and the runtime refusing a capture (`onFrameCapture`)
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight

@@ -360,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 77] = [
+pub const HANDLERS: [&str; 78] = [
     "press",
     "change",
     "input",
@@ -464,6 +464,9 @@ pub const HANDLERS: [&str; 77] = [
     // `FrameNewWindow` or a `FrameDownload`.
     "newwindow",
     "download",
+    // A frame's `captureScreenshot` answered (LLP 1020.002 D7), with a
+    // `FrameCapture`.
+    "capture",
     "heightrelease",
     "transformgeometry",
     "transformrelease",
@@ -478,10 +481,12 @@ pub const HANDLERS: [&str; 77] = [
 
 /// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
 /// with anything but an action (an `Ident` or a `Call`, never valid CSS
-/// there), which is CSS's `resize` property.
+/// there), which is CSS's `resize` property, and `capture` with anything
+/// but an action, which is a file input's attribute (refused by lowering).
 pub fn is_handler(name: &str, value: &Expr) -> bool {
     HANDLERS.contains(&name)
-        && (name != "resize" || matches!(value, Expr::Ident(..) | Expr::Call(..)))
+        && (!matches!(name, "resize" | "capture")
+            || matches!(value, Expr::Ident(..) | Expr::Call(..)))
 }
 
 /// What a handler's event carries as its action's last argument: `input`

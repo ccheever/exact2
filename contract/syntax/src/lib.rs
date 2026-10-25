@@ -126,6 +126,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     "navigate",
     "traverseHistory",
     "stopLoading",
+    // @ref LLP 1020.002 D7 — WebDriver BiDi's `browsingContext.captureScreenshot`:
+    // a picture of the frame's guest into an `app:/` file, answered by `capture=`.
+    "captureScreenshot",
     "relaunch",
     "removeAllRanges",
     "selectText",

@@ -149,6 +149,8 @@ final class ElementHatches {
         let had = HatchDiagnostics.measuring && event != .ended ? Set((entry.node.gestureRecognizers ?? []).map(ObjectIdentifier.init)) : nil
         let reusable = presenter.session?.natives.elementHatch(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
         if let had { regions.undeclared(under: entry.node, by: "element \(word)") { had.contains(ObjectIdentifier($0)) } }
+        // A frame's arm says what the call changed of what it owns (LLP 1020.002 §9).
+        if entry.node.kind == "iframe", event != .ended { presenter.session?.webviews.hatched(id) }
         // What the node's hatch registered ends with it; a view lent to another node starts clean.
         if event == .ended { regions.ended(node: id) }
         #if os(iOS) || os(tvOS)
@@ -247,12 +249,13 @@ final class ElementHatches {
     // MARK: The node's platform object (§3.2)
 
     /// The platform object of the node's kind, or nil: a text field or view,
-    /// a control (a switch, slider, date picker…), a web view, a scroll view.
+    /// a control (a switch, slider, date picker…), an iframe's `WKWebView` or
+    /// a local PDF's `PDFView` (LLP 1020.002 §9), a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
         #if os(iOS) || os(tvOS)
         node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scrollView
         #else
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.scroll
+        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
         #endif
     }
 
