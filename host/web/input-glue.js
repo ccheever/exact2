@@ -126,7 +126,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
-    if (event.isComposing || !ready() || event.defaultPrevented) return;
+    if (event.isComposing || event.keyCode === 229 || event.key === "Process" || !ready() || event.defaultPrevented) return; // an input method's key, WebKit's committing Enter included (rt.js `onKey`)
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
     // A commit may restore the authored runs: refresh their Tab stops and press origin above.
     // Shortcuts already heard the source event.
@@ -175,7 +175,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // move the focus.
   document.addEventListener("keydown", (event) => {
     const el = event.target;
-    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. A press it declares shows meanwhile, as under
