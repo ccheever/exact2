@@ -60,6 +60,9 @@ export function again(kept: Kept | undefined, epoch: string, described: any, cha
     for (const t of e.tokens) names.add(t);
   }
   if ([...names].some(name => !kept.entries.has(name))) return null;
-  for (const t of described.ir.tokens as { name: string }[]) if (kept.entries.get(t.name) !== JSON.stringify(t)) names.add(t.name);
+  // A token named as a param is (`lookup` reads the param first), whose default a package's source moves with no
+  // event and no entry moving, is resolved every time.
+  const params = new Set((described.ir.components ?? []).flatMap((c: { params?: { name: string; short?: string }[] }) => (c.params ?? []).flatMap(p => [p.name, p.short])));
+  for (const t of described.ir.tokens as { name: string }[]) if (params.has(t.name) || kept.entries.get(t.name) !== JSON.stringify(t)) names.add(t.name);
   return names;
 }

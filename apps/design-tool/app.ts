@@ -441,7 +441,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // changeset starts again with it.
   // Another run of the server has none of this run's scrub: it ended
   // there, and a new one is chosen again.
-  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); keptReads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
   // Events missed: an end among them would be lost, so a scrub open is
   // ended here (cancelled, if the server still has it).
   // Missed, inspect mode's state is not known either: Inspect sends it again.
