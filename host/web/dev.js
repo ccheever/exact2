@@ -917,13 +917,20 @@ if (es) {
   let copiesHeld = { plan: null, list: null };
   const decodeCopies = (text) => {
     if (typeof text !== "string" || !text.startsWith("r1:")) return null;
-    const bytes = Uint8Array.from(atob(text.slice(3)), (c) => c.charCodeAt(0)), values = [];
+    // (Bounded: a varint of at most 4 bytes, 2^20 sites in all, whole pairs; anything else is no copies.)
+    let bytes;
+    try { bytes = Uint8Array.from(atob(text.slice(3)), (c) => c.charCodeAt(0)); } catch { return null; }
+    const values = [];
     for (let i = 0, v = 0, scale = 1; i < bytes.length; i++) {
       v += (bytes[i] & 127) * scale;
-      if (bytes[i] & 128) scale *= 128; else { values.push(v); v = 0; scale = 1; }
+      if (!(bytes[i] & 128)) { values.push(v); v = 0; scale = 1; } else if ((scale *= 128) > 128 ** 3) return null;
+      if (i === bytes.length - 1 && bytes[i] & 128) return null;
     }
-    const out = [];
-    for (let i = 0; i + 1 < values.length; i += 2) for (let n = 0; n < values[i + 1]; n++) out.push(values[i]);
+    if (values.length % 2) return null;
+    let sites = 0;
+    for (let i = 1; i < values.length; i += 2) if ((sites += values[i]) > 1 << 20) return null;
+    const out = new Array(sites);
+    for (let i = 0, at = 0; i < values.length; i += 2) out.fill(values[i], at, (at += values[i + 1]));
     return out;
   };
   const selectUp = async ({ up, plan, from, instance }) => {
@@ -936,11 +943,14 @@ if (es) {
     if (!copies) { await refresh(); return; }
     // Its ancestors and their sites, innermost first, in one read with no node's rows (the runner's `ancestors`).
     const [self, ...above] = ask({ op: "ancestors", id }).ancestors ?? [];
+    // (A site past these copies: they are not this tree's, so stale; a node with no site is passed over.)
+    if (copies[self?.[1] ?? from] === undefined) { await refresh(); return; }
     const seen = new Set([copies[self?.[1] ?? from]]);
     let stepped = 0, target, landing = null, root = null;
     for (const [view, site] of above) {
-      const copy = site == null ? undefined : copies[site];
-      if (copy === undefined) continue;
+      if (site == null) continue;
+      const copy = copies[site];
+      if (copy === undefined) { await refresh(); return; }
       root = view;
       if (target === undefined && !seen.has(copy)) { seen.add(copy); if (++stepped === up) target = copy; }
       if (target !== undefined && copy === target) landing = view;
@@ -1029,7 +1039,7 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const id = await buildId, answer = await post(nonce, { kind: "register", id, host: "web", capabilities: ["pin", "inspect", "hold", "navigate"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        const id = await buildId, answer = await post(nonce, { kind: "register", id, host: "web", capabilities: ["pin", "inspect", "copies", "hold", "navigate"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
         // A framed copy tells the page framing it which build it is (LLP
         // 1122 T7): the design tool maps the frame to its tile by this
         // message's source. The id grants nothing without the stream's nonce.

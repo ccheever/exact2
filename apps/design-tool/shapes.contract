@@ -276,6 +276,9 @@ shape Inspected
   key: string
   // Its visit (inspector.ts visitOf): a refresh of the same view keeps it; a round trip makes a new one.
   visit: string
+  // Which selection report it is, counted as they come (a refresh of the same node is another): a move up that
+  // stays on the node it moved from (the root already) is told by it.
+  arrival: string
   // The files' digests when it was reported (as Changes' `files` gives them after its count).
   files: string
   has: bool

@@ -658,11 +658,16 @@ export function levelsUp(map, site, n) {
   return levels;
 }
 
+/** The most sites a plan's copies cover (the pages refuse more, and a copy id fits 4 varint bytes below it). */
+export const COPIED_SITES = 1 << 20;
+
 /** Each plan site's copy (tamber/1.17 `inspect`'s `copies`, the third hands-on pass's #4): an integer, equal for every
  * node whose call-site chain is the same (one component call's template nodes), numbered by first appearance. A page
  * walking up its own tree counts each new copy that owns an ancestor as one step of a `select`. Sent once per plan per
  * build, encoded as runs: `r1:` and base64 of LEB128 varints, `[copy, run length]` pairs in site order. */
 export function copiesOf(map) {
+  // (A plan past the pages' bound has none: its selects answer stale.)
+  if ((map?.nodes?.length ?? 0) > COPIED_SITES) return null;
   const ids = new Map(), runs = [];
   let last = -1, length = 0;
   for (const node of map?.nodes ?? []) {
@@ -682,12 +687,17 @@ export function copiesOf(map) {
  * and Inspect.swift, read it alike); null for an encoding it does not know. */
 export function decodeCopies(text) {
   if (typeof text !== 'string' || !text.startsWith('r1:')) return null;
+  // (Bounded as the pages bound it: a varint of at most 4 bytes, COPIED_SITES sites in all, whole pairs.)
   const bytes = Buffer.from(text.slice(3), 'base64'), values = [];
   for (let i = 0, v = 0, scale = 1; i < bytes.length; i++) {
     v += (bytes[i] & 127) * scale;
-    if (bytes[i] & 128) scale *= 128; else { values.push(v); v = 0; scale = 1; }
+    if (!(bytes[i] & 128)) { values.push(v); v = 0; scale = 1; } else if ((scale *= 128) > 128 ** 3) return null;
+    if (i === bytes.length - 1 && bytes[i] & 128) return null;
   }
-  const out = [];
-  for (let i = 0; i + 1 < values.length; i += 2) for (let n = 0; n < values[i + 1]; n++) out.push(values[i]);
+  if (values.length % 2) return null;
+  let sites = 0;
+  for (let i = 1; i < values.length; i += 2) if ((sites += values[i]) > COPIED_SITES) return null;
+  const out = new Array(sites);
+  for (let i = 0, at = 0; i < values.length; i += 2) out.fill(values[i], at, (at += values[i + 1]));
   return out;
 }

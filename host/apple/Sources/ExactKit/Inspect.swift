@@ -38,14 +38,18 @@ enum Inspect {
     /// per site, as scripts/tamber-inspect.mjs `copiesOf` writes it; nil for an encoding it does not know.
     static func decodeCopies(_ text: String) -> [Int]? {
         guard text.hasPrefix("r1:"), let bytes = Data(base64Encoded: String(text.dropFirst(3))) else { return nil }
+        // (Bounded: a varint of at most 4 bytes, 2^20 sites in all, whole pairs; anything else is no copies.)
         var values: [Int] = [], v = 0, scale = 1
         for b in bytes {
             v += Int(b & 127) * scale
-            if b & 128 != 0 { scale *= 128 } else { values.append(v); v = 0; scale = 1 }
+            if b & 128 == 0 { values.append(v); v = 0; scale = 1 } else { scale *= 128; if scale > 128 * 128 * 128 { return nil } }
         }
+        guard scale == 1, values.count % 2 == 0 else { return nil }
+        var sites = 0
+        for i in stride(from: 1, to: values.count, by: 2) { sites += values[i]; if sites > 1 << 20 { return nil } }
         var out: [Int] = []
-        var i = 0
-        while i + 1 < values.count { out.append(contentsOf: repeatElement(values[i], count: values[i + 1])); i += 2 }
+        out.reserveCapacity(sites)
+        for i in stride(from: 0, to: values.count, by: 2) { out.append(contentsOf: repeatElement(values[i], count: values[i + 1])) }
         return out
     }
     /// An instance path as compared across generations: its JSON with sorted keys.
@@ -125,10 +129,13 @@ enum Inspect {
             guard pair.count == 2, let view = (pair[0] as? NSNumber)?.uint32Value else { return nil }
             return (view, (pair[1] as? NSNumber)?.intValue)
         }
-        var seen: Set<Int> = copyOf(was.site).map { [$0] } ?? []
+        // (A site past these copies: they are not this tree's, so stale; a node with no site is passed over.)
+        guard let own = copyOf(was.site) else { return nil }
+        var seen: Set<Int> = [own]
         var stepped = 0, target: Int?, landing: UInt32?, root: UInt32?
         for (view, site) in above {
-            guard let copy = copyOf(site) else { continue }
+            guard let site else { continue }
+            guard let copy = copyOf(site) else { return nil }
             root = view
             if target == nil, !seen.contains(copy) { seen.insert(copy); stepped += 1; if stepped == up { target = copy } }
             if let target, copy == target { landing = view }
