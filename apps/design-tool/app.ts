@@ -933,7 +933,7 @@ const sources: Sources = {
     return found ? { ok: true, of: value, ...found } : { ok: false, of: value, parts: [], tail: '' };
   },
   proposeEdit: async ([file, kind, target, when, value, , , live]) => {
-    const key = keyOf(file, kind, target, when, value);
+    const key = keyOf(file, kind, target, when, value), ticket = reviewed.ask();
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, scrubbable: false, review: '' };
     if (!kind || !target) { reviewed.end(); return idle; }
     if (kind !== 'remove-token' && kind !== 'unset-param' && kind !== 'detach-param' && !value) return { ...idle, ok: false, error: kind.startsWith('promote') ? 'Give it a name.' : 'Give it a value.' };
@@ -952,7 +952,7 @@ const sources: Sources = {
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token).filter(t => typeof t === 'string'), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: reviewed.pin(key, ok.files), now: ok.files, diff: ok.diff, token: used, ops }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token).filter(t => typeof t === 'string'), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: reviewed.pin(key, ok.files, ticket), now: ok.files, diff: ok.diff, token: used, ops }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
@@ -1315,8 +1315,8 @@ const sources: Sources = {
     if (error) return { ...stacks(false, error, ''), note: '' };
     const ok = reply.ok as { recomputed?: boolean; proposal?: string; inverse?: string | null; changed?: { token: string }[] };
     if (ok.recomputed) return { ...stacks(true, '', 'recomputed'), note: `${proposal} was recomputed on the files as they are now, as ${ok.proposal}: review its diff and accept it again.` };
-    // Accepted: written as its proposer's, and one step of this session's undo.
-    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: used, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
+    // Accepted: written as its proposer's, and one step of this session's undo; an open draft's pin moves with it.
+    reviewed.advance((reply.ok as { before?: Record<string, string> }).before, (reply.ok as { files?: Record<string, string> }).files); if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: used, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
     return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
   },
   importFiles: async ([client, kind, paths, names], _store, storage) => {
