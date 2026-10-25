@@ -276,11 +276,13 @@ shape SwitchTarget
   mentions: number
 
 // A person's card, opened from their avatar or name: what Discord shows of them
-// in the server the message is in (`roles`, highest first, each with its colour).
+// in the server the message is in (`roles`, highest first, each with its colour
+// as the role has it, `swatch`, and as text that reads on the page, `color`).
 shape RoleTag
   id: string
   name: string
   color: string
+  swatch: string
 
 shape Profile
   id: string
