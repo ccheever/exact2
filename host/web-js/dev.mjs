@@ -30,6 +30,7 @@ import { fresh, freshCompiler, webCompiler } from './module.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 import { galleryLoop } from './dev-gallery.mjs';
 import { inlineWhy as inlineWhyOf } from './dev-inline.mjs';
+import { DEV_STATUS_TYPE, FAILED, PHASE, gist } from '../web/dev-phase.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -660,6 +661,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);
+    // A resident start that failed is tried again at the next request after
+    // an edit: any, once it has exited; one to the app, which it builds
+    // again, while it runs.
+    if (!residentChild || base === app.dir) starting.failure = null;
     // A build in flight read older files: set aside, and stopped while young.
     inputs++;
     stopYoungBuild();
@@ -671,6 +676,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // after the build starts builds again (`again`).
     timer = setTimeout(() => { timer = null; rebuild(); }, 5);
   };
+  // The resident loop's start as a native client sees it (dtool2's pass 3
+  // #8): the step it is on (its `phase: ` lines), whether it is up, and the
+  // error a start that failed ended with, until an edit.
+  const starting = { phase: null, ready: false, failure: null, waiting: new Set() };
+  let resident = null, residentChild = null;
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
   for (const f of ['navigation.js', 'index.html', 'neutral.css', 'look.mjs']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
@@ -983,8 +993,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // `exact run`) reads the envelope, the dev generations and their event
     // stream (LLP 1023), which the resident loop's producers make: forwarded
     // to it (below), started at the first such request.
-    if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
-      || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
+    const discovery = url.pathname === '/exact.json' || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
+    if (discovery || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')) { forward(req, res, discovery); return; }
     // From the build the page booted (host/web/generations.mjs): a document names its generation in its base, and
     // its scripts, chunks and plan are read from that build while the next one is put in place.
     const served = await servedFile(dist, url.pathname, req.headers.accept);
@@ -1015,7 +1025,6 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   // envelope and generations) on a loopback port, into their own dist; a
   // native client's requests are forwarded as they came (Host included, so
   // the pages it serves name this URL). Its wasm build is internal.
-  let resident = null, residentChild = null;
   const residentLoop = () => resident ??= new Promise((ok, fail) => {
     // A named port's next one (an assigned range holds both), else a free one.
     const probe = createServer();
@@ -1026,8 +1035,14 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
         // (one per dist, as the stage: its parent made here, since the publication's lock sits beside it)
         const residentDist = resolve(app.target, 'web-dist-resident', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16));
         mkdirSync(dirname(residentDist), { recursive: true });
-        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: residentDist, EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
+        // (EXACT_DEV_RESIDENT_SCRIPT: a test's stand-in resident)
+        residentChild = spawn(process.execPath, [process.env.EXACT_DEV_RESIDENT_SCRIPT || resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: residentDist, EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+        // Its errors as before (piped, so a slow terminal holds it back), the
+        // last of them kept: what a start that fails says to the client.
+        let errors = '';
+        residentChild.stderr.pipe(process.stderr, { end: false });
+        residentChild.stderr.on('data', (d) => { errors = (errors + d).slice(-8000); });
         // Its plans and their maps' cards, on the pipe given for that alone.
         let cards = '';
         residentChild.stdio[3].on('data', (d) => {
@@ -1037,23 +1052,59 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
         let buf = '';
         residentChild.stdout.on('data', (d) => {
           buf += d; const lines = buf.split('\n'); buf = lines.pop();
-          for (const l of lines) { console.log(`  [resident] ${l}`); if (/^(?:plan ready|module generation ready|Rust generation \w+ ready)/.test(l)) ok(internal); }
+          for (const l of lines) {
+            console.log(`  [resident] ${l}`);
+            // A step it said failed before its first plan is the start's error;
+            // the resident stays, and builds again at an edit.
+            if (l.startsWith(FAILED)) {
+              if (!starting.ready) { starting.failure = l.slice(FAILED.length); for (const w of starting.waiting) w(); starting.waiting.clear(); }
+            }
+            else if (l.startsWith(PHASE)) starting.phase = l.slice(PHASE.length);
+            if (/^(?:plan ready|module generation ready|Rust generation \w+ ready)/.test(l)) { starting.ready = true; starting.failure = null; ok(internal); }
+          }
         });
-        residentChild.on('exit', (code) => { resident = null; residentChild = null; fail(new Error(`the resident loop exited ${code}`)); });
+        // At `close`, its last lines read: a failed step it said is the error.
+        residentChild.on('close', (code) => {
+          const why = `the resident loop exited ${code}`;
+          if (!starting.ready) starting.failure ??= errors.trim() ? `${why}: ${gist(errors)}` : why;
+          resident = null; residentChild = null; starting.ready = false; starting.phase = null; fail(new Error(why));
+        });
       });
-    }).catch(error => { resident = null; fail(error); });
+    }).catch(error => { resident = null; starting.failure = `the resident loop could not start: ${error.message}`; fail(error); });
   });
-  const forward = (req, res) => {
+  const forward = (req, res, discovery = false) => {
+    // Discovery while the resident starts is answered now with what it is
+    // doing (application/vnd.exact.dev-status+json, llp/1023.001): not held
+    // for the minutes a first build takes; the rest waits for it, as before.
+    // After a start failed every request has its error, and none starts it
+    // again until an edit.
+    if (starting.failure || (discovery && !starting.ready)) {
+      if (!starting.failure) void residentLoop().catch(() => {});
+      const failed = starting.failure != null;
+      const message = failed ? starting.failure : starting.phase ?? 'starting the dev loop\'s native producers (the first run builds them: a few minutes)';
+      res.writeHead(failed ? 500 : 503, { 'content-type': DEV_STATUS_TYPE, 'cache-control': 'no-store', ...(failed ? {} : { 'retry-after': '2' }) });
+      res.end(JSON.stringify({ exact: 1, status: failed ? 'failed' : 'preparing', message }));
+      return;
+    }
+    const failedNow = (res) => {
+      if (res.headersSent || res.destroyed) return;
+      res.writeHead(500, { 'content-type': DEV_STATUS_TYPE, 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ exact: 1, status: 'failed', message: starting.failure ?? 'the resident loop stopped' }));
+    };
     // A device gone ends its forwarded stream too (the resident's relay
     // stops), and one gone while the resident loop starts opens none.
     let out = null, gone = false;
-    res.on('close', () => { gone = true; out?.destroy(); });
+    // A step the resident says failed while this waits answers it (the resident stays).
+    const fail = () => failedNow(res);
+    starting.waiting.add(fail);
+    res.on('close', () => { gone = true; starting.waiting.delete(fail); out?.destroy(); });
     residentLoop().then((internal) => {
-      if (gone || res.destroyed) return;
+      starting.waiting.delete(fail);
+      if (gone || res.destroyed || res.headersSent) return;
       out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
       out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
       req.pipe(out);
-    }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+    }, () => { starting.waiting.delete(fail); if (!gone) failedNow(res); });
   };
   const stop = async () => {
     stopping = true;
