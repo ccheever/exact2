@@ -5,10 +5,13 @@
   "id": "com.exact.duolab",
   "start_url": "/",
   "display": "standalone",
+  "icons": [{ "src": "assets/icon.png", "sizes": "1024x1024", "type": "image/png" }],
   "app": {
     "id": "com.exact.duolab",
     "name": "Duo Lab"
   },
+  "data": ["keyboard-screen", "focus-on-show"],
+  "hatches": { "keyboard-field": ["ios"], "keyboard-route": ["ios"] },
   "host": {
     "ios": {
       "minimumOS": "17.0",

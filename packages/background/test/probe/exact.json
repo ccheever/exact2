@@ -1,0 +1,21 @@
+{
+  "kind": "interface",
+  "name": "@fixture/transfer-probe",
+  "version": "1.0.0",
+  "shapes": {
+    "ProbeStarted": {
+      "id": "string",
+      "error": "string"
+    }
+  },
+  "names": [
+    {
+      "send": "probeUpload",
+      "permission": "none",
+      "options": { "id": "string", "url": "string", "text": "string" },
+      "answers": "ProbeStarted",
+      "substitute": null
+    },
+    { "event": "probed", "on": "root", "raised": "wake", "args": ["string", "number", "string", "bool"], "hold": 4, "budget": 30000 }
+  ]
+}

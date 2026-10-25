@@ -1,0 +1,12 @@
+// A partitioned iframe's window requests and downloads reaching actions, driven by IframeWindowsSessionTests (LLP 1020.002 D5).
+component App
+  state opened = ""
+  state saved = ""
+  action asked(e: FrameNewWindow)
+    opened = e.disposition + " " + e.url
+  action downloaded(e: FrameDownload)
+    saved = e.state + " " + e.suggestedFilename
+  view
+    column
+      iframe id="guest" src="http://127.0.0.1:16621/opener" partition="fixture-windows" newwindow=asked download=downloaded width=300 height=180 testId="guest"
+      text `${opened}|${saved}` testId="seen"

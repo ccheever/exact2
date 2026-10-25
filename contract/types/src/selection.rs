@@ -101,6 +101,17 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "framenavigate" | "currententrychange" | "navigatesuccess" | "navigateerror" => {
             Some("FrameNavigation")
         }
+        // @ref LLP 1020.002 D5 — a guest's request for a window, by Chrome's
+        // `<webview>` event and Electron's disposition names; and a download
+        // it started, by Electron's `DownloadItem` states.
+        "newwindow" => Some("FrameNewWindow"),
+        "download" => Some("FrameDownload"),
+        // @ref LLP 1020.002 D7 — the answer to `captureScreenshot`: the file
+        // and its size, or why there is none.
+        "capture" => Some("FrameCapture"),
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog, by WebDriver
+        // BiDi's `browsingContext.userPromptOpened`.
+        "userpromptopened" => Some("FrameUserPrompt"),
         _ => None,
     }
 }
@@ -125,6 +136,55 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("error".into(), Ty::String),
             ("message".into(), Ty::String),
             ("recovering".into(), Ty::Bool),
+        ],
+    );
+    // @ref LLP 1020.002 D7 — the runner's `frame_navigation::other` builds it
+    // in this order: the `app:/` path the command named, the PNG's size in
+    // pixels, and on failure a DOMException name and the platform's words.
+    shapes.map.insert(
+        "FrameCapture".into(),
+        vec![
+            ("path".into(), Ty::String),
+            ("width".into(), Ty::Number),
+            ("height".into(), Ty::Number),
+            ("error".into(), Ty::String),
+            ("message".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1020.002 D9 — the runner's `frame_navigation::other` builds it
+    // in this order: BiDi's `userPromptOpened` fields.
+    shapes.map.insert(
+        "FrameUserPrompt".into(),
+        vec![
+            ("type".into(), Ty::String),
+            ("message".into(), Ty::String),
+            ("defaultValue".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1020.002 D7 — Geometry's `DOMRect`, by its constructor's fields:
+    // what `getBoundingClientRect()` gives, and a capture's `clip=`.
+    shapes.map.insert(
+        "DOMRect".into(),
+        ["x", "y", "width", "height"]
+            .map(|f| (f.into(), Ty::Number))
+            .to_vec(),
+    );
+    // @ref LLP 1020.002 D5 — the runner's `frame_navigation::new_window` and
+    // `download` build these in this order.
+    shapes.map.insert(
+        "FrameNewWindow".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("disposition".into(), Ty::String),
+        ],
+    );
+    shapes.map.insert(
+        "FrameDownload".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("suggestedFilename".into(), Ty::String),
+            ("state".into(), Ty::String),
+            ("path".into(), Ty::String),
         ],
     );
     // `exact_runner::midi`'s order (LLP 1125 D8): the input's `id`, the

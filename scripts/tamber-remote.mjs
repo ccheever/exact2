@@ -16,7 +16,7 @@ import { networkInterfaces } from 'node:os';
 import { allowHostArgs } from './install-page.mjs';
 import { connectRelay, dnsHook, parentOf, relayArgs, relayTxt } from './tamber-relay.mjs';
 import { CAA_HONOURING, caaGoverns, relayCertificate } from './tamber-acme.mjs';
-import { serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
+import { serveToolFiles, toolFilesFailed, TOOL_DIST } from './tamber-tool-files.mjs';
 
 const DAY = 86_400_000;
 
@@ -232,7 +232,7 @@ export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIS
       // (the lead's 08:22Z ruling: one place, no per-form policy in the tool);
       // everything else here sends none.
       res.setHeader('referrer-policy', 'strict-origin');
-      return serveToolFiles(req, res, url, toolDir, { 'content-security-policy': "frame-ancestors 'none'" });
+      return serveToolFiles(req, res, url, toolDir, { 'content-security-policy': "frame-ancestors 'none'" }).catch(toolFilesFailed(res));
     }
     if (!WIRE.has(url.pathname)) return refuse(res, 404, 'not found');
     // (`door`: which door it came through, set by this code where it accepted the stream, never read from a request or the relay)

@@ -2,7 +2,8 @@
 //! the `FrameNavigation` record of `navigate`, `currententrychange`,
 //! `navigatesuccess` and `navigateerror` on an `iframe`. A host sends it as
 //! ABI kind 58, `<event>\n<JSON object>`; a field the host leaves out is
-//! its type's empty value.
+//! its type's empty value. The same kind carries a guest's `newwindow` and
+//! `download` (@ref LLP 1020.002 D5), with their own records ([`other`]).
 use exact_plan::{EventKind, Value};
 
 /// The record, its fields in the compiler's order
@@ -100,12 +101,53 @@ impl FrameNavigation {
     }
 }
 
+/// Kind 58's `newwindow` (a `FrameNewWindow`: `url`, `disposition`),
+/// `download` (a `FrameDownload`: `url`, `suggestedFilename`, `state`,
+/// `path`) or `capture` (a `FrameCapture`: `path`, `width`, `height`,
+/// `error`, `message`, @ref LLP 1020.002 D7) or `userpromptopened` (a
+/// `FrameUserPrompt`: `type`, `message`, `defaultValue`, D9), the record in
+/// the compiler's order (`contract/types/src/selection.rs`).
+pub fn other(payload: &str) -> Option<(EventKind, Value)> {
+    let (name, json) = payload.split_once('\n')?;
+    let (kind, fields): (_, &[&str]) = match name {
+        "newwindow" => (EventKind::Newwindow, &["url", "disposition"]),
+        "download" => (
+            EventKind::Download,
+            &["url", "suggestedFilename", "state", "path"],
+        ),
+        "capture" => (
+            EventKind::Capture,
+            &["path", "width", "height", "error", "message"],
+        ),
+        "userpromptopened" => (
+            EventKind::Userpromptopened,
+            &["type", "message", "defaultValue"],
+        ),
+        _ => return None,
+    };
+    let serde_json::Value::Object(o) = serde_json::from_str(json).ok()? else {
+        return None;
+    };
+    let field = |k: &str| match k {
+        "width" | "height" => Value::Number(o.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0)),
+        _ => Value::str(o.get(k).and_then(|v| v.as_str()).unwrap_or_default()),
+    };
+    Some((
+        kind,
+        Value::record(fields.iter().map(|k| field(k)).collect()),
+    ))
+}
+
 /// The event's name, as its handler attribute spells it.
 pub(super) fn name(kind: EventKind) -> &'static str {
     match kind {
         EventKind::Currententrychange => "currententrychange",
         EventKind::Navigatesuccess => "navigatesuccess",
         EventKind::Navigateerror => "navigateerror",
+        EventKind::Newwindow => "newwindow",
+        EventKind::Download => "download",
+        EventKind::Capture => "capture",
+        EventKind::Userpromptopened => "userpromptopened",
         _ => "navigate",
     }
 }
@@ -131,5 +173,53 @@ mod tests {
         assert_eq!(fields.len(), 14);
         assert!(FrameNavigation::parse("load\n{}").is_none());
         assert!(FrameNavigation::parse("navigate\n[1]").is_none());
+    }
+
+    #[test]
+    fn a_window_request_a_download_and_a_capture_decode_in_the_compilers_order() {
+        let (kind, v) =
+            other("newwindow\n{\"url\":\"https://a.test/\",\"disposition\":\"foreground-tab\"}")
+                .unwrap();
+        assert_eq!(kind, EventKind::Newwindow);
+        assert_eq!(
+            v,
+            Value::record(vec![
+                Value::str("https://a.test/"),
+                Value::str("foreground-tab")
+            ])
+        );
+        let (kind, v) = other("download\n{\"url\":\"https://a.test/f\",\"suggestedFilename\":\"f.txt\",\"state\":\"progressing\"}").unwrap();
+        assert_eq!(kind, EventKind::Download);
+        let Value::Record(fields) = v else {
+            panic!("a record")
+        };
+        assert_eq!(fields.len(), 4);
+        assert_eq!(fields[3], Value::str(""));
+        let (kind, v) =
+            other("capture\n{\"path\":\"app:/tmp/a.png\",\"width\":200,\"height\":100}").unwrap();
+        assert_eq!(kind, EventKind::Capture);
+        assert_eq!(
+            v,
+            Value::record(vec![
+                Value::str("app:/tmp/a.png"),
+                Value::Number(200.0),
+                Value::Number(100.0),
+                Value::str(""),
+                Value::str("")
+            ])
+        );
+        let (kind, v) =
+            other("userpromptopened\n{\"type\":\"confirm\",\"message\":\"Sure?\"}").unwrap();
+        assert_eq!(kind, EventKind::Userpromptopened);
+        assert_eq!(
+            v,
+            Value::record(vec![
+                Value::str("confirm"),
+                Value::str("Sure?"),
+                Value::str("")
+            ])
+        );
+        assert!(other("navigate\n{}").is_none());
+        assert!(FrameNavigation::parse("download\n{}").is_none());
     }
 }

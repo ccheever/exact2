@@ -1040,6 +1040,23 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
     }
 
+    /// A history jump uses navigation; the authored Back control handles the adjacent intent.
+    private func goBack(from source: String, to destination: String) {
+        pendingSync = true
+        guard let session = presenter.session, let root = container,
+              let location = session.runtime.visitLocation(destination) else {
+            presenter.session?.log("Back history refused: the destination has no router visit; the declared stack is restored")
+            return
+        }
+        if root.handlers.contains("navigate") {
+            session.navigate(location, at: root)
+            if selectedKey == source { session.log("Back history: the navigation handler has not changed the selected visit; the declared stack is restored") }
+        } else {
+            session.hostBack(from: source, to: destination)
+            if selectedKey != destination { session.log("Back history: the requested destination is not selected; the declared stack is restored") }
+        }
+    }
+
     /// The key of the route a view is mounted under, for `layout <node>`
     /// (LLP 1035.002 D1) — an observation of UIKit's containment.
     func routeKey(containing view: UIView) -> String? {
@@ -1302,6 +1319,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         } ?? false
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         guard dispatches else { return }
+        if swipe == nil, let destination = (viewController as? RouteController)?.key,
+           let from = shownKeys.firstIndex(of: rootKey),
+           let to = shownKeys.firstIndex(of: destination), from - to > 1 {
+            goBack(from: rootKey, to: destination)
+            return
+        }
         goBack()
     }
 

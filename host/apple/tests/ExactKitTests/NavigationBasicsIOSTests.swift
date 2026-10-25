@@ -526,14 +526,117 @@ final class NavigationBasicsIOSTests: XCTestCase {
     /// a compact width's) does; iPadOS's floating bar, at the top in a
     /// regular width, insets nothing, so there the bar's own state is read.
     private func barInsets(_ tabs: UITabBarController) -> Bool { tabs.tabBar.window != nil }
-    /// Whether the tab bar shows on screen: the bar, or an iPad's floating
-    /// list of its items, in the window, unhidden, opaque enough, on screen.
     private func barShows(_ tabs: UITabBarController) -> Bool {
-        guard let bar: UIView = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList, let window = bar.window else { return false }
-        var at: UIView? = bar
-        while let v = at { if v.isHidden || v.alpha < 0.01 { return false }; at = v.superview }
-        let box = bar.convert(bar.bounds, to: window)
-        return box.height > 1 && box.intersects(window.bounds)
+        let bar: UIView? = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList
+        return NavigationHost.shownBar(bar) != nil
+    }
+
+    private func assertTabBar(_ session: ExactSession, visible: Bool, file: StaticString = #filePath, line: UInt = #line) throws {
+        let list = try node(session, "tabs")
+        let observed = try XCTUnwrap(Agent(session: session).layout(["id": Int(list.id)])["node"] as? [String: Any], file: file, line: line)
+        let native = try XCTUnwrap(observed["native"] as? [String: Any], file: file, line: line)
+        let bar = try XCTUnwrap(native["tabBar"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(bar["visible"] as? Bool, visible, file: file, line: line)
+        XCTAssertEqual(bar["frame"] != nil, visible, "only the visible bar supplies geometry", file: file, line: line)
+    }
+
+    func testNativeTabAccessibilityCoverageIncludesTheProjectionOrNamesItsLimit() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "native tab accessibility uses the scene's platform projection")
+        }
+        let session = try fixture("basics-tabbar-ax"), p = session.presenter
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let agent = Agent(session: session)
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's accessibility runtime is not loaded") }
+        func read(visible: Bool) throws {
+            until("the native tab bar settles") { self.barShows(tabs) == visible && !agent.nativeInFlight() }
+            let bar = tabs.shownTabBar
+            XCTAssertEqual(bar != nil, visible)
+            let frame = bar.map { $0.convert($0.bounds, to: p.viewport).offsetBy(dx: -p.viewport.pageOrigin.x, dy: -p.viewport.pageOrigin.y) }
+            for excluded in [false, true] {
+                let reply = agent.accessibilityElementsTree(["ax": true, "excluded": excluded])
+                let ax = try XCTUnwrap(reply["ax"] as? [String: Any])
+                let coverage = try XCTUnwrap(ax["coverage"] as? [String: Any])
+                let limit = (coverage["excluded"] as? [[String: Any]])?.first { $0["root"] as? String == "tab-bar" }
+                if let frame {
+                    let items = try XCTUnwrap(tabs.tabBar.items)
+                    XCTAssertFalse(items.isEmpty)
+                    let buttons = (ax["elements"] as? [[String: Any]] ?? []).filter { element in
+                        guard element["role"] as? String == "button", element["excluded"] == nil,
+                              let r = element["frame"] as? [String: Any], let x = r["x"] as? Double, let y = r["y"] as? Double,
+                              let w = r["w"] as? Double, let h = r["h"] as? Double else { return false }
+                        return CGRect(x: x, y: y, width: w, height: h).intersects(frame)
+                    }
+                    let names = items.compactMap { $0.accessibilityLabel ?? $0.title }
+                    XCTAssertEqual(names.count, items.count)
+                    let found = Set(buttons.compactMap { $0["name"] as? String })
+                    if buttons.count < items.count || !Set(names).isSubset(of: found) {
+                        XCTAssertNotNil(limit, "missing native tabs cannot be reported as complete coverage")
+                        XCTAssertEqual(coverage["complete"] as? Bool, false)
+                    } else {
+                        XCTAssertNil(limit, "a projection already walked needs no additional limit")
+                    }
+                } else {
+                    XCTAssertNil(limit, "a hidden bar is intentionally absent")
+                }
+            }
+        }
+        try read(visible: true)
+        let scoped = p.axElements(roots: [try node(session, "detail")])
+        let view = try XCTUnwrap(session.view)
+        let bar = try XCTUnwrap(tabs.projectedTabBar)
+        let alpha = bar.alpha
+        let beforeFade = p.axElements(roots: [view])
+        let beforeCoverage = try XCTUnwrap(beforeFade["coverage"] as? [String: Any])
+        let missingProjection = (beforeCoverage["excluded"] as? [[String: Any]] ?? []).contains { $0["root"] as? String == "tab-bar" }
+        for opacity in [CGFloat(0.001), 0] {
+            bar.alpha = opacity
+            let faded = p.axElements(roots: [view])
+            bar.alpha = alpha
+            let coverage = try XCTUnwrap(faded["coverage"] as? [String: Any])
+            let limited = (coverage["excluded"] as? [[String: Any]] ?? []).contains { $0["root"] as? String == "tab-bar" }
+            XCTAssertEqual(limited, opacity > 0 && missingProjection, "only zero alpha intentionally excludes the bar from accessibility")
+        }
+        let container = try XCTUnwrap(tabs.view.superview)
+        let modal = NodeView(id: .max, kind: "view", presenter: p)
+        let nested = NodeView(id: .max - 1, kind: "view", presenter: p)
+        modal.frame = container.bounds
+        nested.frame = modal.bounds
+        modal.accessibilityViewIsModal = true
+        nested.accessibilityViewIsModal = true
+        modal.addSubview(nested)
+        container.addSubview(modal)
+        do {
+            defer { modal.removeFromSuperview() }
+            for excluded in [false, true] {
+                let hiddenByModal = p.axElements(roots: [view], excluded: excluded)
+                XCTAssertEqual((hiddenByModal["modal"] as? [String: Any])?["id"] as? UInt32, nested.id)
+                let coverage = try XCTUnwrap(hiddenByModal["coverage"] as? [String: Any])
+                XCTAssertEqual(coverage["complete"] as? Bool, true, "modal siblings intentionally exclude the native bar")
+                XCTAssertFalse((coverage["excluded"] as? [[String: Any]] ?? []).contains { $0["root"] as? String == "tab-bar" })
+            }
+            let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController?.view)
+            route.addSubview(modal)
+            modal.frame = route.bounds
+            nested.frame = modal.bounds
+            let besideModal = p.axElements(roots: [view])
+            XCTAssertEqual((besideModal["modal"] as? [String: Any])?["id"] as? UInt32, nested.id)
+            let coverage = try XCTUnwrap(besideModal["coverage"] as? [String: Any])
+            XCTAssertEqual((coverage["excluded"] as? [[String: Any]] ?? []).contains { $0["root"] as? String == "tab-bar" },
+                           missingProjection, "a modal inside a page does not hide the bar in another branch")
+        }
+        view.accessibilityElementsHidden = true
+        let suppressed = p.axElements(roots: [view])
+        view.accessibilityElementsHidden = false
+        for ax in [scoped, suppressed] {
+            let coverage = try XCTUnwrap(ax["coverage"] as? [String: Any])
+            XCTAssertEqual(coverage["complete"] as? Bool, true, "unrelated or intentionally hidden native tabs add no gap")
+            XCTAssertFalse((coverage["excluded"] as? [[String: Any]] ?? []).contains { $0["root"] as? String == "tab-bar" })
+        }
+        try tapNode(session, "toggle-choosing")
+        try read(visible: false)
+        try tapNode(session, "toggle-choosing")
+        try read(visible: true)
     }
 
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
@@ -543,6 +646,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let insets = barInsets(tabs)
         if !insets { XCTAssertNotNil(tabs.floatingTabList, "no UITabBar in the window: an iPad's floating bar") }
         XCTAssertTrue(barShows(tabs), "the tab bar shows over Home")
+        try assertTabBar(session, visible: true)
         let shown = home.view.safeAreaInsets.bottom
         if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         try tapNode(session, "detail")
@@ -552,6 +656,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(detail.hidesBottomBarWhenPushed, "the tablist shows over Detail")
         if insets { XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5) }
         XCTAssertTrue(barShows(tabs), "and over Detail")
+        try assertTabBar(session, visible: true)
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
@@ -559,6 +664,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // (On an iPad the floating bar, which does not take
         // `hidesBottomBarWhenPushed`, is hidden by `setTabBarHidden`.)
         until("the tab bar left") { !barShows(tabs) && (!insets || chat.view.safeAreaInsets.bottom < shown - 20) }
+        try assertTabBar(session, visible: false)
         // Another tab, its root showing the tablist, and back to Chat (selected by the app, as a link would).
         tapTab(tabs, 1)
         until("Second shows the bar") { tabs.selectedIndex == 1 && barShows(tabs) }
@@ -567,6 +673,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
+        try assertTabBar(session, visible: true)
     }
 
     /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
@@ -594,11 +701,13 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let settled = { nav.transitionCoordinator == nil }
         // Hidden over the root: the bar goes.
         try tapNode(session, "toggle-choosing")
-        until("the bar left") { tabs.isTabBarHidden && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
+        until("the bar left") { tabs.isTabBarHidden && !barShows(tabs) && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
+        try assertTabBar(session, visible: false)
         XCTAssertFalse(home.hidesBottomBarWhenPushed, "the root is never pushed: no flag")
         // Shown again: it comes back.
         try tapNode(session, "toggle-choosing")
-        until("the bar came back") { !tabs.isTabBarHidden && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
+        until("the bar came back") { !tabs.isTabBarHidden && barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
+        try assertTabBar(session, visible: true)
         // A hatch's hide, with the tablist shown and unchanged, stands; and
         // the tablist hidden and shown again over it leaves it standing too:
         // Exact did not make that hide.

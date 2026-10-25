@@ -595,6 +595,7 @@ Agent.hostState = {
 final class Delegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }
+        exact.installWakes()
     }
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac

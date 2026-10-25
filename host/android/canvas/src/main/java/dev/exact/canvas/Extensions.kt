@@ -47,6 +47,9 @@ abstract class ExactExtension(val context: ExtensionContext) {
     /** The app went to the foreground or left it ([ExtensionContext.foreground], LLP 1133.009 D10 item 3). */
     open fun foreground(shown: Boolean) {}
 
+    /** The wake [ExtensionContext.wake] raised for [id] ended with [outcome] (LLP 1133.017 D8), after its `ended`. */
+    open fun woke(id: String, outcome: String) {}
+
     /** The activity is in front again: what changed in Settings meanwhile is read again (Android has no event). */
     open fun resumed() {}
 
@@ -139,7 +142,7 @@ interface ExtensionRoster {
 }
 
 /** What an extension may use of the host. */
-class ExtensionContext internal constructor(val application: Context, name: String) {
+class ExtensionContext internal constructor(val application: Context, private val name: String) {
     /** The activity that shows the app now, if one does: a permission's rationale is read from it. */
     val activity: Activity? get() = Exact.reader?.get()
 
@@ -190,6 +193,20 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
 
     /** The readers of [topic] are asked again (LLP 1016.002). */
     fun changed(topic: String) = Exact.changed(topic)
+
+    /** Each [wake]'s `ended`, by id, until the runner tells its outcome. */
+    internal val ended = HashMap<String, (String) -> Unit>()
+
+    /**
+     * Raise the interface's wake event [event] with [args] for the platform's own [id] (LLP 1133.017 D8): the events
+     * of one id are one wake, run with the wake's origin, and [ended] hears its outcome once, on the main thread:
+     * `completed`, `expired`, `superseded`, `refused`, or `unheard` when no handler hears it. Its one channel to the
+     * runner is [changed], as on Apple (`exact-wake:`, `runner/src/runner/modules/wakes.rs`).
+     */
+    fun wake(event: String, args: JSONArray, id: String, ended: (String) -> Unit = {}) {
+        this.ended[id] = ended
+        changed("exact-wake:" + JSONObject().put("extension", name).put("event", event).put("args", args).put("id", id))
+    }
 
     /** Every `img` showing picture [source] is emptied and fires `error`, and no reply in flight draws (LLP 1133.019
      * D2): the photo left what the app may read. */
@@ -335,11 +352,19 @@ internal object Extensions {
      * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2),
      * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6),
      * `{"extension", "picture", "width", "height", "fit", "owned"}` (LLP 1133.019 D11 item 1), answered with its
-     * pixels ([Exact.picture]), or `{"extension", "cancel"}` (a send let go, LLP 1133.016 D15 item 2).
+     * pixels ([Exact.picture]), `{"extension", "cancel"}` (a send let go, LLP 1133.016 D15 item 2), or `{"extension",
+     * "woke", "outcome"}` (a wake [ExtensionContext.wake] raised ended, LLP 1133.017 D8).
      */
     fun call(id: Int, body: String) {
         var answered = false
-        val reply = { answer: JSONObject -> if (!answered) { answered = true; Exact.answer(id, answer.toString()) } }
+        // A list answer comes as `{"exact:answer": [...]}`, since a reply is an object (as on Apple).
+        val reply = { answer: JSONObject ->
+            if (!answered) {
+                answered = true
+                val listed = answer.length() == 1 && answer.has("exact:answer")
+                Exact.answer(id, if (listed) answer.get("exact:answer").toString() else answer.toString())
+            }
+        }
         try {
             val request = JSONObject(body)
             val name = request.getString("extension")
@@ -390,6 +415,12 @@ internal object Extensions {
                 request.has("dispose") -> {
                     val ids = request.optJSONArray("dispose") ?: JSONArray()
                     extension.dispose((0 until ids.length()).map { ids.getString(it) })
+                    reply(JSONObject())
+                }
+                request.has("woke") -> {
+                    val (woke, outcome) = request.getString("woke") to request.optString("outcome", "completed")
+                    extension.context.ended.remove(woke)?.invoke(outcome)
+                    extension.woke(woke, outcome)
                     reply(JSONObject())
                 }
                 request.has("foreground") -> {

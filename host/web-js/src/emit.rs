@@ -1293,8 +1293,7 @@ impl Em<'_> {
                 | EventKind::Drop
                 | EventKind::Dragenter
                 | EventKind::Dragleave
-                // LLP 1045.000 D7: the Markdown editor's and reader's.
-                | EventKind::Atompress
+                | EventKind::Atompress // LLP 1045.000 D7: the Markdown editor's and reader's.
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1330,6 +1329,10 @@ impl Em<'_> {
                 | EventKind::Currententrychange
                 | EventKind::Navigatesuccess
                 | EventKind::Navigateerror
+                | EventKind::Newwindow // @ref LLP 1020.002 D5, D7: nothing fires them,
+                | EventKind::Download // the browser opening its own and downloading,
+                | EventKind::Capture // and the runtime refusing a capture (`onFrameCapture`)
+                | EventKind::Userpromptopened // @ref LLP 1020.002 D9: the browser's own dialogs
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight

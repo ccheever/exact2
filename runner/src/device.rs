@@ -318,15 +318,15 @@ pub const DEVICES: &[Device] = &[
     },
     // Background work (LLP 1133.017 D14): nothing asks the person, so no
     // line names a purpose. The WICG specifications name the first two
-    // (the Permissions Registry lists none of the three). Both run in the
-    // one refresh task the host keeps (D8); the processing identifiers D14
-    // lists for `background-sync` join when a processing wake is built.
-    // tvOS's refresh is later (D17): its build writes neither.
+    // (the Permissions Registry lists none of the three). The host keeps
+    // one refresh identifier and two processing ones, by constraints (D8);
+    // a `sync` waiting asks for both kinds. tvOS's refresh is later (D17):
+    // its build writes none.
     Device {
         name: "background-sync",
         purpose: false,
-        ios_modes: &["fetch"],
-        ios_tasks: &["refresh"],
+        ios_modes: &["fetch", "processing"],
+        ios_tasks: &["refresh", "processing.network", "processing.network-power"],
         ..ROW
     },
     Device {

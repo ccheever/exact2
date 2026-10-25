@@ -6,6 +6,7 @@
   "exports": {
     ".": "./exact.json",
     "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
     "./web": "./web/exact.json"
   }
 }
