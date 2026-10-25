@@ -740,3 +740,11 @@ test "a mention opens its person's card"
   clock data
   clock settle
   expect text "profile-handle" == "@charlie"
+
+test "the page's title counts what mentions the reader and names the channel"
+  clock +500 real
+  expect state pageTitle == "(5) Excord"
+  tap "channel-general"
+  clock data
+  clock settle
+  expect state pageTitle == "(5) Excord | #general"
