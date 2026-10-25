@@ -350,7 +350,7 @@ component Excord
       if editing != ""
         drafts = withDraft(drafts, open, stash)
         stash = ""
-      if not away and anchor == "" and chan.unread > 0
+      if not away and anchor == "" and chan.unread > 0 and viewing == ""
         send acked = markRead(open)
     now = performanceNow()
     open = id
@@ -739,6 +739,8 @@ component Excord
     close("switcher")
     server = serverId
     openChannel(id)
+    // A picture open over the channel left closes with it.
+    viewing = ""
   action switcherClosed
     switching = false
   action toggleReaction(id: string, emoji: string)
@@ -803,6 +805,11 @@ component Excord
       picking = false
       close("switcher")
       close("react-picker")
+      close("confirm-delete")
+      close("confirm-sign-out")
+      hidePopover("message-menu")
+      hidePopover("account-menu")
+      hidePopover("fixture-menu")
     launched = true
   action unlockTap
     if session.locked
