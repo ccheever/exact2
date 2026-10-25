@@ -195,7 +195,9 @@ final class ControlHost: NSObject {
                 control.setAccessibilityLabel(owner.props["accessibilityLabel"])
                 control.setAccessibilityIdentifier(owner.props["testId"])
             }
-            let natural = naturalSize(control)
+            // A native button is sized by its node's box and has answered its fitting size already (D11):
+            // its intrinsic size, an AppKit measure on every batch, is read only for the other controls.
+            let natural = control is NativeButtonMac ? .zero : naturalSize(control)
             let box = control is NativeButtonMac ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
