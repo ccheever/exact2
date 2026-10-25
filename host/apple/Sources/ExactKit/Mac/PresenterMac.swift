@@ -1014,6 +1014,27 @@ package final class Presenter {
         }
     }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
+    /// Symbols report after the batch that creates them: all sizes from a turn
+    /// reach the runner under one layout, as on iOS, not a layout each.
+    private struct QueuedIntrinsic { weak var view: NodeView?; let generation: Int; let size: CGSize? }
+    private var intrinsicSizes: [QueuedIntrinsic] = []
+    func queueIntrinsicSize(_ view: NodeView, generation: Int, _ size: CGSize?) {
+        if intrinsicSizes.isEmpty {
+            DispatchQueue.main.async { [weak self] in self?.flushIntrinsicSizes() }
+        }
+        intrinsicSizes.append(QueuedIntrinsic(view: view, generation: generation, size: size))
+    }
+    private func flushIntrinsicSizes() {
+        let queued = intrinsicSizes
+        intrinsicSizes = []
+        var latest: [UInt32: CGSize?] = [:], order: [UInt32] = []
+        for entry in queued {
+            guard let view = entry.view, view.loadGeneration == entry.generation,
+                  views[view.id] === view else { continue }
+            if latest.updateValue(entry.size, forKey: view.id) == nil { order.append(view.id) }
+        }
+        if !order.isEmpty { onIntrinsic?(order.map { ($0, latest[$0]!) }) }
+    }
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
