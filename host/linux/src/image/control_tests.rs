@@ -70,6 +70,11 @@ fn source(k: &mut Kernel, id: u32, name: &str) {
     )
     .unwrap();
 }
+/// Held by a test that holds both of the process's two decode workers in its
+/// hook until its own count of them is reached: two such tests at once
+/// would each hold one and wait out the deadline.
+static BOTH_WORKERS: Mutex<()> = Mutex::new(());
+
 /// Wait for a condition. The deadline only detects a hang: it is not a
 /// budget, and a loaded machine can take seconds to schedule a worker.
 fn until(mut test: impl FnMut() -> bool) {
@@ -215,6 +220,7 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
 
 #[test]
 fn full_undrained_session_does_not_block_another_sessions_native_workers() {
+    let _both = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
     let k = kernel(2);
     let mut a = Images::with_assets(assets());
     // Prepare metadata without occupying a decode worker. Holding one worker
@@ -357,6 +363,7 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
 
 #[test]
 fn metadata_progresses_under_known_decode_pressure_in_shared_pool() {
+    let _both = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::atomic::AtomicUsize;
     let decoded = Arc::new(AtomicUsize::new(0));
     let release = Arc::new(AtomicBool::new(false));
