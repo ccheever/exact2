@@ -60,10 +60,13 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(reused.status, reused.stderr).toBe(0);
     expect(reused.stdout).toContain('already running');
     // Through a dev loop, it is not: it holds the design server, so --via
-    // to any loop is refused rather than given its page (none).
-    const through = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', 'http://127.0.0.1:9', '--no-open'], { cwd: ROOT, encoding: 'utf8' });
+    // to any loop is refused rather than given its page (none). (One that
+    // never answers is waited for first, as one still starting is: cut to
+    // 1.5 s here, test timing only.)
+    const through = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', 'http://127.0.0.1:9', '--no-open'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_TAMBER_TEST_TIMING: '1', EXACT_TAMBER_VIA_WAIT_MS: '1500' } });
     expect(through.status, through.stderr).toBe(1);
-    expect(through.stderr).toContain(`already serves this design, not through http://127.0.0.1:9; stop it first`);
+    expect(through.stderr).toContain('waiting for the dev loop at http://127.0.0.1:9: not listening yet');
+    expect(through.stderr).toMatch(/already serves this design, not through http:\/\/127\.0\.0\.1:9 \(it does not answer after \d+ s\); stop it first/);
   } finally {
     if (drive) await stop(drive);
     await stop(tool);
@@ -79,7 +82,8 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     return dir;
   };
   const [mine, other] = [copy(), copy()];
-  const run = args => spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', ...args, '--no-open'], { cwd: ROOT, encoding: 'utf8' });
+  // (A loop that never answers is waited for, as one still starting is: cut to 1.5 s here, test timing only.)
+  const run = args => spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', ...args, '--no-open'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_TAMBER_TEST_TIMING: '1', EXACT_TAMBER_VIA_WAIT_MS: '1500' } });
   // The design server for `mine` alone, as a dev loop would hold it.
   const serve = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', mine], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
@@ -106,7 +110,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     expect(again.stdout).toContain('already running');
     const elsewhere = run([mine, '--via', 'http://127.0.0.1:9']);
     expect(elsewhere.status).toBe(1);
-    expect(elsewhere.stderr).toContain('already serves this design, not through http://127.0.0.1:9; stop it first');
+    expect(elsewhere.stderr).toMatch(/already serves this design, not through http:\/\/127\.0\.0\.1:9 \(it does not answer after \d+ s\); stop it first/);
     expect(run([mine, '--via', TOOL_ORIGIN]).status).toBe(2);
   } finally {
     if (tool) await stop(tool);
