@@ -370,8 +370,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (Buffer.byteLength(line) >= LINE_LIMIT) { done(null); return reply({ status: 413, error: { message: 'a request is at most 1 MiB' } }); }
     const id = next;
     const late = wait && setTimeout(() => reply({ status: 504, error: { message: 'the design server did not answer' } }), wait);
-    waiting.set(id, v => { clearTimeout(late); done(v); reply(v); });
-    child.stdin.write(`${line}\n`);
+    waiting.set(id, v => { clearTimeout(late); done(v); reply(v); }); // (a pipe that can't take it, the server going down, ends it below: holds and write count too)
+    try { child.stdin.write(`${line}\n`); } catch (e) { waiting.delete(id); clearTimeout(late); done(null); reply({ status: 503, error: { message: `the design server could not be asked: ${e.message}` } }); }
   });
 
   // The design's files as the server has them now, announced where a
