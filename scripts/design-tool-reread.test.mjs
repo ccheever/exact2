@@ -2,8 +2,8 @@
 // its tokens (an agent's set-token) is read again as describe, a resolve for each token it moved and each whose
 // entry moved (a package's token derived from the one the app's line set, which the event, of the app's file, does
 // not name), and hello, its rows shown with every other row as the last whole read had it; a hand edit, which names
-// no tokens, and a write that adds a token each read whole. A full read is a resolve per token, at the one server
-// behind each other (the clone's 267 took 3.6 s).
+// no tokens, and a write that adds a token each read whole, each in one `resolve` (tamber/1.17's `tokens`; one per
+// token took the clone's 267 3.6 s, at the one server behind each other).
 import { expect, onTestFinished, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,7 +33,7 @@ test('a peer\'s write is read again as only the tokens it moved, a package\'s de
   git('init', '-q'); git('add', 'app.json', 'app.tamber', 'app.contract'); git('commit', '-q', '-m', 'design');
   // Each request the tool sends the server, in order (the long poll's GET has no method).
   const asked = [];
-  const tool = await proxied(app, request => { if (request.method) asked.push({ method: request.method, token: request.token }); });
+  const tool = await proxied(app, request => { if (request.method) asked.push({ method: request.method, tokens: request.tokens ?? [request.token] }); });
   const said = signals('reread');
   onTestFinished(said.drop);
   try {
@@ -73,18 +73,21 @@ test('a peer\'s write is read again as only the tokens it moved, a package\'s de
     const cell = (t, name) => text(t, `cell-text-${name}-0-light`);
     const [first, peered, hand, added] = trees;
     const between = n => asked.slice(marks[n - 1], marks[n]);
-    const resolved = n => between(n).filter(r => r.method === 'resolve').map(r => r.token).sort();
+    const resolved = n => between(n).filter(r => r.method === 'resolve').flatMap(r => r.tokens).sort();
     const count = (n, method) => between(n).filter(r => r.method === method).length;
     // Read whole first: brand's colour through the app's line into the package's derived token.
     expect(['brand', 'accent', 'reading.card', 'reading.edge'].map(t => cell(first, t))).toEqual(Array(4).fill('#336699ff'));
     // The peer's write: describe, the four tokens it moved (the package's derived one by its entry), hello; every row shown.
     expect(resolved(1)).toEqual(['accent', 'brand', 'reading.card', 'reading.edge']);
+    // One describe, one resolve of them all (tamber/1.17's `tokens`), and its hello.
     expect(count(1, 'describe')).toBe(1);
+    expect(count(1, 'resolve')).toBe(1);
     expect(count(1, 'hello')).toBeGreaterThanOrEqual(1);
     expect(['brand', 'accent', 'reading.card', 'reading.edge'].map(t => cell(peered, t))).toEqual(Array(4).fill('#cc3300ff'));
     for (const f of FILLERS) expect(cell(peered, f)).toBe(cell(first, f));
     // The hand edit names no tokens: read whole, the filler's new value shown.
     expect(resolved(2)).toEqual([...all].sort());
+    expect(count(2, 'resolve')).toBe(1);
     expect(cell(hand, 'filler.a')).toBe('#202020ff');
     expect(cell(hand, 'brand')).toBe('#cc3300ff');
     // A token added: read whole, the new one among them.

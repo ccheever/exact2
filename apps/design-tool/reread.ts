@@ -46,8 +46,8 @@ export function keep(epoch: string, seq: number, described: any, answers: any[])
  * (on the server run `epoch`), `changeset` the session's (its `gap`s); null
  * for a full read. Each event since the kept read's describe must have
  * named its tokens: it then resolves those and every token whose IR entry
- * moved (a package's token derived from one the app's file set, which the
- * event, of the app's file, does not name). An event that named none, a
+ * moved (belt and braces: the app's design is planned folded with its
+ * packages', so an event names their derived tokens too). An event that named none, a
  * gap, another server run, another outline or a token named that the
  * design has not is a full read. */
 export function again(kept: Kept | undefined, epoch: string, described: any, changeset: { seq: number; gap?: boolean }[]): Set<string> | null {
@@ -65,4 +65,27 @@ export function again(kept: Kept | undefined, epoch: string, described: any, cha
   const params = new Set((described.ir.components ?? []).flatMap((c: { params?: { name: string; short?: string }[] }) => (c.params ?? []).flatMap(p => [p.name, p.short])));
   for (const t of described.ir.tokens as { name: string }[]) if (params.has(t.name) || kept.entries.get(t.name) !== JSON.stringify(t)) names.add(t.name);
   return names;
+}
+
+/** Each of `names`' `resolve`, as one per name answers it (a refused one
+ * `{error, reply: {error}}`): one `resolve` with `tokens` (tamber/1.17, the
+ * third pass's #5 B), one snapshot and one fold at the server; else, from a
+ * server before it, one per name, four at a time (a browser keeps
+ * connections for the long poll and the other reads), until `still` is
+ * false. */
+export async function resolveAll<R extends { error: string; reply: any }>(call: (path: string, body: unknown, timeout: number) => Promise<R>, names: string[], which: { file?: string }, timeout: number, still: () => boolean): Promise<R[]> {
+  if (!names.length) return [];
+  const batch = await call('/__tamber', { method: 'resolve', tokens: names, ...which }, timeout), answers = batch.reply?.ok?.answers;
+  if (!batch.error && Array.isArray(answers) && answers.length === names.length) {
+    return answers.map((a: any) => (a?.error ? { ...batch, error: String(a.error.message ?? 'The design server refused the token.'), reply: { error: a.error } } : { ...batch, reply: { ok: { ...a, files: batch.reply.ok.files } } }));
+  }
+  const out: R[] = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
+    while (next < names.length && still()) {
+      const i = next++;
+      out[i] = await call('/__tamber', { method: 'resolve', token: names[i], ...which }, timeout);
+    }
+  }));
+  return out;
 }
