@@ -404,6 +404,16 @@ describe('HTTP through fetch', () => {
     expect((await drive.op({ op: 'previewStreamAccess' })).error).toMatchObject({ kind: 'Disconnected' });
   });
 
+  test('the device hub gets the origin and a fresh ticket each time, through the focused connection', async () => {
+    const { drive, server } = await paired();
+    const first = value(await drive.op({ op: 'deviceHubAccess' })), second = value(await drive.op({ op: 'deviceHubAccess' }));
+    expect(first.origin).toBe(ORIGIN);
+    expect(server.tickets.has(String(first.ticket)) && server.tickets.has(String(second.ticket)) && first.ticket !== second.ticket).toBe(true);
+    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket', headers: { Authorization: 'Bearer token-1' } });
+    await drive.op({ op: 'disconnect' });
+    expect((await drive.op({ op: 'deviceHubAccess' })).error).toMatchObject({ kind: 'Disconnected' });
+  });
+
   test('a read sends the bearer; the pull request diff is a POST of its allowed fields', async () => {
     const { drive, server } = await paired();
     server.routes['/api/orchestration/shell'] = () => ({ status: 200, body: { projects: [] } });
