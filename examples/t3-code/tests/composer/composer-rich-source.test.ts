@@ -146,25 +146,23 @@ describe('root composer projection source', () => {
       }
     }
   });
-  test('completed chips survive separator deletion and native history in independently observed fields', () => {
+  test('chips are their source in independently observed fields: a separator deleted or undone follows the editor', () => {
     const client = new T3Client(), owner = 'thread';
     offerSkills(client, ['deploy']);
     const project = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
     project('', '');
     expect(project('$dep', 'insertText').chips).toEqual([]);
     expect(project('$deploy ', 'insertText').chips).toHaveLength(1);
-    const completed = project('$deploy', 'deleteContentBackward');
-    expect(completed.chips.map(chip => chip.source)).toEqual(['$deploy']);
+    // A token at the end of the source is no atom (LLP 1045.000 D1), so it is no chip either.
+    expect(project('$deploy', 'deleteContentBackward').chips).toEqual([]);
     const preview = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, inputType, surface: 'preview' });
     expect(preview('$frontend-design ', '').chips).toHaveLength(1);
-    expect(preview('$frontend-design', 'deleteContentBackward').chips.map(chip => chip.source)).toEqual(['$frontend-design']);
+    expect(preview('$frontend-design', 'deleteContentBackward').chips).toEqual([]);
     expect(composerSourceSession(client).matches(owner, '$deploy')).toBe(true);
-    expect(project('', 'deleteContentBackward').chips).toEqual([]);
-    expect(project('$deploy', 'historyUndo').chips.map(chip => chip.source)).toEqual(['$deploy']);
+    expect(project('$deploy ', 'historyUndo').chips.map(chip => chip.source)).toEqual(['$deploy']);
     expect(project('', 'historyRedo').chips).toEqual([]);
-    expect(project('$deploy', 'historyUndo').chips).toHaveLength(1);
-    const changed = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: '$deploy' });
-    expect(changed.chips).toEqual([]);
+    const changed = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: '$deploy ' });
+    expect(changed.chips).toHaveLength(1);
   });
   test('Settings preview shares chip projection without rich syntax or changing the active composer session', () => {
     const client = new T3Client(), owner = 'thread', value = '```ts';

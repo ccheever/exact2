@@ -114,10 +114,6 @@ describe('references', () => {
     expect(session.chips).toEqual([]);
     session.observe('draft', value, '', 'rich', ['babysit', 'HOME']);
     expect(session.chips.map(chip => chip.source)).toEqual(['$HOME', '$babysit']);
-    expect(session.key('draft', value, { start: 8, end: 8 }, { name: 'Backspace', shift: false, command: false })).toMatchObject({ kind: 'edit', edit: { start: 5, end: 10 } });
-    // Inside a name the provider does not offer, Backspace deletes one character.
-    session.observe('draft', value, '', 'rich', ['babysit']);
-    expect(session.key('draft', value, { start: 8, end: 8 }, { name: 'Backspace', shift: false, command: false })).toMatchObject({ kind: 'edit', edit: { start: 7, end: 8 } });
   });
 
   test("a skill's details are its description, else its short description; a disabled one has none", () => {

@@ -203,7 +203,7 @@ component TailscaleSetupDialog
       preventDefault()
       focus("tailscale-port")
   action submitKey(k: string, e: KeyboardEvent)
-    if k == "Enter"
+    if k == "Enter" and not e.isComposing
       confirm()
     first(k, e)
   action plainKey(k: string)
