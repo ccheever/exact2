@@ -436,7 +436,7 @@ package final class Presenter {
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
         AnimatedRasters.shared.poke()
-        followPointer()
+        followPointerAfterScroll()
         guard !applying, !inScrollCallback else { return }
         menus.layout()
         inScrollCallback = true
@@ -777,6 +777,8 @@ package final class Presenter {
     /// a scroll moved content under (`followPointer`); one a frame.
     var followLink: CADisplayLink?
     let followTarget = PumpTarget()
+    /// A scroll's hit-test, waiting for the scroll to rest (`followPointerAfterScroll`).
+    var scrollRestFollow: DispatchWorkItem?
     /// Where the agent's pointer rests, in window points (its last `tap …
     /// hover`); under the agent it stands for the system cursor.
     var agentPointer: NSPoint?
