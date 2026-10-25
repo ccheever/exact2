@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { lockHeld } from './build-lock.mjs';
 import { buildTreeFileAsync } from './serve.mjs';
 
 /** A generation's form: 32 lowercase hex digits, nothing else. */
@@ -150,13 +151,8 @@ export function generationPath(pathname, base = '/') {
 }
 
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
-/** Whether a swap holds `dist.lock` now: its owner alive (a lock a killed build left counts for nothing). */
-function swapping(dist) {
-  let owner;
-  try { owner = Number(readFileSync(`${dist}.lock`, 'utf8')); } catch { return false; }
-  if (!Number.isInteger(owner) || owner <= 0) return true; // being written: a swap is starting
-  try { process.kill(owner, 0); return true; } catch (e) { return e.code === 'EPERM'; }
-}
+/** Whether a swap holds `dist.lock` now (build-lock.mjs: a lock a killed build left counts for nothing). */
+const swapping = (dist) => lockHeld(`${dist}.lock`);
 /** A file of generation `id` of `dist` for a request path, read whole from that build: the current one when it is
  * still `id` after the read, else the kept tree (asked again, for up to a second, while a swap holds `dist.lock`:
  * its rename lands under it); 'gone' for a generation reaped, 'busy' while a swap still holds the lock past that
