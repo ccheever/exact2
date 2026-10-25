@@ -40,10 +40,10 @@ export function edited(request, p) {
  * the held caps, while its edit is planned, marked `busy` (an `accept`, `drop`, `edit-held` or expiry meanwhile
  * passes it by); `hold` puts the new one in its place in one turn (`replaces`), and a plan that fails leaves it as it
  * was. `announce(event)` sends an event. */
-export async function editHeld(request, scope, { expire, proposals, hold, announce }) {
+export async function editHeld(request, scope, { expire, proposals, hold, announce, stale = () => null }) {
   expire();
   const id = request.proposal, p = proposals.get(id);
-  if (!p || p.busy) return { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
+  if (!p || p.busy) return (!p && stale(id)) || { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
   // A revert is planned from its commit, never from operations a client changed: dropped and reverted again instead.
   if (p.shown.review?.revert !== undefined) return { status: 400, error: { message: 'a held revert is planned from its commit: drop it and revert again to change it' } };
   const made = edited(request, p);
