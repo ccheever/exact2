@@ -266,9 +266,20 @@ extension NodeView {
         let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
         let required = props["accessibilityRequired"] == "true"
         let enabled = !disabled && !ariaUnavailable
-        if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
-        if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
-        if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        if target === self {
+            // The host owns these values on the node; native controls still
+            // read their cell's values below.
+            var last = lastAccessibilityWrite
+            if !last.formInitialized || last.enabled != enabled { setAccessibilityEnabled(enabled); last.enabled = enabled }
+            if !last.formInitialized || last.help != description { setAccessibilityHelp(description); last.help = description }
+            if !last.formInitialized || last.required != required { setAccessibilityRequired(required); last.required = required }
+            last.formInitialized = true
+            lastAccessibilityWrite = last
+        } else {
+            if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
+            if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
+            if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        }
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
