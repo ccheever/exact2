@@ -34,6 +34,7 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
     me: () => store.meId ?? '',
     user: id => S.user(store, id),
     channelName: id => S.channel(store, id)?.name ?? 'unknown-channel',
+    channelGuild: id => S.channel(store, id)?.guild_id ?? '',
     roleName: id => {
       for (const guild of S.guilds(store)) for (const role of guild.roles ?? []) if (role.id === id) return role.name;
       return 'unknown-role';
@@ -131,6 +132,13 @@ test('user, channel and role mentions resolve through READY directories', () => 
   expect(row.source).toBe(`@charlie @ada <#${help}> <@&${role}> @everyone @here <@${missing}> <#${missing}> <@&${missing}>`);
   const coded = fixture([message(0, { content: `\`<@${ada.id}>\` <:ferris:${ferris}>` })]).view().rows[0];
   expect(coded.source).toBe(`\`<@${ada.id}>\` <:ferris:${ferris}>`);
+});
+
+test('a mention or a link to Discord names what pressing it opens', () => {
+  const content = `<@${ada.id}> <#${help}> https://discord.com/channels/${gid}/${cid}/${missing} https://discord.com/channels/@me/${cid} https://example.com/x`;
+  const runs = fixture([message(0, { content })]).view().rows[0].blocks[0].runs.filter(r => r.ref !== '' || r.kind === 'link');
+  expect(runs.map(r => [r.kind, r.ref])).toEqual([['user', `u:${ada.id}`], ['channel', `c:${gid}:${help}`],
+    ['link', `m:${gid}:${cid}:${missing}`], ['link', `m::${cid}:`], ['link', '']]);
 });
 
 test('mention flags count wire mentions and leave code and own wire mentions unhighlighted', () => {

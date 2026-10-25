@@ -7,7 +7,9 @@
 // "channel", "role", "everyone", "emoji", "time" or "edited". A "time" run's
 // `format` is a `time` element's format and `at` its instant; an "emoji" run's
 // `href` is the custom emoji's image. `spoiler` names the spoiler the run is
-// inside ("" for none), unique within its message.
+// inside ("" for none), unique within its message. `ref` is what pressing the
+// run opens in the app: `u:<user>` a person's card, `c:<guild>:<channel>` a
+// channel, `m:<guild>:<channel>:<message>` a message ("" for none).
 shape Run
   id: string
   kind: string
@@ -21,6 +23,7 @@ shape Run
   at: number
   format: string
   self: bool
+  ref: string
 
 // A block: "paragraph", "heading" (`level` 1–3), "subtext", "code" (`text`,
 // `lang`, and in a language `discord/highlight.ts` knows, its tokens as runs of

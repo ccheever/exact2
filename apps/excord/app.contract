@@ -43,6 +43,9 @@ fn withDraft(drafts: string[], channel: string, text: string): string[] = drafts
 
 fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
 
+// The `i`th piece of a split string, "" past its end.
+fn piece(parts: string[], i: number): string = match parts.at(i) { case some(v) => v, case none => "" }
+
 // A row's key for a message id: a send confirmed here keeps its nonce as key.
 fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
 shape Viewport
@@ -731,6 +734,26 @@ component Excord
     send changed = react(open, aimedId, value)
   action pickerClosed
     picking = false
+  // What a mention or a Discord link in a message opens (a run's `ref`, shapes.contract): a person's
+  // card, a channel, or a message in its channel, highlighted.
+  action follow(ref: string)
+    let part = ref.split(":")
+    if piece(part, 0) == "u"
+      showProfile(piece(part, 1), "")
+    else
+      let guildId = piece(part, 1)
+      let channelId = piece(part, 2)
+      let messageId = piece(part, 3)
+      if channelId == open and messageId != ""
+        jumpTo(messageId)
+      else if channelId != "" and channelId != open
+        server = guildId != "" ? guildId : "@me"
+        openChannel(channelId)
+        if messageId != ""
+          highlight = messageId
+          anchor = messageId
+          target = messageId
+          targetBlock = "center"
   action showProfile(userId: string, messageId: string)
     if not locked
       profileUser = userId
@@ -1016,7 +1039,7 @@ component Excord
                   reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                   flex=1 min-height=0 padding-top=8 padding-bottom=22
                   for m in rows key=m.key
-                    MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile)
+                    MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow)
               column id="message-menu" popover="auto" role="menu"
                 button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
                   image "symbol:reply"

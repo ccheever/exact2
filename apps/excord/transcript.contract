@@ -41,6 +41,7 @@ component MessageRow
     hover: action
     reply: action
     profile: action
+    follow: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -102,7 +103,7 @@ component MessageRow
                     Badge(label="APP", tint=some("AccentColor"))
                   text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
               for b in m.blocks key=b.id
-                BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
+                BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal, follow=follow)
               // Two pictures or more tile, as Discord lays them out: two or four in two columns, three as one tall
               // and two beside it, more in three columns.
               if m.media.length == 3
@@ -129,7 +130,7 @@ component MessageRow
                         text f.name color="AccentColor" font-weight=500 line-clamp=1
                         text f.size font="-exact-caption1" color="-exact-secondary-label"
               for e in m.embeds key=e.id
-                EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+                EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show, follow=follow)
               if m.reactions.length > 0
                 row gap=6 flex-wrap="wrap" padding-top=2
                   for x in m.reactions key=x.id
@@ -168,6 +169,7 @@ component BlockView
     jumbo: bool
     revealed: string[]
     reveal: action
+    follow: action
   view
     row gap=0 padding-left=(b.quote ? 0 : 0)
       if b.quote
@@ -187,7 +189,7 @@ component BlockView
           row flex=1 min-width=0 padding-left=(b.level * 16)
             text b.marker width="1.5rem" flex-shrink=0 color="-exact-secondary-label"
             text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-              Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+              Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
         else
           if b.kind == "heading"
             text flex=1 min-width=0 role="heading" aria-level=(b.level + 2) overflow-wrap="break-word" white-space="pre-wrap" padding-top=4
@@ -202,7 +204,7 @@ component BlockView
                   JumboRuns(runs=b.runs)
               else
                 text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                  Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                  Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
 
 // A paragraph's runs at body size. A run's style does not cascade from its
 // paragraph, so each says its own.
@@ -212,6 +214,7 @@ component Runs
     mkey: string
     revealed: string[]
     reveal: action
+    follow: action
   view
     for r in runs key=r.id
       if r.kind == "time"
@@ -223,10 +226,15 @@ component Runs
           if r.kind == "code"
             text r.text font-family="ui-monospace" font-size="0.875em" background-color="-exact-tertiary-fill" border-radius=4
           else
-            if r.kind == "link"
+            // A link to Discord opens in the app; any other in the browser.
+            if r.kind == "link" and r.ref != ""
+              text r.text color="AccentColor" press=follow(r.ref) font-weight=(r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") testId=`follow-${mkey}-${r.id}`
+            else if r.kind == "link"
               text r.text href=r.href font-weight=(r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal")
             else
-              if r.kind == "user" or r.kind == "role" or r.kind == "channel" or r.kind == "everyone"
+              if (r.kind == "user" or r.kind == "channel") and r.ref != ""
+                text r.text font-weight=500 color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4 press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
+              else if r.kind == "user" or r.kind == "role" or r.kind == "channel" or r.kind == "everyone"
                 text r.text font-weight=500 color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4
               else
                 if r.kind == "edited"
@@ -350,6 +358,7 @@ component EmbedView
     revealed: string[]
     reveal: action
     show: action
+    follow: action
   view
     row max-width="26rem" border-radius=6 overflow="hidden" background-color="-exact-secondary-background" testId=`embed-${mkey}-${e.id}`
       view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
@@ -365,7 +374,7 @@ component EmbedView
           else
             text e.title font-weight=600
         for b in e.description key=b.id
-          BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal)
+          BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
         for i in e.image key=i.id
           MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
       for t in e.thumbnail key=t.id
