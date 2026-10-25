@@ -658,8 +658,10 @@ export function levelsUp(map, site, n) {
   return levels;
 }
 
-/** The most sites a plan's copies cover (the pages refuse more, and a copy id fits 4 varint bytes below it). */
-export const COPIED_SITES = 1 << 20;
+/** The most sites a plan's copies cover (the pages refuse more, and a copy id fits 4 varint bytes below it), and
+ * the most bytes their encoding takes: half Apple's 1 MiB event (PlanURL.swift `eventLimit`), room for the frame
+ * around it. A plan past either has none: its selects answer stale. */
+export const COPIED_SITES = 1 << 20, COPIES_BYTES = 512 * 1024;
 
 /** Each plan site's copy (tamber/1.17 `inspect`'s `copies`, the third hands-on pass's #4): an integer, equal for every
  * node whose call-site chain is the same (one component call's template nodes), numbered by first appearance. A page
@@ -680,7 +682,8 @@ export function copiesOf(map) {
   if (length) runs.push(last, length);
   const bytes = [];
   for (let v of runs) { do { const b = v & 127; v = Math.floor(v / 128); bytes.push(v ? b | 128 : b); } while (v); }
-  return `r1:${Buffer.from(bytes).toString('base64')}`;
+  const text = `r1:${Buffer.from(bytes).toString('base64')}`;
+  return text.length <= COPIES_BYTES ? text : null;
 }
 
 /** `copiesOf`'s encoding back to one copy per site (the pages' decoders, host/web-js/inspect-dev.js, host/web/dev.js
