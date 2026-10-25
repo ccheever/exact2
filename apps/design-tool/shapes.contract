@@ -176,7 +176,8 @@ shape Held
   counted: string
   countOk: bool
   // The import an edit replaced, and whether its offers begin on (a
-  // recomputed import, or an edit of one).
+  // recomputed import; an edited one begins as a fresh import does,
+  // choice.ts `startsChosen`).
   from: string
   kept: bool
 
