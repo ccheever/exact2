@@ -260,6 +260,18 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_beneath(id), |_| 0)
         }
 
+        /// A retained visit's canonical location, UTF-8; empty when absent.
+        #[no_mangle]
+        pub extern "C" fn exact_visit_location(rt: u32, id: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.visit_location(id), |_| 0)
+        }
+
+        /// Complete a platform Back-history jump, a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_host_back_to(rt: u32, source: u64, destination: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back_to(source, destination, now_ms), |n| n)
+        }
+
         /// The platform's own Back from a visit, a batch. @ref LLP 1115 D5
         #[no_mangle]
         pub extern "C" fn exact_host_back(rt: u32, id: u64, now_ms: f64) -> u32 {

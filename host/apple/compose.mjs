@@ -48,7 +48,9 @@ export function composedModule(packages, ownModule) {
     '    override func permissions(_ states: [String: String]) { impl.permissions(states) }',
     '    override func displayed(surface: String, _ shown: Bool, origin: String) { impl.displayed(surface: surface, shown, origin: origin) }',
     '    override func orientation(_ angle: Double) { impl.orientation(angle) }',
-    '    override func woke(_ id: String, _ outcome: String) { impl.woke(id, outcome) }',
+    '    override func due(_ wake: [String: Any], done: @escaping (Bool) -> Void) {',
+    '        impl.woke(ExactWake(wake, context: context, done: done))',
+    '    }',
     // The authenticator entry (LLP 1133.010 D13): the class must conform, which compiling this checks.
     ...(p.authenticator ? [
       '    override func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {',

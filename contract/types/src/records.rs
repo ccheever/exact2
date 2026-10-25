@@ -8,13 +8,15 @@ use contract_syntax::{Expr, Span};
 
 /// The compiler shapes an app builds as it builds its own: the Media
 /// Session's `MediaMetadata`, by the API's constructor (LLP 1098 D1), and a
-/// textarea's `TextDecorations` with its spans (LLP 1114.007), and a
-/// Markdown node's `AtomFace` (LLP 1045.000 D2).
+/// textarea's `TextDecorations` with its spans (LLP 1114.007), a
+/// Markdown node's `AtomFace` (LLP 1045.000 D2), and a capture's `clip=`
+/// as Geometry's `DOMRect` (LLP 1020.002 D7).
 pub const COMPILER_RECORDS: &[&str] = &[
     "MediaMetadata",
     "TextDecorations",
     "TextDecorationSpan",
     "AtomFace",
+    "DOMRect",
 ];
 
 /// Whether `name(…)` builds a record: a shape the app declares or one of

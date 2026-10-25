@@ -1,11 +1,9 @@
 //! LLP 1115 D3: a heading is the platform's text style for its level (1
 //! `title1`, 2 `title2`, 3 `title3`, 4 and on `headline`), read from the
 //! schema's ramp at the root font size (the platform's body size), so it
-//! follows Dynamic Type as Apple's own ramp does, at the style's emphasized
-//! weight (LLP 1116 D7: bold for `title1` and `title2`, semibold for `title3` as Apple's
-//! emphasized Title 3 is, `headline`'s semibold). A written `font-size` or
-//! `font-weight` wins; an inherited one does not. `font` takes a text style
-//! as WebKit's `font: -apple-system-headline` does.
+//! follows Dynamic Type as Apple's own ramp does. Native hosts keep the
+//! text style's weight; web, neutral and terminal looks emphasize titles.
+//! An authored `font`, `font-size` or `font-weight` wins over its defaults.
 use exact_kernel::{Kernel, RowValue, StyleId};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
@@ -165,9 +163,8 @@ fn font_takes_only_a_text_style() {
     }
 }
 
-/// Each level's implied weight (LLP 1115.000 D12.2, final 2026-10-19): 1 and
-/// 2 bold, 3 semibold (Apple's emphasized Title 3), 4 and on `headline`'s
-/// semibold; a written weight wins at every level.
+/// Web headings retain their emphasized weights; an authored weight wins
+/// at every level.
 #[test]
 fn each_heading_level_has_its_emphasized_weight() {
     let mut src = String::from("component App\n  view\n    column font-weight=300\n");

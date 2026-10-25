@@ -100,7 +100,7 @@ import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { 
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
 import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs';
-import { serveTool } from './tamber-tool-files.mjs';
+import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
 import { earlyAnswer, readBody, parseRequest as parse, tooDeep, upstream, viaDoor } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
@@ -1360,7 +1360,7 @@ export async function toolCommand(argv) {
     // serves its own.
     // Its page, module and plan (whose names carry no digest) as built here.
     const served = async path => { try { return Buffer.from(await (await fetch(`${url}${path}`, { redirect: 'error', signal: AbortSignal.timeout(5000) })).arrayBuffer()); } catch { return Buffer.alloc(0); } };
-    const page = Buffer.from(readFileSync(resolve(TOOL_DIST, 'index.html'), 'utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">'));
+    const page = Buffer.from(toolPage(readFileSync(resolve(TOOL_DIST, 'index.html')), generationOf(TOOL_DIST)));
     const matches = async (path, bytes) => (await served(path)).equals(bytes);
     if (!(await matches('', page)) || !(await matches('app.js', readFileSync(resolve(TOOL_DIST, 'app.js')))) || !(await matches('app.plan', readFileSync(resolve(TOOL_DIST, 'app.plan'))))) { console.error(`tamber tool: the design server at ${TOOL_ORIGIN} serves another build of the design tool (another checkout's?); stop it first`); return 1; }
     console.log(`${url}\n  (the design tool, on the design server already running for ${dir})`);

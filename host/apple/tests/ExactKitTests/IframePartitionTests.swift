@@ -90,6 +90,16 @@ final class IframePartitionTests: XCTestCase {
         act()
     }
 
+    /// A new document's navigation, once it settled: `expected`, then only
+    /// the `currententrychange` of a title or icon WebKit reports after
+    /// `didFinish`, which can arrive in the same run-loop pass as `navigatesuccess`.
+    private func assertLoaded(_ seen: Seen, _ expected: [String], file: StaticString = #filePath, line: UInt = #line) {
+        spin { self.events(seen).contains("navigatesuccess") }
+        settle(seen)
+        XCTAssertEqual(Array(events(seen).prefix(expected.count)), expected, "\(seen.records)", file: file, line: line)
+        XCTAssert(events(seen).dropFirst(expected.count).allSatisfy { $0 == "currententrychange" }, "only a late title or icon follows: \(events(seen))", file: file, line: line)
+    }
+
     /// A frame of the arm, in a window so WebKit lays it out.
     private func mount(_ arm: Arm, _ seen: Seen, configuration: [String: Any], src: String?, sandbox: String? = nil) -> (UnsafeMutableRawPointer, WKWebView) {
         let handle = arm.create(7, Unmanaged.passUnretained(seen).toOpaque(), Self.event, Self.reply)!
@@ -137,10 +147,7 @@ final class IframePartitionTests: XCTestCase {
         let base = "http://127.0.0.1:16584"
         let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-a"], src: "\(base)/a")
         defer { arm.destroy(handle) }
-        spin { self.events(seen).contains("navigatesuccess") }
-        settle(seen)
-        XCTAssertEqual(Array(events(seen).prefix(3)), ["navigate", "currententrychange", "navigatesuccess"], "\(seen.records)")
-        XCTAssert(events(seen).dropFirst(3).allSatisfy { $0 == "currententrychange" }, "only a late title or icon follows: \(events(seen))")
+        assertLoaded(seen, ["navigate", "currententrychange", "navigatesuccess"])
         let first = try XCTUnwrap(seen.records.last?.record)
         XCTAssertEqual(first["url"] as? String, "\(base)/a")
         XCTAssertEqual(first["title"] as? String, "Page A")
@@ -156,12 +163,12 @@ final class IframePartitionTests: XCTestCase {
 
         // A server redirect: `navigate` again with the same id and the new destination.
         step(seen) { json(["op": "navigate", "url": "\(base)/redirect"], arm.command, handle) }
-        spin { self.events(seen).contains("navigatesuccess") }
-        XCTAssertEqual(events(seen), ["navigate", "navigate", "currententrychange", "navigatesuccess"], "\(seen.records)")
+        assertLoaded(seen, ["navigate", "navigate", "currententrychange", "navigatesuccess"])
         guard seen.records.count >= 2 else { return }
         XCTAssertEqual(seen.records[1].record["destination"] as? String, "\(base)/b")
         XCTAssertEqual(seen.records[1].record["navigationId"] as? Int, seen.records[0].record["navigationId"] as? Int)
         XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/b")
+        XCTAssertEqual(seen.records.last?.record["title"] as? String, "Page B")
         XCTAssertEqual(seen.records.last?.record["canGoBack"] as? Bool, true)
 
         // A same-document `pushState`: the three events together, a push.

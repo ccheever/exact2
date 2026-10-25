@@ -100,5 +100,6 @@ const sources: Sources = {
   imageRows: () => imageRows(),
   document: () => document(),
   feed: () => feed(),
+  keyboardRows: (): { id: number }[] => Array.from({ length: 40 }, (_, id): { id: number } => ({ id })),
 };
 export const answer: Answer = (source, args, store, storage) => sources[source](args, store, storage);

@@ -173,6 +173,65 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the tab bar where it was before the keys")
     }
 
+    /// A hatch focus request reveals a field whose row has no cell and moves
+    /// editing to it. Refused targets leave focus and the list's offset unchanged.
+    func testProgrammaticFocusRevealsAnOffscreenGroupedFieldWithTheKeyboardUp() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "programmatic keyboard focus requires the hosted app responder chain")
+        }
+        let session = try fixture()
+        let p = session.presenter
+        let reps = try node("reps"), add = try node("add-set")
+        let bench = try node("bench-reps"), benchAdd = try node("bench-add")
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        let nav = try XCTUnwrap(route.navigationController)
+        let list = try XCTUnwrap(p.navigation.shownScroll(try node("form-list")))
+        XCTAssertTrue(try XCTUnwrap(reps.field).becomeFirstResponder())
+        setKeyboard(p, top: keys)
+        waitFor("the initial field and its action clear the keyboard") {
+            self.fieldsShown([reps, add], below: self.box(nav.navigationBar).maxY)
+        }
+        XCTAssertFalse(sequence(first: bench as UIView, next: \.superview).contains { $0 is UICollectionViewCell },
+                       "the target starts in a virtualized row with no native cell")
+        let before = list.contentOffset.y
+
+        func assertRefused(_ target: NodeView, reason: String, file: StaticString = #filePath, line: UInt = #line) throws {
+            p.focusNode(target)
+            let reply = try JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"logs\"}").utf8)) as? [String: Any]
+            let lines = try XCTUnwrap(reply?["lines"] as? [String], "the session exposes its focus journal", file: file, line: line)
+            XCTAssertTrue(lines.last?.hasSuffix("refused: \(reason)") == true,
+                          "focus refusal reports \(reason): \(lines)", file: file, line: line)
+            XCTAssertTrue(reps.field?.isFirstResponder == true, "a refused focus leaves the current editor focused", file: file, line: line)
+            XCTAssertEqual(list.contentOffset.y, before, accuracy: 0.5, "a refused focus does not scroll the list", file: file, line: line)
+        }
+
+        let button = try node("add-exercise")
+        XCTAssertTrue(p.groupedLists?.draws(button.id) == true, "UIKit draws this row instead of carrying its authored button")
+        try assertRefused(button, reason: "hidden ancestor")
+        for (property, reason) in [("disabled", "disabled"), ("inert", "inert ancestor")] {
+            bench.props[property] = "true"
+            try assertRefused(bench, reason: reason)
+            bench.props[property] = nil
+        }
+        let section = try XCTUnwrap(sequence(first: bench as UIView, next: \.superview)
+            .compactMap { $0 as? NodeView }.first { p.groupedLists?.hidSection($0) == true })
+        let style = section.style
+        section.style["display"] = .string("none")
+        try assertRefused(bench, reason: "hidden ancestor")
+        section.style = style
+
+        p.focusNode(bench)
+
+        waitFor("programmatic focus mounts and reveals the target row and its action") {
+            bench.field?.isFirstResponder == true
+                && self.fieldsShown([bench, benchAdd], below: self.box(nav.navigationBar).maxY)
+        }
+        XCTAssertGreaterThan(list.contentOffset.y, before, "the native list scrolls to the requested field")
+        try assertReachable("bench-reps", below: box(nav.navigationBar).maxY)
+        try assertReachable("bench-add", below: box(nav.navigationBar).maxY)
+        XCTAssertEqual(p.viewport.contentOffset.y, 0, accuracy: 0.5, "the document viewport does not scroll; the list does")
+    }
+
     func testTheBarFollowsAGroupedListThatReplacesTheRoutesScrollInPlace() throws {
         let session = try fixture()
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)

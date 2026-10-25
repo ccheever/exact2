@@ -553,6 +553,28 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
     }
 
+    /// A warm deep link into a tab built earlier (Brooks): from Second, one
+    /// update selects Home and pushes Detail onto its stack, which shows
+    /// Detail, not Home's root.
+    func testATabSelectedWithAPushOntoItsStackShowsThePush() throws {
+        let session = try fixture("tabs-select-push")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 && !navigation.inTransition }
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        session.presenter.press(try node(session, "open-detail").id)
+        until("Home shows Detail") { tabs.selectedIndex == 0 && home.viewControllers.count == 2 && home.transitionCoordinator == nil && !navigation.inTransition }
+        let top = try XCTUnwrap(home.topViewController as? RouteController)
+        XCTAssertEqual(top.node.props["testId"], "route-detail")
+        XCTAssertTrue(navigation.primaryNavigation === home)
+        XCTAssertTrue(navigation.activeRoute === top)
+        XCTAssertNotNil(top.view.window, "Detail is in the window")
+        XCTAssertNil(home.viewControllers[0].viewIfLoaded?.window, "Home's root is under it")
+    }
+
     /// A native button tab's face is the runner's (`Runtime.buttonFace`), a
     /// synchronous read on the owner thread. A batch that changes nothing a
     /// tab shows reads no tab's face; one that changes a tab's text still

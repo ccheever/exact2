@@ -1,4 +1,5 @@
 import XCTest
+import PDFKit
 import WebKit
 import CoreGraphics
 @testable import ExactKit
@@ -148,27 +149,18 @@ final class WebDocumentsTests: XCTestCase {
         // iOS runs in hostless XCTest, with no UIApplication/window scene; its PDF captures are black.
         // The iOS app drive in issues/closed/20261009-app-file-iframe-loading.md qualifies pixels there.
         #if os(macOS)
-        let web = try XCTUnwrap(node.web as? WKWebView)
-        let snapshot = expectation(description: "PDF pixels")
-        let config = WKSnapshotConfiguration()
-        config.snapshotWidth = 300
-        config.afterScreenUpdates = true
-        web.takeSnapshot(with: config) { image, error in
-            XCTAssertNil(error)
-            let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-            if let cg {
-                var pixels = [UInt8](repeating: 0, count: 100 * 100 * 4)
-                let red = pixels.withUnsafeMutableBytes { bytes -> Int in
-                    let context = CGContext(data: bytes.baseAddress, width: 100, height: 100, bitsPerComponent: 8,
-                        bytesPerRow: 400, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-                    context.draw(cg, in: CGRect(x: 0, y: 0, width: 100, height: 100))
-                    return stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0] > 200 && bytes[$0 + 1] < 60 && bytes[$0 + 2] < 60 }.count
-                }
-                XCTAssertGreaterThan(red, 100, "the PDF's red rectangle must be visible")
-            } else { XCTFail("no PDF snapshot") }
-            snapshot.fulfill()
+        // An unsandboxed local PDF is PDFKit's view (LLP 1020.002 D10); the
+        // agent's picture of the frame is the arm's in-process drawing of it.
+        XCTAssertTrue(node.web is PDFView, "\(String(describing: node.web))")
+        let cg = try XCTUnwrap(session.webviews.snapshots()[node.id]?.cgImage(forProposedRect: nil, context: nil, hints: nil), "no PDF snapshot")
+        var pixels = [UInt8](repeating: 0, count: 100 * 100 * 4)
+        let red = pixels.withUnsafeMutableBytes { bytes -> Int in
+            let context = CGContext(data: bytes.baseAddress, width: 100, height: 100, bitsPerComponent: 8,
+                bytesPerRow: 400, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+            return stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0] > 200 && bytes[$0 + 1] < 60 && bytes[$0 + 2] < 60 }.count
         }
-        wait(for: [snapshot], timeout: 30)
+        XCTAssertGreaterThan(red, 100, "the PDF's red rectangle must be visible")
         #endif
         let failed = expectation(description: "missing file settles")
         node.props["src"] = "app:/data/missing.pdf"

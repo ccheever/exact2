@@ -123,6 +123,7 @@ test('production lazy host modules ignore agent storage and entropy parameters',
 
 test('Snapback mutation success types check final answers through helpers and preserve ordinary resource values', async () => {
   const {configure, check} = await import('../../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
   const root = resolve(import.meta.dir, '../..');
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const dir = mkdtempSync(resolve(root, 'target/snapback-refusals-'));
@@ -153,7 +154,7 @@ export const answer: Answer = (name) => sources[name]();
     writeFileSync(resolve(dir, '__exact_entry.ts'), "export * from './app.ts';\n");
     writeFileSync(resolve(dir, 'app.contract.d.ts'), declarations);
     writeFileSync(resolve(dir, '__exact_paths.json'), JSON.stringify({app:dir, mounts:snapback ? [['adapter',resolve(root,'snapback4/online')]] : []}));
-    configure(dir);
+    configure(dir, false, parseSync); // as build.mjs configures a stage
     return check(dir, resolve(libraries, 'tsc'), libraries);
   };
   try {

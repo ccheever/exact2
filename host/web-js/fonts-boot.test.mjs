@@ -105,7 +105,9 @@ test('every declared face starts loading before the first render, which waits fo
       ctx.font = `${s.fontWeight} ${s.fontSize} system-ui`;
       return { ...__fonts, shown: range.getBoundingClientRect().width, face, fallback: ctx.measureText(el.textContent).width };
     });
-    expect(quick.loads.map(l => l.weight).sort()).toEqual(['400', '600', '700']);
+    // One variable file pinned at 400, 600 and 700 is one face over 400–700
+    // (LLP 1019 D2, bafdeea824): loaded once.
+    expect(quick.loads.map(l => l.weight).sort()).toEqual(['400 700']);
     // Each face loaded before the first node, and the word is drawn in it;
     // or the 100 ms ran out first (a busy machine), and the first node waited
     // for them.

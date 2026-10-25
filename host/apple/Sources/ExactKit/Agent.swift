@@ -216,7 +216,8 @@ public final class Agent {
             // A picker's answer is delivered once the library took it (LLP 1069.002 D9).
             session.picker.answered(answer, request: req)
             session.picker.saveAnswered(answer, request: req)
-            session.picker.documentAnswered(answer, request: req)
+            // An iframe guest's `open-file` and `save-file` are the arm's, not a document picker's (LLP 1020.002 §10).
+            if !session.webviews.answered(answer, request: req) { session.picker.documentAnswered(answer, request: req) }
             ShareSheet.answered(answer, in: session)
             listedAnswered(answer)
             Agent.reply(tagged(answer))

@@ -959,6 +959,7 @@ private let moduleCreate: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeM
     let data = json.map { Data(bytes: $0, count: Int(length)) } ?? Data()
     let object = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     let instance = exactModule.init(context: ExactModuleContext(json: object, host: host, changed: changed, now: now))
+    ExactExtensions.created(instance)
     return Unmanaged.passRetained(instance).toOpaque()
 }
 

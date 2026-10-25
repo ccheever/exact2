@@ -404,10 +404,18 @@ package final class TextArea: UITextView {
         super.draw(rect)
         decorations?.drawLines(in: self)
         if text.isEmpty, !placeholder.isEmpty {
-            (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
+            // Where the first line of text sits, however short the content
+            // box: what overflows the view is clipped, as the web clips a
+            // textarea's placeholder at its padding box. `draw(in:)` drops a
+            // line its rect cannot hold whole, so a short box drew nothing.
+            let box = bounds.inset(by: textContainerInset)
+            var attributes: [NSAttributedString.Key: Any] = [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
                 .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
-            ])
+            ]
+            attributes[.paragraphStyle] = typingAttributes[.paragraphStyle]
+            (placeholder as NSString).draw(with: CGRect(x: box.minX, y: box.minY, width: max(0, box.width), height: .greatestFiniteMagnitude),
+                                           options: .usesLineFragmentOrigin, attributes: attributes, context: nil)
         }
     }
 }
