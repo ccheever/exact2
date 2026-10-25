@@ -990,14 +990,9 @@ impl Loader<'_> {
         let mut taken: HashSet<(Kind, String)> = HashSet::new();
         // Each file's local bindings: another file's `fn` or shape of one of
         // these names is renamed, or the binding's calls would reach it. A
-        // members file's bindings are its listing file's own here, as they
-        // are once pasted in (LLP 1091.002 D4).
+        // members block's are its listing file's (LLP 1091.002 D4).
         let listed = self.listed_by();
-        let bound: Vec<HashSet<String>> = self
-            .units
-            .iter()
-            .map(|unit| contract_syntax::scope::bindings(&mut unit.file.clone()))
-            .collect();
+        let (bound, in_blocks) = self.bindings_by_file();
         let called: Vec<HashSet<String>> = self
             .units
             .iter()
@@ -1063,15 +1058,17 @@ impl Loader<'_> {
                                 || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
                                 || bound.iter().enumerate().any(|(other, names)| {
-                                    other != index
-                                        && listed[other] != Some(index)
-                                        && names.contains(name)
+                                    other != index && names.contains(name)
+                                })
+                                || in_blocks.iter().enumerate().any(|(other, names)| {
+                                    listed[other] != Some(index) && names.contains(name)
                                 }))
                     };
                     // A generated name is no binding's in any file either, or
                     // the binding's calls (in its own file too) would reach it.
                     let bound_anywhere = |unique: &str| {
-                        unique != name && bound.iter().any(|names| names.contains(unique))
+                        let mut all = bound.iter().chain(&in_blocks);
+                        unique != name && all.any(|names| names.contains(unique))
                     };
                     while taken.contains(&(kind, unique.clone()))
                         || roster(&unique)
