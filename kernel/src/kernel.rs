@@ -37,7 +37,7 @@ mod trim;
 mod wide;
 
 pub(crate) use block::{apply as apply_block, publication_start, Blocks};
-pub use block::{BlockAxis, HostBlock};
+pub use block::{BlockAxis, BlockMeasure, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
     applied_padding as cover_padding, apply as apply_cover, chain_changed as cover_chain_changed,
@@ -1131,6 +1131,8 @@ impl std::fmt::Debug for Kernel {
 mod block_tests;
 #[cfg(test)]
 mod cover_tests;
+#[cfg(test)]
+mod measure_block_tests;
 #[cfg(test)]
 mod presented_height_tests;
 #[cfg(test)]

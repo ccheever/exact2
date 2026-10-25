@@ -10,7 +10,7 @@
 use super::*;
 
 /// What changed since the last layout that decides it.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(super) struct Changes {
     /// Each parent's children in flow before its first child-list change.
     before: IdMap<NodeId, Vec<NodeId>>,

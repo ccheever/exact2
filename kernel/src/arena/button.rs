@@ -2,6 +2,7 @@
 use super::*;
 use crate::{ButtonFaceStyle, ButtonImagePlacement, ControlKind, PressFace};
 
+#[derive(Clone)]
 pub(crate) struct ButtonInputs {
     env: crate::Env,
     neutral_tab_root: Option<f32>,
@@ -11,12 +12,14 @@ pub(crate) struct ButtonInputs {
     nodes: Vec<ButtonNode>,
 }
 
+#[derive(Clone)]
 struct ButtonNode {
     key: NodeKey,
     kind: NodeType,
     style: Rc<StyleProps>,
     props: PropList,
-    inherited: InheritedStyle,
+    // Shared, so a trial's copy of the engine tree copies a pointer.
+    inherited: std::sync::Arc<InheritedStyle>,
     paragraph: Option<ParagraphStamp>,
     /// Raster metadata changes the face without a prop or style write.
     intrinsic: Option<(f32, f32)>,
@@ -200,7 +203,7 @@ impl NodeArena {
                     kind: self.node_type(s),
                     style: self.styles[s as usize].clone(),
                     props: self.props(s).clone(),
-                    inherited: self.computed_inherited(s),
+                    inherited: std::sync::Arc::new(self.computed_inherited(s)),
                     paragraph: self.paragraph_stamp(s),
                     intrinsic: self
                         .intrinsic(s)

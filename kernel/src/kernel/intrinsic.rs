@@ -96,6 +96,14 @@ impl Kernel {
             && self.symbol_revision == Some(self.measurer.measure_revision())
     }
 
+    /// Whether the next layout would size a symbol first (`measure_symbols`
+    /// with `laid_out_only`): a new measurer or traits, or one owed outside
+    /// a box covered whole.
+    pub(crate) fn symbols_pending(&self) -> bool {
+        Some(self.measurer.measure_revision()) != self.symbol_revision
+            || (self.arena.symbols_owed.iter()).any(|slot| !covered_whole(&self.arena, slot))
+    }
+
     /// Measure the symbols owed a measurement. A system symbol's natural size
     /// depends only on its role, its font and the traits its host measures
     /// under, so the kernel asks the host's measurer for it before laying out
