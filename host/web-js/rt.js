@@ -1,4 +1,4 @@
-import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js";
+import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
@@ -300,7 +300,7 @@ export function every(ms, action, once, name) {
 // agent's seekable clock, a virtual frame every 1000/60 ms after it last fired.
 // The kth virtual frame after `base`, the product first, as the runner's
 // `virtual_frame`: sixty frames are exactly a second.
-const vf = (base, k) => base + k * 1000 / 60;
+const vf = (base, k) => base + k * 1000 / 60; Object.assign(Link, { clock, every, commit, journal }); // (for lazy chunks: rt-link.js)
 /** `every(frame, action)`. */
 export function frames(action, name) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action, name, i: Order++ }); Tasks.push(clock.timers.at(-1));

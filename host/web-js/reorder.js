@@ -6,7 +6,8 @@
 // by the motion piece when a plan has a reorder drag, so a list without one
 // carries none of it.
 import { inertAncestor } from './navigation.js';
-import { clock, every, commit, journal } from "./rt.js";
+import { rt } from "./rt-link.js"; // (rt.js's own, as a lazy chunk takes them: rt-link.js)
+const { clock, every, commit, journal } = rt;
 import { dragTarget } from './drag-target.js';
 
 // The runner's journal line (rt.js `say`).
