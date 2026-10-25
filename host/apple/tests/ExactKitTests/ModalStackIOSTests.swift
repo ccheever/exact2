@@ -3,9 +3,9 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A sheet over a sheet (LLP 1075.003 §9, LLP 1035.003 D5): the native
-/// fixture's menu pushed over its Sheet route waits for Sheet's
-/// presentation, and the agent's wait after an input waits with it.
+/// Sheets and their navigation stacks (LLP 1075.003 §9, LLP 1035.003 D5):
+/// a second sheet waits for the first presentation, and Back inside a sheet
+/// preserves the background stack.
 final class ModalStackIOSTests: XCTestCase {
     private var window: UIWindow?
     private var host: UIViewController?
@@ -28,24 +28,24 @@ final class ModalStackIOSTests: XCTestCase {
         XCTAssertTrue(done(), what)
     }
 
-    /// The native fixture booted in a window of the test host's scene: UIKit
+    /// A fixture booted in a window of the test host's scene: UIKit
     /// presents a sheet only from a window a scene holds.
-    private func fixture(_ label: String) throws -> ExactSession {
+    private func fixture(_ label: String, plan: String = "EXACT_FIXTURE_PLAN", fullScreen: Bool = false) throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[plan], "build.mjs --test --ios compiles the fixture's plan")))
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.frame = fullScreen ? window.screen.bounds : CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         self.window = window
         self.host = host
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
@@ -65,6 +65,62 @@ final class ModalStackIOSTests: XCTestCase {
     /// The controllers presented over the fixture, bottom first.
     private func presented() -> [UIViewController] {
         Array(sequence(first: host?.presentedViewController, next: { $0?.presentedViewController }).compactMap { $0 })
+    }
+
+    /// Exercise UIKit's animated Back transition; the smoke also taps its actual control.
+    func testBackUsesThePresentedStackAndKeepsTheBackgroundStack() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "the secondary navigation stack uses UIKit's presented sheet")
+        }
+        let session = try fixture("secondary-navigation", plan: "EXACT_PUSHED_TITLE_PLAN", fullScreen: true)
+        let p = session.presenter, agent = Agent(session: session)
+        try press(session, "home-open-inline")
+        until("the background stack settles") { !agent.nativeInFlight() }
+        let primary = try XCTUnwrap(p.navigation.primaryNavigation)
+        let background = primary.viewControllers
+        XCTAssertEqual(background.count, 2)
+        let backgroundBack = try XCTUnwrap(p.navigation.observation()["nativeBack"] as? String)
+        try press(session, "inline-open-sheet")
+        until("the sheet's own navigation settles") { p.navigation.modalNavigation != nil && !agent.nativeInFlight() }
+        let secondary = try XCTUnwrap(p.navigation.modalNavigation)
+        XCTAssertEqual(secondary.viewControllers.count, 1)
+        XCTAssertNil(p.navigation.observation()["nativeBack"] as? String, "the sheet's root cannot target Back behind it")
+        try press(session, "sheet-open-long")
+        until("the secondary push settles") { secondary.viewControllers.count == 2 && !agent.nativeInFlight() }
+        let longKey = try XCTUnwrap((secondary.topViewController as? RouteController)?.key)
+        let sheetKey = try XCTUnwrap((secondary.viewControllers.first as? RouteController)?.key)
+        let secondaryBack = try XCTUnwrap(p.navigation.observation()["nativeBack"] as? String)
+        XCTAssertEqual(secondaryBack, secondary.view.accessibilityIdentifier)
+        XCTAssertNotEqual(secondaryBack, backgroundBack)
+        let scroll = try XCTUnwrap(try node(session, "long-scroll").scroll)
+        scroll.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
+        let offset = scroll.contentOffset
+        XCTAssertGreaterThan(offset.y, 0)
+        try press(session, "long-open-edit")
+        until("the secondary editor settles") { secondary.viewControllers.count == 3 && !agent.nativeInFlight() }
+        let editor = try node(session, "edit-draft")
+        XCTAssertTrue(editor.field?.isFirstResponder == true)
+        XCTAssertNil(agent.type(["id": Int(editor.id), "text": "Secondary draft"])["error"])
+        _ = secondary.popViewController(animated: true)
+        XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
+        until("Back returns within the sheet") { secondary.viewControllers.count == 2 && p.navigation.selectedKey == longKey && !agent.nativeInFlight() }
+        XCTAssertTrue(p.navigation.modalNavigation === secondary)
+        XCTAssertNotNil(secondary.view.window)
+        let restoredScroll = try XCTUnwrap(try node(session, "long-scroll").scroll)
+        XCTAssertEqual(restoredScroll.contentOffset.y, offset.y, accuracy: 0.5)
+        XCTAssertEqual(primary.viewControllers, background)
+        let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any])
+        XCTAssertEqual((state["slots"] as? [String: Any])?["query"] as? String, "Secondary draft")
+        _ = secondary.popViewController(animated: true)
+        XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
+        until("the sheet returns to its root") { secondary.viewControllers.count == 1 && p.navigation.selectedKey == sheetKey && !agent.nativeInFlight() }
+        XCTAssertEqual(p.navigation.selectedKey, sheetKey, session.agent(#"{"op":"state"}"#))
+        XCTAssertNil(p.navigation.observation()["nativeBack"] as? String)
+        XCTAssertEqual(primary.viewControllers, background)
+        _ = agent.back()
+        until("the sheet dismisses") { p.navigation.modalNavigation == nil && !agent.nativeInFlight() }
+        XCTAssertEqual(primary.viewControllers, background)
+        XCTAssertEqual(p.navigation.observation()["nativeBack"] as? String, backgroundBack)
     }
 
     /// Nothing presenting: the agent's wait after an input returns at once.
