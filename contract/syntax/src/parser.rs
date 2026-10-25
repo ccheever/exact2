@@ -514,6 +514,13 @@ impl Parser {
                     }
                     file.components.push(component);
                 }
+                TokenKind::Ident(w) if w == "members" => {
+                    let block = self.members_block()?;
+                    if let Some(first) = &file.members {
+                        return duplicate("members block", &block.name, block.span, first.span);
+                    }
+                    file.members = Some(block);
+                }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
                     if let Some(e) = self.continued_expression("syntax-expected-declaration") {
@@ -522,7 +529,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, `component`, or `members`, found {}",
                         describe(other)
                     ),
                     );

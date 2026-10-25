@@ -313,7 +313,7 @@ impl<'a> Layout<'a> {
                 }
             }
         }
-        for component in &file.components {
+        for component in file.components.iter().chain(&file.members) {
             // A part's name, lifted from its node by the parser, keeps its
             // `=` tight as any attribute's (LLP 1139 D2).
             self.attributes

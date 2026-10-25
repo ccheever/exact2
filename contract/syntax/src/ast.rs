@@ -80,6 +80,9 @@ pub struct File {
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+    /// A members file's `members Name` block (LLP 1091.002 D2): members of
+    /// the component `Name`, which lists this file.
+    pub members: Option<Component>,
 }
 impl File {
     /// Describe an unknown component and the merged declarations in source order.
@@ -703,6 +706,8 @@ pub struct Component {
     pub params: crate::params::Params,
     /// Its parts and the nodes named as them (LLP 1139 D2).
     pub anatomy: crate::anatomy::Anatomy,
+    /// Its `members` lines (LLP 1091.002).
+    pub members: crate::members::Members,
     /// Where.
     pub span: Span,
 }

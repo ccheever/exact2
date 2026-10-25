@@ -26,6 +26,7 @@ pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+pub mod members;
 mod midi;
 pub mod migrate;
 mod module_decl;
