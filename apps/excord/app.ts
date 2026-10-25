@@ -87,6 +87,25 @@ const dirs: Directories = {
     return best?.color ?? '';
   },
 };
+// A role's colour as text: the colour itself where it reads on the page, else mixed toward black (light
+// mode) or white (dark) just far enough for WCAG's 4.5:1, so a pale role on white and a dark one on
+// black stay readable, as a name in its own colour must be.
+function legible(rgb: number): string {
+  const channel = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const luminance = (c: number[]) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2]);
+  const contrast = (a: number[], b: number[]) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const base = [rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255];
+  const toward = (ground: number[], target: number[]) => {
+    for (let t = 0; t <= 1; t += 0.05) {
+      const c = base.map((v, i) => Math.round(v + (target[i] - v) * t));
+      if (contrast(c, ground) >= 4.5) return c;
+    }
+    return target;
+  };
+  const hex = (c: number[]) => `#${c.map(v => v.toString(16).padStart(2, '0')).join('')}`;
+  return `light-dark(${hex(toward([255, 255, 255], [0, 0, 0]))}, ${hex(toward([28, 28, 30], [255, 255, 255]))})`;
+}
+
 // Each guild's coloured roles by id, kept while the guild's role array is the same object (the store
 // replaces it on any role change).
 const colorCache = new WeakMap<object, Map<string, { position: number; color: string }>>();
@@ -96,7 +115,7 @@ function roleColors(roles: Record<string, any>[]): Map<string, { position: numbe
     found = new Map();
     for (const r of roles) {
       const color = Number(r.colors?.primary_color ?? r.color ?? 0);
-      if (color > 0) found.set(String(r.id), { position: Number(r.position ?? 0), color: `#${(color & 0xffffff).toString(16).padStart(6, '0')}` });
+      if (color > 0) found.set(String(r.id), { position: Number(r.position ?? 0), color: legible(color) });
     }
     colorCache.set(roles, found);
   }
@@ -207,7 +226,7 @@ function profileOf(channel: string, userId: string, messageId: string): Result<'
   const roles = ((guild?.roles ?? []) as Record<string, any>[]).filter(r => held.includes(String(r.id)))
     .sort((a, b) => Number(b.position ?? 0) - Number(a.position ?? 0))
     .map(r => { const color = Number(r.colors?.primary_color ?? r.color ?? 0);
-      return { id: String(r.id), name: String(r.name ?? ''), color: color ? `#${(color & 0xffffff).toString(16).padStart(6, '0')}` : '' }; });
+      return { id: String(r.id), name: String(r.name ?? ''), color: color ? legible(color & 0xffffff) : '' }; });
   return { id: userId, name: u.global_name || u.username || userId, handle: u.username ?? '', avatar: avatarUrl(live.origins.cdn, u),
     bot: u.bot === true, color: roles.find(r => r.color)?.color ?? '', roles };
 }
