@@ -41,10 +41,10 @@ component CitationCommentLayer
   derive tooLong = draft.length > 8000
   derive below = citationPopoverBelow(chip, citationPopoverHeight(tooLong), viewportHeight)
   action keys(k: string, e: KeyboardEvent)
-    if k == "Escape"
+    if k == "Escape" and not e.isComposing
       preventDefault()
       cancel()
-    else if k == "Enter" and not e.shiftKey
+    else if k == "Enter" and not e.shiftKey and not e.isComposing
       preventDefault()
       if not tooLong
         save(e.metaKey or e.ctrlKey)

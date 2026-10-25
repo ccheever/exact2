@@ -570,9 +570,12 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   as they are typed, owns ⌘B/⌘I (`format`), and keeps native undo. The app reads the source
   selection from its `beforeinput`, `input` and `selectionchange`, and edits it only with
   `setRangeText` (one undo step each) and `setSelectionRange`: completions, draft history, the
-  code language picker, citations and Enter/Tab/paste in code. References and code languages are
-  ordinary controls beside the field. Plain and literal answers stay ordinary textareas. The
-  editor does not draw app-supplied highlights or atomic chips; references stay source text.
+  code language picker, citations and Enter/Tab/paste in code. A reference (a file link or `@path`,
+  a `$skill`, a citation, a context reference) is an atom of the editor (LLP 1045.000): its pill
+  shows the label, glyph and tooltip `composerChips` gives its source, the editor keeps the caret
+  out of it and deletes it whole, a copy takes its source, and a press opens it, anchored at the
+  pill. Code languages are ordinary controls beside the field. Plain and literal answers stay
+  ordinary textareas.
 
 Differences that belong to the app:
 
@@ -677,15 +680,21 @@ above.
   JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
   floating preview works.
 - No development web view inspection on Android: the clone does not run on Android yet.
-- A citation or an attached file is a link label in the composer and a chip in the References row
-  below it, not the reference's inline chip: the Markdown editor has no atomic links. The app still
-  treats each reference as one unit, as the chip is: Backspace or Delete at it (⌃H and ⌃D too)
-  removes all of its source in one undo step, and ⌥ takes the spaces between as well; a caret put
-  inside it moves to the nearer edge of its shown label; a selection that cuts it takes it whole,
-  so a cut or copy does too; an unmodified ← or → at its edge steps over it; text typed,
-  pasted or dropped inside it goes after it; and text put over a selection that holds it
-  replaces the whole selection, its hidden destination included. A citation is known by its
-  `t3-citation:` destination, whatever its label reads.
+- A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
+  colours, with the platform's padding and radius and no border; its glyph is the nearest SF
+  Symbol (a document for any file, not its file-type icon; no project favicon or image
+  thumbnail), as the Apple editor draws only `symbol:sf/` icons; and every context reference
+  (an image, file, thread, terminal excerpt or comment) takes one look, since a kind's paint is
+  per scheme.
+- A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
+  chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
+- With Markdown formatting off a reference shows its source: the editor draws atoms only where
+  it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
+  Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
+  disables rich syntax.
+- A character typed right after a mention or a skill makes its source longer, and deleting the
+  space after one makes it text again; the reference keeps the chip until its document is
+  rebuilt (LLP 1045.000 §6).
 - Edit › Paste as Text chosen with the pointer is a Paste: no key comes before it to arm the
   composer, where the reference's menu item arms it over IPC before pasting. Its ⇧⌘V is Paste as Text.
 - A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The

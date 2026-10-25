@@ -7,9 +7,8 @@ use ComposerFooter from "./composer-controls.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use PromptLengthValidation from "./composer-editor.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
-use ComposerRichView from "./composer-rich.contract"
+use ComposerRichView, citation, context, file, mention, skill, composerAtomFace from "./composer-rich.contract"
 use ComposerCodeHeaders from "./composer-code-headers.contract"
-use ComposerChipControls from "./composer-chip-controls.contract"
 
 // T3's ChatComposer: the composer card, its toolbar controls (ComposerControl.tsx
 // "sm"), the send/stop actions (ComposerPrimaryActions.tsx) and the traits and
@@ -79,6 +78,8 @@ component ComposerCard
     composerKeyReleased: action
     // A copy or cut of the prompt's selection: its image and file chips are held for a paste into another draft.
     composerCopied: action
+    // A press on a reference's pill (app.contract composerChipPress).
+    composerChipPress: action
     // A drop, a paste or Attach files (app.contract attachFiles, composer-controls-attach.ts).
     attachFiles: action
   props
@@ -109,6 +110,7 @@ component ComposerCard
     contextOver: bool
     // Signed URLs for the queued edit's kept images.
     urls: AttachmentUrl[]
+  derive faces = richComposer.chips.map((c) => composerAtomFace(c))
   derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
   derive restingChip = data.composer.compactTokens != "" and not (data.composer.canResume and not sendable) and data.composer.queueEditing == ""
   // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
@@ -138,6 +140,8 @@ component ComposerCard
     write(value, e)
   action richCopied
     composerCopied()
+  action richAtom(e: AtomEvent)
+    composerChipPress("composer", richComposerOwner, text, composerFieldInputSerial, e.start, e.end, e.source, e.kind == "citation" and e.altKey)
   action richBlurred
     pasteAsTextUntil = 0
     onBlur()
@@ -200,9 +204,13 @@ component ComposerCard
           box position="relative" width="100%" id="composer-field-wrap"
             if text == ""
               text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717abf, #818181bf)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
-            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup=(richComposer.mode == "rich" ? "markdown" : "none") selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+            if richComposer.mode == "rich"
+              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces atompress=richAtom selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+            else
+              // With Markdown formatting off the field is plain source: the editor draws atoms only where it styles Markdown
+              // (LLP 1045.000 D3), so a reference shows its source there. A literal answer has no chips (the reference's too).
+              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
         ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text, resting=resting)
-        ComposerChipControls(source=richComposer, owner=richComposerOwner, value=text, serial=composerFieldInputSerial, surface="composer", size=data.look.promptSize, family=data.look.promptFont)
       // The prompt editor (composer-editor.contract): the length line.
       if composerIntentNotice != ""
         text composerIntentNotice role="status" padding="0.5rem 1rem" testId="composer-intent-notice"
