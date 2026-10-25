@@ -100,10 +100,10 @@ export const upstream = (url, init = {}) => {
 
 /** A design server's `{app, epoch}` at `origin`, as `tamber tool` probes it: `{answer}` (`{app: null}` from a server
  * with no design server), `{wait}` while there is no answer yet (`'listening'`: refused, a dev loop still on its first
- * build; `'starting'`: it listens, but its token or hello timed out, its design server starting), or `{failed}`. A
+ * build, or reset, one restarting under the request; `'starting'`: it listens, but its token or hello timed out, its design server starting), or `{failed}`. A
  * token probe that times out is tried again, `tries` in all (a loaded dev loop answers late). */
 export async function probeTool(origin, tries = 1) {
-  const why = e => (e?.name === 'TimeoutError' ? { wait: 'starting' } : e?.code === 'ConnectionRefused' || e?.code === 'ECONNREFUSED' || e?.cause?.code === 'ECONNREFUSED' ? { wait: 'listening' } : { failed: true });
+  const why = e => (e?.name === 'TimeoutError' ? { wait: 'starting' } : ['ConnectionRefused', 'ECONNREFUSED', 'ECONNRESET'].includes(e?.code ?? e?.cause?.code) ? { wait: 'listening' } : { failed: true });
   let got;
   try { for (let i = 1; !got; i++) try { got = await upstream(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; } } catch (e) { return why(e); }
   if (!got.ok) return { answer: { app: null } };
@@ -112,7 +112,7 @@ export async function probeTool(origin, tries = 1) {
     // (Held while its design server starts: a dev loop's first compiler build.)
     const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json();
     return { answer: { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null } };
-  } catch (e) { return why(e); } // (refused now: it stopped listening between the two, a loop restarting)
+  } catch (e) { return why(e); } // (refused or reset now: it stopped between the two, a loop restarting)
 }
 
 /** `probe()` again every `everyMs` while it says `{wait}` (`tamber tool --via` while the dev loop starts, the design
