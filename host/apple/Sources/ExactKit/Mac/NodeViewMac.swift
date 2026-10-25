@@ -747,6 +747,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     package override func hitTest(_ point: NSPoint) -> NSView? {
+        // A plain leaf or clipped box cannot hit beyond its frame. Visible
+        // overflow and transformed or placed children still need the full walk.
+        if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
+           plane == nil { return nil }
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
