@@ -69,7 +69,7 @@ test('store rows supply the transcript identity, author, clock and declared fiel
     isNew: false, media: [], embeds: [], reactions: [], reply: [] });
   expect(second).toMatchObject({ author: 'buildbot', color: '#e67e22', bot: true, mine: false,
     at: NOW + 1000, prevAt: NOW, grouped: false });
-  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'system']);
+  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'system']);
   expect(f.render(f.row(m.id))).toBe(first);
   // A role's new colour redraws its holders' rows.
   S.applyDispatch(f.store, 'GUILD_ROLE_UPDATE', { guild_id: gid, role: { id: role, name: 'Maintainers', color: 0x112233,

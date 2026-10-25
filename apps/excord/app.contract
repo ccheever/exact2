@@ -111,6 +111,8 @@ component Excord
   state aimedAuthor = ""
   state hoverKey = ""
   state composing = false
+  // Files picked for the next send: their copies under app:/tmp/picked.
+  state picked: Picked[] = []
   state swipeKey = ""
   state swipeX = 0
   state dragging = false
@@ -325,6 +327,7 @@ component Excord
     replyTo = ""
     editing = ""
     editError = ""
+    picked = []
     highlight = ""
     away = false
     // A New divider only for what was unread on opening: what arrives while the
@@ -534,14 +537,15 @@ component Excord
     drafts = withDraft(drafts, open, text)
     focus("composer")
   action post
-    if draft.trim() != ""
+    if draft.trim() != "" or (picked.length > 0 and editing == "")
       if editing != ""
         savingChannel = open
         savingId = editing
         savingStash = stash
         send edited = editMessage(open, editing, draft.trim())
       else
-        send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow())
+        send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow(), picked)
+        picked = []
         replyTo = ""
         drafts = withDraft(drafts, open, "")
         if away or anchor != ""
@@ -644,6 +648,13 @@ component Excord
     send echoed = retrySend(open, key)
   action discard(key: string)
     send changed = deleteMessage(open, key)
+  action attach
+    showPicker("attach")
+  action filesPicked(files: Picked[])
+    picked = picked.concat(files).slice(0, 10)
+    focus("composer")
+  action unpick(path: string)
+    picked = picked.filter(p => p.path != path)
   action composerFocus(on: bool)
     composing = on
   action hoverRow(key: string, on: bool)
@@ -888,18 +899,6 @@ component Excord
                 button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
                   text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
             column padding="4px 12px 6px"
-              if suggestions.length > 0
-                column margin="0px 0px 6px" padding="4px 0px" border-radius=12 border="1px solid -exact-separator" background-color="-exact-background" testId="suggestions"
-                  for g in suggestions key=g.id
-                    button appearance="none" press=pick(g.text) testId=`suggest-${g.id}` aria-label=g.label
-                      row gap=10 align-items="center" padding="6px 12px" min-width=0
-                        if g.avatar != ""
-                          image g.avatar width=24 height=24 border-radius=(g.glyph == "" and g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
-                        else
-                          text g.glyph width="1.5rem" text-align="center" font="-exact-title3" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
-                        text g.label font-weight=500 flex="0 1 auto" min-width=0 line-clamp=1
-                        if g.detail != ""
-                          text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
               if replyTo != ""
                 row align-items="center" gap=8 padding="4px 4px"
                   text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
@@ -913,15 +912,45 @@ component Excord
                 if editError != ""
                   text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
               // One line of text is as tall as Send beside it, so the text sits at its middle.
-              // The field draws no ring of its own: the pill's border shows the focus.
-              row align-items="flex-end" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
-                focusin=composerFocus(true) focusout=composerFocus(false)
-                textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
-                  placeholder=(chan.guild != "" ? `Message #${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
-                  line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
-                button press=post disabled=(draft.trim() == "") buttonStyle="filled"
-                  retainFocus=true aria-label="Send" testId="send"
-                  image "symbol:send"
+              if picked.length > 0
+                scroll overflow-x="auto" overflow-y="hidden" height=88 flex-shrink=0 margin="0px 0px 6px" testId="picked"
+                  row gap=8 padding="6px 2px"
+                    for f in picked key=f.path
+                      view position="relative" flex-shrink=0
+                        if f.type.startsWith("image/")
+                          image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
+                        else
+                          column width="4.5rem" height=72 box-sizing="border-box" border-radius=8 align-items="center" justify-content="center" gap=4 padding=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
+                            image "symbol:document" width=24 height=24 color="AccentColor"
+                            text f.name font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 max-width="100%"
+                        button appearance="none" press=unpick(f.path) aria-label=`Remove ${f.name}` position="absolute" top=4 right=4 width=22 height=22 border-radius=11
+                          display="flex" align-items="center" justify-content="center" background-color="-exact-label" testId=`unpick-${f.name}`
+                          image "symbol:close" width=10 height=10 color="-exact-background"
+              if suggestions.length > 0
+                column margin="0px 0px 6px" padding="4px 0px" border-radius=12 border="1px solid -exact-separator" background-color="-exact-background" testId="suggestions"
+                  for g in suggestions key=g.id
+                    button appearance="none" press=pick(g.text) testId=`suggest-${g.id}` aria-label=g.label
+                      row gap=10 align-items="center" padding="6px 12px" min-width=0
+                        if g.avatar != ""
+                          image g.avatar width=24 height=24 border-radius=(g.glyph == "" and g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
+                        else
+                          text g.glyph width="1.5rem" text-align="center" font="-exact-title3" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
+                        text g.label font-weight=500 flex="0 1 auto" min-width=0 line-clamp=1
+                        if g.detail != ""
+                          text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
+              row align-items="flex-end" gap=8
+                input type="file" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
+                button press=attach aria-label="Add a file" testId="attach" disabled=(editing != "") margin-bottom=4
+                  image "symbol:add"
+                // The field draws no ring of its own: the pill's border shows the focus.
+                row flex=1 min-width=0 align-items="flex-end" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                  focusin=composerFocus(true) focusout=composerFocus(false)
+                  textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
+                    placeholder=(chan.guild != "" ? `Message #${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
+                    line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
+                  button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
+                    retainFocus=true aria-label="Send" testId="send"
+                    image "symbol:send"
       if viewing != ""
         for v in [viewing] key=v
           ImageViewer(src=v, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)

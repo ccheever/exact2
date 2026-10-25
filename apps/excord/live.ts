@@ -77,7 +77,9 @@ export interface Live {
   // Channels with a history page in flight: one at a time each (§2).
   paging: Set<string>;
   // Sends that failed, by nonce, so a retry knows what to post.
-  sends: Map<string, { channel: string; content: string; replyTo: string }>;
+  // A send's files are its picked copies (`app:/tmp/picked/…`), uploaded when it posts; `uploaded` keeps
+  // what an upload already gave, so a retry after the message failed does not upload again.
+  sends: Map<string, { channel: string; content: string; replyTo: string; files: Upload[]; uploaded?: rest.Uploaded[] }>;
   attempt: number;
   // The kept credentials have been read: a missing token is then signed out, not loading.
   ready: boolean;
@@ -178,6 +180,8 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
 export function touched(live: Live, channel: string): void {
   live.history.set(channel, (live.history.get(channel) ?? 0) + 1);
 }
+
+export interface Upload { path: string; name: string; type: string; size: number; width: number; height: number }
 
 export interface Snapshot {
   state: string; detail: string; me: string; meName: string; fixture: boolean; queued: number; seq: number; sidebar: number;

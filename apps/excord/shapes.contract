@@ -53,6 +53,14 @@ shape Media
   alt: string
   spoiler: bool
 
+// A file attached to a message that is not a picture: its name, its size as
+// shown ("3.1 MB") and where it downloads from.
+shape FileRef
+  id: string
+  name: string
+  size: string
+  url: string
+
 shape Embed
   id: string
   color: string
@@ -117,6 +125,7 @@ shape Message
   isNew: bool
   blocks: Block[]
   media: Media[]
+  files: FileRef[]
   embeds: Embed[]
   reactions: Reaction[]
   reply: ReplyRef[]
