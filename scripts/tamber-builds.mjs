@@ -150,7 +150,10 @@ function reportRefused(r) {
  * `hold-cleared`). `correspond(from, to, site)` is the one site of plan `to`
  * that site `site` of plan `from` is, by their source maps, or null.
  * `timers` (`{set, clear}`, a test's clock) wait out a design-only status. */
-export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
+export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, copiesFor = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
+  // Inspect mode on: the frame carries its plan's copies (tamber/1.17, `copiesFor(planDigest)`, once per plan per build:
+  // a build's new plan comes with a new registration, which sends the frame again), for `select` to walk by.
+  const onFrame = (id, seq) => { const digest = builds.get(id)?.planDigest ?? null, data = digest ? copiesFor(digest) : null; return { kind: 'inspect', on: true, seq, ...(data ? { copies: { plan: digest, data } } : {}) }; };
   const picks = new Map(); // build id -> its last selection's {plan, site, instance}, for `select` (tamber/1.16)
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
@@ -404,7 +407,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // And inspect mode as the server holds it: on when a present client
         // turned it on, else off (a page that kept it across a reconnect
         // whose owner went meanwhile leaves it).
-        if (r.capabilities?.includes('inspect')) s.write({ kind: 'inspect', on: inspectors.has(r.id), seq: inspectSeq.get(r.id) ?? 0 });
+        if (r.capabilities?.includes('inspect')) s.write(inspectors.has(r.id) ? onFrame(r.id, inspectSeq.get(r.id) ?? 0) : { kind: 'inspect', on: false, seq: inspectSeq.get(r.id) ?? 0 });
         // And its hold, where its plan still has the site (a reload).
         if (r.capabilities?.includes('hold')) replayHold(r.id, r.planDigest ?? null, true);
         announce();
@@ -436,6 +439,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if ('planDigest' in r) b.planDigest = r.planDigest ?? null;
         // A rebuild that kept its stream: its hold, under its new plan.
         if (b.planDigest && b.planDigest !== was) replayHold(b.id, b.planDigest);
+        // And, inspecting, the new plan's copies (a page that registered before its plan was known, or rebuilt on its
+        // stream): a frame of copies alone, which changes no inspect mode.
+        if (b.planDigest && b.planDigest !== was && inspectors.has(b.id)) { const data = copiesFor(b.planDigest); if (data) frame(b.id, { kind: 'inspect', copies: { plan: b.planDigest, data } }); }
         if (typeof r.design === 'string') b.design = r.design;
         tellStatus(b);
       } else if (r.kind === 'held') {
@@ -552,8 +558,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * build that can (`id` null). The builds it went to, and those that
      * cannot inspect; inspect mode is its client's, turned off when it goes
      * (`clear`). */
-    /** `client`'s selection on build `id` moved `up` call sites (tamber/1.16 `inspect` `select`): sent to the page,
-     * which selects that ancestor and reports it as a click would; refused unless `client` inspects that build. */
+    /** `client`'s selection on build `id` moved `up` copies (tamber/1.16 `inspect` `select`; 1.17 by the page's own tree
+     * and the plan's copies it was sent): sent to the page, which selects that ancestor and reports it as a click would,
+     * with `moved`; refused unless `client` inspects that build. */
     selectUp(client, id, up, { levels, plan, from, instance }) {
       sweep();
       if (!listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
@@ -573,7 +580,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       const owners = new Map(inspectors);
       for (const t of can) {
         if (refresh) frame(t, { kind: 'inspect', refresh: true });
-        else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, { kind: 'inspect', on: !!on, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
+        else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, on ? onFrame(t, seq) : { kind: 'inspect', on: false, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
       }
       // Off everywhere is off on a build of this client's that is away too:
       // its registration is told off, not replayed on.
@@ -779,11 +786,10 @@ export function selectRequest(channel, request, sitesOf) {
   const up = request.select?.up;
   if (!Number.isSafeInteger(up) || up < 1 || up > 64) return { status: 400, error: { message: '`select` is `{up: n}`, n a whole number from 1 to 64' } };
   if (typeof request.build !== 'string') return { status: 400, error: { message: '`select` names the `build` whose selection moves' } };
-  // The plan sites it may land on, level by level, by the last selection's map, and the plan and site they were taken
-  // from: the page moves only that selection, under that plan, choosing by its own tree.
+  // The last selection's plan, site and instance: the page moves only that selection, under that plan, walking its own
+  // tree by the plan's copies (1.17), to the root past the last; with the 1.16 levels for a page of a build before 1.17.
   const at = sitesOf(request.build, up);
   if (!at) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
-  if (!at.levels.length) return { status: 409, error: { message: 'nothing above the selected node owns a node of its own to move to' } };
   const done = channel.selectUp(request.client, request.build, up, at);
   return done.error ? { status: 409, error: { message: done.error, ...(done.stale ? { stale: true } : {}) } } : { ok: done };
 }

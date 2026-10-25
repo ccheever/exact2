@@ -289,6 +289,10 @@ shape Inspected
   source: string
   // Each call site above it, innermost first, and how many up it is (tamber/1.16 `inspect` `select`).
   chain: ChainLink[]
+  // A `select`'s move that landed here (tamber/1.17 `moved`): the up asked and the steps its page took (fewer only at
+  // the root), -1 for none.
+  movedUp: number
+  movedStepped: number
   // The grid column of the branch that won for it (its modes and scheme),
   // and that column's place, whole (every axis's value, the scheme).
   modes: string

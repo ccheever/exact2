@@ -409,7 +409,9 @@ const asBase = b => (b?.origin ? b : null);
 /** A build's selection joined to source, for the `selection` event, from
  * `map` (null when the build's map is not here). */
 export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map(), app = null, own = null } = {}) {
-  const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
+  // A selection a `select` moved says so (1.17): the `up` asked and the steps the page took, fewer only at the root.
+  const stepped = Number.isSafeInteger(selected.moved?.up) && Number.isSafeInteger(selected.moved?.stepped) ? { moved: { up: selected.moved.up, stepped: selected.moved.stepped } } : {};
+  const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...stepped, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
   // (a `library` is the map's to say, never the host report's: dropped from what the host sent)
   const rows = (selected.rows ?? []).map(bare).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
   if (!map) return { ...base, source: null, rows: rows.map(({ unread, fromSite: _site, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
@@ -639,7 +641,7 @@ export function staleMap(map, read = readFileSync, app = null) {
   return '';
 }
 
-/** The plan sites a move `n` call sites up from `site` may land on (tamber/1.16 `inspect` `select`), as levels, nearest
+/** The plan sites a move `n` call sites up from `site` may land on (tamber/1.16 `inspect` `select`, kept for a pre-1.17 page: one of 1.17 walks its tree by `copies`), as levels, nearest
  * first: the nodes of each enclosing copy from the `n`th call out to the app's own, whose call-site chain is the
  * site's with its innermost calls taken off, each level that owns a node. A page selects in the first level that has a
  * node above its selection, by its own tree: a component that only renders another, or one whose nodes are beside the
@@ -654,4 +656,38 @@ export function levelsUp(map, site, n) {
     if (found.length) levels.push(found);
   }
   return levels;
+}
+
+/** Each plan site's copy (tamber/1.17 `inspect`'s `copies`, the third hands-on pass's #4): an integer, equal for every
+ * node whose call-site chain is the same (one component call's template nodes), numbered by first appearance. A page
+ * walking up its own tree counts each new copy that owns an ancestor as one step of a `select`. Sent once per plan per
+ * build, encoded as runs: `r1:` and base64 of LEB128 varints, `[copy, run length]` pairs in site order. */
+export function copiesOf(map) {
+  const ids = new Map(), runs = [];
+  let last = -1, length = 0;
+  for (const node of map?.nodes ?? []) {
+    const key = (node?.chain ?? []).map(c => `${c.file}:${c.line}:${c.col}`).join('>');
+    let id = ids.get(key);
+    if (id === undefined) ids.set(key, (id = ids.size));
+    if (id === last) length++;
+    else { if (length) runs.push(last, length); last = id; length = 1; }
+  }
+  if (length) runs.push(last, length);
+  const bytes = [];
+  for (let v of runs) { do { const b = v & 127; v = Math.floor(v / 128); bytes.push(v ? b | 128 : b); } while (v); }
+  return `r1:${Buffer.from(bytes).toString('base64')}`;
+}
+
+/** `copiesOf`'s encoding back to one copy per site (the pages' decoders, host/web-js/inspect-dev.js, host/web/dev.js
+ * and Inspect.swift, read it alike); null for an encoding it does not know. */
+export function decodeCopies(text) {
+  if (typeof text !== 'string' || !text.startsWith('r1:')) return null;
+  const bytes = Buffer.from(text.slice(3), 'base64'), values = [];
+  for (let i = 0, v = 0, scale = 1; i < bytes.length; i++) {
+    v += (bytes[i] & 127) * scale;
+    if (bytes[i] & 128) scale *= 128; else { values.push(v); v = 0; scale = 1; }
+  }
+  const out = [];
+  for (let i = 0; i + 1 < values.length; i += 2) for (let n = 0; n < values[i + 1]; n++) out.push(values[i]);
+  return out;
 }
