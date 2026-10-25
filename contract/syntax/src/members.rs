@@ -68,9 +68,12 @@ pub struct Members {
 }
 
 /// A refusal the parser cannot decide in a file that is part of a component
-/// across files: whether a method's name (`trim`) is an action of the
-/// component, which another of its files may declare (LLP 1116.015 D2,
-/// 1116.016 D2). The loader decides it once the component is whole.
+/// across files: whether a method's name (`trim`) is an action, which another
+/// of the component's files may declare (LLP 1116.015 D2, 1116.016 D2). The
+/// loader decides it once the component is whole, as the parser would in the
+/// one file the members are pasted into: against the actions of every
+/// component of the file that lists the block, for a call in a block, or of
+/// this file, for a call in a file that lists members files.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Deferred {
     /// The method's name.
@@ -79,6 +82,8 @@ pub struct Deferred {
     /// name (a method call it would capture), rather than when it has none
     /// (a free call that is no action's).
     pub if_action: bool,
+    /// Whether the call is in a members block.
+    pub in_block: bool,
     /// The refusal.
     pub error: SyntaxError,
 }

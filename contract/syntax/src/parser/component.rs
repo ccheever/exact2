@@ -22,6 +22,8 @@ impl Parser {
     fn component_body(&mut self, keyword: &'static str) -> R<Component> {
         let block = keyword == "members";
         let span = self.expect_word(keyword)?;
+        // Reset with each top-level declaration.
+        self.in_block = block;
         let name = self.named_ident(span)?;
         self.newline()?;
         let mut c = Component {

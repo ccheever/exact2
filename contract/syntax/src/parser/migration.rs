@@ -14,6 +14,7 @@ impl Parser {
             last: 0,
             free: Vec::new(),
             methods: Vec::new(),
+            in_block: false,
             retired: Vec::new(),
             edits: Vec::new(),
             recover: false,
