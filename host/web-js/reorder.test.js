@@ -13,7 +13,7 @@ test('idle Arrange reconciliation and reset tolerate a collection controller tha
 });
 
 const clock = { now: 0, timers: [] };
-mock.module('./rt.js', () => ({ clock, journal: [], commit(action, what, finished) { const result = action(); finished?.(true); return result; }, every(ms, action) { clock.timers.push({ due: clock.now + ms, action }); } }));
+mock.module('./rt-link.js', () => ({ rt: { clock, journal: [], commit(action, what, finished) { const result = action(); finished?.(true); return result; }, every(ms, action) { clock.timers.push({ due: clock.now + ms, action }); } } })); // (reorder.js takes the runtime's objects there: rt-link.js)
 mock.module('./navigation.js', () => import('../web/navigation.js'));
 const { install } = await import('./reorder.js');
 
