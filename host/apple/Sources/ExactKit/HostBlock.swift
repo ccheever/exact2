@@ -6,14 +6,17 @@ import CExact
 
 /// The containing block a native container gives one subtree, in points.
 struct HostBlock: Equatable {
-    /// One axis: a size, a maximum, or a limit for automatic content fitting.
+    /// One axis: a size, a maximum, a limit for automatic content fitting, or
+    /// the region a `position-area` option places the box in (fit-content
+    /// across, min-content winning; its content's height down).
     enum Axis: Equatable {
-        case size(CGFloat), atMost(CGFloat), fit(CGFloat)
+        case size(CGFloat), atMost(CGFloat), fit(CGFloat), region(CGFloat)
         fileprivate var wire: (length: CGFloat, policy: CGFloat) {
             switch self {
             case .size(let length): (length, 0)
             case .atMost(let length): (length, 1)
             case .fit(let length): (length, 2)
+            case .region(let length): (length, 3)
             }
         }
     }
@@ -24,6 +27,8 @@ struct HostBlock: Equatable {
     static func atMost(_ size: CGSize) -> HostBlock { HostBlock(width: .atMost(size.width), height: .atMost(size.height)) }
     /// A modal route fits an automatic size; its authored size and minimum win.
     static func fit(_ size: CGSize) -> HostBlock { HostBlock(width: .fit(size.width), height: .fit(size.height)) }
+    /// A popover's position-area option (`PositionArea.place`).
+    static func region(_ size: CGSize) -> HostBlock { HostBlock(width: .region(size.width), height: .region(size.height)) }
 }
 
 /// Where a host shows a block in place (LLP 1123 D2): its rectangle in the
@@ -65,6 +70,24 @@ extension Runtime {
                 append([view, placement.contentOffset == nil ? 6 : 13] + [r.minX, r.minY, r.width, r.height].map { Float($0).bitPattern } + [placement.within] + [offset.x, offset.y].map { Float($0).bitPattern })
             }
             return read(exact_host_covers(rt, write(bytes)))
+        }
+    }
+}
+
+extension Runtime {
+    /// What `view`'s subtree would measure in `block`, its border box and
+    /// margins as that layout resolves them (`exact_measure_block`, a trial
+    /// layout): nothing is laid out or sent, so a host can weigh several
+    /// blocks for one box; nil when refused (a view that holds no block).
+    func measureBlock(_ view: UInt32, in block: HostBlock) -> PositionArea.Measured? {
+        return on(busy: nil) {
+            let width = block.width.wire, height = block.height.wire
+            let len = exact_measure_block(rt, view, Float(width.length), Float(height.length), UInt32(width.policy), UInt32(height.policy))
+            guard len == 24 else { return nil }
+            guard let out = UnsafeRawPointer(exact_out(rt)) else { return nil }
+            let f = { (i: Int) in CGFloat(Float(bitPattern: UInt32(littleEndian: out.loadUnaligned(fromByteOffset: 4 * i, as: UInt32.self)))) }
+            return PositionArea.Measured(size: CGSize(width: f(0), height: f(1)),
+                                         margins: PositionArea.Margins(top: f(2), right: f(3), bottom: f(4), left: f(5)))
         }
     }
 }

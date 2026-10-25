@@ -917,6 +917,8 @@ package final class Presenter {
     /// batch to finish, then goes if its view survived it.
     private var applying = false
     var isApplying: Bool { applying }
+    /// Each painted popover's region not yet told the kernel, the latest, with the view it is for (`tellRegion`).
+    var regionsUntold: [UInt32: (view: ObjectIdentifier?, block: HostBlock?)] = [:]
     private var resetting = false
     private var pendingGeometry: (() -> Void)?
 

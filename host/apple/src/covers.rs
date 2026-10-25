@@ -9,7 +9,7 @@
 //! and which split placeholders a pane shows (LLP 1116.006 D2).
 
 use super::Host;
-use exact_kernel::{GroupedMargins, HostBlock, HostCover, ViewId};
+use exact_kernel::{BlockMeasure, GroupedMargins, HostBlock, HostCover, ViewId};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Host<D> {
@@ -18,6 +18,12 @@ impl<D: DataSource> Host<D> {
     /// error.
     pub fn set_covers(&mut self, covers: &[(ViewId, Option<HostCover>)]) -> String {
         self.set_claims(covers, &[], &[], &[], &[], &[])
+    }
+
+    /// What `view`'s subtree would measure in `block` (`Kernel::measure_block`):
+    /// no layout of the page, no batch; `None` when refused.
+    pub fn measure_block(&mut self, view: ViewId, block: HostBlock) -> Option<BlockMeasure> {
+        self.runner.kernel_mut().measure_block(view, block).ok()
     }
 
     /// Several subtrees' containing blocks (`None` takes one back) under one

@@ -8,7 +8,8 @@ impl<D: DataSource> Bridge<D> {
     /// bottom) — and f32 top, right, bottom, left), one layout. And the
     /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
     /// with f32 width, height and, for each, 0 for a size, 1 for a maximum,
-    /// or 2 for a content-fit limit that an authored size may exceed;
+    /// 2 for a content-fit limit that an authored size may exceed, or 3 for a
+    /// position-area's region (`BlockAxis::Region`);
     /// kind 5 takes a block back. Kinds 6 and 13 place a block (LLP 1123 D2):
     /// f32 x, y, width, height, then the u32 containing view and f32 content
     /// offsets x and y (36 bytes). Kind 6 is a fixed allocation and ignores
@@ -51,11 +52,7 @@ impl<D: DataSource> Bridge<D> {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
                 let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
-                let axis = |length: usize, policy: usize| match edge(policy) {
-                    0.0 => exact_kernel::BlockAxis::Is(edge(length)),
-                    2.0 => exact_kernel::BlockAxis::Fit(edge(length)),
-                    _ => exact_kernel::BlockAxis::AtMost(edge(length)),
-                };
+                let axis = |length: usize, policy: usize| block_axis(edge(length), edge(policy));
                 match kind {
                     4 | 5 => {
                         let block = exact_kernel::HostBlock {
@@ -115,6 +112,31 @@ impl<D: DataSource> Bridge<D> {
             })
         };
         self.emit(out)
+    }
+
+    /// What `view`'s subtree would measure in a block (`Kernel::measure_block`,
+    /// a popover's position-area option): the border box's width and height,
+    /// then the margins, top, right, bottom and left, as the layout resolved
+    /// them, six LE f32s in the output buffer, and 24; 0 when refused. Each axis is a
+    /// length and a policy as `covers`' kind 4 takes them, 3 being a region.
+    /// No batch: nothing is laid out, published or sent.
+    pub fn measure_block(&mut self, view: u32, lengths: [f32; 2], policies: [u32; 2]) -> u32 {
+        let block = exact_kernel::HostBlock {
+            width: block_axis(lengths[0], policies[0] as f32),
+            height: block_axis(lengths[1], policies[1] as f32),
+        };
+        let used = self
+            .host
+            .as_mut()
+            .and_then(|h| h.measure_block(view, block));
+        self.output = used.map_or_else(Vec::new, |m| {
+            let [top, right, bottom, left] = m.margin;
+            [m.border.0, m.border.1, top, right, bottom, left]
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect()
+        });
+        self.output.len() as u32
     }
 
     /// Copy one current immutable region request; stale IDs return an error object.
@@ -241,5 +263,16 @@ impl<D: DataSource> Bridge<D> {
             host.scroll_into_view(view, key, block, inline)
         });
         self.emit(out)
+    }
+}
+
+/// One axis of a host block from its wire length and policy: 0 a size, 1 a
+/// maximum, 2 a content-fit limit, 3 a position-area's region.
+fn block_axis(length: f32, policy: f32) -> exact_kernel::BlockAxis {
+    match policy {
+        0.0 => exact_kernel::BlockAxis::Is(length),
+        2.0 => exact_kernel::BlockAxis::Fit(length),
+        3.0 => exact_kernel::BlockAxis::Region(length),
+        _ => exact_kernel::BlockAxis::AtMost(length),
     }
 }
