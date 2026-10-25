@@ -24,7 +24,7 @@ const reference = (id: string) => ({ message_id: id, channel_id: cid, guild_id: 
 function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
   const store = S.createStore();
   S.applyDispatch(store, 'READY', { user: me, users: [me, ada, bot], guilds: [{ id: gid, name: 'Exact Club',
-    roles: [{ id: role, name: 'Maintainers', color: 0, position: 1, permissions: '0',
+    roles: [{ id: role, name: 'Maintainers', color: 0xe67e22, position: 1, permissions: '0',
       hoist: true, managed: false, mentionable: true }], channels: [
       { id: cid, name: 'general', type: 0, last_message_id: messages.at(-1)?.id ?? null },
       { id: help, name: 'help', type: 0, last_message_id: null },
@@ -42,7 +42,11 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
     deleted: (channel, id) => S.deleted(store, channel, id),
     emoji: (id, animated) => `${cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
     avatar: u => avatarUrl(cdn, u),
-    nameColor: (_channel, roles) => roles.includes(role) ? '#e67e22' : '',
+    nameColor: (channel, roles) => {
+      const r = (S.guilds(store)[0]?.roles ?? []).find((x: { id: string }) => roles.includes(x.id));
+      return r?.color ? `#${r.color.toString(16).padStart(6, '0')}` : '';
+    },
+    roles: () => S.guilds(store)[0]?.roles,
   };
   const render = createRenderer(dirs);
   const row = (id: string) => S.message(store, cid, id)!;
@@ -67,6 +71,10 @@ test('store rows supply the transcript identity, author, clock and declared fiel
     at: NOW + 1000, prevAt: NOW, grouped: false });
   expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'system']);
   expect(f.render(f.row(m.id))).toBe(first);
+  // A role's new colour redraws its holders' rows.
+  S.applyDispatch(f.store, 'GUILD_ROLE_UPDATE', { guild_id: gid, role: { id: role, name: 'Maintainers', color: 0x112233,
+    position: 1, permissions: '0', hoist: true, managed: false, mentionable: true } }, NOW);
+  expect(f.view().rows[1].color).toBe('#112233');
 });
 
 test('Markdown becomes headings, subtext, lists, quotes, code and marked runs', () => {
@@ -80,7 +88,9 @@ test('Markdown becomes headings, subtext, lists, quotes, code and marked runs', 
   expect(row.blocks.filter(b => b.kind === 'heading').map(b => [b.level, b.runs[0].text]))
     .toEqual([[1, 'Title'], [2, 'Second'], [3, 'Third']]);
   expect(row.blocks.find(b => b.kind === 'subtext')?.runs.map(r => r.text)).toEqual(['A quiet note']);
-  expect(row.blocks.find(b => b.kind === 'code')).toMatchObject({ lang: 'rust', text: 'let n = 2;', runs: [] });
+  const code = row.blocks.find(b => b.kind === 'code')!;
+  expect(code).toMatchObject({ lang: 'rust', text: 'let n = 2;' });
+  expect(code.runs.map(r => [r.kind, r.text])).toEqual([['hl-keyword', 'let'], ['hl-plain', ' n = '], ['hl-number', '2'], ['hl-plain', ';']]);
   expect(row.blocks.filter(b => b.kind === 'item').map(b => [b.marker, b.level]))
     .toEqual([['•', 0], ['•', 1], ['', 0], ['•', 0], ['3.', 0], ['4.', 0]]);
   expect(row.blocks.filter(b => b.quote).map(b => b.runs.map(r => r.text).join('')))
@@ -110,6 +120,10 @@ test('user, channel and role mentions resolve through READY directories', () => 
   ]);
   expect(row.plain).toBe(`@Charlie Cheever @Ada #help @Maintainers @everyone @here @${missing} #unknown-channel @unknown-role`);
   expect(row.mentionsMe).toBe(true);
+  // The text an edit starts from names what the directories know, as the composer sends it back.
+  expect(row.source).toBe(`@charlie @ada #help <@&${role}> @everyone @here <@${missing}> <#${missing}> <@&${missing}>`);
+  const emoji = fixture([message(0, { content: `<:ferris:${ferris}> <a:dance:${dance}>` })]).view().rows[0];
+  expect(emoji.source).toBe(':ferris: :dance:');
 });
 
 test('mention flags count wire mentions and leave code and own wire mentions unhighlighted', () => {

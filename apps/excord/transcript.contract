@@ -8,6 +8,9 @@
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
 use Badge from "exact:content"
 
+// A code token's colour, after Xcode's default theme in the platform's palette.
+fn codeColor(kind: string): string = kind == "hl-keyword" ? "-exact-system-pink" : kind == "hl-string" ? "-exact-system-red" : kind == "hl-comment" ? "-exact-secondary-label" : kind == "hl-number" ? "-exact-system-purple" : kind == "hl-type" ? "-exact-system-teal" : kind == "hl-call" ? "-exact-system-blue" : "-exact-label"
+
 fn decoration(r: Run): string = r.underline and r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
 
 component MessageRow
@@ -29,6 +32,9 @@ component MessageRow
     swipe: action
     swipeEnd: action
     show: action
+    hovered: bool
+    hover: action
+    reply: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -47,7 +53,8 @@ component MessageRow
           image "symbol:forward" font="-exact-subheadline" color="-exact-system-green" margin-left=12
           text m.system font="-exact-subheadline" color="-exact-secondary-label" flex=1 min-width=0
       else
-        column position="relative" padding="2px 16px" testId=`row-${m.id}`
+        column position="relative" padding="2px 16px" testId=`row-${m.id}` hover=hover(m.key)
+          background-color=(hovered ? "-exact-quaternary-fill" : "transparent")
           translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
           pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-left pan-y"
           contextmenu=aim(m.key, m.id, m.mine, m.source, m.author) contextPopover="message-menu"
@@ -78,7 +85,8 @@ component MessageRow
             if leads
               image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill" aria-hidden=true
             else
-              view width="2.5rem" flex-shrink=0
+              // A pointer over a grouped message shows its time in the gutter, as Discord's desktop app does.
+              text (hovered ? formatTime(m.at, offset, "short") : "") width="2.5rem" flex-shrink=0 font="-exact-caption2" font-variant-numeric="tabular-nums" color="-exact-secondary-label" text-align="right" white-space="nowrap" padding-top=3 aria-hidden=true
             column flex=1 min-width=0 gap=4
               if leads
                 row gap=6 align-items="baseline" flex-wrap="wrap"
@@ -111,6 +119,15 @@ component MessageRow
                     text "Retry"
                   button press=discard(m.key) destructive=true testId=`discard-${m.id}`
                     text "Delete"
+          // A pointer's quick actions, at the message's top right.
+          if hovered and m.state == "sent"
+            row position="absolute" top=-14 right=16 padding=2 gap=2 border-radius=8 border="1px solid -exact-separator" background-color="-exact-background" testId=`tools-${m.id}`
+              button appearance="none" press=react(m.id, "👍") padding="4px 6px" border-radius=6 aria-label="React with thumbs up" testId=`tool-react-${m.id}`
+                text "👍"
+              button appearance="none" press=reply(m.id, m.author) padding="4px 6px" border-radius=6 aria-label="Reply" testId=`tool-reply-${m.id}`
+                image "symbol:reply" width=18 height=18 color="-exact-secondary-label"
+              button appearance="none" press=aim(m.key, m.id, m.mine, m.source, m.author) popovertarget="message-menu" padding="4px 6px" border-radius=6 aria-label="More" testId=`tool-more-${m.id}`
+                image "symbol:more" width=18 height=18 color="-exact-secondary-label"
           if swipeX > 0
             image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"
 
@@ -126,8 +143,14 @@ component BlockView
       if b.quote
         view width=4 border-radius=2 background-color="-exact-tertiary-label" margin-right=10 align-self="stretch"
       if b.kind == "code"
-        text b.text font-family="ui-monospace" font-size="0.8125rem" line-height=1.4 white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
-          padding=8 border-radius=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
+        if b.runs.length > 0
+          text font-family="ui-monospace" font-size="0.8125rem" line-height=1.4 white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
+            padding=8 border-radius=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
+            for r in b.runs key=r.id
+              text r.text color=codeColor(r.kind)
+        else
+          text b.text font-family="ui-monospace" font-size="0.8125rem" line-height=1.4 white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
+            padding=8 border-radius=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
       else
         if b.kind == "emoji"
           row gap=4 flex-wrap="wrap"
@@ -255,11 +278,14 @@ component MediaView
   view
     if i.width > 0 and i.height > 0
       view position="relative" width=i.fitWidth max-width="100%" aspect-ratio=`${i.width} / ${i.height}` border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
-        button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-          image i.src width="100%" height="100%" object-fit="cover"
+        // A spoiler opens only once revealed.
         if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
+          image i.src width="100%" height="100%" object-fit="cover" aria-hidden=true
           button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
             text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
+        else
+          button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+            image i.src width="100%" height="100%" object-fit="cover"
     else
       button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
         image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`

@@ -166,6 +166,10 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
   if ((t === 'MESSAGE_DELETE' || t === 'MESSAGE_DELETE_BULK') && d?.channel_id && !channels.has(d.channel_id)
     && S.repliesTo(store, d.channel_id, t === 'MESSAGE_DELETE' ? [d.id] : d.ids ?? [])) channels.add(d.channel_id);
   if (t === 'READY' || HISTORY.test(t)) for (const id of channels) touched(live, id);
+  // A role's colour is drawn in the names of the open channel's rows (`render.ts`).
+  if (/^GUILD_ROLE_/.test(t) && live.viewing.channel && S.channel(store, live.viewing.channel)?.guild_id === d?.guild_id) {
+    touched(live, live.viewing.channel);
+  }
   if (changed.sidebar || [...channels].some(id => id !== live.viewing.channel)) live.sidebar++;
   return { channels: [...channels], sidebar: changed.sidebar };
 }

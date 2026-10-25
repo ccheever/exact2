@@ -148,8 +148,8 @@ function rateRoute(method: string, path: string): string {
 }
 
 function readyGuild(guild: Guild) {
-  const { id, channels, roles, members, ...properties } = guild;
-  return { id, properties, channels, roles, members, joined_at: '2024-01-01T00:00:00.000Z',
+  const { id, channels, roles, members, emojis, ...properties } = guild;
+  return { id, properties, channels, roles, members, emojis, joined_at: '2024-01-01T00:00:00.000Z',
     large: false, member_count: members.length, version: 1 };
 }
 
