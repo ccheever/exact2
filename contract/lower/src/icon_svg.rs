@@ -956,4 +956,39 @@ mod tests {
             .collect();
         assert!(refused.is_empty(), "{refused:#?}");
     }
+
+    /// The in-repo packages' icon SVGs (`packages/*/assets/`) are each a
+    /// template the lint accepts, their path the file's `d`, and none is
+    /// even-odd: the ones that were (stage 14 C: ComposeFrame's three, the
+    /// Attie mark, the badges' paths) fill the same nonzero, so they are
+    /// written so, and no app using the packages takes `iconFillRules`.
+    #[test]
+    fn every_package_icon_svg_is_a_nonzero_template() {
+        let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
+        let mut seen = 0;
+        for package in std::fs::read_dir(&packages).unwrap() {
+            let Ok(files) = std::fs::read_dir(package.unwrap().path().join("assets")) else {
+                continue;
+            };
+            for file in files {
+                let path = file.unwrap().path();
+                if path.extension().is_none_or(|e| e != "svg") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                let svg = read(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                assert_eq!(svg.not_template, None, "{}", path.display());
+                assert!(!svg.even_odd, "{}", path.display());
+                // Every path's `d`, joined by `;` as the plan carries them.
+                let d: Vec<&str> = text
+                    .split(" d=\"")
+                    .skip(1)
+                    .filter_map(|t| t.split('"').next())
+                    .collect();
+                assert_eq!(svg.path, d.join(";"), "{}", path.display());
+                seen += 1;
+            }
+        }
+        assert!(seen >= 23, "{seen} package SVGs");
+    }
 }

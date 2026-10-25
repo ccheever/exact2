@@ -1,4 +1,4 @@
-use attieIcon, Name, Avatar from "./common.contract"
+use Name, Avatar from "./common.contract"
 
 // An Attie page's card (the clone's AtCard): its picture, title and
 // description, the account that made it, and "Visit site".
@@ -76,9 +76,9 @@ component AtCard
           padding-right="cards.visit-pad-inline"
           border-radius="cards.visit-corner"
           background-color="param.accent"
-          svg viewBox="0 0 24 24"
+          image "symbol:cards.attie"
             width="cards.visit-icon"
             height="cards.visit-icon"
             aria-hidden=true
-            path fill="cards.visit-ink" fill-rule="evenodd" d=attieIcon()
+            color="cards.visit-ink"
           text "Visit site" font-size="cards.small-size" font-weight=700 color="cards.visit-ink"

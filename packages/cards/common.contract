@@ -1,10 +1,6 @@
 // @exact/cards's shared pieces: what its components draw with, not
 // exported (the entry names only the components; LLP 1139 D0).
 
-// The Attie mark, an even-odd path on a 24 box (AtCard draws it). The
-// one-colour icons are the design's icon tokens (cards.tamber's `icons`).
-fn attieIcon(): string = "M14.398 2c4.502 0 8.151 3.634 8.151 8.117q0 .678-.108 1.325a5.67 5.67 0 0 1 1.507 3.855c0 8.837-23.948 8.837-23.948 0a5.68 5.68 0 0 1 1.977-4.31 5 5 0 0 1-.153-1.234c0-2.775 2.259-5.025 5.046-5.025q.67.002 1.289.166A8.15 8.15 0 0 1 14.399 2Zm-5.07 9.032a1.6 1.6 0 0 0-.46.008 1.09 1.09 0 0 1-1.628 1.414c-.137.3-.236.637-.284.997-.198 1.484.543 2.807 1.656 2.956 1.112.148 2.174-.934 2.372-2.419s-.544-2.807-1.656-2.956Zm6.008 0a1.6 1.6 0 0 0-.46.008 1.09 1.09 0 0 1-1.628 1.414c-.137.3-.236.637-.284.997-.198 1.484.544 2.807 1.656 2.956 1.112.148 2.174-.935 2.372-2.419s-.544-2.807-1.656-2.956Z"
-
 style Name
   color="cards.name"
 
@@ -37,7 +33,9 @@ component Avatar
         border-color="cards.avatar-ring"
         aria-hidden=true
 
-// A verification badge: "verified", "verifier", or "" for none.
+// A verification badge: "verified", "verifier", or "" for none. Each is two
+// one-colour icon tokens stacked, its ground in `ink` and its check in
+// `mark` (theme2's Q5), labelled on the box that holds them.
 component VerifiedBadge
   props
     badge: string
@@ -47,28 +45,22 @@ component VerifiedBadge
     mark: string
   view
     if badge == "verified"
-      svg testId="verified-badge"
+      column testId="verified-badge"
         role="img"
         aria-label="Verified"
-        viewBox="0 0 24 24"
+        position="relative"
         width=size
         height=size
         flex-shrink=0
-        circle cx=12 cy=12 r=11.5 fill=ink
-        path fill=mark
-          fill-rule="evenodd"
-          d="M17.659 8.175a1.36 1.36 0 0 1 0 1.925l-6.224 6.223a1.36 1.36 0 0 1-1.925 0L6.4 13.212a1.361 1.361 0 0 1 1.925-1.925l2.149 2.148 5.26-5.26a1.36 1.36 0 0 1 1.925 0Z"
+        image "symbol:cards.verified" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=ink
+        image "symbol:cards.verified-check" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=mark
     else if badge == "verifier"
-      svg testId="verifier-badge"
+      column testId="verifier-badge"
         role="img"
         aria-label="Trusted verifier"
-        viewBox="0 0 24 24"
+        position="relative"
         width=size
         height=size
         flex-shrink=0
-        path fill=ink
-          fill-rule="evenodd"
-          d="M8.792 1.615a4.154 4.154 0 0 1 6.416 0 4.15 4.15 0 0 0 3.146 1.515 4.154 4.154 0 0 1 4 5.017 4.15 4.15 0 0 0 .777 3.404 4.154 4.154 0 0 1-1.427 6.255 4.15 4.15 0 0 0-2.177 2.73 4.154 4.154 0 0 1-5.781 2.784 4.15 4.15 0 0 0-3.492 0 4.154 4.154 0 0 1-5.78-2.784 4.15 4.15 0 0 0-2.178-2.73A4.154 4.154 0 0 1 .87 11.551a4.15 4.15 0 0 0 .776-3.404 4.154 4.154 0 0 1 4-5.017 4.15 4.15 0 0 0 3.146-1.515Z"
-        path fill=mark
-          fill-rule="evenodd"
-          d="M17.861 8.26a1.44 1.44 0 0 1 0 2.033l-6.571 6.571a1.437 1.437 0 0 1-2.033 0L5.97 13.58a1.438 1.438 0 0 1 2.033-2.033l2.27 2.269 5.554-5.555a1.437 1.437 0 0 1 2.033 0Z"
+        image "symbol:cards.verifier" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=ink
+        image "symbol:cards.verifier-check" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=mark

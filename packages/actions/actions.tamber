@@ -121,8 +121,10 @@ theme
 // The action row's icons, as templates every host draws from the same path
 // (theme2's path-icons ruling): no `sf`, so Apple draws the path, not an SF
 // Symbol. Each SVG's `d` is the path function's it replaced, byte for byte.
-// The composer's toolbar, BarItem's and HeaderButton's icons stay paths
-// (even-odd): see docs/contract-for-agents.md and QUEUE.md.
+// The composer's three were drawn even-odd, but their holes wind against
+// their outlines, so they are written nonzero and fill the same.
+// BarItem's and HeaderButton's icons are their caller's `d`, not the
+// package's, so they stay paths (theme2's Q4).
 icons
   actions.reply = icon(svg "reply.svg")
   actions.repost = icon(svg "repost.svg")
@@ -132,3 +134,7 @@ icons
   actions.bookmark-filled = icon(svg "bookmark-filled.svg")
   actions.share = icon(svg "share.svg")
   actions.dots = icon(svg "dots.svg")
+  // ComposeFrame's toolbar.
+  actions.gallery = icon(svg "gallery.svg")
+  actions.camera = icon(svg "camera.svg")
+  actions.gif = icon(svg "gif.svg")
