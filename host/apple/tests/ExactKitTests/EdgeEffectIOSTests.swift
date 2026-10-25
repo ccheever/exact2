@@ -61,9 +61,8 @@ final class EdgeEffectIOSTests: XCTestCase {
     }
 
     /// The route's scroller, scrolled under its bar, is the one the bar's
-    /// top edge follows. In that scroller and the route's document viewport,
-    /// UIKit's edge-effect views stay at or above the content's depth and
-    /// later in `subviews`, which orders equal depths.
+    /// top edge follows. UIKit's content and document effects use the authored
+    /// soft style and draw above their content.
     private func assertEffectOverContent(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
         let session = try XCTUnwrap(self.session)
         let route = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController as? RouteController)
@@ -75,6 +74,11 @@ final class EdgeEffectIOSTests: XCTestCase {
 
         let viewport = try XCTUnwrap(route.contentViewport, file: file, line: line)
         XCTAssertTrue(viewport.documentNode === route.node, file: file, line: line)
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(sv.topEdgeEffect.style, .soft, "the content scroller keeps its authored effect", file: file, line: line)
+            XCTAssertEqual(viewport.topEdgeEffect.style, .soft, "the enclosing effect follows the authored style", file: file, line: line)
+            XCTAssertFalse(viewport.topEdgeEffect.isHidden, "UIKit keeps its enclosing effect", file: file, line: line)
+        }
         for port in [sv, viewport] {
             let rows = port.subviews.filter { $0 is NodeView }
             let content = rows.map(\.layer.zPosition).max() ?? 0
@@ -88,6 +92,27 @@ final class EdgeEffectIOSTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(view.layer.zPosition, content, "\(type(of: view)) draws over the content in \(type(of: port))", file: file, line: line)
             }
         }
+    }
+
+    func testTheEnclosingEffectFollowsContentPolicyAndResetsWithoutIt() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("scroll edge effects require iOS 26") }
+        let session = try fixture(), p = session.presenter
+        let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        let content = try XCTUnwrap(p.navigation.shownScroll(try node("content-large")))
+        let viewport = try XCTUnwrap(route.contentViewport)
+        content.topEdgeEffect.style = .hard
+        content.topEdgeEffect.isHidden = true
+        p.reachPageEdges()
+        XCTAssertEqual(viewport.topEdgeEffect.style, .hard)
+        XCTAssertTrue(viewport.topEdgeEffect.isHidden)
+        route.setContentScrollView(viewport, for: .top)
+        p.reachPageEdges()
+        XCTAssertEqual(viewport.topEdgeEffect.style, .automatic)
+        XCTAssertFalse(viewport.topEdgeEffect.isHidden)
+        route.setContentScrollView(content, for: .top)
+        p.reachPageEdges()
+        XCTAssertEqual(viewport.topEdgeEffect.style, .hard)
+        XCTAssertTrue(viewport.topEdgeEffect.isHidden)
     }
 
     func testTheEdgeEffectDrawsOverRowsUnderALargeTitle() throws {

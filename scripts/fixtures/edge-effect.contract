@@ -24,7 +24,7 @@ component EdgeEffect
               column navigationKey=`${e.id}` navigationScroll=`content-${e.name}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header
                   text (e.name == "large" ? "Large" : "Inline") role="heading" aria-level=(e.name == "large" ? 1 : 2)
-                scroll id=`content-${e.name}` testId=`content-${e.name}` flex=1 min-height=0 refresh=reload refreshing=false
+                scroll id=`content-${e.name}` testId=`content-${e.name}` -exact-scroll-edge-effect="soft" flex=1 min-height=0 refresh=reload refreshing=false
                   if e.name == "large"
                     column position="sticky" top=0 z-index=1 padding="8px 16px"
                       text "Pinned"
