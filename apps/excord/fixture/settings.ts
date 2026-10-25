@@ -17,8 +17,8 @@ const fixed64 = (id: string): number[] => {
   return Array.from({ length: 8 }, () => { const byte = Number(v & 0xffn); v >>= 8n; return byte; });
 };
 const bytes = (field: number, value: number[]): number[] => [...varint(BigInt(field << 3 | 2)), ...varint(BigInt(value.length)), ...value];
-// A wrapper message's one value, a varint in its field 1.
-const wrapped = (field: number, n: number): number[] => bytes(field, [...varint(1n << 3n), ...varint(BigInt(n))]);
+// A wrapper message's one value, a varint in its field 1, which proto3 leaves out when it is zero.
+const wrapped = (field: number, n: number): number[] => bytes(field, n ? [...varint(1n << 3n), ...varint(BigInt(n))] : []);
 
 export interface FolderSpec { ids: string[]; id?: number; name?: string; color?: number }
 export function settingsProto(folders: FolderSpec[]): string {
