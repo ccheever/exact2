@@ -680,6 +680,7 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "newwindow"
             | "download"
             | "capture"
+            | "userpromptopened"
             | "cancel"
             | "close"
             | "toggle"

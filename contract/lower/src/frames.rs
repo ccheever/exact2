@@ -9,7 +9,7 @@ use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr};
 
 /// What only an `iframe` takes.
-const FRAME_ONLY: [&str; 11] = [
+const FRAME_ONLY: [&str; 12] = [
     "partition",
     "zoom",
     "currententrychange",
@@ -18,6 +18,7 @@ const FRAME_ONLY: [&str; 11] = [
     "newwindow",
     "download",
     "capture",
+    "userpromptopened",
     "apple.allowsBackForwardNavigationGestures",
     "apple.allowsMagnification",
     "apple.inactiveSchedulingPolicy",

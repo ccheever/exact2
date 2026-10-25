@@ -526,6 +526,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "download" => AttrTarget::Handler("download"),
         // @ref LLP 1020.002 D7 — the answer to a frame's `captureScreenshot`.
         "capture" => AttrTarget::Handler("capture"),
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog.
+        "userpromptopened" => AttrTarget::Handler("userpromptopened"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
         "transformrelease" => AttrTarget::Handler("transformrelease"),

@@ -275,6 +275,12 @@ final class WebViews {
         var values: [String: Any] = ["agent": ExactEnv.agentMode, "session": sessionKey,
                                      "app": WebViews.appKey(session?.appFileRoots["data"])]
         if let partition = owner.props["partition"] { values["partition"] = partition }
+        // How `@exact/browser-automation` finds the frame: its id among the
+        // frames of the folder its session's module resolves `app:/tmp/` in (@ref LLP 1020.002 D9).
+        if let id = owner.props["id"], let session {
+            values["element"] = id
+            values["owner"] = URL(fileURLWithPath: NativeViews.roots(session: session).temporary, isDirectory: true).standardizedFileURL.path
+        }
         // Only a frame that handles `newwindow=` asks for popups and tabs (@ref LLP 1020.002 D5).
         if owner.handlers.contains("newwindow") { values["newwindow"] = true }
         if let zoom = owner.style["zoom"]?.number, zoom > 0 { values["zoom"] = zoom }

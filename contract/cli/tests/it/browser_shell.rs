@@ -1,6 +1,7 @@
 //! A browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6, §9): the accept
-//! fixture lowers its props, zoom and seven events, a host's
-//! `FrameNavigation`, `FrameNewWindow`, `FrameDownload` and `FrameCapture`
+//! fixture lowers its props, zoom and nine events, a host's
+//! `FrameNavigation`, `FrameNewWindow`, `FrameDownload`, `FrameCapture` and
+//! `FrameUserPrompt`
 //! reach an action as its record, and the frame commands reach the host by
 //! position.
 use exact_kernel::{Kernel, NodeType, PropId};
@@ -56,7 +57,8 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
             EventKind::Navigateerror,
             EventKind::Newwindow,
             EventKind::Download,
-            EventKind::Capture
+            EventKind::Capture,
+            EventKind::Userpromptopened
         ]
     );
     let event = |payload: &str| Event::of_host_kind(58, payload).unwrap();
@@ -110,6 +112,12 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
         r.slot("shot"),
         Some(&Value::str("app:/tmp/shot.png 0x0 NotSupportedError"))
     );
+    r.dispatch(
+        id,
+        event("userpromptopened\n{\"type\":\"prompt\",\"message\":\"Name?\",\"defaultValue\":\"Ada\"}"),
+    )
+    .unwrap();
+    assert_eq!(r.slot("prompted"), Some(&Value::str("prompt Name? Ada")));
     assert!(Event::of_host_kind(58, "load\n{}").is_err());
 }
 
