@@ -15,7 +15,7 @@ import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { opWords, whenText } from './optext';
-import { GONE, wire, type Reply } from './wire';
+import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
@@ -290,7 +290,7 @@ let session = 0;
 const forgotRuns = new Set<string>();
 function forget(run: string, still = false) {
   if (run && forgotRuns.has(run) && !still) return;
-  undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1;
+  undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1; reviewed.end();
   if (run) forgotRuns.add(run);
 }
 const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[], rescope: undoStack.at(-1)?.rescope?.text ?? '' });
@@ -301,7 +301,7 @@ const byWhom = (reply: Reply) => {
   const said = Object.entries(by).map(([file, who]) => `${file} was ${who === 'changed on disk' ? 'changed on disk' : `changed by ${who}`}`);
   return said.length ? said.join('; ') : '';
 };
-const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true, reviewedAt = new Map<string, Record<string, string>>(); // reviewedAt: a draft's digests as first reviewed: Apply writes against them, so another client's write since is refused by name, not silently built on (the third pass's #2)
+const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true
 
 
 // The session changeset (LLP 1122 D9): every write since the tool opened,
@@ -323,7 +323,8 @@ let changeset: Noted[] = [];
 const mine: { write: number; diff: string; redoneBy: string }[] = [];
 /** The tool's own write, as its reply says it: matched to its event, now
  * or when the event comes. */
-function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
+function wroteMine(ok: { write?: number; diff?: string; before?: Record<string, string>; files?: Record<string, string> }, redoneBy = '') {
+  reviewed.advance(ok.before, ok.files);
   if (!ok.write) return;
   const n = changeset.find(c => c.write === ok.write);
   if (n) { n.mine = true; n.diff = ok.diff ?? ''; n.redoneBy = redoneBy; } else mine.push({ write: ok.write, diff: ok.diff ?? '', redoneBy });
@@ -934,7 +935,7 @@ const sources: Sources = {
   proposeEdit: async ([file, kind, target, when, value, , , live]) => {
     const key = keyOf(file, kind, target, when, value);
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, scrubbable: false, review: '' };
-    if (!kind || !target) return idle;
+    if (!kind || !target) { reviewed.end(); return idle; }
     if (kind !== 'remove-token' && kind !== 'unset-param' && kind !== 'detach-param' && !value) return { ...idle, ok: false, error: kind.startsWith('promote') ? 'Give it a name.' : 'Give it a value.' };
     let ops = opsOf(file, kind, target, when, value), paramsAt = appParamsKey; // (the params read these ops were made from)
     if (!ops.length && kind === 'detach-param') return { ...idle, ok: false, error: 'This param is set by the app\'s design, or its default reads another param: unset it, or give it a value of its own, before detaching it.' };
@@ -951,7 +952,7 @@ const sources: Sources = {
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token).filter(t => typeof t === 'string'), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: reviewedAt.get(key) ?? (reviewedAt.clear(), reviewedAt.set(key, ok.files).get(key)), now: ok.files, diff: ok.diff, token: used, ops }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token).filter(t => typeof t === 'string'), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: reviewed.pin(key, ok.files), now: ok.files, diff: ok.diff, token: used, ops }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
@@ -967,11 +968,11 @@ const sources: Sources = {
     if (scopeNow() === 'propose') { const held = await call('/__tamber', { method: 'propose', hold: true, client, ops }, WRITE_WAIT, read.token); return { ...stacks(!held.error, held.error, ''), note: held.error ? '' : `Held for review as ${held.reply.ok?.proposal}: someone with write accepts it.` }; }
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: reviewedAt.get(key) ?? read.files, ops }, WRITE_WAIT, read.token);
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: reviewed.get(key) ?? read.files, ops }, WRITE_WAIT, read.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
-    if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it. ${read.now && reviewedAt.set(key, read.now) ? 'The proposal now shows the file as it is: Apply again to write over it.' : ''}`.trim() : error, '');
-    const inverse = (reply.ok as { inverse: string | null }).inverse; reviewedAt.delete(key);
+    const moved = (reply.error as { files?: Record<string, string> } | undefined)?.files; if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.${moved ? (reviewed.repin(key, moved), ' Apply again to write over it, on the file as it is now.') : ''}` : error, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse; reviewed.end(key);
     // A write that changed no byte has no inverse, and leaves redo be.
     // A re-scope is checked against the files as this write left them: one
     // that finds them moved since (another write, a hand edit) is refused.
