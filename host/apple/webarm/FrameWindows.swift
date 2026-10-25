@@ -281,6 +281,11 @@ class FrameUI: NSObject, WKUIDelegate {
     /// guest's origin. `done` gets nil for Cancel, else the text (`""`
     /// for an alert's or a confirm's OK).
     func dialog(_ web: WKWebView, _ frame: WKFrameInfo, type: String, _ message: String, defaultText: String?, done: @escaping (String?) -> Void) {
+        // An agent-controlled frame's own dialog is automation's to answer;
+        // a person who takes the frame back is shown it (@ref LLP 1020.002 D9).
+        if web === arm?.built, let automation = arm?.automation,
+           automation.hold(type: type, message: message, defaultValue: defaultText,
+                           show: { [weak self] in self?.dialog(web, frame, type: type, message, defaultText: defaultText, done: done) }, answer: done) { return }
         let speaker = GuestScheme.speaker(frame)
         if let arm, arm.agent {
             var args: [String: Any] = ["type": type, "message": message, "origin": speaker]
@@ -756,6 +761,11 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
             self.items[key] = item
             completionHandler(temp)
         }
+        // An agent-controlled frame's downloads go to automation's folder, with no panel (@ref LLP 1020.002 D9).
+        if let arm = ui?.arm, item.web === arm.built, let automation = arm.automation, automation.controlled, let place = automation.downloads {
+            let name = Self.fresh(item.name, in: place.folder, taken: Set(items.values.compactMap { $0.path?.path }))
+            return accept(place.folder.appendingPathComponent(name), place.shown.hasSuffix("/") ? place.shown + name : place.shown + "/" + name)
+        }
         if let arm = ui?.arm, arm.agent {
             return arm.ask("save-file", ["suggestedFilename": item.name], from: item.web) { answer in
                 accept((answer?["path"] as? String).map { URL(fileURLWithPath: $0) }, answer?["shown"] as? String)
@@ -776,6 +786,18 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("exact-downloads/\(UUID().uuidString)", isDirectory: true)
         accept(folder.appendingPathComponent(item.name), nil)
         #endif
+    }
+
+    /// `name`, or Finder's next free form of it in `folder` (`report 2.txt`).
+    /// `taken`: the places downloads still coming in were given.
+    static func fresh(_ name: String, in folder: URL, taken: Set<String> = []) -> String {
+        let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+        var candidate = name, n = 1
+        while taken.contains(folder.appendingPathComponent(candidate).path) || FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+            n += 1
+            candidate = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
+        }
+        return candidate
     }
 
     func downloadDidFinish(_ download: WKDownload) {
