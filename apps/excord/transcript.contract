@@ -11,6 +11,11 @@ use Badge from "exact:content"
 // A code token's colour, after Xcode's default theme in the platform's palette.
 fn codeColor(kind: string): string = kind == "hl-keyword" ? "-exact-system-pink" : kind == "hl-string" ? "-exact-system-red" : kind == "hl-comment" ? "-exact-secondary-label" : kind == "hl-number" ? "-exact-system-purple" : kind == "hl-type" ? "-exact-system-teal" : kind == "hl-call" ? "-exact-system-blue" : "-exact-label"
 
+// A message's time as Discord writes it: "Today at 4:42 PM", "Yesterday at …", then the weekday within
+// the week and the short date before it ("Tuesday, 4:42 PM", "10/11/26, 4:42 PM").
+fn recent(day: string): bool = day == "Today" or day == "Yesterday" or day == "Tomorrow"
+fn stamp(at: number, clock: number, offset: number): string = recent(formatDay(at, clock, offset, "day")) ? formatDay(at, clock, offset, "day-time") : `${formatDay(at, clock, offset, "list")}, ${formatTime(at, offset, "short")}`
+
 fn decoration(r: Run): string = r.underline and r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
 
 component MessageRow
@@ -93,7 +98,7 @@ component MessageRow
                   text m.author font-weight=600 color=(m.color != "" ? m.color : "-exact-label") testId=`author-${m.id}`
                   if m.bot
                     Badge(label="APP", tint=some("AccentColor"))
-                  text formatDay(m.at, clock, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
+                  text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
               for b in m.blocks key=b.id
                 BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
               // Two pictures or more tile, as Discord lays them out: two or four in two columns, others in three.

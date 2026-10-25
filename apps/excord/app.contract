@@ -149,6 +149,10 @@ component Excord
   derive gw = match digested { case some(d) => (d.seq > gateway.seq ? d : gateway), case none => gateway }
   resource guilds = loadGuilds(gw.sidebar) as shape Guild[] else empty()
   derive dmsShown = server == "@me" or guilds.length == 0
+  // What covers the screens: the image viewer, or the lock while the launch or a return waits on it.
+  // Nothing under it takes a press, a key or a shortcut.
+  derive locked = session.locked or lockedOut
+  derive covered = viewing != "" or locked
   derive dmUnread = dms.map(c => c.unread > 0).includes(true)
   derive dmMentions = sum(dms.map(c => c.mentions))
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
@@ -686,9 +690,15 @@ component Excord
   action pickerClosed
     picking = false
   action openSwitcher
-    switchQuery = ""
-    switching = true
-    showModal("switcher")
+    if not locked
+      switchQuery = ""
+      switching = true
+      showModal("switcher")
+  // ⌘K (Ctrl+K) wherever the focus is, a channel's composer included, as Discord's desktop app takes it.
+  action windowKey(k: string, e: KeyboardEvent)
+    if (e.metaKey or e.ctrlKey) and (k == "k" or k == "K") and not e.isComposing and not switching
+      preventDefault()
+      openSwitcher()
   action searchSwitcher(v: string)
     switchQuery = v
   action switcherKey(k: string, e: KeyboardEvent)
@@ -782,10 +792,10 @@ component Excord
     send unlocked = signInAgain()
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=windowKey interactive-widget="resizes-content" width="100%" height="100%"
       for e in stack(nav) key=e.id
         if e.name == "home" and signedOutNow
-          column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0 inert=(viewing != "")
+          column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" padding="8px 16px"
               h1 "Sign In to Discord" flex=1 min-width=0
             list id="sign-in" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -810,7 +820,7 @@ component Excord
                 else if gw.detail != ""
                   text (gw.detail.includes("4004") ? "Discord didn't accept the last token. Sign in with a new one." : gw.detail) color="-exact-system-red" testId="signed-out-detail"
         else if e.name == "home"
-          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0 inert=(viewing != "")
+          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               h1 (dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1
               button press=openSwitcher aria-label="Find or Start a Conversation" aria-keyshortcuts="Meta+K Control+K" testId="switcher-open"
@@ -906,7 +916,7 @@ component Excord
                                 Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
                               image "symbol:forward-chevron"
         else
-          column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=(viewing != "")
+          column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
               if gw.fixture
@@ -1058,7 +1068,7 @@ component Excord
                   button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
                     retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
                     image "symbol:send"
-      if viewing != ""
+      if viewing != "" and not locked
         for v in [viewing] key=v
           ImageViewer(src=v, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
       // Nothing of the account shows while the launch is locked or a return
