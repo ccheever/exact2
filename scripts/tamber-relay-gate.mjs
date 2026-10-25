@@ -84,9 +84,10 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     }
     // What a packet capture at the relay's public side holds: every byte both ways.
     const seen = [];
-    // The client ports whose connection the tap carried through to the relay.
-    const reachedFrom = new Set();
-    const tap = createTCP(c => { const from = c.remotePort, r = connectTCP({ host: target, port }, () => { reachedFrom.add(from); }); c.on('data', d => { seen.push(d); r.write(d); }); r.on('data', d => { seen.push(d); c.write(d); }); c.on('close', () => r.destroy()); r.on('close', () => c.destroy()); c.on('error', () => {}); r.on('error', () => {}); });
+    // Each accepted connection's own record, by its client port (a new one replaces an old one's): whether the tap
+    // carried that very connection through to the relay.
+    const accepted = new Map();
+    const tap = createTCP(c => { const rec = { reached: false }; accepted.set(c.remotePort, rec); const r = connectTCP({ host: target, port }, () => { rec.reached = true; }); c.on('data', d => { seen.push(d); r.write(d); }); r.on('data', d => { seen.push(d); c.write(d); }); c.on('close', () => r.destroy()); r.on('close', () => c.destroy()); c.on('error', () => {}); r.on('error', () => {}); });
     await new Promise(ok => tap.listen(0, '127.0.0.1', ok));
     cleanup.push(() => tap.close());
     const pub = tap.address().port;
@@ -178,7 +179,7 @@ export async function gate({ say = console.log, deployed = null } = {}) {
     // (closed at the relay, not by a forward that never reached it: the tap carried this very connection through)
     let mine = null;
     const plain = await new Promise(ok => { const c = connectTCP({ host: '127.0.0.1', port: pub }, () => { mine = c.localPort; c.write(`POST /__tamber/pair HTTP/1.1\r\nHost: ${a.tool}\r\nContent-Length: 2\r\n\r\n{}`); }); let got = ''; const t = setTimeout(() => { c.destroy(); ok(got || null); }, 10_000); c.on('data', d => { got += d; }); c.on('close', () => { clearTimeout(t); ok(got); }); c.on('error', () => {}); });
-    const reached = mine !== null && reachedFrom.has(mine);
+    const reached = mine !== null && accepted.get(mine)?.reached === true;
     verdict('plain HTTP to a session\'s name (the pairing endpoint) is closed at the relay, nothing answered', plain === '' && reached, [`answered ${plain === null ? 'nothing, but held open 10 s' : `${plain.length} bytes`}; this connection reached the relay: ${reached}`]);
     // Line 4: the capture holds no token and no design text in clear.
     const design = 'space.gate-secret = 17px', secondPair = (await a.local({ method: 'pair-code', scope: 'read', name: 'cap' })).ok;
