@@ -51,7 +51,9 @@ export function createTranscriptWorld(assetOrigin: string): World {
   const guildChannels: Channel[] = channelSpecs.map((spec, i) => ({
     id: snowflakeFromMs(DIRECTORY_EPOCH + 2, i), guild_id: guildId, name: spec.name,
     type: spec.id === 'announcements' ? 5 : 0, position: i, parent_id: null, topic: spec.topic,
-    last_message_id: null, permission_overwrites: [],
+    // #random is a private channel: @everyone may not see it, Cyclists may.
+    last_message_id: null, permission_overwrites: spec.id !== 'random' ? [] : [
+      { id: guildId, type: 0, allow: '0', deny: '1024' }, { id: roles[2].id, type: 0, allow: '1024', deny: '0' }],
   }));
   const channelIds = new Map(channelSpecs.map((spec, i) => [spec.id, guildChannels[i].id]));
   const content = (text: string) => text.replace(/<@(!?)(me|\d+)>/g,

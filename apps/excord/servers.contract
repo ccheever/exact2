@@ -71,3 +71,14 @@ component FolderButton
           if mentions > 0 and not open
             view position="absolute" right=-6 bottom=-6
               Badge(label=(mentions > 99 ? "99+" : `${mentions}`), tint=some("-exact-system-red"))
+
+// A server channel's mark in the list: Discord's `#`, with a lock at its corner when the channel is
+// private (@everyone may not see it).
+component ChannelMark
+  props
+    locked: bool
+  view
+    row position="relative" flex-shrink=0 aria-hidden=true
+      text "#" color="-exact-secondary-label"
+      if locked
+        image "symbol:lock" width=9 height=9 position="absolute" top=0 right=-5 color="-exact-secondary-label"

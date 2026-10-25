@@ -762,3 +762,12 @@ test "the member list opens from the channel, and a member opens their card"
   clock settle
   expect text "profile-handle" == "@ada"
   expect state profile.roles.0.name == "Maintainers"
+
+test "a channel @everyone may not see is marked private"
+  clock +500 real
+  clock data
+  clock settle
+  expect state channels.0.name == "general"
+  expect state channels.0.private == false
+  expect state channels.2.name == "random"
+  expect state channels.2.private == true

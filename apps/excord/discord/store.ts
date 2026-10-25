@@ -1077,6 +1077,19 @@ export function canView(s: Store, channel: Channel): boolean {
   return visible;
 }
 
+/** Whether @everyone may see a guild channel: Discord marks one it may not as private (a lock on its
+ * mark), whoever is reading. */
+export function everyoneSees(s: Store, channel: Channel): boolean {
+  const guild = channel.guild_id ? s.guildMap.get(channel.guild_id) : undefined;
+  if (!guild) return true;
+  const everyone = ((guild.roles ?? []) as DiscordObject[]).find(role => role.id === guild.id);
+  let permissions = bits(everyone?.permissions);
+  if (permissions & ADMINISTRATOR) return true;
+  const o = ((channel.permission_overwrites ?? []) as DiscordObject[]).find(x => x.id === guild.id);
+  if (o) permissions = (permissions & ~bits(o.deny)) | bits(o.allow);
+  return (permissions & VIEW_CHANNEL) !== 0n;
+}
+
 function withRecipients(s: Store, value: Channel): Channel {
   return value.recipient_ids ? { ...value, recipients: value.recipient_ids.map((id: string) => s.users.get(id) ?? { id }) } : value;
 }
