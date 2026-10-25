@@ -12,7 +12,7 @@
 
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow from "./shapes.contract"
 use MessageRow from "./transcript.contract"
-use ServerButton, FolderButton from "./servers.contract"
+use ServerButton, FolderButton, ChannelMark from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
 use MemberList from "./members.contract"
 use Badge from "exact:content"
@@ -34,7 +34,7 @@ routes nav
   home "/"
     channel "/c/:channel"
 
-fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
 // The gateway holds a session, or is opening one, so the heartbeat runs.
 fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
 
@@ -1048,9 +1048,9 @@ component Excord
                     if g.name == ""
                       section
                         for c in g.channels key=c.id
-                          button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                          button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
                             row gap=8 align-items="center" flex=1 min-width=0
-                              text "#" color="-exact-secondary-label"
+                              ChannelMark(locked=c.private)
                               text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
                               if c.mentions > 0
                                 Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
@@ -1060,9 +1060,9 @@ component Excord
                         header
                           text g.name
                         for c in g.channels key=c.id
-                          button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                          button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
                             row gap=8 align-items="center" flex=1 min-width=0
-                              text "#" color="-exact-secondary-label"
+                              ChannelMark(locked=c.private)
                               text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
                               if c.mentions > 0
                                 Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
