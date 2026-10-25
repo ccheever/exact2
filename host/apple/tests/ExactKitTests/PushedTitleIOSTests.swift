@@ -459,15 +459,17 @@ final class PushedTitleIOSTests: XCTestCase {
             return state["searching"] as? Bool == true
         }
         let source = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "seek-search" })
-        let typed = session.agent(#"{"op":"type","id":\#(source.id),"text":"nonanimated"}"#)
-        XCTAssertFalse(typed.contains("\"error\""), typed)
+        // The host's own agent: typing is its op, which the runtime's agent does not know.
+        let agent = Agent(session: session)
+        let typed = agent.type(["id": Int(source.id), "text": "nonanimated"])
+        XCTAssertNil(typed["error"], "\(typed)")
         XCTAssertTrue(search.searchBar.searchTextField.isFirstResponder, "agent typing keeps focus in UIKit's header field")
         until("typing reaches the search input action") {
             guard let state = slots(session) else { return false }
             return state["query"] as? String == "nonanimated"
         }
-        let moved = session.agent(#"{"op":"type","id":\#(source.id),"key":"ArrowLeft"}"#)
-        XCTAssertFalse(moved.contains("\"error\""), moved)
+        let moved = agent.type(["id": Int(source.id), "key": "ArrowLeft"])
+        XCTAssertNil(moved["error"], "\(moved)")
         XCTAssertTrue(search.searchBar.searchTextField.isFirstResponder, "caret keys keep focus in the displayed search field")
         XCTAssertEqual(try XCTUnwrap(slots(session))["searchBlurs"] as? Int, 0,
                        "typing and caret keys do not focus the hidden authored field")
