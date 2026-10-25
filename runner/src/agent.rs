@@ -273,6 +273,10 @@ pub fn answer<D: DataSource>(
         s.push('}');
         return Some((s, None));
     }
+    if op == "frameRequest" {
+        let reply = runner.hold_frame_request(request);
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
     // A module's listed entry: `tap @ref`, or a relaunch's launch flag (LLP 1133.004 §7).
     if let Some(reply) = runner.listed_op(&op, request) {
         return Some((reply.unwrap_or_else(|e| error(&e)), None));

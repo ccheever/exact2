@@ -65,10 +65,14 @@ impl Event {
                 })
                 .ok_or("invalid drag event"),
             57 => Event::paste_files_payload(payload).ok_or("invalid clipboard event"),
-            // @ref LLP 1020.002 D2 — an iframe's guest: its event, then the record.
+            // @ref LLP 1020.002 D2, D5 — an iframe's guest: its event, then the record.
             58 => super::event::frame_navigation::FrameNavigation::parse(payload)
                 .map(|(kind, n)| Event::FrameNavigation(kind, Box::new(n)))
-                .ok_or("invalid frame navigation"),
+                .or_else(|| {
+                    super::event::frame_navigation::other(payload)
+                        .map(|(kind, v)| Event::FrameRecord(kind, Box::new(v)))
+                })
+                .ok_or("invalid frame event"),
             // A press on an inline atom (LLP 1045.000 D7).
             59 => super::AtomEvent::parse(payload)
                 .map(Event::Atompress)
