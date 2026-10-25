@@ -60,7 +60,7 @@ test('by two renames (no exchange) the swap still lands whole', async () => {
 }, 120_000);
 
 test('a first build creates missing parent directories before taking the lock', async () => {
-  const { replaceBuild } = await import(SERVE);
+  const { replaceBuild } = await import(SERVE), { lockHeld } = await import(resolve(import.meta.dir, 'build-lock.mjs'));
   const dir = mkdtempSync(join(tmpdir(), 'exact-replace-build-'));
   const stage = join(dir, 'stage'), dist = join(dir, 'missing', 'parent', 'dist');
   try {
@@ -71,7 +71,7 @@ test('a first build creates missing parent directories before taking the lock', 
     expect(readFileSync(join(dist, 'index.html'), 'utf8')).toBe('<p>new');
     expect(readFileSync(join(dist, 'assets', 'app.css'), 'utf8')).toBe('p { color: red; }');
     expect(existsSync(stage)).toBe(false);
-    expect(existsSync(`${dist}.lock`)).toBe(false);
+    expect(lockHeld(`${dist}.lock`)).toBe(false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
