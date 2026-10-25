@@ -8,11 +8,12 @@ import { createServer as createSocketServer } from 'node:net';
 import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { withLock } from './build-lock.mjs';
 import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
@@ -715,68 +716,6 @@ export function replaceBuild(stage, dist) {
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
     keepGeneration(`${dist}.previous`, dist); reapGenerations(dist);
   });
-}
-
-/** `fn()` while this process holds the file `lock` (made exclusively, naming its pid), waiting up to 30 s for another
- * holder; a lock whose owner is gone, or that names none after a second, is left over and taken. For work of
- * milliseconds: replaceBuild's swap, the JS build's GPU cache rename and copy (host/web-js/gpu-cache.mjs). */
-export function withLock(lock, fn) {
-  const started = Date.now(), nap = new Int32Array(new SharedArrayBuffer(4));
-  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-  for (;;) {
-    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let owner = 0, age = 0;
-      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
-      // A swap takes milliseconds: a lock whose owner is gone, or that names none after a second, is left over.
-      const leftOver = (owner, age) => Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000;
-      if (leftOver(owner, age) && stealLock(lock, leftOver)) continue;
-      if (Date.now() - started > 30000) throw new Error(`${lock}: process ${owner} has held it for 30 s; remove it if that process is not a build`);
-      Atomics.wait(nap, 0, 0, 10);
-    }
-  }
-  try { return fn(); } finally { rmSync(lock, { force: true }); }
-}
-/** Remove `lock` if it is still left over, judged again under `<lock>.steal` (made exclusively, naming this pid): two
- * waiters that both saw a dead owner would otherwise each remove the lock, the second the one the first had just
- * taken in its place. False while another waiter holds `.steal` (the caller waits as for a held lock). A `.steal` is
- * judged left over as the lock is, and cleared by a rename to a name of this process's own, then a second read of
- * what was renamed: a live waiter's, taken in the meantime, is linked back. (Two holders then need a waiter killed
- * inside its steal, a second waiter clearing its `.steal` as a third takes one, and a third clearing inside that
- * link-back's microseconds.) */
-function stealLock(lock, leftOver) {
-  const guard = `${lock}.steal`;
-  try { writeFileSync(guard, String(process.pid), { flag: 'wx' }); }
-  catch (error) {
-    if (error.code !== 'EEXIST') throw error;
-    let owner = 0, age = 0;
-    try { owner = Number(readFileSync(guard, 'utf8')); age = Date.now() - statSync(guard).mtimeMs; } catch { return true; }
-    if (!leftOver(owner, age)) return false;
-    const mine = `${guard}.${process.pid}`;
-    try { renameSync(guard, mine); } catch { return true; }
-    if (Number(readFileSync(mine, 'utf8')) !== owner) { try { linkSync(mine, guard); } catch { /* another's since */ } }
-    rmSync(mine, { force: true });
-    return true;
-  }
-  try {
-    let owner = 0, age = 0;
-    try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { return true; }
-    if (leftOver(owner, age)) rmSync(lock, { force: true });
-  } finally {
-    // Only this waiter's own `.steal`, and by the same rename and second read: another clearing it may have it renamed
-    // aside for a moment (a rename, a read and a link back), waited for up to 5 s, else it would come back naming this
-    // pid after this waiter is done with it.
-    const done = `${guard}.${process.pid}`;
-    for (const until = Date.now() + 5000; ;) {
-      try { renameSync(guard, done); }
-      catch { if (Date.now() < until) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1); continue; } break; }
-      if (Number(readFileSync(done, 'utf8')) !== process.pid) { try { linkSync(done, guard); } catch { /* another's since */ } }
-      rmSync(done, { force: true });
-      break;
-    }
-  }
-  return true;
 }
 
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };

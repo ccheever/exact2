@@ -1,9 +1,9 @@
 // The JS build's GPU cache (host/web-js/gpu-cache.mjs), shared by every loop of one app on one target: two loops at
 // once, one held between its build and its rename, each copy a complete cache; loops racing unheld do too; a warm
 // rebuild skips the build; a failed build leaves the cache as it was, as does one killed between its renames; waiters
-// on a lock a killed build left take it one at a time (withLock, host/web/serve.mjs). Each loop is a process running
-// copyGpuCache with a build of its own (three files written a beat apart, each naming the loop), so a copy of a tree
-// another loop is removing or rewriting shows as a missing file or a mix of names.
+// on the lock take it one at a time, and from a holder killed (host/web/build-lock.mjs). Each loop is a process
+// running copyGpuCache with a build of its own (three files written a beat apart, each naming the loop), so a copy of a
+// tree another loop is removing or rewriting shows as a missing file or a mix of names.
 import { afterEach, expect, test } from 'bun:test';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const MODULE = resolve(new URL('./gpu-cache.mjs', import.meta.url).pathname);
-const SERVE = resolve(new URL('../web/serve.mjs', import.meta.url).pathname);
+const LOCK = resolve(new URL('../web/build-lock.mjs', import.meta.url).pathname);
 const FILES = ['gpu.js', 'gpu_bg.wasm', 'shaders/main.wgsl'];
 afterEach(() => stopAll());
 
@@ -60,7 +60,8 @@ function whose(out) {
   return names[0][0];
 }
 const waitFor = async path => { for (let i = 0; !existsSync(path); i++) { if (i > 3000) throw new Error(`${path} never came`); await Bun.sleep(10); } };
-const leftovers = cache => readdirSync(join(cache, '..')).filter(name => name !== 'app').sort();
+// The lock file stays (build-lock.mjs): nothing else beside the cache.
+const leftovers = cache => readdirSync(join(cache, '..')).filter(name => name !== 'app' && name !== 'app.lock').sort();
 
 test('two loops at once, one held before its rename, each copy a complete cache', async () => {
   const { cache } = setup(), hold = join(dir, 'hold');
@@ -146,48 +147,43 @@ test('a build killed between its renames leaves the cache it replaced, put back 
   expect(whose(warm.out)).toBe('p');
 }, 60_000);
 
-test('waiters on a lock a killed build left take it one at a time', async () => {
+test('waiters take the lock one at a time, wait for a live holder, and take it when that holder is killed', async () => {
   dir = mkdtempSync(join(tmpdir(), 'exact-gpu-cache-'));
   const lock = join(dir, 'app.lock'), inside = join(dir, 'inside');
   writeFileSync(join(dir, 'waiter.mjs'), `
-import { withLock } from ${JSON.stringify(SERVE)};
+import { withLock } from ${JSON.stringify(LOCK)};
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 const nap = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-// All at once, so they find the dead owner together; a second holder at once finds the first's mark and fails.
+if (process.argv[2] === 'hold') withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(join(dir, 'holding'))}, ''); for (;;) nap(1000); });
+// All at once; a second holder at once finds the first's mark and fails.
 writeFileSync(${JSON.stringify(dir)} + '/ready-' + process.pid, '');
 while (!existsSync(${JSON.stringify(join(dir, 'go'))})) nap(1);
 withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)}, '', { flag: 'wx' }); nap(20); rmSync(${JSON.stringify(inside)}); });
 `);
+  const waiter = (mode = 'quick') => {
+    const child = spawn(process.execPath, [join(dir, 'waiter.mjs'), mode], { stdio: ['ignore', 'ignore', 'pipe'] });
+    waiting.add(child);
+    let said = '';
+    child.stderr.on('data', data => { said += data; });
+    return { child, exited: new Promise(ok => child.once('exit', code => ok({ code, said }))) };
+  };
   for (let round = 0; round < 10; round++) {
+    // As a killed build of the file lock left it, naming its pid.
     writeFileSync(lock, String(deadPid()));
-    // Every other round a waiter was killed inside its steal too, its `.steal` left behind.
-    if (round % 2) writeFileSync(`${lock}.steal`, String(deadPid()));
     rmSync(join(dir, 'go'), { force: true });
     for (const name of readdirSync(dir)) if (name.startsWith('ready-')) rmSync(join(dir, name));
-    const waiters = Array.from({ length: 8 }, () => {
-      const child = spawn(process.execPath, [join(dir, 'waiter.mjs')], { stdio: ['ignore', 'ignore', 'pipe'] });
-      waiting.add(child);
-      let said = '';
-      child.stderr.on('data', data => { said += data; });
-      return new Promise(ok => child.once('exit', code => ok({ code, said })));
-    });
+    const waiters = Array.from({ length: 8 }, () => waiter().exited);
     while (readdirSync(dir).filter(name => name.startsWith('ready-')).length < 8) await Bun.sleep(5);
     writeFileSync(join(dir, 'go'), '');
     for (const ran of await Promise.all(waiters)) expect(ran).toEqual({ code: 0, said: '' });
-    expect(readdirSync(dir).filter(name => name.startsWith('app.lock'))).toEqual([]);
   }
-  // A live waiter's `.steal` (this process's pid) is honoured: the lock waits for it, then is taken.
-  writeFileSync(lock, String(deadPid()));
-  writeFileSync(`${lock}.steal`, String(process.pid));
-  rmSync(join(dir, 'go'), { force: true });
-  writeFileSync(join(dir, 'go'), '');
-  const child = spawn(process.execPath, [join(dir, 'waiter.mjs')], { stdio: ['ignore', 'ignore', 'pipe'] });
-  waiting.add(child);
-  const exited = new Promise(ok => child.once('exit', ok));
+  const holder = waiter('hold');
+  await waitFor(join(dir, 'holding'));
+  const next = waiter();
   await Bun.sleep(1500);
-  expect(child.exitCode).toBe(null);
-  expect(existsSync(lock)).toBe(true);
-  rmSync(`${lock}.steal`);
-  expect(await exited).toBe(0);
-  expect(readdirSync(dir).filter(name => name.startsWith('app.lock'))).toEqual([]);
+  expect(next.child.exitCode).toBe(null);
+  holder.child.kill('SIGKILL');
+  const since = Date.now();
+  expect(await next.exited).toEqual({ code: 0, said: '' });
+  expect(Date.now() - since).toBeLessThan(5000);
 }, 120_000);
