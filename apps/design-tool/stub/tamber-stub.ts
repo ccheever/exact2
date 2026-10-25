@@ -137,7 +137,8 @@ function take(e: Record<string, any>) {
   if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
   if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
   if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
-  log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
+  // (A hand edit names no tokens, `changed: null`, as a server's does; a write names its, none by default.)
+  log.push({ event: 'changed', epoch: EPOCH, client: null, changed: e.client ? [] : null, edited: [], ...e, files: FILES, seq: seq() + 1 });
 }
 
 // The tool's page is another origin under the test driver.
@@ -335,6 +336,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
       if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
+        // (surface.card's dark side, which moves with app.tamber below, is in its entry too, as a server's describe folds it.)
+        if (FILES['app.tamber'] !== 'a'.repeat(64)) ir.tokens = ir.tokens.map((t: { name: string; values: string[] }) => (t.name === 'surface.card' ? { ...t, values: t.values.map(() => `light-dark(#f1f3f5ff, #${FILES['app.tamber'].slice(0, 6)}ff)`) } : t));
         // (A token a package's design defines: its describe row says the package.)
         if (PACKAGED?.tokens) ir.tokens = ir.tokens.map((t: { name: string }) => (PACKAGED!.tokens![t.name] ? { ...t, package: PACKAGED!.tokens![t.name] } : t));
         if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES, ...(PACKAGED?.base ? { base: PACKAGED.base } : {}) } }); }

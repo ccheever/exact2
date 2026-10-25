@@ -15,7 +15,7 @@ import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { opWords, whenText } from './optext';
-import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, keep, type Kept } from './reread';
+import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
@@ -109,7 +109,7 @@ let liveTable = false;
 async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown; params?: string[] }> {
   const which = file ? { file } : {}, epoch = place.epoch;
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
-    const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
+    const seq = place.seq, described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
     if (described.error) return { error: described.error };
     const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
     if (!ir || !Array.isArray(ir.tokens) || !Array.isArray(ir.axes) || ir.axes.some((a: Axis) => !Array.isArray(a.values))) return { error: 'The design server answered describe with no design in it.' };
@@ -118,7 +118,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     // And, in the app's design, each package component's param (an icon's has no level), whose levels `loadLevels` reads after.
     const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = (!file || file === designFile) && [...owned].some(f => f.endsWith('.contract'));
     const params: string[] = listed ? (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; }).flatMap((c: { params?: { name: string; kind: string }[] }) => (c.params ?? []).filter(p => p.kind !== 'icon').map(p => p.name)) : [];
-    const kept = keptReads.get(file), redo = again(kept, epoch, described.reply.ok, changeset, digestKey), asks = ir.tokens.map((t: { name: string }) => t.name).filter((t: string) => !redo || redo.has(t));
+    const kept = keptReads.get(file), redo = again(kept, epoch, described.reply.ok, changeset), asks = ir.tokens.map((t: { name: string }) => t.name).filter((t: string) => !redo || redo.has(t));
     const resolved: Awaited<ReturnType<typeof call>>[] = []; let next = 0;
     await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, asks.length) }, async () => {
       while (next < asks.length && wanted()) {
@@ -144,7 +144,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
     if (same && placed) {
-      const fresh = new Map(asks.map((t: string, i: number) => [t, resolved[i].reply.ok])), answers = ir.tokens.map((t: { name: string }) => fresh.get(t.name) ?? kept!.answers.get(t.name)); keptReads.set(file, keep(epoch, described.reply.ok, answers, digestKey));
+      const fresh = new Map(asks.map((t: string, i: number) => [t, resolved[i].reply.ok])), answers = ir.tokens.map((t: { name: string }) => fresh.get(t.name) ?? kept!.answers.get(t.name)); if (wanted()) keptReads.set(file, keep(epoch, seq, described.reply.ok, answers));
       return { error: '', ir, resolved: answers, files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets, params };
     }
   }
@@ -317,7 +317,7 @@ const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | unde
 // new run). A design read is kept by its file's digest, so a change is
 // measured, file by file, between two reads of exactly those states,
 // whenever each was read; a state no read saw leaves its tokens named only.
-type Noted = { seq: number; who: string; acceptedBy: string; write: number; changed: { file: string; token: string }[]; files: string[]; before: Record<string, string>; after: Record<string, string>; hand?: boolean; mine: boolean; diff: string; values: Map<string, string[]>; committed: boolean; gap?: boolean; redoneBy?: string };
+type Noted = { seq: number; who: string; acceptedBy: string; write: number; changed: { file: string; token: string }[]; files: string[]; before: Record<string, string>; after: Record<string, string>; mine: boolean; diff: string; values: Map<string, string[]>; committed: boolean; gap?: boolean; redoneBy?: string };
 let changeset: Noted[] = [];
 // The tool's own writes not yet matched to their events, by write number.
 const mine: { write: number; diff: string; redoneBy: string }[] = [];
@@ -693,7 +693,7 @@ function noted(e: any) {
     return;
   }
   if (e.event !== 'changed') return;
-  fileChanges += 1;
+  fileChanges += 1; heard(e);
   const who = typeof e.client === 'string' ? e.client : 'changed on disk';
   const before = lastFiles, after: Record<string, string> = e.files ?? {};
   lastFiles = after;
@@ -701,7 +701,7 @@ function noted(e: any) {
   const own = at >= 0 ? mine.splice(at, 1)[0] : null;
   changeset.unshift({
     seq: e.seq, who, acceptedBy: typeof e.acceptedBy === 'string' && e.acceptedBy !== who ? e.acceptedBy : '', write: Number(e.write ?? 0),
-    changed: (e.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file), token: String(c.token) })), files: e.edited ?? [], hand: !Array.isArray(e.changed),
+    changed: (e.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file), token: String(c.token) })), files: e.edited ?? [],
     before, after, mine: !!own, diff: own?.diff ?? '', redoneBy: own?.redoneBy ?? '', values: new Map(), committed: false,
   });
   // Only what is committed is let go of, past 200.

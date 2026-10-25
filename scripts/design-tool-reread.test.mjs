@@ -96,27 +96,41 @@ test('a peer\'s write is read again as only the tokens it moved, a package\'s de
   }
 }, 900_000);
 
-test('what a read again resolves: the tokens of each write back to the kept read and each whose entry moved; a hand edit, a gap, another run, another outline, an unknown token or a broken chain is a full read', async () => {
-  const { again, keep } = await import('../apps/design-tool/reread.ts');
-  const key = (f = {}) => JSON.stringify(Object.keys(f).sort().map(k => [k, f[k]]));
-  const tok = (name, value, more = {}) => ({ name, kind: 'color', values: [value], ...more });
-  const described = (rev, tokens) => ({ files: { 'app.tamber': rev }, packages: [], ir: { axes: [], tuples: 1, tokens } });
+test('what a read again resolves: the tokens each event since the kept read named and each whose entry moved; an event that named none, a gap, another run, another outline or params, an unknown token or a dropped event is a full read', async () => {
+  // (A module of this test's own: its event log starts empty.)
+  const { again, heard, keep } = await import(`../apps/design-tool/reread.ts?unit=${Date.now()}`);
+  const tok = (name, value, more = {}) => ({ name, kind: 'color', values: [value], entries: null, ...more });
+  // Each token's resolve as the server gives it at describe's revision: its one tuple's value the entry's.
+  const answersOf = tokens => tokens.map(t => ({ tuples: [{ value: t.values[0] }] }));
+  const described = (tokens, components = []) => ({ files: { 'app.tamber': 'r' }, packages: [], ir: { axes: [], tuples: 1, tokens, components } });
   const base = [tok('brand', '#111'), tok('accent', '#111'), tok('edge', '#111', { file: 'p.tamber', package: 'p' }), tok('other', '#222')];
-  const kept = keep('e1', described('r1', base), base.map(t => ({ tuples: [{ value: t.values[0] }] })), key);
-  const step = (before, after, changed, more = {}) => ({ before: { 'app.tamber': before }, after: { 'app.tamber': after }, changed: changed.map(token => ({ file: 'app.tamber', token })), ...more });
+  const kept = keep('e1', 5, described(base), answersOf(base));
   const moved = [tok('brand', '#333'), tok('accent', '#333'), tok('edge', '#333', { file: 'p.tamber', package: 'p' }), tok('other', '#222')];
-  // Two writes back to the kept read (newest first, one past describe's revision ignored): their tokens, and edge by its entry.
-  const steps = [step('r3', 'r4', ['other']), step('r2', 'r3', ['accent']), step('r1', 'r2', ['brand'])];
-  expect([...again(kept, 'e1', described('r3', moved), steps, key)].sort()).toEqual(['accent', 'brand', 'edge']);
-  // The kept revision itself: nothing but what moved (none).
-  expect([...again(kept, 'e1', described('r1', base), [], key)]).toEqual([]);
-  // A full read for: a hand edit, a gap, a broken chain, another run, no kept read, an unknown token, another outline.
-  expect(again(kept, 'e1', described('r2', moved), [step('r1', 'r2', [], { hand: true })], key)).toBeNull();
-  expect(again(kept, 'e1', described('r3', moved), [step('r2', 'r3', ['brand']), { before: {}, after: {}, changed: [], gap: true }, step('r1', 'r2', ['brand'])], key)).toBeNull();
-  expect(again(kept, 'e1', described('r3', moved), [step('rx', 'r3', ['brand'])], key)).toBeNull();
-  expect(again(kept, 'e2', described('r2', moved), [step('r1', 'r2', ['brand'])], key)).toBeNull();
-  expect(again(undefined, 'e1', described('r2', moved), [step('r1', 'r2', ['brand'])], key)).toBeNull();
-  expect(again(kept, 'e1', described('r2', moved), [step('r1', 'r2', ['gone'])], key)).toBeNull();
-  expect(again(kept, 'e1', described('r2', [...moved, tok('new', '#444')]), [step('r1', 'r2', ['new'])], key)).toBeNull();
-  expect(again(kept, 'e1', described('r2', moved.map(t => t.name === 'other' ? { ...t, kind: 'length' } : t)), [step('r1', 'r2', ['brand'])], key)).toBeNull();
+  const event = (seq, changed, epoch = 'e1') => heard({ event: 'changed', epoch, seq, changed: changed && changed.map(token => ({ file: 'app.tamber', token })) });
+  // Before and at the kept read's seq, and another run's: not this read's. After it: brand, accent; edge by its entry.
+  event(4, null); event(5, ['other']); event(9, null, 'e0'); event(6, ['brand']); event(7, ['accent']); heard({ event: 'committed', seq: 8 });
+  expect([...again(kept, 'e1', described(moved), [])].sort()).toEqual(['accent', 'brand', 'edge']);
+  // An answer not of describe's revision (another value, or a tuple short) keeps no entry: resolved again next.
+  const torn = keep('e1', 7, described(base), [{ tuples: [{ value: '#999' }] }, { tuples: [] }, ...answersOf(base.slice(2))]);
+  expect([...again(torn, 'e1', described(base), [])].sort()).toEqual(['accent', 'brand']);
+  // Nothing since and nothing moved: nothing.
+  expect([...again(keep('e1', 7, described(base), answersOf(base)), 'e1', described(base), [])]).toEqual([]);
+  // A full read for: a gap since, another run, no kept read, another outline (a token added, another kind, a param added).
+  expect(again(kept, 'e1', described(moved), [{ seq: 7, gap: true }], )).toBeNull();
+  expect([...again(kept, 'e1', described(moved), [{ seq: 5, gap: true }])].sort()).toEqual(['accent', 'brand', 'edge']);
+  expect(again(kept, 'e2', described(moved), [])).toBeNull();
+  expect(again(undefined, 'e1', described(moved), [])).toBeNull();
+  expect(again(kept, 'e1', described([...moved, tok('new', '#444')]), [])).toBeNull();
+  expect(again(kept, 'e1', described(moved.map(t => t.name === 'other' ? { ...t, kind: 'length' } : t)), [])).toBeNull();
+  expect(again(kept, 'e1', described(moved, [{ identity: 'app.contract#Card', params: [{ name: 'app.contract#Card.fill', short: 'Card.fill', token: 'param.x.Card.fill' }] }]), [])).toBeNull();
+  // An event since that named a token the kept read has not, then one that named none (a hand edit).
+  event(10, ['gone']);
+  expect(again(kept, 'e1', described(moved), [])).toBeNull();
+  expect([...again(keep('e1', 10, described(base), answersOf(base)), 'e1', described(moved), [])].sort()).toEqual(['accent', 'brand', 'edge']);
+  event(11, null);
+  expect(again(keep('e1', 10, described(base), answersOf(base)), 'e1', described(moved), [])).toBeNull();
+  // Past the newest 1,000 events, a read kept before the oldest is read whole.
+  for (let seq = 12; seq < 1013; seq++) event(seq, ['brand']);
+  expect(again(keep('e1', 11, described(base), answersOf(base)), 'e1', described(moved), [])).toBeNull();
+  expect([...again(keep('e1', 12, described(base), answersOf(base)), 'e1', described(moved), [])].sort()).toEqual(['accent', 'brand', 'edge']);
 });
