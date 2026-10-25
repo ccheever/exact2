@@ -13,6 +13,7 @@
 // POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
 // each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
 // `identify_token` is the token the last IDENTIFY carried.
+import { avatarPng } from './avatar.ts';
 import { constants, createDeflate } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ServerWebSocket } from 'bun';
@@ -976,6 +977,11 @@ export function startFixture(options: FixtureOptions = {}) {
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
         headers.set('Content-Type', 'image/png');
         return new Response(file, { headers });
+      }
+      const avatar = request.method === 'GET' ? avatarPng(url.pathname) : null;
+      if (avatar) {
+        headers.set('Content-Type', 'image/png');
+        return new Response(avatar, { headers });
       }
       const dimensions = /^\/assets\/([1-9]\d{0,4})x([1-9]\d{0,4})\.svg$/.exec(url.pathname);
       if (dimensions) {

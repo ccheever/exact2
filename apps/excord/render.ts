@@ -2,7 +2,7 @@
 // Markdown parsed and flattened into blocks of runs, mentions resolved, images in their declared box.
 import { parse, jumbo } from './discord/markdown';
 import type { Block as MarkdownBlock, Inline, Mark } from './discord/markdown';
-import { cmpId } from './discord/ids';
+import { cmpId, msFromSnowflake } from './discord/ids';
 import type { Result } from './app.contract.d.ts';
 
 export type Row = Result<'loadWindow'>['rows'][number];
@@ -12,7 +12,7 @@ type Media = Row['media'][number];
 type Embed = Row['embeds'][number];
 // A Discord message as the store keeps it: its `key` (the nonce of a send from here) and `status`.
 export type Stored = Record<string, any> & { id: string | null; key: string; channel_id: string; status: string };
-export interface User { id: string; username?: string; global_name?: string | null; bot?: boolean }
+export interface User { id: string; username?: string; global_name?: string | null; bot?: boolean; avatar?: string | null; discriminator?: string }
 
 export interface Directories {
   me(): string;
@@ -22,12 +22,21 @@ export interface Directories {
   message(channel: string, id: string): Stored | undefined;
   deleted(channel: string, id: string): boolean;
   emoji(id: string, animated: boolean): string;
+  /** The user's picture: their avatar, else Discord's default one for them. */
+  avatar(user: User): string;
+  /** The name colour, `#rrggbb`, of the highest of a channel's guild roles that has one; "" for none. */
+  nameColor(channel: string, roles: string[]): string;
 }
 interface Context { dirs: Directories; block: number; spoiler: number; mentionsMe: boolean }
 const displayName = (u: User | undefined | null, fallback = ''): string => u?.global_name || u?.username || fallback;
-// An author's avatar hue, the same on every row: the id modulo 8 (its low bits, so users made in the
-// same millisecond still differ).
-const tintOf = (id: string): number => [...id].reduce((r, d) => (r * 10 + (d.charCodeAt(0) - 48)) % 8, 0);
+/** A user's picture on Discord's CDN: their avatar, else the default one Discord gives them (its index is
+ * the legacy discriminator modulo 5, or for a unique username the id's timestamp bits modulo 6). */
+export function avatarUrl(cdn: string, u: User): string {
+  if (u.avatar && /^\d+$/.test(u.id)) return `${cdn}/avatars/${u.id}/${u.avatar}.png?size=128`;
+  const legacy = Number(u.discriminator ?? 0);
+  const index = legacy > 0 ? legacy % 5 : /^\d+$/.test(u.id) ? (msFromSnowflake(u.id) - 1420070400000) % 6 : 0;
+  return `${cdn}/embed/avatars/${index}.png`;
+}
 export const timeOf = (m: Stored): number => (m.timestamp ? Date.parse(m.timestamp) : m.createdAtMs ?? 0);
 
 function block(ctx: Context, kind: string, quote: boolean, level = 0, marker = ''): Block {
@@ -113,10 +122,17 @@ function plain(blocks: Block[]): string {
     .filter(r => r.kind !== 'edited').map(r => r.text).join(''))).join('\n');
 }
 interface Picture { url?: string; proxy_url?: string; width?: number; height?: number }
+// Discord's media proxy resizes to the `width` and `height` asked: an image is fetched at the pixels
+// of its box on a 3x display, not at the size it was uploaded.
+const PIXELS = 3;
 function media(id: string, p: Picture, alt: string, spoiler: boolean): Media {
   const width = p.width ?? 0, height = p.height ?? 0;
   const scale = width > 0 && height > 0 ? Math.min(1, 320 / width, 320 / height) : 0;
-  return { id, src: p.url ?? p.proxy_url ?? '', width, height, fitWidth: width * scale, fitHeight: height * scale, alt, spoiler };
+  const pixels = Math.min(1, scale * PIXELS);
+  const src = p.proxy_url && scale > 0 && pixels < 1
+    ? `${p.proxy_url}${p.proxy_url.includes('?') ? '&' : '?'}width=${Math.round(width * pixels)}&height=${Math.round(height * pixels)}`
+    : p.url ?? p.proxy_url ?? '';
+  return { id, src, full: p.url ?? p.proxy_url ?? '', width, height, fitWidth: width * scale, fitHeight: height * scale, alt, spoiler };
 }
 const isImage = (a: Record<string, any>): boolean =>
   String(a.content_type ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(String(a.filename ?? ''));
@@ -132,8 +148,10 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
   // Discord sends the original with the reply (`referenced_message`), null when it was deleted.
   const ref = held ?? (m.referenced_message || undefined);
   const gone = m.referenced_message === null || dirs.deleted(m.channel_id, id);
-  if (!ref || (gone && !held)) return [{ id, author: '', tint: 0, preview: '', state: gone ? 'deleted' : 'unknown' }];
-  return [{ id, author: displayName(dirs.user(ref.author?.id) ?? ref.author), tint: tintOf(String(ref.author?.id ?? '')),
+  if (!ref || (gone && !held)) return [{ id, author: '', avatar: '', color: '', preview: '', state: gone ? 'deleted' : 'unknown' }];
+  const author: User = dirs.user(ref.author?.id) ?? ref.author ?? { id: '' };
+  return [{ id, author: displayName(author),
+    avatar: dirs.avatar(author), color: dirs.nameColor(m.channel_id, ref.member?.roles ?? []),
     preview: plain(flatten(parse(String(ref.content ?? '')), context(dirs))).replace(/\s+/g, ' ').trim().slice(0, 100),
     state: 'present' }];
 }
@@ -168,11 +186,12 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
       description: flatten(parse(e.description ?? ''), ctx),
       image: bare ? (e.image ? image('image') : image('thumbnail')) : image('image'), thumbnail: bare ? [] : image('thumbnail') };
   });
-  const author = displayName(dirs.user(authorId) ?? m.author, authorId);
+  const user: User = dirs.user(authorId) ?? m.author ?? { id: authorId };
+  const author = displayName(user, authorId);
   const system = SYSTEM[m.type]?.(author) ?? '';
   const at = timeOf(m), prevAt = previous ? timeOf(previous) : 0, delta = previous ? at - prevAt : 0;
-  return { key: m.key, id: m.id ?? m.key, authorId, author, tint: tintOf(authorId),
-    initials: author.trim().split(/\s+/).slice(0, 2).map(s => Array.from(s)[0] ?? '').join('').toUpperCase(),
+  return { key: m.key, id: m.id ?? m.key, authorId, author,
+    avatar: dirs.avatar(user), color: dirs.nameColor(m.channel_id, m.member?.roles ?? []),
     bot: m.author?.bot === true, at, prevAt,
     grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
       (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',

@@ -8,7 +8,7 @@ import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
 import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live } from './live';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
-import { createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
+import { avatarUrl, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
 export const appId = 'com.exact.excord';
 // Where Discord is: the fixture (app.json's `commands.server`) unless the bake says otherwise.
@@ -68,7 +68,34 @@ const dirs: Directories = {
   message: (channel, id) => (S.message(store, channel, id) as Stored | null) ?? undefined,
   deleted: (channel, id) => S.deleted(store, channel, id),
   emoji: (id, animated) => `${live.origins.cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
+  avatar: u => avatarUrl(live.origins.cdn, u),
+  nameColor: (channel, roles) => {
+    const guild = roles.length ? store.guildMap.get(S.channel(store, channel)?.guild_id ?? '') : undefined;
+    if (!guild) return '';
+    const colors = roleColors(guild.roles ?? []);
+    let best: { position: number; color: string } | undefined;
+    for (const id of roles) {
+      const c = colors.get(id);
+      if (c && (!best || c.position > best.position)) best = c;
+    }
+    return best?.color ?? '';
+  },
 };
+// Each guild's coloured roles by id, kept while the guild's role array is the same object (the store
+// replaces it on any role change).
+const colorCache = new WeakMap<object, Map<string, { position: number; color: string }>>();
+function roleColors(roles: Record<string, any>[]): Map<string, { position: number; color: string }> {
+  let found = colorCache.get(roles);
+  if (!found) {
+    found = new Map();
+    for (const r of roles) {
+      const color = Number(r.colors?.primary_color ?? r.color ?? 0);
+      if (color > 0) found.set(String(r.id), { position: Number(r.position ?? 0), color: `#${(color & 0xffffff).toString(16).padStart(6, '0')}` });
+    }
+    colorCache.set(roles, found);
+  }
+  return found;
+}
 const render = createRenderer(dirs);
 const LIMIT = 200, HALF = 100;
 
@@ -99,7 +126,10 @@ function channelRecord(id: string): Channel {
   const first = S.firstUnread(store, id);
   const typing = S.typingUsers(store, id, clock.now).map(t => t.user.global_name || t.user.username || displayName(t.user.id));
   const name = c?.name || (c?.recipients ?? []).map((u: { id: string }) => displayName(u.id)).join(', ');
-  return { id, guild: c?.guild_id ?? '', name, topic: c?.topic ?? '', version: S.channelVersion(store, id),
+  const recipients: { id: string }[] = c?.recipients ?? [];
+  const avatar = c?.type === 1 && recipients[0] ? avatarUrl(live.origins.cdn, S.user(store, recipients[0].id) ?? recipients[0])
+    : c?.type === 3 && c.icon ? `${live.origins.cdn}/channel-icons/${id}/${c.icon}.png?size=128` : '';
+  return { id, guild: c?.guild_id ?? '', name, avatar, topic: c?.topic ?? '', version: S.channelVersion(store, id),
     unread: read.unread ? Math.max(1, known.count) : 0, mentions: read.mentionCount,
     firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
     lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),
@@ -191,7 +221,10 @@ const sources: Sources = {
   digest: ([now], secrets) => digest(live, secrets, now),
   loadGuilds: () => S.guilds(store).filter(g => !g.unavailable).map(g => {
     const reads = readable(g.id).map(c => S.unread(store, c.id));
-    return { id: g.id, name: g.name ?? '', unread: reads.some(r => r.unread), mentions: reads.reduce((n, r) => n + r.mentionCount, 0) };
+    const name = g.name ?? '';
+    return { id: g.id, name, icon: g.icon ? `${live.origins.cdn}/icons/${g.id}/${g.icon}.png?size=128` : '',
+      acronym: name.split(/\s+/).filter(Boolean).map((w: string) => Array.from(w)[0]).join('').slice(0, 5),
+      unread: reads.some(r => r.unread), mentions: reads.reduce((n, r) => n + r.mentionCount, 0) };
   }),
   // A guild's text channels the account can see, by category; a category with none is left out.
   loadChannels: ([guild]) => S.guildChannels(store, guild).map(group => ({

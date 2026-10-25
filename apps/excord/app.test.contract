@@ -573,9 +573,8 @@ test "a channel never read jumps to its first message (wiring review: Sol 8)"
   expect tree has "new-divider"
   expect tree has "message-1432427377459200001"
 
-test "the server menu switches the list to the direct messages, which open like a channel, and is kept"
+test "the server rail switches the list to the direct messages, which open like a channel, and is kept"
   clock +500 real
-  tap "server"
   tap "server-@me"
   clock settle
   expect state server == "@me"
@@ -589,3 +588,19 @@ test "the server menu switches the list to the direct messages, which open like 
   reload
   clock +500 real
   expect state server == "@me"
+
+test "an image opens full screen, zooms on a double tap and closes"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  expect tree has "viewer"
+  expect state viewing == "http://127.0.0.1:4790/media/cafe.png"
+  tap "viewer-handle" dblclick
+  clock settle
+  expect state viewZoom == 2
+  tap "viewer-close"
+  clock settle
+  expect tree missing "viewer"

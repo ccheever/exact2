@@ -405,6 +405,7 @@ test('9. deleting an uncached original advances history and redraws its cached r
     channelName: id => S.channel(live.store, id)?.name ?? '', roleName: id => id,
     message: (channel, id) => (S.message(live.store, channel, id) as Stored | null) ?? undefined,
     deleted: (channel, id) => S.deleted(live.store, channel, id), emoji: id => `${fixture.origin}/emojis/${id}.png`,
+    avatar: () => '', nameColor: () => '',
   });
   const window = () => {
     const slice = S.latestWindow(live.store, channel, 200);

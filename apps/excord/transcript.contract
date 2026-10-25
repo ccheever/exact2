@@ -8,10 +8,6 @@
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
 use Badge from "exact:content"
 
-// An avatar's fill: a system hue each author keeps. Its initials are dark ink in both
-// schemes (`color-scheme="light"` on the label), which every one of these hues carries.
-fn tintOf(n: number): string = n == 0 ? "-exact-system-blue" : n == 1 ? "-exact-system-green" : n == 2 ? "-exact-system-orange" : n == 3 ? "-exact-system-pink" : n == 4 ? "-exact-system-purple" : n == 5 ? "-exact-system-teal" : n == 6 ? "-exact-system-yellow" : "-exact-system-red"
-
 fn decoration(r: Run): string = r.underline and r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
 
 component MessageRow
@@ -32,6 +28,7 @@ component MessageRow
     discard: action
     swipe: action
     swipeEnd: action
+    show: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -50,66 +47,70 @@ component MessageRow
           image "symbol:forward" font="-exact-subheadline" color="-exact-system-green" margin-left=12
           text m.system font="-exact-subheadline" color="-exact-secondary-label" flex=1 min-width=0
       else
-        row position="relative" padding="2px 16px" gap=12 align-items="flex-start" testId=`row-${m.id}`
-          background-color=(m.mentionsMe ? "-exact-tertiary-fill" : "transparent")
+        column position="relative" padding="2px 16px" testId=`row-${m.id}`
           translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
           pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-left pan-y"
           contextmenu=aim(m.key, m.id, m.mine, m.source, m.author) contextPopover="message-menu"
           opacity=(m.state == "pending" ? 0.5 : 1)
+          // A message that mentions the reader: Discord's gold wash and bar.
+          if m.mentionsMe
+            view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=0.12 pointer-events="none" aria-hidden=true
+            view position="absolute" left=0 top=0 bottom=0 width=2 background-color="-exact-system-yellow" pointer-events="none" aria-hidden=true
           // A jump's target: Discord's yellow wash, fading once the reader has seen it.
           view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
-          if leads
-            text m.initials width="2.5rem" height="2.5rem" border-radius="1.25rem" background-color=tintOf(m.tint) color="-exact-label" color-scheme="light" font-weight=600 text-align="center" line-height="2.5rem" flex-shrink=0 aria-hidden=true
-          else
-            view width="2.5rem" flex-shrink=0
-          column flex=1 min-width=0 gap=4
-            // A deleted original has nowhere to jump to; one the store does not
-            // hold yet loads when tapped.
-            for r in m.reply key=r.id
+          // A reply's original, joined to the avatar below by Discord's spine. A deleted original
+          // has nowhere to jump to; one the store does not hold yet loads when tapped.
+          for r in m.reply key=r.id
+            row align-items="stretch" gap=6 min-width=0 padding-left=19 padding-bottom=2
+              view width=29 margin-top=9 flex-shrink=0 border-left="2px solid -exact-separator" border-top="2px solid -exact-separator" border-top-left-radius=6 aria-hidden=true
               if r.state == "deleted"
-                row gap=6 align-items="center" min-width=0 testId=`reply-to-${m.id}`
-                  text "↱" color="-exact-tertiary-label"
-                  text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
+                text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId=`reply-to-${m.id}`
               else
-                button appearance="none" press=jump(r.id) testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
-                  row gap=6 align-items="center" min-width=0
-                    text "↱" color="-exact-tertiary-label"
+                button appearance="none" press=jump(r.id) flex=1 min-width=0 testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
+                  row gap=4 align-items="center" min-width=0
                     if r.state == "unknown"
                       text "Tap to see the original message" font="-exact-footnote" color="-exact-secondary-label"
                     else
-                      text r.author font="-exact-footnote" font-weight=600 color="-exact-secondary-label" flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                      image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
+                      text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
                       text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+          row gap=12 align-items="flex-start"
             if leads
-              row gap=6 align-items="baseline" flex-wrap="wrap"
-                text m.author font-weight=600 testId=`author-${m.id}`
-                if m.bot
-                  Badge(label="APP", tint=some("AccentColor"))
-                text formatDay(m.at, clock, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
-            for b in m.blocks key=b.id
-              BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
-            for i in m.media key=i.id
-              MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal)
-            for e in m.embeds key=e.id
-              EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal)
-            if m.reactions.length > 0
-              row gap=6 flex-wrap="wrap" padding-top=2
-                for x in m.reactions key=x.id
-                  button appearance="none" press=react(m.id, x.emoji != "" ? x.emoji : x.id) testId=`reaction-${m.key}-${x.id}` aria-label=`${x.name}, ${x.count}` aria-pressed=x.me -exact-press-haptic="selection"
-                    row gap=4 align-items="center" padding="3px 8px" border-radius=8
-                      background-color=(x.me ? "-exact-tertiary-fill" : "-exact-quaternary-fill")
-                      border=(x.me ? "1px solid AccentColor" : "1px solid transparent")
-                      if x.src != ""
-                        image x.src width=18 height=18 aria-label=x.name
-                      else
-                        text x.emoji
-                      text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
-            if m.state == "failed"
-              row gap=12 align-items="center" testId=`failed-${m.id}`
-                text "Not sent." font="-exact-footnote" color="-exact-system-red"
-                button press=retry(m.key) testId=`retry-${m.id}`
-                  text "Retry"
-                button press=discard(m.key) destructive=true testId=`discard-${m.id}`
-                  text "Delete"
+              image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill" aria-hidden=true
+            else
+              view width="2.5rem" flex-shrink=0
+            column flex=1 min-width=0 gap=4
+              if leads
+                row gap=6 align-items="baseline" flex-wrap="wrap"
+                  text m.author font-weight=600 color=(m.color != "" ? m.color : "-exact-label") testId=`author-${m.id}`
+                  if m.bot
+                    Badge(label="APP", tint=some("AccentColor"))
+                  text formatDay(m.at, clock, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
+              for b in m.blocks key=b.id
+                BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
+              for i in m.media key=i.id
+                MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+              for e in m.embeds key=e.id
+                EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+              if m.reactions.length > 0
+                row gap=6 flex-wrap="wrap" padding-top=2
+                  for x in m.reactions key=x.id
+                    button appearance="none" press=react(m.id, x.emoji != "" ? x.emoji : x.id) testId=`reaction-${m.key}-${x.id}` aria-label=`${x.name}, ${x.count}` aria-pressed=x.me -exact-press-haptic="selection"
+                      row gap=4 align-items="center" padding="3px 8px" border-radius=8
+                        background-color=(x.me ? "-exact-tertiary-fill" : "-exact-quaternary-fill")
+                        border=(x.me ? "1px solid AccentColor" : "1px solid transparent")
+                        if x.src != ""
+                          image x.src width=18 height=18 aria-label=x.name
+                        else
+                          text x.emoji
+                        text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
+              if m.state == "failed"
+                row gap=12 align-items="center" testId=`failed-${m.id}`
+                  text "Not sent." font="-exact-footnote" color="-exact-system-red"
+                  button press=retry(m.key) testId=`retry-${m.id}`
+                    text "Retry"
+                  button press=discard(m.key) destructive=true testId=`discard-${m.id}`
+                    text "Delete"
           if swipeX > 0
             image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"
 
@@ -250,15 +251,18 @@ component MediaView
     mkey: string
     revealed: string[]
     reveal: action
+    show: action
   view
     if i.width > 0 and i.height > 0
       view position="relative" width=i.fitWidth max-width="100%" aspect-ratio=`${i.width} / ${i.height}` border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
-        image i.src width="100%" height="100%" object-fit="cover" aria-label=i.alt
+        button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src width="100%" height="100%" object-fit="cover"
         if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
           button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
             text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
     else
-      image i.src width="100%" max-width=320 border-radius=8 aria-label=i.alt testId=`media-${mkey}-${i.id}`
+      button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+        image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`
 
 component EmbedView
   props
@@ -266,6 +270,7 @@ component EmbedView
     mkey: string
     revealed: string[]
     reveal: action
+    show: action
   view
     row max-width="26rem" border-radius=6 overflow="hidden" background-color="-exact-secondary-background" testId=`embed-${mkey}-${e.id}`
       view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
@@ -283,6 +288,6 @@ component EmbedView
         for b in e.description key=b.id
           BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal)
         for i in e.image key=i.id
-          MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal)
+          MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
       for t in e.thumbnail key=t.id
         image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt

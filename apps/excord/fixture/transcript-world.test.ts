@@ -18,7 +18,8 @@ test('transcript world is deterministic, generates under one second and has one 
   expect(hash(world)).toBe(hash(createTranscriptWorld(origin)));
   expect(world.me).toMatchObject({ username: 'charlie', global_name: 'Charlie' });
   expect(world.users).toEqual(members.map((member, i) => ({ id: snowflakeFromMs(Date.UTC(2024, 0, 1), i),
-    username: member.username, global_name: member.global_name, avatar: null, discriminator: '0', bot: member.bot })));
+    username: member.username, global_name: member.global_name, discriminator: '0',
+    avatar: i % 4 === 3 ? null : expect.stringMatching(/^a[0-9a-f]+$/), bot: member.bot })));
   expect(world.guilds).toHaveLength(1);
   expect(world.guilds[0].name).toBe('Exact Club');
   expect(world.guilds[0].roles.map(role => role.name)).toEqual(['@everyone', 'Maintainers', 'Cyclists']);
