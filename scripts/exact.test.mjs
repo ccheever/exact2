@@ -11,6 +11,7 @@ import { dirname, relative, resolve } from 'node:path';
 import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
+import { packageWidgets } from '../host/apple/widgets.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>${executable}</string></dict></plist>\n`;
@@ -62,6 +63,44 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
 }));
 
 const tools = process.platform === 'darwin' && ['clang', 'codesign'].every((tool) => Bun.which(tool));
+
+test.skipIf(!tools)('widget packaging preserves the parent platform in device and simulator extensions', () => inDir(dir => {
+  const library = resolve(dir, 'fixture.dylib');
+  writeFileSync(resolve(dir, 'fixture.c'), 'void fixture(void) {}');
+  const compiled = spawnSync('clang', ['-dynamiclib', resolve(dir, 'fixture.c'), '-o', library], { encoding: 'utf8' });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const readPlist = path => {
+    const result = spawnSync('plutil', ['-convert', 'json', '-o', '-', path], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  for (const device of [true, false]) {
+    const platform = device ? 'iphoneos' : 'iphonesimulator';
+    const bundle = resolve(dir, platform, 'Fixture.app'), directory = resolve(dir, platform, 'build');
+    const framework = resolve(bundle, 'Frameworks/ExactCore.framework');
+    mkdirSync(framework, { recursive: true });
+    const parent = { CFBundleVersion: '8', CFBundleShortVersionString: '1.0.0', MinimumOSVersion: '17.0',
+      UIDeviceFamily: [1, 2], CFBundleSupportedPlatforms: [device ? 'iPhoneOS' : 'iPhoneSimulator'], DTPlatformName: platform, ExactWidgetGeneration: 'fixture' };
+    writeFileSync(resolve(bundle, 'Info.plist'), plistFile(parent));
+    writeFileSync(resolve(framework, 'Info.plist'), plistFile({ CFBundleIdentifier: 'dev.exact.fixture.runtime' }));
+    let signed = null;
+    packageWidgets({ app: { dir, id: 'dev.exact.fixture', displayName: 'Fixture', manifest: {} }, bundle,
+      shared: { framework, snapshotArchive: resolve(dir, 'snapshot.a') }, directory, sdk: 'fixture-sdk', triple: 'fixture-target',
+      device, production: true, entitlements: plistFile({}),
+      runApple(command, args) {
+        if (command === 'plutil') return { stdout: JSON.stringify(readPlist(args.at(-1))) };
+        assert.equal(command, 'xcrun');
+        assert.equal(args[2], 'swiftc');
+        cpSync(library, args[args.indexOf('-o') + 1]);
+        return { stdout: '' };
+      }, sign(extension) { signed = extension; } });
+    assert.equal(signed, resolve(bundle, 'PlugIns/ExactWidgets.appex'));
+    const info = readPlist(resolve(signed, 'Info.plist'));
+    assert.equal(info.DTPlatformName, platform);
+    assert.deepEqual(info.CFBundleSupportedPlatforms, parent.CFBundleSupportedPlatforms);
+    assert.equal(info.CFBundleVersion, parent.CFBundleVersion);
+  }
+}));
 test('release refuses code in content-addressed assets before signing changes its digest', () => inDir(dir => {
   const app = resolve(dir, 'Fixture.app'), helper = resolve(app, 'Contents/Resources/assets/helper');
   mkdirSync(dirname(helper), { recursive: true });
