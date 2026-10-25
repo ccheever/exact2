@@ -99,6 +99,9 @@ test.skipIf(!tools)('widget packaging preserves parent platform and device capab
     const info = readPlist(resolve(signed, 'Info.plist'));
     assert.equal(info.DTPlatformName, platform);
     assert.deepEqual(info.UIRequiredDeviceCapabilities, parent.UIRequiredDeviceCapabilities);
+    for (const name of ['ExactCore', 'ExactWidgetReload']) {
+      assert.deepEqual(readPlist(resolve(bundle, `Frameworks/${name}.framework/Info.plist`)).UIRequiredDeviceCapabilities, parent.UIRequiredDeviceCapabilities, name);
+    }
     assert.deepEqual(info.CFBundleSupportedPlatforms, parent.CFBundleSupportedPlatforms);
     assert.equal(info.CFBundleVersion, parent.CFBundleVersion);
   }
