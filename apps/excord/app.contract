@@ -166,9 +166,10 @@ component Excord
   derive covered = viewing != "" or locked
   derive dmUnread = dms.map(c => c.unread > 0).includes(true)
   derive dmMentions = sum(dms.map(c => c.mentions))
-  // The browser tab's title, as Discord's: what mentions the reader, then the channel on screen.
+  // The browser tab's title, as Discord's: what mentions the reader, then the channel on screen; locked,
+  // the app's name alone.
   derive mentionTotal = dmMentions + sum(guilds.map(g => g.mentions))
-  derive pageTitle = `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) or dmUnread ? "• " : ""}Excord${reading and chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
+  derive pageTitle = locked ? "Excord" : `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) or dmUnread ? "• " : ""}Excord${reading and chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
   resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
   derive channels = categories.map(g => g.channels).flat()
