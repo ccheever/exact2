@@ -6,6 +6,7 @@
 
 use crate::ast::*;
 use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::members::Deferred;
 use crate::Span;
 
 mod anatomy;
@@ -338,27 +339,58 @@ impl Parser {
                                 .iter()
                                 .any(|c| c.actions.iter().any(|a| a.name == name))
                     };
+                    // In a file of a component across files, an action of the
+                    // name may be declared in another: the loader decides.
+                    let assembled = file.members.is_some()
+                        || file.components.iter().any(|c| !c.members.lines.is_empty());
+                    let mut deferred = Vec::new();
                     // A free call of a refused declaration's or member's name may
                     // be a call of it, as of one that parsed.
                     let free = std::mem::take(&mut self.free);
                     for (name, error, edits) in free {
-                        if !declared(&name) && !self.hidden.contains(&name) {
+                        if declared(&name) || self.hidden.contains(&name) {
+                            continue;
+                        }
+                        if assembled {
+                            deferred.push(Deferred {
+                                name,
+                                if_action: false,
+                                error,
+                            });
+                        } else {
                             errors.push(error);
                             self.edits.extend(edits);
                         }
                     }
                     errors.append(&mut self.retired);
-                    let methods = std::mem::take(&mut self.methods);
-                    errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
-                        let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
-                        SyntaxError {
+                    for (n, span) in std::mem::take(&mut self.methods) {
+                        let call = if n == "length" {
+                            ".length".to_string()
+                        } else {
+                            format!(".{n}(…)")
+                        };
+                        let error = SyntaxError {
                             id: "syntax-method-shadowed",
                             message: format!(
                                 "rename this file's `{n}`: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
                             ),
                             span,
+                        };
+                        if declared(&n) {
+                            errors.push(error);
+                        } else if assembled {
+                            let message = format!(
+                                "rename the action `{n}` another of this component's files declares: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            );
+                            let error = SyntaxError { message, ..error };
+                            deferred.push(Deferred {
+                                name: n,
+                                if_action: true,
+                                error,
+                            });
                         }
-                    }));
+                    }
+                    file.deferred = deferred;
                     file.names = std::mem::take(&mut self.names);
                     if errors.is_empty() {
                         return Ok(file);

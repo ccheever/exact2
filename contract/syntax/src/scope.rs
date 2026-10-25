@@ -230,6 +230,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         launch: _,
         components,
         members,
+        // Decided by the loader once the component is whole.
+        deferred: _,
     } = file;
     for m in modules {
         r.scope.rename(Kind::Call, &mut m.name, m.span)?;

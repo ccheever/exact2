@@ -1,8 +1,9 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
 use crate::anatomy::{Anatomy, Mark, PartDecl};
-use crate::members::{Members, MembersLine};
+use crate::members::{Deferred, Members, MembersLine};
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
+use crate::parser::SyntaxError;
 use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
@@ -84,7 +85,8 @@ leaves!(
     TapForm,
     ParamValue,
     ModuleKind,
-    crate::members::Splice
+    crate::members::Splice,
+    &'static str
 );
 
 macro_rules! structs {
@@ -99,7 +101,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components, members }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components, members, deferred }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -123,6 +125,8 @@ structs! {
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
         mutations, actions, tasks, sequences, view, params, anatomy, members, span }
     Members { lines, props, outer }
+    Deferred { name, if_action, error }
+    SyntaxError { id, message, span }
     MembersLine { path, at, span }
     Anatomy { parts, marks }
     PartDecl { name, groups, span }

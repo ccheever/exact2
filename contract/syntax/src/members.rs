@@ -3,7 +3,7 @@
 //! files, scopes each through its own `use` lines with every member of the
 //! component bound, then splices each file's block in at its line.
 
-use crate::{Component, Span};
+use crate::{Component, Span, SyntaxError};
 
 /// A `members "./file.contract"` line in a component's body (D1).
 #[derive(Debug, Clone, PartialEq)]
@@ -65,6 +65,22 @@ pub struct Members {
     /// whether it is an action. The loader fills this and `props` so that
     /// scoping binds every member, as the type checker will.
     pub outer: Vec<(String, bool)>,
+}
+
+/// A refusal the parser cannot decide in a file that is part of a component
+/// across files: whether a method's name (`trim`) is an action of the
+/// component, which another of its files may declare (LLP 1116.015 D2,
+/// 1116.016 D2). The loader decides it once the component is whole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Deferred {
+    /// The method's name.
+    pub name: String,
+    /// Whether `error` is raised when the component has an action of the
+    /// name (a method call it would capture), rather than when it has none
+    /// (a free call that is no action's).
+    pub if_action: bool,
+    /// The refusal.
+    pub error: SyntaxError,
 }
 
 /// The names `c` declares in its body, each with whether it is callable.

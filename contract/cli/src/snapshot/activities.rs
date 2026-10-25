@@ -9,11 +9,9 @@ use std::{collections::BTreeMap, path::Path};
 
 /// Compile a source fixture under the activity profile used by the bake.
 pub fn compile_activity(src: &str, activity: &Activity) -> Result<Plan, Vec<CompileError>> {
-    compile_file(
-        contract_syntax::parse(src).map_err(CompileError::from)?,
-        activity,
-        None,
-    )
+    let file = contract_syntax::parse(src).map_err(CompileError::from)?;
+    crate::sources::standalone_members(&file)?;
+    compile_file(file, activity, None)
 }
 
 pub(super) fn compile_file(
