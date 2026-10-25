@@ -982,6 +982,30 @@ test('commit refuses a file staged at its baseline, and one whose HEAD moved; a 
   stream.close();
 }, 30_000);
 
+test('a file whose text is HEAD\'s again is a new baseline: committed by hand, the next commit is the session\'s; one still pending stays refused', async () => {
+  gitIn('checkout', '--', 'app.tamber', 'brand.tamber');
+  gitIn('reset', '-q');
+  await freshWire();
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2a2a2a' }] });
+  // The person commits the session's edit by hand: HEAD moved, and the file is HEAD's.
+  gitIn('commit', '-q', '-am', 'by hand');
+  const nothing = await post({ method: 'commit', client: 'person' });
+  expect(nothing.error.refused).toBeUndefined();
+  expect(nothing.error.message).toContain('nothing to commit');
+  // The next write is a new baseline, and the session commits it.
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2b2b2b' }] });
+  const at = head();
+  const committed = await post({ method: 'commit', client: 'person', message: 'ink' });
+  expect(committed.ok.commit).toBeTruthy();
+  expect(head()).not.toBe(at);
+  // A hand edit since the session's write, then HEAD moving with the file still differing: refused, as before.
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2c2c2c' }] });
+  gitIn('commit', '-q', '--allow-empty', '-m', 'elsewhere');
+  const pending = await post({ method: 'commit', client: 'person' });
+  expect(pending.error.refused).toEqual([{ file: 'app.tamber', why: 'HEAD has moved since the session first wrote it' }]);
+  gitIn('checkout', '--', 'app.tamber');
+}, 60_000);
+
 test("an import is held as proposals: the tokens as one, each role override apart; again, it proposes nothing", async () => {
   const { importTheme } = await import('./tamber-server.mjs');
   gitIn('checkout', '--', 'app.tamber');
