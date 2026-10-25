@@ -33,8 +33,8 @@ On a fold ([HIG](https://developer.apple.com/design/human-interface-guidelines/d
 
 - **Scrolling content stays**: a list or document spans the band (the hinge). Keep
   other controls off it.
-- **A pane that does not scroll moves** and keeps its width: centred when open; the
-  trailing segment on a book fold, where the talk moves an alert; full width closed.
+- **A pane that does not scroll moves** and keeps its width: centred (full width on a
+  narrow screen); the trailing segment on a book fold, where the talk moves an alert.
 - **A list and its detail** is a split view (`pattern list-detail`; iOS pushes until
   LLP 1127). **Two peer panes** are an arrangement: place them by segment (duo-lab's
   Fold tab).
