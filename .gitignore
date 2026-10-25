@@ -4,6 +4,9 @@ node_modules/
 *.swp
 # Built web artifacts: the wasm and its copies, never committed.
 host/web/dist/
+# Its swap's siblings: the lock, a stage, the kept builds by generation, their leases and the reaped list
+# (serve.mjs replaceBuild, host/web/generations.mjs).
+host/web/dist.*
 # The Apple package's SwiftPM build products.
 host/apple/.build/
 # The harness's subagent worktrees: never committed.
