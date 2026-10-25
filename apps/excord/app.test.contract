@@ -761,3 +761,4 @@ test "the member list opens from the channel, and a member opens their card"
   clock data
   clock settle
   expect text "profile-handle" == "@ada"
+  expect state profile.roles.0.name == "Maintainers"

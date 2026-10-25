@@ -224,15 +224,18 @@ async function upload(channel: string, key: string, files: Upload[], done: (rest
  * hold in its server, highest first. */
 function profileOf(channel: string, userId: string, messageId: string): Result<'userProfile'> {
   const u = S.user(store, userId) ?? { id: userId };
-  const message = messageId ? S.message(store, channel, messageId) : null;
-  const held: string[] = message?.member?.roles ?? (userId === store.meId ? store.roles.get(S.channel(store, channel)?.guild_id ?? '') ?? [] : []);
-  const guild = store.guildMap.get(S.channel(store, channel)?.guild_id ?? '');
+  const guildId = S.channel(store, channel)?.guild_id ?? '';
+  // The member as the message carried it, else as the server's member list has them.
+  const listed = store.memberLists.get(guildId)?.items.find(i => i && 'member' in i && i.member.user?.id === userId);
+  const member = (messageId ? S.message(store, channel, messageId)?.member : null) ?? (listed && 'member' in listed ? listed.member : undefined);
+  const held: string[] = member?.roles ?? (userId === store.meId ? store.roles.get(guildId) ?? [] : []);
+  const guild = store.guildMap.get(guildId);
   const roles = ((guild?.roles ?? []) as Record<string, any>[]).filter(r => held.includes(String(r.id)))
     .sort((a, b) => Number(b.position ?? 0) - Number(a.position ?? 0))
     .map(r => { const color = Number(r.colors?.primary_color ?? r.color ?? 0);
       return { id: String(r.id), name: String(r.name ?? ''), color: color ? legible(color & 0xffffff) : '',
         swatch: color ? `#${(color & 0xffffff).toString(16).padStart(6, '0')}` : '' }; });
-  return { id: userId, name: u.global_name || u.username || userId, handle: u.username ?? '', avatar: avatarUrl(live.origins.cdn, u),
+  return { id: userId, name: member?.nick || u.global_name || u.username || userId, handle: u.username ?? '', avatar: avatarUrl(live.origins.cdn, u),
     bot: u.bot === true, color: roles.find(r => r.color)?.color ?? '', roles };
 }
 

@@ -100,6 +100,9 @@ export interface Store {
   // Each guild's member list as GUILD_MEMBER_LIST_UPDATE builds it for the channel op 37 subscribed: its
   // list id and its items, groups and members by index (the subscribed range, 0–99).
   memberLists: Map<string, MemberList>;
+  // The last revision any member list took: each change takes the next, so no list, whether another
+  // guild's or one a new list id started over, repeats a revision a reader saw.
+  memberRevision: number;
   sidebarRevision: number;
   sequence: number;
 }
@@ -109,7 +112,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), memberRevision: 0, sidebarRevision: 0, sequence: 0,
   };
 }
 
@@ -405,7 +408,8 @@ function setEmojis(s: Store, guildId: string, emojis: DiscordObject[]): void {
     animated: e.animated === true, available: e.available !== false })));
 }
 
-// The list's operations, as Discord sends them: SYNC replaces a range, INVALIDATE forgets one, INSERT and
+// The list's operations, as Discord sends them: SYNC replaces a range (what it leaves out of the range is
+// gone), INVALIDATE forgets one, INSERT and
 // DELETE shift what follows, UPDATE replaces one item. A new list id (another channel's permissions)
 // starts the list over. Members met here join the user directory.
 function updateMemberList(s: Store, d: DiscordObject): void {
@@ -419,14 +423,17 @@ function updateMemberList(s: Store, d: DiscordObject): void {
   };
   for (const op of Array.isArray(d.ops) ? d.ops : []) {
     const [from, to] = Array.isArray(op.range) ? op.range.map(Number) : [0, -1];
-    if (op.op === 'SYNC') (op.items ?? []).forEach((item: any, i: number) => { if (from + i <= to) items[from + i] = take(item); });
+    if (op.op === 'SYNC') {
+      const given = Array.isArray(op.items) ? op.items : [];
+      for (let i = from; i <= to && i < 200 && (i - from < given.length || i < items.length); i++) items[i] = take(given[i - from]);
+    }
     else if (op.op === 'INVALIDATE') for (let i = from; i <= to && i < items.length; i++) items[i] = undefined;
     else if (op.op === 'INSERT' && Number.isInteger(op.index)) items.splice(op.index, 0, take(op.item));
     else if (op.op === 'DELETE' && Number.isInteger(op.index)) items.splice(op.index, 1);
     else if (op.op === 'UPDATE' && Number.isInteger(op.index)) items[op.index] = take(op.item);
   }
   // Its own revision, not the lists': a presence moving in a large server would otherwise redraw them.
-  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision: list.revision + 1 });
+  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision: ++s.memberRevision });
 }
 
 function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
@@ -445,6 +452,9 @@ function setRole(s: Store, guildId: string, role: DiscordObject | null, roleId: 
   const roles = ((guild.roles ?? []) as DiscordObject[]).filter(r => r.id !== roleId);
   s.guildMap.set(guildId, { ...guild, roles: role ? [...roles, role] : roles } as Guild);
   c.sidebar = true;
+  // The member list names its groups and colours its names by these roles.
+  const list = s.memberLists.get(guildId);
+  if (list) s.memberLists.set(guildId, { ...list, revision: ++s.memberRevision });
 }
 
 function unreadSignature(s: Store, id: string): string {
