@@ -60,6 +60,17 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertNil(removed.superview, "a destroyed pane never rejoins the document")
         XCTAssertEqual(p.flats.inspectionLayers(under: 5).map(\.leaves), [[8]], "a promoted pane paints its existing flat children in the same batch")
         p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "view", "props": ["testId": "third-child"]],
+            ["op": "children", "id": 1, "ids": [2, 5, 9]],
+        ]))
+        XCTAssertNil(p.arrangements.entries[root.id], "three children use the authored layout")
+        XCTAssertEqual(root.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 9], "fallback preserves the entire authored order")
+        p.apply(wireBatch([
+            ["op": "children", "id": 1, "ids": [2, 5]],
+            ["op": "destroy", "id": 9],
+        ]))
+        XCTAssertEqual(p.arrangements.entries[root.id]?.panes.map(\.id), [2, 5], "the accepted request resumes when two children return")
+        p.apply(wireBatch([
             ["op": "create", "id": 6, "kind": "view"],
             ["op": "create", "id": 7, "kind": "view"],
             ["op": "children", "id": 6, "ids": [2]],

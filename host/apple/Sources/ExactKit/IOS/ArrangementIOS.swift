@@ -81,6 +81,7 @@ final class ArrangementHost {
         guard !requests.isEmpty || !entries.isEmpty || !insetScrollers.isEmpty else { return }
         for (id, entry) in entries where requests[id] !== entry.controller || presenter.views[id] !== entry.node || entry.panes.contains(where: { presenter.views[$0.id] !== $0 }) || (children[id] != nil && children[id] != entry.panes.map(\.id)) {
             retire(entry); entries[id] = nil
+            if presenter.views[id] === entry.node { presenter.placeChildren(entry.node, children[id] ?? entry.panes.map(\.id)) }
         }
         for (id, controller) in requests where entries[id] == nil {
             guard let node = presenter.views[id], let owner = ViewPresentation.controllers(for: node).first else { continue }

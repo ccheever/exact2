@@ -2126,6 +2126,8 @@ can name another. Pass `nil` to restore the authored layout.
 A `true` result accepts the request; UIKit lays it out when the owning container is
 available. `false` means the element is unavailable, it does not have two valid
 children, or the supplied controller already belongs to another container.
+An accepted request uses CSS layout while the child count is not two and resumes
+when two valid children return.
 
 To keep pane content still as the shared navigation bar minimizes, set
 `route.controller.navigationItem.navigationBarMinimization.safeAreaAdjustment = .disabled`

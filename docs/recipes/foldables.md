@@ -1,10 +1,10 @@
 # Recipe: foldables
 
 A partially folded iPhone Duo splits its inner display at the hinge.
-`exactViewport()` reports `devicePosture="folded"` and
-`horizontalViewportSegments` (side by side, a book) or `verticalViewportSegments` (one
-above the other, a laptop) is 2. `env(viewport-segment-<left|top|width|height> <x> <y>)`
-places a box in segment `x, y` (LLP 1078).
+`exactViewport()` reports `devicePosture="folded"` with
+`horizontalViewportSegments=2` (side by side, a book) or
+`verticalViewportSegments=2` (stacked, a laptop).
+`env(viewport-segment-<left|top|width|height> <x> <y>)` places a box in segment `x, y` (LLP 1078).
 
 ```contract
 shape Viewport
@@ -36,7 +36,7 @@ On a fold ([HIG](https://developer.apple.com/design/human-interface-guidelines/d
 - **A pane that does not scroll moves** and keeps its width: centred (full width on a
   narrow screen); the trailing segment on a book fold, where the talk moves an alert.
 - **A list and its detail** is a split view (`pattern list-detail`; iOS pushes until
-  LLP 1127). **Peer panes** use iOS 27.1
+  LLP 1127). **Peer panes** use an iOS 27.1
   [hatch](../contract-for-agents.md#arrange-existing-content-on-iphone-duo).
   Use one tree with CSS elsewhere.
 - A route that is itself the pane on the trailing segment keeps its title with
