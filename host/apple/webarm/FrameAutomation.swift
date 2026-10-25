@@ -15,7 +15,8 @@ import UIKit
 
 /// The arms automation can reach: each knows its element id and the
 /// temporary folder of its session's module (`owner`), which the package's
-/// context resolves `app:/tmp/` in, so a session reaches only its own.
+/// context resolves `app:/tmp/` in: the app's, so another app's frames are
+/// never reached.
 enum Automations {
     nonisolated(unsafe) static let arms = NSHashTable<WebArm>.weakObjects()
     static let world = WKContentWorld.world(name: "exact.automation")
@@ -66,9 +67,11 @@ final class FrameAutomation {
     }
 
     /// A person's input reached the frame: input in flight ends, pressed keys
-    /// are released, and a held dialog is shown to the person.
-    func personTook() {
-        guard controlled, let arm else { return }
+    /// are released, and a held dialog is shown to the person. True when one
+    /// was: the input that took the frame is then the dialog's to stop, not
+    /// the page's.
+    @discardableResult func personTook() -> Bool {
+        guard controlled, let arm else { return false }
         controlled = false
         unwatch()
         acting?.end(["error": "AbortError", "message": "a person took the frame back"])
@@ -78,9 +81,12 @@ final class FrameAutomation {
         #endif
         releaseKeys()
         buttons = [:]
-        if let held = prompt { prompt = nil; held.show() }
+        let held = prompt
+        prompt = nil
+        held?.show()
         arm.browser?.controller = "person"
         arm.browser?.send("currententrychange")
+        return held != nil
     }
 
     /// The frame unmounted or changed its web view: every call in flight ends.
@@ -238,6 +244,7 @@ final class FrameAutomation {
         #if os(macOS)
         guard web.window != nil else { return reply(["error": "InvalidStateError", "message": "the frame is in no window"]) }
         #endif
+        if let out = outside(sources, web) { return reply(["error": "move target out of bounds", "message": out]) }
         take()
         nextId += 1
         let number = nextId
@@ -273,6 +280,34 @@ final class FrameAutomation {
         tick(0)
     }
 
+    /// Why a pointer move or a wheel would land outside the frame's viewport
+    /// (BiDi's "move target out of bounds"), checked before any input goes.
+    private func outside(_ sources: [[String: Any]], _ web: WKWebView) -> String? {
+        #if os(macOS)
+        let scale = Double(web.pageZoom * web.magnification)
+        #else
+        let scale = Double(web.pageZoom)
+        #endif
+        let width = Double(web.bounds.width) / scale, height = Double(web.bounds.height) / scale
+        let within = { (p: CGPoint) in p.x >= 0 && p.y >= 0 && p.x < width && p.y < height }
+        for source in sources {
+            let id = source["id"] as? String ?? ""
+            var at = pointers[id] ?? .zero
+            for action in source["actions"] as? [[String: Any]] ?? [] {
+                let x = Self.bounded(action["x"], -1_000_000...1_000_000), y = Self.bounded(action["y"], -1_000_000...1_000_000)
+                switch (source["type"] as? String, action["type"] as? String) {
+                case ("pointer", "pointerMove"):
+                    at = action["origin"] as? String == "pointer" ? CGPoint(x: at.x + x, y: at.y + y) : CGPoint(x: x, y: y)
+                    if !within(at) { return "(\(at.x), \(at.y)) is outside the frame's \(Int(width)) × \(Int(height)) viewport" }
+                case ("wheel", "scroll"):
+                    if !within(CGPoint(x: x, y: y)) { return "a scroll at (\(x), \(y)) is outside the frame's \(Int(width)) × \(Int(height)) viewport" }
+                default: break
+                }
+            }
+        }
+        return nil
+    }
+
     /// A number from data code, finite and within `range` (0 when absent or not finite).
     static func bounded(_ value: Any?, _ range: ClosedRange<Double>) -> Double {
         let n = (value as? NSNumber)?.doubleValue ?? 0
@@ -280,6 +315,20 @@ final class FrameAutomation {
     }
 
     #if os(macOS)
+    /// The events automation made, by type and time: WebKit sends a key the
+    /// page left unhandled on through `NSApp.sendEvent`, where the take-back
+    /// monitor drops it, so it neither counts as a person's nor reaches the
+    /// app's menus (⌘W, ⌘Q).
+    private var made: [(type: NSEvent.EventType, at: TimeInterval)] = []
+
+    private func made(_ event: NSEvent) -> NSEvent {
+        made.append((event.type, event.timestamp))
+        if made.count > 64 { made.removeFirst(made.count - 64) }
+        return event
+    }
+
+    private func ours(_ event: NSEvent) -> Bool { made.contains { $0.type == event.type && $0.at == event.timestamp } }
+
     /// What had the window's focus before input began: nil until then.
     private var focus: NSResponder??
     #endif
@@ -400,6 +449,7 @@ final class FrameAutomation {
         let count = phase == "down" ? clickCount(button, css) : phase == "up" ? lastClick?.count ?? 1 : 0
         guard let event = NSEvent.mouseEvent(with: type, location: web.convert(local, to: nil), modifierFlags: Self.flags(held), timestamp: ProcessInfo.processInfo.systemUptime,
                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: phase == "down" ? 1 : 0) else { return }
+        _ = made(event)
         switch type {
         case .mouseMoved: web.mouseMoved(with: event)
         case .leftMouseDragged: web.mouseDragged(with: event)
@@ -420,14 +470,14 @@ final class FrameAutomation {
         if named?.flag != nil {
             guard let event = NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: Self.flags(held), timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: named!.code) else { return }
-            return web.flagsChanged(with: event)
+            return web.flagsChanged(with: made(event))
         }
         let flags = Self.flags(held)
         let plain = named?.characters ?? value.lowercased()
         let characters = named?.characters ?? (flags.contains(.command) || flags.contains(.control) ? plain : value)
         guard let event = NSEvent.keyEvent(with: down ? .keyDown : .keyUp, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                            context: nil, characters: characters, charactersIgnoringModifiers: plain, isARepeat: false, keyCode: named?.code ?? Keys.code(value)) else { return }
-        if down { web.keyDown(with: event) } else { web.keyUp(with: event) }
+        if down { web.keyDown(with: made(event)) } else { web.keyUp(with: made(event)) }
     }
 
     private func wheel(_ css: CGPoint, dx: Double, dy: Double, _ web: WKWebView) {
@@ -449,7 +499,7 @@ final class FrameAutomation {
         }
         let near = { (e: NSEvent) in abs(e.locationInWindow.x - point.x) < 1 && abs(e.locationInWindow.y - point.y) < 1 }
         guard let scroll = [event(at: onScreen), event(at: point)].compactMap({ $0 }).first(where: near) ?? event(at: onScreen) else { return }
-        web.scrollWheel(with: scroll)
+        web.scrollWheel(with: made(scroll))
     }
 
     static func flags(_ held: Set<String>) -> NSEvent.ModifierFlags {
@@ -462,13 +512,17 @@ final class FrameAutomation {
     private func watch(_ web: WKWebView) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel]) { [weak self, weak web] event in
-            guard let self, let web, let window = web.window, event.window === window, !web.isHiddenOrHasHiddenAncestor else { return event }
+            guard let self else { return event }
+            if self.ours(event) { return nil }
+            // A wheel's momentum continues a scroll already begun, not a new one.
+            guard let web, let window = web.window, event.window === window, !web.isHiddenOrHasHiddenAncestor,
+                  event.type != .scrollWheel || event.momentumPhase.isEmpty else { return event }
             let inside = event.type == .keyDown
                 ? (window.firstResponder as? NSView).map { $0 === web || $0.isDescendant(of: web) } ?? false
                 : (window.contentView.flatMap { $0.hitTest($0.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) })
                     .map { $0 === web || $0.isDescendant(of: web) } ?? false
-            if inside { self.personTook() }
-            return event
+            // A click that brings a held dialog up is the dialog's: the page never sees it.
+            return inside && self.personTook() ? nil : event
         }
     }
 

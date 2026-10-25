@@ -17,6 +17,7 @@ mod baked_release;
 mod blocks;
 mod borders;
 mod branch;
+mod browser_automation;
 mod browser_shell;
 mod build_warnings;
 mod button_migration;

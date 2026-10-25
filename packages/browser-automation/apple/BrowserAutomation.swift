@@ -1,10 +1,10 @@
 // @exact/browser-automation on Apple (LLP 1020.002 D9): each name goes to the
 // iframe arm (`exact_web_automation`), which holds the frames. The runner has
 // admitted the call under `browser.automation` before it reaches here. A frame
-// is found by its `id` among the frames of this session's app files: the arm
-// knows each frame by the temporary folder its session's module writes, the
-// one `context.file` resolves `app:/tmp/` in, so a session never reaches
-// another's frames. An arm not yet loaded holds no frame: NotFoundError.
+// is found by its `id` among the frames of this app: the arm knows each frame
+// by the temporary folder its session's module writes, the one `context.file`
+// resolves `app:/tmp/` in, so a call never reaches another app's frames. An
+// arm not yet loaded holds no frame: NotFoundError.
 import ExactPackage
 import Foundation
 

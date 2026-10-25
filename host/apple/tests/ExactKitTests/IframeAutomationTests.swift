@@ -178,7 +178,7 @@ final class IframeAutomationTests: XCTestCase {
         XCTAssertNil(run(arm, "evaluate", ["expression": "1", "userActivation": true])["error"])
         spin { self.controller(seen) == "agent" }
         XCTAssertEqual(controller(seen), "agent", "userActivation takes the frame")
-        XCTAssertEqual(run(arm, "evaluate", ["expression": "1"], owner: "/tmp/another-session")["error"] as? String, "NotFoundError", "another session's frames are not found")
+        XCTAssertEqual(run(arm, "evaluate", ["expression": "1"], owner: "/tmp/another-app")["error"] as? String, "NotFoundError", "another app's frames are not found")
         XCTAssertEqual(run(arm, "evaluate", ["expression": "1"], id: "other")["error"] as? String, "NotFoundError")
     }
 
@@ -330,6 +330,40 @@ final class IframeAutomationTests: XCTestCase {
     }
 
     #if os(macOS)
+    /// A key the page leaves unhandled, which WebKit sends on through
+    /// `NSApp.sendEvent`, is neither a person's (the frame stays the agent's)
+    /// nor the app's menus' (⌘W does not close).
+    func testAKeyThePageLeavesIsNotAPersonsNorTheMenus() throws {
+        final class Sink: NSObject { var fired = 0; @objc func close(_ sender: Any?) { fired += 1 } }
+        let sink = Sink(), menu = NSMenu(), top = NSMenuItem(), sub = NSMenu()
+        let close = NSMenuItem(title: "Close", action: #selector(Sink.close(_:)), keyEquivalent: "w")
+        close.target = sink
+        sub.addItem(close); top.submenu = sub; menu.addItem(top)
+        let before = NSApp.mainMenu
+        NSApp.mainMenu = menu
+        defer { NSApp.mainMenu = before }
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen)
+        defer { arm.destroy(handle) }
+        XCTAssertNil(run(arm, "releaseActions")["error"])
+        spin { self.controller(seen) == "agent" }
+        let escape: [[String: Any]] = [["type": "key", "id": "k", "actions": [["type": "keyDown", "value": "\u{E00C}"], ["type": "keyUp", "value": "\u{E00C}"]]]]
+        XCTAssertEqual(run(arm, "performActions", ["actions": escape]) as NSDictionary, [:] as NSDictionary)
+        pause(0.5)
+        XCTAssertEqual(controller(seen), "agent", "an unhandled Escape is not a person's")
+        let closeChord: [[String: Any]] = [["type": "key", "id": "k", "actions": [["type": "keyDown", "value": "\u{E03D}"], ["type": "keyDown", "value": "w"],
+                                                                                ["type": "keyUp", "value": "w"], ["type": "keyUp", "value": "\u{E03D}"]]]]
+        XCTAssertEqual(run(arm, "performActions", ["actions": closeChord]) as NSDictionary, [:] as NSDictionary)
+        pause(0.5)
+        XCTAssertEqual(sink.fired, 0, "⌘W reached the app's menu")
+        XCTAssertTrue(web.window?.isVisible ?? false)
+        XCTAssertEqual(controller(seen), "agent")
+        let outside: [[String: Any]] = [["type": "pointer", "id": "m", "actions": [["type": "pointerMove", "x": 60, "y": 515], ["type": "pointerDown", "button": 0]]]]
+        XCTAssertEqual(run(arm, "performActions", ["actions": outside])["error"] as? String, "move target out of bounds")
+    }
+    #endif
+
+    #if os(macOS)
     /// A person's click in the frame takes it back: input in flight ends
     /// with `AbortError`, and a held dialog becomes the person's sheet.
     func testAPersonTakesTheFrameBack() throws {
@@ -354,6 +388,8 @@ final class IframeAutomationTests: XCTestCase {
         spin { window.attachedSheet != nil }
         let sheet = try XCTUnwrap(window.attachedSheet, "the held dialog, shown to the person")
         window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        pause(0.3)
+        XCTAssertEqual(value(arm, "log.filter(e => e.type === 'mousedown').length") as? Int, 0, "the click that brought the dialog up is the dialog's, not the page's")
     }
     #endif
 }
