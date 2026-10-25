@@ -38,6 +38,52 @@ final class HitOrderIOSTests: XCTestCase {
         window.hitTest(point, with: nil)
     }
 
+    func testAPlainLeafTakesOnlyPointsInsideItsLocalBounds() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["testId": "leaf"]],
+            ["op": "children", "id": 1, "ids": [20]],
+            ["op": "frame", "id": 20, "x": 50.0, "y": 50.0, "w": 40.0, "h": 40.0],
+        ]))
+        let leaf = try XCTUnwrap(p.views[20])
+        XCTAssertTrue(leaf.subviews.isEmpty)
+        XCTAssertTrue(leaf.hitTest(CGPoint(x: 20, y: 20), with: nil) === leaf)
+        for point in [CGPoint(x: -1, y: 20), CGPoint(x: 41, y: 20),
+                      CGPoint(x: 20, y: -1), CGPoint(x: 20, y: 41), CGPoint(x: 40, y: 20)] {
+            XCTAssertNil(leaf.hitTest(point, with: nil), "outside local bounds: \(point)")
+        }
+    }
+
+    func testOverflowingFlatChildrenRemainHittableAsTheyPromoteDemoteAndLeave() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 21, "kind": "view", "style": ["background_color": [0, 122, 255, 255],
+                "text_color": [0, 0, 0, 255], "written": ["background_color"]]],
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "children", "id": 1, "ids": [20]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 100.0, "h": 100.0],
+            ["op": "frame", "id": 21, "x": 120.0, "y": 10.0, "w": 20.0, "h": 20.0],
+        ]))
+        let holder = try XCTUnwrap(p.views[20]), point = CGPoint(x: 125, y: 15)
+        XCTAssertTrue(holder.subviews.isEmpty, "the child is drawn as a layer")
+        XCTAssertTrue(p.flats.holdsLeaves(holder.id))
+        XCTAssertTrue(holder.hitTest(point, with: nil) === holder, "flat overflow hits its owning view")
+        p.apply(wireBatch([["op": "rank", "id": 21, "rank": 1]]))
+        let promoted = try XCTUnwrap(p.views[21])
+        XCTAssertFalse(p.flats.holdsLeaves(holder.id))
+        XCTAssertTrue(holder.hitTest(point, with: nil) === promoted, "promoted overflow hits its own view")
+        p.apply(wireBatch([["op": "rank", "id": 21, "rank": 0]]))
+        XCTAssertNil(p.views[21])
+        XCTAssertTrue(holder.subviews.isEmpty)
+        XCTAssertTrue(p.flats.holdsLeaves(holder.id))
+        XCTAssertTrue(holder.hitTest(point, with: nil) === holder, "demoted overflow hits its owning view again")
+        p.apply(wireBatch([["op": "children", "id": 20, "ids": []], ["op": "destroy", "id": 21]]))
+        XCTAssertTrue(holder.subviews.isEmpty)
+        XCTAssertFalse(p.flats.holdsLeaves(holder.id))
+        XCTAssertNil(holder.hitTest(point, with: nil), "removing the last child restores the ordinary leaf bounds")
+    }
+
     func testARaisedSiblingTakesTheTouchFromALaterOneOverIt() throws {
         let p = presenter(raised: 2)
         let menu = try XCTUnwrap(p.views[2]), list = try XCTUnwrap(p.views[3])
