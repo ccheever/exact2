@@ -85,6 +85,7 @@ mod keyup;
 mod language_model;
 mod language_model_seam;
 mod launch_identity;
+mod library_last_path_icons;
 mod library_packages;
 mod library_path_icons;
 mod library_rules;

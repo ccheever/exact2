@@ -223,6 +223,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(plain);
     }
 
+    /// theme2's stage 14 C ruling: the packages' moved icons are written
+    /// nonzero (each fills the same either way), so an app using `@exact/cards`
+    /// and `@exact/actions`, library-gate, keeps EXACTLY main's compatibility
+    /// id and inputs, with no `iconFillRules`.
+    #[test]
+    fn library_gate_keeps_mains_compatibility_id() {
+        let gate = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/library-gate");
+        let compiled = crate::colors::compiled(&gate).unwrap();
+        let plan = compiled.as_ref().expect("library-gate's plan");
+        assert!(
+            plan.icons
+                .iter()
+                .any(|i| plan.str(i.name) == "cards.verified-check"),
+            "the moved icons are in its plan"
+        );
+        assert!(!even_odd(plan).unwrap());
+        assert_eq!(super::needed(&gate, Some(plan), None, &[]).unwrap(), None);
+        let (now, main) = (compat(&gate, false), compat(&gate, true));
+        assert_eq!(now.id, main.id);
+        assert_eq!(now.inputs, main.inputs);
+        assert!(now.inputs.get("iconFillRules").is_none(), "{}", now.inputs);
+    }
+
     /// And a plan that keeps an even-odd icon gets `iconFillRules:
     /// ["evenodd"]` and another id: main's inputs with that key alone added.
     #[test]

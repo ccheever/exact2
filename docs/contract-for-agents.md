@@ -3990,19 +3990,24 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
-The in-repo packages' one-colour nonzero icons are icon tokens, which an app
-overrides by full name: `@exact/cards`' `cards.repost`, `cards.pin`,
-`cards.corner-down-right` (PostCard's context and reply lines), `cards.ban`,
-`cards.eye-slash`, `cards.warning`, `cards.circle-info` (ProfileHeader's
-alerts), and `@exact/actions`' `actions.reply`, `actions.repost`,
-`actions.heart`, `actions.heart-filled`, `actions.bookmark`,
-`actions.bookmark-filled`, `actions.share`, `actions.dots` (ActionRow). Each
-has no `sf`, so Apple draws the same path as the web. Still paths, as no
-template can draw them yet (QUEUE): ComposeFrame's gallery, camera and GIF,
-`BarItem`'s and `HeaderButton`'s icons and AtCard's Attie mark fill even-odd
-(a template takes `fill-rule="evenodd"` since stage 14 C2; they move to tokens
-in a later change), and the verified and verifier badges are two colours (a
-template is one).
+The in-repo packages' icons are icon tokens, which an app overrides by full
+name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
+(PostCard's context and reply lines), `cards.ban`, `cards.eye-slash`,
+`cards.warning`, `cards.circle-info` (ProfileHeader's alerts), `cards.attie`
+(AtCard's visit button) and `cards.verified`, `cards.verified-check`,
+`cards.verifier`, `cards.verifier-check` (VerifiedBadge), and `@exact/actions`'
+`actions.reply`, `actions.repost`, `actions.heart`, `actions.heart-filled`,
+`actions.bookmark`, `actions.bookmark-filled`, `actions.share`, `actions.dots`
+(ActionRow) and `actions.gallery`, `actions.camera`, `actions.gif`
+(ComposeFrame's toolbar). Each has no `sf`, so Apple draws the same path as the
+web. The Attie mark, the toolbar's three and the badges' paths were inline
+`svg` with `fill-rule="evenodd"`; each one's holes wind against its outline, so
+it fills the same nonzero, and its SVG has no `fill-rule` (an even-odd icon
+gives its app a new compat id). A badge is two one-colour templates stacked,
+its ground in its `ink` and its check in its `mark`, so both colours stay a
+card's tokens and a header's params; an override replaces one layer, its colour
+unchanged. Still paths: `BarItem`'s and `HeaderButton`'s icons, which are their
+caller's `d` (a prop), not the package's.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
