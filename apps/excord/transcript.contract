@@ -183,31 +183,26 @@ component BlockView
           text b.text font-family="ui-monospace" font-size="0.75rem" line-height=1.4 white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
             padding=8 border-radius=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
       else
-        if b.kind == "emoji"
-          row gap=4 flex-wrap="wrap"
-            for r in b.runs key=r.id
-              image r.href width=48 height=48 aria-label=r.text
+        if b.kind == "item"
+          row flex=1 min-width=0 padding-left=(b.level * 16)
+            text b.marker width="1.5rem" flex-shrink=0 color="-exact-secondary-label"
+            text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
+              Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
         else
-          if b.kind == "item"
-            row flex=1 min-width=0 padding-left=(b.level * 16)
-              text b.marker width="1.5rem" flex-shrink=0 color="-exact-secondary-label"
-              text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+          if b.kind == "heading"
+            text flex=1 min-width=0 role="heading" aria-level=(b.level + 2) overflow-wrap="break-word" white-space="pre-wrap" padding-top=4
+              HeadingRuns(runs=b.runs, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
           else
-            if b.kind == "heading"
-              text flex=1 min-width=0 role="heading" aria-level=(b.level + 2) overflow-wrap="break-word" white-space="pre-wrap" padding-top=4
-                HeadingRuns(runs=b.runs, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
+            if b.kind == "subtext"
+              text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
+                SmallRuns(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
             else
-              if b.kind == "subtext"
+              if jumbo
                 text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                  SmallRuns(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                  JumboRuns(runs=b.runs)
               else
-                if jumbo
-                  text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                    JumboRuns(runs=b.runs)
-                else
-                  text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                    Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
+                  Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
 
 // A paragraph's runs at body size. A run's style does not cascade from its
 // paragraph, so each says its own.
