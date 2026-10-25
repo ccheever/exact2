@@ -25,7 +25,9 @@ function schedule() {
 }
 // A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
 // `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file. An
-// even-odd icon's path starts `evenodd:` (stage 14 C2). `iconForm` is the page's one reading of a
+// even-odd icon's path starts with the even-odd marker (stage 14 C2). `iconForm` is the page's
+// only reader of an icon form (the module exports `symbols` alone; a source it is handed goes
+// to `draw`, which hands an icon form here and looks a role's name up as written), the reading of a
 // source form, exact_kernel::Icon::parse in JavaScript, held to the same cases
 // (kernel/tests/fixtures/icon-forms.json): the first three bars part sf, viewBox and path, the
 // rest is the svg; a path with no colon is nonzero; the even-odd marker and a path with no other

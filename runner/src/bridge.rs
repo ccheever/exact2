@@ -129,10 +129,10 @@ pub enum BridgeError {
 }
 
 /// @ref LLP 1121 stage 14 C2 — the icon a plan `icons` row is: the ONE
-/// place a row's path leaves its `IconPathId` (its `raw_for_icon`), handed
+/// place a row's path leaves its `IconPathId` (its one method), handed
 /// straight to `exact_kernel::Icon::of_row`, which strips an even-odd
 /// icon's `evenodd:` marker into its rule. Every reader of the table calls
-/// this (a guard test holds that nothing else calls `raw_for_icon`); `None`
+/// this (a guard test holds that nothing else calls that method); `None`
 /// for a row no reader reads (a rule it doesn't know).
 pub fn icon_of<'a>(
     plan: &'a exact_plan::Plan,

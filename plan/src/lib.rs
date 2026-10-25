@@ -131,7 +131,25 @@ pub struct StrId(pub u32);
 /// let plan = b.finish().unwrap();
 /// assert_eq!(format!("{:?}", plan.icons[0].path), "IconPathId(..)");
 /// ```
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+///
+/// Nor hashed or ordered (no `Hash`, `Ord`: they would hand its index to a
+/// hasher or a comparison; C2, the last gaps):
+///
+/// ```compile_fail
+/// use std::hash::{Hash, Hasher};
+/// fn index(row: &exact_plan::IconsRow) -> u64 {
+///     let mut h = std::collections::hash_map::DefaultHasher::new();
+///     row.path.hash(&mut h);
+///     h.finish()
+/// }
+/// ```
+///
+/// ```compile_fail
+/// fn order(a: &exact_plan::IconsRow, b: &exact_plan::IconsRow) -> bool {
+///     a.path < b.path
+/// }
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct IconPathId(pub(crate) u32);
 
 /// Its index stays inside: a debug print shows none (C2 round 3).
