@@ -41,14 +41,17 @@ extension NodeView {
     }
 
     /// This node is the root view of a row that went into a table's cell,
-    /// or came out of one: a disclosure chevron in it (the `forward-chevron`
-    /// role, or SF's glyph by name) is not drawn in the cell. Its glyph's
-    /// view is made clear: whether it is hidden is CSS `visibility`'s
-    /// (`applyCssVisibility`), written again with every style.
+    /// or came out of one, or a painted list that became, or stopped being,
+    /// a split's list (SplitMac.swift): a disclosure chevron in it (the
+    /// `forward-chevron` role, or SF's glyph by name) is not drawn there. Its
+    /// glyph's view is made clear: whether it is hidden is CSS `visibility`'s
+    /// (`applyCssVisibility`), written again with every style. Any other
+    /// symbol's glyph is drawn, so one that stopped being a chevron shows.
     func rowDisclosure(hidden: Bool) {
         func walk(_ view: NSView) {
-            if let node = view as? NodeView, let leaf = node.symbolView, ["chevron.forward", "chevron.right"].contains(node.props["symbolName"] ?? "") {
-                leaf.alphaValue = hidden ? 0 : 1
+            if let node = view as? NodeView, let leaf = node.symbolView {
+                let chevron = ["chevron.forward", "chevron.right"].contains(node.props["symbolName"] ?? "")
+                leaf.alphaValue = hidden && chevron ? 0 : 1
             }
             for child in (view as? NodeView)?.container.subviews ?? view.subviews where child is NodeView { walk(child) }
         }

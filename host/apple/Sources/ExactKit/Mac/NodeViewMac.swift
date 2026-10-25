@@ -239,13 +239,13 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
-            ancestor = presenter?.menus.parent(of: view) ?? view.superview
+            ancestor = presenter?.authoredSuperview(of: view) ?? view.superview
         }
         return false
     }
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
-        sequence(first: self as NSView, next: { self.presenter?.menus.parent(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
+        sequence(first: self as NSView, next: { self.presenter?.authoredSuperview(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
     }
     package var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).

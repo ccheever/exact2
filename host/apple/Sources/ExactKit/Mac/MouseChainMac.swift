@@ -503,8 +503,11 @@ extension Presenter {
     /// A move and a resting-pointer layout update share the same hit test.
     /// Ancestor tracking exits cannot evict a child under visible overflow.
     func hoverAt(_ point: NSPoint) -> NodeView? {
+        // The page, or a split's detail pane beside it (LLP 1115.002 D4).
+        let pane = navigation.split.active ? navigation.split.controller?.detailPane : nil
+        let ports = [viewport] + [pane].compactMap { $0 }
         guard let content = viewport.window?.contentView,
-              viewport.bounds.contains(viewport.convert(point, from: nil)) else {
+              ports.contains(where: { $0.bounds.contains($0.convert(point, from: nil)) }) else {
             setHoverPath([]); pointerCursor(over: nil, at: point); return nil
         }
         // What is under the pointer, a table's row included (the table takes its clicks, not its hover).
@@ -512,13 +515,14 @@ extension Presenter {
         var path: [NodeView] = []
         var leaf: NodeView?
         var region = false
-        var view = hit?.isDescendant(of: viewport) == true ? hit : nil
+        var view = hit.flatMap { hit in ports.contains { hit.isDescendant(of: $0) } ? hit : nil }
         while let current = view {
             if let node = current as? NodeView, !node.inert {
                 if leaf == nil { leaf = node }
                 path.append(node)
             } else if leaf == nil, current is RegionSurfaceMac { region = true }
-            view = current.superview
+            // A subtree in the pane is its authored parent's, out in the page.
+            view = pane != nil && current.superview === pane ? authoredSuperview(of: current) : current.superview
         }
         let run = leaf.flatMap { $0.inlineTarget(at: $0.local(point), handler: "hover") }
         setHoverPath(path, inline: run?.id)
