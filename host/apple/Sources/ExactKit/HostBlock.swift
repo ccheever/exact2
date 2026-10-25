@@ -90,4 +90,9 @@ extension Runtime {
                                          margins: PositionArea.Margins(top: f(2), right: f(3), bottom: f(4), left: f(5)))
         }
     }
+
+    /// What moves whenever `measureBlock` could answer otherwise (`exact_layout_stamp`).
+    func layoutStamp() -> UInt64 {
+        on(busy: 0) { exact_layout_stamp(rt) }
+    }
 }
