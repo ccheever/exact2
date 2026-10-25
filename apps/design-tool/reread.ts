@@ -72,20 +72,25 @@ export function again(kept: Kept | undefined, epoch: string, described: any, cha
  * third pass's #5 B), one snapshot and one fold at the server; else, from a
  * server before it, one per name, four at a time (a browser keeps
  * connections for the long poll and the other reads), until `still` is
- * false. */
+ * false: none once it is. */
 export async function resolveAll<R extends { error: string; reply: any }>(call: (path: string, body: unknown, timeout: number) => Promise<R>, names: string[], which: { file?: string }, timeout: number, still: () => boolean): Promise<R[]> {
-  if (!names.length) return [];
+  if (!names.length || !still()) return [];
   const batch = await call('/__tamber', { method: 'resolve', tokens: names, ...which }, timeout), answers = batch.reply?.ok?.answers;
   if (!batch.error && Array.isArray(answers) && answers.length === names.length) {
     return answers.map((a: any) => (a?.error ? { ...batch, error: String(a.error.message ?? 'The design server refused the token.'), reply: { error: a.error } } : { ...batch, reply: { ok: { ...a, files: batch.reply.ok.files } } }));
   }
+  // A batch that reached no server (a timeout) is each name's answer; one a server answered without `answers` (a
+  // refusal, a server before 1.17's) is asked again by name. A request by name that reached none stops the rest,
+  // each name not asked answering with it.
+  if (batch.error && !batch.reply?.error) return names.map(() => batch);
   const out: R[] = [];
-  let next = 0;
+  let next = 0, stalled: R | null = null;
   await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
-    while (next < names.length && still()) {
+    while (next < names.length && still() && !stalled) {
       const i = next++;
       out[i] = await call('/__tamber', { method: 'resolve', token: names[i], ...which }, timeout);
+      if (out[i].error && !out[i].reply?.error) stalled = out[i];
     }
   }));
-  return out;
+  return stalled ? names.map((_, i) => out[i] ?? stalled!) : out;
 }

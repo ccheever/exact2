@@ -89,6 +89,42 @@ fn a_batch_past_its_bound_or_beside_token_is_refused_whole() {
     assert_eq!(r["ok"]["answers"].as_array().map(Vec::len), Some(4096));
 }
 
+#[test]
+fn a_batch_whose_answers_pass_their_bytes_is_refused_whole() {
+    // A family near the value bound (4,096 bytes), its answer twice that: 4,096 of it pass 16 MiB.
+    let stack: Vec<String> = (0..580).map(|i| format!("f{i:04}")).collect();
+    let dir = app(
+        "resolve-batch-bytes",
+        &format!(
+            "tamber t\n\ntheme\n  ink = #111111\n  face: family = {}\n",
+            stack.join(", ")
+        ),
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column background-color=\"ink\"\n      text \"x\" font-family=\"face\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (one, _) = s.ask(json!({"method": "resolve", "token": "face"}));
+    assert!(one["ok"].to_string().len() > 4096, "{one}");
+    let many: Vec<&str> = std::iter::repeat_n("face", 4096).collect();
+    let (r, _) = s.ask(json!({"method": "resolve", "tokens": many}));
+    assert_eq!(
+        r["error"]["id"],
+        json!("tamber-resolve-batch"),
+        "{}",
+        &r.to_string()[..300.min(r.to_string().len())]
+    );
+    assert!(
+        r["error"]["message"].as_str().unwrap().contains("16 MiB"),
+        "{r}"
+    );
+    let some: Vec<&str> = std::iter::repeat_n("face", 100).collect();
+    let (r, _) = s.ask(json!({"method": "resolve", "tokens": some}));
+    assert_eq!(r["ok"]["answers"].as_array().map(Vec::len), Some(100));
+}
+
 /// Whether `changed` names `token` in `file`.
 fn names(changed: &Value, file: &str, token: &str) -> bool {
     changed
