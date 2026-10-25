@@ -847,6 +847,14 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
  * 11 clears it. Kind 14 shows a split's `navigationSplit="placeholder"` box
  * and kind 15 hides it again (LLP 1116.006 D2; the floats unused). */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
+/* What a block's root would measure in another block (a popover's
+ * position-area option, LLP 1021 D2): each axis a length and a policy as
+ * exact_host_covers' kind 4 takes them (0 size, 1 maximum, 2 fit, 3 a
+ * position-area's region). The border box's width and height, then the
+ * margins (top, right, bottom, left) as the layout resolved them, six LE
+ * floats in the output buffer, and 24; 0 when refused. Not a batch:
+ * nothing is laid out, published or sent. */
+uint32_t exact_measure_block(ExactRuntime rt, uint32_t view, float width, float height, uint32_t width_policy, uint32_t height_policy);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);

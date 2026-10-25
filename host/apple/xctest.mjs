@@ -25,6 +25,9 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/agent-unmounted.contract'), '-o', env[`${prefix}_AGENT_UNMOUNTED_PLAN`] = resolve(dir, 'agent-unmounted.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/fractional-borders.contract'), '-o', env[`${prefix}_FRACTIONAL_BORDERS_PLAN`] = resolve(dir, 'fractional-borders.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/top-layer-pins.contract'), '-o', env[`${prefix}_TOP_LAYER_PINS_PLAN`] = resolve(dir, 'top-layer-pins.plan')]);
+  // PositionAreaRegionIOSTests' pages: Chrome's position-area table, and mirrored.
+  contract([resolve(root, 'host/apple/tests/fixtures/position-area-region.contract'), '-o', env[`${prefix}_POSITION_AREA_PLAN`] = resolve(dir, 'position-area-region.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/position-area-region-rtl.contract'), '-o', env[`${prefix}_POSITION_AREA_RTL_PLAN`] = resolve(dir, 'position-area-region-rtl.plan')]);
   const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
   const refusing = resolve(dir, 'entries/refusing');
   mkdirSync(refusing, { recursive: true });
