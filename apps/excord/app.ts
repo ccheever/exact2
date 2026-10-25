@@ -89,7 +89,9 @@ const dirs: Directories = {
 };
 // A role's colour as text: the colour itself where it reads on the page, else mixed toward black (light
 // mode) or white (dark) just far enough for WCAG's 4.5:1, so a pale role on white and a dark one on
-// black stay readable, as a name in its own colour must be.
+// black stay readable, as a name in its own colour must be. The grounds are the darkest a light row
+// gets and the lightest a dark one does (a hovered or mentioned row, Android's tinted page), so every
+// state of the row clears it.
 function legible(rgb: number): string {
   const channel = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
   const luminance = (c: number[]) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2]);
@@ -103,7 +105,7 @@ function legible(rgb: number): string {
     return target;
   };
   const hex = (c: number[]) => `#${c.map(v => v.toString(16).padStart(2, '0')).join('')}`;
-  return `light-dark(${hex(toward([255, 255, 255], [0, 0, 0]))}, ${hex(toward([28, 28, 30], [255, 255, 255]))})`;
+  return `light-dark(${hex(toward([232, 232, 232], [0, 0, 0]))}, ${hex(toward([52, 52, 54], [255, 255, 255]))})`;
 }
 
 // Each guild's coloured roles by id, kept while the guild's role array is the same object (the store
