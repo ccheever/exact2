@@ -1,0 +1,36 @@
+// The server rail, as Discord draws it beside the channel list: each server's
+// picture (its acronym when it has none) in a circle that rounds into a square
+// when open, a pill at the edge (tall beside the open server, a dot beside one
+// with unread messages) and the count of mentions in a red badge.
+
+use Badge from "exact:content"
+
+component ServerButton
+  props
+    id: string
+    name: string
+    icon: string
+    acronym: string
+    symbol: string
+    selected: bool
+    unread: bool
+    mentions: number
+    pick: action
+  view
+    row align-items="center" width="4.5rem" padding="4px 0px"
+      view width=4 height=(selected ? 40 : unread ? 8 : 0) border-radius="0px 4px 4px 0px" background-color="-exact-label" transition="height 200ms ease" aria-hidden=true
+      button appearance="none" press=pick(id) testId=`server-${id}` margin-left=8 aria-selected=selected
+        aria-label=`${name}${mentions > 0 ? `, ${mentions} ${mentions == 1 ? "mention" : "mentions"}` : unread ? ", unread" : ""}`
+        view position="relative" width="3rem" height="3rem"
+          row width="3rem" height="3rem" border-radius=(selected ? "1rem" : "1.5rem") overflow="hidden" align-items="center" justify-content="center"
+            background-color=(icon != "" ? "-exact-tertiary-fill" : selected ? "AccentColor" : "-exact-tertiary-fill") transition="background-color 200ms ease"
+            if icon != ""
+              image icon width="3rem" height="3rem" object-fit="cover"
+            else
+              if symbol != ""
+                image symbol width=24 height=24 color=(selected ? "AccentColorText" : "-exact-label")
+              else
+                text acronym font="-exact-subheadline" font-weight=600 color=(selected ? "AccentColorText" : "-exact-label") line-clamp=1
+          if mentions > 0
+            view position="absolute" right=-6 bottom=-6
+              Badge(label=(mentions > 99 ? "99+" : `${mentions}`), tint=some("-exact-system-red"))

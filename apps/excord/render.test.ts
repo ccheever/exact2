@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import * as S from './discord/store';
 import { snowflakeFromMs } from './discord/ids';
-import { createRenderer, windowOf, type Directories, type Stored, type Unread } from './render';
+import { avatarUrl, createRenderer, windowOf, type Directories, type Stored, type Unread } from './render';
 import type { Attachment, Message, Reaction, User } from './fixture/world';
 
 const NOW = Date.UTC(2026, 9, 22, 12), DIRECTORY = Date.UTC(2024, 0, 1);
@@ -41,6 +41,8 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
     message: (channel, id) => (S.message(store, channel, id) as Stored | null) ?? undefined,
     deleted: (channel, id) => S.deleted(store, channel, id),
     emoji: (id, animated) => `${cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
+    avatar: u => avatarUrl(cdn, u),
+    nameColor: (_channel, roles) => roles.includes(role) ? '#e67e22' : '',
   };
   const render = createRenderer(dirs);
   const row = (id: string) => S.message(store, cid, id)!;
@@ -55,17 +57,15 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
 }
 
 test('store rows supply the transcript identity, author, clock and declared fields', () => {
-  const m = message(0, { author: me }), f = fixture([m, message(1000, { author: bot })]);
+  const m = message(0, { author: me }), f = fixture([m, message(1000, { author: bot, member: { roles: [role] } })]);
   const [first, second] = f.view().rows;
   expect(first).toMatchObject({ key: m.id, id: m.id, authorId: me.id, author: 'Charlie Cheever',
-    initials: 'CC', tint: 0, bot: false, mine: true, at: NOW, prevAt: 0, state: 'sent',
+    avatar: `${cdn}/embed/avatars/0.png`, color: '', bot: false, mine: true, at: NOW, prevAt: 0, state: 'sent',
     grouped: false, edited: false, mentionsMe: false, jumbo: false, system: '', plain: 'hello', source: 'hello',
     isNew: false, media: [], embeds: [], reactions: [], reply: [] });
-  expect(second).toMatchObject({ author: 'buildbot', initials: 'B', tint: 2, bot: true, mine: false,
+  expect(second).toMatchObject({ author: 'buildbot', color: '#e67e22', bot: true, mine: false,
     at: NOW + 1000, prevAt: NOW, grouped: false });
-  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'blocks', 'bot', 'edited', 'embeds',
-    'grouped', 'id', 'initials', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt',
-    'reactions', 'reply', 'source', 'state', 'system', 'tint']);
+  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'system']);
   expect(f.render(f.row(m.id))).toBe(first);
 });
 
@@ -155,7 +155,7 @@ test('jumbo custom emoji and reactions use the directory with the animation flag
   ]);
 });
 
-test('image reservations use wire dimensions, MIME types and SPOILER_ filenames', () => {
+test('image reservations use wire dimensions, MIME types and SPOILER_ filenames; large ones ask the proxy for 3x their box', () => {
   const attachment = (n: number, filename: string, patch: Partial<Attachment> = {}): Attachment => ({
     id: snowflakeFromMs(NOW, n), filename, url: `${cdn}/media/${n}`, proxy_url: `${cdn}/proxy/${n}`,
     content_type: 'image/png', size: 1024, ...patch,
@@ -167,15 +167,15 @@ test('image reservations use wire dimensions, MIME types and SPOILER_ filenames'
     attachment(6, 'notes.txt', { content_type: 'text/plain' })];
   const row = fixture([message(0, { attachments })]).view().rows[0];
   expect(row.media).toEqual([
-    { id: attachments[0].id, src: `${cdn}/media/1`, alt: 'SPOILER_large.png', spoiler: true,
+    { id: attachments[0].id, full: `${cdn}/media/1`, src: `${cdn}/proxy/1?width=960&height=480`, alt: 'SPOILER_large.png', spoiler: true,
       width: 1200, height: 600, fitWidth: 320, fitHeight: 160 },
-    { id: attachments[1].id, src: `${cdn}/media/2`, alt: 'small.png', spoiler: false,
+    { id: attachments[1].id, full: `${cdn}/media/2`, src: `${cdn}/media/2`, alt: 'small.png', spoiler: false,
       width: 64, height: 64, fitWidth: 64, fitHeight: 64 },
-    { id: attachments[2].id, src: `${cdn}/media/3`, alt: 'unknown.png', spoiler: false,
+    { id: attachments[2].id, full: `${cdn}/media/3`, src: `${cdn}/media/3`, alt: 'unknown.png', spoiler: false,
       width: 0, height: 0, fitWidth: 0, fitHeight: 0 },
-    { id: attachments[3].id, src: `${cdn}/media/4`, alt: 'image', spoiler: false,
+    { id: attachments[3].id, full: `${cdn}/media/4`, src: `${cdn}/media/4`, alt: 'image', spoiler: false,
       width: 100, height: 200, fitWidth: 100, fitHeight: 200 },
-    { id: attachments[4].id, src: `${cdn}/media/5`, alt: 'fallback.PNG', spoiler: false,
+    { id: attachments[4].id, full: `${cdn}/media/5`, src: `${cdn}/proxy/5?width=480&height=960`, alt: 'fallback.PNG', spoiler: false,
       width: 640, height: 1280, fitWidth: 160, fitHeight: 320 },
   ]);
 });
@@ -190,11 +190,11 @@ test('rich embeds retain metadata and Markdown; image, gifv and video embeds use
   expect(row.embeds[0]).toMatchObject({ id: 'e0', color: '#0123ab', title: 'Title', url: 'https://example.com',
     provider: 'Provider', author: 'Writer' });
   expect(row.embeds[0].description[0].runs[0]).toMatchObject({ kind: 'text', text: 'description', bold: true });
-  expect(row.embeds[0].image).toEqual([{ id: 'e0.image', src: image.url, width: 800, height: 1600,
+  expect(row.embeds[0].image).toEqual([{ id: 'e0.image', full: image.url, src: `${image.proxy_url}?width=480&height=960`, width: 800, height: 1600,
     fitWidth: 160, fitHeight: 320, alt: 'Title', spoiler: false }]);
   expect(row.embeds[0].thumbnail[0]).toMatchObject({ src: thumbnail.url, fitWidth: 32, fitHeight: 32 });
   expect(row.embeds.slice(1).map(e => [e.image[0].src, e.thumbnail, e.color]))
-    .toEqual([[image.url, [], ''], [thumbnail.url, [], ''], [thumbnail.url, [], '']]);
+    .toEqual([[`${image.proxy_url}?width=480&height=960`, [], ''], [thumbnail.url, [], ''], [thumbnail.url, [], '']]);
 });
 
 test('join rows use the author directory and expose their system text as plain text', () => {
@@ -249,14 +249,14 @@ test('reply previews prefer held originals, follow edits and report deletions de
   const reply = message(1000, { type: 19, content: 'answer', message_reference: reference(original.id),
     referenced_message: { ...original, content: 'stale snapshot' } });
   const f = fixture([original, reply]);
-  expect(f.view().rows[1].reply).toEqual([{ id: original.id, author: 'Ada', tint: 1,
+  expect(f.view().rows[1].reply).toEqual([{ id: original.id, author: 'Ada', avatar: `${cdn}/embed/avatars/0.png`, color: '',
     preview: 'original line', state: 'present' }]);
   S.applyDispatch(f.store, 'MESSAGE_UPDATE', { id: original.id, channel_id: cid, content: '**changed**\nline',
     edited_timestamp: new Date(NOW + 2000).toISOString() }, NOW + 2000);
   expect(f.view().rows[0]).toMatchObject({ edited: true, plain: 'changed\nline' });
   expect(f.view().rows[1].reply[0]).toMatchObject({ preview: 'changed line', state: 'present' });
   S.applyDispatch(f.store, 'MESSAGE_DELETE', { id: original.id, channel_id: cid }, NOW + 3000);
-  expect(f.view().rows[0].reply).toEqual([{ id: original.id, author: '', tint: 0, preview: '', state: 'deleted' }]);
+  expect(f.view().rows[0].reply).toEqual([{ id: original.id, author: '', avatar: '', color: '', preview: '', state: 'deleted' }]);
 });
 
 test('unloaded replies distinguish a wire snapshot, an unknown original and a null deleted original', () => {
@@ -267,9 +267,9 @@ test('unloaded replies distinguish a wire snapshot, an unknown original and a nu
   const f = fixture(replies);
   expect(S.message(f.store, cid, original.id)).toBeNull();
   expect(f.view().rows.map(r => r.reply[0])).toEqual([
-    { id: original.id, author: 'Ada', tint: 1, preview: `preview ${'x'.repeat(92)}`, state: 'present' },
-    { id: missing, author: '', tint: 0, preview: '', state: 'unknown' },
-    { id: missing, author: '', tint: 0, preview: '', state: 'deleted' },
+    { id: original.id, author: 'Ada', avatar: `${cdn}/embed/avatars/0.png`, color: '', preview: `preview ${'x'.repeat(92)}`, state: 'present' },
+    { id: missing, author: '', avatar: '', color: '', preview: '', state: 'unknown' },
+    { id: missing, author: '', avatar: '', color: '', preview: '', state: 'deleted' },
   ]);
 });
 
@@ -285,7 +285,7 @@ test('cached rows refresh reactions and late embeds without changing their keys'
   S.applyDispatch(f.store, 'MESSAGE_UPDATE', { channel_id: cid, id: m.id, embeds: [{ type: 'image',
     image: { url: `${cdn}/late.png`, proxy_url: `${cdn}/proxy.png`, width: 640, height: 320 } }] }, NOW + 2000);
   const embedded = f.view().rows[0];
-  expect(embedded.embeds[0].image).toEqual([{ id: 'e0.image', src: `${cdn}/late.png`, width: 640, height: 320,
+  expect(embedded.embeds[0].image).toEqual([{ id: 'e0.image', src: `${cdn}/late.png`, full: `${cdn}/late.png`, width: 640, height: 320,
     fitWidth: 320, fitHeight: 160, alt: '', spoiler: false }]);
   expect(embedded).toMatchObject({ key: m.id, edited: false, plain: 'hello', reactions: reacted.reactions });
   S.applyDispatch(f.store, 'MESSAGE_REACTION_REMOVE', { channel_id: cid, message_id: m.id,
@@ -298,14 +298,14 @@ test('pending replies show their original and start a group before confirmation'
   const nonce = snowflakeFromMs(NOW + 1000);
   S.addPending(f.store, cid, { nonce, content: 'answer', nowMs: NOW + 1000, replyTo: { messageId: original.id } });
   expect(f.view().rows[1]).toMatchObject({ key: nonce, state: 'pending', grouped: false,
-    reply: [{ id: original.id, author: 'Charlie Cheever', tint: 0, preview: 'question', state: 'present' }] });
+    reply: [{ id: original.id, author: 'Charlie Cheever', avatar: `${cdn}/embed/avatars/0.png`, color: '', preview: 'question', state: 'present' }] });
 });
 
 test('cached replies notice deletion of an original that was never loaded', () => {
   const reply = message(0, { type: 19, message_reference: reference(missing) }), f = fixture([reply]);
   expect(f.view().rows[0].reply[0].state).toBe('unknown');
   S.applyDispatch(f.store, 'MESSAGE_DELETE', { id: missing, channel_id: cid }, NOW + 1000);
-  expect(f.view().rows[0].reply).toEqual([{ id: missing, author: '', tint: 0, preview: '', state: 'deleted' }]);
+  expect(f.view().rows[0].reply).toEqual([{ id: missing, author: '', avatar: '', color: '', preview: '', state: 'deleted' }]);
 });
 
 test('a window withholds an unheld predecessor and keeps shared rows stable when history arrives', () => {

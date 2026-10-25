@@ -39,9 +39,11 @@ shape Block
 // An image: an attachment, an embed's image or thumbnail. `width` and
 // `height` are what Discord declared (0 when it declared none); `fitWidth`
 // and `fitHeight` the box the transcript reserves, scaled to fit 320 points.
+// `src` is the picture at that box's size, `full` the original the viewer shows.
 shape Media
   id: string
   src: string
+  full: string
   width: number
   height: number
   fitWidth: number
@@ -74,7 +76,8 @@ shape Reaction
 shape ReplyRef
   id: string
   author: string
-  tint: number
+  avatar: string
+  color: string
   preview: string
   state: string
 
@@ -86,14 +89,16 @@ shape ReplyRef
 // `prevAt` is 0 for a channel's first message: every other row comes with the message
 // before it (`render.ts`, `windowOf`). `state` is "sent", "pending" or "failed". `source` is
 // the Markdown as sent, for Edit and Copy Text. `isNew` marks the first message
-// after the read position the window was asked with.
+// after the read position the window was asked with. `avatar` is the author's
+// picture (Discord's default one when they set none); `color` the author's name
+// colour from their highest coloured role, "" for none.
 shape Message
   key: string
   id: string
   authorId: string
   author: string
-  tint: number
-  initials: string
+  avatar: string
+  color: string
   bot: bool
   at: number
   prevAt: number
@@ -143,10 +148,12 @@ shape Window
 // position and `firstUnread` the oldest unread message the cache holds ("" when
 // read to the end or not cached); `unread` counts the unread messages the cache
 // holds, at least 1 when Discord says there are some; `typing` names who is typing.
+// `avatar` is a direct message's picture: the other person's, or a group's icon ("" for none).
 shape Channel
   id: string
   guild: string
   name: string
+  avatar: string
   topic: string
   version: number
   unread: number
@@ -157,9 +164,13 @@ shape Channel
   arrived: number
   typing: string
 
+// `icon` is the server's picture ("" for none), `acronym` what stands in for it: the
+// first letter of each word of its name, as Discord draws it.
 shape Guild
   id: string
   name: string
+  icon: string
+  acronym: string
   unread: bool
   mentions: number
 
