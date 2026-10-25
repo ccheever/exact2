@@ -359,7 +359,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
     }
     weak var field: NodeView? {
         didSet {
-            if oldValue !== field { oldValue?.headerField = nil }
+            if oldValue !== field { oldValue?.headerField = nil; acceptingDismissal = false }
             #if os(iOS)
             field?.headerField = controller.searchBar.searchTextField
             controller.searchBar.searchTextField.pasteDelegate = field
@@ -368,12 +368,14 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
     }
     private weak var textDelegate: UITextFieldDelegate?
     private var editingCompletion: (value: String, finish: () -> Void)?
+    private var acceptingDismissal = false
     init(host: NavigationHost) {
         self.host = host
         super.init()
         controller.searchBar.delegate = self
         controller.delegate = self
         #if os(iOS)
+        controller.searchResultsUpdater = self
         textDelegate = controller.searchBar.searchTextField.delegate
         controller.searchBar.searchTextField.delegate = self
         #endif
@@ -398,7 +400,24 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
         #endif
     }
+    func willPresentSearchController(_ search: UISearchController) {
+        acceptingDismissal = false
+    }
+    func willDismissSearchController(_ search: UISearchController) {
+        // A disappearing route keeps its query; closing search accepts UIKit's reset
+        acceptingDismissal = editingCompletion == nil && host?.changing == false && host?.presenter.modals.inTransition == false
+    }
     func didDismissSearchController(_ search: UISearchController) {
+        let accepts = acceptingDismissal
+        acceptingDismissal = false
+        if accepts {
+            let text = search.searchBar.text ?? ""
+            searchBar(search.searchBar, textDidChange: text)
+            if let field, let presenter = host?.presenter, presenter.views[field.id] === field {
+                // Close also commits its reset when the Search key or a drag already ended editing
+                presenter.commitEdit(field.id, text, change: field.handlers.contains("change"))
+            }
+        }
         applyHiding()
         #if os(iOS)
         showScopes()
@@ -408,11 +427,6 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
         field.typedText(text)
     }
-    #if os(iOS)
-    func searchBarCancelButtonClicked(_ bar: UISearchBar) {
-        searchBar(bar, textDidChange: "")
-    }
-    #endif
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         guard field?.textField(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true else { return false }
         return textDelegate?.textField?(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true
@@ -471,6 +485,16 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         return true
     }
 }
+
+#if os(iOS)
+extension HeaderSearch: UISearchResultsUpdating {
+    func updateSearchResults(for search: UISearchController) {
+        // UIKit resets the query before ending editing, without the bar's text-change callback
+        guard acceptingDismissal else { return }
+        searchBar(search.searchBar, textDidChange: search.searchBar.text ?? "")
+    }
+}
+#endif
 
 /// The header's tablist as a route's title view (§9.8), kept beside the
 /// controller rather than in it.
@@ -903,8 +927,8 @@ extension NavigationHost {
         guard let field else {
             if let search = c.search {
                 search.controller.searchBar.resignFirstResponder()
-                search.controller.isActive = false
                 search.field = nil
+                search.controller.isActive = false
                 c.navigationItem.searchController = nil
                 c.search = nil
                 // UIKit restores its bar at the end of search dismissal.
