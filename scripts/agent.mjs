@@ -34,7 +34,7 @@ import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from
 import { parseDrag, dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap, fileDrag, folderTree, driverFiles } from './agent-drag.mjs';
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp, postCommand, postInto } from './agent-keys.mjs';
-import { jsonLines, hangup, waitAtMost, bootRefusal, simulatorConsole, REPLY_MS } from './agent-wire.mjs';
+import { jsonLines, hangup, waitAtMost, bootRefusal, simulatorConsole, REPLY_MS, AWAY } from './agent-wire.mjs';
 import { openStdio } from './agent-stdio.mjs';
 import { heldClock, inFlightNote } from './agent-held.mjs';
 export { jsonLines, hangup };
@@ -785,7 +785,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async logs({all = false} = {}) {
       const since = all ? 0 : s.logCursor;
       let r; try { r = await s.op({ op: 'logs', since, ...(all ? {all:true} : {}) }); }
-      catch (e) { if (carrier.host !== 'web' || !carrier.hostLines.length) throw e; r = {lines:[], from:since, next:since, refused:e.reply?.refused, error:e.message}; } r.world = takeWorldLogs(s, r.world, all);
+      catch (e) { if ((carrier.host !== 'web' || !carrier.hostLines.length) && !e.message.startsWith(AWAY)) throw e; r = {lines:[], from:since, next:since, refused:e.reply?.refused, error:e.message}; } r.world = takeWorldLogs(s, r.world, all);
       const dropped = Math.max(0, r.from - since);
       s.logCursor = r.next;
       // What the driver did that the journal could not keep (a test's `reload` waiting for storage, LLP 1097 D9).

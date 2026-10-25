@@ -43,7 +43,7 @@ extension Agent {
             return ["error": "\(head): it is not in the shown screen\(owner.map { " (its sheet \($0) is not on top)" } ?? "")\(top.map { "; on top: \($0)" } ?? "")", "miss": "covered"]
         }
         let row = session.agent("{\"op\":\"tree\",\"target\":\(id),\"shallow\":true}")
-        if row.contains("\"error\"") { return ["error": "\(head): the app no longer has node \(id)", "miss": "gone"] }
+        if row.hasPrefix("{\"error\":") { return ["error": "\(head): the app no longer has node \(id)", "miss": "gone"] }
         return ["error": "\(head): node \(id) has no view (a list row outside the rows the list realized): `tap <list> into <key>` brings it in", "miss": "unmounted"]
     }
 }

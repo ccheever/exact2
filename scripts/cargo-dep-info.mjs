@@ -114,7 +114,8 @@ export function compilerPaths(text, workspace) {
 // EXACT_APP_DIR makes the invoking directory a nested app in that workspace.
 export function unitDepInfo(message, workspace, metadata) {
   const realPaths = new Map();
-  const real = path => { let r = realPaths.get(path); if (r === undefined) realPaths.set(path, r = outputPath(path)); return r; };
+  // A path the file system will not resolve (unreadable, a link loop) is compared as written.
+  const real = path => { let r = realPaths.get(path); if (r === undefined) { try { r = outputPath(path); } catch { r = path; } realPaths.set(path, r); } return r; };
   const holds = (paths, want) => paths.includes(want) || paths.some(path => real(path) === real(want));
   // Cargo reports copied roots in target_directory and units in build_directory.
   // When the directories nest, the more specific root identifies the file.

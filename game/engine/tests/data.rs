@@ -419,6 +419,11 @@ fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
     assert!(json::to_string(&long)
         .unwrap()
         .starts_with("{\"summary\":\"u8 × 65\""));
+    // A non-finite float is no JSON number: a short bulk holding one is summarized.
+    let nan = vec![1.0f32, f32::NAN];
+    assert!(json::to_string(&nan)
+        .unwrap()
+        .starts_with("{\"summary\":\"f32 × 2\""));
     let mut cursor = bin::Decoder::new(&encoded);
     cursor
         .claim(exact_game::data::MAX_LOAD_BYTES - 255)
