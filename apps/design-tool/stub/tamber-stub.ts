@@ -286,7 +286,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
           const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
           // (`/__stub/shallow-select`: a page with no other copy above it, which lands at the root having stepped none.)
           const chain = last?.source?.chain ?? [], up = shallowSelect ? chain.length : Math.min(Number(request.select.up), chain.length);
-          if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          if (!last) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          // (No call site above it: a slot fill the app wrote, whose page steps to the slot's host, Card, one copy up.)
+          if (!chain.length && !stayingSelect) { log.push({ ...last, node: Number(last.node ?? 0) + 100, source: { file: '/stub/card.contract', line: 2, col: 3, end_col: 7, component: 'Card', chain: [] }, moved: { up: Number(request.select.up), stepped: 1 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           // (`/__stub/staying-select`: the selection is the root already (App only renders its component), so the page
           // reports the same node again, having stepped none.)
           if (stayingSelect) { log.push({ ...last, moved: { up: Number(request.select.up), stepped: 0 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
