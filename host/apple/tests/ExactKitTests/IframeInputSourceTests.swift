@@ -135,6 +135,26 @@ final class IframeInputSourceTests: XCTestCase {
         XCTAssertEqual(activations, 3, "a change after the field was focused again did not reconnect")
     }
 
+    /// A change while the page holds marked text waits: deactivating the
+    /// context then may commit or drop it. The next notice reconnects.
+    func testAChangeWhileTextIsMarkedWaits() throws {
+        let (web, unmount) = try mount()
+        defer { unmount() }
+        fakeInputMethod()
+        var marked = true
+        let markedText: @convention(block) (AnyObject) -> Bool = { _ in marked }
+        try XCTUnwrap(class_getInstanceMethod(WKWebView.self, NSSelectorFromString("hasMarkedText")), "WKWebView answers no hasMarkedText")
+        replace(WKWebView.self, "hasMarkedText", markedText)
+        current = web.inputContext
+        window!.makeFirstResponder(nil)
+        window!.makeFirstResponder(web)
+        select("com.apple.inputmethod.Korean.2SetKorean")
+        XCTAssertEqual(activations, 0, "a context holding marked text was reconnected")
+        marked = false
+        NotificationCenter.default.post(name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        XCTAssertEqual(activations, 1, "the change skipped for marked text was not reconnected at the next notice")
+    }
+
     /// A change while another view has the keys, or while the view's context
     /// is not the current one, leaves the context alone: activating it would
     /// take the input method from the view that has it.
