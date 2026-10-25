@@ -1,0 +1,634 @@
+//! Remote image sources (`http:` and `https:` URLs): downloaded on threads
+//! of their own, never a raster worker, into a spool file a worker reads as
+//! it reads a bundled one (LLP 1011 §2, "The remote fetch").
+//!
+//! The transport is the executor's (ibex2's rustls client, whose idle agents
+//! keep their connections), asked directly: an image is not the data
+//! module's fetch, and the app's `net.fetch` grants do not govern it, as
+//! they do not on Apple or the web. Redirects are followed here, so each hop
+//! is cleaned of credentials and counts as progress.
+use exact_raster::{Refusal, MAX_ENCODED_BYTES, PENDING_JOBS, SESSION_BYTES};
+use ibex2::stdlib::abort::{AbortController, AbortSignal};
+use ibex2::stdlib::fetch::{Request, Transport, MAX_REDIRECTS};
+use ibex2::transport::RustlsHttpTransport;
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
+
+/// Whether `name` is fetched rather than read: an `http:` or `https:` URL.
+pub(super) fn is_remote(name: &str) -> bool {
+    name.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+    })
+}
+
+/// How many downloads run at once in the process: a browser's connections
+/// to one host over HTTP/1.1, which is what this transport speaks.
+const THREADS: usize = 6;
+
+/// The most bodies the cache keeps, whatever their size: a file each.
+const CACHE_ENTRIES: usize = 256;
+
+/// What this host decodes, first: a CDN that negotiates the format then
+/// sends one of these rather than WebP or AVIF.
+const ACCEPT: &str = "image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5";
+
+/// A download's bounds, Apple's (`RasterDownloads.configuration`): 15 s
+/// without a response or a read, 30 s for the whole load from when it is
+/// asked for (waiting for a thread and redirects included), and the
+/// encoded-byte cap.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Policy {
+    pub request: Duration,
+    pub whole: Duration,
+    pub limit: u64,
+    /// The bodies kept after their sources go, so a list scrolled back
+    /// finds its pictures without fetching them again.
+    pub cache: u64,
+}
+impl Default for Policy {
+    fn default() -> Self {
+        Self {
+            request: Duration::from_secs(15),
+            whole: Duration::from_secs(30),
+            limit: MAX_ENCODED_BYTES,
+            cache: SESSION_BYTES,
+        }
+    }
+}
+
+/// Why a source did not load: the refusal the raster pipeline records, and
+/// the words the log gives it (Apple's `error` message).
+#[derive(Clone, Debug)]
+pub(super) struct Failure {
+    pub refusal: Refusal,
+    pub message: String,
+}
+fn failed(message: impl Into<String>) -> Failure {
+    Failure {
+        refusal: Refusal::DecodeFailed,
+        message: message.into(),
+    }
+}
+
+/// A downloaded body, in a spool file removed when the last holder lets go.
+#[derive(Debug)]
+pub(super) struct Body {
+    pub path: PathBuf,
+    pub len: u64,
+}
+impl Drop for Body {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+type Outcome = Result<Arc<Body>, Failure>;
+
+/// One source's download. Dropping the last owner aborts it.
+pub(super) struct Load {
+    controller: AbortController,
+    outcome: Mutex<Option<Outcome>>,
+    /// Called once, when the outcome is set (by the download or the clock).
+    wake: Box<dyn Fn() + Send + Sync>,
+    whole: Instant,
+    /// When it fails for want of a byte: set once a thread takes it, moved
+    /// on by each response and read.
+    idle: Mutex<Option<Instant>>,
+}
+impl Load {
+    /// The body, or why there is none; `None` while it downloads.
+    pub fn outcome(&self) -> Option<Outcome> {
+        self.outcome.lock().unwrap().clone()
+    }
+    pub fn settled(&self) -> bool {
+        self.outcome.lock().unwrap().is_some()
+    }
+    /// Let go of a body no decode can use, keeping `failure` as the outcome;
+    /// the body, if there was one to let go of.
+    pub fn release(&self, failure: Failure) -> Option<Arc<Body>> {
+        let mut outcome = self.outcome.lock().unwrap();
+        match outcome.take() {
+            Some(Ok(body)) => {
+                *outcome = Some(Err(failure));
+                Some(body)
+            }
+            other => {
+                *outcome = other;
+                None
+            }
+        }
+    }
+    /// The first outcome stands: a download that ends after the clock has
+    /// timed it out changes nothing. Whether this one stood.
+    fn settle(&self, result: Outcome) -> bool {
+        let mut outcome = self.outcome.lock().unwrap();
+        if outcome.is_some() {
+            return false;
+        }
+        *outcome = Some(result);
+        drop(outcome);
+        (self.wake)();
+        true
+    }
+    fn progress(&self, request: Duration) {
+        *self.idle.lock().unwrap() = Some(Instant::now() + request);
+    }
+    fn due(&self) -> Instant {
+        self.idle
+            .lock()
+            .unwrap()
+            .map_or(self.whole, |idle| idle.min(self.whole))
+    }
+}
+impl Drop for Load {
+    fn drop(&mut self) {
+        // Shuts the socket of a download under way (the transport's abort).
+        self.controller.abort();
+    }
+}
+
+struct Job {
+    load: Weak<Load>,
+    url: String,
+}
+
+/// The process's image downloads.
+pub(super) struct Downloads {
+    policy: Policy,
+    transport: RustlsHttpTransport,
+    queue: Mutex<VecDeque<Job>>,
+    queued: Condvar,
+    running: AtomicUsize,
+    started: std::sync::Once,
+    cache: Mutex<Cache>,
+    clock: Clock,
+    /// Responses asked for, redirects included, for diagnostics.
+    pub fetches: AtomicU64,
+}
+impl Downloads {
+    pub fn process() -> &'static Arc<Downloads> {
+        static DOWNLOADS: OnceLock<Arc<Downloads>> = OnceLock::new();
+        DOWNLOADS.get_or_init(|| Downloads::new(Policy::default()))
+    }
+    pub fn new(policy: Policy) -> Arc<Self> {
+        Arc::new(Self {
+            policy,
+            transport: RustlsHttpTransport::new(),
+            queue: Mutex::new(VecDeque::new()),
+            queued: Condvar::new(),
+            running: AtomicUsize::new(0),
+            started: std::sync::Once::new(),
+            cache: Mutex::new(Cache::new(policy.cache)),
+            clock: Clock::default(),
+            fetches: AtomicU64::new(0),
+        })
+    }
+    /// Load `url`: from the cache at once, else on a download thread, which
+    /// calls `wake` once the outcome is set. Refused while as many downloads
+    /// wait or run as the raster pipeline lets sources wait for a header.
+    pub fn load(
+        self: &Arc<Self>,
+        url: &str,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Result<Arc<Load>, Refusal> {
+        let cached = self.cache.lock().unwrap().get(url);
+        let load = |outcome| {
+            Arc::new(Load {
+                controller: AbortController::new(),
+                outcome: Mutex::new(outcome),
+                wake: Box::new(wake),
+                whole: Instant::now() + self.policy.whole,
+                idle: Mutex::new(None),
+            })
+        };
+        if let Some(body) = cached {
+            return Ok(load(Some(Ok(body))));
+        }
+        self.start();
+        let mut queue = self.queue.lock().unwrap();
+        // A source changed or removed before its turn asks for nothing, and
+        // one timed out while it waited has its answer.
+        queue.retain(|job| job.load.upgrade().is_some_and(|load| !load.settled()));
+        if queue.len() + self.running.load(Ordering::SeqCst) >= PENDING_JOBS {
+            return Err(Refusal::QueueFull);
+        }
+        let load = load(None);
+        self.clock.watch(&load);
+        queue.push_back(Job {
+            load: Arc::downgrade(&load),
+            url: url.to_owned(),
+        });
+        self.queued.notify_one();
+        Ok(load)
+    }
+    /// The bytes the cache holds.
+    pub fn cached_bytes(&self) -> u64 {
+        self.cache.lock().unwrap().bytes
+    }
+    #[cfg(test)]
+    pub fn holds(&self, url: &str) -> bool {
+        self.cache.lock().unwrap().entries.contains_key(url)
+    }
+    /// Forget `url`'s cached body if it is `body`, which no decode can use.
+    pub fn forget(&self, url: &str, body: &Arc<Body>) {
+        self.cache.lock().unwrap().forget(url, body);
+    }
+    fn start(self: &Arc<Self>) {
+        self.started.call_once(|| {
+            for n in 0..THREADS {
+                let downloads = self.clone();
+                std::thread::Builder::new()
+                    .name(format!("exact-image-net-{n}"))
+                    .spawn(move || {
+                        #[cfg(target_os = "android")]
+                        crate::android::background_priority();
+                        downloads.run()
+                    })
+                    .expect("image download thread");
+            }
+            let downloads = self.clone();
+            std::thread::Builder::new()
+                .name("exact-image-net-clock".into())
+                .spawn(move || downloads.clock.run())
+                .expect("image download clock");
+        });
+    }
+    fn run(&self) {
+        loop {
+            let job = {
+                let mut queue = self.queue.lock().unwrap();
+                loop {
+                    if let Some(job) = queue.pop_front() {
+                        // Under the lock, so admission never sees it in neither.
+                        self.running.fetch_add(1, Ordering::SeqCst);
+                        break job;
+                    }
+                    queue = self.queued.wait(queue).unwrap();
+                }
+            };
+            let _running = Running(&self.running);
+            // Gone, or timed out while it waited.
+            let Some(load) = job.load.upgrade().filter(|load| !load.settled()) else {
+                continue;
+            };
+            load.progress(self.policy.request);
+            // The idle deadline may come before the one the clock waits for;
+            // later progress only moves it on.
+            self.clock.poke();
+            let (signal, whole) = (load.controller.signal(), load.whole);
+            // Only the source holds the load while it downloads: dropping it
+            // aborts the download.
+            drop(load);
+            let result = self.fetch(&job, &signal, whole);
+            let body = result.as_ref().ok().cloned();
+            // Cached under the same lock as it is published, so a worker that
+            // rejects it (`SourceOwner::release`) finds it there to forget.
+            // A body the clock beat is not kept (the source's outcome is the
+            // timeout); one whose source has gone is, for its return.
+            let mut cache = self.cache.lock().unwrap();
+            let stood = match job.load.upgrade() {
+                Some(load) => load.settle(result),
+                None => true,
+            };
+            if let Some(body) = body.filter(|_| stood) {
+                cache.put(&job.url, body);
+            }
+        }
+    }
+    fn fetch(&self, job: &Job, signal: &AbortSignal, whole: Instant) -> Outcome {
+        let progress = || {
+            if let Some(load) = job.load.upgrade() {
+                load.progress(self.policy.request);
+            }
+        };
+        let mut url = clean(&job.url).ok_or_else(|| failed("not an http or https URL"))?;
+        let mut redirects = 0;
+        let mut response = loop {
+            self.fetches.fetch_add(1, Ordering::Relaxed);
+            let mut request = Request::get(url.as_str());
+            request.headers.set("accept", ACCEPT);
+            // The cap applies to the answer, after its status (below).
+            request.max_body = Some(usize::MAX);
+            // The transport's own phases outlast the clock's whole-load bound.
+            request.timeout =
+                Some(whole.saturating_duration_since(Instant::now()) + Duration::from_secs(1));
+            let response = self
+                .transport
+                .open(&request, signal)
+                .map_err(|e| failed(e.to_string()))?;
+            progress();
+            let location = matches!(response.status, 301 | 302 | 303 | 307 | 308)
+                .then(|| response.headers.get("location"))
+                .flatten();
+            let Some(location) = location else {
+                break response;
+            };
+            redirects += 1;
+            if redirects > MAX_REDIRECTS {
+                return Err(failed("too many redirects"));
+            }
+            url = url
+                .join(location)
+                .ok()
+                .and_then(|next| clean(next.as_str()))
+                .ok_or_else(|| failed(format!("a redirect to {location}")))?;
+        };
+        if !(200..300).contains(&response.status) {
+            return Err(failed(format!("HTTP {}", response.status)));
+        }
+        let over = || Failure {
+            refusal: Refusal::EncodedLimit,
+            message: format!("over {} encoded bytes", self.policy.limit),
+        };
+        let declared =
+            (response.headers.get("content-length")).and_then(|n| n.trim().parse::<u64>().ok());
+        if declared.is_some_and(|n| n > self.policy.limit) {
+            return Err(over());
+        }
+        let path = spool_dir()
+            .map_err(|e| failed(format!("no spool directory: {e}")))?
+            .join(spool_name().map_err(|e| failed(format!("no spool name: {e}")))?);
+        let mut file = spool_file(&path).map_err(|e| failed(format!("no spool file: {e}")))?;
+        // Removes the file on every early return.
+        let mut body = Body { path, len: 0 };
+        let mut chunk = vec![0; 64 * 1024];
+        loop {
+            let n = response
+                .body
+                .read(&mut chunk)
+                .map_err(|e| failed(e.to_string()))?;
+            if n == 0 {
+                break;
+            }
+            body.len += n as u64;
+            if body.len > self.policy.limit {
+                return Err(over());
+            }
+            file.write_all(&chunk[..n])
+                .map_err(|e| failed(format!("spooling: {e}")))?;
+            progress();
+        }
+        if body.len == 0 {
+            return Err(failed("an empty response"));
+        }
+        Ok(Arc::new(body))
+    }
+}
+
+/// A download thread's count in `running`, given back however it ends.
+struct Running<'a>(&'a AtomicUsize);
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// `url` parsed, if it is `http:` or `https:`, with any user and password
+/// removed: an image request carries no credentials.
+fn clean(url: &str) -> Option<url::Url> {
+    let mut url = url::Url::parse(url).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    Some(url)
+}
+
+/// This process's spool directory under `<cache>/exact/images/`, made at
+/// first use, holding an exclusive lock on its `.lock` for the process's
+/// life (Apple's `RasterSpool`): a process that is killed never removes its
+/// files, so the first spool of a launch removes every directory whose lock
+/// no live process holds. Making a directory and sweeping both hold the
+/// root's `.namespace.lock`, so a sweep never sees one before its lock. The
+/// cache is the user's: `XDG_CACHE_HOME` or `~/.cache` on Linux and Android
+/// (whose reader sets `XDG_CACHE_HOME` to the app's cache directory),
+/// `%LOCALAPPDATA%` on Windows (out of reach of the temporary directory's
+/// cleaners), the user's temporary directory on a Mac.
+fn spool_dir() -> Result<PathBuf, String> {
+    // The directory and its held lock, once made; a failure is tried again
+    // at the next spool.
+    static DIR: Mutex<Option<(PathBuf, std::fs::File)>> = Mutex::new(None);
+    let mut dir = DIR.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((path, _)) = &*dir {
+        return Ok(path.clone());
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| PathBuf::from(home).join(".cache"))
+                .filter(|p| p.is_absolute())
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    #[cfg(windows)]
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(std::env::temp_dir);
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    let base = std::env::temp_dir();
+    let root = base.join("exact").join("images");
+    let at = |path: &Path, e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    std::fs::create_dir_all(&root).map_err(|e| at(&root, &e))?;
+    let namespace = root.join(".namespace.lock");
+    let file = lock_file(&namespace).map_err(|e| at(&namespace, &e))?;
+    // Another launch holds it only to sweep and make its directory: asked
+    // a while, never waited on without end.
+    let mut attempts = 0;
+    while !lock(&file) {
+        attempts += 1;
+        if attempts == 20 {
+            return Err(at(&namespace, &"held by another launch"));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    sweep(&root);
+    let mine = root.join(spool_name().map_err(|e| at(&root, &e))?);
+    std::fs::create_dir(&mine).map_err(|e| at(&mine, &e))?;
+    let held = lock_file(&mine.join(".lock")).map_err(|e| at(&mine, &e))?;
+    if !lock(&held) {
+        return Err(at(&mine, &"its lock is held"));
+    }
+    drop(file);
+    *dir = Some((mine.clone(), held));
+    Ok(mine)
+}
+
+fn lock_file(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+}
+
+/// Remove the spool directories whose lock no process holds.
+fn sweep(root: &Path) {
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        // A directory made with its lock (under the namespace lock) whose
+        // lock is free is a gone process's.
+        let free = lock_file(&path.join(".lock")).is_ok_and(|file| lock(&file));
+        if free {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// `flock` on Unix, which Android has and the standard library's lock does
+/// not cover there; the library's elsewhere.
+use crate::hatches::breadcrumb::lock;
+
+fn spool_name() -> std::io::Result<String> {
+    let mut bytes = [0u8; 12];
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn spool_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+/// One thread times downloads out: it settles the load as timed out, which
+/// wakes its workers whatever the download thread is blocked in, and aborts
+/// it, which shuts its socket.
+#[derive(Default)]
+struct Clock {
+    watched: Mutex<Vec<Weak<Load>>>,
+    changed: Condvar,
+}
+impl Clock {
+    fn watch(&self, load: &Arc<Load>) {
+        self.watched.lock().unwrap().push(Arc::downgrade(load));
+        self.changed.notify_one();
+    }
+    /// A deadline came nearer. Under the lock, so the clock is either
+    /// waiting, and woken, or yet to work out its next wait.
+    fn poke(&self) {
+        let _watched = self.watched.lock().unwrap();
+        self.changed.notify_one();
+    }
+    fn run(&self) {
+        let mut watched = self.watched.lock().unwrap();
+        loop {
+            let now = Instant::now();
+            let mut next = now + Duration::from_secs(1);
+            let mut expired = Vec::new();
+            watched.retain(|weak| {
+                let Some(load) = weak.upgrade().filter(|load| !load.settled()) else {
+                    return false;
+                };
+                let due = load.due();
+                if due > now {
+                    next = next.min(due);
+                    return true;
+                }
+                expired.push(load);
+                false
+            });
+            if expired.is_empty() {
+                watched = self
+                    .changed
+                    .wait_timeout(watched, next.saturating_duration_since(now))
+                    .unwrap()
+                    .0;
+                continue;
+            }
+            // Outside the lock: settling wakes a backend, and the last
+            // reference dropped here aborts. Then the deadlines again, before
+            // any wait, as one may have come nearer meanwhile.
+            drop(watched);
+            for load in expired {
+                let _ = load.settle(Err(failed("The request timed out.")));
+                load.controller.abort();
+            }
+            watched = self.watched.lock().unwrap();
+        }
+    }
+}
+
+/// Bodies by URL, least recently used first out, to a byte cap (each
+/// counted with its URL) and an entry cap. Whatever the response's cache
+/// headers say: within the process, as a browser keeps the images a
+/// document has loaded.
+struct Cache {
+    entries: HashMap<String, (u64, Arc<Body>)>,
+    order: BTreeMap<u64, String>,
+    bytes: u64,
+    tick: u64,
+    cap: u64,
+}
+impl Cache {
+    fn new(cap: u64) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: BTreeMap::new(),
+            bytes: 0,
+            tick: 0,
+            cap,
+        }
+    }
+    fn get(&mut self, url: &str) -> Option<Arc<Body>> {
+        self.tick += 1;
+        let (tick, body) = self.entries.get_mut(url)?;
+        self.order.remove(tick);
+        *tick = self.tick;
+        self.order.insert(self.tick, url.to_owned());
+        Some(body.clone())
+    }
+    fn put(&mut self, url: &str, body: Arc<Body>) {
+        self.remove(url);
+        let cost = body.len + url.len() as u64;
+        if cost > self.cap {
+            return;
+        }
+        self.tick += 1;
+        self.bytes += cost;
+        self.entries.insert(url.to_owned(), (self.tick, body));
+        self.order.insert(self.tick, url.to_owned());
+        while self.bytes > self.cap || self.entries.len() > CACHE_ENTRIES {
+            let Some((_, oldest)) = self.order.first_key_value() else {
+                break;
+            };
+            let oldest = oldest.clone();
+            self.remove(&oldest);
+        }
+    }
+    fn forget(&mut self, url: &str, body: &Arc<Body>) {
+        if self
+            .entries
+            .get(url)
+            .is_some_and(|(_, held)| Arc::ptr_eq(held, body))
+        {
+            self.remove(url);
+        }
+    }
+    fn remove(&mut self, url: &str) {
+        if let Some((tick, old)) = self.entries.remove(url) {
+            self.order.remove(&tick);
+            self.bytes -= old.len + url.len() as u64;
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "remote_tests.rs"]
+mod tests;

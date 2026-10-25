@@ -5,8 +5,8 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-21 (on the web, a symbol over or under its button's title overhangs only toward it, the image padding from it, and a written height there keeps no padding, §3); 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
-**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11; Claude (Opus 5.5), the web's symbol size 2026-10-20
+**Revised:** 2026-10-25 (remote sources on Linux, Windows and Android, §2); 2026-10-21 (on the web, a symbol over or under its button's title overhangs only toward it, the image padding from it, and a written height there keeps no padding, §3); 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11; Claude (Opus 5.5), the web's symbol size 2026-10-20 and the Linux host's remote fetch 2026-10-25
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
 
@@ -333,7 +333,46 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   pixels are the session's raster budget. An SVG, remote or under `assets/`,
   is drawn as a picture at the box's size (LLP 1011.001; the same on Linux);
   any other whole body ImageIO cannot size is the `error` `not an image
-  format this host decodes`. Linux loads no remote source.
+  format this host decodes`.
+- **The remote fetch on Linux, Windows and Android** (`host/linux`
+  `image/remote.rs`, 2026-10-25): Apple's policy over the executor's
+  transport (ibex2's rustls client, as `net.fetch` uses there, in an
+  instance of its own, with the environment's proxy), asked directly: an
+  image is not the data module's fetch, and the app's `net.fetch` grants do
+  not govern it. No cookie jar, no credentials (a user and password in the
+  URL or a redirect's `Location` are removed) and no `Referer`; `Accept`
+  prefers PNG and SVG, which Linux and Windows decode, though a server may
+  still send another format. Redirects are followed here, up to twenty, to
+  `http:` or `https:` only; cleartext `http:` loads, as no ATS stands in
+  front of it. Any 2xx is taken whatever its `Content-Type`; any other
+  status fails as `HTTP <status>`, whatever length it declares. A 2xx body
+  is capped at 64 MiB by its `Content-Length` and as it streams. A load
+  fails after 15 s without a response or a read, or 30 s from when it was
+  asked for (the wait for a thread and redirects included); the timeout
+  settles it whatever its thread is blocked in, though a DNS lookup holds
+  that thread until the system answers. Six download threads serve the
+  process, never a raster worker, and share the transport's idle
+  connections; up to 64 downloads wait or run, and a source asked for past
+  that is asked again at the next poll, as one past the raster pipeline's
+  header bound is. The body spools to a file in a directory of the process's
+  own under `exact/images/` in the user's cache (`XDG_CACHE_HOME` or
+  `~/.cache`; `%LOCALAPPDATA%` on Windows), locked for the process's life as
+  Apple's `RasterSpool` is, so the first spool of a launch removes the
+  directories of processes that are gone. A worker reads the file for its
+  header and again to decode, and Android's animated drawable plays a GIF or
+  WebP from it; it is removed with its last holder: its source, a decoded
+  picture of it, or the cache. Dropping a source mid-download (its node's
+  source changed, or the node gone) shuts the download's socket. The old
+  picture stays while a new source loads, and stays if it fails, as Apple's
+  loader keeps it. Up to 256 bodies, 32 MiB with their URLs, stay in an LRU
+  for the process, whatever their cache headers say, as a browser keeps the
+  images a page has loaded, so a list scrolled back fetches nothing while
+  they are there; nothing is kept across launches, and a body this host
+  cannot decode is not kept. Linux sends no image events (LLP 1011.001): a
+  failed download, or a body this host cannot decode, is a line on stderr
+  (`exact: image <url>: HTTP 404`). Linux and Windows decode PNG and SVG
+  bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and
+  Android's platform decoder reads all three (`image/jpeg.rs`).
 - **Events:** the loader sends a node that hears it the source's `load`
   when its first decode lands, or its `error` with the reason (the HTTP
   status, `URLError`'s description, the raster refusal), each once per
@@ -463,7 +502,8 @@ broken-image icon and the `alt` text — the app draws its own fallback from
 `load` and `error`, §2); SVG sources on Apple and Linux (§4; built 2026-10-20 as LLP 1011.001: a picture drawn at the box's size, with two declared deviations); a fetch policy the app
 sets — HTML's `referrerpolicy`, a refusal of redirects (`redirect="error"`),
 a byte cap below the host's (`max-bytes`) — each a vocabulary proposal
-(#121), not built; Linux remote sources; a block-flow image at its intrinsic
+(#121), not built; a disk cache for remote images on Linux; JPEG, GIF
+and WebP on Linux and Windows (Android's platform decoder reads them); a block-flow image at its intrinsic
 width (the
 declared deviation, §1); `object-position`; animated images on Linux (it
 decodes PNG only; Apple plays GIF and WebP, LLP 1011.000); `hint`/`role`/`headingLevel` on macOS images; pixel
