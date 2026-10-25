@@ -78,18 +78,36 @@ export async function runRecordingRequest(request: RecordingRequest, deps: Recor
   } catch (error) { return { ok: false, error: recordingHostError(error, context()) }; }
 }
 
-/** The module's upload (`browserRecordingUpload`, T3BrowserPage.swift) on the request's own connection. The connection goes under its own key:
- *  a module request with a top-level `fleet` is the fleet's (T3Module `later`), even an empty one. */
-export function nativeDeps(client: T3Client, request: RecordingRequest): RecordingDeps {
-  const connection = { connection: { generation: request.generation, fleet: request.fleet } };
+/** The request's connection, as the executor has it: an RPC there, the server's origin and the request's budget left. */
+export type RecordingLink = { rpc: (method: string, payload: Obj) => Promise<Obj>; origin: string; remaining: () => number };
+/** runAttachmentUploadCycle on the request's own connection: `attachments.createUploadUrl` and `attachments.delete` go out on
+ *  this module's socket; the bytes go from the module (`browserRecordingUpload`, T3BrowserPage.swift), since the saved
+ *  recording is in the artifact directory, outside the app's files this module can read. The transfer keeps the
+ *  deadline on the module's clock; the mint keeps it on the run's (`expired` is the reference's
+ *  `Date.now() >= deadlineMs - 1_000`). */
+export function nativeDeps(client: T3Client, link: RecordingLink): RecordingDeps {
+  const expired = () => link.remaining() <= 1000;
   return {
     recordings: captureHost(client).recordings,
     upload: async input => {
-      const value = await captureNativeCall(client, { op: 'browserRecordingUpload', action: 'upload', ...connection, ...input });
-      if (str(value.status) === 'uploaded' && str(value.attachmentId)) return { status: 'uploaded', attachmentId: str(value.attachmentId) };
-      return { status: 'failed', attachmentId: str(value.attachmentId) || null, error: new Error(str(value.error, 'Recording upload failed.')), expired: value.expired === true };
+      // Encoding, saving and minting consume the same request budget. Leave time to reply.
+      if (expired()) return { status: 'failed', attachmentId: null, error: new Error('Recording transfer deadline expired.'), expired: true };
+      let minted: Obj;
+      try { minted = await link.rpc('attachments.createUploadUrl', { type: 'file', name: input.name.slice(0, 255), mimeType: input.mimeType, sizeBytes: input.sizeBytes }); }
+      catch (error) { if (letGo(error)) throw error; return { status: 'failed', attachmentId: null, error, expired: expired() }; }
+      const attachmentId = str(minted.attachmentId), relativeUrl = str(minted.relativeUrl);
+      if (!attachmentId || !relativeUrl) return { status: 'failed', attachmentId: attachmentId || null, error: new Error('The upload could not be prepared.'), expired: expired() };
+      let value: Obj;
+      try { value = await captureNativeCall(client, { op: 'browserRecordingUpload', origin: link.origin, relativeUrl, path: input.path, mimeType: input.mimeType, deadlineMs: input.deadlineMs }); }
+      catch (error) {
+        // A let-go call returns to no caller that would remove the minted attachment, so it goes here.
+        if (letGo(error)) { void link.rpc('attachments.delete', { attachmentId }).catch(() => undefined); throw error; }
+        return { status: 'failed', attachmentId, error, expired: expired() };
+      }
+      if (str(value.status) === 'uploaded') return { status: 'uploaded', attachmentId };
+      return { status: 'failed', attachmentId, error: new Error(str(value.error, 'Recording upload failed.')), expired: value.expired === true };
     },
-    remove: attachmentId => { void captureNativeCall(client, { op: 'browserRecordingUpload', action: 'remove', attachmentId, ...connection }).catch(() => undefined); },
+    remove: attachmentId => { void link.rpc('attachments.delete', { attachmentId }).catch(() => undefined); },
   };
 }
 
