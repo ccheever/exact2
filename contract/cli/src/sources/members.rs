@@ -2,7 +2,7 @@
 //! file is, scoped through its own `use` lines with every member of the
 //! component bound, and spliced into the component at its line.
 
-use super::{name_error, Loader, Unit};
+use super::{name_error, Loader};
 use crate::resolve::resolve;
 use crate::{CompileError, RelatedLocation};
 use contract_syntax::members::{declared, splice};
@@ -236,6 +236,31 @@ impl Loader<'_> {
         listed
     }
 
+    /// Each file's local bindings outside its members block, and those in
+    /// its block, which join the listing file's once pasted in. Neither counts
+    /// the names `prepare_members` copied across from the component's other
+    /// files: each is bound where it is declared.
+    pub(super) fn bindings_by_file(&self) -> (Vec<HashSet<String>>, Vec<HashSet<String>>) {
+        let unshared = |c: &mut contract_syntax::Component| {
+            c.members.props.clear();
+            c.members.outer.clear();
+        };
+        let mut own = Vec::new();
+        let mut blocks = Vec::new();
+        for unit in &self.units {
+            let mut file = unit.file.clone();
+            let mut block = File {
+                members: file.members.take(),
+                ..File::default()
+            };
+            file.components.iter_mut().for_each(unshared);
+            block.members.iter_mut().for_each(unshared);
+            own.push(contract_syntax::scope::bindings(&mut file));
+            blocks.push(contract_syntax::scope::bindings(&mut block));
+        }
+        (own, blocks)
+    }
+
     /// Splice every members block, scoped, into its component at its line
     /// (D4): last line first, so each line's place among the component's own
     /// members holds. Then decide the refusals the parser left to the whole
@@ -253,28 +278,33 @@ impl Loader<'_> {
                 splice(c, at, block);
             }
         }
-        // Decide each deferred refusal as the parser would in the one file
-        // the members are pasted into: a call in a block against the
-        // actions of the file that lists it, any other against its own
-        // file's, each after the splice (D4).
-        let listed = self.listed_by();
-        let actions = |unit: &Unit| -> HashSet<String> {
-            let components = unit.file.components.iter();
-            components
-                .flat_map(|c| c.actions.iter().map(|a| a.name.clone()))
-                .collect()
+        // Decide each deferred refusal with the actions from every file of a
+        // component: a call in a block, its component's; any other call in a
+        // file that lists members files, those of that file's components,
+        // each after the splice. The parser has already counted the
+        // declarations of the file the call is written in.
+        let names = |c: &contract_syntax::Component| -> HashSet<String> {
+            c.actions.iter().map(|a| a.name.clone()).collect()
         };
-        for (index, listing) in listed.into_iter().enumerate() {
+        let mut component_of = HashMap::new();
+        for (&(host, component), parts) in &hosts {
+            let actions = names(&self.units[host].file.components[component]);
+            for part in parts {
+                component_of.insert(part.unit, actions.clone());
+            }
+        }
+        for index in 0..self.units.len() {
             let deferred = std::mem::take(&mut self.units[index].file.deferred);
             if deferred.is_empty() {
                 continue;
             }
-            let own = actions(&self.units[index]);
-            let listing = listing.map(|host| actions(&self.units[host]));
+            let file = &self.units[index].file;
+            let own: HashSet<String> = file.components.iter().flat_map(names).collect();
+            let none = HashSet::new();
             for d in deferred {
-                let names = match (&listing, d.in_block) {
-                    (Some(listing), true) => listing,
-                    _ => &own,
+                let names = match d.in_block {
+                    true => component_of.get(&index).unwrap_or(&none),
+                    false => &own,
                 };
                 if names.contains(&d.name) == d.if_action {
                     let error = self.sources.resolve(CompileError::from(d.error));

@@ -481,3 +481,50 @@ fn a_deferred_refusal_is_reported_with_the_rest() {
     assert!(ids.contains(&"syntax-method-form"), "{ids:?}");
     assert!(ids.contains(&"type-assign"), "{ids:?}");
 }
+
+#[test]
+fn a_method_call_in_a_block_template_counts_the_components_actions() {
+    let app = App::new("template");
+    let root = "\
+component App
+  state count = 0
+  members \"./more.contract\"
+  view
+    text label
+";
+    app.write(
+        "more.contract",
+        "members App\n  state label = `${\"  hi  \".trim()}`\n  action trim(s: string)\n    count = 1\n",
+    );
+    assert_eq!(app.refuse(root).id, "syntax-method-shadowed");
+    // A method call in a block counts the declarations of its own file, as
+    // any call does: another component's action there shadows it too.
+    app.write(
+        "more.contract",
+        "members App\n  derive label = \" x \".trim()\ncomponent Card\n  action trim\n    let x = 1\n  view\n    text \"c\"\n",
+    );
+    assert_eq!(app.refuse(root).id, "syntax-method-shadowed");
+}
+
+#[test]
+fn a_binding_outside_the_block_still_renames_the_listing_files_declarations() {
+    // `Card` stays in the members file; its `save` and `Item` are that file's
+    // bindings, which a listing file's `fn` or shape must not capture.
+    let app = App::new("outside");
+    app.write(
+        "more.contract",
+        "component Card\n  state save = 0\n  state shown = save(1)\n  view\n    text shown.toString()\nmembers App\n  state extra = 0\n",
+    );
+    let error = app.refuse(
+        "use Card from \"./more.contract\"\nfn save(x: number): number = x + 100\ncomponent App\n  state n = save(1)\n  members \"./more.contract\"\n  view\n    column\n      text n.toString()\n      Card()\n",
+    );
+    assert_eq!(error.id, "type-unknown-function", "{error}");
+    app.write(
+        "more.contract",
+        "members App\n  state extra = 0\ncomponent Card\n  state Item = 0\n  state item = Item(value=1)\n  view\n    text item.value.toString()\n",
+    );
+    let error = app.refuse(
+        "use Card from \"./more.contract\"\nshape Item\n  value: number\ncomponent App\n  members \"./more.contract\"\n  view\n    Card()\n",
+    );
+    assert_eq!(error.id, "type-unknown-function", "{error}");
+}
