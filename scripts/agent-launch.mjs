@@ -479,6 +479,9 @@ export function parseFlags(argv) {
     else if (argv[i] === '--keep-storage') flags.keepStorage = true;
     else if (argv[i] === '--reset-storage') flags.resetStorage = true;
     else if (argv[i] === '--port') flags.port = argv[++i];
+    // `trace --pid <pid>` asks a running development app for its trace; `trace --out <file>` writes it with its map joined (LLP 1142 D2, D5).
+    else if (argv[i] === '--pid') flags.pid = argv[++i];
+    else if (argv[i] === '--out') flags.out = resolve(argv[++i]);
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.

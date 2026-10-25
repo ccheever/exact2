@@ -1079,6 +1079,12 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **A build's refusals do not say "error".** A compile refusal prints as
+  `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
+  build exits 1, so a check that greps the output for `error` passes a build that
+  failed. Judge a build by its exit status (`bun host/web/build.mjs`, `bun
+  host/apple/build.mjs`). (Excord port, `symbol:warning`, LLP 1142 D7, 2026-10-25.)
+
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied
   value. Even one character per call is replacement, so `" suffix"` does not append

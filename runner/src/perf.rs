@@ -56,6 +56,40 @@ pub struct Work {
     pub reported: std::cell::Cell<u64>,
     /// Measuring waits for the host's first ask ([`Runner::measure_later`]).
     pub later: bool,
+    /// Refused answers by resource index since measuring began (LLP 1142 D4).
+    pub failures: Vec<Failures>,
+    /// Failure lines a development host also writes to its platform's log,
+    /// oldest first, and how many were dropped past [`ALERTS`] (D4).
+    pub alerts: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    /// Dispatches and the ones that committed a change, by plan site and
+    /// event name (LLP 1142 D6).
+    pub handlers: BTreeMap<(u32, &'static str), Handler>,
+}
+
+/// The most alert lines kept for a host that has not taken them.
+pub const ALERTS: usize = 64;
+
+/// One resource's refused answers (LLP 1142 D4): how many, and the runner's
+/// clock at the first and the latest. Not reset by a success, nor rolled
+/// back with a refused commit: what happened happened.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Failures {
+    /// Refused answers.
+    pub count: u64,
+    /// The runner's clock at the first, ms.
+    pub first: f64,
+    /// The runner's clock at the latest, ms.
+    pub last: f64,
+}
+
+/// One handler's dispatches (LLP 1142 D6): each one the runner ran, and
+/// each whose commit changed the tree (a non-empty receipt).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Handler {
+    /// Dispatches the runner ran.
+    pub dispatched: u64,
+    /// Of those, the ones whose receipt created, destroyed or touched a node.
+    pub committed: u64,
 }
 
 /// The node `site` sits under in the plan, through its region's arm when it
@@ -188,6 +222,22 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
+    // Each listed site's handlers (LLP 1142 D6): no rate, no threshold.
+    s.push_str("],\"handlers\":[");
+    let mut first = true;
+    for ((site, event), h) in &ids.work.handlers {
+        if sites.contains_key(site) {
+            if !first {
+                s.push(',');
+            }
+            first = false;
+            let _ = write!(
+                s,
+                "{{\"site\":{site},\"event\":\"{event}\",\"dispatched\":{},\"committed\":{}}}",
+                h.dispatched, h.committed
+            );
+        }
+    }
     let _ = write!(s, "],\"walked\":{walked},\"truncated\":{truncated}}}");
     s
 }
@@ -215,4 +265,28 @@ fn streams<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     out.push_str(&crate::stream_timing::report(&name));
     out.push('}');
     out
+}
+
+/// `state.failures` (LLP 1142 D4): how often each resource has been refused,
+/// beside `failed`'s strings, which the test runner prints. Only while measuring.
+pub(crate) fn failures<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+    let counts = runner.failure_counts();
+    if counts.is_empty() {
+        return;
+    }
+    s.push_str(",\"failures\":{");
+    for (i, (name, f)) in counts.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, s);
+        let _ = write!(
+            s,
+            ":{{\"count\":{},\"first\":{},\"last\":{}}}",
+            f.count,
+            num(f.first),
+            num(f.last)
+        );
+    }
+    s.push('}');
 }
