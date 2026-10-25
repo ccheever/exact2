@@ -1,5 +1,5 @@
 //! Action reads of the acknowledged inline picture, with DejaVu Sans.
-use super::range_frame_tests::{boot, boot_at, slot, tap, view};
+use super::range_frame_tests::{boot, boot_at, fixture_fonts, slot, tap, view};
 use super::*;
 
 fn app(text: &str, attrs: &str, around: &str, ids: &[&str]) -> String {
@@ -241,7 +241,9 @@ fn inline_frame_is_unavailable_without_its_painted_paragraph() {
     .unwrap();
     assert_eq!(view(&p, "run"), id);
     assert!(p.ranges.frame(id).unavailable);
-    p.frame();
+    // (the reload took the host's fonts: the fixture's again, so the box compares like with like; it lays out and
+    // paints too)
+    fixture_fonts(&mut p);
     let after = measure(&mut p, 0).unwrap();
     close(
         after,
