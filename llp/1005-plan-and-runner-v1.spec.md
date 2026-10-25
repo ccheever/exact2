@@ -809,7 +809,13 @@ modifier's own press and release, and a ⌘ chord (CDP's
   `false` (`KeyboardEvent::parse`); a missing one is false, so a chord alone
   and the three-line wire keep their meaning.
 - **Web** (`glue.js` and `document-glue.js` `keyChord`; the JS target's
-  `onKey`): `event.isComposing` as Chrome reports it.
+  `onKey`): `event.isComposing` as Chrome reports it, or a keydown whose
+  `keyCode` is 229 or whose `key` is `Process`, the marks of a key an input
+  method processed (UI Events, legacy key codes), as web code tests
+  `e.isComposing || e.keyCode === 229` (2026-10-26). WebKit sends the Enter
+  that commits a composition after `compositionend`, `isComposing` false and
+  `keyCode` 229, where Chrome's arrives composing. The web hosts' `submit`
+  skips that Enter too.
 - **macOS and iOS** (`Presenter.composes`, `NodeView.composes`): true on a
   modifier's own press or release while the field has marked text, the only
   composing keys that reach handlers there (`passesComposition`). A ⌘ chord
@@ -827,7 +833,8 @@ modifier's own press and release, and a ⌘ chord (CDP's
 Tests: `runner/src/runner/event/keyboard.rs`, `contract/cli/tests/it/keyup.rs`
 (a composer skipping the candidate's Enter), `KeyUpMacTests` (Shift released
 and ⌘ pressed during a composition), `FieldCompositionIOSTests`, and the web's
-`focus.test.mjs` (the wire) and `js-runtime.test.mjs` (the JS target's record).
+`focus.test.mjs` (the wire), `js-runtime.test.mjs` (the JS target's record) and
+`composing-key.test.mjs` (a keyCode-229 keydown in Chromium, Firefox and WebKit).
 
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
