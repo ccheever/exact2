@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { activeDevice, deviceSessionCommand, deviceSessionLocal, deviceMini, deviceSessionView, railAction, streamView } from '../../src/device/device-session';
+import { activeDevice, deviceSessionCommand, deviceSessionLocal, deviceMini, deviceSessionView, railAction, refreshDeviceHub, streamView } from '../../src/device/device-session';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
@@ -23,7 +23,11 @@ function client(calls: Call[], replies: Record<string, unknown> = {}) {
         if (reply instanceof Error) throw reply;
         return reply ?? {};
       },
-      call: async (request: Obj) => { calls.push({ op: String(request.op), request }); return replies[String(request.op)] ?? { ok: true }; },
+      call: async (request: Obj) => {
+        calls.push({ op: String(request.op), request });
+        const reply = replies[String(request.op)];
+        return typeof reply === 'function' ? reply(request) : reply ?? { ok: true };
+      },
     }),
   } as unknown as T3Client;
 }
@@ -125,6 +129,49 @@ describe('the Device surface after onboarding', () => {
     expect(streamView(c, KEY, 'ios').inputNotice).toBe('Input disconnected (closed 1006), reconnecting…');
     for (const op of ['home', 'rotate', 'reconnect']) await deviceSessionLocal(c, native, null, 'p', op, KEY);
     expect(calls.map(call => [call.op, call.request?.action, call.request?.key])).toEqual([['deviceInput', 'home', KEY], ['deviceInput', 'rotate', KEY], ['deviceInput', 'reconnect', KEY]]);
+  });
+
+  test('a ticket the module asks for is minted once per ask and carried by the workspace\'s stream node; a failed mint carries none', async () => {
+    const calls: Call[] = [];
+    let serial = 0, refuse = false;
+    const c = client(calls, { 'device.detail': settings, deviceHubAccess: () => {
+      if (refuse) throw new ClientError('The server is not connected.', 'Disconnected');
+      return { origin: 'http://127.0.0.1:4001', ticket: `ticket-${++serial}` };
+    } });
+    const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
+    const hub = async () => { await refreshDeviceHub(c, native); return (await deviceSessionView(c, native, state, true, 'p')).workspace.hub; };
+    expect(await hub()).toEqual({ origin: '', ticket: '', ask: '' }); // nothing asked yet
+    (c.presentation as Obj).deviceHub = { want: 1, module: 'm1' };
+    expect(await hub()).toEqual({ origin: 'http://127.0.0.1:4001', ticket: 'ticket-1', ask: 'm1:1' });
+    expect(await hub()).toEqual({ origin: 'http://127.0.0.1:4001', ticket: 'ticket-1', ask: 'm1:1' }); // the same ask is answered once
+    (c.presentation as Obj).deviceHub = { want: 2, module: 'm1' };
+    expect(await hub()).toEqual({ origin: 'http://127.0.0.1:4001', ticket: 'ticket-2', ask: 'm1:2' });
+    expect(deviceMini(c, state).hub).toEqual({ origin: '', ticket: '', ask: '' }); // no floating player
+    // A new module instance counts from 1 again: its asks are its own.
+    (c.presentation as Obj).deviceHub = { want: 2, module: 'm2' };
+    expect(await hub()).toEqual({ origin: 'http://127.0.0.1:4001', ticket: 'ticket-3', ask: 'm2:2' });
+    refuse = true; (c.presentation as Obj).deviceHub = { want: 3, module: 'm2' };
+    expect(await hub()).toEqual({ origin: '', ticket: '', ask: 'm2:3' });
+    expect(calls.filter(entry => entry.op === 'deviceHubAccess')).toHaveLength(4);
+  });
+
+  test('Save screenshot sends a fresh hub ticket along', async () => {
+    const calls: Call[] = [], c = client(calls, { 'device.detail': settings, deviceHubAccess: { origin: 'http://127.0.0.1:4001', ticket: 'ticket-s' }, deviceScreenshot: { ok: true, saved: true } });
+    const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
+    await deviceSessionCommand(c, native, state, 'p', 'screenshot', '', '');
+    expect(calls.filter(entry => entry.op === 'deviceScreenshot').map(entry => entry.request)).toEqual([
+      { op: 'deviceScreenshot', platform: 'ios', deviceId: 'SIM-1', hostId: 'local', name: 'iPhone 17 Pro', origin: 'http://127.0.0.1:4001', ticket: 'ticket-s' }]);
+  });
+
+  test('Save screenshot without a ticket says to reconnect and asks the module nothing', async () => {
+    const calls: Call[] = [], c = client(calls, { 'device.detail': settings, deviceHubAccess: () => { throw new ClientError('The server is not connected.', 'Disconnected'); } });
+    const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
+    await deviceSessionCommand(c, native, state, 'p', 'screenshot', '', '');
+    expect(calls.some(entry => entry.op === 'deviceScreenshot')).toBe(false);
+    expect((await deviceSessionView(c, native, state, true, 'p')).workspace.alert).toBe('Reconnect to the environment and try again.');
   });
 
   test('Save screenshot reports the hub failure in the workspace', async () => {

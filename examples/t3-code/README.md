@@ -526,7 +526,8 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
   source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
-  files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call.
+  files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call; a saved
+  recording's bytes go to the environment from there, since the data module reads only the app's files.
 - `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
   top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
   `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
@@ -602,10 +603,13 @@ Differences that belong to the app:
   its timeout can come up to a second early. A connect replies once the socket's URL is in, not
   once the socket opens, since an answer may await only what this module's fetch, storage or open
   stream settles.
-- A Browser recording's upload and the device hub's tickets keep a second, module-owned socket
-  per environment (`T3Link.swift`), which the transport's `links` op tells the routes and bearers
-  of the environments it has connected. Each terminal page opens a socket of its own (one per pane,
-  the reference's renderer has one for all).
+- The module holds no server connection or bearer. The device hub's tickets are minted by the
+  transport (`deviceHubAccess`) when the module asks for one (`presentation.deviceHub.want`) and
+  reach the device view as its `t3-media` node's `data-device-origin` and `data-device-ticket`. A
+  Browser recording's upload is minted and cleaned up on the transport's socket; only its bytes go
+  from the module (`browserRecordingUpload`), because the saved recording is in the artifact
+  directory, outside the app's files the data module can read. Each terminal page opens a socket of
+  its own (one per pane, the reference's renderer has one for all).
 - The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
   window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
   (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take

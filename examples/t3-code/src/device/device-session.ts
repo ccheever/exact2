@@ -6,7 +6,8 @@
 // unless `boot: false`), `device.close` (`shutdown` powers it off), `device.detail` and
 // `device.action`; the picture and touches come from the hub through the server's
 // `/api/device-hub` proxy, which the app module's `t3-media` hook reads (T3DeviceStream.swift:
-// T3DeviceClient.swift: iOS's AVCC / MJPEG feed and helper socket, Android's H.264 socket). The
+// T3DeviceClient.swift: iOS's AVCC / MJPEG feed and helper socket, Android's H.264 socket) with the
+// origin and ticket this module mints on its connection (`deviceHub`, the hook's `data-device-*`). The
 // workspace also has the 3D phone, the Flat / 3D toggle, Android's Back / Recents / Rotate and the
 // Tools drawer (device-tools.ts).
 import type { T3Client } from '../client/client';
@@ -28,9 +29,12 @@ export type DeviceRail = {
   textSize: string; textSizeDisabled: boolean; screenshotLabel: string; screenshotDisabled: boolean;
 };
 export type DeviceStreamState = { status: string; message: string; error: boolean; inputNotice: string };
+/** The device hub's origin and the latest ticket (resolveDeviceHubAccess), as the stream's `t3-media` node carries them, with
+ *  the module's ask it answers (`<module>:<count>`). */
+export type DeviceHub = { origin: string; ticket: string; ask: string };
 export type DeviceWorkspace = {
   key: string; name: string; description: string; platform: string; deviceId: string; hostId: string; screenLabel: string;
-  alert: string; stream: DeviceStreamState; rail: DeviceRail; controls: DeviceControls; folding: DeviceFolding;
+  alert: string; stream: DeviceStreamState; rail: DeviceRail; controls: DeviceControls; folding: DeviceFolding; hub: DeviceHub;
 };
 export type DeviceSessionView = {
   /** "list" (DevicePanel's picker), "opening" (DeviceLoadingView) or "workspace". */
@@ -38,18 +42,21 @@ export type DeviceSessionView = {
   operationError: string; booting: string; hostDetail: string; workspace: DeviceWorkspace;
 };
 /** The floating player's source and stream; its frame comes from the chat canvas (chat-canvas-view.ts). */
-export type DeviceMini = { show: boolean; key: string; sourceKey: string; name: string; description: string; platform: string; deviceId: string; hostId: string; stream: DeviceStreamState };
+export type DeviceMini = { show: boolean; key: string; sourceKey: string; name: string; description: string; platform: string; deviceId: string; hostId: string; stream: DeviceStreamState; hub: DeviceHub };
 
 type Store = {
   generation: number; pending: (DeviceTarget & { booted: boolean; version: string }) | null; operationError: string;
   targets: Map<string, DeviceTarget>; mini: PreviewMiniPlayerStore;
   detail: Obj | null; detailKey: string; detailError: string; acting: boolean; screenshotPending: boolean; screenshotError: string;
+  /** The hub access the views carry, and the module's last ask it answered. */
+  hub: DeviceHub; served: string;
 };
 const stores = new WeakMap<T3Client, Store>();
+const NO_HUB: DeviceHub = { origin: '', ticket: '', ask: '' };
 function storeOf(client: T3Client): Store {
   let store = stores.get(client);
   if (!store) {
-    store = { generation: client.generation, pending: null, operationError: '', targets: new Map(), mini: new PreviewMiniPlayerStore(), detail: null, detailKey: '', detailError: '', acting: false, screenshotPending: false, screenshotError: '' };
+    store = { generation: client.generation, pending: null, operationError: '', targets: new Map(), mini: new PreviewMiniPlayerStore(), detail: null, detailKey: '', detailError: '', acting: false, screenshotPending: false, screenshotError: '', hub: NO_HUB, served: '' };
     stores.set(client, store);
   }
   if (store.generation !== client.generation) { store.generation = client.generation; store.detail = null; store.detailKey = ''; store.pending = null; }
@@ -101,11 +108,26 @@ export function streamView(client: T3Client, key: string, platform: string): Dev
   };
 }
 
+/**
+ * The module asks for a fresh ticket each time a device stream, feed or read (re)connects, and counts its asks in
+ * `presentation.deviceHub` (`want`, under the module instance's `module` id); an answer that sees an ask it has not
+ * answered mints one on the focused connection, and the stream nodes carry it with that ask. A failed mint carries
+ * an empty ticket, and the module tells the view to reconnect.
+ */
+export async function refreshDeviceHub(client: T3Client, native: Native): Promise<void> {
+  const store = storeOf(client), facts = obj(obj(client.presentation).deviceHub), want = Number(facts.want) || 0;
+  const ask = `${str(facts.module)}:${want}`;
+  if (!str(facts.module) || want <= 0 || ask === store.served) return;
+  try { const access = obj(await client.restAccess(native).call({ op: 'deviceHubAccess' })); store.hub = { origin: str(access.origin), ticket: str(access.ticket), ask }; }
+  catch (error) { if (letGo(error)) throw error; store.hub = { ...NO_HUB, ask }; }
+  store.served = ask;
+}
+
 const EMPTY_STREAM: DeviceStreamState = { status: '', message: '', error: false, inputNotice: '' };
 const EMPTY_RAIL: DeviceRail = { inputConnected: false, appearance: '', appearanceLabel: '', appearanceIcon: 'moon', appearanceDisabled: true, textSize: '', textSizeDisabled: true, screenshotLabel: 'Save screenshot', screenshotDisabled: true };
-export const emptyWorkspace = (): DeviceWorkspace => ({ key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', screenLabel: '', alert: '', stream: EMPTY_STREAM, rail: EMPTY_RAIL, controls: emptyDeviceControls(), folding: emptyFolding() });
+export const emptyWorkspace = (): DeviceWorkspace => ({ key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', screenLabel: '', alert: '', stream: EMPTY_STREAM, rail: EMPTY_RAIL, controls: emptyDeviceControls(), folding: emptyFolding(), hub: NO_HUB });
 export const emptyDeviceSession = (): DeviceSessionView => ({ mode: 'list', pendingKey: '', openingName: '', openingDescription: '', openingMessage: '', operationError: '', booting: '', hostDetail: '', workspace: emptyWorkspace() });
-export const emptyMini = (): DeviceMini => ({ show: false, key: '', sourceKey: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM });
+export const emptyMini = (): DeviceMini => ({ show: false, key: '', sourceKey: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM, hub: NO_HUB });
 
 /** DevicePanel's body after onboarding, for the thread `panelKey` names. */
 export async function deviceSessionView(client: T3Client, native: Native | null, state: Obj, loaded: boolean, panelKey: string): Promise<DeviceSessionView> {
@@ -128,7 +150,7 @@ export async function deviceSessionView(client: T3Client, native: Native | null,
     return { ...base, mode: 'workspace', workspace: {
       key, name: str(device.name), description: `${hostLabel(state, str(device.hostId))} · ${str(device.version)}`, platform, deviceId: str(device.id), hostId: str(device.hostId),
       screenLabel: platform === 'ios' ? 'iOS Simulator screen' : 'Android Emulator screen',
-      alert, stream: controls.retaining && controls.rail.phone ? { ...stream, status: 'streaming' } : stream, controls,
+      alert, stream: controls.retaining && controls.rail.phone ? { ...stream, status: 'streaming' } : stream, controls, hub: store.hub,
       folding: deviceFolding(obj(obj(client.presentation.deviceStreams)[key]), platform, controls.rail.phone, obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true, key),
       rail: { inputConnected: obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true, appearance,
         appearanceLabel: `Switch device to ${next} mode`, appearanceIcon: appearance === 'dark' ? 'sun' : 'moon', appearanceDisabled: controlsDisabled || !appearance,
@@ -153,7 +175,7 @@ export function deviceMini(client: T3Client, state: Obj | null): DeviceMini {
   const device = state ? arr(state.devices).find(entry => str(entry.hostId) === target.hostId && str(entry.id) === target.deviceId) : undefined;
   const key = deviceKey(target), platform = platformOf(target.platform);
   return { show: true, key, sourceKey: previewMiniPlayerSourceKey(miniSource(target)), name: str(device?.name, target.name), description: `${state ? hostLabel(state, target.hostId) : 'Device host'} · ${str(device?.version, platform)}`,
-    platform, deviceId: target.deviceId, hostId: target.hostId, stream: streamView(client, key, platform) };
+    platform, deviceId: target.deviceId, hostId: target.hostId, stream: streamView(client, key, platform), hub: storeOf(client).hub };
 }
 
 const miniSource = (target: DeviceTarget): PreviewMiniPlayerSource => ({ kind: 'device', hostId: target.hostId, deviceId: target.deviceId, platform: platformOf(target.platform), name: target.name });
@@ -252,7 +274,12 @@ export async function saveScreenshot(client: T3Client, native: Native, state: Ob
   if (!device || store.screenshotPending) return;
   store.screenshotPending = true; store.screenshotError = '';
   try {
-    const reply = obj(await client.restAccess(native).call({ op: 'deviceScreenshot', platform: platformOf(str(device.platform)), deviceId: str(device.id), hostId: str(device.hostId), name: str(device.name) }));
+    // No ticket: the words the module gives a capture without hub access.
+    let access: Obj;
+    try { access = obj(await client.restAccess(native).call({ op: 'deviceHubAccess' })); }
+    catch (error) { if (letGo(error)) throw error; store.screenshotError = 'Reconnect to the environment and try again.'; return; }
+    const reply = obj(await client.restAccess(native).call({ op: 'deviceScreenshot', platform: platformOf(str(device.platform)), deviceId: str(device.id), hostId: str(device.hostId), name: str(device.name),
+      origin: str(access.origin), ticket: str(access.ticket) }));
     if (reply.ok !== true) store.screenshotError = str(reply.message, 'Screenshot capture failed. Try again.');
   } catch (error) { if (!letGo(error)) store.screenshotError = message(error, 'Screenshot capture failed. Try again.'); }
   finally { store.screenshotPending = false; }

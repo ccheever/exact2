@@ -236,6 +236,8 @@ export function readContext(plan: Obj, now: number): Context {
 export type RunDeps = {
   native: Native;
   rpc: (method: string, payload: Obj) => Promise<Obj>;
+  /** The connection's server origin (a recording's upload URL is under it). */
+  origin: string;
   adopt: (note: { snapshot: Obj; present: boolean; suppress: boolean }) => void;
 };
 type Run = { client: T3Client; context: Context; deps: RunDeps };
@@ -674,7 +676,7 @@ async function recording(run: Run): Promise<{ ok: boolean; result?: unknown; err
     tabIdExplicit: context.plan.tabIdExplicit === true, runtimeId, input: context.input, generation: context.generation, fleet: context.fleet,
     deadlineMs: (context.startedAt || 0) + context.budgetMs,
   };
-  const answer = await runRecordingRequest(request, nativeDeps(run.client, request));
+  const answer = await runRecordingRequest(request, nativeDeps(run.client, { rpc: run.deps.rpc, origin: run.deps.origin, remaining: () => remaining(run) }));
   return answer.ok ? { ok: true, result: answer.result } : { ok: false, error: answer.error };
 }
 

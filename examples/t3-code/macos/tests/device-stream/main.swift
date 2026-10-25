@@ -123,6 +123,38 @@ final class DeviceStreamTests: XCTestCase {
         XCTAssertEqual(offline.detail, "Reconnect to the environment and try again.")
     }
 
+    /// The data module's hub access: each use asks (`want`, a `t3.status`); a stream node's words answer every ask up to the
+    /// count they name for this instance, an empty ticket answers with nothing, and words without an answer for this
+    /// instance (the event log's node, an older module's ask) answer none.
+    func testHubAccessAsksTheDataModuleForEachUse() {
+        let hub = T3DeviceHubAccess()
+        var asks = 0, answers: [String] = []
+        hub.changed = { asks += 1 }
+        for _ in 0..<2 { hub.access { _, ticket in answers.append(ticket ?? "none") } }
+        spin(until: { hub.want == 2 }, timeout: 1)
+        XCTAssertEqual(asks, 2)
+        XCTAssertEqual(hub.status["module"] as? String, hub.id)
+        hub.received(origin: nil, ticket: nil, ask: nil) // the event log's node
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "old", ask: "another-module:9")
+        XCTAssertEqual(answers, [])
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-1", ask: "\(hub.id):1")
+        XCTAssertEqual(answers, ["ticket-1"]) // the second ask came after the mint
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-1", ask: "\(hub.id):1") // the other stream node
+        XCTAssertEqual(answers, ["ticket-1"])
+        var origin: URL?
+        hub.access { url, ticket in origin = url; answers.append(ticket ?? "none") }
+        spin(until: { hub.want == 3 }, timeout: 1)
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-2", ask: "\(hub.id):3")
+        XCTAssertEqual(answers, ["ticket-1", "ticket-2", "ticket-2"])
+        XCTAssertEqual(origin?.absoluteString, "http://127.0.0.1:4001")
+        hub.access { _, ticket in answers.append(ticket ?? "none") }
+        spin(until: { hub.want == 4 }, timeout: 1)
+        hub.received(origin: "", ticket: nil, ask: "\(hub.id):4") // the mint failed
+        XCTAssertEqual(answers.last, "none")
+        let streams = T3DeviceStreams(changed: { _ in })
+        XCTAssertEqual((streams.status["deviceHub"] as? [String: Any])?["want"] as? Int, 0)
+    }
+
     func testInputSocketCarriesHomeAndRotate() throws {
         let helper = try Peer(websocket: true)
         let view = T3DeviceScreenView(key: "local\u{0}SIM-1", platform: "ios", deviceId: "SIM-1", hostId: "local",

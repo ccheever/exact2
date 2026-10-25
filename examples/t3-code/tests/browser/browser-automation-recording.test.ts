@@ -229,22 +229,33 @@ describe('the window\'s queued sends for long-lived browser work', () => {
     expect(second).toEqual([]);
   });
 
-  it('the upload goes to the module with its connection under its own key, never a top-level fleet (T3Module routes those to the fleet)', async () => {
+  it('the upload is minted and cleaned up on the request\'s connection; only the bytes go from the module', async () => {
     const client = { presentation: {}, local: {}, revision: 0 } as unknown as T3Client;
-    const sent: Array<Record<string, unknown>> = [];
-    adoptCaptureNative(client, { available: true, watch() {}, later: async (value: Record<string, unknown>) => {
-      sent.push(value);
-      return { ok: true, generation: 0, value: value.action === 'upload' ? { status: 'uploaded', attachmentId: 'pending-1-mp4' } : {} };
-    } } as unknown as Native);
-    const deps = nativeDeps(client, request('recordingStop', { generation: 9, fleet: '' }));
-    expect(await deps.upload({ name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 })).toEqual({ status: 'uploaded', attachmentId: 'pending-1-mp4' });
+    const sent: Array<Record<string, unknown>> = [], rpcs: Array<[string, unknown]> = [];
+    let transfer: Record<string, unknown> = { status: 'uploaded' };
+    adoptCaptureNative(client, { available: true, watch() {}, later: async (value: Record<string, unknown>) => { sent.push(value); return { ok: true, generation: 0, value: transfer }; } } as unknown as Native);
+    let left = 10_000;
+    const deps = nativeDeps(client, { origin: 'http://127.0.0.1:4001', remaining: () => left, rpc: async (method, payload) => {
+      rpcs.push([method, payload]);
+      return method === 'attachments.createUploadUrl' ? { attachmentId: 'pending-1-mp4', relativeUrl: '/api/attachments/upload/pending-1-mp4' } : {};
+    } });
+    const input = { name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 };
+    expect(await deps.upload(input)).toEqual({ status: 'uploaded', attachmentId: 'pending-1-mp4' });
+    expect(rpcs).toEqual([['attachments.createUploadUrl', { type: 'file', name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3 }]]);
+    expect(sent).toEqual([{ op: 'browserRecordingUpload', origin: 'http://127.0.0.1:4001', relativeUrl: '/api/attachments/upload/pending-1-mp4', path: '/artifacts/a.mp4', mimeType: 'video/mp4', deadlineMs: 5 }]);
+    // A transfer the module failed keeps its attachment for the caller to remove, on the connection.
+    transfer = { status: 'failed', error: 'Recording upload rejected.', expired: true };
+    expect(await deps.upload(input)).toMatchObject({ status: 'failed', attachmentId: 'pending-1-mp4', expired: true });
     deps.remove('pending-1-mp4');
     await new Promise(resolve => setTimeout(resolve, 5));
-    expect(sent).toEqual([
-      { op: 'browserRecordingUpload', action: 'upload', connection: { generation: 9, fleet: '' }, name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 },
-      { op: 'browserRecordingUpload', action: 'remove', attachmentId: 'pending-1-mp4', connection: { generation: 9, fleet: '' } },
-    ]);
-    expect(sent.every(value => !('fleet' in value) && !('generation' in value))).toBe(true);
+    expect(rpcs.at(-1)).toEqual(['attachments.delete', { attachmentId: 'pending-1-mp4' }]);
+    // A module call that fails outright still hands back the minted attachment for removal.
+    adoptCaptureNative(client, { available: true, watch() {}, later: async () => ({ ok: false, generation: 0, error: { kind: 'Closed', message: 'The window was closed.' } }) } as unknown as Native);
+    expect(await deps.upload(input)).toMatchObject({ status: 'failed', attachmentId: 'pending-1-mp4' });
+    // A second or less left: nothing is minted.
+    left = 900; rpcs.length = 0;
+    expect(await deps.upload(input)).toMatchObject({ status: 'failed', attachmentId: null, expired: true });
+    expect(rpcs).toEqual([]);
   });
 
   it('is one of the window\'s four queued sends, the one the panel names, asked whenever the panel\'s serial passes the one it handled', () => {
