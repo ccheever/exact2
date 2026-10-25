@@ -479,23 +479,36 @@ package final class Presenter {
             flushPendingFocus()
             return
         }
-        // Inert behind a presentation, or under an authored `inert` (LLP 1123 D2)
-        let hidden = sequence(first: shown, next: \.superview).contains { $0.isHidden }
-        // The mounted window is a prerequisite, never another session's.
+        let textEditor: UIView? = target.textArea ?? target.field
+        let hidden = sequence(first: shown, next: \.superview).contains { view in
+            guard view.isHidden else { return false }
+            // Let text editors leave the host-hidden section for a cell. Other targets
+            // stay refused here, before scrolling to their hidden authored copy.
+            if textEditor != nil, let section = view as? NodeView, groupedLists?.hidSection(section) == true { return false }
+            return true
+        }
+        // Require this session's window. Inert comes from the author or a
+        // presentation that owns interaction (LLP 1123 D2).
         if let reason = NavigationRules.focusRefusal(mounted: shown.window != nil, disabled: target.formDisabled,
                                                      zeroSize: !Self.sized(target),
                                                      hiddenAncestor: hidden, inertAncestor: target.inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
             return
         }
-        let responder: UIView = target.headerField ?? target.textArea ?? target.field ?? target
-        if selectText, target.textArea == nil, target.field == nil {
+        let responder: UIView = target.headerField ?? textEditor ?? target
+        if selectText, textEditor == nil {
             session?.log("selectText \"\(name)\" refused: not a text editor")
             return
         }
         chooseFocus(target)
         guard responder.canBecomeFirstResponder else {
             session?.log("focus \"\(name)\" refused: not focusable")
+            return
+        }
+        carryGroupedRow(containing: target)
+        // A row the collection could not carry still cannot receive focus
+        if sequence(first: shown, next: \.superview).contains(where: { $0.isHidden }) {
+            session?.log("focus \"\(name)\" refused: hidden ancestor")
             return
         }
         guard responder.becomeFirstResponder() else {
