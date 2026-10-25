@@ -159,14 +159,14 @@ component PrdCandidatePicker
   action opening
     highlight = 0
     act("candidates", which)
-  action keys(k: string)
+  action keys(k: string, e: KeyboardEvent)
     if k == "ArrowDown"
       preventDefault()
       highlight = min(highlight + 1, max(0, shown.length - 1))
     else if k == "ArrowUp"
       preventDefault()
       highlight = max(0, highlight - 1)
-    else if k == "Enter"
+    else if k == "Enter" and not e.isComposing
       preventDefault()
       if not picker.busy and not picker.loading
         match shown.at(highlight)

@@ -18,7 +18,7 @@ function composer(options: Options = {}) {
   const scope = (): Env => ({
     data: { composer: { planVisible: options.planVisible ?? true, planActive: options.planActive ?? false, sendChords: options.sendChords ?? 'Meta+Enter',
       sendCommandChords: options.sendCommandChords ?? '' }, connected: options.connected ?? true },
-    richComposer: { mode: 'rich', historyPrevious: true, historyNext: true },
+    richComposer: { mode: 'rich', historyPrevious: true, historyNext: true, chips: [] },
     composerRichCurrent: true, composerSelectionCurrent: true, composerSelectionStart: caret, composerSelectionEnd: caret, composerText: '- a',
     composerInCode: options.inCode ?? false, composerInList: options.inList ?? false, composerCodeStart: false, composerRequiresModifier: false,
     editor: { menu: { open: options.menuOpen ?? false, count: options.menuCount ?? 3 }, stash: { menuOpen: options.stashOpen ?? false, count: options.stashCount ?? 2 } },

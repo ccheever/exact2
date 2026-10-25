@@ -5,10 +5,25 @@
 // sideOffset 4, width "lg": w-96 capped at the viewport less 2rem, padding "compact": py-2 px-3,
 // dropdown-glass, drawn opaque as there is no backdrop blur here). Its content is `space-y-3 p-2 text-sm`:
 // the label (font-medium), the skill's description or "No description is available for this skill.", and an
-// outline small "View instructions" for a skill with a path. The chip is drawn by the native editor, which reports a press with the chip's
-// window frame (T3ComposerChipPress.swift); the window draws this above every page (the Settings prompt
-// sample's chip included), as Base UI portals the popup to the body. Base UI's collision avoidance: the
-// side flips below when the window leaves no room above, and the popup shifts to stay 5 pt inside it.
+// outline small "View instructions" for a skill with a path. The chip is an atom of the prompt's editor,
+// whose press anchors this at the pill (app.contract composerChipPress); the window draws this above every
+// page (the Settings prompt sample's chip included), as Base UI portals the popup to the body. Base UI's
+// collision avoidance: the side flips below when the window leaves no room above, and the popup shifts to
+// stay 5 pt inside it.
+
+// A press on a reference's pill, with its source identity and the pill's frame (app.contract composerChipPress).
+shape ComposerChipRequest
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  inputSerial: number
+  start: number
+  end: number
+  source: string
+  surface: string
+  comment: bool
+  frame: Geometry
 
 shape ComposerChipFinish
   seq: number

@@ -570,11 +570,11 @@ component AddEnvironmentDialog
   action showSuggestions(on: bool)
     suggest = on
     dismissedFor = "-"
-  action hostKey(name: string)
-    if name == "Escape"
+  action hostKey(name: string, e: KeyboardEvent)
+    if name == "Escape" and not e.isComposing
       suggest = false
       dismissedFor = sshHost
-    if name == "ArrowDown"
+    if name == "ArrowDown" and not e.isComposing
       suggest = true
       dismissedFor = "-"
   // Adding a route pairs only the machine it names (expectedEnvironmentId).

@@ -62,7 +62,7 @@ describe('shortcutModifierState', () => {
 const root = contractComponent('app.contract', 'T3Code');
 const window = contractComponent('src/shell/app-window.contract', 'T3Window');
 const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record, releaseUndoClaim: () => {}, quitHoldKey: () => {}, quitTypesLatin: contractFns('src/shell/quit-hold.contract', ['QuitHoldState']).quitTypesLatin }); // quit-hold.test.ts runs the hold
-const rootState = (): Env => ({ shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false, undoHeldKey: '', composerFocused: false });
+const rootState = (): Env => ({ shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false, undoHeldKey: '', composerFocused: false, composerHeldMode: '' });
 
 describe('the window tracks held modifiers from its key events', () => {
   test('Shift alone at a row is speed mode until it comes up; ⌘ joining ends it', () => {
@@ -90,7 +90,7 @@ describe('the window tracks held modifiers from its key events', () => {
   test('the composer\'s own focus is a field\'s, as at a launch that seats the focus there', () => {
     const state = { ...rootState(), composerComposing: false };
     state.speedModifierState = { ...emptyState(), shiftKey: true };
-    root.call('composerFocus', state, { ...scope(), modifierEditableFocus: () => root.call('modifierEditableFocus', state, scope(), []) }, []);
+    root.call('composerFocus', state, { ...scope(), richComposer: { mode: 'rich' }, modifierEditableFocus: () => root.call('modifierEditableFocus', state, scope(), []) }, []);
     expect(state.speedModifierState).toEqual(emptyState());
     // The window's focusin unheard (editable false), Shift alone is still no speed mode while the composer has the focus.
     root.call('modifierKey', state, scope(), [true, keyboardEventLike({ key: 'Shift', shiftKey: true }), false]);

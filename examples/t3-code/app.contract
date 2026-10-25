@@ -33,10 +33,9 @@ use ProjectsPage from "./src/settings/settings-projects.contract"
 use SbPicker from "./src/settings/settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
-use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerChipEdge, composerChipInside, composerChipDeletes, composerChipWordDeletes, composerChipStep, composerChipOverlaps, composerSurrounds from "./src/composer/composer-rich.contract"
-use ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
+use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerSurrounds from "./src/composer/composer-rich.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
-use ChipPopover, ComposerChipFinish from "./src/composer/composer-chip-popover.contract"
+use ChipPopover, ComposerChipFinish, ComposerChipRequest from "./src/composer/composer-chip-popover.contract"
 use ShellView, ShellDetails from "./src/shell/shell-shapes.contract"
 use T3Window from "./src/shell/app-window.contract" // the window's view; its uses load the view's files here, in this order
 use ChatCanvasView from "./src/shell/chat-canvas.contract"
@@ -1365,11 +1364,13 @@ component T3Code
   state composerIntentInputEnd = 0
   state composerIntentPreserves = false
   state composerIntentCaretSeen = false
-  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool, anchorId: string)
+  // A reference's pill pressed (`comment`: a citation's comment, which the reference's chip opens from its pencil). The
+  // pill anchors the popover.
+  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
     let preview = surface == "preview"
     let current = preview ? richPromptPreview : richComposer
     if (preview ? promptPreviewVisible and serial == promptPreviewSerial and owner == promptPreviewOwner and value == promptPreviewText : composerFieldLive and serial == composerFieldInputSerial and owner == richComposerOwner and value == composerText and not composerComposing) and current.owner == owner and current.value == value and current.chips.filter((chip) => chip.start == start and chip.end == end and chip.source == source).length == 1
-      let bounds = frame(anchorId)
+      let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", start, end)
       if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
         send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds))
   mutation composerEdited as shape ComposerIntentReply queue then composerEditDone
@@ -1562,12 +1563,6 @@ component T3Code
           composerIntentCaretSeen = true
       else if e.value == composerText and (e.selectionStart != composerIntentObserved.start or e.selectionEnd != composerIntentObserved.end)
         composerIntentClear("The prompt changed. Please try that edit again.")
-    else if not e.isComposing and composerRichCurrent and e.value == composerText and composerChipInside(richComposer.chips, e.selectionStart, e.selectionEnd)
-      // The selection never ends inside a reference, as at the reference's atom chip (composerChipEdge); so a cut or
-      // copy takes a reference whole.
-      let collapsed = e.selectionStart == e.selectionEnd
-      let start = composerChipEdge(richComposer.chips, e.selectionStart, collapsed ? 0 : -1)
-      setSelectionRange("composer", start, collapsed ? start : composerChipEdge(richComposer.chips, e.selectionEnd, 1), e.selectionDirection)
     composerSelectionObserved(e, composerComposing)
   action composerSelectionObserved(e: InputEvent, composing: bool)
     if e.value == composerText
@@ -1581,24 +1576,15 @@ component T3Code
       if composerIntentQueue.length > 0
         composerIntentClear("The prompt changed. Please try that edit again.")
     else if e.cancelable and e.value == composerText and composerRichCurrent
-      // ⌃H, ⌃D and word deletion at a reference remove it whole, as ⌫ and ⌦ do (composerGrammarKey).
-      let back = e.inputType == "deleteContentBackward" or e.inputType == "deleteWordBackward"
-      let word = e.inputType == "deleteWordBackward" or e.inputType == "deleteWordForward"
-      if (e.inputType == "deleteContentBackward" or e.inputType == "deleteContentForward") and composerChipDeletes(richComposer.chips, e.selectionStart, e.selectionEnd, back) or word and composerChipWordDeletes(richComposer.chips, composerText, e.selectionStart, e.selectionEnd, back)
-        preventDefault()
-        composerIntentRequest("key", "", `${word ? "Word" : ""}${back ? "Backspace" : "Delete"}`, false, false, e.selectionStart, e.selectionEnd, e.isComposing)
-      else if e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
+      if e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
         preventDefault()
         composerIntentRequest("key", "", "Enter", e.inputType == "insertLineBreak" or composerShift or (composerRequiresModifier and not composerCommand), composerCommand, e.selectionStart, e.selectionEnd, e.isComposing)
       else
         match e.data
           case some(text)
-            // Typed at an empty fence's closing line, text opens the body line (composerCodeInput); typed or dropped
-            // inside a reference, it goes after it; put over a selection that holds a reference, it replaces the
-            // whole selection, the reference's source included (composer-source-session.ts input). A bracket or
+            // Typed at an empty fence's closing line, text opens the body line (composerCodeInput). A bracket or
             // quote typed over a selection wraps it (composer-surround.ts).
-            let typed = e.inputType == "insertText" or e.inputType == "insertReplacementText" or e.inputType == "insertFromDrop"
-            if e.inputType == "insertFromPaste" or (typed and (composerChipInside(richComposer.chips, e.selectionStart, e.selectionEnd) or composerChipOverlaps(richComposer.chips, e.selectionStart, e.selectionEnd))) or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0) or (e.inputType == "insertText" and e.selectionStart < e.selectionEnd and richComposer.mode != "literal" and composerSurrounds(text))
+            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0) or (e.inputType == "insertText" and e.selectionStart < e.selectionEnd and richComposer.mode != "literal" and composerSurrounds(text))
               preventDefault()
               composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
@@ -1610,8 +1596,7 @@ component T3Code
       composerIntentRequest("language", language, "", false, false, start, end, composerComposing)
   action composerKeyEvent(k: string, e: KeyboardEvent)
     let heldCommand = e.metaKey or e.ctrlKey
-    // This macOS-only app receives nonmodifier keys after unmarking (contract-grammar.md: Keys).
-    let composing = composerComposing and (k == "Shift" or k == "Control" or k == "Alt" or k == "Meta" or k == "CapsLock")
+    let composing = e.isComposing
     composerShift = e.shiftKey
     composerCommand = heldCommand
     let chord = composerChord(k, e)
@@ -1648,6 +1633,14 @@ component T3Code
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
         else
           format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
+    else if not composing and k == "Tab" and e.shiftKey and not e.altKey and not heldCommand and composerRichCurrent and composerSelectionCurrent and composerSelectionStart == composerSelectionEnd and richComposer.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart).length > 0
+      // ⇧⇥ just after a citation reaches its comment (ComposerPromptEditorTiptap handleKeyDown), before plan mode's.
+      preventDefault()
+      stopPropagation()
+      match first(richComposer.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart))
+        case some(c)
+          composerChipPress("composer", richComposerOwner, composerText, composerFieldInputSerial, c.start, c.end, c.source, true)
+        case none
     else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode
       // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), in a list or with a menu open too.
       // A code block outdents first (ComposerPromptEditorTiptap); without the toggle the key gives the focus back
@@ -1717,19 +1710,7 @@ component T3Code
     composerStashHighlight = 0
   action composerGrammarKey(k: string, e: KeyboardEvent, composing: bool)
     let heldCommand = e.metaKey or e.ctrlKey
-    let chipKeys = composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not heldCommand
-    if (k == "Backspace" or k == "Delete") and chipKeys and (e.altKey ? composerChipWordDeletes(richComposer.chips, composerText, composerSelectionStart, composerSelectionEnd, k == "Backspace") : composerChipDeletes(richComposer.chips, composerSelectionStart, composerSelectionEnd, k == "Backspace"))
-      // ⌫ or ⌦ at a reference removes all of its source in one undo step, as at the reference's atom chip; ⌥ also
-      // takes the spaces between, as word deletion does.
-      preventDefault()
-      stopPropagation()
-      composerIntentRequest("key", "", e.altKey ? `Word${k}` : k, e.shiftKey, false, composerSelectionStart, composerSelectionEnd, composing)
-    else if (k == "ArrowLeft" or k == "ArrowRight") and chipKeys and composerIntentQueue.length == 0 and not e.shiftKey and not e.altKey and composerSelectionStart == composerSelectionEnd and composerChipStep(richComposer.chips, composerSelectionStart, k == "ArrowLeft") >= 0
-      // An unmodified ← or → at a reference's edge steps over it (ComposerPromptEditorTiptap handleKeyDown).
-      preventDefault()
-      stopPropagation()
-      setSelectionRange("composer", composerChipStep(richComposer.chips, composerSelectionStart, k == "ArrowLeft"), composerChipStep(richComposer.chips, composerSelectionStart, k == "ArrowLeft"))
-    else if composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
+    if composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
       if not heldCommand and not e.shiftKey and composerSelectionStart == composerSelectionEnd and ((k == "ArrowUp" and richComposer.historyPrevious) or (k == "ArrowDown" and richComposer.historyNext))
         let caret = rangeFrame("composer", composerSelectionStart, composerSelectionStart)
         let edge = rangeFrame("composer", k == "ArrowUp" ? 0 : composerText.length, k == "ArrowUp" ? 0 : composerText.length)
@@ -1753,8 +1734,20 @@ component T3Code
   action composerFocus
     composerFocused = true
     composerComposing = false
+    composerHeldMode = richComposer.mode
     modifierEditableFocus()
+  // A change of mode remounts the composer (atoms need a literal markup); as the reference's restoreFocusRef does, a field
+  // focused across it takes back the focus and selection. The remount's own blur comes after the change: it keeps the hold.
+  state composerHeldMode = ""
+  task composerRemounted key=richComposer.mode
+    after(1, composerRestore)
+  action composerRestore
+    if composerHeldMode != "" and composerHeldMode != richComposer.mode
+      composerHeldMode = richComposer.mode
+      focus("composer")
+      setSelectionRange("composer", min(composerSelectionStart, composerText.length), min(composerSelectionEnd, composerText.length))
   action composerBlur
+    composerHeldMode = composerHeldMode == richComposer.mode ? "" : composerHeldMode
     composerFocused = false
     composerTyping = false
     composerComposing = false

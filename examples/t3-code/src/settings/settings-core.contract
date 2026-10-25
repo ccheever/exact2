@@ -327,6 +327,10 @@ component SettingsNav
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  // SettingsSidebarNav's search ignores a key that confirms an input method's candidate.
+  action searchKey(k: string, e: KeyboardEvent)
+    if not e.isComposing
+      onKey(k)
   // Back (Escape too): useEscapeToGoBack blurs the focus before it leaves Settings, so a field of the
   // floating theme editor, which stays, keeps none.
   action leave
@@ -350,7 +354,7 @@ component SettingsNav
           box flex=1 min-width=0 height="1.3125rem" position="relative"
             if query == ""
               text "Search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder" id="settings-search-placeholder" data-paint="mutedForeground" data-pick="mutedForeground"
-            input value=query input=edit key=onKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off" data-paint="sidebar" data-pick="sidebar" data-editable="yes"
+            input value=query input=edit key=searchKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off" data-paint="sidebar" data-pick="sidebar" data-editable="yes"
           if query != ""
             button press=clear class=SettingsGhost width="1.25rem" height="1.25rem" min-height="1.25rem" padding="0.25rem" border-radius="0.375rem" aria-label="Clear settings search" testId="clear-settings-search" title=""
               CorePaintIcon(ownId=`paint-icon-SettingsNav-3-${route}`, paint="mutedForeground", name="x", size=12, color=pal.sidebarMuted)
