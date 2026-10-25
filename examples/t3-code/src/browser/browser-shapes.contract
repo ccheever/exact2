@@ -21,6 +21,34 @@ shape BrowserServer
   favicon: string
   fallback: string
 
+// browser-frames.ts BrowserFrameView: one tab's partitioned frame and where it shows ("panel", "mini" or "": mounted,
+// hidden); a fixed viewport's CSS size (0 in fill).
+shape BrowserFrameView
+  frameId: string
+  src: string
+  partition: string
+  zoom: number
+  colorScheme: string
+  place: string
+  pageWidth: number
+  pageHeight: number
+
+// The next command for a frame (browser-frames.ts FrameCommand), run by the root's `frameCommand` task, which
+// acknowledges it by its serial.
+shape BrowserFrameCommand
+  serial: number
+  kind: string
+  id: string
+  url: string
+  delta: number
+  flag: bool
+
+shape BrowserFrames
+  frames: BrowserFrameView[]
+  // Blank frames that name a partition no tab used yet, so it can be cleared (browser-frames.ts namers).
+  namers: BrowserFrameView[]
+  command: BrowserFrameCommand
+
 shape BrowserPresetChoice
   id: string
   label: string
@@ -103,5 +131,7 @@ shape BrowserMini
   separateWindow: bool
   width: number
   height: number
-  // The main window's zoom (T3BrowserView.swift `window-zoom`).
+  // The main window's zoom.
   windowZoom: number
+  // The tab's frame, which the player mounts itself (browser-frames.contract BrowserFrame).
+  frame: BrowserFrameView

@@ -16,6 +16,8 @@
 //                      KaTeX for the math page
 //   gen-codex-directives.mjs src/highlight/codex-directives.js and .d.ts: the pinned inline directive parser
 //   gen-minimap-text.mjs src/timeline/minimap-text.js and .d.ts: the minimap preview's Markdown as plain text
+//   gen-page-scripts.mjs src/browser/page-scripts.ts: the page scripts a Browser tab's frame runs (Annotate's overlay,
+//                      Playwright's injected script), from the committed assets
 //
 // The app build runs it before it bakes (data/build.rs). Run it by hand before anything else reads
 // them: `bun test examples/t3-code`, the strict tsc, `contract build`, the AppKit tests.
@@ -36,11 +38,13 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs'];
+const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs'];
 
-/** Every input: this directory's scripts, package.json and bun.lock (no generator reads an app source). */
+/** Every input: this directory's scripts, package.json and bun.lock, and the two assets gen-page-scripts.mjs copies (no
+ *  generator reads another app source). */
 export function inputs() {
-  return readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name));
+  return [...readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name)),
+    join(example, 'assets/browser-annotate.js'), join(example, 'assets/vendor/playwright/injected-script.js')];
 }
 
 /** The pinned packages: a frozen install with nothing to do takes milliseconds; a missing package is fetched once.

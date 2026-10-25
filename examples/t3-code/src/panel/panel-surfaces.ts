@@ -43,8 +43,9 @@ import { letGo } from '../client/let-go';
 // Browser tabs over the module's WKWebView (browser-surface.ts).
 import { annotationDispatchView, annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from '../browser/browser-automation-recording';
+import { emptyFramesView, frameLayerView, type BrowserFramesView } from '../browser/browser-frames';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
-import { addBrowserSurface, browserLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
+import { addBrowserSurface, browserLocal, frameLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
 import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix } from '../timeline/workspace-file-lookup'; // a chat link's file
 
@@ -67,6 +68,8 @@ export type PanelView = {
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: DeviceMini; tabStrip: TabStrip; browser: BrowserView;
   /** The floating player's browser tab (its frame: chat-canvas-view.ts). */
   browserMini: BrowserMiniView;
+  /** Every live Browser tab's frame, where the window's layer mounts it, and the next frame command (browser-frames.ts). */
+  frames: BrowserFramesView;
   /** Bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
   annotationSend: number;
   annotationOwner: string; annotationValue: string; annotationSnapshot: string; annotationGeneration: number;
@@ -280,6 +283,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'remember-pr') { rememberPagePullRequest(client, id); return ''; }
   if (op === 'pr-breakdown') return requestChangeBreakdown(client, value, id === 'card' ? 'card' : 'linked'); // a linked row's +/- or the details card hovered
   if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
+  if (op.startsWith('browser-frame')) return frameLocal(client, native, op.slice(8), id, value); // a page's own records (browser-surface.ts)
   const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
   const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
   if (targetSplit >= 0) id = id.slice(targetSplit + 1);
@@ -461,11 +465,19 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...linked,
     deviceMini: visibleMini(deviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
-    browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // shouldRenderPreviewMiniPlayer's browser half
+    ...browserFramesOf(client, open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
+      browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client))), // shouldRenderPreviewMiniPlayer's browser half
     ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
+}
+/** The panel's Browser tab, the floating player's, and every tab's frame: the panel's sits in its stage's slot while its
+ *  page shows (not the empty state or the load-failed page), and the player's is the player's own. */
+function browserFramesOf(client: T3Client, browser: BrowserView, mini: BrowserMiniView): { browser: BrowserView; browserMini: BrowserMiniView; frames: BrowserFramesView } {
+  const fixed = browser.viewportMode !== 'fill';
+  const panel = browser.live && !browser.server && browser.runtimeId ? { runtimeId: browser.runtimeId, pageWidth: fixed ? browser.viewportWidth : 0, pageHeight: fixed ? browser.viewportHeight : 0 } : null;
+  const { layer, mini: frame } = frameLayerView(client, panel, mini.show && !mini.server ? mini.runtimeId : null);
+  return { browser, browserMini: { ...mini, frame }, frames: layer };
 }
 /** The Browser tab the rendered right panel shows, if any (shouldRenderPreviewMiniPlayer). */
 export function shownBrowserTab(client: T3Client): string | null {
@@ -477,4 +489,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 } });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), frames: emptyFramesView(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 } });

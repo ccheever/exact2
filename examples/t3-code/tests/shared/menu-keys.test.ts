@@ -212,8 +212,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     // The same eligible rows drive the public opening and the menu's subsequent navigation.
     expect(body).toContain(`items=${itemName},`);
     // LegacyOptions measures nothing first (its menu is end-aligned by `position-area`, not a measured tail).
-    const prep: unknown[][] = name === 'BrowserProfilesSetting' ? [['local', 'browser-profiles-sources', '']]
-      : name === 'PrFiltersMenu' ? [['openMenu']]
+    const prep: unknown[][] = name === 'PrFiltersMenu' ? [['openMenu']]
       : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
       : name === 'ThreadRow' ? [['hoverCard', '', false]]
       : name === 'GitRows' ? [['local', 'git-open', 'menu', '']] : [];

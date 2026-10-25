@@ -1,7 +1,7 @@
 // The module's own connections to the environments the data module has connected. The server
 // connections are the data module's (src/transport/transport.ts); what stays native here is what
-// feeds native views: the Browser's automation replies and recording uploads
-// (T3BrowserAutomation.swift) and the device hub's tickets (T3DeviceStream.swift). The data module
+// feeds native views: a Browser recording's upload (T3BrowserPage.swift) and the device hub's tickets
+// (T3DeviceStream.swift). The data module
 // hands over each connected environment's origin and bearer (`links`, with its connection's
 // generation); a link opens its own socket, with a ticket of its own, only while something here
 // needs one, and lets it go when the data module's connection goes. Its wire is the subset of T3

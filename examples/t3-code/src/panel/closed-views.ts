@@ -124,7 +124,7 @@ export async function reopenClosedView(client: T3Client, native: Native, storage
       const reopened = await openPreviewSession((method, payload) => client.rpc(native, method, payload, true), browserHost(client).store, restoredRef,
         { ...(snapshot.navStatus._tag === 'Idle' ? {} : { url: snapshot.navStatus.url }), viewport: snapshot.viewport, profileId: snapshot.profileId });
       client.diffOpen = false; openBrowserIn(state, reopened.tabId, `${restoredRef.environmentId}:${restoredRef.threadId}`);
-      await syncNativeSessions(client, native);
+      syncNativeSessions(client);
     } else if (surface.kind === 'file' && !surface.attachment) {
       // panels.openFile on the owning thread: the tab goes back at the end, active; its read follows.
       client.diffOpen = false;

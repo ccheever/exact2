@@ -4,7 +4,8 @@ import AVFoundation
 import CoreText
 import WebKit
 
-/// A Browser tab's recording (#100: the clone's own WKWebView). MIT reference, see LICENSE-T3, T3 Code
+/// A Browser tab's recording, over the web view its frame hands the `t3-browser-page` hatch (T3BrowserPage.swift;
+/// LLP 1020.002 D8 records a frame as a screen-capture source, not built yet). MIT reference, see LICENSE-T3, T3 Code
 /// 1e2ecbd975: apps/desktop/src/preview/RecordingCursor.ts and RecordingInput.ts (the in-page cursor and inputs,
 /// here assets/browser-recording.js), apps/web/src/browser/recordingCompositor.ts (`RecordingDecorations`,
 /// `createRecordingCompositor`), apps/web/src/browser/browserRecording.ts (`preferredMimeTypes`,
@@ -22,8 +23,9 @@ import WebKit
 ///   frame rate, pipelined with at most two snapshots in flight (a tick is skipped while two are out). It needs no
 ///   system permission (ScreenCaptureKit would ask for Screen Recording), captures the page's own pixels only (no
 ///   other window, no native pointer, which the page script draws instead), and works while the window is covered
-///   or the tab's page is parked off screen; measured at ~60 snapshots a second on a 1,280-point page. A frame is
-///   the snapshot at its native pixel size (the backing scale included).
+///   or the tab is hidden (its timers' state then, not its animations, which a hidden frame does not run, LLP 1020.002
+///   stage 1); measured at ~60 snapshots a second on a 1,280-point page. A frame is the snapshot at its native pixel size
+///   (the backing scale included).
 /// - **The recorder** (`MediaRecorder`): an `AVAssetWriter` writes H.264 into an MP4 in a temporary file, each
 ///   frame at its capture time (variable frame rate; the first at 0), at the caller's bit rate. `finish` repeats the
 ///   last frame at the stop time, so the file lasts until the stop, and finishes the file; TypeScript then saves it
@@ -81,6 +83,7 @@ final class T3BrowserRecording: NSObject {
     private(set) var dropped = 0
     private let lock = NSLock()
     private weak var controllerRef: WKUserContentController?
+    private var loading: NSKeyValueObservation?
 
     /// The script message handler holds this object weakly: WKUserContentController retains it.
     private final class Relay: NSObject, WKScriptMessageHandler {
@@ -88,11 +91,20 @@ final class T3BrowserRecording: NSObject {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) { owner?.received(message) }
     }
 
-    init(configuration: WKWebViewConfiguration) {
-        super.init()
+    /// The frame's web view, as the hatch hands it (again when the arm replaces it). The handler is in the client world,
+    /// which the page cannot reach, and a finished load re-installs the overlay (Manager's `restoreRecordingCursor` on
+    /// dom-ready): the arm is the view's navigation delegate, so the load is observed, not delegated.
+    func attach(_ web: WKWebView) {
+        guard web !== page else { return }
+        controllerRef?.removeScriptMessageHandler(forName: Self.handlerName, contentWorld: .defaultClient)
         let relay = Relay(); relay.owner = self
-        configuration.userContentController.add(relay, contentWorld: .defaultClient, name: Self.handlerName)
-        controllerRef = configuration.userContentController
+        web.configuration.userContentController.removeScriptMessageHandler(forName: Self.handlerName, contentWorld: .defaultClient)
+        web.configuration.userContentController.add(relay, contentWorld: .defaultClient, name: Self.handlerName)
+        controllerRef = web.configuration.userContentController
+        page = web
+        loading = web.observe(\.isLoading, options: [.new]) { [weak self] web, _ in
+            if !web.isLoading { DispatchQueue.main.async { self?.documentReady() } }
+        }
     }
 
     static func now() -> Double { ProcessInfo.processInfo.systemUptime * 1000 }
@@ -498,6 +510,7 @@ final class T3BrowserRecording: NSObject {
         guard !closed else { return }
         cancel()
         closed = true
+        loading = nil
         controllerRef?.removeScriptMessageHandler(forName: Self.handlerName, contentWorld: .defaultClient)
     }
 }

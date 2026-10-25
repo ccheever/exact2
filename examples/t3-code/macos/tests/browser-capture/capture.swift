@@ -3,13 +3,13 @@ import AVFoundation
 import WebKit
 import XCTest
 
-// Screenshots, artifact actions, held pages, the separate preview window and the
-// module's capture ops end to end (T3BrowserCapture.swift, T3BrowserSessions.performCapture). Ported reference tests
-// (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names: Manager.test.ts `fitPictureInPictureContentSize` (2)
-// and `recordingFileExtension` (1). The Manager tests of captureScreenshot, revealArtifact, copyArtifactToClipboard and
-// the download handler are clone rows here (`testTheScreenshot…`, `testArtifactActions…`): the reference's mocks of
-// Electron's capturePage, shell and clipboard become a real page, the Finder (recorded in an agent run) and a private
-// pasteboard.
+// What a Browser frame hands the `t3-browser-page` hatch, end to end over a real page in a window (T3BrowserPage.swift):
+// a frame's capture adopted into the artifact directory, the artifact actions, the separate preview window, the
+// recording ops and the agent's cursor. Ported reference tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own
+// names: Manager.test.ts `fitPictureInPictureContentSize` (2) and `recordingFileExtension` (1). The Manager tests of
+// captureScreenshot's file name, revealArtifact and copyArtifactToClipboard are clone rows here (`testACapture…`,
+// `testArtifactActions…`): the reference's mocks of Electron's shell and clipboard become the Finder (recorded in an agent
+// run) and a private pasteboard.
 final class BrowserCaptureReferenceTests: XCTestCase {
     func testPreservesThePiPContentAreaAcrossAspectRatioChanges() {
         let wide = T3BrowserPictureInPicture.fit(current: NSSize(width: 480, height: 320), aspect: 16 / 9)
@@ -34,80 +34,81 @@ final class BrowserCaptureReferenceTests: XCTestCase {
 
 final class BrowserCaptureTests: XCTestCase {
     private var window: NSWindow!
+    private var web: WKWebView!
     private var fixture: CaptureFixture!
-    private var sessions: T3BrowserSessions!
+    private var pages: T3BrowserPages!
     private var artifacts: URL!
+    private var temporary: URL!
 
     override func setUpWithError() throws {
         fixture = try CaptureFixture()
-        sessions = T3BrowserSessions(agent: true, changed: { _ in })
+        pages = T3BrowserPages(agent: true)
         artifacts = CaptureSpin.outputDirectory("artifacts")
-        sessions.artifactDirectoryOverride = artifacts
-        window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
+        temporary = CaptureSpin.outputDirectory("app-tmp")
+        pages.artifactDirectoryOverride = artifacts
+        pages.temporaryRoot = temporary
+        window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 640, height: 360), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: configuration)
+        let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
+        if web.responds(to: occlusion) { web.perform(occlusion, with: false) }
+        window.contentView = web
         window.orderFrontRegardless()
     }
-    override func tearDown() { sessions.sync([]); sessions.parking.close(); window.orderOut(nil) }
+    override func tearDown() { pages.destroy(); window.orderOut(nil) }
 
-    private func mounted(_ id: String, url: String) -> (T3BrowserView, T3BrowserSession) {
-        let view = T3BrowserView(props: ["tab": id, "url": url, "profile": "default", "environment": "env-1"], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), sessions: sessions)
-        view.host.frame = window.contentView!.bounds
-        window.contentView!.addSubview(view.host)
-        return (view, sessions.sessions[id]!)
+    /// The frame's page loaded and handed to the hatch as frame `id`, as the arm hands an `iframe hatch=`'s web view.
+    private func page(_ id: String, _ path: String, _ html: String) {
+        fixture.page(path, html)
+        web.load(URLRequest(url: URL(string: fixture.base + path)!))
+        CaptureSpin.until({ !web.isLoading && web.url != nil }, timeout: 10)
+        CaptureSpin.wait(0.2)
+        pages.attach(id, web)
     }
-    private func loaded(_ session: T3BrowserSession) { CaptureSpin.until({ session.report["kind"] as? String == "Success" }) }
-    /// One capture op, answered (the reply may come after a snapshot or the encoder).
+    /// One op, answered (the reply may come after a snapshot or the encoder).
     private func op(_ request: [String: Any]) -> [String: Any] {
         var answer: [String: Any]?
-        XCTAssertTrue(sessions.performCapture(request) { answer = $0 })
+        XCTAssertTrue(pages.perform(request) { answer = $0 })
         CaptureSpin.until({ answer != nil }, timeout: 15)
         return answer ?? ["ok": false, "error": ["message": "timeout"]]
     }
     private func value(_ reply: [String: Any]) -> [String: Any] { reply["value"] as? [String: Any] ?? [:] }
+    private func report(_ id: String) -> [String: Any] { ((pages.status["browserPages"] as? [String: Any])?[id] as? [String: Any]) ?? [:] }
 
-    func testTheScreenshotIsAnArtifactNamedForTheSiteAtThePagesOwnPixelSize() throws {
-        fixture.page("/wide", "<!doctype html><title>Wide</title><body style='margin:0;background:linear-gradient(90deg,#f00,#00f)'><h1>wide</h1>")
-        let (view, session) = mounted("tab-shot", url: "\(fixture.base)/wide")
-        view.host.frame = NSRect(x: 0, y: 0, width: 900, height: 500) // 1,800 pixels wide on a 2× display
-        loaded(session)
-        let reply = op(["op": "browserScreenshot", "tab": "tab-shot", "generation": 4])
+    func testACaptureIsAdoptedAsAnArtifactNamedForTheSite() throws {
+        let shots = temporary.appendingPathComponent("browser-shots", isDirectory: true)
+        try FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
+        try Data([0x89, 0x50, 0x4e, 0x47]).write(to: shots.appendingPathComponent("frame-1.png"))
+        let reply = op(["op": "browserArtifact", "action": "adopt", "path": "app:/tmp/browser-shots/frame-1.png", "url": "http://127.0.0.1:9/x", "generation": 4])
         XCTAssertEqual(reply["ok"] as? Bool, true, "\(reply)")
         XCTAssertEqual(reply["generation"] as? Int, 4)
         let artifact = value(reply), path = try XCTUnwrap(artifact["path"] as? String)
-        XCTAssertTrue(path.hasPrefix(artifacts.path + "/browser-screenshot-127-0-0-1-") && path.hasSuffix(".png"), path)
         // Manager.ts captureScreenshot: `<millis36>-<first eight characters of a v4 UUID>`, so a second capture in the
         // same millisecond never replaces the first (Manager.test.ts "screenshot filename collisions").
         XCTAssertNotNil((path as NSString).lastPathComponent.range(of: #"^browser-screenshot-127-0-0-1-[0-9a-z]+-[0-9a-f]{8}\.png$"#, options: .regularExpression), path)
-        let again = try XCTUnwrap(value(op(["op": "browserScreenshot", "tab": "tab-shot", "generation": 5]))["path"] as? String)
-        XCTAssertNotEqual(again, path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path) && FileManager.default.fileExists(atPath: again))
+        XCTAssertTrue(path.hasPrefix(artifacts.path + "/"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shots.appendingPathComponent("frame-1.png").path), "moved, not copied")
+        XCTAssertEqual(artifact["sizeBytes"] as? Int, 4)
         XCTAssertEqual(artifact["mimeType"] as? String, "image/png")
-        XCTAssertEqual(artifact["tabId"] as? String, "tab-shot")
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
-        XCTAssertEqual(artifact["sizeBytes"] as? Int, data.count)
-        let rep = try XCTUnwrap(NSBitmapImageRep(data: data))
-        // captureScreenshot saves capturePage's image as it is: MAX_SCREENSHOT_WIDTH is the automation snapshot's alone.
-        let scale = window.backingScaleFactor
-        XCTAssertEqual(rep.pixelsWide, Int((900 * scale).rounded()), "the page's own pixels, not scaled to 1,280")
-        XCTAssertEqual(artifact["width"] as? Int, rep.pixelsWide)
-        XCTAssertEqual(Double(rep.pixelsWide) / Double(rep.pixelsHigh), 900.0 / 500.0, accuracy: 0.02)
-        let wide = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2_000, pixelsHigh: 10, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        let wideImage = NSImage(size: NSSize(width: 2_000, height: 10)); wideImage.addRepresentation(wide)
-        XCTAssertEqual(try XCTUnwrap(T3BrowserArtifacts.png(wideImage)).width, 2_000, "an image wider than 1,280 pixels keeps its width")
         XCTAssertNotNil(ISO8601DateFormatter().date(from: (artifact["createdAt"] as? String ?? "").replacingOccurrences(of: "\\.\\d+", with: "", options: .regularExpression)))
+        for outside in ["app:/tmp/saves/x.png", "app:/tmp/browser-shots/../saves/x.png", "/etc/hosts"] {
+            XCTAssertEqual((op(["op": "browserArtifact", "action": "adopt", "path": outside])["error"] as? [String: Any])?["kind"] as? String, "ArtifactPath", outside)
+        }
         XCTAssertEqual(T3BrowserArtifacts.slug("https://Docs.Example.com:8443/x"), "docs-example-com")
         XCTAssertEqual(T3BrowserArtifacts.slug("about:blank"), "site")
         XCTAssertEqual(T3BrowserArtifacts.slug("https://" + String(repeating: "a.", count: 60) + "com").count, 79, "at most 80, a cut-off dash dropped")
-        view.destroy()
     }
 
     func testArtifactActionsOnlyTouchFilesInsideTheArtifactDirectory() throws {
         let inside = artifacts.appendingPathComponent("browser-screenshot-test.png")
         let image = NSImage(size: NSSize(width: 4, height: 4)); image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 4, height: 4).fill(); image.unlockFocus()
-        try XCTUnwrap(T3BrowserArtifacts.png(image)).data.write(to: inside)
+        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation))?.representation(using: .png, properties: [:]))
+        try png.write(to: inside)
         let reveal = op(["op": "browserArtifact", "action": "reveal", "path": inside.path])
         XCTAssertEqual(value(reveal)["revealed"] as? String, inside.resolvingSymlinksInPath().path, "an agent run records the reveal instead of opening Finder")
-        XCTAssertTrue(sessions.log.contains { $0.hasPrefix("artifact reveal browser-screenshot-test.png") })
         let pasteboard = T3BrowserArtifacts.pasteboard(agent: true)
         XCTAssertNotEqual(pasteboard.name, NSPasteboard.general.name, "an agent run never writes the person's clipboard")
         XCTAssertEqual(value(op(["op": "browserArtifact", "action": "copy-image", "path": inside.path]))["copied"] as? Bool, true)
@@ -123,85 +124,44 @@ final class BrowserCaptureTests: XCTestCase {
         XCTAssertEqual((op(["op": "browserArtifact", "action": "copy-image", "path": artifacts.appendingPathComponent("broken.png").path])["error"] as? [String: Any])?["kind"] as? String, "ArtifactImage")
     }
 
-    func testAHeldPageKeepsPaintingOffScreenAndComesBackToItsView() throws {
-        fixture.page("/tick", "<!doctype html><title>Tick</title><h1 id=t>0</h1><script>let n=0;setInterval(()=>{document.getElementById('t').textContent=String(++n)},16)</script>")
-        let (view, session) = mounted("tab-held", url: "\(fixture.base)/tick")
-        loaded(session)
-        sessions.parking.hold(session, "recording")
-        XCTAssertTrue(session.web.window === window, "a page a view shows is not parked")
-        view.destroy()
-        XCTAssertNotNil(session.web.window, "a held page that loses its view moves to the host window")
-        XCTAssertNotEqual(session.web.window, window)
-        XCTAssertTrue(sessions.parking.parked.contains("tab-held"))
-        let first = Int(CaptureSpin.evaluate(session.web, "document.getElementById('t').textContent")) ?? 0
-        CaptureSpin.wait(0.5)
-        let later = Int(CaptureSpin.evaluate(session.web, "document.getElementById('t').textContent")) ?? 0
-        XCTAssertGreaterThan(later - first, 10, "the parked page keeps its timers running (\(first) → \(later))")
-        let (again, _) = mounted("tab-held", url: "")
-        XCTAssertTrue(session.web.window === window, "a view takes the parked page back")
-        XCTAssertFalse(sessions.parking.parked.contains("tab-held"))
-        again.destroy()
-        XCTAssertNotNil(session.web.window, "still held: parked again")
-        sessions.parking.release(session, "recording")
-        XCTAssertNil(session.web.window, "released: no window")
-        XCTAssertFalse(sessions.parking.parked.contains("tab-held"))
-    }
-
     func testTheSeparateWindowFloatsTheLivePageAndFollowsItsAspect() throws {
-        fixture.page("/pip", "<!doctype html><title>Floating page</title><body style='margin:0;background:#0a0'><h1>pip</h1>")
-        let (view, session) = mounted("tab-pip", url: "\(fixture.base)/pip")
-        view.host.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
-        loaded(session)
-        XCTAssertEqual(value(op(["op": "browserPip", "tab": "tab-pip", "action": "open"]))["open"] as? Bool, true)
-        let pip = try XCTUnwrap(session.pip)
-        XCTAssertEqual(session.report["pip"] as? Bool, true)
+        page("frame-pip", "/pip", "<!doctype html><title>Floating page</title><body style='margin:0;background:#0a0'><h1>pip</h1>")
+        XCTAssertEqual(value(op(["op": "browserPip", "frame": "frame-pip", "action": "open"]))["open"] as? Bool, true)
+        let pip = try XCTUnwrap(pages.pages["frame-pip"]?.pip)
+        XCTAssertEqual(report("frame-pip")["pip"] as? Bool, true)
         XCTAssertEqual(pip.window.title, "Preview · Floating page")
         XCTAssertEqual(pip.window.level, .floating)
         XCTAssertTrue(pip.window.collectionBehavior.contains(.canJoinAllSpaces))
         XCTAssertEqual(pip.window.contentMinSize, NSSize(width: 240, height: 160))
-        XCTAssertTrue(pip.window.standardWindowButton(.miniaturizeButton)?.isHidden ?? true)
         CaptureSpin.until({ pip.frames >= 3 }, timeout: 5)
         XCTAssertGreaterThanOrEqual(pip.frames, 3, "about 12 frames a second")
         let content = pip.window.contentRect(forFrameRect: pip.window.frame).size
         XCTAssertEqual(Double(content.width / content.height), 640.0 / 360.0, accuracy: 0.03, "the window follows the page's aspect ratio")
-        view.destroy()
-        XCTAssertTrue(sessions.parking.parked.contains("tab-pip"), "the floating page keeps painting while the panel is hidden")
-        let before = pip.frames
-        CaptureSpin.wait(0.5)
-        XCTAssertGreaterThan(pip.frames, before)
-        XCTAssertEqual(value(op(["op": "browserPip", "tab": "tab-pip", "action": "open"]))["open"] as? Bool, true, "opening again shows the same window")
-        XCTAssertTrue(session.pip === pip)
+        XCTAssertEqual(value(op(["op": "browserPip", "frame": "frame-pip", "action": "open"]))["open"] as? Bool, true, "opening again shows the same window")
+        XCTAssertTrue(pages.pages["frame-pip"]?.pip === pip)
         pip.window.performClose(nil)
-        CaptureSpin.until({ session.pip == nil }, timeout: 3)
-        XCTAssertNil(session.pip, "closing the window ends it")
-        XCTAssertEqual(session.report["pip"] as? Bool, false)
-        XCTAssertFalse(sessions.parking.parked.contains("tab-pip"))
-        XCTAssertEqual(value(op(["op": "browserPip", "tab": "tab-pip", "action": "close"]))["open"] as? Bool, false)
+        CaptureSpin.until({ pages.pages["frame-pip"]?.pip == nil }, timeout: 3)
+        XCTAssertEqual(report("frame-pip")["pip"] as? Bool, false, "closing the window ends it")
+        XCTAssertEqual(value(op(["op": "browserPip", "frame": "frame-pip", "action": "close"]))["open"] as? Bool, false)
     }
 
-    func testTheRecordingOpsMakeAnArtifactAndTheLeaseLetsGo() throws {
-        fixture.page("/rec", "<!doctype html><title>Rec</title><body style='margin:0'><h1 id=t>0</h1><script>let n=0;setInterval(()=>{document.getElementById('t').textContent=String(++n);document.body.style.background=n%2?'#f00':'#00f'},30)</script>")
-        let (view, session) = mounted("tab-rec", url: "\(fixture.base)/rec")
-        view.host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        loaded(session)
-        XCTAssertEqual(value(op(["op": "browserRecord", "tab": "tab-rec", "action": "arm", "showKeyPresses": true, "showMousePresses": true, "theme": ["primary": "#2563eb"]]))["armed"] as? Bool, true)
-        XCTAssertEqual((session.report["recording"] as? [String: Any])?["armed"] as? Bool, true)
-        let stream = value(op(["op": "browserRecord", "tab": "tab-rec", "action": "capture", "frameRate": 30]))
+    func testTheRecordingOpsMakeAnArtifact() throws {
+        page("frame-rec", "/rec", "<!doctype html><title>Rec</title><body style='margin:0'><h1 id=t>0</h1><script>let n=0;setInterval(()=>{document.getElementById('t').textContent=String(++n);document.body.style.background=n%2?'#f00':'#00f'},30)</script>")
+        XCTAssertEqual(value(op(["op": "browserRecord", "frame": "frame-rec", "action": "arm", "showKeyPresses": true, "showMousePresses": true, "theme": ["primary": "#2563eb"]]))["armed"] as? Bool, true)
+        XCTAssertEqual((report("frame-rec")["recording"] as? [String: Any])?["armed"] as? Bool, true)
+        let stream = value(op(["op": "browserRecord", "frame": "frame-rec", "action": "capture", "frameRate": 30]))
         XCTAssertEqual(stream["frameRate"] as? Int, 30)
         XCTAssertGreaterThan(stream["width"] as? Int ?? 0, 0)
-        XCTAssertEqual(value(op(["op": "browserRecord", "tab": "tab-rec", "action": "decorate", "showKeyPresses": true, "showMousePresses": true, "primaryColor": "#2563eb"]))["active"] as? Bool, true)
-        XCTAssertEqual(value(op(["op": "browserRecord", "tab": "tab-rec", "action": "begin", "mimeType": "video/mp4;codecs=avc1", "bitsPerSecond": 2_500_000]))["mimeType"] as? String, "video/mp4;codecs=avc1")
-        view.destroy() // the panel hides mid-recording: the page is held off screen
-        XCTAssertTrue(sessions.parking.parked.contains("tab-rec"))
+        XCTAssertEqual(value(op(["op": "browserRecord", "frame": "frame-rec", "action": "decorate", "showKeyPresses": true, "showMousePresses": true, "primaryColor": "#2563eb"]))["active"] as? Bool, true)
+        XCTAssertEqual(value(op(["op": "browserRecord", "frame": "frame-rec", "action": "begin", "mimeType": "video/mp4;codecs=avc1", "bitsPerSecond": 2_500_000]))["mimeType"] as? String, "video/mp4;codecs=avc1")
         CaptureSpin.wait(1)
-        XCTAssertEqual(value(op(["op": "browserRecord", "tab": "tab-rec", "action": "disarm"]))["armed"] as? Bool, false)
-        let encoded = value(op(["op": "browserRecord", "tab": "tab-rec", "action": "finish"]))
+        XCTAssertEqual(value(op(["op": "browserRecord", "frame": "frame-rec", "action": "disarm"]))["armed"] as? Bool, false)
+        let encoded = value(op(["op": "browserRecord", "frame": "frame-rec", "action": "finish"]))
         XCTAssertGreaterThan(encoded["frames"] as? Int ?? 0, 15, "\(encoded)")
-        _ = op(["op": "browserRecord", "tab": "tab-rec", "action": "release"])
-        XCTAssertFalse(sessions.parking.parked.contains("tab-rec"), "the lease lets go with the stream")
-        let refused = op(["op": "browserRecord", "tab": "tab-rec", "action": "save", "mimeType": "video/mp4", "path": "/etc/hosts"])
+        _ = op(["op": "browserRecord", "frame": "frame-rec", "action": "release"])
+        let refused = op(["op": "browserRecord", "frame": "frame-rec", "action": "save", "mimeType": "video/mp4", "path": "/etc/hosts"])
         XCTAssertEqual(refused["ok"] as? Bool, false, "only the encoder's own file is saved")
-        let saved = value(op(["op": "browserRecord", "tab": "tab-rec", "action": "save", "mimeType": encoded["mimeType"] as? String ?? "", "path": encoded["path"] as? String ?? ""]))
+        let saved = value(op(["op": "browserRecord", "frame": "frame-rec", "action": "save", "mimeType": encoded["mimeType"] as? String ?? "", "path": encoded["path"] as? String ?? ""]))
         let path = try XCTUnwrap(saved["path"] as? String)
         XCTAssertTrue(path.hasPrefix(artifacts.path + "/browser-recording-") && path.hasSuffix(".mp4"), path)
         XCTAssertFalse(FileManager.default.fileExists(atPath: encoded["path"] as? String ?? ""), "moved, not copied")
@@ -213,16 +173,22 @@ final class BrowserCaptureTests: XCTestCase {
         if let output = ProcessInfo.processInfo.environment["T3_BROWSER_TEST_DIR"] { try? FileManager.default.copyItem(atPath: path, toPath: "\(output)/ops-recording.mp4") }
     }
 
-    func testAnArmedRecordingThatNeverBeginsIsCancelled() {
-        fixture.page("/idle", "<!doctype html><title>Idle</title>")
-        let (view, session) = mounted("tab-arm", url: "\(fixture.base)/idle")
-        loaded(session)
-        _ = op(["op": "browserRecord", "tab": "tab-arm", "action": "arm"])
-        _ = op(["op": "browserRecord", "tab": "tab-arm", "action": "cancel"])
-        XCTAssertEqual((session.report["recording"] as? [String: Any])?["armed"] as? Bool, false)
-        let refused = op(["op": "browserRecord", "tab": "tab-missing", "action": "arm"])
+    func testAnArmedRecordingIsCancelledAndAMissingFrameRefused() {
+        page("frame-arm", "/idle", "<!doctype html><title>Idle</title>")
+        _ = op(["op": "browserRecord", "frame": "frame-arm", "action": "arm"])
+        _ = op(["op": "browserRecord", "frame": "frame-arm", "action": "cancel"])
+        XCTAssertEqual((report("frame-arm")["recording"] as? [String: Any])?["armed"] as? Bool, false)
+        let refused = op(["op": "browserRecord", "frame": "frame-missing", "action": "arm"])
         XCTAssertEqual((refused["error"] as? [String: Any])?["kind"] as? String, "NotFound")
-        XCTAssertFalse(sessions.performCapture(["op": "browserSync"]) { _ in }, "other ops pass through")
-        view.destroy()
+        XCTAssertFalse(pages.perform(["op": "browserSync"]) { _ in }, "other ops pass through")
+    }
+
+    func testTheAgentsCursorIsALayerOfThePagesView() {
+        page("frame-cursor", "/cursor", "<!doctype html><title>Cursor</title>")
+        XCTAssertEqual(op(["op": "browserPage", "frame": "frame-cursor", "phase": "click", "x": 40, "y": 30, "sequence": 1, "controller": "agent"])["ok"] as? Bool, true)
+        let cursor = web.layer?.sublayers?.first { $0.name == "t3-agent-cursor" }
+        XCTAssertNotNil(cursor, "the arrow is a sublayer of the web view's own layer")
+        XCTAssertEqual(cursor?.opacity ?? 0, 1, accuracy: 0.01, "active right after a move")
+        XCTAssertEqual(report("frame-cursor")["size"] as? [Double], [640, 360], "the page's laid-out size, which the floating player reads")
     }
 }

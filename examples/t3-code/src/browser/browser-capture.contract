@@ -3,10 +3,11 @@ use ServerBrowserPage from "./server-browser.contract"
 // player's browser source (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/
 // PreviewChromeRow.tsx 121-320, ThreadPreviewMiniPlayer.tsx BrowserMiniPlayer and MiniPlayerShell; index.css
 // `animate-status-pulse`). `view.capture` is browser-capture.ts `browserCaptureView`; `local` runs
-// `surface-browser-<op>` (browser-capture.ts `captureLocal`, `browserMiniLocal`). The floating player shows the tab's
-// page through the same `t3-browser` view the panel uses: one WKWebView sits in one place, so the player borrows it
-// while the panel does not show that tab (T3BrowserView.swift).
+// `surface-browser-<op>` (browser-capture.ts `captureLocal`, `browserMiniLocal`). The floating player mounts its
+// tab's frame itself (browser-frames.contract BrowserFrame) while the panel does not show that tab: a frame lives in
+// one place in the tree, so floating a tab, or putting it back, loads its page again at its URL.
 use TipBubble from "../shell/shell-tip.contract"
+use BrowserFrame from "./browser-frames.contract"
 use BrowserCapture from "./browser-shapes.contract"
 use BrowserMini from "./browser-shapes.contract"
 use ChatCanvasMini from "../shell/chat-canvas.contract"
@@ -183,7 +184,7 @@ component BrowserMiniPlayer
         if mini.server
           ServerBrowserPage(runtimeId=mini.runtimeId, url=mini.streamUrl, pdfUrl=mini.pdfUrl, pageWidth=frame.width, pageHeight=frame.height, followSize=false, mini=true)
         else
-          t3-browser tab=mini.runtimeId url=mini.url profile=mini.profileId environment=mini.environment window-zoom=`${mini.windowZoom}` aria-label="Browser page" testId="browser-mini-page" position="absolute" left=0 top=0 right=0 bottom=0
+          BrowserFrame(f=mini.frame, left=0, top=0, width=frame.width, height=frame.height, shown=true, label="Browser page", testId="browser-mini-page", local=local)
         if not mini.hasWebContents
           box position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #1a1a1a)" pointer-events="none" testId="browser-mini-reconnecting"
             text "Reconnecting preview…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"

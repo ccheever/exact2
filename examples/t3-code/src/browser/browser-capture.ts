@@ -7,12 +7,12 @@ import { requestComposerField } from '../composer/composer-field-request';
 // apps/web/src/browser/annotationTheme.ts; T3 Code 74541bab17: apps/desktop/src/preview/captureErrors.ts, which words a
 // failed screenshot or recording start).
 //
-// The module does the work (T3BrowserAnnotate.swift, T3BrowserRecorder.swift, T3BrowserCapture.swift); this file
-// asks it, keeps the client's recordings (browser-recording.ts) and turns the results into the composer's chip, the
-// toasts and the panel's projection. Annotate's result arrives through the module's status (`browserTabs[id].pick`)
-// and is applied once per pick by the panel's effects (`applyCaptureResults`), so an answer Exact lets go never loses
-// one. The recording's native calls go through the newest answer's native (`host.native`): the reference's lifecycle
-// outlives the answer that started it, and a stop sent while the start runs must not wait on a native that was let go.
+// Annotate is data code over the tab's frame (browser-annotate.ts); a screenshot is the frame's `captureScreenshot`,
+// moved into the artifact directory by the module; the recording and the separate window are the module's, over the web
+// view the frame hands its hatch (T3BrowserPage.swift). This file asks them, keeps the client's recordings
+// (browser-recording.ts) and turns the results into the composer's chip, the toasts and the panel's projection. The
+// recording's native calls go through the newest answer's native (`host.native`): the reference's lifecycle outlives the
+// answer that started it, and a stop sent while the start runs must not wait on a native that was let go.
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
@@ -40,6 +40,10 @@ import { MAX_ATTACHMENTS } from '../composer/composer-editor-files';
 import { reservedAttachments } from '../composer/composer-editor-attach';
 import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
+import { appFiles } from '../media/save-file';
+import { EMPTY_FRAME, frameEntry, frameIdOf, type BrowserFrameView } from './browser-frames';
+import { activePicks, annotateState, cancelAnnotate, startAnnotate, type ApplyPick } from './browser-annotate';
+import { automationCalls } from './browser-automation-run';
 
 // ── The annotation theme (annotationTheme.ts readPreviewAnnotationTheme; Manager.ts DEFAULT_ANNOTATION_THEME) ──────
 /** The app's tokens for the overlay, in sRGB hex (the recording compositor parses no oklch()). */
@@ -70,12 +74,14 @@ type Host = {
   scheme: string;
   /** The floating tab's page size, as the panel last measured it (the chat canvas sizes the player from it). */
   miniSize: { key: string; width: number; height: number } | null;
+  /** Screenshots taken, which name each capture's file under app:/tmp/browser-shots. */
+  shots: number;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function captureHost(client: T3Client): Host {
   let host = hosts.get(client);
   if (!host) {
-    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, sendTarget: null, cancelled: new Map(), scheme: 'light', miniSize: null };
+    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, sendTarget: null, cancelled: new Map(), scheme: 'light', miniSize: null, shots: 0 };
     fresh.recordings = new BrowserRecordings(nativeRecordingHost(client, fresh));
     hosts.set(client, fresh);
     host = fresh;
@@ -89,6 +95,8 @@ export const captureNativeCall = (client: T3Client, request: Obj): Promise<Obj> 
 
 async function nativeCall(host: Host, request: Obj, stage?: PreviewCaptureFailureStage): Promise<Obj> {
   const native = host.native;
+  // The page ops name the tab's frame (T3BrowserPage.swift keys a page by its element id).
+  if (typeof request.tab === 'string' && (request.op === 'browserRecord' || request.op === 'browserPip')) request = { ...request, frame: frameIdOf(request.tab) };
   if (!native?.available) {
     if (stage) throw new PreviewCaptureFailure('renderer-unavailable', stage);
     throw new ClientError('The browser is unavailable in this window.');
@@ -188,7 +196,7 @@ function nativeRecordingHost(client: T3Client, host: Host): RecordingHost {
     },
     hydrateSettings: async () => undefined,
     settings: () => recordingSettings(client),
-    // The module holds the page painting from `arm` until the stream is released (T3BrowserParking).
+    // A hidden tab's frame stays mounted, and its snapshots still paint (LLP 1020.002 stage 1).
     acquireSurfaceActivity: () => () => undefined,
     // The panel reads the recordings at its next projection.
     publish: () => undefined,
@@ -209,7 +217,8 @@ export type BrowserCaptureView = {
 };
 export const emptyCaptureView = (): BrowserCaptureView => ({ pickActive: false, pickDisabled: true, pickTip: 'Annotate elements, regions, and drawings', captureDisabled: true,
   recording: false, floating: false, floatDisabled: true, separateWindow: false });
-const report = (client: T3Client, runtimeId: string): Obj => obj(obj(client.presentation.browserTabs)[runtimeId]);
+/** The tab's page as its hatch reports it (T3BrowserPage.swift `presentation.browserPages`): its size and separate window. */
+const report = (client: T3Client, runtimeId: string): Obj => obj(obj(client.presentation.browserPages)[frameIdOf(runtimeId)]);
 /** The open thread's key in the floating player's store, the device player's own (`deviceThreadId`, activeThreadRef): a
  *  new thread's draft has its id once it opened a tab (addBrowserSurface allocates it), while `client.threadId` stays
  *  empty until the draft is sent. */
@@ -226,7 +235,7 @@ export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: strin
 }
 
 export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string, hasWebContents: boolean, failed: boolean): BrowserCaptureView {
-  const tab = report(client, runtimeId), pickActive = obj(tab.pick).active === true;
+  const tab = report(client, runtimeId), pickActive = annotateState(client, runtimeId).active;
   return {
     pickActive, pickDisabled: !tabId || failed,
     // PreviewChromeRow: the disabled reason, else Cancel while annotating.
@@ -277,11 +286,12 @@ export async function captureLocal(client: T3Client, native: Native, state: Pane
   }
 }
 
-/** handlePickElement: a second press cancels; the result arrives through the module's status. */
+/** handlePickElement: a second press cancels; the settled pick goes to the tab's thread's composer. */
 async function toggleAnnotate(client: T3Client, host: Host, target: CaptureTarget, scheme: string): Promise<void> {
-  if (obj(report(client, target.runtimeId).pick).active === true) { await nativeCall(host, { op: 'browserAnnotate', tab: target.runtimeId, action: 'cancel' }).catch(error => { if (letGo(error)) throw error; }); return; }
+  if (annotateState(client, target.runtimeId).active) { await cancelAnnotate(client, target.runtimeId); return; }
   host.scheme = scheme === 'dark' ? 'dark' : 'light';
-  await nativeCall(host, { op: 'browserAnnotate', tab: target.runtimeId, action: 'start', theme: annotationTheme(host.scheme) });
+  const threadKey = scopedThreadKey(target.ref);
+  await startAnnotate(client, target.runtimeId, annotationTheme(host.scheme), () => pickApplier(client, threadKey));
 }
 
 const errorText = (error: unknown) => (error instanceof Error && error.message ? error.message : 'An error occurred.');
@@ -307,7 +317,14 @@ async function capture(client: T3Client, host: Host, target: CaptureTarget, reco
   }
   let artifact: RecordingArtifact;
   try {
-    const value = await nativeCall(host, { op: 'browserScreenshot', tab: target.runtimeId }, 'screenshot');
+    // Manager.ts captureScreenshot: the frame's picture at its own pixels, then into the artifact directory.
+    const entry = frameEntry(client, target.runtimeId);
+    if (!entry) throw new PreviewCaptureFailure('renderer-unavailable', 'screenshot');
+    const path = `app:/tmp/browser-shots/${entry.frameId}-${++host.shots}.png`;
+    await appFiles().fs.mkdir('app:/tmp/browser-shots', { recursive: true });
+    try { await automationCalls().captureScreenshot({ id: entry.frameId, path }); }
+    catch (error) { if (letGo(error)) throw error; throw new PreviewCaptureFailure('capture-failed', 'capture-page'); }
+    const value = await nativeCall(host, { op: 'browserArtifact', action: 'adopt', path, url: entry.record?.url ?? '' }, 'screenshot');
     artifact = { id: str(value.id), tabId: target.runtimeId, path: str(value.path), mimeType: 'image/png', sizeBytes: num(value.sizeBytes), createdAt: str(value.createdAt) };
   } catch (error) {
     if (letGo(error)) throw error;
@@ -376,39 +393,25 @@ async function toggleSeparateWindow(client: T3Client, host: Host, target: Pick<C
   catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to update popped-out preview', description: errorText(error) }); }
 }
 
-// ── Annotate's results (the panel's effects) ───────────────────────────────────────────────────
-/** Each tab's settled pick, applied once: the chip and the crop in the tab's composer, the dropped-crop toast, and a send. */
-export async function applyCaptureResults(client: T3Client, native: Native, liveTabs: ReadonlyArray<{ runtimeId: string; threadKey: string }>): Promise<void> {
-  const host = captureHost(client);
-  host.native = native;
-  for (const { runtimeId, threadKey } of liveTabs) {
-    const pick = obj(report(client, runtimeId).pick), serial = num(pick.serial);
-    if (pick.ready !== true || serial <= (host.applied.get(runtimeId) ?? 0)) continue;
-    const ref = parseScopedThreadKey(threadKey), open = activeRef(client);
-    const key = !ref || open && scopedThreadKey(open) === threadKey ? client.draftKey : `${ref.environmentId}:${ref.threadId}`;
-    const origin = { generation: client.generation, environmentId: client.environmentId, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client), key, foreground: key === client.draftKey };
-    const reply = await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'take', serial });
-    const result = obj(reply.result);
-    const outcome = !reply.result || result.cancelled === true ? 'cancelled' : await applyAnnotation(client, native, origin, result);
-    host.applied.set(runtimeId, serial);
-    // The module's log says what became of each pick (`t3.browser: annotate applied <serial> <outcome>`).
-    await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'applied', serial, outcome }).catch(error => { if (letGo(error)) throw error; });
-  }
+// ── Annotate's results ─────────────────────────────────────────────────────────────────────────
+/** A settled pick's applier: the chip and the crop in the tab's thread's composer as the window shows it now, the
+ *  dropped-crop toast, and a send. */
+function pickApplier(client: T3Client, threadKey: string): ApplyPick {
+  const ref = parseScopedThreadKey(threadKey), open = activeRef(client);
+  const key = !ref || open && scopedThreadKey(open) === threadKey ? client.draftKey : `${ref.environmentId}:${ref.threadId}`;
+  const origin = { generation: client.generation, environmentId: client.environmentId, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client), key, foreground: key === client.draftKey };
+  return async (result, native) => {
+    const outcome = await applyAnnotation(client, native, origin, result);
+    client.revision++;
+    return outcome;
+  };
 }
 
 /** PreviewView's unmount cleanup (`cancelPickElement`): the reference's PreviewView unmounts when the panel stops showing
  *  its tab (Float closes the panel, the panel closes, another tab or thread shows), and its pick ends with it; the
- *  floating player's page is never annotated. A pick whose tab the panel does not show is cancelled once (the module's
- *  status catches up); one that settled with ⌘Return first still sends (`annotationSendSerial`). */
-export async function cancelHiddenPicks(client: T3Client, native: Native, shownRuntimeId: string | null): Promise<void> {
-  const host = captureHost(client);
-  host.native = native;
-  for (const [runtimeId, tab] of Object.entries(obj(client.presentation.browserTabs))) {
-    const pick = obj(obj(tab).pick), serial = num(pick.serial);
-    if (runtimeId === shownRuntimeId || pick.active !== true || host.cancelled.get(runtimeId) === serial) continue;
-    host.cancelled.set(runtimeId, serial);
-    await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'cancel' }).catch(error => { if (letGo(error)) throw error; });
-  }
+ *  floating player's page is never annotated. One that settled with ⌘Return first still sends (`annotationSendSerial`). */
+export async function cancelHiddenPicks(client: T3Client, shownRuntimeId: string | null): Promise<void> {
+  for (const runtimeId of activePicks(client)) if (runtimeId !== shownRuntimeId) await cancelAnnotate(client, runtimeId);
 }
 
 type AnnotationOrigin = { generation: number; environmentId: string; snapshotOwner: string; fieldOwner: string; key: string; foreground: boolean };
@@ -464,11 +467,13 @@ async function insertAnnotationChip(client: T3Client, native: Native, origin: An
 export type BrowserMiniView = {
   show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; server: boolean; streamUrl: string; pdfUrl: string; url: string; profileId: string; environment: string;
   hasWebContents: boolean; recording: boolean; separateWindow: boolean; width: number; height: number;
-  /** The main window's zoom, which the module undoes for the page it shows (T3BrowserView.swift `window-zoom`). */
+  /** The main window's zoom. */
   windowZoom: number;
+  /** The tab's frame, which the player mounts itself (browser-frames.ts frameLayerView fills it in). */
+  frame: BrowserFrameView;
 };
 export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', url: '', profileId: 'default', environment: '',
-  hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1 });
+  hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1, frame: EMPTY_FRAME });
 
 /** The page's last laid-out size (resolveFittedBrowserViewport with the fill viewport): its box, else 1280×800. */
 export function browserMiniSourceSize(client: T3Client, runtimeId: string): { width: number; height: number } {
@@ -488,9 +493,9 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   if (session.server) { const frame = serverStreamFrame(client, runtimeId); if (frame.width > 0 && frame.height > 0) { size.width = frame.width; size.height = frame.height; } }
   captureHost(client).miniSize = { key, ...size };
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
-    pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', url: str(tab.url) || session.url, profileId: session.profileId, environment: ref.environmentId,
-    hasWebContents: session.server === true || Object.keys(tab).length > 0, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
-    windowZoom: readWindowZoom(client.presentation) };
+    pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', url: session.url, profileId: session.profileId, environment: ref.environmentId,
+    hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
+    windowZoom: readWindowZoom(client.presentation), frame: EMPTY_FRAME };
 }
 
 /** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close. */
