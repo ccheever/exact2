@@ -14,7 +14,8 @@ import WebKit
 /// - The separate preview window (T3BrowserCapture.swift `T3BrowserPictureInPicture`): the page's snapshots, B10's too.
 /// - The artifact directory (`T3BrowserArtifacts`), the local server's state directory outside the app's files: a capture
 ///   the frame wrote under `app:/tmp/browser-shots` moves in, and a screenshot or recording there is revealed in the Finder
-///   or copied, which have no framework call; a saved recording is uploaded to an environment from there.
+///   or copied, which have no framework call; a saved recording's bytes go from there to the upload URL the data module
+///   minted on its connection.
 /// - The profiles' cookies from the stores the module kept before the frames (`migrateCookies`), moved once into the
 ///   frame's partition, which the framework names by its own scheme.
 ///
@@ -41,10 +42,6 @@ final class T3BrowserPages {
     lazy var artifactDirectory: URL = artifactDirectoryOverride ?? T3BrowserArtifacts.directory(dataRoot: dataRoot)
     /// Publishes a `t3.status` (a page's report changed).
     var changed: () -> Void = {}
-    /// One RPC on an environment's connection (method, payload, generation, fleet key; nil the focused one), and any other
-    /// transport op there: T3Module+Browser.swift wires both to the module's links.
-    var rpc: (String, [String: Any], Int, String?, @escaping ([String: Any]) -> Void) -> Void = { _, _, _, _, done in done(["ok": false]) }
-    var send: ([String: Any], Int, String?, @escaping ([String: Any]) -> Void) -> Void = { _, _, _, done in done(["ok": false]) }
 
     init(agent: Bool) { self.agent = agent }
 
@@ -294,52 +291,55 @@ final class T3BrowserPages {
         }
     }
 
-    // MARK: A saved recording's upload (uploadBrowserRecording's transfer: createUploadUrl, then the bytes)
+    // MARK: A saved recording's upload (uploadBrowserRecording's transfer: the bytes, after the data module's createUploadUrl)
 
-    /// `upload` sends a saved recording (a file in the artifact directory) to the environment as a pending attachment and
-    /// answers `{status: "uploaded", attachmentId}` or `{status: "failed", attachmentId?, error, expired}`; `remove` deletes
-    /// a pending attachment (deletePendingAttachmentUpload). `expired` is the reference's `Date.now() >= deadlineMs - 1_000`
-    /// after a failed transfer: the module keeps the time, the data module has no clock. The request's connection is
-    /// `connection: {generation, fleet}`, never a top-level `fleet` (T3Module `later` sends any request naming one to the fleet).
+    /// `browserRecordingUpload` POSTs a saved recording (a file in the artifact directory, which the data module cannot
+    /// read) to `relativeUrl` on `origin`, the upload URL the data module minted on its connection, unauthenticated as the
+    /// reference's upload is. It answers `{status: "uploaded"}` or `{status: "failed", error, expired}`. The transfer does not
+    /// start with a second or less left before `deadlineMs` and gives up then (AbortSignal.timeout(remainingMs)); `expired`
+    /// is the reference's `Date.now() >= deadlineMs - 1_000` after a failure: the module keeps the time.
     private func recordingUpload(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
-        let connection = request["connection"] as? [String: Any] ?? [:]
-        let generation = (connection["generation"] as? NSNumber)?.intValue ?? 0
-        let fleet = (connection["fleet"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        if request["action"] as? String == "remove" {
-            if let id = request["attachmentId"] as? String, !id.isEmpty { rpc("attachments.delete", ["attachmentId": id], generation, fleet) { _ in } }
-            return reply([:])
-        }
         let deadline = Date(timeIntervalSince1970: ((request["deadlineMs"] as? NSNumber)?.doubleValue ?? 0) / 1000)
-        let expired = { Date() >= deadline.addingTimeInterval(-1) }
-        let failed = { (attachmentId: String?, error: String) in reply(["status": "failed", "attachmentId": attachmentId ?? NSNull(), "error": error, "expired": expired()]) }
-        guard let file = T3BrowserArtifacts.resolve(request["path"] as? String ?? "", in: artifactDirectory), let data = try? Data(contentsOf: file), !data.isEmpty else {
-            return failed(nil, "The saved recording is missing.")
+        var settled = false
+        let finish = { (error: String?) in
+            guard !settled else { return }
+            settled = true
+            reply(error.map { ["status": "failed", "error": $0, "expired": Date() >= deadline.addingTimeInterval(-1)] } ?? ["status": "uploaded"])
         }
-        // Encoding, saving and minting consume the same request budget. Leave time to reply.
-        guard deadline.timeIntervalSinceNow - 1 > 0 else { return failed(nil, "Recording transfer deadline expired.") }
-        let mimeType = request["mimeType"] as? String ?? "video/mp4"
-        let name = (request["name"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(255)) } ?? file.lastPathComponent
-        rpc("attachments.createUploadUrl", ["type": "file", "name": name, "mimeType": mimeType, "sizeBytes": data.count], generation, fleet) { [weak self] minted in
+        guard let file = T3BrowserArtifacts.resolve(request["path"] as? String ?? "", in: artifactDirectory), let data = try? Data(contentsOf: file), !data.isEmpty else {
+            return finish("The saved recording is missing.")
+        }
+        let relative = request["relativeUrl"] as? String ?? ""
+        guard relative.hasPrefix("/api/attachments/upload/"), let origin = URL(string: request["origin"] as? String ?? ""), ["http", "https"].contains(origin.scheme ?? ""),
+              let url = URL(string: relative, relativeTo: origin)?.absoluteURL, url.host == origin.host, url.port == origin.port else {
+            return finish("The upload could not be prepared.")
+        }
+        let remaining = deadline.timeIntervalSinceNow - 1
+        guard remaining > 0 else { return finish("Recording transfer deadline expired.") }
+        var post = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: remaining)
+        post.httpMethod = "POST"; post.httpBody = data
+        post.setValue(request["mimeType"] as? String ?? "video/mp4", forHTTPHeaderField: "Content-Type")
+        post.setValue("application/json", forHTTPHeaderField: "Accept")
+        post.setValue("2", forHTTPHeaderField: "x-t3-orchestration-protocol")
+        let session = URLSession(configuration: .ephemeral, delegate: T3UploadRedirects(), delegateQueue: nil)
+        let task = session.dataTask(with: post) { body, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let message = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["message"] as? String
             DispatchQueue.main.async {
-                guard let self else { return }
-                let value = minted["value"] as? [String: Any] ?? [:]
-                guard minted["ok"] as? Bool == true, let attachmentId = value["attachmentId"] as? String, let relativeUrl = value["relativeUrl"] as? String else {
-                    return failed(nil, ((minted["error"] as? [String: Any])?["message"] as? String) ?? "The upload could not be prepared.")
-                }
-                var settled = false
-                let finish = { (outcome: [String: Any]?) in
-                    guard !settled else { return }
-                    settled = true
-                    if let outcome, outcome["ok"] as? Bool == true { return reply(["status": "uploaded", "attachmentId": attachmentId]) }
-                    failed(attachmentId, outcome.map { (($0["error"] as? [String: Any])?["message"] as? String) ?? "Recording upload rejected." } ?? "Recording transfer deadline expired.")
-                }
-                // AbortSignal.timeout(remainingMs): the answer does not wait past the budget.
-                DispatchQueue.main.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow - 1)) { finish(nil) }
-                self.send(["op": "uploadAttachment", "path": relativeUrl, "base64": data.base64EncodedString(), "contentType": mimeType], generation, fleet) { outcome in
-                    DispatchQueue.main.async { finish(outcome) }
-                }
+                if let error { return finish(error.localizedDescription) }
+                finish((200..<300).contains(status) ? nil : message ?? "The server returned HTTP \(status).")
             }
         }
+        task.resume()
+        session.finishTasksAndInvalidate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { task.cancel(); finish("Recording transfer deadline expired.") }
+    }
+}
+
+/// A redirect would carry the recording to another host: the upload stays on the server that minted it.
+private final class T3UploadRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
 #endif

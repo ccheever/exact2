@@ -4,8 +4,6 @@ import Foundation
 import AppKit
 
 final class T3Module: ExactModule {
-    /// The module's links to the environments the data module has connected (T3Link.swift): terminals, Browser automation, devices.
-    let links = T3Links()
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
     /// Weak view registry for the shared Settings prompt sample.
@@ -35,7 +33,7 @@ final class T3Module: ExactModule {
         composer = T3Composer(changed: changed)
         let staged = context.data.appendingPathComponent("composer-files", isDirectory: true)
         media = T3MediaPreview(agent: context.agent, stagedFile: { T3MediaPreview.stagedCopy($0, in: staged) }) // a draft file's preview reads its staged copy
-        devices = T3DeviceStreams(access: { [links] done in links.deviceHubAccess(done) }, changed: changed)
+        devices = T3DeviceStreams(changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         latinChords = T3LatinChords(agent: context.agent)
         textMenu = T3TextContextMenu(agent: context.agent)
@@ -50,14 +48,12 @@ final class T3Module: ExactModule {
         DispatchQueue.main.async { [textMenu] in textMenu.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
         attachAppControl(context) // `t3 app <dir>`: the control socket follows the embedded server (T3Module+Activation.swift)
-        attachBrowserPages() // T3Module+Browser.swift
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
         route(request, reply: reply, from: 0)
     }
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
-    /// calls `next` for the rest; what no area owns is the module's own (`status`, the preferences,
-    /// `links`). No two areas share an op. A feature adds its area's method in its own file and one entry here.
+    /// calls `next` for the rest; what no area owns is the module's own (`status`). No two areas share an op. A feature adds its area's method in its own file and one entry here.
     private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.localOps, T3Module.activationOps, T3Module.codexAuthOps, T3Module.browserOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
@@ -75,9 +71,6 @@ final class T3Module: ExactModule {
                 let presentation = self.composer.status.merging(self.media.status) { first, _ in first }.merging(self.devices.status) { first, _ in first }.merging(self.browserPages.status) { first, _ in first }
                 reply.send(["ok": true, "generation": generation, "value": ["presentation": presentation]])
             }
-        // The data module's connected environments (src/transport/transport.ts pushLinks).
-        case "links":
-            DispatchQueue.main.async { [links] in links.update(request); reply.send(["ok": true, "generation": generation, "value": [:] as [String: Any]]) }
         default: failed(T3Failure(kind: "Arguments", message: "Unknown native operation."))
         }
     }
@@ -93,7 +86,7 @@ final class T3Module: ExactModule {
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); links.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); latinChords.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserPages.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); mediaFocus.destroy(); T3MenuDismissal.disarm(); latinChords.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserPages.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

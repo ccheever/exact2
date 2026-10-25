@@ -70,6 +70,22 @@ final class Peer {
     deinit { listener.cancel(); connections.forEach { $0.cancel() } }
 }
 
+private let hatchResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let hatchAct: ExactHatches.ActFn = { _, _, _ in 0 }
+private let hatchLog: ExactHatches.LogFn = { _, _, _ in }
+private let hatchDelegate: ExactHatches.DelegateFn = { _, _, _ in }
+/// A host's hatch table that answers nothing, for elements made by hand.
+let quietHatches: ExactHatches = {
+    let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
+    table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
+    table.storeBytes(of: UInt32(40), as: UInt32.self)
+    table.storeBytes(of: unsafeBitCast(hatchResolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
+    return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
+}()
+
 final class DeviceStreamTests: XCTestCase {
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
@@ -121,6 +137,76 @@ final class DeviceStreamTests: XCTestCase {
         offline.start()
         spin(until: { offline.status == "error" }, timeout: 3)
         XCTAssertEqual(offline.detail, "Reconnect to the environment and try again.")
+    }
+
+    /// The data module's hub access: each use asks (`want`, a `t3.status`); a stream node's words answer every ask up to the
+    /// count they name for this instance, an empty ticket answers with nothing, and words without an answer for this
+    /// instance (the event log's node, an older module's ask) answer none.
+    func testHubAccessAsksTheDataModuleForEachUse() {
+        let hub = T3DeviceHubAccess()
+        var asks = 0, answers: [String] = []
+        hub.changed = { asks += 1 }
+        for _ in 0..<2 { hub.access { _, ticket in answers.append(ticket ?? "none") } }
+        spin(until: { hub.want == 2 }, timeout: 1)
+        XCTAssertEqual(asks, 2)
+        XCTAssertEqual(hub.status["module"] as? String, hub.id)
+        hub.received(origin: nil, ticket: nil, ask: nil) // the event log's node
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "old", ask: "another-module:9")
+        XCTAssertEqual(answers, [])
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-1", ask: "\(hub.id):1")
+        XCTAssertEqual(answers, ["ticket-1"]) // the second ask came after the mint
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-1", ask: "\(hub.id):1") // the other stream node
+        XCTAssertEqual(answers, ["ticket-1"])
+        var origin: URL?
+        hub.access { url, ticket in origin = url; answers.append(ticket ?? "none") }
+        spin(until: { hub.want == 3 }, timeout: 1)
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-2", ask: "\(hub.id):3")
+        XCTAssertEqual(answers, ["ticket-1", "ticket-2", "ticket-2"])
+        XCTAssertEqual(origin?.absoluteString, "http://127.0.0.1:4001")
+        hub.access { _, ticket in answers.append(ticket ?? "none") }
+        spin(until: { hub.want == 4 }, timeout: 1)
+        hub.received(origin: "", ticket: nil, ask: "\(hub.id):4") // the mint failed
+        XCTAssertEqual(answers.last, "none")
+        // The Tools drawer's reads reuse a good ticket until the hub refuses it.
+        hub.access { _, _ in }
+        spin(until: { hub.want == 5 }, timeout: 1)
+        hub.received(origin: "http://127.0.0.1:4001", ticket: "ticket-5", ask: "\(hub.id):5")
+        var reused: String?
+        hub.reusing { _, ticket in reused = ticket }
+        spin(until: { reused != nil }, timeout: 1)
+        XCTAssertEqual([reused, String(hub.want)], ["ticket-5", "5"])
+        hub.expire()
+        hub.reusing { _, _ in }
+        spin(until: { hub.want == 6 }, timeout: 1)
+        XCTAssertEqual(hub.want, 6)
+        let streams = T3DeviceStreams(changed: { _ in })
+        XCTAssertEqual((streams.status["deviceHub"] as? [String: Any])?["want"] as? Int, 0)
+    }
+
+    /// A new ticket on the stream's node (any word but the overlay's) leaves the stream and the accessibility reads as they
+    /// are: neither asks for another ticket, so a ticket never leads to another.
+    func testANewTicketOnTheNodeRestartsNothing() {
+        let hub = T3DeviceHubAccess()
+        var asks = 0, reads = 0 // the stream's ask is left waiting, so the stream stays where it starts
+        let streams = T3DeviceStreams(access: { _ in asks += 1 }, changed: { _ in }, hub: hub, toolAccess: { done in reads += 1; done(nil, nil) })
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
+        let element = ExactElement(hatch: .t3Media, id: "screen", node: 1, hatches: quietHatches)
+        element.view = host
+        let words = { (ticket: String, ask: Int) in ExactData(["media-kind": "device-ios", "device-id": "SIM-1", "device-host": "local", "device-view": "flat", "device-ax": "1",
+                                                              "device-origin": "http://127.0.0.1:9", "device-ticket": ticket, "device-ask": "\(hub.id):\(ask)"]) }
+        element.data = words("", 0)
+        streams.install(element)
+        spin(until: { false }, timeout: 0.5)
+        let started = reads
+        XCTAssertEqual(asks, 1)
+        XCTAssertGreaterThan(started, 0)
+        element.data = words("ticket-1", 1)
+        streams.install(element)
+        element.data = words("", 1) // the data module takes the answered ticket off the node
+        streams.install(element)
+        spin(until: { false }, timeout: 0.5)
+        XCTAssertEqual([asks, hub.answered, reads], [1, 1, started])
+        streams.destroy()
     }
 
     func testInputSocketCarriesHomeAndRotate() throws {

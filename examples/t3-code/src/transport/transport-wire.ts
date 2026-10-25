@@ -56,7 +56,7 @@ const CONTEXT_FIELDS = ['failure', 'operation', 'cwd', 'relativePath', 'resolved
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' ? value : '';
 
-/** The largest frame either side sends (the clone's own bound, as T3Wire had it). */
+/** The largest frame either side sends (the clone's own bound). */
 export const MAXIMUM_BYTES = 16 * 1024 * 1024;
 export const PROTOCOL_VERSION = 2;
 

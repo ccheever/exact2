@@ -39,14 +39,12 @@ describe('background environments (registry.ts)', () => {
     expect(ninth.error).toMatchObject({ kind: 'Limit' });
   });
 
-  test("the module's links follow the connected sessions", async () => {
-    const drive = new Drive(new FakeServer(A, 'env-a'));
+  test('the module is told no routes or bearers: it holds no connection of its own', async () => {
+    const drive = new Drive(new FakeServer(A, 'env-a'), new FakeServer(B, 'env-b'));
     await drive.op(pairing(A));
     await drive.op({ op: 'status' });
-    const links = drive.moduleCalls.filter(call => call.op === 'links');
-    expect(links.at(-1)).toEqual({ op: 'links', focused: 'env-a', routes: [{ fleet: '', environmentId: 'env-a', origin: A, token: 'token-1', primary: false }] });
-    await drive.op({ op: 'status' });
-    expect(drive.moduleCalls.filter(call => call.op === 'links')).toHaveLength(links.length);
+    expect(drive.moduleCalls.map(call => call.op).filter(op => op !== 'status')).toEqual([]);
+    expect(JSON.stringify(drive.moduleCalls)).not.toContain('token-1');
   });
 });
 
