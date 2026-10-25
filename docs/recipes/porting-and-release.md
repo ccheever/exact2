@@ -16,8 +16,8 @@ which opens UIKit's menus and reaches a native module's own controls: drive with
 port's screens with the original's ([ios-driving](ios-driving.md)). Porting a React Native app,
 read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 
-**What ships.** `ios --release` builds what ships (`--prebuild --release` early: its first build
-is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it). Time launches
+**What ships.** `ios --release` builds what ships; it ignores `EXACT_AGENT`, so drive the
+development build. Start its first build early with `--prebuild --release`. Time launches
 on a simulator no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
 To turn it off: `xcrun simctl spawn <udid> defaults write com.apple.Accessibility
 AutomationEnabled -bool false`, then `xcrun simctl shutdown <udid>` and `boot <udid>`.

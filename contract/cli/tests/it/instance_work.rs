@@ -427,7 +427,7 @@ component App
         "{}",
         perf(&r)
     );
-    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    r.measure_later(Some(r#"{"embedded":{"trust":"production"}}"#));
     assert!(perf(&r).contains("production trust"), "{}", perf(&r));
     r.measure_later(None);
     let asked = r.seq();

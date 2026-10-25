@@ -192,6 +192,22 @@ mod tests {
                     "{platform}: {name}"
                 );
             }
+            assert_eq!(compat.embedded["trust"], "development");
+            // An updater-free production bake: no trust in its cohort, the
+            // build's beside it (LLP 1030 D4).
+            compat.inputs = json!({"trust":null,"store":{"L":"0"}});
+            let embed = (platform, target);
+            crate::receipt::emit(
+                &mut compat,
+                "production",
+                &dir.0,
+                embed,
+                &manifest,
+                &out,
+                &entries,
+            )
+            .unwrap();
+            assert_eq!(compat.embedded["trust"], "production", "{platform}");
         }
     }
 

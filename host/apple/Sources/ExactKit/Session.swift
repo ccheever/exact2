@@ -40,24 +40,21 @@ struct LaunchPlace: Equatable {
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
     /// The process's environment. A production bake never enters agent mode
-    /// (LLP 1069.007 D2, ruled): its `EXACT_AGENT` and `EXACT_AGENT_*`
-    /// variables are dropped here, from the process too, before this host
-    /// or its library reads one.
+    /// (LLP 1069.007 D2, ruled) and takes no module override (LLP 1024 D5):
+    /// its `EXACT_AGENT`, `EXACT_AGENT_*`, `EXACT_HATCHES` and
+    /// `EXACT_MODULES` variables are dropped here, from the process too,
+    /// before this host or its library reads one.
     public static let environment: [String: String] = {
         var environment = ProcessInfo.processInfo.environment
-        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0 == "EXACT_HATCHES" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        let agent = environment.keys.filter { ["EXACT_AGENT", "EXACT_HATCHES", "EXACT_MODULES"].contains($0) || $0.hasPrefix("EXACT_AGENT_") }.sorted()
         guard !agent.isEmpty, productionBake else { return environment }
-        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
+        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2, LLP 1024 D5)\n".utf8))
         for key in agent { environment[key] = nil; unsetenv(key) }
         return environment
     }()
-    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`:
-    /// its own `compat.json`'s `inputs.trust`.
-    static var productionBake: Bool {
-        let bytes = Runtime.bakedCompat()
-        let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
-        return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
-    }
+    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`
+    /// (`BakedCompatibility.production`).
+    static let productionBake = BakedCompatibility.production(BakedCompatibility.json)
     public static let agentMode = environment["EXACT_AGENT"] == "1"
     /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
     static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))

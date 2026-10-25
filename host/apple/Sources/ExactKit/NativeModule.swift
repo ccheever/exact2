@@ -440,8 +440,12 @@ final class NativeViews {
         #else
         let standard = embeddedModule(framework: "ExactModules", dylib: "libexact_modules.dylib")
         #endif
-        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
-        guard trust != "production", let override = ExactEnv.environment["EXACT_MODULES"], !override.isEmpty else { return standard }
+        return modulePath(standard: standard, production: ExactEnv.productionBake, environment: ExactEnv.environment)
+    }
+
+    /// `standard`, or the `EXACT_MODULES` a build that is not production names.
+    static func modulePath(standard: String, production: Bool, environment: [String: String]) -> String {
+        guard !production, let override = environment["EXACT_MODULES"], !override.isEmpty else { return standard }
         return override
     }
 
