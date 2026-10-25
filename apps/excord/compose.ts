@@ -135,27 +135,44 @@ export function emojiChoices(store: S.Store, cdn: string, channelId: string, que
 }
 
 export type SwitchTarget = Result<'switchTargets'>[number];
+interface Candidate { id: string; label: string; lower: string; detail: string; server: string; avatar: string; glyph: string }
+// What the switcher can offer, built once per change to the lists (the store's sidebar version): each
+// keystroke then filters names rather than walking every server's channels and permissions.
+let candidates: { version: number; list: Candidate[] } | null = null;
+function switchable(store: S.Store, cdn: string, nameOf: (id: string) => string): Candidate[] {
+  const version = S.sidebarVersion(store);
+  if (candidates?.version === version) return candidates.list;
+  const list: Candidate[] = [];
+  const add = (id: string, label: string, detail: string, server: string, avatar: string, glyph: string) =>
+    list.push({ id, label, lower: label.toLowerCase(), detail, server, avatar, glyph });
+  for (const g of S.guilds(store)) {
+    for (const c of S.guildChannelList(store, g.id)) {
+      if ([0, 5].includes(c.type ?? 0) && c.name && S.canView(store, c)) add(c.id, String(c.name), String(g.name ?? ''), g.id, '', '#');
+    }
+  }
+  for (const c of S.dms(store)) {
+    const recipient = c.type === 1 ? (c.recipients ?? [])[0] as S.User | undefined : undefined;
+    add(c.id, nameOf(c.id), c.type === 1 ? 'Direct Message' : 'Group', '@me',
+      recipient ? avatarUrl(cdn, S.user(store, recipient.id) ?? recipient) : '', recipient ? '' : '@');
+  }
+  candidates = { version, list };
+  return list;
+}
+
 /** The quick switcher's matches for a search: text channels the reader can see in every server and the
  * direct messages, by name (its start before its middle), unread ones first among equals; with no search,
  * what is unread. */
 export function switchTargets(store: S.Store, cdn: string, query: string, record: (id: string) => SwitchTarget['channel']): SwitchTarget[] {
   const q = query.trim().toLowerCase().replace(/^[#@]/, '');
   const out: (Omit<SwitchTarget, 'channel'> & { order: number })[] = [];
-  const consider = (c: S.Channel, label: string, detail: string, server: string, avatar: string, glyph: string) => {
+  for (const c of switchable(store, cdn, id => record(id).name)) {
+    const at = q ? c.lower.indexOf(q) : 0;
+    if (at < 0) continue;
     const unread = S.unread(store, c.id);
-    const order = q ? rank(label, q) : unread.unread ? 0 : -1;
-    if (order < 0) return;
-    out.push({ id: c.id, label, detail, server, avatar, glyph, unread: unread.unread, mentions: unread.mentionCount, order: order * 4 + (unread.mentionCount ? 0 : unread.unread ? 1 : 2) });
-  };
-  for (const g of S.guilds(store)) {
-    for (const c of S.guildChannelList(store, g.id)) {
-      if ([0, 5].includes(c.type ?? 0) && c.name && S.canView(store, c)) consider(c, String(c.name), String(g.name ?? ''), g.id, '', '#');
-    }
-  }
-  for (const c of S.dms(store)) {
-    const recipient = c.type === 1 ? (c.recipients ?? [])[0] as S.User | undefined : undefined;
-    consider(c, record(c.id).name, c.type === 1 ? 'Direct Message' : 'Group', '@me',
-      recipient ? avatarUrl(cdn, S.user(store, recipient.id) ?? recipient) : '', recipient ? '' : '@');
+    if (!q && !unread.unread) continue;
+    const { lower: _lower, ...shown } = c;
+    out.push({ ...shown, unread: unread.unread, mentions: unread.mentionCount,
+      order: (at === 0 ? 0 : 1) * 4 + (unread.mentionCount ? 0 : unread.unread ? 1 : 2) });
   }
   // Only the matches shown are given their records.
   return out.sort((a, b) => a.order - b.order).slice(0, 20).map(({ order: _order, ...t }) => ({ ...t, channel: record(t.id) }));
