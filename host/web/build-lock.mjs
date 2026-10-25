@@ -6,8 +6,9 @@
 // made exclusively, naming its pid, taken over when that pid is gone. The two agree on the file, so a checkout of
 // either kind (or of before the flock) and this one exclude each other: it names its holder's pid while held and is
 // removed on release (by a flock holder still holding it, the path's inode checked, a taker of the removed inode
-// opening again), and a flock taker that finds it naming another live pid waits for that holder. (One race is left
-// between kinds: a file-lock waiter removing a killed holder's file as a flock taker takes it.)
+// opening again), and a flock taker that finds it naming another live pid waits for that holder. (Races left between
+// kinds: a file-lock waiter removing a killed holder's file as a flock taker takes it; a file-lock holder stalled over
+// 2 ms between making its file and writing its pid.)
 import { closeSync, fstatSync, ftruncateSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 
 const LOCK_SH = 1, LOCK_EX = 2, LOCK_NB = 4;
@@ -48,8 +49,11 @@ export function takeLock(lock) {
       let same = false;
       try { same = statSync(lock).ino === fstatSync(fd).ino; } catch { /* removed */ }
       if (!same) continue;
-      // A file lock's holder (it takes no flock): waited for.
-      const owner = Number(readFileSync(fd, 'utf8'));
+      // A file lock's holder (it takes no flock): waited for. Its file is made, then written: an empty one is read again
+      // a moment later (one this taker made itself stays empty, the flock keeping other flock takers out).
+      let text = readFileSync(fd, 'utf8');
+      if (!text) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2); text = readFileSync(lock, 'utf8'); }
+      const owner = Number(text);
       if (Number.isInteger(owner) && owner > 0 && owner !== process.pid && alive(owner)) { waitFor(lock, started); continue; }
       ftruncateSync(fd, 0); writeSync(fd, String(process.pid));
       held = true;
