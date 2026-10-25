@@ -2,7 +2,7 @@
 //! file is, scoped through its own `use` lines with every member of the
 //! component bound, and spliced into the component at its line.
 
-use super::{name_error, Loader};
+use super::{name_error, Loader, Unit};
 use crate::resolve::resolve;
 use crate::{CompileError, RelatedLocation};
 use contract_syntax::members::{declared, splice};
@@ -223,31 +223,24 @@ impl Loader<'_> {
         Ok(())
     }
 
-    /// The files of each component across files, as one family: the units
-    /// a `members` line joins, by a representative unit. Names one family's
-    /// files bind are one component's, as if in one file (D4).
-    pub(super) fn families(&self) -> Vec<usize> {
-        fn root(family: &[usize], mut i: usize) -> usize {
-            while family[i] != i {
-                i = family[i];
-            }
-            i
-        }
-        let mut family: Vec<usize> = (0..self.units.len()).collect();
+    /// For each unit that is a members file, the unit of the file that
+    /// lists it. A declaration in that listing file and a binding in its
+    /// members file are in one file once the members are pasted in (D4).
+    pub(super) fn listed_by(&self) -> Vec<Option<usize>> {
+        let mut listed = vec![None; self.units.len()];
         for (host, unit) in self.units.iter().enumerate() {
             for part in &unit.parts {
-                let (a, b) = (root(&family, host), root(&family, part.unit));
-                family[b] = a;
+                listed[part.unit] = Some(host);
             }
         }
-        (0..family.len()).map(|i| root(&family, i)).collect()
+        listed
     }
 
     /// Splice every members block, scoped, into its component at its line
     /// (D4): last line first, so each line's place among the component's own
     /// members holds. Then decide the refusals the parser left to the whole
-    /// component: a method's name that is, or is not, one of its actions.
-    pub(super) fn splice_members(&mut self) -> Result<(), Vec<CompileError>> {
+    /// component, kept with the syntax refusals so the rest is still checked.
+    pub(super) fn splice_members(&mut self) {
         let hosts = self.hosts();
         for (&(host, component), parts) in &hosts {
             let mut parts = parts.clone();
@@ -260,31 +253,34 @@ impl Loader<'_> {
                 splice(c, at, block);
             }
         }
-        // Each file's actions: those of every component it is a file of.
-        let mut actions: HashMap<usize, HashSet<String>> = HashMap::new();
-        for (&(host, component), parts) in &hosts {
-            let c = &self.units[host].file.components[component];
-            let names: Vec<String> = c.actions.iter().map(|a| a.name.clone()).collect();
-            for unit in std::iter::once(host).chain(parts.iter().map(|p| p.unit)) {
-                actions
-                    .entry(unit)
-                    .or_default()
-                    .extend(names.iter().cloned());
+        // Decide each deferred refusal as the parser would in the one file
+        // the members are pasted into: a call in a block against the
+        // actions of the file that lists it, any other against its own
+        // file's, each after the splice (D4).
+        let listed = self.listed_by();
+        let actions = |unit: &Unit| -> HashSet<String> {
+            let components = unit.file.components.iter();
+            components
+                .flat_map(|c| c.actions.iter().map(|a| a.name.clone()))
+                .collect()
+        };
+        for (index, listing) in listed.into_iter().enumerate() {
+            let deferred = std::mem::take(&mut self.units[index].file.deferred);
+            if deferred.is_empty() {
+                continue;
             }
-        }
-        let mut errors = Vec::new();
-        for (unit, names) in actions {
-            for d in std::mem::take(&mut self.units[unit].file.deferred) {
+            let own = actions(&self.units[index]);
+            let listing = listing.map(|host| actions(&self.units[host]));
+            for d in deferred {
+                let names = match (&listing, d.in_block) {
+                    (Some(listing), true) => listing,
+                    _ => &own,
+                };
                 if names.contains(&d.name) == d.if_action {
-                    errors.push(CompileError::from(d.error));
+                    let error = self.sources.resolve(CompileError::from(d.error));
+                    self.refused.errors.push(error);
                 }
             }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            errors.sort_by_key(|e| (e.span.source_id, e.span.line, e.span.col));
-            Err(errors)
         }
     }
 }

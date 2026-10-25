@@ -125,7 +125,7 @@ structs! {
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
         mutations, actions, tasks, sequences, view, params, anatomy, members, span }
     Members { lines, props, outer }
-    Deferred { name, if_action, error }
+    Deferred { name, if_action, in_block, error }
     SyntaxError { id, message, span }
     MembersLine { path, at, span }
     Anatomy { parts, marks }

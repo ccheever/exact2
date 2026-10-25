@@ -125,14 +125,17 @@ struct Parser {
     /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
     /// at the end of the file unless the file declares a `fn`, shape or action
     /// of that name (LLP 1116.015 D2).
-    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>)>,
+    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>, bool)>,
     retired: Vec<SyntaxError>,
     edits: Vec<crate::migrate::Edit>,
     /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
     /// when it declares a `fn`, shape or action of that name, which the
     /// rewritten call would reach where TypeScript's method never would
     /// (LLP 1116.016 D2).
-    methods: Vec<(String, Span)>,
+    methods: Vec<(String, Span, bool)>,
+    /// Whether the parser is in a members block (LLP 1091.002): each
+    /// `free` and `methods` entry records it.
+    in_block: bool,
     /// Whether a refused component member is recorded and skipped.
     recover: bool,
     /// The refusals recorded inside a declaration that was kept.
@@ -325,6 +328,7 @@ impl Parser {
         let mut errors = Vec::new();
         loop {
             let start = self.pos;
+            self.in_block = false;
             let declared = self.declaration(&mut file);
             errors.append(&mut self.recovered);
             match declared {
@@ -339,22 +343,24 @@ impl Parser {
                                 .iter()
                                 .any(|c| c.actions.iter().any(|a| a.name == name))
                     };
-                    // In a file of a component across files, an action of the
-                    // name may be declared in another: the loader decides.
-                    let assembled = file.members.is_some()
-                        || file.components.iter().any(|c| !c.members.lines.is_empty());
+                    // Whether a method's name is an action is the whole
+                    // component's to decide where another file may declare it
+                    // (LLP 1091.002): in a members block, and anywhere in a
+                    // file whose components list members files.
+                    let host = file.components.iter().any(|c| !c.members.lines.is_empty());
                     let mut deferred = Vec::new();
                     // A free call of a refused declaration's or member's name may
                     // be a call of it, as of one that parsed.
                     let free = std::mem::take(&mut self.free);
-                    for (name, error, edits) in free {
+                    for (name, error, edits, in_block) in free {
                         if declared(&name) || self.hidden.contains(&name) {
                             continue;
                         }
-                        if assembled {
+                        if in_block || host {
                             deferred.push(Deferred {
                                 name,
                                 if_action: false,
+                                in_block,
                                 error,
                             });
                         } else {
@@ -363,7 +369,7 @@ impl Parser {
                         }
                     }
                     errors.append(&mut self.retired);
-                    for (n, span) in std::mem::take(&mut self.methods) {
+                    for (n, span, in_block) in std::mem::take(&mut self.methods) {
                         let call = if n == "length" {
                             ".length".to_string()
                         } else {
@@ -378,14 +384,15 @@ impl Parser {
                         };
                         if declared(&n) {
                             errors.push(error);
-                        } else if assembled {
+                        } else if in_block || host {
                             let message = format!(
-                                "rename the action `{n}` another of this component's files declares: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                                "rename the action `{n}`, which another of this component's files declares: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
                             );
                             let error = SyntaxError { message, ..error };
                             deferred.push(Deferred {
                                 name: n,
                                 if_action: true,
+                                in_block,
                                 error,
                             });
                         }
