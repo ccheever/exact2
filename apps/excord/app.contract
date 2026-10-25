@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use ServerButton from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
@@ -226,6 +226,10 @@ component Excord
   state switching = false
   state switchQuery = ""
   resource targets = switchTargets(switchQuery, switching) as shape SwitchTarget[] else empty()
+  // The person whose card shows, and the message it was opened from.
+  state profileUser = ""
+  state profileMessage = ""
+  resource profile = userProfile(profileUser != "" ? open : "", profileUser, profileMessage) as shape Profile else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
   derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
@@ -714,6 +718,13 @@ component Excord
     send changed = react(open, aimedId, value)
   action pickerClosed
     picking = false
+  action showProfile(userId: string, messageId: string)
+    if not locked
+      profileUser = userId
+      profileMessage = messageId
+      showModal("profile")
+  action profileClosed
+    profileUser = ""
   action openSwitcher
     if not locked
       switchQuery = ""
@@ -807,6 +818,7 @@ component Excord
       close("react-picker")
       close("confirm-delete")
       close("confirm-sign-out")
+      close("profile")
       hidePopover("message-menu")
       hidePopover("account-menu")
       hidePopover("fixture-menu")
@@ -975,7 +987,7 @@ component Excord
                   reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                   flex=1 min-height=0 padding-top=8 padding-bottom=22
                   for m in rows key=m.key
-                    MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply)
+                    MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile)
               column id="message-menu" popover="auto" role="menu"
                 button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
                   image "symbol:reply"
@@ -1090,6 +1102,23 @@ component Excord
                   button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
                     retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
                     image "symbol:send"
+      dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
+        column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
+          image profile.avatar width=80 height=80 border-radius=40 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
+          row gap=8 align-items="center" flex-wrap="wrap"
+            text profile.name font="-exact-title2" font-weight=700 color=(profile.color != "" ? profile.color : "-exact-label") testId="profile-name"
+            if profile.bot
+              Badge(label="APP", tint=some("AccentColor"))
+          text `@${profile.handle}` color="-exact-secondary-label" testId="profile-handle"
+          if profile.roles.length > 0
+            text "Roles" font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding-top=6
+            row gap=6 flex-wrap="wrap"
+              for r in profile.roles key=r.id
+                row gap=6 align-items="center" padding="3px 8px" border-radius=6 background-color="-exact-quaternary-fill"
+                  view width=10 height=10 border-radius=5 background-color=(r.color != "" ? r.color : "-exact-tertiary-label") aria-hidden=true
+                  text r.name font="-exact-footnote"
+          button commandfor="profile" command="close" align-self="stretch" testId="profile-close"
+            text "Done"
       // The quick switcher is the window's, so ⌘K shows it over whichever screen is on top.
       dialog id="switcher" aria-label="Find or Start a Conversation" close=switcherClosed testId="switcher"
         column gap=8 padding=12 width="28rem" max-width="100%"

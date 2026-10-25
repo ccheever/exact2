@@ -694,3 +694,18 @@ test "Up in an empty composer edits your last message; Escape ends the edit"
   expect state editing == ""
   expect tree missing "editing"
   expect state draft == ""
+
+test "an avatar opens its author's card, with their roles"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "avatar-1562887009075210000"
+  clock data
+  clock settle
+  expect text "profile-name" == "Ada"
+  expect text "profile-handle" == "@ada"
+  expect state profile.roles.0.name == "Maintainers"
+  tap "profile-close"
+  clock settle
+  expect state profileUser == ""
