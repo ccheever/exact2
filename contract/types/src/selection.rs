@@ -101,6 +101,11 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "framenavigate" | "currententrychange" | "navigatesuccess" | "navigateerror" => {
             Some("FrameNavigation")
         }
+        // @ref LLP 1020.002 D5 — a guest's request for a window, by Chrome's
+        // `<webview>` event and Electron's disposition names; and a download
+        // it started, by Electron's `DownloadItem` states.
+        "newwindow" => Some("FrameNewWindow"),
+        "download" => Some("FrameDownload"),
         _ => None,
     }
 }
@@ -125,6 +130,24 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("error".into(), Ty::String),
             ("message".into(), Ty::String),
             ("recovering".into(), Ty::Bool),
+        ],
+    );
+    // @ref LLP 1020.002 D5 — the runner's `frame_navigation::new_window` and
+    // `download` build these in this order.
+    shapes.map.insert(
+        "FrameNewWindow".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("disposition".into(), Ty::String),
+        ],
+    );
+    shapes.map.insert(
+        "FrameDownload".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("suggestedFilename".into(), Ty::String),
+            ("state".into(), Ty::String),
+            ("path".into(), Ty::String),
         ],
     );
     // `exact_runner::midi`'s order (LLP 1125 D8): the input's `id`, the

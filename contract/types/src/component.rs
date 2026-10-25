@@ -677,6 +677,8 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "currententrychange"
             | "navigatesuccess"
             | "navigateerror"
+            | "newwindow"
+            | "download"
             | "cancel"
             | "close"
             | "toggle"

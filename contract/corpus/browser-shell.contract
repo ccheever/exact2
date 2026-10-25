@@ -1,12 +1,15 @@
-// Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D6, §9):
-// a partitioned top-level guest, the Navigation API's events with their
-// `FrameNavigation` record, and the four frame commands.
+// Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6,
+// §9): a partitioned top-level guest, the Navigation API's events with their
+// `FrameNavigation` record, the four frame commands, and a guest's window
+// requests and downloads.
 component Shell
   state address = ""
   state title = ""
   state loading = false
   state failure = ""
   state back = false
+  state opened = ""
+  state saved = ""
   action moved(e: FrameNavigation)
     address = e.url
     title = e.title
@@ -18,6 +21,10 @@ component Shell
   action failed(e: FrameNavigation)
     failure = e.error
     loading = false
+  action asked(e: FrameNewWindow)
+    opened = e.disposition + " " + e.url
+  action downloaded(e: FrameDownload)
+    saved = e.state + " " + e.suggestedFilename + " " + e.path
   action goBack
     traverseHistory("tab", -1)
   action go
@@ -33,5 +40,5 @@ component Shell
         button "Go" testId="go" press=go
         button "Reload" testId="reload" press=again
         button "Stop" testId="stop" press=halt
-      iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed testId="tab" width=400 height=300
+      iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed newwindow=asked download=downloaded testId="tab" width=400 height=300
       text address testId="address"
