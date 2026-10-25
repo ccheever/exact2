@@ -350,7 +350,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
           tool.cleaner = null;
           if (stopping) return;
           if (code === 0) buildTool();
-          else console.log(`the design reader did not build (design edits take the full build): cleaning ${stale.join(', ')} failed`);
+          else { console.log(`the design reader did not build (design edits take the full build): cleaning ${stale.join(', ')} failed`); resumeAfterReader(); }
         });
         return;
       }
@@ -489,6 +489,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
+    // Whatever waited for the reader is this pass's now (a build that fails keeps it for the next edit, as any).
+    readerWait = false;
     let checking = false; // the build below checks a batch the read sent
     if (fast && toolFresh()) {
       designing = true;
@@ -558,7 +560,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     buildBegan = Date.now();
-    console.log(`edit → building${checking ? ' (checking the batch)' : designOnly ? ' (the design reader can\'t read it in place)' : ''}`);
+    console.log(`edit → building${checking ? ' (checking the batch)' : ''}`);
     built = await build(app, dist, keep, compiler, () => inputs !== began);
     if (built.superseded && ++asideRun === 3) console.log('edit → three builds in a row set aside: an input moves during every build (does one write its own input?)');
     if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }
