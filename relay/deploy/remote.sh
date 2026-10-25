@@ -130,21 +130,16 @@ EOF
     systemctl reload ssh 2>/dev/null || systemctl reload sshd
   fi
   # A Match block can turn passwords back on for some connections, which no single sshd -T shows, and sshd's syntax
-  # for it (keyword=value, quotes, aliases, a Match left open across an Include) is more than a scan can follow. So
-  # none is allowed: any Match line in sshd_config, its drop-ins or any file they Include is refused (stock Ubuntu
-  # and Debian images have none), and the settings then hold for every connection, checked below as sshd evaluates
-  # them for this very one.
-  local files=(/etc/ssh/sshd_config) seen=" " f inc
-  while [ ${#files[@]} -gt 0 ]; do
-    f=${files[0]}; files=("${files[@]:1}")
-    [ -f "$f" ] && [ "${seen#* $f }" = "$seen" ] || continue
-    seen="$seen$f "
-    if grep -qiE '^[[:space:]]*match([[:space:]=]|$)' "$f"; then die "$f has a Match block: provision allows none (it can turn password login back on for some connections); remove it, then provision again"; fi
-    while read -r inc; do
-      case "$inc" in /*) ;; *) inc=/etc/ssh/$inc;; esac
-      for g in $inc; do files+=("$g"); done
-    done < <(sed -nE 's/^[[:space:]]*[Ii][Nn][Cc][Ll][Uu][Dd][Ee][[:space:]=]+//p' "$f" | tr ' ' '\n' | grep . || true)
-  done
+  # for one (quotes, keyword=value, escapes, an Include anywhere) is more than a scan can follow. So none is allowed,
+  # and sshd itself says which it read: `sshd -ddd -t` logs every Match line it checks, in every file it includes
+  # (stock Ubuntu and Debian images have none). The settings then hold for every connection, checked below as sshd
+  # evaluates them for this very one.
+  local dbg
+  dbg=$(sshd -ddd -t 2>&1) || die "sshd -t rejects its config: $(printf '%s' "$dbg" | tail -1)"
+  printf '%s\n' "$dbg" | grep -q '^debug' || die "sshd -ddd -t gave no debug output to check for Match blocks; nothing changed past the drop-in"
+  if printf '%s\n' "$dbg" | grep -q "checking syntax for 'Match "; then
+    die "sshd's config has a Match block ($(printf '%s\n' "$dbg" | sed -nE "s/.*checking syntax for '(Match [^']*)'.*/\1/p" | head -3 | tr '\n' ';')): provision allows none, as it can turn password login back on for some connections; remove it, then provision again"
+  fi
   local who eff
   for who in root "${RELAY_SSH_USER:-root}"; do
     eff=$(sshd -T -C "user=$who,host=${conn[0]},addr=${conn[0]},laddr=${conn[2]},lport=${conn[3]}" 2>/dev/null) || die "sshd -T -C failed for $who from ${conn[0]}"
