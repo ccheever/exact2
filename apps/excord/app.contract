@@ -232,7 +232,8 @@ component Excord
   // The person whose card shows, and the message it was opened from.
   state profileUser = ""
   state profileMessage = ""
-  resource profile = userProfile(profileUser != "" ? open : "", profileUser, profileMessage) as shape Profile else empty()
+  state profileChannel = ""
+  resource profile = userProfile(profileUser != "" ? profileChannel : "", profileUser, profileMessage) as shape Profile else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
   derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
@@ -415,6 +416,8 @@ component Excord
   action toSignIn
     nav = go(nav, "/")
     open = ""
+    profileUser = ""
+    close("profile")
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
   // what was on screen at the end.
   action leave(url: string)
@@ -727,6 +730,7 @@ component Excord
     if not locked
       profileUser = userId
       profileMessage = messageId
+      profileChannel = open
       showModal("profile")
   action profileClosed
     profileUser = ""
@@ -753,6 +757,8 @@ component Excord
   action switchTo(serverId: string, id: string)
     switching = false
     close("switcher")
+    profileUser = ""
+    close("profile")
     server = serverId
     openChannel(id)
     // A picture open over the channel left closes with it.
