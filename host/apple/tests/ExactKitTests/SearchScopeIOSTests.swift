@@ -90,7 +90,7 @@ final class SearchScopeIOSTests: XCTestCase {
         search.controller.isActive = true
         until("the search is active") { search.controller.isActive }
         bar.text = "dune"
-        search.controller.searchResultsUpdater?.updateSearchResults(for: search.controller)
+        bar.delegate?.searchBar?(bar, textDidChange: "dune")
         XCTAssertTrue(bar.searchTextField.becomeFirstResponder())
         p.press(try node(session, "filter-all").id)
         until("the segment moves while the search is active") { bar.selectedScopeButtonIndex == 0 }
