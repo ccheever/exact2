@@ -58,6 +58,7 @@ extension Agent {
                 DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
                 out = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
                 reply(announcement)
+                DispatchQueue.main.async { watchForeground() }
                 serve(fd: fd)
             }.start()
             return
@@ -91,6 +92,7 @@ extension Agent {
             guard client >= 0 else { FileHandle.standardError.write(Data("exact: accept: \(String(cString: strerror(errno)))\n".utf8)); return }
             out = FileHandle(fileDescriptor: client, closeOnDealloc: false)
             reply(ready)
+            DispatchQueue.main.async { watchForeground() }
             serve(fd: client)
         }.start()
     }
@@ -638,7 +640,7 @@ extension Agent {
             Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             return ["tapped": id, "wheel": wheel]
         }
-        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), let win = v.window else { return miss(req) }
         var b = v.tapBox(box(v))
         // A run is touched on a fragment it paints (the web's driver taps
         // the span's), not at its paragraph's middle.
@@ -1031,7 +1033,7 @@ extension Agent {
     /// Set an input's text as typing does: the field focused, all selected,
     /// the text inserted — the field sends one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), v.window != nil else { return miss(req) }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
         guard !v.inert else { return ["error": "view \(v.id) is inert"] }

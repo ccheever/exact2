@@ -212,7 +212,7 @@ extension Agent {
     /// pressed, focused or opened.
     func aim(_ req: [String: Any]) -> [String: Any] {
         settleForPress()
-        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), let win = v.window else { return miss(req) }
         if v.placedAncestor?.placementHidden == true { return ["error": "tap #\(v.id): placed child is hidden"] }
         // Said before where it sits: until a swipe reveals it, its node is
         // past the row's edge (splitter rough 12).

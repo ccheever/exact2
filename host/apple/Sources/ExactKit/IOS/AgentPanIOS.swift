@@ -335,7 +335,7 @@ extension Agent {
     /// arbitration gives it, which only a real touch tests: refused, naming
     /// `--touch platform`.
     func scrollDrag(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), let win = v.window else { return miss(req) }
         guard let delta = req["scrollDrag"] as? [Double], delta.count == 2, delta.allSatisfy(\.isFinite) else { return ["error": "drag: dx and dy must be finite"] }
         if v.scrollDormant { v.needScroll() }
         let list = presenter.groupedLists?.scroller(for: v.id).flatMap { $0.superview === v ? $0 : nil }
