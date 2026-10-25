@@ -1,7 +1,7 @@
-//! A browser shell's `iframe` (LLP 1020.002 D1–D3, D6, §9): the accept
-//! fixture lowers its props, zoom and four events, a host's
-//! `FrameNavigation` reaches an action as its record, and the frame
-//! commands reach the host by position.
+//! A browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6, §9): the accept
+//! fixture lowers its props, zoom and six events, a host's
+//! `FrameNavigation`, `FrameNewWindow` and `FrameDownload` reach an action
+//! as its record, and the frame commands reach the host by position.
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
@@ -52,7 +52,9 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
             EventKind::Navigate,
             EventKind::Currententrychange,
             EventKind::Navigatesuccess,
-            EventKind::Navigateerror
+            EventKind::Navigateerror,
+            EventKind::Newwindow,
+            EventKind::Download
         ]
     );
     let event = |payload: &str| Event::of_host_kind(58, payload).unwrap();
@@ -74,6 +76,20 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
     r.dispatch(id, event("navigateerror\n{\"error\":\"AbortError\"}"))
         .unwrap();
     assert_eq!(r.slot("failure"), Some(&Value::str("AbortError")));
+    r.dispatch(
+        id,
+        event("newwindow\n{\"url\":\"https://example.com/b\",\"disposition\":\"background-tab\"}"),
+    )
+    .unwrap();
+    assert_eq!(
+        r.slot("opened"),
+        Some(&Value::str("background-tab https://example.com/b"))
+    );
+    r.dispatch(id, event("download\n{\"url\":\"https://example.com/f\",\"suggestedFilename\":\"f.txt\",\"state\":\"completed\",\"path\":\"app:/tmp/downloads/f.txt\"}")).unwrap();
+    assert_eq!(
+        r.slot("saved"),
+        Some(&Value::str("completed f.txt app:/tmp/downloads/f.txt"))
+    );
     assert!(Event::of_host_kind(58, "load\n{}").is_err());
 }
 
@@ -133,6 +149,11 @@ fn a_partition_refuses_what_would_reach_the_app_and_the_words_are_an_iframes() {
         "lower-iframe-partition-sandbox"
     );
     assert_eq!(refused("column zoom=1.5"), "lower-attr-tag");
+    let e = contract::compile(
+        "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column newwindow=go\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "lower-attr-tag", "{e}");
     // An unpartitioned frame keeps LLP 1020's bridge and sandbox.
     contract::compile("component A\n  action got(d: string)\n    let x = d\n  view\n    iframe \"https://a.test\" sandbox=\"allow-scripts\" message=got\n").unwrap();
     // A computed source is the host's to refuse at run time.
@@ -140,4 +161,73 @@ fn a_partition_refuses_what_would_reach_the_app_and_the_words_are_an_iframes() {
     // The root's `navigate=` keeps its location; an iframe's has none.
     let e = contract::compile("component A\n  action go(location: string)\n    let x = location\n  view\n    iframe \"https://a.test\" partition=\"w\" navigate=go\n").unwrap_err();
     assert_eq!(e.id, "analyze-handler-arity", "{e}");
+}
+
+#[test]
+fn a_guests_requests_are_held_for_the_agent_on_its_frame() {
+    use exact_runner::agent;
+    let plan = contract::compile(&corpus("browser-shell.contract")).unwrap();
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("tab")[0];
+    let id = r.kernel().node_by_key(key).unwrap().id;
+    let mut hold = |capability: &str, args: &str| {
+        let line = format!(
+            r#"{{"op":"frameRequest","node":{id},"capability":"{capability}","args":{args}}}"#
+        );
+        agent::answer(&mut r, &line).unwrap().0
+    };
+    let ticket = |reply: &str| {
+        let v: serde_json::Value = serde_json::from_str(reply).unwrap();
+        v["ticket"].as_u64().unwrap_or_else(|| panic!("{reply}"))
+    };
+    let alert = ticket(&hold(
+        "dialog",
+        r#"{"type":"alert","message":"hi","origin":"a.test"}"#,
+    ));
+    let prompt = ticket(&hold(
+        "dialog",
+        r#"{"type":"prompt","message":"name?","origin":"a.test","defaultText":""}"#,
+    ));
+    let file = ticket(&hold(
+        "open-file",
+        r#"{"multiple":false,"directories":false}"#,
+    ));
+    let save = ticket(&hold("save-file", r#"{"suggestedFilename":"f.txt"}"#));
+    assert!(hold("camera", "{}").contains("not a frame request"));
+    let holds = r.device_holds().to_vec();
+    assert_eq!(holds.len(), 4);
+    assert!(holds.iter().all(|h| h.node == Some(id)));
+    assert!(
+        holds[0].args.contains("\"message\":\"hi\""),
+        "{:?}",
+        holds[0]
+    );
+    let mut answer = |line: String| agent::answer(&mut r, &line).unwrap().0;
+    // An alert is answered by tap, a prompt by type too.
+    assert!(answer(format!(r#"{{"op":"type","ticket":{alert},"text":"x"}}"#)).contains("error"));
+    assert!(
+        answer(format!(r#"{{"op":"tap","ticket":{alert},"choice":"ok"}}"#))
+            .contains("\"answered\":\"ok\"")
+    );
+    assert!(
+        answer(format!(r#"{{"op":"type","ticket":{prompt},"text":"Ada"}}"#))
+            .contains("\"answered\":\"value\"")
+    );
+    assert!(answer(format!(
+        r#"{{"op":"type","ticket":{file},"text":"relative"}}"#
+    ))
+    .contains("absolute path"));
+    assert!(
+        answer(format!(r#"{{"op":"tap","ticket":{save},"choice":"ok"}}"#))
+            .contains("\"capability\":\"save-file\"")
+    );
+    assert_eq!(r.device_holds().len(), 1);
 }
