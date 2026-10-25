@@ -70,12 +70,12 @@ test('probeTool: refused is listening, a held hello is starting, a token or hell
   const free = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('') }), refusedAt = `http://127.0.0.1:${free.port}`;
   free.stop(true);
   expect(await probeTool(refusedAt)).toEqual({ wait: 'listening' });
-  // The token answered, then refused before hello (a loop restarting): still no answer yet, not a failure.
-  const half = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: req => (new URL(req.url).pathname === '/__tamber/token' ? Response.json({ token: 't' }) : new Response('', { status: 500 })) });
-  const halfAt = `http://127.0.0.1:${half.port}`;
-  const real = globalThis.fetch;
-  globalThis.fetch = (url, init) => (String(url).endsWith('/__tamber') ? Promise.reject(Object.assign(new TypeError('Unable to connect'), { code: 'ConnectionRefused' })) : real(url, init));
-  try { expect(await probeTool(halfAt)).toEqual({ wait: 'listening' }); } finally { globalThis.fetch = real; half.stop(true); }
+  // The token answered, then the loop gone under its hello (a restart: the connection reset): still no answer yet.
+  const half = Bun.serve({ port: 0, hostname: '127.0.0.1', idleTimeout: 0, async fetch(req) {
+    if (new URL(req.url).pathname === '/__tamber/token') return Response.json({ token: 't' });
+    setTimeout(() => half.stop(true), 50); await Bun.sleep(5000); return Response.json({});
+  } });
+  expect(await probeTool(`http://127.0.0.1:${half.port}`)).toEqual({ wait: 'listening' });
   // No design server (the token refused): an answer, `{app: null}`.
   const none = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('', { status: 404 }) });
   try { expect(await probeTool(`http://127.0.0.1:${none.port}`)).toEqual({ answer: { app: null } }); } finally { none.stop(true); }
