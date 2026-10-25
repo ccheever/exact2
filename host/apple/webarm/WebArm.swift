@@ -209,7 +209,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// The frame handles `newwindow=`: only then does it ask for popups.
     var handlesNewWindow = false
     /// Requests held for the agent (`ask`), by token.
-    var asked: [UInt32: ([String: Any]?) -> Void] = [:]
+    var asked: [UInt32: (web: ObjectIdentifier?, done: ([String: Any]?) -> Void)] = [:]
     var nextAsk: UInt32 = 1
     /// The `about:blank` load shown in place of a refused source: its own
     /// navigation reports nothing, and one it cancels still ends as itself.
@@ -448,6 +448,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         browser?.close(controller: controller)
         browser = nil
         ui?.close()
+        ui?.forget(old)
         endAsked()
         old.stopLoading()
         old.navigationDelegate = nil
@@ -467,6 +468,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         invalidated = true
         browser?.close(controller: controller)
         ui?.close()
+        ui?.forget(built)
         endAsked()
         built?.uiDelegate = nil
         built?.stopLoading()
@@ -480,6 +482,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard !srcInitialized || src != value else { return }
         srcInitialized = true
         src = value
+        // The app moved the frame: what a person decided about the old page no longer holds.
+        ui?.forget(built)
         markLoading()
         scheduleServe()
     }
@@ -549,11 +553,11 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// is a request the drive answers (@ref LLP 1020.002 §10): kind 6,
     /// `{token, capability, args}`; `exact_web_answer` delivers the answer,
     /// and nil is Cancel (also when the frame goes first).
-    func ask(_ capability: String, _ args: [String: Any], done: @escaping ([String: Any]?) -> Void) {
+    func ask(_ capability: String, _ args: [String: Any], from web: WKWebView?, done: @escaping ([String: Any]?) -> Void) {
         guard !invalidated else { return done(nil) }
         let token = nextAsk
         nextAsk &+= 1
-        asked[token] = done
+        asked[token] = (web.map(ObjectIdentifier.init), done)
         guard let data = try? JSONSerialization.data(withJSONObject: ["token": token, "capability": capability, "args": args]) else {
             asked[token] = nil
             return done(nil)
@@ -561,17 +565,20 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         emit(kind: 6, text: String(decoding: data, as: UTF8.self))
     }
 
-    /// Held requests end unanswered with their web view: a dialog as
-    /// Cancel, a panel as nothing chosen.
-    func endAsked() {
-        let held = asked.values
-        asked = [:]
-        held.forEach { $0(nil) }
+    /// Held requests end unanswered with their web view (`web`, a closed
+    /// popup's; nil, every one): a dialog as Cancel, a panel as nothing chosen.
+    func endAsked(for web: WKWebView? = nil) {
+        var ending: [([String: Any]?) -> Void] = []
+        for (token, held) in asked where web == nil || held.web == web.map(ObjectIdentifier.init) {
+            asked[token] = nil
+            ending.append(held.done)
+        }
+        for done in ending { done(nil) }
     }
 
     func answer(_ value: [String: Any]) {
-        guard let token = (value["token"] as? NSNumber)?.uint32Value, let done = asked.removeValue(forKey: token) else { return }
-        done(value["cancel"] as? Bool == true ? nil : value)
+        guard let token = (value["token"] as? NSNumber)?.uint32Value, let held = asked.removeValue(forKey: token) else { return }
+        held.done(value["cancel"] as? Bool == true ? nil : value)
     }
 
     /// A `FrameNavigation` record for the presenter: kind 4, `{event, record}`.
@@ -592,6 +599,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             FileHandle.standardError.write(Data("exact: \(record["message"]!)\n".utf8))
             return emitNavigation("navigateerror", record)
         }
+        if op["op"] as? String == "navigate" { ui?.forget(built) }
         browser.command(op)
     }
 

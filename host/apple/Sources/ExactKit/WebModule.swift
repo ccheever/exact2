@@ -194,6 +194,9 @@ final class WebViews {
     /// Guest requests held for the agent, by ticket: the frame, the arm's
     /// token, the capability and what it asked (@ref LLP 1020.002 §10).
     private var held: [UInt64: (view: UInt32, token: Any, capability: String, args: [String: Any])] = [:]
+    /// Names in `app:/tmp/downloads/` handed to downloads not yet in: two at
+    /// once never get one name. A completed one's file then holds its name.
+    private var reserved = Set<String>()
     private var nextToken: UInt32 = 1
     private(set) var failure: String?
     var moduleLocation: () -> String = WebViews.modulePath
@@ -479,8 +482,11 @@ final class WebViews {
         case 5:
             // A guest's `newwindow` or `download` (@ref LLP 1020.002 D5).
             guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let name = value["event"] as? String, let record = value["record"] as? [String: Any],
-                  owner.handlers.contains(name), let session,
+                  let name = value["event"] as? String, let record = value["record"] as? [String: Any] else { return }
+            if name == "download", let path = record["path"] as? String, path.hasPrefix("app:/tmp/downloads/"), record["state"] as? String == "completed" {
+                reserved.remove(String(path.dropFirst("app:/tmp/downloads/".count)))
+            }
+            guard owner.handlers.contains(name), let session,
                   let json = try? JSONSerialization.data(withJSONObject: record, options: .sortedKeys) else { return }
             let text = String(decoding: json, as: UTF8.self)
             DispatchQueue.main.async { [weak session] in
@@ -535,7 +541,8 @@ final class WebViews {
                 answer["cancel"] = true
                 break
             }
-            let name = WebViews.freshName(asked.args["suggestedFilename"] as? String ?? "download", in: folder)
+            let name = WebViews.freshName(asked.args["suggestedFilename"] as? String ?? "download", in: folder, taken: reserved)
+            reserved.insert(name)
             let shown = "app:/tmp/downloads/\(name)", url = folder.appendingPathComponent(name)
             answer["path"] = url.path
             answer["shown"] = shown
@@ -546,11 +553,11 @@ final class WebViews {
     }
 
     /// `name`, or Finder's next free form of it in `folder`: `report.txt`,
-    /// then `report 2.txt`, `report 3.txt`.
-    static func freshName(_ name: String, in folder: URL) -> String {
+    /// then `report 2.txt`, `report 3.txt`; `taken` are names already given.
+    static func freshName(_ name: String, in folder: URL, taken: Set<String> = []) -> String {
         let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
         var candidate = name, n = 1
-        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+        while taken.contains(candidate) || FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
             n += 1
             candidate = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
         }

@@ -80,9 +80,13 @@ enum GuestScheme {
 class FrameUI: NSObject, WKUIDelegate {
     enum Policy { case proceed, cancel, download }
 
-    /// One document of one web view (the frame's or a popup's): what a
-    /// person refused or suppressed stays refused until it navigates.
-    struct Document: Hashable { let web: ObjectIdentifier; let generation: Int }
+    /// What a person decided about a page's dialogs and other-app prompts,
+    /// per web view (the frame's or a popup's), by the origin that asked. A
+    /// reload or a page of the same origin keeps it, so a page cannot start
+    /// over by reloading; it is cleared when the main document's origin
+    /// changes or the app navigates the frame (`src`, `navigate`).
+    struct Asked { var dialogs = 0; var recent: [Date] = []; var suppressed = false; var schemesRefused = false }
+    struct PageState { var origin = ""; var asked: [String: Asked] = [:] }
 
     weak var arm: WebArm?
     var popups: [FramePopup] = []
@@ -90,17 +94,11 @@ class FrameUI: NSObject, WKUIDelegate {
     /// A confirmation for another app's scheme is up: a second one is
     /// refused rather than stacked behind it.
     var prompting = false
-    var generations: [ObjectIdentifier: Int] = [:]
-    /// Documents whose other-app confirmation a person cancelled: they ask
-    /// no more, so a page cannot raise it again in a loop.
-    var refusedSchemes = Set<Document>()
-    /// Documents whose dialogs a person suppressed, and how many each showed.
-    var suppressedDialogs = Set<Document>()
-    var dialogsShown: [Document: Int] = [:]
+    var pages: [ObjectIdentifier: PageState] = [:]
     /// The sheets and panels up now, each with how it ends as Cancel when
     /// its frame or popup goes first.
-    private struct Shown { weak var web: WKWebView?; let end: () -> Void }
-    private var shown: [Int: Shown] = [:]
+    private struct Shown { let id: Int; weak var web: WKWebView?; let end: () -> Void }
+    private var shown: [Shown] = []
     private var nextShown = 0
 
     init(arm: WebArm) {
@@ -120,29 +118,55 @@ class FrameUI: NSObject, WKUIDelegate {
         open.forEach { $0.close() }
     }
 
-    func document(_ web: WKWebView) -> Document {
-        Document(web: ObjectIdentifier(web), generation: generations[ObjectIdentifier(web), default: 0])
+    /// An origin as a key: scheme, host and port.
+    static func origin(_ o: WKSecurityOrigin?) -> String {
+        guard let o else { return "" }
+        return "\(o.protocol)://\(o.host):\(o.port)"
     }
 
-    /// A web view committed a new main-frame document.
-    func committed(_ web: WKWebView) { generations[ObjectIdentifier(web), default: 0] += 1 }
+    static func origin(_ url: URL?) -> String {
+        guard let url, let scheme = url.scheme?.lowercased() else { return "" }
+        let port = url.port ?? (scheme == "https" ? 443 : scheme == "http" ? 80 : 0)
+        return "\(scheme)://\(url.host?.lowercased() ?? ""):\(port == 80 && scheme == "http" || port == 443 && scheme == "https" ? 0 : port)"
+    }
+
+    /// What was decided for `origin`'s requests in `web`.
+    func asked(_ web: WKWebView, _ origin: String) -> Asked { pages[ObjectIdentifier(web)]?.asked[origin] ?? Asked() }
+
+    func record(_ web: WKWebView, _ origin: String, _ change: (inout Asked) -> Void) {
+        change(&pages[ObjectIdentifier(web), default: PageState()].asked[origin, default: Asked()])
+    }
+
+    /// A web view committed a main-frame document: a new origin starts over.
+    func committed(_ web: WKWebView) {
+        let origin = Self.origin(web.url)
+        guard pages[ObjectIdentifier(web)]?.origin != origin else { return }
+        pages[ObjectIdentifier(web)] = PageState(origin: origin)
+    }
+
+    /// The app moved the frame (`src`, `navigate`), or the web view went:
+    /// what a person decided about the old page no longer holds.
+    func forget(_ web: WKWebView?) {
+        if let web { pages[ObjectIdentifier(web)] = nil }
+    }
 
     /// A sheet or panel went up on `web`; `end` dismisses it as Cancel.
     func showing(_ web: WKWebView, end: @escaping () -> Void) -> Int {
         nextShown += 1
-        shown[nextShown] = Shown(web: web, end: end)
+        shown.append(Shown(id: nextShown, web: web, end: end))
         return nextShown
     }
 
-    func ended(_ id: Int) { shown[id] = nil }
+    func ended(_ id: Int) { shown.removeAll { $0.id == id } }
 
     /// Ends, as Cancel, the sheets and panels up on `web`, or all of them.
     func endSheets(for web: WKWebView? = nil) {
-        let ending = shown.filter { web == nil || $0.value.web == nil || $0.value.web === web }
-        for (id, sheet) in ending {
-            shown[id] = nil
-            sheet.end()
+        var kept: [Shown] = [], ending: [Shown] = []
+        for sheet in shown {
+            if web == nil || sheet.web == nil || sheet.web === web { ending.append(sheet) } else { kept.append(sheet) }
         }
+        shown = kept
+        for sheet in ending { sheet.end() }
     }
 
     /// `done` once: a sheet ended from outside and its own button cannot both answer.
@@ -211,18 +235,13 @@ class FrameUI: NSObject, WKUIDelegate {
             return nil
         }
         guard GuestScheme.web(url) else {
-            if let external = GuestScheme.external(url) { confirmExternal(external, from: web) } else { log("a window for \(url?.scheme ?? "this"): is refused") }
+            if let external = GuestScheme.external(url) { confirmExternal(external, from: web, asker: Self.origin(action.sourceFrame.securityOrigin)) } else { log("a window for \(url?.scheme ?? "this"): is refused") }
             return nil
         }
         let disposition = GuestScheme.disposition(action, features: windowFeatures)
         if disposition == "new-window" {
             guard arm.handlesNewWindow else { log("a new-window for \(raw) is refused: the frame has no newwindow="); return nil }
-            #if os(iOS)
-            let popup = arm.agent ? FramePopupAgent(configuration: configuration, features: windowFeatures, opener: web, ui: self)
-                : FramePopup(configuration: configuration, features: windowFeatures, opener: web, ui: self)
-            #else
             let popup = FramePopup(configuration: configuration, features: windowFeatures, opener: web, ui: self)
-            #endif
             popups.append(popup)
             arm.emitRecord("newwindow", ["url": raw, "disposition": disposition])
             return popup.web
@@ -265,14 +284,26 @@ class FrameUI: NSObject, WKUIDelegate {
         if let arm, arm.agent {
             var args: [String: Any] = ["type": type, "message": message, "origin": speaker]
             if let defaultText { args["defaultText"] = defaultText }
-            return arm.ask("dialog", args) { answer in
+            return arm.ask("dialog", args, from: web) { answer in
                 guard let answer else { return done(nil) }
                 done(answer["text"] as? String ?? defaultText ?? "")
             }
         }
-        let page = document(web)
-        guard !suppressedDialogs.contains(page) else { return done(nil) }
-        dialogsShown[page, default: 0] += 1
+        let origin = Self.origin(frame.securityOrigin)
+        guard !asked(web, origin).suppressed else { return done(nil) }
+        #if os(iOS)
+        // iOS offers no suppression box: past three dialogs in ten seconds
+        // from one origin, the rest answer Cancel unshown, so a loop cannot
+        // hold the app.
+        let now = Date()
+        let recent = asked(web, origin).recent.filter { now.timeIntervalSince($0) < 10 }
+        guard recent.count < 3 else {
+            log("\(type) answered as Cancel unshown: more than three dialogs from \(speaker) in ten seconds")
+            return done(nil)
+        }
+        record(web, origin) { $0.recent = recent + [now] }
+        #endif
+        record(web, origin) { $0.dialogs += 1 }
         #if os(macOS)
         guard let window = web.window else { log("\(type) answered as Cancel: the frame is in no window"); return done(nil) }
         let alert = NSAlert()
@@ -281,7 +312,7 @@ class FrameUI: NSObject, WKUIDelegate {
         alert.addButton(withTitle: "OK")
         // From a page's second dialog on, a person can stop the rest, as
         // Safari and Chrome let one: a page cannot hold the window with a loop.
-        if dialogsShown[page, default: 0] > 1 {
+        if asked(web, origin).dialogs > 1 {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = "Prevent this page from creating additional dialogs"
         }
@@ -296,7 +327,7 @@ class FrameUI: NSObject, WKUIDelegate {
         let id = showing(web) { [weak window, weak alert] in if let alert { window?.endSheet(alert.window, returnCode: .cancel) } }
         alert.beginSheetModal(for: window) { [weak self] response in
             self?.ended(id)
-            if alert.suppressionButton?.state == .on { self?.suppressedDialogs.insert(page) }
+            if alert.suppressionButton?.state == .on { self?.record(web, origin) { $0.suppressed = true } }
             done(response == .alertFirstButtonReturn ? field?.stringValue ?? "" : nil)
         }
         #else
@@ -335,7 +366,7 @@ class FrameUI: NSObject, WKUIDelegate {
     @available(macOS 10.12, iOS 18.4, *)
     func openPanel(_ web: WKWebView, _ parameters: WKOpenPanelParameters, _ done: @escaping ([URL]?) -> Void) {
         if let arm, arm.agent {
-            return arm.ask("open-file", ["multiple": parameters.allowsMultipleSelection, "directories": parameters.allowsDirectories]) { answer in
+            return arm.ask("open-file", ["multiple": parameters.allowsMultipleSelection, "directories": parameters.allowsDirectories], from: web) { answer in
                 let paths = answer?["paths"] as? [String] ?? []
                 done(paths.isEmpty ? nil : paths.map { URL(fileURLWithPath: $0) })
             }
@@ -388,17 +419,18 @@ class FrameUI: NSObject, WKUIDelegate {
         guard action.navigationType == .linkActivated || action.navigationType == .formSubmitted else {
             return log("\(url.scheme ?? ""): refused: only a link a person follows asks to open another app")
         }
-        confirmExternal(url, from: web)
+        confirmExternal(url, from: web, asker: Self.origin(action.sourceFrame.securityOrigin))
     }
 
     /// The platform's confirmation, then the app that opens the URL (Safari's
     /// prompt). Under the agent no app opens: it answers Cancel and says so.
     /// `byApp`: the app's own `navigate`, which a page's refusals never stop.
-    func confirmExternal(_ url: URL, from web: WKWebView, byApp: Bool = false) {
+    /// `asker`: the origin of the frame that asked, whose Cancel refuses its
+    /// further asks.
+    func confirmExternal(_ url: URL, from web: WKWebView, byApp: Bool = false, asker: String = "") {
         let scheme = url.scheme ?? ""
         guard !prompting else { return log("\(scheme): refused: a confirmation is already up") }
-        let page = document(web)
-        guard byApp || !refusedSchemes.contains(page) else { return log("\(scheme): refused: the person cancelled one from this page") }
+        guard byApp || !asked(web, asker).schemesRefused else { return log("\(scheme): refused: the person cancelled one from this page") }
         guard let arm, !arm.agent else { return log("\(scheme): would ask to open another app; the agent answers Cancel") }
         let shown = url.absoluteString.count > 300 ? "\(url.absoluteString.prefix(300))…" : url.absoluteString
         #if os(macOS)
@@ -416,7 +448,7 @@ class FrameUI: NSObject, WKUIDelegate {
             self?.ended(id)
             self?.prompting = false
             if response == .alertFirstButtonReturn { _ = NSWorkspace.shared.open(url); return }
-            if !byApp { self?.refusedSchemes.insert(page) }
+            if !byApp { self?.record(web, asker) { $0.schemesRefused = true } }
             self?.log("\(scheme): the person answered Cancel")
         }
         #else
@@ -428,7 +460,7 @@ class FrameUI: NSObject, WKUIDelegate {
             self.ended(id)
             self.prompting = false
             guard open else {
-                if !byApp { self.refusedSchemes.insert(page) }
+                if !byApp { self.record(web, asker) { $0.schemesRefused = true } }
                 return self.log("\(scheme): the person answered Cancel")
             }
             UIApplication.shared.open(url) { [weak self] opened in if !opened { self?.log("\(scheme): no app opened it") } }
@@ -461,11 +493,14 @@ final class FrameUIAgent: FrameUI {
 /// cookies, so `window.opener` and its `postMessage` work (OAuth); it gets
 /// none of its opener's scripts and no app asset; its own popups are
 /// refused, one level as the reference has it; it closes on `window.close()`.
-class FramePopup: NSObject, WKUIDelegate, WKNavigationDelegate {
+final class FramePopup: NSObject, WKUIDelegate, WKNavigationDelegate {
     let web: WKWebView
     weak var ui: FrameUI?
     private var title: NSKeyValueObservation?
     private var finished = false
+    #if os(iOS)
+    private var agentPanel: FramePopupAgentPanel?
+    #endif
     #if os(macOS)
     let window: NSWindow
     #else
@@ -490,6 +525,12 @@ class FramePopup: NSObject, WKUIDelegate, WKNavigationDelegate {
         #endif
         super.init()
         web.uiDelegate = self
+        #if os(iOS)
+        if ui.arm?.agent == true {
+            agentPanel = FramePopupAgentPanel(self)
+            web.uiDelegate = agentPanel
+        }
+        #endif
         web.navigationDelegate = self
         #if EXACT_DEVELOPMENT
         web.isInspectable = true
@@ -536,10 +577,12 @@ class FramePopup: NSObject, WKUIDelegate, WKNavigationDelegate {
     @objc private func windowWillClose(_ note: Notification) { finish() }
     #endif
 
-    fileprivate func finish() {
+    private func finish() {
         guard !finished else { return }
         finished = true
         ui?.endSheets(for: web)
+        ui?.arm?.endAsked(for: web)
+        ui?.forget(web)
         title = nil
         web.stopLoading()
         web.uiDelegate = nil
@@ -628,14 +671,19 @@ class FramePopup: NSObject, WKUIDelegate, WKNavigationDelegate {
 }
 
 #if os(iOS)
-/// A popup under the agent on iOS: its file input is the drive's
-/// `open-file` request, as its opener's is (`FrameUIAgent`).
-final class FramePopupAgent: FramePopup {
+/// A popup's UI delegate under the agent on iOS: its file input is the
+/// drive's `open-file` request, as its opener's is (`FrameUIAgent`). It adds
+/// that one method and hands every other to the popup.
+final class FramePopupAgentPanel: NSObject, WKUIDelegate {
+    unowned let popup: FramePopup
+    init(_ popup: FramePopup) { self.popup = popup }
+    override func responds(to selector: Selector!) -> Bool { super.responds(to: selector) || popup.responds(to: selector) }
+    override func forwardingTarget(for selector: Selector!) -> Any? { popup.responds(to: selector) ? popup : nil }
+
     @available(iOS 18.4, *)
-    @objc(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:)
     func webView(_ web: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo,
                  completionHandler: @escaping ([URL]?) -> Void) {
-        guard let ui else { return completionHandler(nil) }
+        guard let ui = popup.ui else { return completionHandler(nil) }
         ui.openPanel(web, parameters, completionHandler)
     }
 }
@@ -650,7 +698,9 @@ extension FramePopup: UIAdaptivePresentationControllerDelegate {
 /// frame fires `download` as each starts and ends, with Electron's
 /// `DownloadItem` states.
 final class FrameDownloads: NSObject, WKDownloadDelegate {
-    struct Item { var url: String; var name = ""; var path: URL?; var shown = ""; weak var web: WKWebView? }
+    /// `temp` is where WebKit writes, beside `path`, until the download is
+    /// in and is renamed over it.
+    struct Item { var url: String; var name = ""; var path: URL?; var temp: URL?; var shown = ""; weak var web: WKWebView? }
     weak var ui: FrameUI?
     var items: [ObjectIdentifier: Item] = [:]
     #if os(iOS)
@@ -690,18 +740,20 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
                 self.report(item, "cancelled")
                 return completionHandler(nil)
             }
-            // The place was chosen knowing what is there (the save panel asked
-            // to replace it, or the agent named it): a file there is replaced,
-            // since WebKit refuses one that exists.
+            // WebKit writes beside the place and the finished file is renamed
+            // over it (`rename(2)`, atomic): a file there, chosen knowing it is
+            // there (the save panel asked; the agent named it), is replaced only
+            // by a whole download, and kept when the download fails.
+            let temp = target.deletingLastPathComponent().appendingPathComponent(".\(target.lastPathComponent).\(UUID().uuidString).download")
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if exists { try? FileManager.default.removeItem(at: target) }
             item.path = target
+            item.temp = temp
             item.shown = shown ?? target.path
             self.items[key] = item
-            completionHandler(target)
+            completionHandler(temp)
         }
         if let arm = ui?.arm, arm.agent {
-            return arm.ask("save-file", ["suggestedFilename": item.name]) { answer in
+            return arm.ask("save-file", ["suggestedFilename": item.name], from: item.web) { answer in
                 accept((answer?["path"] as? String).map { URL(fileURLWithPath: $0) }, answer?["shown"] as? String)
             }
         }
@@ -725,6 +777,14 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
     func downloadDidFinish(_ download: WKDownload) {
         let key = ObjectIdentifier(download)
         guard let item = items[key] else { return }
+        if let temp = item.temp, let path = item.path, rename(temp.path, path.path) != 0 {
+            // A folder put there meanwhile fails with EISDIR, and stays.
+            let reason = String(cString: strerror(errno))
+            try? FileManager.default.removeItem(at: temp)
+            items[key] = nil
+            ui?.log("a download of \(item.name) was interrupted: it could not be put at \(path.path): \(reason)")
+            return report(item, "interrupted")
+        }
         #if os(iOS)
         if !(ui?.arm?.agent ?? true), let path = item.path, let web = item.web, let presenter = FrameUI.presenter(web) {
             let picker = UIDocumentPickerViewController(forExporting: [path], asCopy: false)
@@ -745,6 +805,7 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         guard let item = items.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        if let temp = item.temp { try? FileManager.default.removeItem(at: temp) }
         ui?.log("a download of \(item.name) was interrupted: \((error as NSError).localizedDescription)")
         report(item, "interrupted")
     }

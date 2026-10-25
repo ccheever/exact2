@@ -509,8 +509,14 @@ final class IframeWindowsTests: XCTestCase {
         _ = run(web, "document.getElementById('mail').click(); 0")
         pause(0.8)
         XCTAssertNil(window.attachedSheet, "a page whose confirmation was cancelled asks no more")
-        // A new document may ask again.
+        // A reload keeps the refusal; the app's own navigation clears it.
         json(["op": "reload"], arm.command, handle)
+        pause(1)
+        _ = run(web, "document.getElementById('mail').click(); 0")
+        pause(0.8)
+        XCTAssertNil(window.attachedSheet, "a reload does not start over")
+        seen.navigation = []
+        json(["op": "navigate", "url": "\(base)/timer-scheme"], arm.command, handle)
         loaded(seen, web, "/timer-scheme")
         _ = run(web, "document.getElementById('mail').click(); 0")
         spin { window.attachedSheet != nil }
@@ -542,6 +548,43 @@ final class IframeWindowsTests: XCTestCase {
         pause(0.3)
         XCTAssertEqual(run(web, "confirm('three')") as? Bool, false, "suppressed: Cancel at once")
         XCTAssertNil(window.attachedSheet)
+    }
+
+    /// A page that reloads after each dialog cannot start over: its second
+    /// dialog offers the box, and once ticked the reloads raise nothing.
+    func testAReloadingPageCannotRaiseDialogsForever() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "reload-dialogs"], src: "\(base)/reload-alert")
+        defer { arm.destroy(handle) }
+        let window = try XCTUnwrap(web.window)
+        spin { window.attachedSheet != nil }
+        var sheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertNil(suppression(sheet), "the first dialog offers no suppression")
+        window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        spin { window.attachedSheet != nil }
+        sheet = try XCTUnwrap(window.attachedSheet, "the page reloaded and asked again")
+        let box = try XCTUnwrap(suppression(sheet), "the reloaded page's dialog is its second")
+        box.state = .on
+        window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        pause(1.5)
+        XCTAssertNil(window.attachedSheet, "suppressed across reloads")
+    }
+
+    /// A page that clicks a link to another app and reloads cannot ask again
+    /// once a person cancelled.
+    func testAReloadingPageCannotAskForAnotherAppAgain() throws {
+        guard NSWorkspace.shared.urlForApplication(toOpen: URL(string: "mailto:a@b.test")!) != nil else {
+            throw XCTSkip("no app opens mailto: on this Mac")
+        }
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "reload-schemes"], src: "\(base)/reload-scheme")
+        defer { arm.destroy(handle) }
+        let window = try XCTUnwrap(web.window)
+        spin { window.attachedSheet != nil }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        pause(2.5)
+        XCTAssertNil(window.attachedSheet, "the reloaded page's click asks no more")
     }
 
     private func suppression(_ sheet: NSWindow) -> NSButton? {
@@ -597,6 +640,47 @@ final class IframeWindowsTests: XCTestCase {
             if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .alertSecondButtonReturn) }
             arm.destroy(handle)
         }
+    }
+    #endif
+
+    /// A download that fails keeps the file already at its place: WebKit
+    /// writes beside it, and only a finished file is renamed over it.
+    func testAFailedDownloadKeepsTheFileItWouldReplace() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "keep", "agent": true], src: "\(base)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("iframe-windows-keep-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let target = folder.appendingPathComponent("report.txt")
+        try Data("original".utf8).write(to: target)
+        json(["op": "navigate", "url": "\(base)/broken-report"], arm.command, handle)
+        spin { !seen.asked.isEmpty }
+        json(["token": seen.asked.last?["token"] ?? 0, "path": target.path, "shown": target.path], arm.answer, handle)
+        spin { seen.records.count >= 2 }
+        XCTAssertEqual(seen.records.map { $0.record["state"] as? String }, ["progressing", "interrupted"])
+        XCTAssertEqual(try? String(contentsOf: target, encoding: .utf8), "original")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["report.txt"], "no partial file is left")
+    }
+
+    #if os(macOS)
+    /// A request held for the agent from a popup ends, as Cancel, when the
+    /// popup closes.
+    func testAClosedPopupEndsItsHeldRequest() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "popup-held", "newwindow": true, "agent": true], src: "\(base)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        _ = run(web, "window.open('/b', 'p', 'width=300,height=200'); 0")
+        spin { self.popups().first?.url?.path == "/b" && self.popups().first?.isLoading == false }
+        let popup = try XCTUnwrap(popups().first)
+        var answered: Any?
+        popup.evaluateJavaScript("confirm('Stay?')") { value, _ in answered = value ?? "none" }
+        spin { !seen.asked.isEmpty }
+        popup.window?.close()
+        spin { answered != nil }
+        XCTAssertEqual(answered as? Bool, false)
     }
     #endif
 
@@ -659,6 +743,11 @@ final class WindowPages {
                 """)
             case "/popup": response = Self.page("Popup", "<script>opener && opener.postMessage('signed-in', '*')</script>")
             case "/b": response = Self.page("Page B", "B")
+            case "/reload-alert": response = Self.page("Reload alert", "<script>alert('again'); location.reload()</script>")
+            case "/reload-scheme":
+                response = Self.page("Reload scheme", "<a id=mail href=\"mailto:a@b.test\">mail</a><script>setTimeout(() => { document.getElementById('mail').click(); setTimeout(() => location.reload(), 400) }, 200)</script>")
+            case "/broken-report":
+                response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"report.txt\"\r\nContent-Length: 4000\r\nConnection: close\r\n\r\npartial"
             case "/timer-scheme":
                 response = Self.page("Timer", "<a id=mail href=\"mailto:a@b.test\">mail</a><script>setInterval(() => { location.href = 'mailto:loop@b.test' }, 200)</script>")
             case "/sandboxed-mail":

@@ -91,6 +91,8 @@ final class IframeWindowsSessionTests: XCTestCase {
         XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report 3.txt")
         try Data().write(to: folder.appendingPathComponent("notes"))
         XCTAssertEqual(WebViews.freshName("notes", in: folder), "notes 2")
+        // A name handed to a download still coming in is taken too.
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder, taken: ["report 3.txt"]), "report 4.txt")
     }
 
     func testANewWindowReachesItsAction() throws {
