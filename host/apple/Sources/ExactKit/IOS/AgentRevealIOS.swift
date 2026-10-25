@@ -15,7 +15,7 @@ extension Agent {
     /// first (LLP 1084 D8): with no cell, its views wait in the hidden
     /// authored scroll, which moves nothing on screen (r5 password generator).
     func reveal(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req) else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req) else { return miss(req) }
         settleForPress()
         // Where it is seen: a row a list draws is its cell (none while off the list's port).
         let seen = { () -> CGRect? in
@@ -31,7 +31,7 @@ extension Agent {
             scrolled = true
             settleBox(v)
         }
-        guard v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard v.window != nil else { return miss(req) }
         guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
         presenter.settlePump()
         let to = seen() ?? box(v)
