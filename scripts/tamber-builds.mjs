@@ -152,7 +152,8 @@ function reportRefused(r) {
  * that site `site` of plan `from` is, by their source maps, or null.
  * `timers` (`{set, clear}`, a test's clock) wait out a design-only status. */
 export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, copiesFor = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
-  // Its plan's copies (tamber/1.17, `copiesFor(planDigest)`), for `select` to walk by: once per plan per registration,
+  // Its plan's copies (tamber/1.17, `copiesFor(planDigest)`: their encoding, null with no map read yet, false past the
+  // copies limit), for `select` to walk by: once per plan per registration,
   // to a build that says it walks by them (the `copies` capability; a page of an older build gets none, and `levels`),
   // with inspect mode on or, inspecting, when its status names a new plan. The page keeps them whatever its mode.
   const copiesSent = new Map(); // id -> the plan digest whose copies its registration was sent
@@ -160,7 +161,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
     const b = builds.get(id), digest = b?.planDigest ?? null;
     if (!digest || !b.capabilities?.includes('copies') || copiesSent.get(id) === digest) return null;
     const data = copiesFor(digest);
-    if (!data) return null;
+    if (!data) return null; // (null: no map read yet; false: past the copies limit, which `selectUp` answers)
     copiesSent.set(id, digest);
     return { plan: digest, data };
   };
@@ -590,6 +591,16 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       // everywhere (theme2 15:02), so the client reads its chain again; never `unsupported`, which is a page that can't.
       const pick = picks.get(id);
       if (!pick || pick.plan !== plan || pick.site !== from || pick.instance !== JSON.stringify(instance ?? [])) return { stale: true, error: 'the selection moved since its chain was read: select again' };
+      // A plan past the copies limit never gets them, so no move can land there: the build is said unable to step
+      // (unsupported, theme2's ruling; the tool greys its up control until it registers again), never stale, which
+      // would have the tool ask again for good.
+      const b = builds.get(id);
+      if (b.capabilities?.includes('copies') && b.planDigest && copiesFor(b.planDigest) === false) {
+        const detail = 'this build cannot move its selection up (select): its plan is past the copies limit (2^20 sites, 512 KiB encoded); click the node instead';
+        b.unsupported = { what: 'inspect', detail };
+        send({ event: 'unsupported', build: id, what: 'inspect', detail });
+        return { builds: [id] };
+      }
       // Its plan's copies first, when none went yet (its source map read since the plan was named: a native build's
       // arrives after its status).
       const copies = copiesOf(id);
