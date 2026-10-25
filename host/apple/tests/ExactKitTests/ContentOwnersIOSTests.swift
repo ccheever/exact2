@@ -687,6 +687,48 @@ final class ContentOwnersIOSTests: XCTestCase {
         until("the runner lays the route out at its new size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
     }
 
+    /// A route's safe area changed while main serves a callback the runtime
+    /// waits on: its cover is told once the callback returns, and only then
+    /// recorded as delivered.
+    func testACoverFromAServedCallbackReachesTheRunner() throws {
+        guard let scene = hostedWindowScene() else {
+            throw missing("scene", "native safe-area changes reach the runner after a served callback")
+        }
+        let session = try fixture("cover-served", scene.screen.bounds.size, plan: "EXACT_PUSHED_TITLE_PLAN")
+        let p = session.presenter, agent = Agent(session: session)
+        p.press(try node(session, "home-open-viewport").id)
+        XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        // The route's child that contains viewport-info-open: a left cover moves it right
+        var child = try node(session, "viewport-info-open").id
+        while let parent = (agent.runnerNode(child)["parent"] as? NSNumber)?.uint32Value, parent != route.node.id { child = parent }
+        func left() -> CGFloat? {
+            guard let frame = agent.runnerNode(child)["frame"] as? [String: Any], let x = frame["x"] as? NSNumber else { return nil }
+            return CGFloat(x.doubleValue)
+        }
+        func wantedLeft() -> CGFloat {
+            if case .edges(let edges)? = p.navigation.covers[route.node.id] { return edges.left }
+            return 0
+        }
+        let insets = route.additionalSafeAreaInsets, frame = route.view.frame
+        for extra in [CGFloat(31), 0] {
+            let previous = wantedLeft()
+            Owner.shared.sync {
+                Owner.shared.callMain {
+                    route.additionalSafeAreaInsets = UIEdgeInsets(top: insets.top, left: insets.left + extra, bottom: insets.bottom, right: insets.right)
+                    route.view.layoutIfNeeded()
+                    XCTAssertEqual(route.view.frame, frame, "only the safe area changes, without resizing the owner")
+                    XCTAssertNotEqual(wantedLeft(), previous, "the native change produces a different cover inside the served callback")
+                }
+            }
+            until("the runner applies the sampled left cover \(wantedLeft()); the route's child starts at \(String(describing: left()))") {
+                left().map { abs($0 - wantedLeft()) < 0.5 } == true
+            }
+            XCTAssertEqual(p.navigation.delivered[route.node.id], p.navigation.covers[route.node.id])
+        }
+    }
+
     /// A retained controller can leave the native stack and return below
     /// its top without appearing. It remains a native owner, not the list
     /// beside a Mac detail pane (runner `head::beside_a_pane`).
