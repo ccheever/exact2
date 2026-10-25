@@ -253,8 +253,14 @@ function joinPage(h: History, page: Run, linked = new Set<Run>()): void {
   if (page.reachesNewest) h.live = page;
 }
 
+// What the app draws of a user: a copy that changes none of these keeps the object the store has, so a
+// rendered row keyed on it stays drawn (`render.ts`).
+const SHOWN = ['username', 'global_name', 'avatar', 'discriminator', 'bot'];
 function rememberUser(s: Store, user: DiscordObject | undefined): void {
-  if (user?.id) s.users.set(user.id, { ...s.users.get(user.id), ...user } as User);
+  if (!user?.id) return;
+  const known = s.users.get(user.id);
+  if (known && SHOWN.every(key => !(key in user) || known[key] === user[key])) return;
+  s.users.set(user.id, { ...known, ...user } as User);
 }
 
 function messageUsers(s: Store, data: DiscordObject): void {
