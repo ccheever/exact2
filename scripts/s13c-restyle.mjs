@@ -68,7 +68,11 @@ export const DERIVED = {
  * the rows read there, and the instances (`*` every one). Taken from
  * library-gate's nodes whose rows name the token and checked by hand
  * against each component's source; a use moved to another token fails its
- * read, and library-gate.test fails a token or param with none. */
+ * read, and library-gate.test fails a token or param with none. A symbol
+ * image is read by the colour it draws in, its `text_color`: a symbol draws
+ * in its `color` on every host (docs/agent-pitfalls.md), its `tint_color`
+ * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
+ * `color` keeps its read. */
 export const READS = {
   'BarItem.badgeFill': ['2 background_color sample-bi-badge,sample-bi-dot'],
   'BarItem.badgeInk': ['2 text_color sample-bi-badge'],
