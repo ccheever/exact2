@@ -137,9 +137,10 @@ final class SplitMacTests: XCTestCase {
 
     /// The window's owner, as ExactMac composes it: a full-size-content
     /// window whose content is the split view, and the window's toolbar.
-    private func compose(_ view: ExactView, width: CGFloat, sidebar: Bool, minimum: CGFloat = 320, autosave: String? = nil) -> ExactSidebarController {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 500),
-                              styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+    private func compose(_ view: ExactView, width: CGFloat, sidebar: Bool, minimum: CGFloat = 320, autosave: String? = nil,
+                         window kind: NSWindow.Type = NSWindow.self) -> ExactSidebarController {
+        let window = kind.init(contentRect: NSRect(x: 0, y: 0, width: width, height: 500),
+                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         self.window = window
         window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 500))
@@ -1008,23 +1009,38 @@ final class SplitMacTests: XCTestCase {
         XCTAssertEqual(own.style["display"]?.string, "none")
     }
 
+    /// The library with its books in the painted grouped form (D6), as
+    /// Excord's channels are: a section of rows whose press is an action
+    /// that pushes the book. A book's Next replaces it with the next.
+    private func paintedList() -> String {
+        let swapping = app(tabs: false).replacingOccurrences(of: "  action count\n", with: "  action swap(url: string)\n    nav = replace(nav, url)\n  action count\n")
+        let next = replacing("box testId=`half-${e.params.id}`", with: [
+            "box testId=`half-${e.params.id}` width=\"50%\" height=40 background-color=\"#f9ab00\"",
+            "button press=swap(path(\"book\", e.params.id == \"a\" ? \"b\" : e.params.id == \"b\" ? \"c\" : \"a\")) testId=`next-${e.params.id}`",
+            "  text \"Next\"",
+        ], in: swapping)
+        let grouped = next.replacingOccurrences(of: "list testId=\"books\"", with: "list testId=\"books\" appearance=\"auto\" listStyle=\"plain\"")
+        // A grouped list's rows are in sections; the link rows go.
+        let bare = replacing("text `Book ${id}`", with: [], in: replacing("link href=path(\"book\", id)", with: [], in: grouped))
+        return replacing("for id in [\"a\", \"b\", \"c\"] key=id", with: [
+            "section",
+            "  for id in (counted > 1 ? [\"a\", \"b\"] : [\"a\", \"b\", \"c\"]) key=id",
+            "    button press=follow(path(\"book\", id)) testId=`row-${id}`",
+            "      row gap=8 align-items=\"center\" flex=1 min-width=0",
+            "        text `Book ${id}` flex=1 testId=`name-${id}`",
+            "        image \"symbol:forward-chevron\" testId=`chevron-${id}`",
+            "  button press=count testId=\"row-count\"",
+            "    text \"Count\"",
+            "  input value=query input=search placeholder=\"Filter\" testId=\"row-field\"",
+        ], in: bare)
+    }
+
     /// LLP 1115.002 D5: the list's column draws no disclosure chevron, as
     /// a hand-built Mac list beside its detail has none, also where the list
     /// is no table but the painted grouped form (D6), as Excord's channels
     /// are. Pushed, the rows draw them again.
     func testAPaintedListBesideItsDetailDrawsNoChevrons() throws {
-        let grouped = app(tabs: false).replacingOccurrences(of: "list testId=\"books\"", with: "list testId=\"books\" appearance=\"auto\" listStyle=\"plain\"")
-        // A grouped list's rows are in sections; the link rows go.
-        let bare = replacing("text `Book ${id}`", with: [], in: replacing("link href=path(\"book\", id)", with: [], in: grouped))
-        let source = replacing("for id in [\"a\", \"b\", \"c\"] key=id", with: [
-            "section",
-            "  for id in [\"a\", \"b\", \"c\"] key=id",
-            "    button press=follow(path(\"book\", id)) testId=`row-${id}`",
-            "      row gap=8 align-items=\"center\" flex=1 min-width=0",
-            "        text `Book ${id}` flex=1",
-            "        image \"symbol:forward-chevron\" testId=`chevron-${id}`",
-        ], in: bare)
-        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: paintedList())
         _ = compose(ExactView(session: session), width: 1000, sidebar: false)
         let p = session.presenter, split = p.navigation.split
         XCTAssertTrue(split.active)
@@ -1038,6 +1054,150 @@ final class SplitMacTests: XCTestCase {
         XCTAssertEqual(try drawn("chevron-a"), 1, "a pushed stack's rows keep theirs")
         split.painted = false
         XCTAssertEqual(try drawn("chevron-a"), 0)
+    }
+
+    /// LLP 1115.002 D5: the painted list's row whose detail shows is drawn
+    /// selected, as a table's row is: AppKit's selection, the separators
+    /// beside it not drawn, and while the window is key with the keyboard
+    /// in the list or nowhere, emphasized, its text in the selected item's
+    /// ink. The selection moves with the detail and goes with it.
+    func testAPaintedListMarksTheRowWhoseDetailShows() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: paintedList())
+        let columns = compose(ExactView(session: session), width: 1000, sidebar: false, window: KeyedWindow.self)
+        let window = try XCTUnwrap(self.window)
+        let p = session.presenter, split = p.navigation.split
+        func mark(_ id: String) throws -> RowSelectionLayer? {
+            let row = try node(id)
+            return row.superview?.layer?.sublayers?.lazy.compactMap { $0 as? RowSelectionLayer }.first { $0.row === row }
+        }
+        func separated(_ id: String) throws -> Bool? {
+            try node(id).layer?.sublayers?.lazy.compactMap { $0 as? GroupedSeparatorLayer }.first.map { !$0.isHidden }
+        }
+        func fill(_ emphasized: Bool, in id: String) throws -> CGColor? {
+            var color: CGColor?
+            try node(id).effectiveAppearance.performAsCurrentDrawingAppearance {
+                color = (emphasized ? NSColor.selectedContentBackgroundColor : .unemphasizedSelectedContentBackgroundColor).cgColor
+            }
+            return color
+        }
+        func ink(_ id: String) throws -> [Double] {
+            let spec = try node(id).paragraphSpec()
+            return (spec.runs.first?.color ?? spec.color).map { ($0 * 100).rounded() / 100 }
+        }
+        XCTAssertTrue(split.active)
+        XCTAssertNil(try mark("row-a"))
+        XCTAssertEqual(try separated("row-a"), true)
+        XCTAssertEqual(try separated("row-b"), true)
+        let plain = try ink("name-b")
+
+        // A row is pressed: its detail shows, and the row is drawn selected, 8 points before its text.
+        try press("row-b")
+        XCTAssertTrue(try node("route-book-b").superview === columns.detailPane)
+        XCTAssertEqual(split.summary["marked"] as? Int, Int(try node("row-b").id))
+        let row = try node("row-b"), selection = try XCTUnwrap(mark("row-b"))
+        let card = try XCTUnwrap(row.superview), text = card.convert(try node("name-b").bounds, from: try node("name-b"))
+        XCTAssertEqual(selection.frame.minX, text.minX - 8, accuracy: 0.5)
+        XCTAssertEqual(selection.frame.maxX, row.frame.maxX - row.number("padding_right") + 8, accuracy: 0.5)
+        XCTAssertEqual(selection.frame.minY, row.frame.minY)
+        XCTAssertEqual(selection.frame.height, row.frame.height)
+        XCTAssertEqual(selection.cornerRadius, 7)
+        XCTAssertNil(try mark("row-a"))
+        XCTAssertEqual(try separated("row-a"), false, "no separator above the selected row")
+        XCTAssertEqual(try separated("row-b"), false, "nor under it")
+        // Another row, whose press pushes over the first: it is that row's detail, with no Back, and the
+        // selection moves, and so do the separators it hides.
+        try press("row-c")
+        XCTAssertFalse(p.navigation.canGoBack)
+        XCTAssertNil(try mark("row-b"))
+        XCTAssertNotNil(try mark("row-c"))
+        XCTAssertEqual(try separated("row-a"), true)
+        XCTAssertEqual(try separated("row-b"), false)
+
+        // In the key window, with the keyboard nowhere: emphasized, and its text the selected item's. A
+        // test process cannot make its window key, so the window says it is, and says when it stops.
+        let keyed = try XCTUnwrap(window as? KeyedWindow)
+        keyed.key = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: keyed)
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertEqual(try mark("row-c")?.backgroundColor, try fill(true, in: "row-c"))
+        XCTAssertEqual(try ink("name-c"), [255, 255, 255, 255])
+        XCTAssertEqual(try ink("name-a"), plain, "the rows beside it are as they were")
+        // A row whose press only acts, writing no router: the detail is still the other row's.
+        try press("row-count")
+        XCTAssertEqual(split.shown?.row, try node("row-c").id)
+        XCTAssertNotNil(try mark("row-c"))
+        XCTAssertNil(try mark("row-count"))
+        // A field in the list has the keyboard: emphasized no more, as a table would not be first responder.
+        XCTAssertTrue(window.makeFirstResponder(try node("row-field").field))
+        XCTAssertEqual(try mark("row-c")?.backgroundColor, try fill(false, in: "row-c"))
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertEqual(try mark("row-c")?.backgroundColor, try fill(true, in: "row-c"))
+        // The keyboard goes to the detail: a table there would no longer be first responder.
+        XCTAssertTrue(window.makeFirstResponder(try node("field-c").field))
+        XCTAssertEqual(try mark("row-c")?.backgroundColor, try fill(false, in: "row-c"))
+        XCTAssertEqual(try ink("name-c"), plain)
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertEqual(try ink("name-c"), [255, 255, 255, 255])
+        // Another window takes key.
+        keyed.key = false
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: keyed)
+        XCTAssertEqual(try mark("row-c")?.backgroundColor, try fill(false, in: "row-c"))
+        XCTAssertEqual(try ink("name-c"), plain)
+        keyed.key = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: keyed)
+        XCTAssertEqual(try ink("name-c"), [255, 255, 255, 255])
+
+        // A control in the detail replaces its book with another: the route moved where no row's
+        // press or link took it, so no row is selected (LLP 1127 D3), and the pane begins where it did.
+        try press("next-c")
+        let swapped = try node("route-book-a")
+        XCTAssertTrue(swapped.superview === columns.detailPane)
+        XCTAssertEqual(split.shown?.detail, swapped)
+        XCTAssertFalse(p.navigation.canGoBack)
+        XCTAssertNil(try mark("row-c"))
+        XCTAssertNil(try mark("row-a"))
+        XCTAssertTrue(split.summary["marked"] is NSNull)
+        XCTAssertEqual(try ink("name-c"), plain)
+        XCTAssertEqual(try separated("row-b"), true)
+        // Its row is pressed: selected again.
+        try press("row-a")
+        XCTAssertNotNil(try mark("row-a"))
+
+        // The detail goes: no row is selected, and the separators are back.
+        XCTAssertTrue(split.closeDetail())
+        XCTAssertNil(try mark("row-a"))
+        XCTAssertEqual(try ink("name-a"), plain)
+        XCTAssertEqual(try separated("row-a"), true)
+        XCTAssertTrue(split.summary["marked"] is NSNull)
+        // Pushed, as under the driver's own chrome: the list is no split's, and marks nothing.
+        try press("row-a")
+        XCTAssertNotNil(try mark("row-a"))
+        split.painted = true
+        XCTAssertNil(try mark("row-a"))
+        split.painted = false
+
+        // The selected row leaves the list while its detail shows: its selection goes with it.
+        try press("row-c")
+        let holder = try XCTUnwrap(try node("row-c").superview)
+        XCTAssertNotNil(try mark("row-c"))
+        try press("row-count")
+        XCTAssertFalse(has("row-c"))
+        XCTAssertNotNil(split.shown?.detail)
+        XCTAssertFalse(holder.layer?.sublayers?.contains { $0 is RowSelectionLayer } ?? false)
+    }
+
+    /// A list of the author's own rows (`appearance="none"`) is painted as
+    /// written: no selection is drawn on its row, as none is on a card.
+    func testTheAuthorsOwnRowsAreNotMarked() throws {
+        let source = app(tabs: false).replacingOccurrences(of: "list testId=\"books\"", with: "list testId=\"books\" appearance=\"none\"")
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1000, sidebar: false)
+        let split = session.presenter.navigation.split
+        XCTAssertNil(session.presenter.tables.feeds[try node("books").id])
+        try press("row-a")
+        XCTAssertTrue(try node("route-book-a").superview === columns.detailPane)
+        XCTAssertTrue(split.summary["marked"] is NSNull)
+        XCTAssertFalse(try node("row-a").superview?.layer?.sublayers?.contains { $0 is RowSelectionLayer } ?? false)
     }
 
     /// A node in the detail's pane is hovered as one in the page is: the
@@ -1064,5 +1224,11 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(session.presenter.hoveredNodes.contains { $0 === box })
         XCTAssertEqual(try node("hot").accessibleText, "cold")
     }
+}
+
+/// A window that is key while it says so.
+private final class KeyedWindow: NSWindow {
+    var key = false
+    override var isKeyWindow: Bool { key }
 }
 #endif
