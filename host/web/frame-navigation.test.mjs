@@ -38,6 +38,31 @@ const since = (page, from) => page.evaluate(n => events.slice(n).map(([name, r])
 const settle = (page, from, name, url) => page.waitForFunction(([n, name, url]) => events.slice(n).some(([e, r]) => e === name && (url == null || r.url.endsWith(url) || r.error === url)), [from, name, url], { timeout: 10000 });
 const count = page => page.evaluate(() => events.length);
 
+// A capture is refused on the web (LLP 1020.002 D7): the frame answers its
+// `capture=` with `NotSupportedError` and the path it named, same-origin or not.
+for (const engine of ['chromium', 'firefox', 'webkit']) {
+  test(`captureScreenshot answers NotSupportedError (${engine})`, async () => {
+    const servers = serve();
+    let browser;
+    try {
+      browser = await suiteBrowser(engine);
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${SAME}/`);
+      await page.waitForFunction(() => window.nav);
+      const answer = await page.evaluate(() => new Promise(done => {
+        const f = mount('/g/a');
+        f.addEventListener('exactcapture', e => done(e.detail));
+        run('captureScreenshot', 'app:/tmp/shot.png', [0, 0, 10, 10]);
+      }));
+      expect(answer).toEqual({ path: 'app:/tmp/shot.png', width: 0, height: 0, error: 'NotSupportedError', message: "captureScreenshot: a page cannot read a frame's pixels" });
+      expect(await page.evaluate(() => logs)).toEqual(["captureScreenshot: a page cannot read a frame's pixels"]);
+    } finally {
+      servers.stop();
+      await browser?.close();
+    }
+  }, 30000);
+}
+
 // `color-scheme` on the frame is the guest's `prefers-color-scheme`, and
 // `zoom` its page zoom, as Chrome applies them (LLP 1020.002 D6). Firefox
 // zooms the box but leaves the guest's devicePixelRatio at 1. No colour

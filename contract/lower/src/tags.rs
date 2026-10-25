@@ -524,6 +524,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1020.002 D5 — a guest's window request and its downloads.
         "newwindow" => AttrTarget::Handler("newwindow"),
         "download" => AttrTarget::Handler("download"),
+        // @ref LLP 1020.002 D7 — the answer to a frame's `captureScreenshot`.
+        "capture" => AttrTarget::Handler("capture"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
         "transformrelease" => AttrTarget::Handler("transformrelease"),

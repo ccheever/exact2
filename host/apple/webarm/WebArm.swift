@@ -7,6 +7,7 @@ import WebKit
 #if os(macOS)
 import AppKit
 typealias PlatformImage = NSImage
+typealias PlatformView = NSView
 /// WKWebView in a `fullSizeContentView` window otherwise inherits the
 /// titlebar as a safe area and insets the guest by it — a black strip the
 /// height of the titlebar over the deck. The kernel already framed this
@@ -38,6 +39,7 @@ final class ExactWebView: WKWebView {
 #else
 import UIKit
 typealias PlatformImage = UIImage
+typealias PlatformView = UIView
 #endif
 
 public typealias EventFn = @convention(c) (
@@ -190,6 +192,14 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// another (@ref LLP 1020.002 D1).
     var built: WKWebView?
     var webView: WKWebView { built ?? build() }
+    /// A local PDF's view, shown in place of the web view (@ref LLP 1020.002 D10).
+    var pdf: FramePDF?
+    /// What the frame shows: the PDF view, or the web view.
+    var platformView: PlatformView { pdf?.view ?? webView }
+    #if EXACT_DEVELOPMENT
+    /// What the arm owns that the app's hatch changed, each said once (§9).
+    var ownedSaid = Set<String>()
+    #endif
     /// A partitioned frame's name; its guest is a top-level page in that
     /// partition's data store, with no message bridge, no `exact-app` scheme
     /// and no script in the page's world (@ref LLP 1020.002 D1).
@@ -414,6 +424,30 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         applied = Set(options.keys).subtracting(["partition", "agent", "app", "session", "newwindow"])
     }
 
+    /// The app's hatch has the web view or PDF view (@ref LLP 1020.002 §9):
+    /// a development build says by name what it changed of what the arm owns,
+    /// as LLP 1133 D3 detects and does not enforce.
+    func checkOwned() {
+        #if EXACT_DEVELOPMENT
+        var changed: [String] = []
+        if let pdf {
+            if pdf.view.delegate !== pdf { changed.append("the PDF view's delegate") }
+        } else if let web = built {
+            if web.navigationDelegate !== self { changed.append("navigationDelegate") }
+            if web.uiDelegate !== ui { changed.append("uiDelegate") }
+            if abs(Double(web.pageZoom) - ((options["zoom"] as? NSNumber)?.doubleValue ?? 1)) > 0.001 { changed.append("pageZoom") }
+            #if os(macOS)
+            if web.appearance != nil { changed.append("appearance") }
+            #else
+            if web.overrideUserInterfaceStyle != .unspecified { changed.append("overrideUserInterfaceStyle") }
+            #endif
+        }
+        for property in changed where ownedSaid.insert(property).inserted {
+            FileHandle.standardError.write(Data("exact: iframe \(id): the app's hatch changed \(property), which the web arm owns (LLP 1020.002 §9)\n".utf8))
+        }
+        #endif
+    }
+
     /// `partition`, `zoom` and the `apple.*` words, before the web view is
     /// first made and whenever they change. A new partition replaces the web
     /// view; the presenter takes the new one from `exact_web_platform_view`.
@@ -424,15 +458,17 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         handlesNewWindow = values["newwindow"] as? Bool ?? false
         let name = values["partition"] as? String
         options = values
-        guard name != partition || built == nil else {
+        pdf?.view.zoom = CGFloat((options["zoom"] as? NSNumber)?.doubleValue ?? 1)
+        guard name != partition || (built == nil && pdf == nil) else {
             if let built { applyOptions(to: built) }
             return
         }
-        let replacing = built != nil
+        let replacing = built != nil || pdf != nil
         if replacing { teardown() }
         partition = name
         if replacing {
             _ = build()
+            closePDF()
             markLoading()
             scheduleServe()
         }
@@ -466,6 +502,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true
+        pdf?.close()
         browser?.close(controller: controller)
         ui?.close()
         ui?.forget(built)
@@ -589,6 +626,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func command(_ op: [String: Any]) {
         guard !invalidated else { return }
+        checkOwned()
+        // Any frame's, a PDF one's too (@ref LLP 1020.002 D7).
+        if op["op"] as? String == "captureScreenshot" { return capture(op) }
         guard let browser else {
             // An unpartitioned frame may be a child of a wrapper document
             // (a sandboxed page; a remote one on iOS): only a partitioned
@@ -624,6 +664,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// class D2 removed (@ref LLP 1020 D2, §10).
     func serve(error: String? = nil) {
         guard !invalidated else { return }
+        checkOwned()
+        if partition == nil, error == nil, sandbox == nil, let file = src.flatMap(localFile), file.1 == "application/pdf", showPDF(file.0) { return }
+        closePDF()
         if partition != nil { return servePartitioned() }
         generation += 1
         guestFrame = nil
@@ -1057,6 +1100,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func postMessage(_ text: String) {
+        guard pdf == nil else { return }
         guard partition == nil else {
             FileHandle.standardError.write(Data("exact: postMessage: iframe \(id) has a partition; a partitioned frame has no message bridge\n".utf8))
             return
@@ -1071,6 +1115,10 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func snapshot(token: UInt32) {
+        if let pdf {
+            guard let image = pdf.picture(pdf.view.bounds), let data = FrameCaptures.png(image) else { return sendReply(token: token, kind: 2, text: "the PDF view drew nothing") }
+            return sendReply(token: token, kind: 0, data: data)
+        }
         guard webView.bounds.width > 0, webView.bounds.height > 0 else {
             sendReply(token: token, kind: 2, text: "iframe has no snapshot box")
             return
@@ -1089,6 +1137,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func evaluate(token: UInt32, script: String) {
+        guard pdf == nil else { return sendReply(token: token, kind: 2, text: "a PDF frame has no document to script") }
         if direct {
             guard !serving else { sendReply(token: token, kind: 2, text: "guest frame is not ready"); return }
             webView.evaluateJavaScript(script, in: nil, in: world) { [weak self] result in self?.evaluated(token: token, result) }
@@ -1153,7 +1202,7 @@ public func exactWebCreate(_ id: UInt32, _ context: UnsafeMutableRawPointer?, _ 
 
 @_cdecl("exact_web_platform_view")
 public func exactWebPlatformView(_ handle: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
-    arm(handle).map { Unmanaged.passUnretained($0.webView).toOpaque() }
+    arm(handle).map { Unmanaged.passUnretained($0.platformView).toOpaque() }
 }
 
 @_cdecl("exact_web_set_src")
@@ -1199,6 +1248,7 @@ public func exactWebDestroy(_ handle: UnsafeMutableRawPointer?) {
     let arm = retained.takeUnretainedValue()
     arm.invalidate()
     arm.built?.removeFromSuperview()
+    arm.pdf?.view.removeFromSuperview()
     retained.release()
 }
 
@@ -1226,10 +1276,18 @@ public func exactWebEndSession(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32)
 
 /// A frame command (@ref LLP 1020.002 D3): `{op: "navigate", url}`,
 /// `{op: "traverseHistory", delta}`, `{op: "reload", ignoreCache}`,
-/// `{op: "stopLoading"}`.
+/// `{op: "stopLoading"}`; or a picture of the guest (D7), `{op:
+/// "captureScreenshot", path, file, clip}`.
 @_cdecl("exact_web_command")
 public func exactWebCommand(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
     arm(handle)?.command(json(bytes, length))
+}
+
+/// The app's hatch was called with this frame's view (@ref LLP 1020.002 §9):
+/// a development build says by name what it changed of what the arm owns.
+@_cdecl("exact_web_check_owned")
+public func exactWebCheckOwned(_ handle: UnsafeMutableRawPointer?) {
+    arm(handle)?.checkOwned()
 }
 
 /// The agent's answer to a request the arm held (`ask`): `{token, cancel}`,

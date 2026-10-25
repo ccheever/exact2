@@ -64,6 +64,8 @@ private final class WebModule {
     let endSession: SetReaderlessFn
     /// The agent's answer to a request the arm held (@ref LLP 1020.002 §10).
     let answer: PostFn
+    /// The app's hatch had the frame's view: the arm checks what it owns (§9).
+    let checkOwned: DestroyFn
 
     static func load(path: String) -> Result<WebModule, WebLoadError> {
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
@@ -86,7 +88,8 @@ private final class WebModule {
               let command = symbol("exact_web_command", PostFn.self),
               let clearSiteData = symbol("exact_web_clear_site_data", ClearFn.self),
               let endSession = symbol("exact_web_end_session", SetReaderlessFn.self),
-              let answer = symbol("exact_web_answer", PostFn.self)
+              let answer = symbol("exact_web_answer", PostFn.self),
+              let checkOwned = symbol("exact_web_check_owned", DestroyFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
@@ -96,7 +99,7 @@ private final class WebModule {
             library: library, create: create, platformView: platformView,
             setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy, configure: configure, command: command, clearSiteData: clearSiteData, endSession: endSession,
-            answer: answer))
+            answer: answer, checkOwned: checkOwned))
     }
 
     private init(
@@ -105,7 +108,7 @@ private final class WebModule {
         setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn,
         configure: @escaping PostFn, command: @escaping PostFn, clearSiteData: @escaping ClearFn, endSession: @escaping SetReaderlessFn,
-        answer: @escaping PostFn
+        answer: @escaping PostFn, checkOwned: @escaping DestroyFn
     ) {
         self.library = library
         self.create = create
@@ -122,6 +125,7 @@ private final class WebModule {
         self.clearSiteData = clearSiteData
         self.endSession = endSession
         self.answer = answer
+        self.checkOwned = checkOwned
     }
 }
 
@@ -144,6 +148,8 @@ private final class WebEntry {
     var configuration: Data?
     var partition: String?
     var navigation: [String: Any]?
+    /// A local PDF's page count while the frame shows it in a PDF view (@ref LLP 1020.002 D10).
+    var pdfPages: Int?
     var initialized = false
     var loading = true
     var unavailable = false
@@ -376,8 +382,9 @@ final class WebViews {
 
     private static let reads = DispatchQueue(label: "exact.web.documents", qos: .userInitiated)
 
-    /// A new partition made the arm a new web view: the node shows it in
-    /// place of the old one (@ref LLP 1020.002 D1).
+    /// A new partition made the arm a new web view, or it shows a local PDF's
+    /// view or a web view again: the node shows it in place of the old one,
+    /// and the app's hatch hears `changed` with it (@ref LLP 1020.002 D1, D10, §9).
     private func replaceView(_ entry: WebEntry, _ owner: NodeView, module: WebModule, handle: UnsafeMutableRawPointer) {
         guard let raw = module.platformView(handle) else { return }
         let view = Unmanaged<ExactWebPlatformView>.fromOpaque(raw).takeUnretainedValue()
@@ -392,6 +399,14 @@ final class WebViews {
         owner.addSubview(view)
         owner.web = view
         entry.platformView = view
+        owner.presenter?.elements.realized(owner)
+    }
+
+    /// The app's hatch was called with the frame's view: a development arm
+    /// says what it changed of what the arm owns.
+    func hatched(_ id: UInt32) {
+        guard let module, let handle = entries[id]?.handle else { return }
+        module.checkOwned(handle)
     }
 
     private static func browserSource(_ source: String?) -> String? {
@@ -495,6 +510,11 @@ final class WebViews {
             }
         case 6:
             hold(entry, id: id, data)
+        case 7:
+            // The arm shows a local PDF's view (`{pdf: pages}`) or a web view again (`{}`).
+            let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            entry.pdfPages = (value?["pdf"] as? NSNumber)?.intValue
+            if let module, let handle = entry.handle { replaceView(entry, owner, module: module, handle: handle) }
         default: break
         }
     }
@@ -570,8 +590,9 @@ final class WebViews {
     }
 
     /// `navigate(id, url)`, `traverseHistory(id, delta)`, `reload(id,
-    /// ignoreCache=)` and `stopLoading(id)` (@ref LLP 1020.002 D3), to the
-    /// one mounted frame with that id.
+    /// ignoreCache=)`, `stopLoading(id)` (@ref LLP 1020.002 D3) and
+    /// `captureScreenshot(id, path, clip)` (D7), to the one mounted frame with
+    /// that id. A capture's `app:/` path goes with the file it names.
     func command(_ name: String, _ args: [Any]) {
         let target = args.first as? String ?? ""
         let matches = entries.values.filter { $0.owner?.props["id"] == target }
@@ -584,6 +605,11 @@ final class WebViews {
         case "navigate": op["url"] = args.count > 1 ? Self.browserSource(args[1] as? String) ?? "" : ""
         case "traverseHistory": op["delta"] = args.count > 1 ? (args[1] as? NSNumber)?.intValue ?? 0 : 0
         case "reload": op["ignoreCache"] = args.count > 1 ? args[1] as? Bool ?? false : false
+        case "captureScreenshot":
+            let path = args.count > 1 ? args[1] as? String ?? "" : ""
+            op["path"] = path
+            op["file"] = AppFiles.url(path)?.path ?? ""
+            if args.count > 2, let clip = args[2] as? [NSNumber] { op["clip"] = clip }
         default: break
         }
         guard let data = try? JSONSerialization.data(withJSONObject: op) else { return }
@@ -637,6 +663,12 @@ final class WebViews {
             nodes[index]["url"] = entry.src ?? ""
             nodes[index]["loading"] = entry.loading
             if let partition = entry.partition { nodes[index]["partition"] = partition }
+            if let pages = entry.pdfPages {
+                // A PDF frame is no browsing context: no guest outline (@ref LLP 1020.002 D10).
+                nodes[index]["pdf"] = true
+                nodes[index]["pages"] = pages
+                continue
+            }
             if let navigation = entry.navigation {
                 // What a person sees of the guest, never its cookies or storage (@ref LLP 1020.002 §10).
                 nodes[index]["navigation"] = navigation.filter { ["url", "title", "loading", "controller", "canGoBack", "canGoForward"].contains($0.key) }

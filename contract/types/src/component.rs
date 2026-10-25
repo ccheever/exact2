@@ -679,6 +679,7 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "navigateerror"
             | "newwindow"
             | "download"
+            | "capture"
             | "cancel"
             | "close"
             | "toggle"

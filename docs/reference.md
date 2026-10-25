@@ -2033,6 +2033,15 @@ the presenter's placement and order for open top-layer content.
 | The app: its facts, by the web's names, and the root node's `data-*` words as `data` (each in `app.json` `data`, which `hatch --app` adds; Swift reads `data-booted` as `app.data[.booted]`) | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
 | The window the session presents into | `window(_:)`, `windowEnded(_:)` | `window(w)`, `windowEnded(w)` |
 
+An `iframe` marked `hatch="word"` hands `element.platform` its `WKWebView` on
+macOS and iOS, or the `PDFView` of a local PDF it shows, after the arm set its
+data store, preferences, delegates and content worlds; `changed` hands the new
+one when the arm replaces it (a new `partition`, a PDF to HTML). The arm owns
+`navigationDelegate`, `uiDelegate`, `pageZoom`, the appearance and a PDF view's
+`delegate`, and a development build names one the hatch changed (LLP 1020.002
+§9). The moment before construction, with the `WKWebViewConfiguration`, is not
+built.
+
 **Linux, Windows and Android paint their own pixels**, so there is no platform
 object to hand over. A hatch there is Rust: one type that implements
 `exact_linux::Hatches` in `modules/linux/*.rs` (or `modules/android/`,
