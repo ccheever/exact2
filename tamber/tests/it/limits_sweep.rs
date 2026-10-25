@@ -381,7 +381,7 @@ fn mixed_runs_and_long_axes_apply_in_moments() {
 }
 
 /// An import's values and new tokens alternating (its tokens' order) are
-/// applied with two parses, the new tokens first (Astra's round 3: 6,000
+/// applied with a few parses (not one each), the new tokens first (Astra's round 3: 6,000
 /// alternating operations were 12,000 parses).
 #[test]
 fn alternating_values_and_new_tokens_apply_in_moments() {
@@ -471,7 +471,7 @@ fn values_on_a_token_gone_are_refused_after_one_parse() {
 }
 
 /// A themed import alternating its tokens' `when` lines and new tokens with
-/// theirs keeps the two parses where no value can move the `when` indent
+/// theirs keeps its few parses (a guard, the new tokens, the values) where no value can move the `when` indent
 /// (Astra's re-check 2).
 #[test]
 fn alternating_themed_values_and_new_tokens_apply_in_moments() {
