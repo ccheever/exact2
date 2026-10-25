@@ -1246,6 +1246,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   "@exact/browser"` and a `send` of it): a module call is admitted only by name
   (LLP 1133.002 D14). (LLP 1020.002, stage 1, 2026-10-23.)
 
+- **A frame without `newwindow=` opens nothing.** On Apple a guest's
+  `target=_blank`, ⌘-click and `window.open` reach the app only through
+  `newwindow=`; without it they are refused, and an OAuth sign-in that opens a
+  popup waits forever. A tab disposition opens nothing even with it: the action
+  opens the tab. Under the agent, a guest `tap` whose click opens `alert`,
+  `confirm` or `prompt` answers at once with `held=<ticket>`; the page waits until
+  `tap @<ticket> ok` (or `cancel`, or `type @<ticket> <text>` for a prompt).
+  (LLP 1020.002, stage 2, 2026-10-25.)
+
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
   own document. With a `sandbox` on macOS, and always on iOS, it is the child of a

@@ -360,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 75] = [
+pub const HANDLERS: [&str; 77] = [
     "press",
     "change",
     "input",
@@ -460,6 +460,10 @@ pub const HANDLERS: [&str; 75] = [
     "currententrychange",
     "navigatesuccess",
     "navigateerror",
+    // A guest's window request and its downloads (LLP 1020.002 D5), with a
+    // `FrameNewWindow` or a `FrameDownload`.
+    "newwindow",
+    "download",
     "heightrelease",
     "transformgeometry",
     "transformrelease",

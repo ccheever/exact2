@@ -123,6 +123,9 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     let emit: (String, [String: Any]) -> Void
     /// The source to load again after a crash when nothing committed.
     var source: () -> String?
+    /// Another app's URL `navigate` was given: the platform's confirmation
+    /// decides (@ref LLP 1020.002 D3, D5).
+    var external: ((URL) -> Void)?
     var nextId = 0
     var flight: Flight?
     var lastId = 0
@@ -401,6 +404,10 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
         case "navigate":
             let text = op["url"] as? String ?? ""
             guard let url = GuestURL.web(text) else {
+                if let other = GuestScheme.external(URL(string: text)) {
+                    external?(other)
+                    return
+                }
                 let scheme = URL(string: text)?.scheme.map { "\($0):" } ?? "this URL"
                 return refuse("NotSupportedError", "navigate: \(scheme) is not a web page a partitioned frame shows (http, https or about:blank)")
             }

@@ -203,6 +203,14 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// The words `applyOptions` set on the current web view.
     var applied = Set<String>()
     var browser: FrameBrowser?
+    /// The web view's `WKUIDelegate`: its popups, dialogs, file inputs,
+    /// downloads and permissions (@ref LLP 1020.002 D5).
+    var ui: FrameUI?
+    /// The frame handles `newwindow=`: only then does it ask for popups.
+    var handlesNewWindow = false
+    /// Requests held for the agent (`ask`), by token.
+    var asked: [UInt32: (web: ObjectIdentifier?, done: ([String: Any]?) -> Void)] = [:]
+    var nextAsk: UInt32 = 1
     /// The `about:blank` load shown in place of a refused source: its own
     /// navigation reports nothing, and one it cancels still ends as itself.
     var blank: WKNavigation?
@@ -244,7 +252,11 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     static let localOrigin = "http://exact.localhost"
     static let template: WKWebViewConfiguration = {
         let template = WKWebViewConfiguration()
-        _ = template.preferences
+        // Unsaid, as Safari has them (@ref LLP 1020.002 D1, D5): a scripted
+        // window needs a person's gesture, and a page's `requestFullscreen()`
+        // takes the screen.
+        template.preferences.javaScriptCanOpenWindowsAutomatically = false
+        template.preferences.isElementFullscreenEnabled = true
         _ = template.websiteDataStore
         _ = template.defaultWebpagePreferences
         return template
@@ -265,6 +277,14 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let web = partition == nil ? buildFrame() : buildPartitioned()
         built = web
         web.navigationDelegate = self
+        if ui == nil {
+            #if os(iOS)
+            ui = agent ? FrameUIAgent(arm: self) : FrameUI(arm: self)
+            #else
+            ui = FrameUI(arm: self)
+            #endif
+        }
+        web.uiDelegate = ui
         #if EXACT_DEVELOPMENT
         // Safari's platform inspector sees only this guest, not Exact's
         // native tree. Production arms never compile this opt-in (#101).
@@ -350,6 +370,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         configuration.userContentController = controller
         let preferences = WKPreferences()
         preferences.javaScriptCanOpenWindowsAutomatically = false
+        preferences.isElementFullscreenEnabled = true
         if #available(macOS 14.0, iOS 17.0, *) { preferences.inactiveSchedulingPolicy = .throttle }
         configuration.preferences = preferences
         #if os(iOS)
@@ -357,6 +378,10 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         #endif
         let browser = FrameBrowser(emit: { [weak self] name, record in self?.emitNavigation(name, record) },
                                    source: { [weak self] in self?.src })
+        browser.external = { [weak self] url in
+            guard let self, let web = self.built else { return }
+            self.ui?.confirmExternal(url, from: web, byApp: true)
+        }
         browser.install(on: controller)
         self.browser = browser
         #if os(macOS)
@@ -386,7 +411,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             default: web.configuration.preferences.inactiveSchedulingPolicy = partition != nil || options["inactiveSchedulingPolicy"] != nil ? .throttle : .suspend
             }
         }
-        applied = Set(options.keys).subtracting(["partition", "agent", "app", "session"])
+        applied = Set(options.keys).subtracting(["partition", "agent", "app", "session", "newwindow"])
     }
 
     /// `partition`, `zoom` and the `apple.*` words, before the web view is
@@ -396,6 +421,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         agent = values["agent"] as? Bool ?? false
         if let app = values["app"] as? String, !app.isEmpty { self.app = app }
         session = values["session"] as? String ?? ""
+        handlesNewWindow = values["newwindow"] as? Bool ?? false
         let name = values["partition"] as? String
         options = values
         guard name != partition || built == nil else {
@@ -421,8 +447,12 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         browser?.close(controller: controller)
         browser = nil
+        ui?.close()
+        ui?.forget(old)
+        endAsked()
         old.stopLoading()
         old.navigationDelegate = nil
+        old.uiDelegate = nil
         setPageBridge(false)
         controller.removeScriptMessageHandler(forName: "exactAgent", contentWorld: world)
         controller.removeScriptMessageHandler(forName: "exactFrame", contentWorld: world)
@@ -437,6 +467,10 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard !invalidated else { return }
         invalidated = true
         browser?.close(controller: controller)
+        ui?.close()
+        ui?.forget(built)
+        endAsked()
+        built?.uiDelegate = nil
         built?.stopLoading()
         setPageBridge(false)
         controller.removeScriptMessageHandler(forName: "exactAgent", contentWorld: world)
@@ -448,6 +482,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard !srcInitialized || src != value else { return }
         srcInitialized = true
         src = value
+        // The app moved the frame: what a person decided about the old page no longer holds.
+        ui?.forget(built)
         markLoading()
         scheduleServe()
     }
@@ -506,6 +542,45 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         browser?.send("navigateerror", error: Partitions.valid(partition!) ? "NotSupportedError" : "SyntaxError", message: refusal)
     }
 
+    /// A guest's `newwindow` or `download` record for the presenter: kind 5,
+    /// `{event, record}` (@ref LLP 1020.002 D5).
+    func emitRecord(_ name: String, _ record: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: ["event": name, "record": record]) else { return }
+        emit(kind: 5, text: String(decoding: data, as: UTF8.self))
+    }
+
+    /// Under the agent, a guest's dialog, file input or download destination
+    /// is a request the drive answers (@ref LLP 1020.002 §10): kind 6,
+    /// `{token, capability, args}`; `exact_web_answer` delivers the answer,
+    /// and nil is Cancel (also when the frame goes first).
+    func ask(_ capability: String, _ args: [String: Any], from web: WKWebView?, done: @escaping ([String: Any]?) -> Void) {
+        guard !invalidated else { return done(nil) }
+        let token = nextAsk
+        nextAsk &+= 1
+        asked[token] = (web.map(ObjectIdentifier.init), done)
+        guard let data = try? JSONSerialization.data(withJSONObject: ["token": token, "capability": capability, "args": args]) else {
+            asked[token] = nil
+            return done(nil)
+        }
+        emit(kind: 6, text: String(decoding: data, as: UTF8.self))
+    }
+
+    /// Held requests end unanswered with their web view (`web`, a closed
+    /// popup's; nil, every one): a dialog as Cancel, a panel as nothing chosen.
+    func endAsked(for web: WKWebView? = nil) {
+        var ending: [([String: Any]?) -> Void] = []
+        for (token, held) in asked where web == nil || held.web == web.map(ObjectIdentifier.init) {
+            asked[token] = nil
+            ending.append(held.done)
+        }
+        for done in ending { done(nil) }
+    }
+
+    func answer(_ value: [String: Any]) {
+        guard let token = (value["token"] as? NSNumber)?.uint32Value, let held = asked.removeValue(forKey: token) else { return }
+        held.done(value["cancel"] as? Bool == true ? nil : value)
+    }
+
     /// A `FrameNavigation` record for the presenter: kind 4, `{event, record}`.
     func emitNavigation(_ name: String, _ record: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: ["event": name, "record": record]) else { return }
@@ -524,6 +599,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             FileHandle.standardError.write(Data("exact: \(record["message"]!)\n".utf8))
             return emitNavigation("navigateerror", record)
         }
+        if op["op"] as? String == "navigate" { ui?.forget(built) }
         browser.command(op)
     }
 
@@ -872,6 +948,11 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         guard !invalidated else { decisionHandler(.cancel); return }
+        switch ui?.intercept(navigationAction, in: webView) ?? .proceed {
+        case .cancel: return decisionHandler(.cancel)
+        case .download: return decisionHandler(.download)
+        case .proceed: break
+        }
         if let browser {
             if blank == nil || navigationAction.request.url?.absoluteString != "about:blank" { browser.decided(navigationAction) }
             decisionHandler(.allow)
@@ -907,6 +988,19 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         scheduleServe()
     }
 
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        decisionHandler(!invalidated && FrameUI.downloads(navigationResponse) ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        ui?.downloads.adopt(download, from: webView)
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        ui?.downloads.adopt(download, from: webView)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard !invalidated, !isBlank(navigation), let browser else { return }
         if browser.flight == nil { emit(kind: 3) }
@@ -919,6 +1013,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        ui?.committed(webView)
         guard !invalidated, !isBlank(navigation) else { return }
         browser?.committed(navigation)
     }
@@ -1135,6 +1230,14 @@ public func exactWebEndSession(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32)
 @_cdecl("exact_web_command")
 public func exactWebCommand(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
     arm(handle)?.command(json(bytes, length))
+}
+
+/// The agent's answer to a request the arm held (`ask`): `{token, cancel}`,
+/// `{token, text}` (a dialog), `{token, paths}` (a file input) or `{token,
+/// path, shown}` (a download's destination and how its record names it).
+@_cdecl("exact_web_answer")
+public func exactWebAnswer(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
+    arm(handle)?.answer(json(bytes, length))
 }
 
 public typealias ClearFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
