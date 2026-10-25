@@ -6,7 +6,7 @@ use super::{name_error, Loader};
 use crate::resolve::resolve;
 use crate::{CompileError, RelatedLocation};
 use contract_syntax::members::{declared, splice};
-use contract_syntax::Span;
+use contract_syntax::{File, Span};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -19,6 +19,14 @@ pub(super) struct Part {
     line: usize,
     /// The members file's unit.
     unit: usize,
+}
+
+impl super::Unit {
+    /// The units this one loads: its `use` lines' and its `members` lines'.
+    pub(super) fn loads(&self) -> impl Iterator<Item = usize> + '_ {
+        let parts = self.parts.iter().map(|p| p.unit);
+        self.targets.iter().copied().chain(parts)
+    }
 }
 
 impl Loader<'_> {
@@ -186,17 +194,31 @@ impl Loader<'_> {
                 }
             }
         }
-        let names = |files: &[Vec<(String, bool, Span)>], skip: usize| -> Vec<(String, bool)> {
+        // A block's props are its component's; the rest of every other
+        // file's names are members it shares.
+        let own = &self.units[host].file.components[component];
+        let props: Vec<String> = own
+            .props
+            .iter()
+            .chain(&own.injects)
+            .map(|p| p.name.clone())
+            .collect();
+        let names = |skip: usize| -> Vec<(String, bool)> {
             let others = files.iter().enumerate().filter(|(i, _)| *i != skip);
             let names = others.flat_map(|(_, names)| names);
-            names
+            let members = names.filter(|(name, ..)| !props.contains(name));
+            members
                 .map(|(name, callable, _)| (name.clone(), *callable))
                 .collect()
         };
-        self.units[host].file.components[component].members.outer = names(&files, 0);
-        for (i, part) in parts.iter().enumerate() {
+        let outer = names(0);
+        let blocks: Vec<_> = (1..=parts.len()).map(names).collect();
+        self.units[host].file.components[component].members.outer = outer;
+        for (part, outer) in parts.iter().zip(blocks) {
             let block = self.units[part.unit].file.members.as_mut();
-            block.expect("checked").members.outer = names(&files, i + 1);
+            let members = &mut block.expect("checked").members;
+            members.props = props.clone();
+            members.outer = outer;
         }
         Ok(())
     }
@@ -216,4 +238,28 @@ impl Loader<'_> {
             }
         }
     }
+}
+
+/// Refuse a members line or block in a source text compiled with no path
+/// (`compile`): it has no file to read members from, and its members would
+/// otherwise be dropped unread.
+pub(crate) fn standalone_members(file: &File) -> Result<(), CompileError> {
+    let lines = file.components.iter().flat_map(|c| &c.members.lines);
+    if let Some(line) = lines.into_iter().next() {
+        let message = format!(
+            "`members \"{}\"` needs this file's own path to resolve: compile it with \
+             `contract build <file>` (`compile_path`)",
+            line.path
+        );
+        return Err(name_error("contract-use-unresolved", message, line.span));
+    }
+    if let Some(block) = &file.members {
+        let message = format!(
+            "no `members \"…\"` line in `{}` lists this text, so its members belong to no \
+             component: compile the component's file by its path",
+            block.name
+        );
+        return Err(name_error("contract-members-unlisted", message, block.span));
+    }
+    Ok(())
 }
