@@ -5,7 +5,7 @@
 // A row's testIds name its message's id (a send's nonce until Discord confirms
 // it); its identity in the list is its key, which a confirmation keeps.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
+use Run, Block, Media, FileRef, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
 use Badge from "exact:content"
 
 // A code token's colour, after Xcode's default theme in the platform's palette.
@@ -98,6 +98,13 @@ component MessageRow
                 BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
               for i in m.media key=i.id
                 MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+              for f in m.files key=f.id
+                link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
+                  row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
+                    image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
+                    column flex=1 min-width=0
+                      text f.name color="AccentColor" font-weight=500 line-clamp=1
+                      text f.size font="-exact-caption1" color="-exact-secondary-label"
               for e in m.embeds key=e.id
                 EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
               if m.reactions.length > 0

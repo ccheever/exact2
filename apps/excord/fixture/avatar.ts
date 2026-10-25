@@ -63,3 +63,22 @@ export function avatarPng(path: string): Uint8Array | null {
   if (!found) made.set(path, found = png(color));
   return found;
 }
+
+/** A PNG's, GIF's or JPEG's pixel size from its header, as Discord reports an image attachment's; {} for
+ * anything else. */
+export function imageSize(b: Uint8Array): { width?: number; height?: number } {
+  const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (b.length >= 24 && b[0] === 0x89 && b[1] === 0x50) return { width: view.getUint32(16), height: view.getUint32(20) };
+  if (b.length >= 10 && b[0] === 0x47 && b[1] === 0x49) return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
+    for (let i = 2; i + 9 < b.length;) {
+      if (b[i] !== 0xff) return {};
+      const marker = b[i + 1], length = view.getUint16(i + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return { height: view.getUint16(i + 5), width: view.getUint16(i + 7) };
+      }
+      i += 2 + length;
+    }
+  }
+  return {};
+}

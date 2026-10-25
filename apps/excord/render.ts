@@ -136,10 +136,16 @@ function media(id: string, p: Picture, alt: string, spoiler: boolean): Media {
   const width = p.width ?? 0, height = p.height ?? 0;
   const scale = width > 0 && height > 0 ? Math.min(1, 320 / width, 320 / height) : 0;
   const pixels = Math.min(1, scale * PIXELS);
-  const src = p.proxy_url && scale > 0 && pixels < 1
+  const src = p.proxy_url && /^https?:/.test(p.proxy_url) && scale > 0 && pixels < 1
     ? `${p.proxy_url}${p.proxy_url.includes('?') ? '&' : '?'}width=${Math.round(width * pixels)}&height=${Math.round(height * pixels)}`
     : p.url ?? p.proxy_url ?? '';
   return { id, src, full: p.url ?? p.proxy_url ?? '', width, height, fitWidth: width * scale, fitHeight: height * scale, alt, spoiler };
+}
+/** A file's size as Discord shows it: "820 bytes", "14.2 KB", "3.1 MB". */
+export function byteSize(n: number): string {
+  if (n < 1024) return `${n} bytes`;
+  const [value, unit] = n < 1024 ** 2 ? [n / 1024, 'KB'] : n < 1024 ** 3 ? [n / 1024 ** 2, 'MB'] : [n / 1024 ** 3, 'GB'];
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${unit}`;
 }
 const isImage = (a: Record<string, any>): boolean =>
   String(a.content_type ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(String(a.filename ?? ''));
@@ -215,6 +221,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     system, plain: system || text, source: editable(content, dirs), isNew: false, blocks,
     media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
       media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
+    files: (m.attachments ?? []).filter((a: Record<string, any>) => !isImage(a)).map((a: Record<string, any>) =>
+      ({ id: String(a.id), name: String(a.filename ?? 'file'), size: byteSize(Number(a.size ?? 0)), url: String(a.url ?? '') })),
     embeds,
     reactions: (m.reactions ?? []).map((r: Record<string, any>) => ({ id: r.emoji.id || r.emoji.name,
       emoji: r.emoji.id ? '' : r.emoji.name, src: r.emoji.id ? dirs.emoji(r.emoji.id, r.emoji.animated === true) : '',
