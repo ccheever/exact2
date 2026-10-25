@@ -751,6 +751,8 @@ func finishLaunching() {
         }
     }
     DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"])
+    // `SIGUSR1` saves the front window's trace (LLP 1142 D5).
+    TraceSignal.install { DevMenu.session ?? session }
 
     // EXACT_PLAN=<file> boots that plan instead of the one baked into the
     // library — any compiled contract, no rebuild (smokes, fixtures).

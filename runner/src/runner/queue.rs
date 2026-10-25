@@ -407,7 +407,7 @@ impl<D: DataSource> Runner<D> {
                 message: why.clone(),
                 reason: reason.clone(),
             });
-            self.log(super::lines::send_failed_now(&name(&self.plan), why));
+            self.alert(super::lines::send_failed_now(&name(&self.plan), why));
             self.end_write(m, None);
             return Ok(Asked::Failed);
         }
@@ -421,7 +421,7 @@ impl<D: DataSource> Runner<D> {
                     return Err(self.shape(name(&self.plan), &v, ty));
                 }
                 if let Err(why) = self.stage_sockets(m, staged) {
-                    self.log(super::lines::send_failed_now(&name(&self.plan), &why));
+                    self.alert(super::lines::send_failed_now(&name(&self.plan), &why));
                     self.end_write(m, None);
                     return Ok(Asked::Failed);
                 }
@@ -431,7 +431,7 @@ impl<D: DataSource> Runner<D> {
             }
             Answer::Later(_) if !staged.is_empty() => {
                 let why = "a socket mutation must answer synchronously";
-                self.log(super::lines::send_failed_now(&name(&self.plan), why));
+                self.alert(super::lines::send_failed_now(&name(&self.plan), why));
                 self.end_write(m, None);
                 Ok(Asked::Failed)
             }

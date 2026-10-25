@@ -49,7 +49,7 @@ const TEST_IGNORES = ['--bind <extension>', '--timing <v>', '--world <file>', '-
 // The drive flags a first build reaches for; `--help all` shows the rest.
 const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
-const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
+const DRIVE_INTERNAL = ['--app <name>', '--session <label>', '--pid <pid>', '--out <file>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.

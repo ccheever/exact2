@@ -858,6 +858,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
+    crate::perf::failures(runner, &mut s);
     s.push(',');
     pending::state(runner, &mut s);
     s.push(',');

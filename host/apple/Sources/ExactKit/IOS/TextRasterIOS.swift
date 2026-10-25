@@ -165,7 +165,8 @@ final class TextRasterizer {
         if firstPixels, urgentBatch != nil {
             urgentBatch?.append(UrgentPaint(node: node, key: key, job: job, namespace: engine.namespace))
         } else if firstPixels {
-            let post = Presenter.signposts.beginInterval("text-raster-urgent")
+            let post = Presenter.signposts.beginInterval("text-raster-urgent"), phase = HostPhases.shared.begin(.text)
+            defer { HostPhases.shared.end(phase) }
             let image = job.render()
             node.showTextRaster(image, for: key)
             if key.clip == nil { keep(image, for: key, namespace: engine.namespace) }
@@ -217,7 +218,8 @@ final class TextRasterizer {
         let batch = urgentBatch ?? []
         urgentBatch = nil
         guard !batch.isEmpty else { return }
-        let post = Presenter.signposts.beginInterval("text-raster-urgent")
+        let post = Presenter.signposts.beginInterval("text-raster-urgent"), phase = HostPhases.shared.begin(.text)
+        defer { HostPhases.shared.end(phase) }
         var images = [TextRasterImage?](repeating: nil, count: batch.count)
         images.withUnsafeMutableBufferPointer { slots in
             let start = CACurrentMediaTime()
