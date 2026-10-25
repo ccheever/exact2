@@ -26,6 +26,17 @@ test("one's own write moves the pin along when it held the files read; another's
   expect(reviewed.get('k')).toEqual({ 'app.tamber': 'a2', 'cards.tamber': 'c2' });
 });
 
+test('a slow answer for a proposal since replaced pins nothing and drops nothing', () => {
+  const old = reviewed.ask(), now = reviewed.ask();
+  expect(reviewed.pin('211', A, now)).toEqual(A);
+  // 210's answer lands after 211's review.
+  expect(reviewed.pin('210', { ...A, 'app.tamber': 'b' }, old)).toEqual({ ...A, 'app.tamber': 'b' });
+  expect(reviewed.get('211')).toEqual(A);
+  expect(reviewed.get('210')).toBeUndefined();
+  // And 211's re-proposal after another client's write keeps the first pin.
+  expect(reviewed.pin('211', { ...A, 'app.tamber': 'c' }, reviewed.ask())).toEqual(A);
+});
+
 test('a refusal re-pins to the server\'s files; the draft\'s end or a new run drops the pin', () => {
   reviewed.pin('k', A);
   reviewed.repin('k', { ...A, 'app.tamber': 'a9' });
