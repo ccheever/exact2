@@ -487,8 +487,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // The runner's call holds the finger and the app's carrier is free
   // meanwhile: `during` waits for the new touch to begin, runs the ops, and
   // checks that touch has not lifted. Every read and op races the gesture:
-  // past its end (and a second's grace) nothing more runs, the dangling
-  // request is left to the carrier's own bound, and the failure names it.
+  // past its end (and a second's grace) a timeout stops the carrier so a
+  // late reply cannot answer a later request.
   // Whatever fails, the gesture is let finish first, and the runner's error
   // wins. Requests and touch dispatch share the main run loop, so a read
   // that finds no `ended` came before the window dispatched the lift.
@@ -498,12 +498,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   if (ops.length || drag?.tick || legs?.some(l => l.tick)) {
     const over = Symbol('over');
     const gestureEnd = injecting.then(() => new Promise((r) => setTimeout(r, 1000))).then(() => over);
-    const raced = async (promise) => {
+    const raced = async (promise, label, hint = '') => {
       promise.catch(() => {}); // a late failure after the race is not this drive's
       const r = await Promise.race([promise, gestureEnd]);
       if (r === over) {
-        // The runner is done; the app has not answered a second after: its carrier is spent.
-        const why = `${what}: the ops during it outlasted the gesture by a second; the app's carrier was stopped (lengthen hold)`;
+        const why = `${what}: ${label} did not finish within 1 s after the touch runner finished; the app's carrier was stopped${hint}`;
         abandon?.(why);
         throw transport(why);
       }
@@ -511,14 +510,14 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
     };
     const ticked = async (tick, until, down) => {
       const work = tick(until, down);
-      try { return await raced(work); }
+      try { return await raced(work, 'the held clock step'); }
       finally { await work.catch(() => {}); }
     };
     let reached = [], hostNow;
     const entries = async () => {
       const out = [];
       for (let cursor = a.seq; ;) {
-        const page = await raced(ask({ op: 'tap', log: cursor }));
+        const page = await raced(ask({ op: 'tap', log: cursor }), 'the dispatch-log read');
         if (page.error || page.lost) throw new Error(`${what}: the dispatch log: ${page.error ?? `dropped entries past seq ${cursor}`}`);
         out.push(...page.log);
         reached = page.reached ?? [];
@@ -541,7 +540,12 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       await (async () => {
         for (let touch; !(touch = ours(await entries()));) {
           if (finished && !ops.length) return;
-          if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun; ${SETTLE_FIRST}`);
+          if (finished) {
+            const log = await entries(), late = ours(log), evidence = JSON.stringify({ aim: a, injected: await injecting, log });
+            throw new Error(late
+              ? `${what}: the runner finished before a dispatch-log read saw the touch begin, and it has ${late.lifted ? 'lifted; lengthen hold' : 'not lifted'}: ${evidence}`
+              : `${what}: the runner finished and no touch has begun: ${evidence}; ${SETTLE_FIRST}`);
+          }
           await new Promise((r) => setTimeout(r, 50));
         }
         let touch = ours(await entries());
@@ -577,7 +581,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
             }
             for (const op of checkpoint.ops) {
               await held();
-              during.push(await raced(op()));
+              during.push(await raced(op(), 'an operation during the hold', '; lengthen hold'));
               await held();
             }
             if (checkpoint.tick) await ticked(checkpoint.tick, Date.now() + (end - hostNow) * 1000 - TICK_MARGIN, async () => {
@@ -592,7 +596,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
           for (const op of ops) {
             const lifted = ours(await entries()).lifted;
             if (lifted || finished) throw new Error(`${early} finished; lengthen hold`);
-            during.push(await raced(op()));
+            during.push(await raced(op(), 'an operation during the hold', '; lengthen hold'));
           }
           if (ops.length && ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
         }

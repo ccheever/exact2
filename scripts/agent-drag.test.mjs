@@ -312,6 +312,66 @@ test('a real tap whose down reached the window after its lift says so', async ()
   expect((await tap(1.3, { dx: 0, dy: 0, press: 0, over: 0, hold: 0 })).downAfterLift).toBeUndefined();
 });
 
+test('a runner that finishes before a dispatch-log read sees the touch says whether the log has it', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, dispatched: 2.3, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  for (const [log, says] of [[[began], 'before a dispatch-log read saw the touch begin, and it has not lifted:'], [[began, { ...began, seq: 6, phase: 'ended', t: 2 }], 'and it has lifted; lengthen hold'], [[], 'no touch has begun']]) {
+    let injections = 0, logReads = 0, heldReads = 0, failure;
+    try {
+      await realTap({ id: 7, drag: { dx: 0, dy: 50, press: 0, over: 100, hold: 400, during: [async () => { heldReads++; }] },
+        ask: async req => req.aim ? { aim } : { log: logReads++ ? log : [], truncated: false },
+        touches: { async ask(req) {
+          if (req.op === 'foreground') { return { state: 'runningForeground' }; }
+          injections++;
+          return { injected: { end: 1_700_000_000_000 } };
+        } },
+      });
+    } catch (e) { failure = e; }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toContain(says);
+    expect(failure.message.includes('can be lost')).toBe(log.length === 0);
+    expect(failure.message).toContain(`"log":${JSON.stringify(log)}`);
+    expect(failure.message).toContain('"end":1700000000000');
+    expect(failure.message).toContain('"point":[30,20]');
+    expect(injections).toBe(1);
+    expect(heldReads).toBe(0);
+  }
+});
+
+test('held timeouts name the unfinished work and advise a longer hold only for an operation', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  await Promise.all(['the dispatch-log read', 'an operation during the hold', 'the held clock step'].map(async (work) => {
+    let finishInjection, rejectPending, injections = 0, heldOps = 0, clockSteps = 0, abandoned, failure;
+    const pending = new Promise((_, reject) => { rejectPending = reject; });
+    const stall = () => { finishInjection({ injected: { end: 1_700_000_000_000 } }); return pending; };
+    const ticking = work === 'the held clock step';
+    try {
+      await realTap({ id: 7,
+        drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400,
+          during: ticking ? [] : [async () => { heldOps++; return stall(); }, async () => { heldOps++; }],
+          ...(ticking ? { tick: async () => { clockSteps++; return stall(); } } : {}),
+        },
+        ask: async req => req.aim ? { aim } : work === 'the dispatch-log read' ? stall() : { log: [began], truncated: false },
+        touches: { async ask(req) {
+          if (req.op === 'foreground') { return { state: 'runningForeground' }; }
+          injections++;
+          return new Promise(resolve => { finishInjection = resolve; });
+        } },
+        abandon(reason) { abandoned = reason; rejectPending(new Error(reason)); },
+      });
+    } catch (e) { failure = e; }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.transport).toBe(true);
+    expect(failure.message).toContain(`${work} did not finish within 1 s after the touch runner finished`);
+    expect(failure.message.includes('lengthen hold')).toBe(work === 'an operation during the hold');
+    expect(abandoned).toBe(failure.message);
+    expect(injections).toBe(1);
+    expect(heldOps).toBe(work === 'an operation during the hold' ? 1 : 0);
+    expect(clockSteps).toBe(ticking ? 1 : 0);
+  }));
+});
+
 test('a real touch refuses a changed display mapping even when scene coordinates agree', async () => {
   const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], fixed: [30, 20], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
   const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
