@@ -1097,9 +1097,16 @@ package final class Presenter {
         var reparented = Set<UInt32>()
         let structureChanged = batch.ops.contains { [.children, .roots, .destroy, .create, .style].contains($0.op) }
         if structureChanged { selection.structureChanged() }
+        // A button's face changes only in a batch that says so or one that touches it (`ControlHost.face`).
+        if batch.controls { controls.facesChanged() }
         for op in batch.ops {
             let kind = op.op
             let id = op.id
+            switch kind {
+            // `fieldContent` carries resolved padding the face holds (a percentage of a box that resized).
+            case .create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent: controls.faceChanged(id)
+            default: break
+            }
             if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy || kind == .fieldContent) }
             switch kind {
             case .transformDrag:
