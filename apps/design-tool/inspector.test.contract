@@ -26,7 +26,16 @@ test "an inherited row names the node it comes from by its source; the chain's a
   clock +1
   clock data
   expect text "selection-source" == "app.contract:12 · App"
-  expect tree missing "selection-up-1"
+  // No call site above it: one step still, by the page's own tree, to what holds it (a slot's host) or the root.
+  expect text "selection-up-1" == "up: what holds it (a slot's host), else the app's root"
+  expect tree missing "selection-up-2"
+  // Pressed (here, a slot fill the app wrote): the page steps to the slot's host that holds it, no note.
+  tap "selection-up-1"
+  clock data
+  clock +1
+  clock data
+  expect text "selection-source" == "card.contract:2 · Card"
+  expect tree missing "selection-up-note"
   request POST "/__stub/restart" {} as ada
 
 test "a move up that reached the app's root before the steps asked says so, from the page's moved"
