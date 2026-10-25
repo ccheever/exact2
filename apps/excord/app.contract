@@ -47,6 +47,7 @@ fn placeOf(places: Place[], channel: string): Place = match first(places.filter(
 fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
 shape Viewport
   width: number
+  displayMode: string
 
 // The page's visibility, for acknowledging what the reader sees (§2: an ack is a
 // write, sent as the official client sends it).
@@ -146,9 +147,10 @@ component Excord
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
   resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
   derive channels = categories.map(g => g.channels).flat()
-  // A window wide enough to show the channel beside the list (the split view, from 900 points)
-  // opens the server's last channel, or its first, rather than an empty pane, as Discord's desktop app does.
-  derive wide = viewport.width >= 900
+  // A browser window wide enough to show the channel beside the list (the web's split, from 900
+  // points) opens the server's last channel, or its first, as Discord's web app does. The Mac's split
+  // gives the list its own column's width, and Windows and Android push, so they show the list first.
+  derive wide = viewport.displayMode == "browser" and viewport.width >= 900
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
   derive resumeChannel = listed.map(c => c.id).includes(remembered) ? remembered : match first(listed) { case some(c) => c.id, case none => "" }
@@ -768,6 +770,10 @@ component Excord
                 text "Sign Out"
               button commandfor="confirm-sign-out" command="close" testId="sign-out-cancel"
                 text "Cancel"
+            // What a split shows beside the list while no channel is open.
+            column navigationSplit="placeholder" align-items="center" justify-content="center" gap=12 padding=24 testId="no-channel"
+              image "symbol:messages" font-size=40 color="-exact-tertiary-label"
+              text (dmsShown ? "Choose a conversation" : "Choose a channel") font="-exact-title3" color="-exact-secondary-label"
             row flex=1 min-height=0
               scroll id="rail" width="4.5rem" flex-shrink=0 background-color="-exact-grouped-background" testId="rail" aria-label="Servers"
                 column padding="8px 0px"
@@ -942,14 +948,16 @@ component Excord
                 input type="file" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
                 button press=attach aria-label="Add a file" testId="attach" disabled=(editing != "") margin-bottom=4
                   image "symbol:add"
-                // The field draws no ring of its own: the pill's border shows the focus.
-                row flex=1 min-width=0 align-items="flex-end" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                // The field draws no ring of its own: the pill's border shows the focus. One line
+                // sits at Send's middle, whatever height the platform gives Send; Send stays at the
+                // bottom as the field grows.
+                row flex=1 min-width=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
                   focusin=composerFocus(true) focusout=composerFocus(false)
                   textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
                     placeholder=(chan.guild != "" ? `Message #${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
                     line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
                   button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
-                    retainFocus=true aria-label="Send" testId="send"
+                    retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
                     image "symbol:send"
       if viewing != ""
         for v in [viewing] key=v

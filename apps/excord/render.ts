@@ -231,19 +231,21 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
 }
 
 /** A renderer that redraws a row only when its message, its predecessor, its reply's original (or its
- * deletion) or its guild's roles changed: the store replaces each of these objects whenever it changes it. */
+ * deletion), its author or its guild's roles changed: the store replaces each of these objects whenever it
+ * changes it. */
 export function createRenderer(dirs: Directories): (m: Stored, previous?: Stored) => Row {
-  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; roles: unknown; row: Row }>();
+  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; roles: unknown; author: User | null; row: Row }>();
   return (m, previous) => {
     const refId = m.message_reference?.message_id;
     const ref = refId ? dirs.message(m.channel_id, String(refId)) : undefined;
     const gone = refId ? dirs.deleted(m.channel_id, String(refId)) : false;
-    const roles = dirs.roles(m.channel_id);
+    const roles = dirs.roles(m.channel_id), author = dirs.user(String(m.author?.id ?? ''));
     const key = `${m.channel_id}:${m.key}`, found = cache.get(key);
-    if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone && found.roles === roles) return found.row;
+    if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone
+      && found.roles === roles && found.author === author) return found.row;
     const row = renderMessage(m, previous, dirs);
     cache.delete(key);
-    cache.set(key, { m, previous, ref, gone, roles, row });
+    cache.set(key, { m, previous, ref, gone, roles, author, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;
   };

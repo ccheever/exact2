@@ -75,6 +75,12 @@ test('store rows supply the transcript identity, author, clock and declared fiel
   S.applyDispatch(f.store, 'GUILD_ROLE_UPDATE', { guild_id: gid, role: { id: role, name: 'Maintainers', color: 0x112233,
     position: 1, permissions: '0', hoist: true, managed: false, mentionable: true } }, NOW);
   expect(f.view().rows[1].color).toBe('#112233');
+  // A new avatar seen on a later message redraws the earlier rows; the same author again keeps them.
+  const drawn = f.view().rows[1];
+  S.applyDispatch(f.store, 'MESSAGE_CREATE', message(2000, { author: { ...bot } }), NOW);
+  expect(f.view().rows[1]).toBe(drawn);
+  S.applyDispatch(f.store, 'MESSAGE_CREATE', message(3000, { author: { ...bot, avatar: 'fresh' } }), NOW);
+  expect(f.view().rows[1].avatar).toBe(`${cdn}/avatars/${bot.id}/fresh.png?size=128`);
 });
 
 test('Markdown becomes headings, subtext, lists, quotes, code and marked runs', () => {
