@@ -2,8 +2,12 @@
 // JS build's GPU cache rename and copy (host/web-js/gpu-cache.mjs). Under Bun on macOS and Linux it is the kernel's
 // flock on the lock file, as scripts/sweep.mjs takes Cargo's: released when its holder exits, killed or not, so a lock a
 // killed build left is never stolen (a stale lock file cannot be removed atomically: two waiters that both judge it
-// left over each remove it, the second the one the first had just taken). The file stays, naming its last holder.
-// Elsewhere (no bun:ffi, Windows) it is a file made exclusively, naming its pid, taken over when that pid is gone.
+// left over each remove it, the second the one the first had just taken). Elsewhere (no bun:ffi, Windows) it is a file
+// made exclusively, naming its pid, taken over when that pid is gone. The two agree on the file, so a checkout of
+// either kind (or of before the flock) and this one exclude each other: it names its holder's pid while held and is
+// removed on release (by a flock holder still holding it, the path's inode checked, a taker of the removed inode
+// opening again), and a flock taker that finds it naming another live pid waits for that holder. (One race is left
+// between kinds: a file-lock waiter removing a killed holder's file as a flock taker takes it.)
 import { closeSync, fstatSync, ftruncateSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 
 const LOCK_SH = 1, LOCK_EX = 2, LOCK_NB = 4;
@@ -36,15 +40,23 @@ export function takeLock(lock) {
   const started = Date.now(), lockFile = kernel();
   if (!lockFile) return takeFileLock(lock, started);
   for (;;) {
-    const fd = openSync(lock, 'a');
+    const fd = openSync(lock, 'a+');
     let held = false;
     try {
       if (lockFile(fd, LOCK_EX | LOCK_NB) !== 0) { waitFor(lock, started); continue; }
       // Held, unless the file was removed or replaced since it was opened (a lock on a name no one else opens).
-      try { held = statSync(lock).ino === fstatSync(fd).ino; } catch { /* removed */ }
-      if (!held) continue;
+      let same = false;
+      try { same = statSync(lock).ino === fstatSync(fd).ino; } catch { /* removed */ }
+      if (!same) continue;
+      // A file lock's holder (it takes no flock): waited for.
+      const owner = Number(readFileSync(fd, 'utf8'));
+      if (Number.isInteger(owner) && owner > 0 && owner !== process.pid && alive(owner)) { waitFor(lock, started); continue; }
       ftruncateSync(fd, 0); writeSync(fd, String(process.pid));
-      return () => closeSync(fd);
+      held = true;
+      return () => {
+        try { if (statSync(lock).ino === fstatSync(fd).ino) rmSync(lock, { force: true }); } catch { /* removed */ }
+        finally { closeSync(fd); }
+      };
     } finally { if (!held) closeSync(fd); }
   }
 }
@@ -60,7 +72,12 @@ export function lockHeld(lock) {
   }
   let fd;
   try { fd = openSync(lock, 'r'); } catch { return false; }
-  try { return lockFile(fd, LOCK_SH | LOCK_NB) !== 0; } finally { closeSync(fd); }
+  try {
+    if (lockFile(fd, LOCK_SH | LOCK_NB) !== 0) return true;
+    // No flock on it: a file lock's holder, or what a killed holder left.
+    const owner = Number(readFileSync(fd, 'utf8'));
+    return Number.isInteger(owner) && owner > 0 ? alive(owner) : false;
+  } finally { closeSync(fd); }
 }
 
 function takeFileLock(lock, started) {
