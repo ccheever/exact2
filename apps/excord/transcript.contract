@@ -193,11 +193,11 @@ component BlockView
         else
           if b.kind == "heading"
             text flex=1 min-width=0 role="heading" aria-level=(b.level + 2) overflow-wrap="break-word" white-space="pre-wrap" padding-top=4
-              HeadingRuns(runs=b.runs, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
+              HeadingRuns(runs=b.runs, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
           else
             if b.kind == "subtext"
               text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                SmallRuns(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                SmallRuns(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
             else
               if jumbo
                 text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
@@ -252,9 +252,12 @@ component HeadingRuns
     mkey: string
     revealed: string[]
     reveal: action
+    follow: action
   view
     for r in runs key=r.id
-      if level == 1
+      if r.ref != ""
+        text r.text font=(level == 1 ? "-exact-title2" : level == 2 ? "-exact-title3" : "-exact-headline") font-weight=700 color="AccentColor" press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
+      else if level == 1
         text r.text font="-exact-title2" font-weight=700 font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
       else
         if level == 2
@@ -268,9 +271,13 @@ component SmallRuns
     mkey: string
     revealed: string[]
     reveal: action
+    follow: action
   view
     for r in runs key=r.id
-      text r.text font="-exact-footnote" color="-exact-secondary-label" font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
+      if r.ref != ""
+        text r.text font="-exact-footnote" color="AccentColor" press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
+      else
+        text r.text font="-exact-footnote" color="-exact-secondary-label" font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
 
 component JumboRuns
   props

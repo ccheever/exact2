@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import type { Answer, Args, Result, Source, Storage, Store, StreamEvent, StreamSocket } from './app.contract.d.ts';
 import * as S from './discord/store.ts';
+import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
 import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, signIn, signOut } from './live.ts';
@@ -402,7 +403,7 @@ test('9. deleting an uncached original advances history and redraws its cached r
   const original = reply.message_reference.message_id;
   expect(S.message(live.store, channel, original)).toBeNull();
   const render = createRenderer({ me: () => live.store.meId!, user: id => S.user(live.store, id),
-    channelName: id => S.channel(live.store, id)?.name ?? '', channelGuild: () => '', roleName: id => id,
+    channelName: id => S.channel(live.store, id)?.name ?? '', channelGuild: () => '', canOpen: () => false, roleName: id => id,
     message: (channel, id) => (S.message(live.store, channel, id) as Stored | null) ?? undefined,
     deleted: (channel, id) => S.deleted(live.store, channel, id), emoji: id => `${fixture.origin}/emojis/${id}.png`,
     avatar: () => '', nameColor: () => '', roles: () => undefined,
@@ -488,6 +489,23 @@ test('14. the rail puts the folder\'s servers under it, in the account\'s order,
   expect(rail.flatMap((r: any) => r.guilds.map((g: any) => g.id)).sort()).toEqual(guilds.map((g: any) => g.id).sort());
   expect(folder.mentions).toBe(folder.guilds.reduce((n: number, g: any) => n + g.mentions, 0));
   expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready' });
+});
+
+test('15. a jump to a message no page holds asks once, then shows the channel\'s end', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, path = historyPath(channel);
+  // Past the channel's newest message, as a link to one deleted or never sent can be.
+  const past = snowflakeFromMs(Date.UTC(2030, 0, 1));
+  const asked = await app.window(channel, past);
+  expect({ need: asked.need, cursor: asked.cursor }).toEqual({ need: 'around', cursor: past });
+  expect(await app.ask('loadPage', [channel, 'around', past])).toEqual({ ok: true, error: '' });
+  const settled = await app.window(channel, past);
+  expect(settled.need).not.toBe('around');
+  expect(settled.anchor).toBe(past);
+  const before = rig.counts.get(path) ?? 0;
+  expect(before).toBe(1);
+  if (settled.need) await app.ask('loadPage', [channel, settled.need, settled.cursor]);
+  expect((await app.window(channel, past)).rows.length).toBeGreaterThan(0);
 });
 
 // A scheduler whose yields wait until the test lets them go, so a frame can arrive between two turns of
