@@ -163,10 +163,10 @@ test('jumbo custom emoji and reactions use the directory with the animation flag
     reaction(null, '👍', 2), reaction(ferris, 'ferris', 3), reaction(dance, 'dance', 4, true),
   ] }), message(1, { content: '🎉' }), message(2, { content: `hello <:ferris:${ferris}>` })]).view().rows;
   expect(rows.map(r => r.jumbo)).toEqual([true, true, false]);
-  expect(rows[0].blocks.map(b => b.kind)).toEqual(['emoji', 'paragraph']);
-  expect(rows[0].blocks[0].runs.map(r => [r.text, r.href]))
-    .toEqual([[':ferris:', `${cdn}/emojis/${ferris}.png`], [':dance:', `${cdn}/emojis/${dance}.gif`]]);
-  expect(rows[0].blocks[1].runs.map(r => r.text).join('').trim()).toBe('🎉');
+  // One paragraph, its custom emoji between its Unicode ones in the order written.
+  expect(rows[0].blocks.map(b => b.kind)).toEqual(['paragraph']);
+  expect(rows[0].blocks[0].runs.filter(r => r.text.trim()).map(r => [r.kind, r.text.trim(), r.href]))
+    .toEqual([['text', '🎉', ''], ['emoji', ':ferris:', `${cdn}/emojis/${ferris}.png`], ['emoji', ':dance:', `${cdn}/emojis/${dance}.gif`]]);
   expect(rows[1].blocks[0].runs[0].text).toBe('🎉');
   expect(rows[2].blocks[0].runs.find(r => r.kind === 'emoji')?.href).toBe(`${cdn}/emojis/${ferris}.png`);
   expect(rows[0].reactions).toEqual([

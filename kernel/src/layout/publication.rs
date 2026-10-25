@@ -3,7 +3,12 @@
 use super::*;
 use std::collections::BTreeSet;
 
-pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -> LayoutReceipt {
+pub(super) fn publish(
+    arena: &mut NodeArena,
+    tree: &mut LayoutTree,
+    measurer: &mut dyn TextMeasurer,
+    root: u32,
+) -> LayoutReceipt {
     #[cfg(test)]
     {
         tree.publication_visits = 0;
@@ -56,6 +61,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     let mut changed = Vec::new();
     let mut updated = Vec::new();
     let mut exclusions = Vec::new();
+    let mut images = Vec::new();
     // @ref LLP 1093 D7 — a box in a multi-column flow is published at its
     // place in the flow thread plus its placement: its column's translation,
     // relative to the container's own (`base`), or a straddling box's union.
@@ -82,6 +88,12 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
         let hidden = hidden || own_hidden;
+        // Its paragraph placed an image in its text, published (below), or,
+        // holding a string, has none to place.
+        if !hidden && arena.is_inline_image(slot) {
+            arena.layout_dirty.remove(slot);
+            continue;
+        }
         if hidden {
             arena.flags_mut(slot).insert(NodeFlags::HIDDEN);
         } else {
@@ -189,6 +201,19 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             arena.mark_geometry_changed(slot, root);
             changed.push(arena.key(slot));
         }
+        if !hidden && !inline && arena.node_type(slot) == NodeType::Text {
+            if let Some(node) = arena.taffy(slot) {
+                let l = tree.layout(node);
+                super::inline_images::place(
+                    arena,
+                    measurer,
+                    root,
+                    (slot, frame, &l, moved || origin_moved),
+                    &mut images,
+                    (&mut changed, &mut updated),
+                );
+            }
+        }
         if !inline
             && (moved
                 || parent_moved
@@ -270,7 +295,7 @@ pub fn compute(
         }
     }
     let refitted = fit::settle(arena, tree);
-    let mut receipt = publish(arena, tree, root_slot);
+    let mut receipt = publish(arena, tree, measurer, root_slot);
     for key in refitted {
         if !receipt.updated.contains(&key) {
             receipt.updated.push(key);
@@ -418,5 +443,57 @@ mod tests {
             equal_fresh(&k, offer);
         }
         assert!(calls.get() > 0);
+    }
+
+    /// LLP 1011.002: an image in a paragraph's text is placed with its
+    /// paragraph, left clean (a layout with nothing changed visits nothing),
+    /// and placed alike by a rehydrated kernel.
+    #[test]
+    fn an_image_in_text_is_placed_once_and_as_a_fresh_kernel_places_it() {
+        let offer = Offer::definite(200.0, 400.0);
+        let mut k = Kernel::with_monospace();
+        let mut ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 4,
+                node_type: NodeType::Image,
+            },
+            prop(3, PropId::Text, "words before"),
+            style(4, StyleId::Width, "30px"),
+            style(4, StyleId::Height, "30px"),
+        ];
+        ops.extend([
+            Op::SetChildren {
+                id: 2,
+                children: vec![3, 4],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        let image = k.node(4).unwrap().frame;
+        assert!(image.x > 0.0 && image.width == 30.0, "{image:?}");
+        k.compute_layout(1, offer).unwrap();
+        assert_eq!(k.tree().publication_visits, 0);
+        equal_fresh(&k, offer);
+        k.apply(0, 1, &[style(4, StyleId::Width, "50px")]).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        assert_eq!(k.node(4).unwrap().frame.width, 50.0);
+        equal_fresh(&k, offer);
     }
 }

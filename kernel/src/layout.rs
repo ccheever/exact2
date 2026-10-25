@@ -21,6 +21,7 @@ mod differential_tests;
 mod fields;
 mod fit;
 mod hoist;
+mod inline_images;
 #[cfg(test)]
 mod memo_tests;
 mod order;

@@ -104,6 +104,7 @@ pub use text::case::link as link_text_transform;
 pub use text::case::{
     linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
 };
+pub use text::inline_box::{FontEdges, InlineBox, INLINE_BOX_TEXT};
 pub use text::{
     Markup, MarkupAtoms, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,

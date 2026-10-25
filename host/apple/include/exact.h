@@ -114,6 +114,12 @@ typedef struct ExactTextRun {
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
     float variation_values[8];    /* in the axis's own units */
     uint8_t optical_sizing_none;  /* 1 for CSS font-optical-sizing: none */
+    /* LLP 1011.002: 1 when the run is an image in the paragraph's text, its text U+FFFC
+     * and its box these points wide and tall, raised box_shift from where box_align
+     * (0 baseline, 1 middle, 2 text-top, 3 text-bottom, CSS vertical-align) puts it. */
+    uint8_t inline_box;
+    uint8_t box_align;
+    float box_width, box_height, box_shift;
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -363,6 +369,11 @@ void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
  * NULL (the default) keeps every paragraph whole in a multi-column flow. */
 typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
 void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
+/* LLP 1011.002 D2: where the paragraph a request answers put each inline box (a run with
+ * inline_box set), its top left in content coordinates: x then y, one pair per box in run
+ * order. Writes min(2 * count, cap) floats and returns 2 * count, with exact_set_measure's
+ * context. NULL (the default) leaves each image at the paragraph's content origin. */
+void exact_set_inline_boxes(ExactRuntime rt, ExactLinesFn boxes);
 /* A system symbol's natural size, measured before layout: an Apple symbol name (UTF-8, not
  * NUL-terminated), its point size and CSS weight. Writes width and height to out and returns 1,
  * or 0 when it cannot say; called with exact_set_measure's context, and only beside a text

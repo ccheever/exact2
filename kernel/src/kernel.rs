@@ -263,6 +263,46 @@ impl<'a> NodeRef<'a> {
         runs
     }
 
+    /// Whether this is an image in a paragraph's text (LLP 1011.002): its
+    /// paragraph measures and places it.
+    pub fn is_inline_image(&self) -> bool {
+        self.arena.is_inline_image(self.slot)
+    }
+
+    /// The box an image in a paragraph's text reserves there, as its run
+    /// carries it (LLP 1011.002); `None` for any other node.
+    pub fn inline_box(&self) -> Option<crate::InlineBox> {
+        self.arena
+            .is_run_image(self.slot)
+            .then(|| crate::text::inline_box::inline_image(self.arena, self.slot).reserved)
+    }
+
+    /// [`Self::text_runs`]' text as it is read and copied (LLP 1011.002
+    /// D4): an image's `aria-label` in its run's place, nothing without one.
+    pub fn read_runs(&self) -> Vec<std::borrow::Cow<'a, str>> {
+        let mut leaves = Vec::new();
+        self.arena.text_leaves(self.slot, &mut leaves);
+        let arena = self.arena;
+        self.text_runs()
+            .into_iter()
+            .zip(leaves)
+            .map(|(run, leaf)| match run.inline {
+                Some(_)
+                    if arena.computed_source(leaf, StyleId::Visibility).visibility
+                        == crate::Visibility::Hidden =>
+                {
+                    "".into()
+                }
+                Some(_) => arena
+                    .props(leaf)
+                    .str(PropId::AccessibilityLabel)
+                    .unwrap_or("")
+                    .into(),
+                None => run.text,
+            })
+            .collect()
+    }
+
     /// The scale this paragraph is drawn at, as its last layout chose it
     /// (`-exact-fit: shrink`, LLP 1116.001 D1.4): 1 unless it was shrunk to
     /// fit its box. [`Self::text_runs`] are at it already; a host that draws
@@ -792,7 +832,7 @@ impl Kernel {
             Dimension::Auto => style.box_sizing == BoxSizing::BorderBox,
             _ => false,
         };
-        if self.arena.is_inline_run(slot) || !supported {
+        if self.arena.in_paragraph(slot) || !supported {
             return Err(LayoutError::UnsupportedPresentedHeight(p.node));
         }
         let mut ancestor = Some(slot);

@@ -169,6 +169,7 @@ package final class Runtime {
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
             exact_set_time_format(rt, TimeFormatting.format)
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
+            exact_set_inline_boxes(rt, measure == nil ? nil : TextEngine.inlineBoxesText)
             // A system symbol's box, measured before layout as a paragraph's is
             exact_set_symbol_measure(rt, measure == nil ? nil : hooks.symbolMeasure)
         }

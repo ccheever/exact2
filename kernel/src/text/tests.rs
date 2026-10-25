@@ -66,6 +66,7 @@ fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
     let runs = [TextRun {
         text: "Ab".into(),
         style: style(10.0),
+        inline: None,
     }];
     let mut p = paragraph();
     let mut m = MonospaceMeasurer::default();
@@ -112,6 +113,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     let runs = [TextRun {
         text: "Ab\nAb".into(),
         style: short,
+        inline: None,
     }];
     let mut p = paragraph();
     p.strut = short;
@@ -147,6 +149,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     let empty = [TextRun {
         text: "".into(),
         style: style(20.0),
+        inline: None,
     }];
     let empty = m.measure(&TextMeasureRequest {
         atoms: Default::default(),
@@ -160,6 +163,7 @@ fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {
     let runs = [TextRun {
         text: text.into(),
         style: style(10.0),
+        inline: None,
     }];
     let mut p = paragraph();
     p.line_clamp = lines;
@@ -206,6 +210,7 @@ fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> T
     let runs = [TextRun {
         text: text.into(),
         style: style(10.0),
+        inline: None,
     }];
     let mut p = paragraph();
     p.white_space = white_space;
@@ -295,10 +300,12 @@ fn runs_take_the_tallest_line_height() {
         TextRun {
             text: "ab".into(),
             style: style(10.0),
+            inline: None,
         },
         TextRun {
             text: "cd".into(),
             style: style(20.0),
+            inline: None,
         },
     ];
     let m = MonospaceMeasurer::default().measure(&TextMeasureRequest {
@@ -318,6 +325,7 @@ fn overflow_wrap_changes_emergency_breaks_and_only_anywhere_changes_min_content(
     let runs = [TextRun {
         text: "abcdefghijklmnopqrst".into(),
         style: style(10.0),
+        inline: None,
     }];
     let mut request = TextMeasureRequest {
         atoms: Default::default(),
