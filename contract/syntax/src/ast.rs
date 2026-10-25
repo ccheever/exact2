@@ -83,6 +83,8 @@ pub struct File {
     /// A members file's `members Name` block (LLP 1091.002 D2): members of
     /// the component `Name`, which lists this file.
     pub members: Option<Component>,
+    /// Refusals left to the loader (LLP 1091.002).
+    pub deferred: Vec<crate::members::Deferred>,
 }
 impl File {
     /// Describe an unknown component and the merged declarations in source order.
