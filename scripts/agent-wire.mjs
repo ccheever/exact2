@@ -6,15 +6,20 @@ import { MalformedOperation } from './agent-keys.mjs';
 
 /** simctl can inherit a console FIFO left by an interrupted launch. Retry that exit once. */
 export function simulatorConsole(spawn, hostLines, onProcess) {
-  const launch = { process: null, done: false, exited: null };
+  const launch = { process: null, done: false, exited: null, pid: null };
   let retried = false, output = '';
   const start = () => {
-    launch.done = false; output = '';
+    launch.done = false; launch.pid = null; output = '';
     const child = launch.process = spawn();
     onProcess?.(child);
     for (const stream of [child.stdout, child.stderr]) stream.on('data', data => {
       output = (output + String(data)).slice(-8192);
-      for (const line of String(data).split('\n')) if (line && !/^com\.exact\.\w+: \d+$/.test(line)) hostLines.push('app: ' + line);
+      for (const line of String(data).split('\n')) {
+        // simctl's first line names the app's process, `<bundle id>: <pid>`.
+        const pid = /^[\w.-]+: (\d+)$/.exec(line)?.[1];
+        if (pid && launch.pid == null) launch.pid = Number(pid);
+        if (line && !/^com\.exact\.\w+: \d+$/.test(line)) hostLines.push('app: ' + line);
+      }
     });
     launch.exited = new Promise(resolve => child.on('close', (code, signal) => { launch.done = true; resolve({ code, signal }); }));
   };
@@ -25,10 +30,16 @@ export function simulatorConsole(spawn, hostLines, onProcess) {
   start(); return launch;
 }
 
-/** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone). */
+/** What an op answers while the app is out of the foreground: it is suspended, and answers nothing until it is back. */
+export const AWAY = 'the app left the foreground (a link, a share extension or another app took the screen), so it is suspended and answers nothing; `logs` says what it opened';
+
+/** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone).
+ * A line the app pushes unasked (`{"pushed":"background"|"foreground"}`, LLP 1143 D1) answers nothing: leaving fails the
+ * pending requests at once and every later one until the app is back, and the replies they were owed are dropped when
+ * they come. */
 export function jsonLines(readable, writable, hostLines) {
   const waiting = [];
-  let failure = null;
+  let failure = null, away = false, owed = 0;
   // A large reply (a `state` carrying a 16 MiB surface record) arrives in
   // many chunks: hold them and look for the newline in each new chunk only.
   let parts = [];
@@ -40,6 +51,13 @@ export function jsonLines(readable, writable, hostLines) {
       const line = parts.join('');
       parts = [];
       d = d.slice(i + 1);
+      if (line.startsWith('{"pushed":')) {
+        away = line.includes('"background"');
+        if (away) { owed += waiting.length; for (const w of waiting.splice(0)) w.reject(new Error(AWAY)); }
+        hostLines.push(`app: ${away ? 'left the foreground' : 'back in the foreground'}`);
+        continue;
+      }
+      if (owed) { owed--; hostLines.push('app: a reply owed to an op that failed while the app was away: ' + line.slice(0, 200)); continue; }
       const w = waiting.shift();
       if (!w) { hostLines.push('app: ' + line); continue; }
       try { w.resolve(JSON.parse(line)); } catch { w.reject(new Error('unreadable reply: ' + line)); }
@@ -49,7 +67,10 @@ export function jsonLines(readable, writable, hostLines) {
   const next = () => failure ? Promise.reject(failure) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
   return {
     next,
-    ask: (req) => { const p = next(); if (!failure) writable.write(JSON.stringify(req) + '\n'); return p.then(MalformedOperation.reply); },
+    ask: (req) => {
+      if (away && !failure) return Promise.reject(new Error(AWAY));
+      const p = next(); if (!failure) writable.write(JSON.stringify(req) + '\n'); return p.then(MalformedOperation.reply);
+    },
     fail: (why) => { failure ??= new Error(why); for (const w of waiting.splice(0)) w.reject(failure); },
   };
 }

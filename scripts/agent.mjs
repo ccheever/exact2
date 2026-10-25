@@ -521,10 +521,9 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const dev = simulator(undefined, { app: id, dir: a.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
   return withSoftwareKeyboard(dev, () => exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess })));
 }
-/** Whether the app `simctl launch --console` started (its first line, `<bundle>: <pid>`) still runs, and
- * where a screenshot of the simulator's display went. */
-function stuckLaunch(udid, hostLines) {
-  const pid = hostLines.map((l) => /^\S+: (\d+)$/.exec(l.trim())?.[1]).find(Boolean);
+/** Whether the app `simctl launch --console` started (`simulatorConsole`'s pid) still runs, and where a screenshot of
+ * the simulator's display went. */
+function stuckLaunch(udid, pid) {
   let running = false;
   try { if (pid) { process.kill(Number(pid), 0); running = true; } } catch {}
   const shot = resolve(tmpdir(), `exact-ios-launch-${Date.now()}.png`);
@@ -556,7 +555,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       if (launch.done && !launch.retry()) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw crashed('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n'), true); }
       if (Date.now() - t > 20000) {
         // What was on the simulator, seen rather than guessed (LLP 1143 D6): a boot logo, a crash alert, a blank window.
-        const seen = stuckLaunch(dev.udid, hostLines);
+        const seen = stuckLaunch(dev.udid, launch.pid);
         try { launch.process.kill('SIGKILL'); } catch {}
         await launch.exited;
         rmSync(dir, { recursive: true, force: true });
