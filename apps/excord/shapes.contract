@@ -23,7 +23,9 @@ shape Run
   self: bool
 
 // A block: "paragraph", "heading" (`level` 1–3), "subtext", "code" (`text`,
-// `lang`), "item" (a list item's first paragraph: `marker`, `level` its
+// `lang`, and in a language `discord/highlight.ts` knows, its tokens as runs of
+// kind "hl-keyword", "hl-string", "hl-comment", "hl-number", "hl-type",
+// "hl-call" or "hl-plain"), "item" (a list item's first paragraph: `marker`, `level` its
 // nesting from 0) or "emoji" (a jumbo message's custom emoji, one per run).
 // `quote` marks a block inside a block quote.
 shape Block
@@ -88,7 +90,8 @@ shape ReplyRef
 // at a day change, which it decides from `prevAt` in the reader's time zone.
 // `prevAt` is 0 for a channel's first message: every other row comes with the message
 // before it (`render.ts`, `windowOf`). `state` is "sent", "pending" or "failed". `source` is
-// the Markdown as sent, for Edit and Copy Text. `isNew` marks the first message
+// the Markdown as sent with its mentions written as names (`@ada`, `#general`),
+// for Edit and Copy Text. `isNew` marks the first message
 // after the read position the window was asked with. `avatar` is the author's
 // picture (Discord's default one when they set none); `color` the author's name
 // colour from their highest coloured role, "" for none.
@@ -224,3 +227,14 @@ shape Sent
   error: string
   key: string
   channel: string
+
+// A suggestion over the composer while a name is written (`compose.ts`): a
+// person (`avatar`), a channel (`glyph` "#") or an emoji (a custom one's
+// `avatar`, a Unicode one's `glyph`). `text` is the draft with it picked.
+shape Suggestion
+  id: string
+  label: string
+  detail: string
+  avatar: string
+  glyph: string
+  text: string
