@@ -38,6 +38,12 @@ function readyAgain(s: Store, lastId: string | null) {
 }
 
 describe('READY and sidebar', () => {
+  test('a read state of the number 0 is read as the id "0": nothing read', () => {
+    const s = createStore();
+    applyDispatch(s, 'READY', { user: me, guilds: [{ id: '10', name: 'server', channels: [{ id: cid, type: 0, last_message_id: '100' }] }],
+      read_state: [{ id: cid, last_message_id: 0, mention_count: 0 }] }, 0);
+    expect(unread(s, cid)).toEqual({ unread: true, mentionCount: 0, lastReadId: '0' });
+  });
   for (const wrapped of [false, true]) test(`READY accepts ${wrapped ? 'properties, recipient_ids and read-state entries' : 'flat guilds, recipients and read-state arrays'}`, () => {
     const s = createStore();
     const properties = { name: 'guild', icon: 'icon' };
