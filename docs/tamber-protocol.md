@@ -178,6 +178,9 @@ on macOS and Linux.
   Figma plugin keeps the POST form: its door's CORS preflight allows POST only.
   It also adds **`edit-held`** `{client, proposal, index, when?, value, items?}`: one value of a held proposal
   changed in place, no ops sent (see Held proposals), the reason word `edited`, and `editedBy` on the proposal.
+  And an `accept`, `drop` or `edit-held` of a proposal replaced since answers 409 `{stale: true, replacedBy, by}`
+  (the latest replacement and its maker, one client's name; 256 ids remembered, then 404; see Held proposals; the
+  third hands-on pass's #2).
 
 ## Where it runs
 
@@ -1043,6 +1046,13 @@ with.
   planned again from its commit (see `revert`).
 
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
+
+**A proposal replaced since** (*1.17*): an `accept`, `drop` or `edit-held` of a proposal that an `edit-held` or an
+`accept`'s recompute has replaced answers 409 `{stale: true, replacedBy, by, message}`, so no client acts on one changed
+under it without being told who changed it. `replacedBy` is the latest of a chain (A replaced it, then C replaced A's),
+and `by` the client that made that latest: one client's name, unlike a transaction's `by`, which maps each stale file to
+who changed it. The server remembers 256 replaced ids per run, oldest first; an id past that, like one never held or
+held and since dropped, accepted or expired, answers 404.
 
 **`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
 holds it again in its place, sending no ops:

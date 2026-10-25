@@ -99,7 +99,7 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
-import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs';
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
@@ -165,7 +165,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const known = new Map();
   let next = 0, seq = 0, out = '', stderr = '', down = null, writing = 0, again = false, timer = null, first = true, proposalCount = 0;
   // What `commit` needs of the session, and who last changed each file.
-  const session = designSession(appDir), lastBy = new Map();
+  const session = designSession(appDir), lastBy = new Map(), replacedIds = replacedProposals(); // (held ids since replaced, 1.17)
   const design = basename(designPath(appDir) ?? 'app.tamber');
   // What a client reads of this machine's files (tamber/1.15):
   // every `file` named by one rule (`tamber-paths.mjs`, the design server's
@@ -179,7 +179,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const namedMap = m => { if (!named.has(m)) named.set(m, { ...m, nodes: m.nodes.map(n => namedPaths(n, appDir)) }); return named.get(m); };
 
   const send = event => {
-    let line;
+    let line; replacedIds.record(event);
     event = Object.assign(namedPaths(event, appDir), { seq: event.seq });
     try { line = `data: ${JSON.stringify(event)}\n\n`; } catch { log(`tamber: an event could not be sent (${event.event})`); return; }
     // The last 256 kept, at most 64 MiB of them (each event's size beside it).
@@ -736,7 +736,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
-    if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, scope, { expire, proposals, hold, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
+    if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, scope, { expire, proposals, hold, stale: replacedIds.stale, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
     if (request.method === 'history') return history(request);
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
@@ -755,7 +755,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'drop') {
       const refused = needsClient(request);
       if (refused) return refused;
-      if (!proposals.has(request.proposal) || proposals.get(request.proposal).busy) return { status: 404, error: { message: `no held proposal \`${request.proposal}\` (being edited, or gone)` } };
+      if (!proposals.has(request.proposal) || proposals.get(request.proposal).busy) return (!proposals.has(request.proposal) && replacedIds.stale(request.proposal)) || { status: 404, error: { message: `no held proposal \`${request.proposal}\` (being edited, or gone)` } };
       forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
@@ -1014,7 +1014,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   async function accept(request) {
     expire();
     const id = request.proposal, p = proposals.get(id);
-    if (!p || p.busy) return { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
+    if (!p || p.busy) return (!p && replacedIds.stale(id)) || { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
     const items = request.items;
     if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) {
       return { status: 400, error: { message: `\`items\` lists indices of the proposal's ${p.ops.length} operations` } };
