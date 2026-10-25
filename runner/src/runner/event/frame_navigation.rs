@@ -104,8 +104,9 @@ impl FrameNavigation {
 /// Kind 58's `newwindow` (a `FrameNewWindow`: `url`, `disposition`),
 /// `download` (a `FrameDownload`: `url`, `suggestedFilename`, `state`,
 /// `path`) or `capture` (a `FrameCapture`: `path`, `width`, `height`,
-/// `error`, `message`, @ref LLP 1020.002 D7), the record in the compiler's
-/// order (`contract/types/src/selection.rs`).
+/// `error`, `message`, @ref LLP 1020.002 D7) or `userpromptopened` (a
+/// `FrameUserPrompt`: `type`, `message`, `defaultValue`, D9), the record in
+/// the compiler's order (`contract/types/src/selection.rs`).
 pub fn other(payload: &str) -> Option<(EventKind, Value)> {
     let (name, json) = payload.split_once('\n')?;
     let (kind, fields): (_, &[&str]) = match name {
@@ -117,6 +118,10 @@ pub fn other(payload: &str) -> Option<(EventKind, Value)> {
         "capture" => (
             EventKind::Capture,
             &["path", "width", "height", "error", "message"],
+        ),
+        "userpromptopened" => (
+            EventKind::Userpromptopened,
+            &["type", "message", "defaultValue"],
         ),
         _ => return None,
     };
@@ -142,6 +147,7 @@ pub(super) fn name(kind: EventKind) -> &'static str {
         EventKind::Newwindow => "newwindow",
         EventKind::Download => "download",
         EventKind::Capture => "capture",
+        EventKind::Userpromptopened => "userpromptopened",
         _ => "navigate",
     }
 }
@@ -199,6 +205,17 @@ mod tests {
                 Value::Number(200.0),
                 Value::Number(100.0),
                 Value::str(""),
+                Value::str("")
+            ])
+        );
+        let (kind, v) =
+            other("userpromptopened\n{\"type\":\"confirm\",\"message\":\"Sure?\"}").unwrap();
+        assert_eq!(kind, EventKind::Userpromptopened);
+        assert_eq!(
+            v,
+            Value::record(vec![
+                Value::str("confirm"),
+                Value::str("Sure?"),
                 Value::str("")
             ])
         );

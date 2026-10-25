@@ -147,6 +147,8 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     /// has no document to reload, so `reload` loads the URL again.
     var dead = false
     var closed = false
+    /// Who drives the frame: `agent` after an automation call that acts, until a person's input (@ref LLP 1020.002 D9).
+    var controller = "person"
 
     init(emit: @escaping (String, [String: Any]) -> Void, source: @escaping () -> String?) {
         self.emit = emit
@@ -197,7 +199,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
             "canGoForward": web?.canGoForward ?? false,
             "loading": ending == nil && flight != nil,
             "partitioned": true,
-            "controller": "person",
+            "controller": controller,
             "error": error,
             "message": message,
             "recovering": recovering,

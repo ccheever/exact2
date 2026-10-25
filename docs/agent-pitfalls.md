@@ -1255,6 +1255,19 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `tap @<ticket> ok` (or `cancel`, or `type @<ticket> <text>` for a prompt).
   (LLP 1020.002, stage 2, 2026-10-25.)
 
+- **Driving a browser tab from data code needs a Contract send.** The calls of
+  `@exact/browser-automation` (`evaluate`, `performActions`, …) are data code's,
+  but a package reaches the plan only through a name the Contract sends: without
+  `use handleUserPrompt from "@exact/browser-automation"` and a send of it (or of
+  `releaseActions`), every call answers `NotSupportedError` and the journal says
+  `not a module this app's plan names`. Without `browser.automation` in the
+  grants each answers `NotAllowedError`; a frame without `partition=` answers
+  `NotSupportedError`. An `evaluate` that opens `alert`, `confirm` or `prompt`
+  answers only once the dialog is answered, so call `handleUserPrompt` (after
+  `userpromptopened=`) without awaiting it first. `expression` is one expression;
+  statements go in `callFunction`'s body. `result` is typed as a record;
+  narrow it (`as unknown as string`). (LLP 1020.002, stage 4, 2026-10-25.)
+
 - **A local PDF in an `iframe` is no web page on Apple.** An unsandboxed,
   unpartitioned frame of an `app:/` or `assets/` PDF shows PDFKit's view: `tree`
   gives it `pdf` and `pages` and no guest outline, a guest `tap` or `type` fails, and

@@ -215,6 +215,11 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// The words `applyOptions` set on the current web view.
     var applied = Set<String>()
     var browser: FrameBrowser?
+    /// The frame's element id and its session's module folder, by which
+    /// `exact_web_automation` finds it, and its automation once driven (@ref LLP 1020.002 D9).
+    var element = ""
+    var owner = ""
+    var automation: FrameAutomation?
     /// The web view's `WKUIDelegate`: its popups, dialogs, file inputs,
     /// downloads and permissions (@ref LLP 1020.002 D5).
     var ui: FrameUI?
@@ -310,6 +315,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         #endif
         applied = []
         applyOptions(to: web)
+        // Preload scripts are a partitioned frame's: an unpartitioned one may be a wrapper's child.
+        if partition != nil { automation?.attached(controller) }
         ownScripts = controller.userScripts.count
         return web
     }
@@ -461,6 +468,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         if let app = values["app"] as? String, !app.isEmpty { self.app = app }
         session = values["session"] as? String ?? ""
         handlesNewWindow = values["newwindow"] as? Bool ?? false
+        element = values["element"] as? String ?? ""
+        owner = values["owner"] as? String ?? ""
+        Automations.arms.add(self)
         let name = values["partition"] as? String
         options = values
         pdf?.view.zoom = CGFloat((options["zoom"] as? NSNumber)?.doubleValue ?? 1)
@@ -488,6 +498,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         browser?.close(controller: controller)
         browser = nil
+        automation?.end("iframe \(element)'s partition changed")
         ui?.close()
         ui?.forget(old)
         endAsked()
@@ -507,6 +518,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true
+        automation?.end("iframe \(element) unmounted")
+        Automations.arms.remove(self)
         pdf?.close()
         browser?.close(controller: controller)
         ui?.close()
@@ -1063,6 +1076,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         ui?.committed(webView)
         guard !invalidated, !isBlank(navigation) else { return }
+        automation?.committed()
         browser?.committed(navigation)
     }
 
@@ -1304,6 +1318,27 @@ public func exactWebAnswer(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePo
 }
 
 public typealias ClearFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+
+/// A call of `@exact/browser-automation` (@ref LLP 1020.002 D9), its options
+/// with `op`, `id` and `owner` (the session's module folder): `done` receives
+/// the answer's JSON, `{error, message}` when it failed.
+@_cdecl("exact_web_automation")
+public func exactWebAutomation(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ context: UnsafeMutableRawPointer?, _ done: ClearFn?) {
+    let request = json(bytes, length)
+    let finish: ([String: Any]) -> Void = { answer in
+        let data = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data("{}".utf8)
+        data.withUnsafeBytes { done?(context, $0.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count)) }
+    }
+    let run = {
+        let id = request["id"] as? String ?? ""
+        let found = Automations.find(owner: request["owner"] as? String ?? "", id: id)
+        guard found.count == 1, let arm = found.first else { return finish(["error": "NotFoundError", "message": "no unique live iframe with id \(id)"]) }
+        let automation = arm.automation ?? FrameAutomation(arm: arm)
+        arm.automation = automation
+        automation.run(request, reply: finish)
+    }
+    if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
+}
 
 /// `clearSiteData(partition, types)` (@ref LLP 1020.002 D4), `{partition,
 /// types}`: `done` receives "" when the platform says the clear is done, or
