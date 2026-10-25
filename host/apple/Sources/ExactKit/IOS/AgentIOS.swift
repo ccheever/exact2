@@ -1102,7 +1102,7 @@ extension Agent {
             let phase = req["phase"] as? String
             if phase != "up" {
                 if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-                else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if let f = v.selectionField { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
                 else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             }
             // With nothing focused the first root hears it, as a keyboard's key reaches it (`ExactView`).
@@ -1157,11 +1157,11 @@ extension Agent {
                 } else if name == "Enter", let prompt = focus.headerField, let field = prompt.delegate as? PromptField {
                     // A prompt's field is UIKit's, standing in for this one: its Return.
                     _ = field.returnHeard(prompt)
-                } else if let f = focus.field as? TextField {
-                    f.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
+                } else if let f = focus.selectionField {
+                    (f as? TextField)?.heard = name
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
-                    f.heard = nil
+                    (f as? TextField)?.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else {
                     #if os(iOS)
@@ -1182,9 +1182,8 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        // A prompt's field is UIKit's in the alert while it shows (`PromptField`).
-        let prompted = presenter.menus.nativeConfirmation.map { v.isDescendant(of: $0) } == true
-        guard let f = prompted ? v.selectionField : v.field else { return ["error": "view \(v.id) is not an input"] }
+        // Header search and prompts edit UIKit's displayed field, not their authored copy
+        guard let f = v.selectionField else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
