@@ -23,6 +23,14 @@ pub(super) fn keep(ops: Option<Vec<u32>>) {
     }
 }
 
+/// Forget unread streams and pictures before a new reader reuses their IDs.
+#[cfg(any(target_os = "android", test))]
+pub(super) fn reader_replaced() {
+    FINISHED.with(|f| *f.borrow_mut() = None);
+    streams().clear();
+    pending().clear();
+}
+
 pub(super) fn next_stream() -> Option<Vec<u32>> {
     streams().pop_front()
 }
@@ -151,15 +159,31 @@ pub fn drawing(b: &[u32]) -> Option<(Vec<u32>, bool)> {
 /// Carry only retained definitions into a newer frame. Unknown streams stay whole.
 fn carry_definitions(older: &[u32], newer: &mut Vec<u32>) -> bool {
     let mut definitions = Vec::new();
+    let mut row_sets = false;
     let mut i = 0;
     while i < older.len() {
         let Some(j) = end(older, i).filter(|j| *j <= older.len()) else {
             return false;
         };
         if defines(older[i]) {
+            row_sets = match older[i] {
+                ROW_BEGIN => older[i + 2] & (1 << 31) == 0,
+                SLOT_SET | LAYER_SET | TRACKS | CLOCK => row_sets,
+                _ => false,
+            };
             definitions.extend_from_slice(&older[i..j]);
+        } else if row_sets {
+            // Android defers contiguous sets after an unshown row; keep their boundary.
+            return false;
         }
         i = j;
+    }
+    if row_sets
+        && newer
+            .first()
+            .is_some_and(|op| matches!(*op, SLOT_SET | LAYER_SET | TRACKS | CLOCK))
+    {
+        return false;
     }
     if !definitions.is_empty() {
         definitions.append(newer);
@@ -294,6 +318,52 @@ mod tests {
     }
 
     #[test]
+    fn deferred_row_sets_keep_their_drawing_and_frame_boundaries() {
+        let row = [ROW_BEGIN, 7, 0, 10, 10, 1, ROW_END];
+        let sets = [
+            vec![SLOT_SET, 8, 2, SLOT, 1],
+            [vec![LAYER_SET, 9, 16], vec![0; 16]].concat(),
+            vec![TRACKS, 9, 0],
+            vec![CLOCK, 9, 0],
+        ];
+        for set in &sets {
+            for boundary in [
+                vec![ROW_DRAW, 7, 0, 0],
+                vec![MATRIX, 1, 0, 0, 1, 0, 0],
+                vec![GROUP_END],
+            ] {
+                let older = [row.as_slice(), &sets[0], &boundary, set, &[ROW_FREE, 7]].concat();
+                let mut latest = vec![ROW_DRAW, 10, 0, 0];
+                let before = latest.clone();
+                assert!(!carry_definitions(&older, &mut latest));
+                assert_eq!(latest, before, "a rejected carry is atomic");
+            }
+            // The end of the older stream is also a boundary for Android's deferred sets.
+            let older = [row.as_slice(), &sets[0]].concat();
+            let mut latest = set.clone();
+            let before = latest.clone();
+            assert!(!carry_definitions(&older, &mut latest));
+            assert_eq!(latest, before);
+        }
+        // A shown row cannot defer its following sets.
+        let mut shown = row;
+        shown[2] = 1 << 31;
+        let older = [shown.as_slice(), &[ROW_DRAW, 7, 0, 0]].concat();
+        assert!(carry_definitions(&older, &mut sets[0].clone()));
+        // A retained non-set ends the first row's scope, but the next unshown row opens one.
+        let older = [
+            row.as_slice(),
+            &[FONT, 1, 0, 400, 0],
+            row.as_slice(),
+            &[ROW_DRAW, 7, 0, 0],
+        ]
+        .concat();
+        assert!(!carry_definitions(&older, &mut Vec::new()));
+        let older = [row.as_slice(), &[FONT, 1, 0, 400, 0, ROW_DRAW, 7, 0, 0]].concat();
+        assert!(carry_definitions(&older, &mut sets[0].clone()));
+    }
+
+    #[test]
     fn an_unknown_or_cut_stream_never_partially_changes_the_latest_frame() {
         for older in [
             vec![99],
@@ -362,6 +432,19 @@ mod tests {
             assert!(!waiting());
         }
 
+        let deferred = vec![
+            ROW_BEGIN, 7, 0, 10, 10, 1, ROW_END, SLOT_SET, 8, 2, SLOT, 1, ROW_DRAW, 7, 0, 0,
+            SLOT_SET, 9, 2, SLOT, 2,
+        ];
+        recorder.ops = deferred.clone();
+        recorder.finish_stream().unwrap();
+        recorder.ops = vec![ROW_FREE, 7];
+        recorder.finish_stream().unwrap();
+        let newest = FINISHED.with(|f| f.borrow_mut().take());
+        assert_eq!(after_turn(newest), Some(deferred));
+        assert_eq!(next_stream(), Some(vec![ROW_FREE, 7]));
+        assert!(!waiting());
+
         for op in [99, 98, 97] {
             recorder.ops = vec![op];
             recorder.finish_stream().unwrap();
@@ -371,5 +454,28 @@ mod tests {
         assert_eq!(next_stream(), Some(vec![98]));
         assert_eq!(next_stream(), Some(vec![97]));
         assert!(!waiting());
+
+        // Adoption discards both queued and finished old-reader definitions before IDs restart.
+        let old = Picture::Canvas(Arc::new(Pixmap::new(1, 1).unwrap()));
+        assert_eq!(recorder.image_id(&old), 1);
+        recorder.finish_stream().unwrap();
+        keep(FINISHED.with(|f| f.borrow_mut().take()));
+        recorder.ops = vec![IMAGE, 1, 0, 0, 1, 1];
+        recorder.finish_stream().unwrap();
+        assert!(waiting());
+        assert!(pending().contains_key(&1));
+        reader_replaced();
+        assert!(!waiting());
+        assert!(FINISHED.with(|f| f.borrow().is_none()));
+        assert!(pending().is_empty());
+
+        let new = Picture::Canvas(Arc::new(Pixmap::new(2, 1).unwrap()));
+        let mut recorder = Recorder::new();
+        assert_eq!(recorder.image_id(&new), 1);
+        recorder.finish_stream().unwrap();
+        let newest = FINISHED.with(|f| f.borrow_mut().take());
+        assert_eq!(after_turn(newest), Some(vec![IMAGE_DEF, 1, 2, 1]));
+        assert_eq!(pending().remove(&1).unwrap().key(), new.key());
+        assert!(next_stream().is_none());
     }
 }

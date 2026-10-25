@@ -76,7 +76,8 @@ pub(super) fn clock<D: DataSource>(p: &crate::presenter::Presenter<D>) -> Option
 }
 
 /// A recording finished over `older`, which the reader never took. With a
-/// driver it is kept for the reader; normal frames carry their definitions.
+/// driver it is queued for the reader; otherwise it is dropped. Unread
+/// recordings carry their definitions in [`super::Recorder::finish_stream`].
 pub(super) fn kept(older: Option<Vec<u32>>) {
     super::stream::keep(older.filter(|_| driven()));
 }
