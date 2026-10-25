@@ -40,7 +40,8 @@
     "t3-anchor",
     "t3-snapshot-tile",
     "t3-media",
-    "t3-launcher"
+    "t3-launcher",
+    "t3-browser-page"
   ],
   "rust": {
     "placement": "worker"
@@ -89,6 +90,9 @@
     "dialog-focus",
     "focus-stop",
     "dialog-return",
-    "editable"
+    "editable",
+    "browser-frame",
+    "browser-environment",
+    "browser-profile"
   ]
 }

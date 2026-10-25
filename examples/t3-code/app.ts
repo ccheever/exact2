@@ -81,8 +81,11 @@ export const appId = 'com.exact.t3code.macos';
 // Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
 // Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts). An image
 // chip's accent fetches the image and scales it under app:/tmp/image-accent (image-accent.ts). The preference
-// file is t3-code.json (protocol.ts preferenceFiles).
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
+// file is t3-code.json (protocol.ts preferenceFiles). `browser.automation` lets data code drive a Browser tab's frame for
+// the agent's preview automation and Annotate (browser-automation.ts, browser-annotation.ts); a capture of a tab is written
+// under app:/tmp/browser-shots and an agent-driven tab's downloads under app:/tmp/browser-downloads before they move to the
+// artifact folder.
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
 const client = new T3Client();
 const transport = new Transport();
 
@@ -202,7 +205,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? groupOfMember(client, legacy) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? '' : String(args[1] || ''), args[3] === true, native); } // a bare project id (or a background environment's `fleet:` one) is its project on every environment (settingsScopeOf)
   if (source === 'integrationsPage') return { ...(await integrationsPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''))),
-    browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // Browser profiles and the import wizard
+    browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // Browser profiles and the browser defaults
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
   if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
   if (source === 'settings') {

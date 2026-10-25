@@ -17,6 +17,7 @@ use DeviceMini from "../device/device-workspace-shapes.contract"
 use TabStrip from "./tab-strip.contract"
 use BrowserPanel from "../browser/browser-shapes.contract"
 use BrowserMini from "../browser/browser-shapes.contract"
+use BrowserFrames from "../browser/browser-shapes.contract"
 use MediaView from "../media/media-actions.contract"
 
 shape PanelTab
@@ -304,6 +305,7 @@ shape PanelView
   tabStrip: TabStrip // the tab strip's scroll (tab-strip.ts)
   browser: BrowserPanel // the active Browser tab (browser-surface.ts browserView)
   browserMini: BrowserMini // the floating player's browser tab (browser-capture.ts browserMiniView)
+  frames: BrowserFrames // every live Browser tab's frame and the next frame command (browser-frames.ts)
   annotationOwner: string
   annotationValue: string
   annotationSnapshot: string

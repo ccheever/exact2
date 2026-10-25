@@ -19,7 +19,8 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../
 import { surfaceStore } from '../panel/panel-surfaces';
 import { pushToast } from '../shell/toast';
 import { browserHost, installBrowserCleanup, listPreviewSessions, openBrowserIn, openPreviewSession, syncNativeSessions } from './browser-surface';
-import { previewRuntimeTabId, type PreviewSessionSnapshot, type PreviewViewportSetting } from './browser-state';
+import { frameByElement } from './browser-frames';
+import { type PreviewSessionSnapshot, type PreviewViewportSetting } from './browser-state';
 import { resolveBrowserOpenDefaults } from './browser-defaults';
 import { BrowserSettingsReadError, DEFAULT_BROWSER_PROFILE_ID } from './browser-profiles';
 import { mediaFileReference } from '../media/media-reference';
@@ -88,38 +89,23 @@ export async function openUrlInPreview(client: T3Client, native: Native, ref: Sc
     // included, while the open was in flight.
     if (previousActiveTabId && host.store.read(ref).activeTabId === snapshot.tabId && selectedSurface(client, ref) === surfaceBeforeOpen) host.store.setActiveTab(ref, previousActiveTabId);
   } else openBesideThread(client, ref, snapshot.tabId);
-  await syncNativeSessions(client, native);
+  syncNativeSessions(client);
   return snapshot;
 }
 
-/** Each tab's link requests taken so far, by runtime tab id. */
-const takenLinks = new WeakMap<T3Client, Map<string, number>>();
-/** ElectronBrowserHost `onOpenLink`: a `target="_blank"` link, a featureless `window.open` or a ⌘- or middle-click in a
- *  tab's page (T3BrowserSession+Links.swift) opens as another tab of the same thread, so the page that held the link
- *  stays where it is; the new tab keeps the source tab's profile so its cookies carry over. Each request opens once,
- *  then the module forgets it (`browserOpenLinks`); a failed open is dropped, as the reference's command reports it. */
-export async function openRequestedLinks(client: T3Client, native: Native): Promise<void> {
-  const tabs = obj(client.presentation.browserTabs);
-  let taken = takenLinks.get(client);
-  if (!taken) { taken = new Map(); takenLinks.set(client, taken); }
-  for (const [key, state] of browserHost(client).store.active()) {
-    const ref = parseScopedThreadKey(key);
-    if (!ref) continue;
-    for (const source of Object.values(state.sessions)) {
-      const runtimeId = previewRuntimeTabId(ref, state.serverEpoch, source.tabId), requests = arr(obj(tabs[runtimeId]).openLinks).map(obj);
-      const before = taken.get(runtimeId) ?? 0;
-      let last = before;
-      for (const request of requests) {
-        const serial = num(request.serial), url = str(request.url);
-        if (serial <= last) continue;
-        last = serial; taken.set(runtimeId, serial);
-        if (!isWebUrl(url)) continue;
-        try { await openUrlInPreview(client, native, ref, url, undefined, { profileId: source.profileId ?? DEFAULT_BROWSER_PROFILE_ID, background: request.background === true }); }
-        catch (error) { if (letGo(error)) throw error; }
-      }
-      if (last > before) await client.raw(native, { op: 'browserOpenLinks', tab: runtimeId, taken: last });
-    }
-  }
+/** ElectronBrowserHost `onOpenLink`: a `target="_blank"` link, a featureless `window.open` or a ⌘-click in a tab's page
+ *  (its frame's `newwindow`, a `foreground-tab` or `background-tab`) opens as another tab of the same thread, so the
+ *  page that held the link stays where it is; the new tab keeps the source tab's profile so its cookies carry over. A
+ *  `new-window` (a scripted popup) already opened in the platform's window, in the same partition. A failed open is
+ *  dropped, as the reference's command reports it. */
+export async function openFrameWindow(client: T3Client, native: Native, frameId: string, disposition: string, url: string): Promise<void> {
+  if ((disposition !== 'foreground-tab' && disposition !== 'background-tab') || !isWebUrl(url)) return;
+  const entry = frameByElement(client, frameId);
+  const [environmentId, threadId, , tabId] = entry ? JSON.parse(entry.runtimeId) as [string, string, string | null, string] : [];
+  if (!entry || !environmentId || !threadId) return;
+  const ref = { environmentId, threadId }, source = browserHost(client).store.read(ref).sessions[tabId ?? ''];
+  try { await openUrlInPreview(client, native, ref, url, undefined, { profileId: source?.profileId ?? DEFAULT_BROWSER_PROFILE_ID, background: disposition === 'background-tab' }); }
+  catch (error) { if (letGo(error)) throw error; }
 }
 
 /** openFileInPreview: a browser document (a page or a PDF) in a new Browser tab beside the thread. Inside the workspace

@@ -2,6 +2,7 @@
 // Linked pull requests rows and the device wizard, against the reference's rules
 // (rightPanelStore.ts, FileBrowserPanel/FilePreviewPanel, ThreadPullRequestsPanel,
 // DeviceSetup.tsx). Network paths run against a recording fake of the native bridge.
+import { frames } from '../../src/browser/browser-frames';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from '../../src/panel/panel-surfaces';
@@ -201,7 +202,7 @@ describe('Files surface', () => {
       expect(rpcs.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: `/repo/${path}` } });
       expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't1', url: `http://127.0.0.1:9/api/assets/token/${path.split('/').pop()}` });
       expect(panelState(client)).toMatchObject({ active: `browser:${tab}`, visible: true });
-      expect(raws.filter(request => request.op === 'browserSync').at(-1)?.tabs).toHaveLength(1);
+      expect(frames(client).entries.size).toBe(1); // its frame mounts in the window's frame layer
       expect(toasts(client)).toEqual([]);
     }
     // A refused signature is the reference's stacked toast, and no tab opens.

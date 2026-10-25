@@ -1,24 +1,17 @@
 // A Browser tab's page area (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
-// apps/web/src/browser/HostedBrowserWebview.tsx, BrowserDeviceToolbar.tsx, BrowserViewportResizeHandles.tsx,
-// useBrowserViewportResize.ts, browserViewportLayout.ts, ScreenRotationIcon.tsx; apps/web/src/components/
-// preview/ZoomIndicator.tsx). Fill puts the page over the whole area. A fixed viewport (the device toolbar is
-// shown) puts it under the 32 pt toolbar, centred between 10 pt rails and scaled down to fit (presentation only:
-// the module's box scales the web view, T3BrowserView.swift), with five resize handles (the two sides, the bottom
-// and its corners). A drag shows its size live and asks for it on release (browser-navigation.ts
-// `viewport-drag`); the drawn size stays until the server's answer lands (`viewportSerial`). Arrow keys on a
-// handle step 10 px, 50 with Shift. While the page or the URL field has the focus, the module answers the
-// preview's chords (`keys`) and sends their command here (`pageKey`).
+// apps/web/src/browser/HostedBrowserWebview.tsx, BrowserSurfaceSlot.tsx, BrowserDeviceToolbar.tsx,
+// BrowserViewportResizeHandles.tsx, useBrowserViewportResize.ts, browserViewportLayout.ts, ScreenRotationIcon.tsx;
+// apps/web/src/components/preview/ZoomIndicator.tsx). Fill puts the page over the whole area. A fixed viewport (the
+// device toolbar is shown) puts it under the 32 pt toolbar, centred between 10 pt rails and scaled down to fit, with
+// five resize handles (the two sides, the bottom and its corners). The page is the window's frame for the tab
+// (browser-frames.contract): this area draws its slot and measures it whenever the slot or the area changes size, or a
+// drag moves it, and the layer puts the frame there. A drag shows its size live and asks for it on release
+// (browser-navigation.ts `viewport-drag`); the drawn size stays until the server's answer lands (`viewportSerial`).
+// Arrow keys on a handle step 10 px, 50 with Shift.
 use ServerBrowserPage from "./server-browser.contract"
 use BrowserPanel from "./browser-shapes.contract"
 use BrowserPresetChoice from "./browser-shapes.contract"
 use TipBubble from "../shell/shell-tip.contract"
-
-// ZoomIndicator: in 200 ms, held to 1.5 s, out in 200 ms.
-keyframes bvZoomPill
-  0% opacity=0 translate="0px -4px"
-  12% opacity=1 translate="0px 0px"
-  88% opacity=1 translate="0px 0px"
-  to opacity=0 translate="0px -4px"
 
 // Lucide 0.553 (ISC) glyphs, and ScreenRotationIcon (its rotated square drawn as a path).
 fn bvPath(name: string): string = name == "link-2" ? "M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8" : name == "unlink-2" ? "M15 7h2a5 5 0 0 1 0 10h-2M9 17H7A5 5 0 0 1 7 7h2" : name == "x" ? "M18 6 6 18M6 6l12 12" : name == "chevron-down" ? "m6 9 6 6 6-6" : name == "check" ? "M20 6 9 17l-5-5" : name == "rotation" ? "M12 5.28 18.72 12 12 18.72 5.28 12ZM12.5 2a10 10 0 0 1 8.4 5.4M20.8 3.5v4h-4M11.5 22a10 10 0 0 1-8.4-5.4M3.2 20.5v-4h4" : ""
@@ -42,11 +35,12 @@ fn bvLockedWidth(w: number, ratio: number): number = min(floor(min(3840, 3840 * 
 fn bvLockedHeight(h: number, ratio: number): number = min(floor(min(3840, 3840 / ratio)), max(ceil(max(240, 240 / ratio)), round(h)))
 
 component BrowserStage
+  inject
+    browserPlace: action // (x, y, width, height, note) the page box in window points (app-window.contract)
   props
     view: BrowserPanel
     pw: number
     ph: number
-    urlFocused: bool
     local: action
   state dragDir = ""
   state dragX = 0
@@ -85,9 +79,11 @@ component BrowserStage
   derive vh = fixed ? liveH * z * scale : ph
   derive vx = fixed ? 10 + max(0, round((aw - vw) / 2)) : 0
   derive vy = fixed ? 32 + max(0, round((ah - vh) / 2)) : 0
-  // The viewport the page lays out at (CSS px): the module sizes the web view from it at the page's zoom, so the
-  // page's innerWidth × innerHeight are these fields whatever the fitted frame rounds to. Empty in fill.
-  derive pageSize = fixed and liveW > 0 and liveH > 0 ? `${liveW}x${liveH}` : ""
+  // The slot's box, for the window's frame layer; a drag's size goes with it, drawn over the page there (a drag resizes
+  // the slot, which measures it again).
+  action placed(width: number, height: number)
+    let slot = frame("browser-page-slot")
+    browserPlace(slot.x, slot.y, slot.width, slot.height, dragging ? `${liveW} × ${liveH}` : "")
   action drag(direction: string, dx: number, dy: number)
     dragX = dragDir == direction ? dragX + dx : dx
     dragY = dragDir == direction ? dragY + dy : dy
@@ -102,43 +98,29 @@ component BrowserStage
     dragDir = ""
     dragX = 0
     dragY = 0
+    let slot = frame("browser-page-slot")
+    browserPlace(slot.x, slot.y, slot.width, slot.height, "")
   action railKey(direction: string, k: string, e: KeyboardEvent)
     if k == "ArrowLeft" or k == "ArrowRight" or k == "ArrowUp" or k == "ArrowDown"
       preventDefault()
       local("surface-browser-viewport-key", view.tabId, `${direction}|${k}|${e.shiftKey ? "true" : "false"}`)
   action hover(id: string, on: bool)
     over = on ? id : (over == id ? "" : over)
-  // The preview's chords, answered by the module while the page or the URL field has the focus.
-  action pageKey(name: string)
-    if name == "focus-url"
-      focus("browser-url")
-      selectText("browser-url")
-    if name == "refresh"
-      local("surface-browser-refresh", view.tabId, "")
-    if name == "zoom-in" or name == "zoom-out"
-      local(`surface-browser-${name}`, view.tabId, "")
-    if name == "reset-zoom"
-      local("surface-browser-zoom-reset", view.tabId, "")
   view
-    box position="absolute" left=0 top=0 right=0 bottom=0 overflow="hidden" background-color=(fixed ? "light-dark(#f4f4f559, #2626265a)" : "#00000000") testId="browser-stage"
+    box position="absolute" left=0 top=0 right=0 bottom=0 overflow="hidden" background-color=(fixed ? "light-dark(#f4f4f559, #2626265a)" : "#00000000") resize=placed testId="browser-stage"
       if fixed
         BrowserDeviceToolbar(view=view, width=pw, liveW=liveW, liveH=liveH, local=local)
       if view.server
         box position="absolute" left=vx top=vy width=vw height=vh
           ServerBrowserPage(runtimeId=view.runtimeId, url=view.streamUrl, pdfUrl=view.pdfUrl, pageWidth=vw, pageHeight=vh, followSize=(not fixed), mini=false)
       else
-        t3-browser tab=view.runtimeId url=view.url profile=view.profileId environment=view.environment fit-scale=`${scale}` page-size=pageSize window-zoom=`${view.windowZoom}` keys=view.keys chrome-focus=(urlFocused ? "true" : "false") key=pageKey aria-label="Browser page" testId="browser-page" position="absolute" left=vx top=vy width=vw height=vh box-shadow=(fixed ? "0 0 0 1px light-dark(#e4e4e7b3, #ffffff1a), 0 1px 2px #0000000d" : "none")
+        box id="browser-page-slot" resize=placed pointer-events="none" testId="browser-page-slot" position="absolute" left=vx top=vy width=vw height=vh box-shadow=(fixed ? "0 0 0 1px light-dark(#e4e4e7b3, #ffffff1a), 0 1px 2px #0000000d" : "none")
       if fixed
         BrowserRail(direction="west", label="Resize browser viewport from left edge", kind="vertical", cursor="ew-resize", x=(vx - 10), y=vy, w=10, h=vh, active=(dragDir == "west" or over == "west"), drag=drag, release=release, railKey=railKey, hover=hover)
         BrowserRail(direction="east", label="Resize browser viewport from right edge", kind="vertical", cursor="ew-resize", x=(vx + vw), y=vy, w=10, h=vh, active=(dragDir == "east" or over == "east"), drag=drag, release=release, railKey=railKey, hover=hover)
         BrowserRail(direction="south", label="Resize browser viewport from bottom edge", kind="horizontal", cursor="ns-resize", x=vx, y=(vy + vh), w=vw, h=10, active=(dragDir == "south" or over == "south"), drag=drag, release=release, railKey=railKey, hover=hover)
         BrowserRail(direction="southwest", label="Resize browser viewport from bottom-left corner", kind="corner-left", cursor="nesw-resize", x=(vx - 10), y=(vy + vh), w=10, h=10, active=(dragDir == "southwest" or over == "southwest"), drag=drag, release=release, railKey=railKey, hover=hover)
         BrowserRail(direction="southeast", label="Resize browser viewport from bottom-right corner", kind="corner-right", cursor="nwse-resize", x=(vx + vw), y=(vy + vh), w=10, h=10, active=(dragDir == "southeast" or over == "southeast"), drag=drag, release=release, railKey=railKey, hover=hover)
-        if dragging
-          text `${liveW} × ${liveH}` position="absolute" left=(vx + vw / 2) top=(vy + 10) translate="-50% 0%" z-index=40 pointer-events="none" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#fffffff2, #171717f2)" box-shadow="0 4px 6px -1px #0000001a" font-size="0.625rem" line-height="0.875rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" aria-hidden=true testId="browser-drag-size"
-      // ZoomIndicator: the level, top right, each time it changes (not for the first value).
-      for serial in (view.zoomSerial > 0 ? [view.zoomSerial] : []) key=serial
-        text view.zoomLabel position="absolute" top="0.75rem" right="0.75rem" z-index=20 pointer-events="none" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="624.9375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" box-shadow="0 4px 6px -1px #0000001a" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" opacity=0 animation="bvZoomPill 1.7s ease-out forwards" aria-hidden=true testId="browser-zoom-indicator"
 
 // BrowserViewportResizeHandles' ResizeHandle: an invisible 10 pt rail (its hit area 4 pt larger) with a grip in
 // the muted colour, the foreground while hovered, focused or dragged; arrow keys resize along its axes.

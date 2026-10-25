@@ -33,7 +33,8 @@ import { detailsKey } from '../details/shell-details';
 /** The chat header above the canvas (ChatCanvas starts below it). */
 export const CHAT_HEADER_HEIGHT = 52;
 
-export type ChatCanvasMini = { show: boolean; key: string; x: number; top: number; width: number; height: number; radius: number; pillInset: number };
+/** `originX`/`originY`: the chat column's window place (its last measured `chat` frame), where the Browser page layer puts the player. */
+export type ChatCanvasMini = { show: boolean; key: string; x: number; top: number; width: number; height: number; radius: number; pillInset: number; originX: number; originY: number };
 export type ChatCanvasView = {
   /** False until the first answer: the column centres chat by itself meanwhile. */
   ready: boolean; containerWidth: number; containerHeight: number;
@@ -52,7 +53,7 @@ export type ChatCanvasView = {
 /** `wide`: the window's rule for the docked card (chat at least 1012 pt: the lane padding, 640, the 32 pt clearance, the 280 pt card and its 12 pt gap); `popoverOpen`: the header's popover is open. */
 export type ChatCanvasArgs = { width: number; viewportHeight: number; detailsInline: boolean; chatMax: number; overlaid: boolean; gesture: string; wide: boolean; popoverOpen: boolean };
 
-const NO_MINI: ChatCanvasMini = { show: false, key: '', x: 0, top: 0, width: 0, height: 0, radius: 12, pillInset: 8 };
+const NO_MINI: ChatCanvasMini = { show: false, key: '', x: 0, top: 0, width: 0, height: 0, radius: 12, pillInset: 8, originX: 0, originY: 0 };
 export const emptyChatCanvas = (): ChatCanvasView => ({ ready: false, containerWidth: 0, containerHeight: 0, left: 0, width: 0, insetEnd: 0,
   overlapsChat: false, overlapsDetailsCard: false, cardShown: true, cardHeight: 0, popover: false, popoverEpoch: 0, density: 'full', mini: NO_MINI });
 
@@ -180,7 +181,7 @@ export async function chatCanvasView(client: T3Client, native: Native | null | u
     state.shown = { threadKey, sourceKey: preview.key, frame: layout.frame, container, source };
     const radius = current.source.kind === 'browser' ? PREVIEW_MINI_PLAYER_CORNER_RADIUS : resolveDeviceMiniPlayerCornerRadius(current.source.platform as DevicePlatform, layout.frame);
     mini = { show: true, key: current.source.kind === 'browser' ? preview.key : deviceKey({ hostId: current.source.hostId, deviceId: current.source.deviceId }), x: layout.frame.x, top: CHAT_HEADER_HEIGHT + layout.frame.y,
-      width: layout.frame.width, height: layout.frame.height, radius, pillInset: resolvePreviewMiniPlayerPillInset(radius) };
+      width: layout.frame.width, height: layout.frame.height, radius, pillInset: resolvePreviewMiniPlayerPillInset(radius), originX: chat ? chat[0]! : 0, originY: chat ? chat[1]! : 0 };
   } else state.shown = null;
   return {
     ready: true, containerWidth: container.width, containerHeight: container.height,

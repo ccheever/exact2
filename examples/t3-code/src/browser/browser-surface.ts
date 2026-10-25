@@ -6,12 +6,12 @@ import { can, requirePermission } from '../connections/command-permissions';
 // at 9c161462c9, apps/web/src/browser/previewRuntime.ts `alternatePreviewRuntime` and PreviewView `handleMoveTab`).
 //
 // A tab is a server preview session (`preview.open`, `.close`, `.list`, `.reportStatus`): the server
-// issues its id and keeps it across a hidden panel and a thread switch. The page itself is the clone
-// module's `t3-browser` view (T3BrowserView.swift, T3BrowserSessions.swift): one WKWebView per live
-// session, kept by the module while the session exists, whether or not the panel shows it (the
-// reference's ElectronBrowserHost keeps a <webview> per session at the app root). This file is the
-// data module's half: the per-thread session store (browser-state.ts), opening and closing tabs, the
-// chrome row's commands, the native state mirrored back to the server, and the panel's projection.
+// issues its id and keeps it across a hidden panel and a thread switch. The page itself is a partitioned
+// `iframe` the window's frame layer mounts for every live session, whether or not the panel shows it
+// (browser-frames.ts, browser-frames.contract; the reference's ElectronBrowserHost keeps a <webview> per
+// session at the app root). This file is the rest of the data module's half: the per-thread session store
+// (browser-state.ts), opening and closing tabs, the chrome row's commands, the page state mirrored back to the
+// server, and the panel's projection.
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
@@ -28,12 +28,12 @@ import {
 } from './browser-state';
 import { describePreviewError, previewErrorLabel, previewHost, previewPdfAssetUrl, resolveAddressBarInput } from './browser-url';
 // Annotate, Capture, Float preview, the separate window and the floating player.
-import { adoptCaptureNative, browserAutoShowFloatingPreview, floatingTabOf, toggleFloat, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
+import { adoptAgentDownload, adoptCaptureNative, browserAutoShowFloatingPreview, floatingTabOf, toggleFloat, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
-import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, tabProfile, type BrowserDefaults } from './browser-profiles';
+import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
-import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { browserKey, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
 import { environmentHostname, preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
@@ -42,9 +42,11 @@ import { miniStoreOf, deviceThreadId } from '../device/device-session';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { primaryEnvironmentId } from '../connections/local-primary';
 import { drainServerNotices, prepareServerStream, retainServerStreams, serverStreamUrl, serverStreamFrame, sendServerCommand } from './server-browser-runtime';
-import { adoptAutomationTabs, adoptedAutomationNotes, automationOverlay, automationPrepare } from './browser-automation';
-import { openRequestedLinks } from './browser-links';
+import { adoptAutomationTabs, automationOverlay, automationPrepare, toggleFrameMute } from './browser-automation';
 import { openExternal } from '../client/external-open';
+import { adoptFrameEvent, clearFramePartition, commandFrame, frameCommandDone, frameNav, frames, namerLoaded, navigateFrame, syncFrames, type LiveFrame } from './browser-frames';
+import { openFrameWindow } from './browser-links';
+import { adoptFramePrompt, answerFramePrompt } from './browser-automation';
 
 // ── Profiles (browser-profiles.ts) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
@@ -64,15 +66,13 @@ type Host = {
   listing: Map<string, Promise<void>>;
   /** usePreviewBridge's dedupe: the last (kind, url) reported per runtime tab. */
   reported: Map<string, Report>;
-  /** The live set last sent to the module (`browserSync`). */
-  synced: string;
-  /** Its runtime ids: a tab not among them is new to the module and starts at the default zoom and appearance. */
-  syncedIds?: ReadonlySet<string>;
+  /** Frames reloaded once for the cookies moved into their partition. */
+  migrationReloads: Set<string>;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function browserHost(client: T3Client): Host {
   let host = hosts.get(client);
-  if (!host) { host = { serverSeen: new Map(), store: new PreviewStateStore(), listed: new Map(), listing: new Map(), reported: new Map(), synced: '' }; hosts.set(client, host); }
+  if (!host) { host = { serverSeen: new Map(), store: new PreviewStateStore(), listed: new Map(), listing: new Map(), reported: new Map(), migrationReloads: new Set() }; hosts.set(client, host); }
   return host;
 }
 const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => client.rpc(native, method, payload);
@@ -179,7 +179,7 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   }
   client.diffOpen = false;
   openBrowserIn(state, snapshot.tabId, scopedThreadKey(ref));
-  await syncNativeSessions(client, native); // the new page starts at the default zoom and appearance there
+  syncNativeSessions(client); // the new page starts at the default zoom and appearance there
   return '';
 }
 
@@ -238,29 +238,28 @@ export function installBrowserCleanup(client: T3Client, native: Native): void {
     const snapshot = host.store.read(ref).sessions[surface.browser.tabId] ?? null;
     if (ref.environmentId === client.environmentId) await closePreviewSession(rpcOf(client, native), host.store, ref, surface.browser.tabId, snapshot);
     else host.store.beginSessionClose(ref, surface.browser.tabId);
-    await syncNativeSessions(client, native);
+    syncNativeSessions(client);
   } });
 }
 
-// ── The native web views (T3BrowserSessions.swift) ─────────────────────────────────────────────
-/** One tab as the module reports it (`presentation.browserTabs[runtimeId]`). */
+// ── The tabs' frames (browser-frames.ts) ───────────────────────────────────────────────────────
+/** One tab as its frame's records give it (browser-frames.ts `frameNav`). */
 export type NativeTab = {
   kind: 'Idle' | 'Loading' | 'Success' | 'LoadFailed'; url: string; title: string; code: number; description: string;
   canGoBack: boolean; canGoForward: boolean; favicon: { dataUrl: string; pageUrl: string; capturedAt: number } | null;
   /** How many loads of this page have failed: each failure is reported once. */
   failures: number;
-  /** Part 2: the page's zoom (`pageZoom`) and the appearance it is told to prefer. */
+  /** Part 2: the frame's zoom and the appearance it is told to prefer. */
   zoomFactor: number; colorScheme: string;
 };
 export function nativeTabs(client: T3Client): Record<string, NativeTab> {
   const tabs: Record<string, NativeTab> = {};
-  for (const [id, raw] of Object.entries(obj(client.presentation.browserTabs))) {
-    const value = obj(raw), favicon = obj(value.favicon), kind = str(value.kind);
-    tabs[id] = {
-      kind: kind === 'Loading' || kind === 'Success' || kind === 'LoadFailed' ? kind : 'Idle', url: str(value.url), title: str(value.title),
-      code: Number(value.code) || 0, description: str(value.description), canGoBack: value.canGoBack === true, canGoForward: value.canGoForward === true,
-      favicon: str(favicon.dataUrl) && str(favicon.pageUrl) ? { dataUrl: str(favicon.dataUrl), pageUrl: str(favicon.pageUrl), capturedAt: Number(favicon.capturedAt) || 0 } : null,
-      failures: Number(value.failures) || 0, ...readTabNavigation(value),
+  for (const entry of frames(client).entries.values()) {
+    const nav = frameNav(entry);
+    tabs[entry.runtimeId] = {
+      kind: nav.kind, url: nav.url, title: nav.title, code: entry.failure?.code ?? 0, description: entry.failure?.description ?? '',
+      canGoBack: entry.record?.canGoBack === true, canGoForward: entry.record?.canGoForward === true, favicon: entry.favicon,
+      failures: entry.failures, zoomFactor: entry.zoom, colorScheme: entry.colorScheme,
     };
   }
   return tabs;
@@ -268,7 +267,7 @@ export function nativeTabs(client: T3Client): Record<string, NativeTab> {
 const originOf = (url: string): string | null => { try { const parsed = new URL(url); return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : null; } catch { return null; } };
 export const navOf = (tab: NativeTab): PreviewNavStatus =>
   tab.kind === 'Idle' ? { _tag: 'Idle' } : tab.kind === 'LoadFailed' ? { _tag: 'LoadFailed', url: tab.url, title: tab.title, code: tab.code, description: tab.description } : { _tag: tab.kind, url: tab.url, title: tab.title };
-/** usePreviewBridge projectDesktopState: a captured favicon counts only for the page's own origin. */
+/** usePreviewBridge projectDesktopState: a page's icon counts only for the page's own origin. */
 export function projectDesktopState(tab: NativeTab): DesktopPreviewOverlay {
   const navOrigin = tab.kind === 'Idle' ? null : originOf(tab.url);
   return {
@@ -279,7 +278,7 @@ export function projectDesktopState(tab: NativeTab): DesktopPreviewOverlay {
 }
 /** usePreviewBridge buildReportInput: Idle never reports; (kind, url) repeats collapse; every failure reports. The reference
  *  runs it once per desktop state change; here it runs on every projection, so a failure is told apart by the
- *  module's failure count and reported once. */
+ *  frame's failure count and reported once. */
 export function buildReportInput(threadId: string, tabId: string, tab: NativeTab, last: Report | null): { input: Obj; report: Report } | null {
   if (tab.kind === 'Idle') return null;
   if (last && tab.kind === last.kind && tab.url === last.url && (tab.kind !== 'LoadFailed' || tab.failures === last.failures)) return null;
@@ -288,54 +287,36 @@ export function buildReportInput(threadId: string, tabId: string, tab: NativeTab
   return { input: { ...base, navStatus }, report: { kind: tab.kind, url: tab.url, failures: tab.failures } };
 }
 
-type Live = { id: string; url: string; profile: string; environment: string; width?: number; height?: number; zoom?: number };
-/** ElectronBrowserHost: a web view for every live session of every thread, at its last URL; the rest close. A tab at a
- *  fixed viewport also carries its size and zoom, so the module makes its page at that size before its first load
- *  (the reference's webview is laid out at it before its guest loads). A page the module has not reported yet is
- *  made at the default zoom (`browserDefaultTabState`), so its first layout is already at it. */
-const defaultZoom = (client: T3Client): number => { try { return resolveBrowserOpenDefaults(client).zoomFactor; } catch { return 1; } };
-export function liveSessions(client: T3Client): Live[] {
-  const host = browserHost(client), live: Live[] = [], tabs = nativeTabs(client), zoom = defaultZoom(client);
+/** ElectronBrowserHost: a frame for every live session of every thread, at its last URL; the rest unmount. A frame that
+ *  is new starts at the default zoom and appearance (desktopTabLifetime's `browserDefaultTabState`), unread settings
+ *  leaving it at 100% and System. */
+export function liveSessions(client: T3Client): LiveFrame[] {
+  const host = browserHost(client), live: LiveFrame[] = [];
+  let zoom = 1, colorScheme: LiveFrame['colorScheme'] = 'system';
+  try { const defaults = resolveBrowserOpenDefaults(client); zoom = defaults.zoomFactor; colorScheme = defaults.appearance; } catch { /* unread settings */ }
   for (const [key, state] of host.store.active()) {
     const ref = parseScopedThreadKey(key);
     if (!ref) continue;
     for (const snapshot of Object.values(state.sessions)) {
       if (snapshot.runtime === 'server') continue;
-      const id = previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), viewport = snapshot.viewport;
-      live.push({ id, url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url, profile: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID, environment: ref.environmentId,
-        ...(viewport && viewport._tag !== 'fill' ? { width: viewport.width, height: viewport.height, zoom: tabs[id]?.zoomFactor ?? zoom } : {}) });
+      live.push({ runtimeId: previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url,
+        profile: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID, environment: ref.environmentId, zoom, colorScheme });
     }
   }
   return live;
 }
-export async function syncNativeSessions(client: T3Client, native: Native): Promise<void> {
-  const host = browserHost(client), live = liveSessions(client), adopted = adoptedAutomationNotes(client);
-  const ids = live.map(entry => entry.id).sort(), signature = JSON.stringify([ids, adopted]);
-  if (signature === host.synced) return;
-  const before = host.syncedIds ?? new Set<string>();
-  const reply = await client.raw(native, { op: 'browserSync', tabs: live, adopted });
-  if (!reply.ok) return;
-  host.synced = signature; host.syncedIds = new Set(ids);
-  await applyTabDefaults(client, native, ids.filter(id => !before.has(id)));
-}
-/** desktopTabLifetime's `createTab(tabId, browserDefaultTabState(defaults))`: a page the module creates, however the
- *  tab was opened (the launcher, a link, an agent, a relaunch), starts at the default zoom and appearance
- *  (`browserSet`). Unread settings leave the page as WebKit made it. */
-async function applyTabDefaults(client: T3Client, native: Native, created: readonly string[]): Promise<void> {
-  if (created.length === 0) return;
-  let defaults: ReturnType<typeof resolveBrowserOpenDefaults>;
-  try { defaults = resolveBrowserOpenDefaults(client); } catch { return; }
-  if (defaults.zoomFactor === 1 && defaults.appearance === 'system') return;
-  for (const tab of created) {
-    try { await nativeOp(client, native, { op: 'browserSet', tab, zoom: defaults.zoomFactor, colorScheme: defaults.appearance }); }
-    catch (error) { if (letGo(error)) throw error; }
+/** The live tabs' frames; a page whose profile's old cookies the hatch just moved in (T3BrowserPage.swift `migrateCookies`)
+ *  reloads once, so a site the person was signed in to sees them. */
+export function syncNativeSessions(client: T3Client): void {
+  syncFrames(client, liveSessions(client));
+  const pages = obj(client.presentation.browserPages), reloaded = browserHost(client).migrationReloads;
+  for (const entry of frames(client).entries.values()) {
+    if (!(Number(obj(pages[entry.frameId]).migrated) > 0) || reloaded.has(entry.frameId)) continue;
+    reloaded.add(entry.frameId);
+    commandFrame(client, entry.runtimeId, 'refresh');
   }
 }
-async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {
-  if (request.op !== 'browserClose') requirePermission(client.scopes, 'preview:operate');
-  const reply = await client.raw(native, request);
-  return reply.ok ? obj(reply.value) : {};
-}
+function frameOp(client: T3Client): void { requirePermission(client.scopes, 'preview:operate'); }
 
 /** Mirrors the module's tab state into the store and reports navigations to the server (usePreviewBridge). */
 async function mirrorNativeState(client: T3Client, native: Native): Promise<void> {
@@ -362,7 +343,10 @@ async function mirrorNativeState(client: T3Client, native: Native): Promise<void
 export function effectiveNav(client: T3Client, ref: ScopedThreadRef, tabId: string): { nav: PreviewNavStatus; tab: NativeTab | null; snapshot: PreviewSessionSnapshot | null; runtimeId: string } {
   const state = browserHost(client).store.read(ref), snapshot = state.sessions[tabId] ?? null;
   const runtimeId = previewRuntimeTabId(ref, state.serverEpoch, tabId), tab = snapshot?.runtime === 'server' ? null : nativeTabs(client)[runtimeId] ?? null;
-  const nav = tab && tab.kind !== 'Idle' ? navOf(tab) : (snapshot?.navStatus ?? { _tag: 'Idle' });
+  let nav = tab && tab.kind !== 'Idle' ? navOf(tab) : (snapshot?.navStatus ?? { _tag: 'Idle' });
+  // A frame that has not reported its page's title yet (a hidden tab mounted at launch) keeps the server's for that URL.
+  const known = snapshot?.navStatus;
+  if (tab && nav._tag !== 'Idle' && !nav.title && known && known._tag !== 'Idle' && known.url === nav.url && known.title) nav = { ...nav, title: known.title };
   return { nav, tab, snapshot, runtimeId };
 }
 
@@ -468,12 +452,9 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     }
     if (operate) {
       await mirrorNativeState(client, native);
-      await openRequestedLinks(client, native); // a page's target=_blank links (browser-links.ts)
-      await syncNativeSessions(client, native);
-      // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
+      syncNativeSessions(client);
       adoptCaptureNative(client, native);
-      await applyCaptureResults(client, native, liveTabKeys(client));
-      await cancelHiddenPicks(client, native, shownRuntimeId(client, state)); // PreviewView's unmount: a hidden tab's pick ends
+      await cancelHiddenPicks(client, shownRuntimeId(client, state)); // PreviewView's unmount: a hidden tab's pick ends
       await navigationPrepare(client, native, state);
       await automationPrepare(client, native); // the previewAutomation host (browser-automation.ts)
     }
@@ -491,6 +472,26 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
       await prepareServerStream(client, native, slot.runtimeId, ref?.threadId ?? '', slot.snapshot?.tabId ?? '');
     }
   } catch (error) { if (letGo(error)) throw error; }
+}
+
+// ── The frames' records and requests (browser-frames.contract) ──────────────────────────────────
+/** `surface-browser-frame*`: a frame's navigation record, its window request, download and agent-held dialog, a namer
+ *  frame's load and the root's acknowledgement of a frame command, which are the pages' own; and the person's answer to a
+ *  held dialog and a View chord over a shown page. None is a use of the panel, so they run before its state. */
+export async function frameLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  switch (op) {
+    case 'frame': adoptFrameEvent(client, id, value, navigationNow(client)); break;
+    case 'frame-done': frameCommandDone(client, Number(value) || 0); break;
+    case 'frame-named': await namerLoaded(client, id); break;
+    case 'frame-window': { const q = new URLSearchParams(value); await openFrameWindow(client, native, id, q.get('disposition') ?? '', q.get('url') ?? ''); break; }
+    case 'frame-prompt': adoptFramePrompt(client, id, value); break;
+    case 'frame-answer': await answerFramePrompt(client, id, value); break;
+    case 'frame-key': await browserKey(client, id, value); break;
+    // A person's download asks where with the platform's save sheet; an agent's goes to setDownloadBehavior's folder and
+    // then into the artifact directory. The app shows nothing about either, as the reference's handler shows nothing.
+    case 'frame-download': await adoptAgentDownload(client, native, value); break;
+  }
+  return '';
 }
 
 // ── The chrome row's commands (`surface-browser-<op>`, PreviewView's handlers) ───────────────────
@@ -530,18 +531,18 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       // scheme does nothing (the field keeps the text). The URL loads in this tab's web view and is remembered.
       let url: string;
       try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
-      await nativeOp(client, native, { op: 'browserNavigate', tab: runtimeId, url, profile, environment: ref.environmentId });
+      frameOp(client); navigateFrame(client, runtimeId, url);
       host.store.rememberUrl(ref, url);
       browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
       return '';
     }
     case 'toggle-mute': { // the tab menu's Mute / Unmute and the tab's audio button (previewBridge.setAudioMuted)
       const overlay = snapshot ? host.store.read(ref).desktopByTabId[snapshot.tabId] : undefined;
-      if (overlay) await nativeOp(client, native, { op: 'browserMute', tab: runtimeId, muted: !overlay.audioMuted });
+      if (overlay) await toggleFrameMute(client, native, runtimeId, !overlay.audioMuted);
       return '';
     }
     case 'back': case 'forward': case 'refresh': case 'hard-reload':
-      await nativeOp(client, native, { op: 'browserCommand', tab: runtimeId, command: op });
+      frameOp(client); commandFrame(client, runtimeId, op);
       return '';
     case 'external': {
       // PreviewView handleOpenInBrowser: localApi.shell.openExternal(url) (external-open.ts).
@@ -551,8 +552,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
     }
     case 'clear-cookies': case 'clear-cache': {
       // Part 4, PreviewMoreMenu's Profile group: this tab's environment and profile only; a failure is ignored, as there.
-      const bridge = nativeProfileBridge(request => client.raw(native, request));
-      await (op === 'clear-cookies' ? bridge.clearCookies(ref.environmentId, profile) : bridge.clearCache(ref.environmentId, profile)).catch(() => undefined);
+      await clearFramePartition(client, ref.environmentId, profile, op === 'clear-cookies' ? 'cookies' : 'cache').catch((error: unknown) => { if (letGo(error)) throw error; });
       return '';
     }
   }
@@ -566,14 +566,6 @@ function shownRuntimeId(client: T3Client, state: PanelState): string | null {
   const active = state.visible ? state.surfaces.find(entry => entry.id === state.active && entry.kind === 'browser') : undefined;
   const ref = active?.browser ? parseScopedThreadKey(active.browser.threadKey) : null;
   return ref && active?.browser ? effectiveNav(client, ref, active.browser.tabId).runtimeId : null;
-}
-function liveTabKeys(client: T3Client): Array<{ runtimeId: string; threadKey: string }> {
-  const host = browserHost(client), out: Array<{ runtimeId: string; threadKey: string }> = [];
-  for (const [key, state] of host.store.active()) {
-    const ref = parseScopedThreadKey(key);
-    if (ref) for (const snapshot of Object.values(state.sessions)) out.push({ runtimeId: previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), threadKey: key });
-  }
-  return out;
 }
 /** ThreadPreviewMiniPlayer openInPanel: the floating tab back in the right panel (rightPanelStore.openBrowser). */
 function reopenBrowserTab(client: T3Client, state: PanelState, tabId: string): void {

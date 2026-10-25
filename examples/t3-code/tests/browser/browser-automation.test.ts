@@ -2,11 +2,11 @@
 // apps/web/src/components/preview/previewAutomationHostBudget.test.ts (10: its `it.each` rows count one each),
 // previewAutomationOpenReadiness.test.ts (13), previewAutomationTarget.test.ts (4), agentBrowserCursorLogic.test.ts
 // (3) and previewAutomationRequestConsumer.test.ts (11). The consumer's stream is the transport's inbox here
-// (client.ts drain → `previewStreamEvent`) and its handler is the plan the module runs, so its first five tests
-// drive the drain and the dispatch; four of its six serialization tests are the module's answers and run in
-// the AppKit binary `macos/tests/browser-automation` (the recording, viewport, non-editable and sanitized
-// handler failures), the other two here. Then the clone's own rows: request routing (`planRequest`), the
-// session sync before a plan, adopting a tab the module opened, preview events, and the focus report.
+// (client.ts drain → `previewStreamEvent`) and its handler is the plan the executor runs, so its first five tests
+// drive the drain and the dispatch; four of its six serialization tests are the executor's answers and run in
+// browser-automation-run.test.ts (the recording, viewport, non-editable and sanitized handler failures), the other
+// two here. Then the clone's own rows: request routing (`planRequest`), the session sync before a plan, adopting a
+// tab the executor opened, preview events, and the focus report.
 // `vi.useFakeTimers` is the reference's; the budget tests use a manual clock (`Timers`).
 import { describe, expect, it } from 'bun:test';
 import {
@@ -17,11 +17,13 @@ import {
   type OpenInput, type PlanContext, type PreviewAutomationRequest, type Timers,
 } from '../../src/browser/browser-automation-plan';
 import {
-  PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, adoptAutomationTabs, automationFleetEvent, automationHost, automationPrepare, focusedLink, previewStreamEvent, readPreviewEvent,
+  PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, automationFleetEvent, automationHost, automationPrepare, focusedLink, previewStreamEvent, readPreviewEvent,
   reportAutomationFocus,
 } from '../../src/browser/browser-automation';
+import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
+import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
-import { browserHost, liveSessions, listPreviewSessions, syncNativeSessions } from '../../src/browser/browser-surface';
+import { browserHost, liveSessions, listPreviewSessions } from '../../src/browser/browser-surface';
 import { EMPTY_THREAD_PREVIEW_STATE, PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot, type ThreadPreviewState } from '../../src/browser/browser-state';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import type { T3Client } from '../../src/client/client';
@@ -260,7 +262,24 @@ const module = { available: true, watch() {}, later: async () => ({ ok: true, ge
 const entry = (value: Obj, subscriptionId = '3-2', key = PREVIEW_AUTOMATION_KEY): Obj => ({ key, subscriptionId, value, generation: 3 });
 const requestOf = (requestId: string, overrides: Partial<PreviewAutomationRequest> = {}): PreviewAutomationRequest => ({ requestId, threadId: 'thread-1', operation: 'status', input: {}, timeoutMs: 15_000, ...overrides });
 const requestEntry = (requestId: string, overrides: Partial<PreviewAutomationRequest> = {}, connectionId = 'connection-1') => entry({ type: 'request', connectionId, request: requestOf(requestId, overrides) });
-const plans = (sent: Sent[]) => sent.filter(request => request.op === 'browserAutomation').map(request => request.plan as Obj);
+/** The plans the host queued for the executor (browser-automation-run.ts runs them in the window's queued sends). */
+const plans = (owner: object) => automationHost(owner).planned;
+/** Page calls that answer as a mounted, empty page does. */
+const fakeCalls = (): AutomationCalls => ({
+  evaluate: async () => ({ result: null }), callFunction: async () => ({ result: null }), addPreloadScript: async () => ({ script: 's' }),
+  performActions: async () => ({}), handleUserPrompt: async () => ({}), setDownloadBehavior: async () => ({}), captureScreenshot: async () => ({ path: '', width: 0, height: 0 }),
+});
+/** Runs the queued slot work with a native whose transport requests answer from `answers` (by method); the
+ *  `previewAutomation.respond` payloads come back. */
+async function runSlot(client: T3Client, answers: Record<string, Obj>): Promise<Obj[]> {
+  const responded: Obj[] = [];
+  (client as unknown as { restAccess: () => unknown }).restAccess = () => ({ call: async (request: Obj) => {
+    if (request.method === 'previewAutomation.respond') { responded.push(obj(request.payload)); return {}; }
+    return answers[String(request.method)] ?? {};
+  } });
+  await serveRecordingRequests(client, module, 0);
+  return responded;
+}
 /** The client subscribed once (the second subscription id is the automation stream's: events subscribe first). */
 async function subscribed(options: Parameters<typeof fakeClient>[0] = {}) {
   const fake = fakeClient(options);
@@ -275,7 +294,7 @@ describe('previewAutomationRequestConsumer', () => {
     previewStreamEvent(client, requestEntry('request-after-connect'));
     expect(automationHost(client).consumer.activeConnectionId).toBe('connection-1');
     await automationPrepare(client, module);
-    expect(plans(sent).map(plan => [plan.requestId, plan.connectionId])).toEqual([['request-after-connect', 'connection-1']]);
+    expect(plans(client).map(plan => [plan.requestId, plan.connectionId])).toEqual([['request-after-connect', 'connection-1']]);
   });
   it('drops late requests from an older stream generation', async () => {
     const { client, sent } = await subscribed();
@@ -283,14 +302,14 @@ describe('previewAutomationRequestConsumer', () => {
     previewStreamEvent(client, requestEntry('request-stale', {}, 'connection-1'));
     await automationPrepare(client, module);
     expect(automationHost(client).consumer.activeConnectionId).toBe('connection-2');
-    expect(plans(sent)).toEqual([]);
+    expect(plans(client)).toEqual([]);
   });
   it('consumes every request emitted before React can render', async () => {
     const { client, sent } = await subscribed();
     previewStreamEvent(client, requestEntry('request-1'));
     previewStreamEvent(client, requestEntry('request-2'));
     await automationPrepare(client, module);
-    expect(plans(sent).map(plan => plan.requestId)).toEqual(['request-1', 'request-2']);
+    expect(plans(client).map(plan => plan.requestId)).toEqual(['request-1', 'request-2']);
   });
   it('uses the latest request handler without rebuilding the stream consumer', async () => {
     // The clone's "handler" is the plan from the store as it is when the request is served, not when it came.
@@ -300,13 +319,13 @@ describe('previewAutomationRequestConsumer', () => {
     browserHost(client).store.applyServerSnapshot({ environmentId: 'env-1', threadId: 'thread-1' }, { ...snapshotOf({ _tag: 'Success', url: 'https://b.test/', title: 'B' }), updatedAt: '2026-06-27T00:00:00.000Z' });
     previewStreamEvent(client, requestEntry('request-second'));
     await automationPrepare(client, module);
-    expect(plans(sent).map(plan => (plan.fallback as Obj).url)).toEqual(['https://a.test/', 'https://b.test/']);
+    expect(plans(client).map(plan => (plan.fallback as Obj).url)).toEqual(['https://a.test/', 'https://b.test/']);
   });
   it('consumes a request that arrived immediately before the consumer mounted', async () => {
     const { client, sent } = fakeClient();
     previewStreamEvent(client, requestEntry('request-ready'));
     await automationPrepare(client, module);
-    expect(plans(sent)).toMatchObject([{ requestId: 'request-ready', connectionId: 'connection-1', clientId: 'preview-0123abcd456789abcdef0123456789ab' }]);
+    expect(plans(client)).toMatchObject([{ requestId: 'request-ready', connectionId: 'connection-1', clientId: 'preview-0123abcd456789abcdef0123456789ab' }]);
   });
   it('preserves tagged automation errors and their structured diagnostics', () => {
     expect(targetUnavailableError({ requestId: 'request-1', operation: 'click', environmentId: 'environment-1', threadId: 'thread-1', tabId: 'tab-1' })).toEqual({
@@ -419,7 +438,7 @@ describe('the host on the client', () => {
     previewStreamEvent(client, requestEntry('r1', { operation: 'snapshot' }));
     await automationPrepare(client, module);
     expect(rpcs.map(call => call.method)).toContain('preview.list');
-    expect(plans(sent)[0]).toMatchObject({ tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1') });
+    expect(plans(client)[0]).toMatchObject({ tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1') });
     expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-1', visible: true });
     expect(client.diffOpen).toBe(false);
   });
@@ -428,13 +447,13 @@ describe('the host on the client', () => {
     previewStreamEvent(client, requestEntry('r-stop', { operation: 'recordingStop', input: { transferToEnvironment: true }, timeoutMs: 120_000 }));
     await automationPrepare(client, module);
     expect(rpcs.map(call => call.method)).toContain('preview.list');
-    expect(plans(sent)[0]).toMatchObject({ operation: 'recordingStop', tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), input: { transferToEnvironment: true }, budgetMs: 118_500 });
+    expect(plans(client)[0]).toMatchObject({ operation: 'recordingStop', tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), input: { transferToEnvironment: true }, budgetMs: 118_500 });
   });
   it('leaves the panel alone for an agent’s use when Auto-show floating preview is off', async () => {
     const { client, sent } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }), clientSettings: { browserAutoShowFloatingPreview: false } });
     previewStreamEvent(client, requestEntry('r1', { operation: 'snapshot' }));
     await automationPrepare(client, module);
-    expect(plans(sent)[0]).toMatchObject({ tabId: 'tab-1' });
+    expect(plans(client)[0]).toMatchObject({ tabId: 'tab-1' });
     expect(surfaceStore(client).panels.get('env-1:thread-1')?.visible ?? false).toBe(false);
     expect(client.diffOpen).toBe(true);
   });
@@ -444,44 +463,37 @@ describe('the host on the client', () => {
     previewStreamEvent(client, requestEntry('r-new', { timeoutMs: 1_000 }));
     await automationPrepare(client, module);
     await automationPrepare(client, module);
-    expect(plans(sent).map(plan => [plan.requestId, plan.budgetMs])).toEqual([['r-new', 800]]);
+    expect(plans(client).map(plan => [plan.requestId, plan.budgetMs])).toEqual([['r-new', 800]]);
   });
-  it('adopts a tab the module opened: into the thread’s store, shown as the agent asked', () => {
-    const presentation = { browserAutomation: { opened: [{ requestId: 'r1', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-2', epoch: 'epoch-1', present: true, snapshot: { ...loaded('tab-7'), threadId: 'thread-2' } }] } };
-    const { client } = fakeClient({ presentation });
-    adoptAutomationTabs(client);
-    adoptAutomationTabs(client);
-    expect(Object.keys(browserHost(client).store.read({ environmentId: 'env-1', threadId: 'thread-2' }).sessions)).toEqual(['tab-7']);
-    expect(surfaceStore(client).panels.get('env-1:thread-2')?.surfaces.map(surface => surface.id)).toEqual(['browser:tab-7']);
-  });
-  it('keeps a tab opened with open: false out of view on the agent’s next operation (the note’s suppress)', async () => {
-    const run = async (suppress: boolean) => {
-      const note = { requestId: 'r0', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-1', epoch: 'epoch-1', present: false, suppress, snapshot: loaded('tab-7') };
-      const { client, sent } = await subscribed({ presentation: { browserAutomation: { opened: [note] } }, list: () => ({ sessions: [loaded('tab-7')], serverEpoch: 'epoch-1', revision: 4 }) });
-      await listPreviewSessions(client, module, ref);
-      adoptAutomationTabs(client);
-      previewStreamEvent(client, requestEntry('r1', { operation: 'click', tabId: 'tab-7', input: { x: 1, y: 1 } }));
+  it('an open the executor ran adopts its new tab: into the thread’s store, shown as the agent asked, with a frame', async () => {
+    const { client } = await subscribed({ list: () => ({ sessions: [], serverEpoch: 'epoch-1', revision: 1 }) });
+    previewStreamEvent(client, requestEntry('r-open', { operation: 'open', threadId: 'thread-1', input: {} }));
+    useAutomationCalls(fakeCalls());
+    try {
       await automationPrepare(client, module);
-      expect(plans(sent)[0]).toMatchObject({ requestId: 'r1', tabId: 'tab-7', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-7') });
-      return surfaceStore(client).panels.get('env-1:thread-1');
-    };
-    expect((await run(true))?.visible ?? false).toBe(false);
-    expect(await run(false)).toMatchObject({ active: 'browser:tab-7', visible: true });
+      const answers = await runSlot(client, { 'preview.open': { ...loaded('tab-7'), navStatus: { _tag: 'Idle' } }, 'preview.resize': { ...loaded('tab-7'), navStatus: { _tag: 'Idle' }, viewport: { _tag: 'freeform', width: 1280, height: 800 } } });
+      expect(Object.keys(browserHost(client).store.read(ref).sessions)).toEqual(['tab-7']);
+      expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-7', visible: true });
+      expect(liveSessions(client).map(session => session.runtimeId)).toEqual([previewRuntimeTabId(ref, 'epoch-1', 'tab-7')]);
+      expect(answers).toEqual([expect.objectContaining({ requestId: 'r-open', ok: true, result: expect.objectContaining({ tabId: 'tab-7', available: true }) })]);
+    } finally { useAutomationCalls(null); }
   });
-  it('tells the module which of its opens it adopted, so the open answers only after the adoption (#352)', async () => {
-    const note = { requestId: 'r0', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-1', epoch: 'epoch-1', present: false, suppress: true, snapshot: loaded('tab-7') };
-    const { client, sent } = fakeClient({ list: () => ({ sessions: [loaded('tab-7')], serverEpoch: 'epoch-1', revision: 4 }) });
-    await listPreviewSessions(client, module, ref);
-    await syncNativeSessions(client, module); // the server's `opened` event already listed tab-7: not an adoption
-    client.presentation = { browserAutomation: { opened: [note] } };
-    adoptAutomationTabs(client);
-    await syncNativeSessions(client, module);
-    adoptAutomationTabs(client); // a note is adopted once
-    await syncNativeSessions(client, module);
-    const tab = previewRuntimeTabId(ref, 'epoch-1', 'tab-7');
-    expect(sent.filter(request => request.op === 'browserSync').map(request => [(request.tabs as Obj[]).map(entry => entry.id), request.adopted])).toEqual([
-      [[tab], []], [[tab], ['connection-1\u0000r0']],
-    ]);
+  it('keeps a tab opened with open: false out of view on the agent’s next operation', async () => {
+    const run = async (open: boolean) => {
+      const { client } = await subscribed({ list: () => ({ sessions: [], serverEpoch: 'epoch-1', revision: 1 }) });
+      useAutomationCalls(fakeCalls());
+      try {
+        previewStreamEvent(client, requestEntry('r0', { operation: 'open', input: { open } }));
+        await automationPrepare(client, module);
+        await runSlot(client, { 'preview.open': { ...loaded('tab-7'), navStatus: { _tag: 'Idle' } }, 'preview.resize': { ...loaded('tab-7'), navStatus: { _tag: 'Idle' }, viewport: { _tag: 'freeform', width: 1280, height: 800 } } });
+        previewStreamEvent(client, requestEntry('r1', { operation: 'click', tabId: 'tab-7', input: { x: 1, y: 1 } }));
+        await automationPrepare(client, module);
+        expect(plans(client).at(-1)).toMatchObject({ requestId: 'r1', tabId: 'tab-7', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-7') });
+        return surfaceStore(client).panels.get('env-1:thread-1');
+      } finally { useAutomationCalls(null); }
+    };
+    expect((await run(false))?.visible ?? false).toBe(false);
+    expect(await run(true)).toMatchObject({ active: 'browser:tab-7', visible: true });
   });
   it('applies preview events to the threads it keeps state for', () => {
     const { client } = fakeClient();
@@ -502,7 +514,7 @@ describe('the host on the client', () => {
     const snapshot = { ...loaded('agent-tab'), threadId: 'thread-elsewhere' };
     previewStreamEvent(client, entry({ type: 'opened', threadId: 'thread-elsewhere', tabId: 'agent-tab', createdAt: '2026-10-09T00:00:00Z', serverEpoch: 'epoch-1', revision: 3, snapshot }, '3-1', PREVIEW_EVENTS_KEY));
     expect(browserHost(client).store.read(elsewhere)).toMatchObject({ sessions: { 'agent-tab': snapshot }, activeTabId: 'agent-tab', serverEpoch: 'epoch-1' });
-    expect(liveSessions(client).map(session => session.id)).toEqual([previewRuntimeTabId(elsewhere, 'epoch-1', 'agent-tab')]);
+    expect(liveSessions(client).map(session => session.runtimeId)).toEqual([previewRuntimeTabId(elsewhere, 'epoch-1', 'agent-tab')]);
     previewStreamEvent(client, entry({ type: 'closed', threadId: 'thread-elsewhere', tabId: 'agent-tab', createdAt: '2026-10-09T00:00:01Z', serverEpoch: 'epoch-1', revision: 4 }, '3-1', PREVIEW_EVENTS_KEY));
     expect(browserHost(client).store.read(elsewhere)).toMatchObject({ sessions: {}, activeTabId: null });
     expect(liveSessions(client)).toEqual([]);
@@ -518,11 +530,11 @@ describe('the host on the client', () => {
     await automationPrepare(client, module);
     expect(rpcs.filter(call => call.method === 'preview.list' && call.payload.threadId === 'thread-elsewhere')).toHaveLength(1);
     expect(Object.keys(browserHost(client).store.read(elsewhere).sessions).sort()).toEqual(['agent-tab', 'earlier-tab']);
-    expect(liveSessions(client).map(session => session.id).sort()).toEqual([previewRuntimeTabId(elsewhere, 'epoch-1', 'agent-tab'), previewRuntimeTabId(elsewhere, 'epoch-1', 'earlier-tab')].sort());
+    expect(liveSessions(client).map(session => session.runtimeId).sort()).toEqual([previewRuntimeTabId(elsewhere, 'epoch-1', 'agent-tab'), previewRuntimeTabId(elsewhere, 'epoch-1', 'earlier-tab')].sort());
   });
   it('reports focus and live tabs once per change', async () => {
-    const runtime = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
-    const { client, rpcs } = await subscribed({ presentation: { browserTabs: { [runtime]: { kind: 'Success', attached: true } } } });
+    const { client, rpcs } = await subscribed();
+    surfaceStore(client).panels.set('env-1:thread-1', { surfaces: [{ id: 'browser:tab-1', kind: 'browser', path: '', line: 0, reveal: 0, browser: { tabId: 'tab-1', threadKey: 'env-1:thread-1' } }], active: 'browser:tab-1', visible: true, userRevision: 0 } as never);
     previewStreamEvent(client, entry({ type: 'connected', connectionId: 'connection-1' }));
     browserHost(client).store.reconcileServerSessions(ref, { sessions: [loaded()], serverEpoch: 'epoch-1', revision: 1 });
     browserHost(client).store.applyDesktopState(ref, 'tab-1', { hasWebContents: true, canGoBack: false, canGoForward: false, loading: false, zoomFactor: 1, pictureInPicture: false, colorScheme: 'system', audioMuted: false, audible: false, controller: 'none', favicon: null });
@@ -545,7 +557,6 @@ describe('a background environment’s host (PreviewAutomationHosts mounts one p
     let serial = 0;
     const native = { available: true, watch() {}, async later(request: unknown) {
       const op = obj(request);
-      if (op.op === 'browserAutomation') { sent.push(op); return { ok: true, generation: 3, value: { accepted: true } }; }
       fleetCalls.push(op);
       if (op.op === 'ids') return { ok: true, generation: 7, value: ['fffffffe-0000-0000-0000-000000000001'] };
       if (op.op === 'subscribe') return { ok: true, generation: 7, value: { id: `7-${++serial}` } };
@@ -558,7 +569,7 @@ describe('a background environment’s host (PreviewAutomationHosts mounts one p
       expect(automationFleetEvent(entry, { key: PREVIEW_AUTOMATION_KEY, subscriptionId: '7-2', generation: 7, value: { type: 'request', connectionId: 'c-2', request: requestOf('r-b', { threadId: 'thread-b', operation: 'snapshot' }) } })).toBe(true);
       expect(automationFleetEvent(entry, { key: 'shell', generation: 7, value: {} })).toBe(false);
       await automationPrepare(client, native);
-      const plan = plans(sent).at(-1) ?? {};
+      const plan = plans(entry).at(-1) ?? {};
       expect(plan).toMatchObject({ requestId: 'r-b', connectionId: 'c-2', environmentId: 'env-2', fleet: key, generation: 7, tabId: 'tab-5',
         runtimeId: previewRuntimeTabId({ environmentId: 'env-2', threadId: 'thread-b' }, 'epoch-2', 'tab-5'), clientId: 'preview-fffffffe000000000000000000000001' });
       expect(fleetCalls.some(op => op.op === 'request' && op.method === 'preview.list' && op.fleet === key)).toBe(true);
@@ -571,7 +582,7 @@ describe('"Open and tabs": an agent-opened tab after a relaunch', () => {
     const { client } = fakeClient({ list: () => ({ sessions: [{ ...loaded('tab-9'), navStatus: { _tag: 'Success', url: 'http://127.0.0.1:16751/form', title: 'Lane form' } }], serverEpoch: 'epoch-1', revision: 5 }) });
     await listPreviewSessions(client, module, ref);
     expect(Object.keys(browserHost(client).store.read(ref).sessions)).toEqual(['tab-9']);
-    expect(liveSessions(client)).toEqual([{ id: previewRuntimeTabId(ref, 'epoch-1', 'tab-9'), url: 'http://127.0.0.1:16751/form', profile: 'default', environment: 'env-1' }]);
+    expect(liveSessions(client)).toEqual([{ runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-9'), url: 'http://127.0.0.1:16751/form', profile: 'default', environment: 'env-1', zoom: 1, colorScheme: 'system' }]);
   });
 });
 
@@ -583,5 +594,5 @@ it('a serverBrowser host subscribes only to preview events and never calls the r
   await reportAutomationFocus(client, focusedLink(client, module));
   expect(sent.filter(request => request.op === 'subscribe').map(request => request.method)).toEqual(['subscribePreviewEvents']);
   expect(sent.some(request => String(request.method).startsWith('previewAutomation.'))).toBe(false);
-  expect(plans(sent)).toEqual([]);
+  expect(plans(client)).toEqual([]);
 });

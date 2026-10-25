@@ -35,7 +35,6 @@ const nativeDialogs = new Set(dialogs.filter(dialog => dialog.line.trimStart().s
 const GUARDED: Record<string, string> = {
   'app-overlays.contract "project-dialog"': 'project-dialog',
   'browser-profiles.contract "browser-profile-remove-dialog"': 'browser-profile-remove',
-  'browser-profiles.contract `browser-import-step-${wizard.step}`': 'browser-import',
   'connections-routes.contract "route-remove-dialog"': 'route-remove',
   'connections.contract "environment-remove-dialog"': 'environment-remove',
   'legacy-sidebar.contract label': 'legacy-dialog',
@@ -96,6 +95,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
 };
 // No trap, as the reference has none: a Popover, Menu, hover card, toast, page or non-modal panel there.
 const NOT_MODAL: Record<string, string> = {
+  'browser-frames.contract "browser-page-dialog"': 'Chromium\'s tab-modal JavaScript dialog: modal to its page only',
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-controls.contract `notice-details-card-${id}`': 'Popover (NoticeDescription, openOnHover)',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
@@ -259,22 +259,13 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     }
   });
 
-  // A popup that takes the focus itself (the import wizard's, Base UI's `restoreFocus: "popup"`) has its guards beside it,
-  // before and after, as Base UI renders them around the popup, so Tab from the popup reaches its first stop and Shift+Tab
-  // the guard before it (main #490 carries Tab on from a focused box that is no stop,
-  // issues/closed/20261010-macos-tab-from-a-focused-box.md).
-  const BESIDE = new Set(['browser-profiles.contract `browser-import-step-${wizard.step}`']);
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED)) {
-    test(`${dialog.key}: the start guard is the popup's first child, the end guard its last${BESIDE.has(dialog.key) ? ' (beside it: before and after)' : ''}`, () => {
+    test(`${dialog.key}: the start guard is the popup's first child, the end guard its last`, () => {
       const base = GUARDED[dialog.key] === 'palette' && dialog.line.includes('position="absolute" left=floor((viewport.width - width) / 2) top=max(16') ? 'link-pr' : GUARDED[dialog.key]!;
       const lines = source(dialog.file).split('\n');
-      const beside = BESIDE.has(dialog.key);
-      // Beside the popup: its parent's children (the popup among them), less comments and blanks.
-      const parent = beside ? lines.slice(0, dialog.index).findLastIndex(line => line.trim() !== '' && !line.trimStart().startsWith('//') && indent(line) < indent(dialog.line)) : dialog.index;
-      const children = block(lines, parent).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
+      const children = block(lines, dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
-      if (beside) expect(direct.map(line => line.trim().split(/[ (]/)[0])).toEqual(['FocusGuard', 'column', 'FocusGuard']);
       // ControlGuard is the pair of a dialog whose stops are all buttons (dialog-trap.contract).
       const kind = direct[0]!.trim().startsWith('ControlGuard(') ? 'ControlGuard' : 'FocusGuard';
       expect(direct[0]!.trim()).toStartWith(`${kind}(guardId="${base}-guard-start", targets=`);
@@ -435,11 +426,9 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     'settings-appearance-import.contract "add-theme-dialog"': '"add-theme-query"', // settings/ThemeSearchSection.tsx
     'connections-network-dialogs.contract "create-pairing-dialog"': '"pairing-label"', // settings/ConnectionsSettings.tsx: Client label autoFocus
   };
-  // The dialogs whose focus on opening app.contract moves itself (#409): the browser import
-  // wizard (its first stop, or the popup) and the profile removal confirm (Cancel).
+  // The dialogs whose focus on opening app.contract moves itself (#409): the profile removal confirm (Cancel).
   const OWN: Record<string, string> = {
     'browser-profiles.contract "browser-profile-remove-dialog"': 'task removalFocus',
-    'browser-profiles.contract `browser-import-step-${wizard.step}`': 'task importWizardStepFocus',
   };
   // A field that opens with its text selected takes the focus the same way (dialog-trap.contract FieldOpenSelect).
   const opens = (line: string) => { const m = /^(?:DialogOpenFocus\(target=(.*)\)|FieldOpenSelect\(target=(.*?), length=.*\))$/.exec(line.trim()); return m ? m[1] ?? m[2] : undefined; };
@@ -543,7 +532,6 @@ describe('every modal dialog gives focus back through a surviving observer or it
   };
   const own: Record<string, [string, string]> = {
     'browser-profiles.contract "browser-profile-remove-dialog"': ['app.contract', 'focus(`browser-profile-options-${removalAt}`)'],
-    'browser-profiles.contract `browser-import-step-${wizard.step}`': ['app.contract', 'focus("browser-profiles-add")'],
     'palette.contract view.testId': ['app.contract', 'focus("pull-request-more")'],
     'palette.contract "pull-request-thread-picker"': ['app.contract', 'focus("pull-request-more")'],
     'ssh-prompt.contract "ssh-password-dialog"': ['app.contract', 'focus("ssh-connect")'],

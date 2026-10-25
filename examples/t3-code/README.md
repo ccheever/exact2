@@ -98,9 +98,9 @@ and both variables set) runs the development binary, which carries no bundle res
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
 (the driver then skips its stale-build check, so rebuild after every source change).
 
-Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
-browser surface, the rendered-HTML preview) are
-`isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
+Safari's Web Inspector (exact2 #101): in a development build the rendered-HTML preview's web view is
+`isInspectable`, so Safari's Develop menu lists it, and a Browser tab's frame follows main's rule for
+Exact's own `iframe` web views. A release build's are not: the packaged
 build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
 (`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
@@ -308,11 +308,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   latest returns to the current output. The divider drags are native, outside the page, so the
   view forwards each mouse release in the window to the page, which sends the settled grid to
   the shell at once, as T3 Code's window listener does.
-- Browser surface: a right-panel Browser tab on a `WKWebView` in the module
-  (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
-  offer, #100): tabs and the chrome row, history and local servers, the address bar's search
+- Browser surface: a right-panel Browser tab is a partitioned `iframe` (LLP 1020.002; `browser-frames.*`,
+  `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not offer, #100): tabs and the chrome row, history and local servers, the address bar's search
   engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
-  floating player, profiles and cookie import, and an agent's `previewAutomation` requests.
+  floating player, profiles, and an agent's `previewAutomation` requests.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -523,6 +522,11 @@ These it does not use, because on macOS they do not do what the reference does:
 App Swift this clone keeps, where moving it onto what main offers would change what someone using
 the app sees, or where main has nothing to move it onto (each is a framework capability to add):
 
+- `T3BrowserPage.swift`, `T3BrowserRecorder.swift`, `T3BrowserAgentCursor.swift` and `T3BrowserCapture.swift`: what a
+  Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
+  source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
+  snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
+  files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call.
 - `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
   top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
   `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
@@ -598,7 +602,7 @@ Differences that belong to the app:
   its timeout can come up to a second early. A connect replies once the socket's URL is in, not
   once the socket opens, since an answer may await only what this module's fetch, storage or open
   stream settles.
-- The Browser's automation replies and the device hub's tickets keep a second, module-owned socket
+- A Browser recording's upload and the device hub's tickets keep a second, module-owned socket
   per environment (`T3Link.swift`), which the transport's `links` op tells the routes and bearers
   of the environments it has connected. Each terminal page opens a socket of its own (one per pane,
   the reference's renderer has one for all).
@@ -623,6 +627,23 @@ Differences that belong to the app:
   already ran and does nothing.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). Pages get no
   geolocation. A page's notification permission request is denied, as in the reference.
+- A Browser tab is a partitioned `iframe` (LLP 1020.002), so the platform answers what the reference's Electron
+  shell drew: `alert`, `confirm` and `prompt` are sheets titled with the page's origin (a `prompt` is answered), the
+  file chooser and a download's destination are the platform's panels, another app's scheme asks in Safari's words,
+  fullscreen takes the screen, and camera, microphone, geolocation and clipboard reads are refused. Each profile is a
+  `persist:` partition per environment and Incognito an in-memory one, and cookies cannot be imported from other
+  browsers (LLP 1020.002 D4). A profile's cookies from the module's old stores move into its partition once, and the
+  page reloads for them; its local storage, IndexedDB and cache stay behind, since WebKit reads none of them out of a
+  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
+  timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
+  the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
+  reports no focus); ⇧⌘R reloads the window, as the reference's menu does, and ⌘L does nothing. A page's dialog while
+  an agent request runs on its tab is answered at once (OK for `alert`, Cancel for `confirm` and `prompt`); one left
+  from an agent's run shows over the page as Chromium's tab-modal dialog and takes the person's answer. The console,
+  network log and media scripts go in as each document commits, so what a page logs before that is not kept
+  (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
+  from the page every few seconds
+  rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
