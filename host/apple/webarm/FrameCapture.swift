@@ -17,11 +17,13 @@ extension WebArm {
     /// path the command named, which the record carries back; `file` the
     /// file it names, empty when it names none; `clip` `[x, y, width,
     /// height]` in the guest's CSS pixels relative to its viewport, or none
-    /// for the whole viewport.
-    func capture(_ op: [String: Any]) {
+    /// for the whole viewport. `done`, automation's (D9), takes the answer
+    /// in place of the frame's record.
+    func capture(_ op: [String: Any], done: ((Int, Int, String, String) -> Void)? = nil) {
         let path = op["path"] as? String ?? ""
         let answer: (Int, Int, String, String) -> Void = { [weak self] width, height, error, message in
             if !error.isEmpty { FileHandle.standardError.write(Data("exact: iframe \(self?.id ?? 0): captureScreenshot: \(message)\n".utf8)) }
+            if let done { return done(width, height, error, message) }
             self?.emitRecord("capture", ["path": path, "width": width, "height": height, "error": error, "message": message])
         }
         guard let file = (op["file"] as? String).flatMap({ $0.isEmpty ? nil : URL(fileURLWithPath: $0) }) else {
