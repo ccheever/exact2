@@ -696,6 +696,7 @@ function protocolHandlerProblems({ protocol_handlers = [], host }) {
   const pair = web.length && (new Set(web.map((h) => h.protocol.toLowerCase())).size !== 2 || web.some((h) => h.url !== web[0].url || !h.distribution_only !== !web[0].distribution_only));
   const claimed = ['ios', 'macos'].flatMap((platform) => (host?.[platform]?.urlSchemes ?? []).filter(isWebScheme).map((s) => `host.${platform}.urlSchemes: ${s} is the web's own scheme; declare http and https together in protocol_handlers`));
   return [...claimed, ...protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]),
+    ...(host?.ios?.defaultBrowser && web.length === 0 ? ['host.ios.defaultBrowser: declare http and https together in protocol_handlers'] : []),
     ...(pair ? ['protocol_handlers: http and https come together, with one url and one distribution_only: a web browser claims both'] : [])];
 }
 /** The W3C keys of `app.json`, as the web builds write `manifest.json`

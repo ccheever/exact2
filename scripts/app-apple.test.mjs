@@ -499,6 +499,9 @@ test('a device build with entries takes the app\'s and the extension\'s profiles
   // the one both sign (the extension's own App ID's group is no grant of it), or the team wildcard.
   assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production'}), extension]), /"App" covers it but none grants aps-environment/);
   assert.match(refusal([appOnly, extension], {required:['com.apple.developer.healthkit']}), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit\n  com.exact.test.widgets: provisioned/);
+  const browserRole = 'com.apple.developer.web-browser', browserProfile = { ...appOnly, entitlements: [...appOnly.entitlements, browserRole] };
+  assert.match(refusal([appOnly, extension], { required: [browserRole] }), /com.exact.test:.*com.apple.developer.web-browser\n  com.exact.test.widgets: provisioned/);
+  assert.equal(entryProfiles({ app, udid: 'PHONE', required: [browserRole], installed: [browserProfile, extension], named: null }).extension.name, extension.name);
   assert.equal(entryProfiles({app, udid:'PHONE', installed:[appOnly, make('Wildcard extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.*']})], named:null}).extension.name, 'Wildcard extension');
   const ownGroup = refusal([appOnly, make('Own group', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.com.exact.test.widgets']})]);
   assert.match(ownGroup, /com.exact.test.widgets: "Own group" covers it but none grants the Keychain group TEAM.com.exact.test\n/);
@@ -841,4 +844,46 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       run(executable,[]);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('only an opted-in iOS browser signs the managed role and registers the web pair', async () => {
+  const { browserEntitlements, webRefusal, BROWSER_ENTITLEMENT: key } = await import('../host/apple/documents.mjs');
+  const { allows, profile } = await import('../host/apple/devices.mjs');
+  const app = { id: 'dev.exact.browser', displayName: 'Browser', manifest: { host: { ios: { defaultBrowser: true } },
+    protocol_handlers: ['http', 'https', 'browser'].map(protocol => ({ protocol, url: '/open?u=%s' })) } };
+  for (const plist of [entitlements(app, null, true, null, { simulator: true }), entitlements(app, 'TEAM', false)]) {
+    assert.match(plist, /<key>com.apple.developer.web-browser<\/key><true\/>/);
+  }
+  const ios = infoPlist(app);
+  assert.match(ios, /Web site URL/);
+  assert.match(ios, /<string>http<\/string>/);
+  assert.match(ios, /<string>https<\/string>/);
+  assert.match(ios, /ExactProtocolHandlers/);
+  assert.equal(webRefusal(app, false, false), null);
+  for (const inherited of [{ widgetTV: true }, { widgetHost: true }, { widgetAppId: app.id }, { clipParent: app.id }]) {
+    assert.doesNotMatch(entitlements({ ...app, ...inherited }, 'TEAM', false), /com.apple.developer.web-browser/);
+  }
+  for (const options of [{ tv: true }, { clip: true }, { id: app.id + '.host' }]) {
+    assert.doesNotMatch(infoPlist(app, false, options), /<string>https?<\/string>|Web site URL/);
+  }
+  assert.match(webRefusal(app, false, true), /tvOS registers neither/);
+  const ordinary = { ...app, manifest: { ...app.manifest, host: { ios: { defaultBrowser: false } } } };
+  assert.doesNotMatch(entitlements(ordinary), /com.apple.developer.web-browser/);
+  assert.doesNotMatch(infoPlist(ordinary), /Web site URL/);
+  assert.match(infoPlist(ordinary), /<string>browser<\/string>/);
+  const packaged = { ...app, manifest: { ...app.manifest, protocol_handlers: app.manifest.protocol_handlers.map(h => ({ ...h, distribution_only: true })) } };
+  assert.deepEqual(browserEntitlements(packaged), []);
+  assert.doesNotMatch(entitlements(packaged), /com.apple.developer.web-browser/);
+  assert.doesNotMatch(infoPlist(packaged), /Web site URL/);
+  assert.match(entitlements(packaged, 'TEAM', false, null, { distributed: true }), /com.apple.developer.web-browser/);
+  assert.match(infoPlist(packaged, true, { distributed: true }), /Web site URL/);
+  assert.equal(webRefusal(packaged, true, false), null);
+  const make = (name, entitlements) => ({ name, entitlements, appId: 'TEAM.dev.exact.browser', platforms: ['iOS'],
+    dev: true, devices: ['PHONE'], expires: new Date(Date.now() + 86400000), team: 'TEAM', prefix: 'TEAM' });
+  const missing = make('Ordinary profile', []), approved = make('Approved profile', [key]);
+  assert.equal(allows(missing, browserEntitlements(app)), false);
+  assert.equal(profile('PHONE', app.id, browserEntitlements(app), { installed: [missing, approved], named: null }).name, approved.name);
+  assert.throws(() => profile('PHONE', app.id, browserEntitlements(app), { installed: [missing], named: null }), /browser-device-profile:.*Request Apple's managed default-browser approval/);
+  assert.throws(() => profile('PHONE', app.id, browserEntitlements(app), { installed: [], named: missing }), /EXACT_PROFILE.*does not allow/);
 });
