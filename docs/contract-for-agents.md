@@ -1566,7 +1566,12 @@ the existing platform default. `buttonStyle="glass"` on a bar button gives it a
 glass capsule of its own (`sharesBackground = false`), one for each button so styled. The wrappers remain ordinary layout on the web;
 this adds no spacing value or custom button face.
 
-UIKit gives empty/whitespace titles no height; U+200B with `color="transparent"` keeps large-title height.
+A heading of only white space is no title on iOS, and a large title that starts empty
+takes no height. To keep that height while the words load, write the heading as
+`text "\u{200B}" role="heading" aria-level=1 color="transparent"`, the colour on the
+heading itself (UIKit draws U+200B alone as quotation marks), and drop the colour when
+the words arrive. Before iOS 26 a route pushed over it with no back control of its own
+shows that title on its Back button.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS. A
