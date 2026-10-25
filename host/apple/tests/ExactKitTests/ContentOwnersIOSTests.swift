@@ -69,6 +69,7 @@ final class ContentOwnersIOSTests: XCTestCase {
         let root = try node(session, "arrangement")
         let first = try node(session, "pane-first"), second = try node(session, "pane-second")
         let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        route.navigationItem.navigationBarMinimization.safeAreaAdjustment = .disabled
         let controller = UIArrangementViewController()
         controller.updateArrangement(.split.axes(.horizontal))
         XCTAssertTrue(p.arrangements.set(root.id, controller: controller))
@@ -103,6 +104,17 @@ final class ContentOwnersIOSTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(row.convert(row.bounds, to: route.view).minY, route.view.safeAreaInsets.top - 1)
         }
         XCTAssertTrue(route.contentScrollView(for: .top) === scrolls[0], "the authored navigationScroll remains the title authority")
+        XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .disabled)
+        let rightRow = try node(session, "second-row-1")
+        let rightY = rightRow.convert(rightRow.bounds, to: route.view).minY
+        let rightInset = scrolls[1].adjustedContentInset.top
+        for top in [CGFloat(200), 0, 200, 0] {
+            scrolls[0].setContentOffset(CGPoint(x: 0, y: top - first.scrollTopInset(scrolls[0])), animated: false)
+            self.window?.layoutIfNeeded()
+            until("native scrolling settles") { !Agent(session: session).nativeInFlight() }
+            XCTAssertEqual(rightRow.convert(rightRow.bounds, to: route.view).minY, rightY, accuracy: 1, "scrolling one peer leaves the other's content in place")
+            XCTAssertEqual(scrolls[1].adjustedContentInset.top, rightInset, accuracy: 1)
+        }
         let top = scrolls[0].contentOffset.y + first.scrollTopInset(scrolls[0])
         scrolls[1].setContentOffset(CGPoint(x: 0, y: 160 - second.scrollTopInset(scrolls[1])), animated: false)
         XCTAssertEqual(scrolls[0].contentOffset.y + first.scrollTopInset(scrolls[0]), top, accuracy: 1)
@@ -115,13 +127,14 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(scrolls[1].contentOffset.y + second.scrollTopInset(scrolls[1]), peerTop, accuracy: 1)
         scrolls[0].setContentOffset(CGPoint(x: 0, y: -first.scrollTopInset(scrolls[0])), animated: false)
         self.window?.layoutIfNeeded()
-        until("the title returns") { !Agent(session: session).nativeInFlight() }
+        until("the pane returns to its start") { !Agent(session: session).nativeInFlight() }
         XCTAssertGreaterThanOrEqual(initialRow.convert(initialRow.bounds, to: route.view).minY, route.view.safeAreaInsets.top - 1)
         for (name, scroll) in [("pane-second", scrolls[1]), ("pane-first", scrolls[0])] {
-            p.apply(wireBatch([["op": "props", "id": route.node.id, "set": ["navigationScroll": name]]]))
-            p.arrangements.sync()
+            route.node.props["navigationScroll"] = name
+            p.navigation.prepareRoutes([route], in: try XCTUnwrap(route.navigationController))
             XCTAssertTrue(route.contentScrollView(for: .top) === scroll, "the named pane actually becomes the title authority")
             XCTAssertTrue(scrolls.allSatisfy { $0.contentInsetAdjustmentBehavior == .automatic }, "changing title authority keeps both peer insets")
+            XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .disabled, "projection preserves the native header policy")
         }
         let savedTop = scrolls[1].contentOffset.y + second.scrollTopInset(scrolls[1])
         controller.setViewController(nil, for: .secondary)

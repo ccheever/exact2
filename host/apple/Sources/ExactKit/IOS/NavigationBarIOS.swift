@@ -1058,7 +1058,7 @@ extension NavigationHost {
         // The scroller left behind gets the page's offsets back only once the
         // bar follows the new one: UIKit reads its inset taken away while the
         // bar still follows it as a scroll, and closes an open large title.
-        if let old, let sv = oldView, sv !== shown {
+        if let old, let sv = oldView, sv !== shown, !arrangementInsets(sv, in: c) {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
             // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
             if old !== c.edgeScroll || sv !== old.scrollView { sv.contentInsetAdjustmentBehavior = .never }
@@ -1126,9 +1126,9 @@ extension NavigationHost {
         let found = presented || presenter.viewportFit != "cover" ? (Self.bottomScroller(in: c.node, cover: c.bottomClearance) ?? peer) : nil
         let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
-        if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
+        if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll, !arrangementInsets(sv, in: c) { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
-           previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
+           previous !== c.collapseScrollView, !arrangementInsets(previous, in: c) { previous.contentInsetAdjustmentBehavior = .never }
         c.edgeScroll = target
         let shown = shownScroll(target)
         // A scroller at its start stays there as UIKit begins to inset it.
@@ -1203,7 +1203,7 @@ extension NavigationHost {
     func shownScroll(_ node: NodeView?) -> UIScrollView? { node?.scrollView }
 
     /// Whether UIKit insets this scroller under its bars (`.automatic`): a
-    /// route's collapse or bottom-edge scroller.
+    /// route's collapse or bottom-edge scroller, or an arranged peer.
     func insetByUIKit(_ node: NodeView) -> Bool {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node ||
             (arrangementScrollers(in: $0, top: true) + arrangementScrollers(in: $0, top: false)).contains(where: { $0 === node }) }
@@ -1214,6 +1214,10 @@ extension NavigationHost {
         if #available(iOS 27.1, *), !Self.transparentBar(route.node) { return presenter.arrangements.scrollers(in: route.node, top: top) }
         #endif
         return []
+    }
+
+    private func arrangementInsets(_ scroll: UIScrollView, in route: RouteController) -> Bool {
+        (arrangementScrollers(in: route, top: true) + arrangementScrollers(in: route, top: false)).contains { $0.scrollView === scroll }
     }
 
     /// UIKit's zero-width fixed space splits shared glass without authored metrics.

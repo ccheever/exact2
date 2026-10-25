@@ -2119,6 +2119,11 @@ allocated bounds. The content, controls, styles, and bindings stay the same. Kee
 navigation outside the arrangement; use a bounded scroller in each child for
 independent scrolling. Pass `nil` to restore the authored layout.
 
+To keep pane content still as the shared navigation bar minimizes, set
+`route.controller.navigationItem.navigationBarMinimization.safeAreaAdjustment = .disabled`
+in the route hatch (iOS 27+). UIKit retains the safe area while the bar minimizes
+([Apple API](https://developer.apple.com/documentation/uikit/uibarminimizationsafeareaadjustment/disabled)).
+
 Declare the hatch for iOS in `app.json`. On older systems, keep the authored CSS
 layout; a single set of components can stack in a compact layout and sit beside one
 another when expanded. See Apple’s [arrangement guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
