@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { takeLock } from './build-lock.mjs';
 import { buildTreeFile, replaceBuild } from './serve.mjs';
 import { GENERATION, generationFile, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
 
@@ -148,16 +149,16 @@ test('a build reaped while a page asks: told gone (410) once the swap is done, n
   try {
     replaceBuild(stage(1), dist); const old = generationOf(dist);
     replaceBuild(stage(2), dist);
-    // A swap under way (this live process holds the lock), the kept tree's files going first.
-    writeFileSync(`${dist}.lock`, String(process.pid));
+    // A swap under way (this process holds the lock), the kept tree's files going first.
+    const release = takeLock(`${dist}.lock`);
     rmSync(join(`${dist}.gen`, old, 'app.js'));
     const asked = generationFile(dist, old, '/app.js');
     await new Promise((ok) => setTimeout(ok, 50));
     rmSync(join(`${dist}.gen`, old), { recursive: true, force: true });
     writeFileSync(`${dist}.gen.reaped`, old + '\n');
-    rmSync(`${dist}.lock`);
+    release();
     expect(await asked).toBe('gone');
-    // A lock a killed build left (its owner gone) holds nothing up.
+    // A lock file a killed build left (naming its pid, held by no one) holds nothing up.
     writeFileSync(`${dist}.lock`, String(spawnSync(process.execPath, ['-e', '0']).pid));
     const at = Date.now();
     expect(await generationFile(dist, '1'.repeat(32), '/app.js')).toBe(null);

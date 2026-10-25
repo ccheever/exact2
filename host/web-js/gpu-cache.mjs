@@ -5,7 +5,7 @@
 // another is removing or rewriting.
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { withLock } from '../web/serve.mjs';
+import { withLock } from '../web/build-lock.mjs';
 
 let stages = 0;
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
