@@ -212,7 +212,9 @@ test('the compiler\'s warnings are read from the build\'s JSON, every one, in th
   // The report counts them all, in the build's order.
   const r = report({ host: 'ios', built: null, compiler: said, tested: { none: true }, checks: [], shots: [], ms: 1000 });
   assert.equal(r.lines[0], 'compiler: 22 warnings');
-  assert.equal(r.lines.at(-1), 'verify: 22 problems (22 findings; the tests passed) in 1.0 s');
+  // Many findings are said by kind in the closing line (LLP 1143 D5); a compiler warning is no kind verify.accept takes.
+  assert.equal(r.lines.at(-1), 'verify: 22 problems (22 findings: 20 lower-symbol-platform, 1 lower-header-unplaced, 1 lower-symbol-alias; the tests passed) in 1.0 s');
+  assert.ok(!r.lines.some((l) => l.startsWith('most findings are')));
   // A file elsewhere, or none, is kept as given; a build with no JSON (Cargo failing to build the compiler, a text
   // build) still yields the warning lines in it.
   assert.deepEqual(warningsOfBuild(JSON.stringify([entry(1, 'x', 'm', '/elsewhere/a.contract'), entry(2, 'y', 'n', null)]), cwd), ['/elsewhere/a.contract:1:5 warning [x] m', '2:5 warning [y] n']);
@@ -1084,4 +1086,14 @@ test('a relaunch names the requests the server holds, as no finding (LLP 1016.00
   assert.deepEqual(r.problems, []);
   assert.deepEqual(r.notes, ['  held     changes: the server holds it (exactHeld); no clock waited on it']);
   assert.equal(judgeRelaunch(test, shown, shown, {}).notes, undefined);
+});
+
+// LLP 1143 D5: many findings are said by kind in the closing line, which is the line a builder copies; a check kind that
+// is most of them names verify.accept, which takes those the app's design means.
+test('many findings: the closing line names their kinds, and a check kind that dominates names verify.accept', () => {
+  const tap = (n) => `  tap-target Button "Row ${n}"#${n} [0,${n * 40} 30×30]: 30×30 pt, needs 44×44`;
+  const lines = [...Array.from({ length: 11 }, (_, i) => tap(i + 1)), '  contrast Text "Due"#90 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1'];
+  const r = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => lines), shots: [], ms: 4000 });
+  assert.equal(r.lines.at(-1), 'verify: 12 problems (12 findings: 11 tap-target, 1 contrast; the tests passed) in 4.0 s');
+  assert.equal(r.lines.at(-2), 'most findings are tap-target (11): fix them, or, where the design means them, app.json\'s verify.accept takes each by its kind and testId (docs/recipes/tests.md)');
 });
