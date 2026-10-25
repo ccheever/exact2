@@ -176,8 +176,9 @@ component BlockView
         if b.runs.length > 0
           text font-family="ui-monospace" font-size="0.8125rem" line-height=1.4 white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
             padding=8 border-radius=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
+            // A run keeps its own spaces and line breaks: whitespace does not cascade to it.
             for r in b.runs key=r.id
-              text r.text color=codeColor(r.kind)
+              text r.text color=codeColor(r.kind) white-space="pre-wrap"
         else
           text b.text font-family="ui-monospace" font-size="0.8125rem" line-height=1.4 white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
             padding=8 border-radius=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
