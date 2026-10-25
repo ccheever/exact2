@@ -1039,7 +1039,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         batch.controls = self.option_part(view);
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
-            Ok(()) => self.layout(&mut batch).err(),
+            Ok(()) => self.layout_resized(view, &mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
         };
         self.finish(batch, error)
@@ -1057,6 +1057,7 @@ impl<D: DataSource> Host<D> {
             if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
                 error.get_or_insert(format!("intrinsic: {e:?}"));
             }
+            self.inline_image_resized(view, &mut batch);
         }
         if let Err(e) = self.layout(&mut batch) {
             error.get_or_insert(e);

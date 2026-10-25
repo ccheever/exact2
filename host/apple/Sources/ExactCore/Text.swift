@@ -79,6 +79,9 @@ package struct Run: Hashable {
     /// `LineInsets`): where its paragraph's lines start, so a metric.
     package var indent: CGFloat = 0
     package var hang = false
+    /// An image in the paragraph's text (LLP 1011.002): the box this run's
+    /// U+FFFC reserves. A metric.
+    package var box: InlineBox?
 
     package static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
@@ -89,7 +92,7 @@ package struct Run: Hashable {
               lhs.strikeColor == rhs.strikeColor, lhs.href == rhs.href,
               lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
               lhs.backgroundRadii == rhs.backgroundRadii, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
-              lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
+              lhs.indent == rhs.indent, lhs.hang == rhs.hang, lhs.box == rhs.box else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -126,6 +129,7 @@ package struct Run: Hashable {
         hasher.combine(stroke)
         hasher.combine(indent)
         hasher.combine(hang)
+        hasher.combine(box)
     }
     package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
         self.text = text
@@ -825,10 +829,11 @@ package final class TextEngine {
         // appending an attributed string for every run.
         let s = NSMutableAttributedString(string: spec.runs.map(\.text).joined())
         var offset = 0
-        for r in spec.runs {
+        for (index, r) in spec.runs.enumerated() {
             var a: [NSAttributedString.Key: Any] = [.font: font(r)]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             presentation?.attributes(r, color: spec.color, attributes: &a)
+            if let box = r.box { TextEngine.boxAttributes(box, font: font(r) as CTFont, index: index, into: &a) }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
@@ -1140,7 +1145,10 @@ package final class TextEngine {
                     if offset >= range.location + range.length { break }
                     let authored = spec.runs[index]
                     matched = true
-                    if authored.lineHeight != nil {
+                    if let b = authored.box {
+                        // An image's box, wherever its line breaks (LLP 1011.002).
+                        box.include(b.lineBox(font(authored) as CTFont))
+                    } else if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         box.include(authoredExtents(authored))
@@ -1396,7 +1404,12 @@ package final class TextEngine {
         func run(_ run: ExactTextRun) -> Run {
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run))
         }
-        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { r in
+            var made = run(r)
+            // An image's box draws no ink of its own (LLP 1011.002).
+            if let box = InlineBox(r) { made.box = box; made.hidden = true }
+            return made
+        }
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {

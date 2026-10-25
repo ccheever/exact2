@@ -495,9 +495,7 @@ impl<D: DataSource> Bridge<D> {
         }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format)
+                CallbackMeasurer::of(f, &hooks)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -830,9 +828,7 @@ impl<D: DataSource> Bridge<D> {
         let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format)
+                CallbackMeasurer::of(f, &hooks)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(

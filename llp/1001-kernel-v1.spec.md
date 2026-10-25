@@ -1128,9 +1128,10 @@ no block lays out exactly as before. Refused: a block for a root, for an
 inline run, and beside a registered content region.
 
 `SetChildren` rejects: duplicate children, self-child, a root as a child, a cycle
-(child is an ancestor of the parent), children on a leaf type, a non-`Text`
-child under a `Text` (a text node's children are its inline runs; anything else
-would be a node the engine never lays out — `InlineRunNotText`), and a node
+(child is an ancestor of the parent), children on a leaf type, a child under a
+`Text` that is neither a `Text` nor an `Image` (a text node's children are its
+inline runs and the images in its text, LLP 1011.002; anything else would be a
+node the engine never lays out — `InlineRunNotText`), and a node
 more than `MAX_DEPTH` (128) levels below the top of its tree, inline runs
 included (`TooDeep`, 2026-09-23). Layout recurses once per level: release
 Taffy takes up to ~3.5 KiB of stack a level (flex; block 1.9, inline runs

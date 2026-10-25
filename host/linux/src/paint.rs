@@ -1437,6 +1437,8 @@ pub const POINTER: [(f32, f32); 7] = [
 ];
 
 #[cfg(test)]
+mod inline_image_tests;
+#[cfg(test)]
 mod paragraph_tests;
 
 /// Whether `id` paints, is hit, and is exposed. In a ghost, [`revealed`];
