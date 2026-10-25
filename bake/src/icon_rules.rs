@@ -59,6 +59,38 @@ pub(crate) fn needed(
     Ok(any.then(|| vec!["evenodd"]))
 }
 
+/// The entry plans that ship beside the app's (widgets, activities:
+/// `plans/<kind>.plan`): the caller's, else compiled once into `owned`
+/// (moved out of compat.rs under its line cap).
+pub(crate) fn entries<'a>(
+    app_dir: &Path,
+    given: Option<&'a std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+    owned: &'a mut Option<std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+) -> Result<&'a std::collections::BTreeMap<String, contract::snapshot::Entry>, String> {
+    match given {
+        Some(entries) => Ok(entries),
+        None => Ok(owned.insert(contract::snapshot::entries(app_dir)?)),
+    }
+}
+
+/// `iconFillRules` into `compat`'s inputs, and its id again, when a plan
+/// that ships (the app's, read as [`needed`] reads it, or an entry's) keeps
+/// an even-odd icon; nothing otherwise.
+pub(crate) fn apply(
+    compat: &mut crate::compat::Compat,
+    app_dir: &Path,
+    compiled: Option<&exact_plan::Plan>,
+    entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
+) -> Result<(), String> {
+    let out = std::env::var_os("OUT_DIR").map(std::path::PathBuf::from);
+    let entry_plans: Vec<&exact_plan::Plan> = entries.values().map(|e| &e.plan).collect();
+    if let Some(rules) = needed(app_dir, compiled, out.as_deref(), &entry_plans)? {
+        compat.inputs["iconFillRules"] = serde_json::json!(rules);
+        compat.id = crate::compat::compatibility_digest(&compat.inputs);
+    }
+    Ok(())
+}
+
 /// Whether `plan` draws an icon even-odd: a row of its `icons` table (what a
 /// computed source names), a literal source among its strings (`symbol:`
 /// and a form the build or an author wrote, which makes no row; C2 round 1,

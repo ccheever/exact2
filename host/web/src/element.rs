@@ -6,6 +6,8 @@
 
 #[path = "button_css.rs"]
 mod button_css;
+#[path = "element_symbol.rs"]
+mod symbol;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
@@ -1355,23 +1357,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                     );
                 }
             }
-            // A filled path is a silhouette, drawn filled, not stroked: a
-            // role's even-odd, an icon's paths each by its rule (`d`s joined
-            // by `;`): nonzero, or even-odd where its SVG says so (stage 14
-            // C2, `data-symbol-evenodd`; glue.js writes each `<path>`'s
-            // `fill-rule` from it). A nonzero icon's attributes are as before.
-            if symbol.is_some_and(|s| s.filled) {
-                out.insert("data-symbol-fill".into(), String::new());
-            }
-            if let Some(s) = symbol.filter(|s| s.filled && !s.even_odd) {
-                out.insert("data-symbol-nonzero".into(), String::new());
-                out.insert("data-symbol-viewbox".into(), s.view_box.into());
-            } else if let Some(s) = symbol
-                .filter(|s| s.filled && s.even_odd && exact_kernel::Icon::parse(role).is_some())
-            {
-                out.insert("data-symbol-evenodd".into(), String::new());
-                out.insert("data-symbol-viewbox".into(), s.view_box.into());
-            }
+            // How it is filled, and by which rule (element_symbol.rs).
+            symbol::fill_marks(&mut out, role, symbol);
             // Its author's `color` it draws in, untinted (LLP 1121 stage 9 B; glue.js).
             if node.symbol_color {
                 out.insert("data-symbol-color".into(), String::new());
