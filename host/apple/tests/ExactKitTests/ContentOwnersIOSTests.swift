@@ -51,11 +51,14 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(p.arrangements.entries[root.id]?.panes.map(\.id), [3, 2], "pane order follows the authored children")
         p.apply(wireBatch([
             ["op": "create", "id": 5, "kind": "view"],
+            ["op": "create", "id": 8, "kind": "view"],
+            ["op": "children", "id": 5, "ids": [8]],
             ["op": "children", "id": 1, "ids": [2, 5]],
             ["op": "destroy", "id": 3],
         ]))
         XCTAssertEqual(p.arrangements.entries[root.id]?.panes.map(\.id), [2, 5], "a flat replacement becomes the secondary pane")
         XCTAssertNil(removed.superview, "a destroyed pane never rejoins the document")
+        XCTAssertEqual(p.flats.inspectionLayers(under: 5).map(\.leaves), [[8]], "a promoted pane paints its existing flat children in the same batch")
         p.apply(wireBatch([
             ["op": "create", "id": 6, "kind": "view"],
             ["op": "create", "id": 7, "kind": "view"],
