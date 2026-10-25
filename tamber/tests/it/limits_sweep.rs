@@ -469,3 +469,40 @@ fn values_on_a_token_gone_are_refused_after_one_parse() {
     let d = refused.unwrap_err();
     assert!(d[0].message.contains("gone"), "{d:?}");
 }
+
+/// A themed import alternating its tokens' `when` lines and new tokens with
+/// theirs keeps the two parses where no value can move the `when` indent
+/// (Astra's re-check 2).
+#[test]
+fn alternating_themed_values_and_new_tokens_apply_in_moments() {
+    let n = 20_000;
+    let mut src = String::from("tamber t\n\naxes\n  tone = a | b\n\ntheme\n");
+    for k in 0..n {
+        src += &format!("  t{k} = #111111\n    when tone=b: #222222\n");
+    }
+    let ops: Vec<Op> = (0..6000)
+        .map(|k| match k % 2 {
+            0 => Op::SetToken {
+                name: format!("t{k}"),
+                when: vec![("tone".into(), "b".into())],
+                value: "#333333".into(),
+                at: None,
+                comment: None,
+            },
+            _ => Op::AddToken {
+                name: format!("new.t{k}"),
+                kind: None,
+                value: "#222222".into(),
+                meta: Vec::new(),
+                whens: vec![(vec![("tone".into(), "b".into())], "#444444".into(), None)],
+                comment: None,
+                before: None,
+            },
+        })
+        .collect();
+    let edited = within(10, "themed alternating", || {
+        exact_tamber::apply_all(&src, &ops, &vocab()).unwrap()
+    });
+    assert_eq!(edited.text.matches("#333333").count(), 3000);
+    assert_eq!(edited.text.matches("#444444").count(), 3000);
+}

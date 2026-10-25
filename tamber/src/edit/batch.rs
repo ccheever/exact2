@@ -168,16 +168,25 @@ pub(super) fn mixed(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
     if names_new {
         return None;
     }
-    // A value giving a token its first `when` line can set the indent the
-    // new tokens' `when` lines take (Astra's re-check): stepped as written.
+    // A value giving a token ahead of the first one with `when` lines its
+    // first can set the indent the new tokens' `when` lines take (Astra's
+    // re-checks): stepped as written then, and only then.
     let add_whens = adds
         .iter()
         .any(|op| matches!(op, Op::AddToken { whens, .. } if !whens.is_empty()));
-    let set_whens = sets
-        .iter()
-        .any(|op| matches!(op, Op::SetToken { when, .. } if !when.is_empty()));
-    if add_whens && set_whens {
-        return None;
+    if add_whens {
+        let design = crate::parse(src).ok()?;
+        let index = Index::new(&design, &roles);
+        let first = design.tokens.iter().position(|t| !t.whens.is_empty());
+        let moves = sets.iter().any(|op| match op {
+            Op::SetToken { name, when, .. } if !when.is_empty() => index
+                .token(&roles, name)
+                .is_ok_and(|i| design.tokens[i].whens.is_empty() && first.is_none_or(|f| i < f)),
+            _ => false,
+        });
+        if moves {
+            return None;
+        }
     }
     let (text, taken) = added(src, &adds, vocab)?;
     if taken != adds.len() {
