@@ -161,17 +161,16 @@ impl Context {
                 "file": relative, "bytes": bytes.len(), "sha256": hash(&bytes)
             }));
             if relative.ends_with(".contract") {
-                for line in std::str::from_utf8(&bytes).unwrap().lines() {
-                    if line.trim_start().starts_with("use ") {
-                        let (_, tail) = line.split_once(" from \"").expect("use source path");
-                        let target = tail.split('"').next().unwrap();
-                        assert!(target.starts_with('.'), "package import in context");
-                        let resolved = full.parent().unwrap().join(target).canonicalize().unwrap();
-                        assert!(
-                            resolved.starts_with(&root),
-                            "context escape: {relative} -> {target}"
-                        );
-                    }
+                let parsed = contract_syntax::parse(std::str::from_utf8(&bytes).unwrap())
+                    .unwrap_or_else(|error| panic!("context syntax: {relative}: {error:?}"));
+                for declaration in parsed.uses {
+                    let target = declaration.path;
+                    assert!(target.starts_with('.'), "package import in context");
+                    let resolved = full.parent().unwrap().join(&target).canonicalize().unwrap();
+                    assert!(
+                        resolved.starts_with(&root),
+                        "context escape: {relative} -> {target}"
+                    );
                 }
             }
         }
