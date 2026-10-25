@@ -2041,7 +2041,10 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   text, between its `compositionstart` and `compositionend` (UI Events). On
   the web that is every such key, the Enter that picks a candidate
   included, so an Enter or Escape handler skips it with `not e.isComposing`,
-  as web code does. On macOS and iOS the only composing keys a handler hears
+  as web code does. A keydown an input method processed, `keyCode` 229 in
+  the DOM, is composing there too, as web code's `e.keyCode === 229` test
+  takes it: Safari sends the Enter that commits a composition after
+  `compositionend`. On macOS and iOS the only composing keys a handler hears
   are a modifier's own press and release, which are `isComposing` as
   Chrome's are; a ⌘ chord is not, and neither are the keys after it, ⌘'s
   release included, since its keydown has committed the text (Chrome's
