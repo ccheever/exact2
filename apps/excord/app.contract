@@ -173,6 +173,11 @@ component Excord
   derive locked = session.locked or lockedOut
   derive covered = viewing != "" or locked
   derive dmUnread = dms.map(c => c.unread > 0).includes(true)
+  // The list shows the most recent conversations, a hundred more at each ask, and any older one that is
+  // unread, mentions the reader or is open: a platform list builds every row, and a large account's
+  // thousands took seconds to open. The switcher finds any of them.
+  state dmsShownCount = 100
+  derive recentDms = dms.slice(0, dmsShownCount).concat(dms.slice(dmsShownCount).filter(c => c.unread > 0 or c.mentions > 0 or c.id == open))
   derive dmMentions = sum(dms.map(c => c.mentions))
   // The browser tab's title, as Discord's: what mentions the reader, then the channel on screen; locked,
   // the app's name alone.
@@ -423,6 +428,10 @@ component Excord
     nav = top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
   action toggleFolder(id: string)
     openFolders = openFolders.includes(id) ? openFolders.filter(f => f != id) : openFolders.concat([id])
+  // A hundred more past the first conversation not shown: the next hundred may already show, unread.
+  action moreDms
+    let hidden = dms.slice(dmsShownCount).map(c => c.unread > 0 or c.mentions > 0 or c.id == open).indexOf(false)
+    dmsShownCount = (hidden < 0 ? dms.length : dmsShownCount + hidden) + 100
   action retryChannels
     refresh categories
   action pickServer(v: string)
@@ -439,6 +448,7 @@ component Excord
     tokenDraft = v
   action signInNow
     if tokenDraft.trim() != "" and not pending(signedIn)
+      dmsShownCount = 100
       send signedIn = signIn(tokenDraft)
   action afterSignIn
     if signInError == ""
@@ -451,6 +461,7 @@ component Excord
   action toSignIn
     nav = go(nav, "/")
     open = ""
+    dmsShownCount = 100
     profileUser = ""
     close("profile")
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
@@ -940,6 +951,7 @@ component Excord
   action lockAfterCheck
     send lockSet = protectToken()
   action signInFixture
+    dmsShownCount = 100
     send unlocked = signInAgain()
 
   view
@@ -1024,7 +1036,7 @@ component Excord
                     text `Not connected: ${gw.detail}` color="-exact-system-red" testId="stopped"
                 if dmsShown
                   section
-                    for c in dms key=c.id
+                    for c in recentDms key=c.id
                       button press=openChannel(c.id) testId=`dm-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
                         row gap=12 align-items="center" flex=1 min-width=0
                           if c.avatar != ""
@@ -1036,6 +1048,10 @@ component Excord
                           if c.mentions > 0
                             Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
                           image "symbol:forward-chevron"
+                    if dms.length > recentDms.length
+                      button press=moreDms testId="more-dms"
+                        row gap=12 align-items="center" flex=1 min-width=0
+                          text `Show more conversations (${dms.length - recentDms.length})` color="AccentColor" flex=1 min-width=0
                 else
                   if failed(categories)
                     section
