@@ -123,7 +123,15 @@ component Excord
   state aimedText = ""
   state aimedMine = false
   state aimedAuthor = ""
+  // The row the pointer is over, and the row that shows its hover. While the list scrolls the hover is
+  // hidden, and rows sliding under a still pointer move only `pointerKey`: each change was a commit that
+  // built or dropped a row's toolbar, many a second in a fling. The scroll's end shows it again, or 200 ms
+  // without a scroll event where none comes (Windows sends no `scrollend`; a list replaced mid-scroll
+  // drops its own).
+  state pointerKey = ""
   state hoverKey = ""
+  state scrolling = false
+  state scrollTick = 0
   state composing = false
   // Files picked for the next send: their copies under app:/tmp/picked.
   state picked: Picked[] = []
@@ -291,6 +299,8 @@ component Excord
   // Discord's typing lasts ten seconds unless sent again.
   task typingEnds when chan.typing != "" key=chan.version
     after(10000, stopTyping)
+  task scrollQuiet when scrolling key=scrollTick
+    after(200, scrollSettled)
   task unhighlight when highlight != "" key=highlight
     after(2500, clearHighlight)
   // A jump, a restored place or a return to the present lands once the window
@@ -469,6 +479,10 @@ component Excord
   // overruns. A page is asked only of a window that answers the present
   // request, whatever else is refreshing.
   action scrolled(x: number, y: number, e: ScrollEvent)
+    if not scrolling
+      scrolling = true
+      hoverKey = ""
+    scrollTick = scrollTick + 1
     let k = match e.firstVisibleKey { case some(k) => k, case none => "" }
     let at = keys.indexOf(k)
     let gap = e.scrollHeight - e.scrollTop - e.clientHeight
@@ -503,6 +517,7 @@ component Excord
   // A send's return to the end settles at a scrollend that finds the list there;
   // momentum that carried it off is undone once the live window is in.
   action scrollEnded
+    scrollSettled()
     if settling and target == ""
       if endGap > 0.5
         scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
@@ -846,11 +861,14 @@ component Excord
     picked = picked.filter(p => p.path != path)
   action composerFocus(on: bool)
     composing = on
+  action scrollSettled
+    scrolling = false
+    hoverKey = pointerKey
   action hoverRow(key: string, on: bool)
-    if on
-      hoverKey = key
-    else if hoverKey == key
-      hoverKey = ""
+    let over = on ? key : (pointerKey == key ? "" : pointerKey)
+    pointerKey = over
+    if not scrolling
+      hoverKey = over
   action startReply(id: string, author: string)
     replyTo = id
     replyName = author
