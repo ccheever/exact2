@@ -37,6 +37,13 @@ test('a slow answer for a proposal since replaced pins nothing and drops nothing
   expect(reviewed.pin('211', { ...A, 'app.tamber': 'c' }, reviewed.ask())).toEqual(A);
 });
 
+test("one's own write while a proposal is on its way: the pin it makes is moved along at once", () => {
+  const t = reviewed.ask();
+  reviewed.advance({ 'app.tamber': 'a1' }, { 'app.tamber': 'a2', 'cards.tamber': 'c1' });
+  // The proposal, asked before the write, answers with the files it read before it.
+  expect(reviewed.pin('k', A, t)).toEqual({ ...A, 'app.tamber': 'a2' });
+});
+
 test('a refusal re-pins to the server\'s files; the draft\'s end or a new run drops the pin', () => {
   reviewed.pin('k', A);
   reviewed.repin('k', { ...A, 'app.tamber': 'a9' });

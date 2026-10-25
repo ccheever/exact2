@@ -7,6 +7,13 @@
 type Files = Record<string, string>;
 const pins = new Map<string, Files>();
 let asked = 0;
+// One's own recent writes, each with the latest ticket when it landed: a proposal asked before one and answered after
+// it pins the files that write read, and is moved along at once (else Apply refuses one's own write).
+const own: { at: number; before: Files; after: Files }[] = [];
+const along = (pin: Files, before: Files, after: Files) => {
+  const wrote = Object.keys(before);
+  return wrote.length && wrote.every(f => pin[f] === before[f]) ? { ...pin, ...Object.fromEntries(wrote.filter(f => f in after).map(f => [f, after[f]])) } : pin;
+};
 
 export const reviewed = {
   /** A proposal asked: its ticket. Only the latest asked may pin, so a slow answer for a value since replaced (or a
@@ -15,7 +22,7 @@ export const reviewed = {
   /** The draft `key`'s pinned digests, pinned now to `files` if it has none (and every other draft's dropped), when
    * `ticket` is the latest proposal asked; else what it has, pinning nothing. */
   pin(key: string, files: Files, ticket = asked): Files {
-    if (ticket === asked && !pins.has(key)) { pins.clear(); pins.set(key, files); }
+    if (ticket === asked && !pins.has(key)) { pins.clear(); pins.set(key, own.filter(w => w.at >= ticket).reduce((p, w) => along(p, w.before, w.after), files)); }
     return pins.get(key) ?? files;
   },
   get: (key: string): Files | undefined => pins.get(key),
@@ -25,10 +32,8 @@ export const reviewed = {
   end(key?: string) { if (key === undefined) pins.clear(); else pins.delete(key); },
   /** One's own write: `before` the digests it read of the files it wrote, `after` every file's after it. */
   advance(before: Files = {}, after: Files = {}) {
-    const wrote = Object.keys(before);
-    if (!wrote.length) return;
-    for (const [key, pin] of pins) {
-      if (wrote.every(f => pin[f] === before[f])) pins.set(key, { ...pin, ...Object.fromEntries(wrote.filter(f => f in after).map(f => [f, after[f]])) });
-    }
+    if (!Object.keys(before).length) return;
+    own.push({ at: asked, before, after }); if (own.length > 16) own.shift();
+    for (const [key, pin] of pins) pins.set(key, along(pin, before, after));
   },
 };
