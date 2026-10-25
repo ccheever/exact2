@@ -302,11 +302,14 @@ impl Loader<'_> {
             let own: HashSet<String> = file.components.iter().flat_map(names).collect();
             let none = HashSet::new();
             for d in deferred {
-                let names = match d.in_block {
+                // A block's call counts its component's actions and, as any
+                // call in its file, those of the file's own components.
+                let component = match d.in_block {
                     true => component_of.get(&index).unwrap_or(&none),
-                    false => &own,
+                    false => &none,
                 };
-                if names.contains(&d.name) == d.if_action {
+                let action = own.contains(&d.name) || component.contains(&d.name);
+                if action == d.if_action {
                     let error = self.sources.resolve(CompileError::from(d.error));
                     self.refused.errors.push(error);
                 }

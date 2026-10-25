@@ -528,3 +528,37 @@ fn a_binding_outside_the_block_still_renames_the_listing_files_declarations() {
     );
     assert_eq!(error.id, "type-unknown-function", "{error}");
 }
+
+#[test]
+fn a_block_call_counts_its_own_files_spliced_actions_too() {
+    // `more.contract` is a members file of `App` and lists `card.contract`
+    // for its own `Card`: a call in its block counts `Card`'s actions too.
+    let app = App::new("both");
+    app.write(
+        "card.contract",
+        "members Card\n  action trim\n    let x = 1\n",
+    );
+    let more =
+        "component Card\n  members \"./card.contract\"\n  view\n    text \"c\"\nmembers App\n";
+    app.write(
+        "more.contract",
+        &format!("{more}  derive shown = \" x \".trim()\n"),
+    );
+    let root = "\
+use Card from \"./more.contract\"
+component App
+  members \"./more.contract\"
+  view
+    column
+      text shown
+      Card()
+";
+    let error = app.refuse(root);
+    assert_eq!(error.id, "syntax-method-shadowed", "{error}");
+    assert_eq!(error.span.source_id, 1, "{error}");
+    app.write(
+        "more.contract",
+        &format!("{more}  derive shown = trim(\" x \")\n"),
+    );
+    contract::compile_path(&app.write("app.contract", root)).unwrap();
+}
