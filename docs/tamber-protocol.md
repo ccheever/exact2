@@ -197,7 +197,8 @@ on macOS and Linux.
   rulings of the 25th): `copies` comes once per plan per registration to a build that registers the `copies`
   capability, with the `on` frame or, on a plan change, alone, a `select` is `{up, plan, from, instance}` plus the
   1.16 `levels` for a page of an older build, and the page's selection reports `moved: {up, stepped}` (see The build channel's `inspect`). A slot's host
-  is a step; past the last copy, the root.
+  is a step; past the last copy, the root. A plan past the copies limit (2^20 sites, 512 KiB encoded) gets none, and
+  a `select` there is `unsupported` (`what: "inspect"`), not stale; a site past the copies held, within a map, is stale.
 
 ## Where it runs
 
@@ -1549,7 +1550,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
     by the page's own tree: an `on: true` frame carries `copies: {plan, data}`, each site of that plan's copy, an
     integer equal for every node whose call-site chain is the same, encoded as runs, `r1:` and base64 of LEB128 varints
     of `[copy, run length]` pairs in site order, at most 4 bytes a varint and 2^20 sites (a page refuses more), and at
-    most 512 KiB encoded (half Apple's event limit; a plan past either gets none, its selects stale); sent only to a build that registers the `copies` capability, which keeps them whatever
+    most 512 KiB encoded (half Apple's event limit; a plan past either gets none, and the server answers a `select`
+    there with the build's `unsupported` (`what: "inspect"`, it can't step there, so a client greys its up control,
+    never `stale`, which a client would ask again on for good), sending the page nothing); sent only to a build that registers the `copies` capability, which keeps them whatever
     its mode, once per plan per registration (not again for an off and on under the same plan), with inspect mode on and again with the
     `on` frame a new registration (a new plan) gets, or alone, `{copies}`, changing no mode, when an inspected build's
     status names a new plan, or, still unsent (its source map read after the plan was named), alone just before a

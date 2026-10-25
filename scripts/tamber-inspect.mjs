@@ -660,7 +660,7 @@ export function levelsUp(map, site, n) {
 
 /** The most sites a plan's copies cover (the pages refuse more, and a copy id fits 4 varint bytes below it), and
  * the most bytes their encoding takes: half Apple's 1 MiB event (PlanURL.swift `eventLimit`), room for the frame
- * around it. A plan past either has none: its selects answer stale. */
+ * around it. A plan past either has none, and a select there is unsupported (tamber-builds.mjs `selectUp`). */
 export const COPIED_SITES = 1 << 20, COPIES_BYTES = 512 * 1024;
 
 /** Each plan site's copy (tamber/1.17 `inspect`'s `copies`, the third hands-on pass's #4): an integer, equal for every
@@ -668,7 +668,7 @@ export const COPIED_SITES = 1 << 20, COPIES_BYTES = 512 * 1024;
  * walking up its own tree counts each new copy that owns an ancestor as one step of a `select`. Sent once per plan per
  * build, encoded as runs: `r1:` and base64 of LEB128 varints, `[copy, run length]` pairs in site order. */
 export function copiesOf(map) {
-  // (A plan past the pages' bound has none: its selects answer stale.)
+  // (A plan past the pages' bound has none: a select there is unsupported.)
   if ((map?.nodes?.length ?? 0) > COPIED_SITES) return null;
   const ids = new Map(), runs = [];
   let last = -1, length = 0;

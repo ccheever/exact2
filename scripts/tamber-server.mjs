@@ -219,7 +219,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     else { try { map = JSON.parse(Buffer.from(raw).toString('utf8')); } catch { map = null; } parsed.set(raw, map); }
     return map?.nodes && typeof map.digest === 'string' && (!digest || map.digest === digest) ? map : null;
   };
-  const channel = buildChannel({ copiesFor: digest => { const m = mapOf(digest); if (!m) return null; if (!copied.has(m)) copied.set(m, copiesOf(m)); return copied.get(m); },
+  const channel = buildChannel({ copiesFor: digest => { const m = mapOf(digest); if (!m) return null; if (!copied.has(m)) copied.set(m, copiesOf(m) ?? false); return copied.get(m); },
     // A build that reports no selection (inspect mode left) has none to read.
     send: e => { if (e.event === 'selected' && e.selected == null) lastSelection.delete(e.build); send({ ...e, seq: ++seq, epoch }); }, log,
     // A held site in a build's new plan (LLP 1122 D8): the one site at the

@@ -989,6 +989,32 @@ test('tamber/1.17: a select sends the plan\'s copies first when none went yet (i
   expect(frames.filter(f => f.kind === 'inspect').map(f => (f.copies ? 'copies' : 'select'))).toEqual(['select']);
 });
 
+test('tamber/1.17: a select on a plan past the copies limit is unsupported (the build can\'t step there), never stale, and sent no frame', () => {
+  const frames = [], events = [], P1 = '1'.repeat(64);
+  const channel = buildChannel({ send: e => events.push(e), log: () => {}, copiesFor: d => (d === P1 ? false : null) });
+  const opened = channel.open(f => frames.push(f));
+  channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['inspect', 'copies'], plan: 'g', planDigest: P1, design: 'd1' }));
+  channel.inspect('tool', 'web-1', { on: true });
+  expect(frames.filter(f => f.copies)).toEqual([]);
+  const seqNow = frames.filter(f => f.kind === 'inspect' && f.on).at(-1).seq;
+  channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'selected', inspect: seqNow, selected: { node: 9, site: 2, instance: [], planDigest: P1, rows: [] }, plan: 'g', design: 'd1', revision: 0 }));
+  frames.length = 0;
+  expect(selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [], plan: P1, from: 2, instance: [] }))).toEqual({ ok: { builds: ['web-1'] } });
+  expect(frames.filter(f => f.kind === 'inspect')).toEqual([]);
+  const said = events.filter(e => e.event === 'unsupported');
+  expect(said.map(e => [e.build, e.what])).toEqual([['web-1', 'inspect']]);
+  // (In the words the design tool greys its up control by, apps/design-tool/refusals.ts stepRefused.)
+  expect(said[0].detail).toMatch(/cannot move its selection up/);
+  // A page of an older build (no `copies`) walks by levels: its select goes as before.
+  channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['inspect'], plan: 'g', planDigest: P1, design: 'd1' }));
+  channel.inspect('tool', 'web-1', { on: true });
+  const seq2 = frames.filter(f => f.kind === 'inspect' && f.on).at(-1).seq;
+  channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'selected', inspect: seq2, selected: { node: 9, site: 2, instance: [], planDigest: P1, rows: [] }, plan: 'g', design: 'd1', revision: 0 }));
+  frames.length = 0;
+  selectRequest(channel, { client: 'tool', build: 'web-1', select: { up: 1 } }, () => ({ levels: [[0]], plan: P1, from: 2, instance: [] }));
+  expect(frames.filter(f => f.kind === 'inspect' && f.select).length).toBe(1);
+});
+
 test('tamber/1.17: a polled stream keeps a plan\'s copies past the inspect frames queued after them', () => {
   const P1 = '1'.repeat(64), P2 = '2'.repeat(64);
   const channel = buildChannel({ send: () => {}, log: () => {}, copiesFor: d => (d === P1 ? 'r1:AAE=' : d === P2 ? 'r1:AAI=' : null) });
