@@ -172,6 +172,8 @@ shape Channel
   name: string
   avatar: string
   direct: bool
+  // A server channel @everyone may not see, which Discord draws with a lock.
+  private: bool
   topic: string
   version: number
   unread: number

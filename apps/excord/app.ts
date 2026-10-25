@@ -159,6 +159,7 @@ function channelRecord(id: string): Channel {
   const avatar = c?.type === 1 && recipients[0] ? avatarUrl(live.origins.cdn, S.user(store, recipients[0].id) ?? recipients[0])
     : c?.type === 3 && c.icon ? `${live.origins.cdn}/channel-icons/${id}/${c.icon}.png?size=128` : '';
   return { id, guild: c?.guild_id ?? '', name, avatar, direct: c?.type === 1, topic: c?.topic ?? '', version: S.channelVersion(store, id),
+    private: !!c?.guild_id && !S.everyoneSees(store, c),
     unread: read.unread ? Math.max(1, known.count) : 0, mentions: read.mentionCount,
     firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
     lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),
