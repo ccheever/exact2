@@ -32,9 +32,13 @@
 //! like, are each host's: the Mac splits at every width (LLP 1115.002 D4),
 //! the web at 900 px.
 
-use super::{DataSource, Runner};
-use exact_kernel::{Display, FlexDirection, NodeType, PropId, PropValue, ViewId};
-use exact_plan::{EventKind, NodesId, Plan};
+use super::{DataSource, Runner, RunnerError};
+use crate::instance::InstanceError;
+use exact_kernel::{
+    CommitReceipt, Display, FlexDirection, NodeType, Op, PropId, PropValue, StyleId, StyleProps,
+    ViewId,
+};
+use exact_plan::{EventKind, NodesId, Plan, Value};
 
 /// The press handler's router write-set fact, shared with web projection.
 /// A handler that writes the router may push, go back or open a sheet.
@@ -104,6 +108,83 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
+    /// @ref LLP 1116.006 D2 — show `view`, a box written
+    /// `navigationSplit="placeholder"`, as a split shows it in its detail
+    /// pane while nothing is selected, or hide it again: the lowerer's
+    /// `display: none` gives way to the web shell's sheet for it
+    /// (`host/web/index.html`). A flex box filling the containing block the
+    /// host gives it, with no margin; and, where neither the author nor the
+    /// tag set them, a column centred both ways inside 16 px. Shown, these
+    /// rows win over the author's, as the shell's `!important` ones do, so a
+    /// host asks again after a commit restyles the box. `None` where `view`
+    /// is no placeholder or already is as asked.
+    pub fn show_split_placeholder(
+        &mut self,
+        view: ViewId,
+        shown: bool,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(node) = self.kernel.node(view) else {
+            return Ok(None);
+        };
+        if node.props.str(PropId::NavigationSplit) != Some("placeholder") {
+            return Ok(None);
+        }
+        let zero = || Value::Number(0.0);
+        let mut rows = vec![("display", Value::str(if shown { "flex" } else { "none" }))];
+        if shown {
+            rows.extend([
+                ("position_type", Value::str("absolute")),
+                ("box_sizing", Value::str("border-box")),
+                ("width", Value::str("auto")),
+                ("height", Value::str("auto")),
+            ]);
+            for side in ["top", "right", "bottom", "left"] {
+                rows.push((side, zero()));
+            }
+            for side in ["margin_top", "margin_right", "margin_bottom", "margin_left"] {
+                rows.push((side, zero()));
+            }
+            // Neither set nor written: a row the author cleared (`unset`) is said.
+            let said = node.style.mask.union(node.style.written);
+            let unsaid = |name: &str| StyleId::from_name(name).is_some_and(|id| !said.has(id));
+            for (name, value) in [
+                ("flex_direction", "column"),
+                ("align_items", "center"),
+                ("justify_content", "center"),
+            ] {
+                if unsaid(name) {
+                    rows.push((name, Value::str(value)));
+                }
+            }
+            for side in [
+                "padding_top",
+                "padding_right",
+                "padding_bottom",
+                "padding_left",
+            ] {
+                if unsaid(side) {
+                    rows.push((side, Value::Number(16.0)));
+                }
+            }
+        }
+        let mut patch = StyleProps::default();
+        for (name, value) in rows {
+            let id = StyleId::from_name(name).expect("a kernel style");
+            crate::bridge::set_plan_style(&mut patch, id as u16, &value, &self.plan)
+                .map_err(|e| RunnerError::from(InstanceError::Bridge(e)))?;
+        }
+        let mut after = node.style.clone();
+        after.apply_patch(&patch);
+        if after == *node.style {
+            return Ok(None);
+        }
+        let op = Op::SetStyle {
+            id: view,
+            patch: Box::new(patch),
+        };
+        self.apply(vec![op]).map(Some)
+    }
+
     /// The first list under `route`, in tree order, with a row that pushes,
     /// and that list's rows that are links to the app's routes.
     fn pushing_list(
@@ -118,9 +199,11 @@ impl<D: DataSource> Runner<D> {
             let Some(node) = self.kernel.node(id) else {
                 continue;
             };
-            // Another route's, a popover's and a hidden box's are not this route's rows.
+            // Another route's, a popover's, a hidden box's and the split's own
+            // placeholder's (shown or not) are not this route's rows.
             if node.props.str(PropId::NavigationKey).is_some()
                 || node.props.str(PropId::Popover).is_some()
+                || node.props.str(PropId::NavigationSplit) == Some("placeholder")
                 || node.style.display == Display::None
             {
                 continue;
@@ -157,7 +240,10 @@ impl<D: DataSource> Runner<D> {
             let Some(row) = self.kernel.node(child) else {
                 continue;
             };
-            if row.style.display == Display::None || row.props.str(PropId::Popover).is_some() {
+            if row.style.display == Display::None
+                || row.props.str(PropId::Popover).is_some()
+                || row.props.str(PropId::NavigationSplit) == Some("placeholder")
+            {
                 continue;
             }
             let press = self.press_writes_router(child);

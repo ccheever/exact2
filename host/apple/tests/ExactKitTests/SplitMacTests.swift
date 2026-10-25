@@ -950,5 +950,119 @@ final class SplitMacTests: XCTestCase {
         let hit = try XCTUnwrap(window.contentView?.hitTest(window.contentView!.convert(point, from: nil)))
         XCTAssertTrue(hit.isDescendant(of: inside), "the click reaches the popover: \(type(of: hit))")
     }
+
+    /// `source` with each line that contains `marker` replaced by `lines`,
+    /// written at that line's indent.
+    private func replacing(_ marker: String, with lines: [String], in source: String) -> String {
+        source.components(separatedBy: "\n").flatMap { line -> [String] in
+            guard line.contains(marker) else { return [line] }
+            let indent = String(line.prefix { $0 == " " })
+            return lines.map { indent + $0 }
+        }.joined(separator: "\n")
+    }
+
+    /// LLP 1116.006 D2: the box the root route marks
+    /// `navigationSplit="placeholder"` is what the empty pane shows, in
+    /// place of AppKit's "No Selection": laid out at the pane's size, its
+    /// content centred, its size kept when the author's rows change, and
+    /// `display: none` in its route again while a detail shows.
+    func testTheAuthorsPlaceholderIsTheEmptyPanes() throws {
+        let source = replacing("list testId=\"books\"", with: [
+            "column navigationSplit=\"placeholder\" width=50 margin-left=(counted > 0 ? 30 : 0) testId=\"own\"",
+            "  text \"Pick a book\" testId=\"own-text\"",
+            "  button press=count testId=\"own-count\"",
+            "    text \"Count\"",
+            "list testId=\"books\" flex=1 min-height=0",
+        ], in: app(tabs: false))
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1000, sidebar: false)
+        let split = session.presenter.navigation.split, pane = columns.detailPane
+        let own = try node("own"), library = try node("route-library")
+        func shown() throws {
+            XCTAssertTrue(own.superview === pane)
+            XCTAssertEqual(own.style["display"]?.string, "flex")
+            XCTAssertEqual(own.frame, NSRect(origin: .zero, size: pane.bounds.size))
+            XCTAssertNil(columns.detail.saysNothing, "no words of AppKit's over the author's")
+            XCTAssertEqual(split.summary["placeholder"] as? Int, Int(own.id))
+            let words = try node("own-text"), text = pane.convert(words.bounds, from: words)
+            XCTAssertEqual(text.midX, pane.bounds.midX, accuracy: 1)
+        }
+        try shown()
+        // The author's margin changes, which moves the box and sends no style: the pane's box stands, as the web shell's `!important` does.
+        try press("own-count")
+        try shown()
+        // A detail: the pane is the route's, and the box is no box in the list's column.
+        try press("row-a")
+        XCTAssertTrue(try node("route-book-a").superview === pane)
+        XCTAssertTrue(own.isDescendant(of: library))
+        XCTAssertEqual(own.style["display"]?.string, "none")
+        XCTAssertTrue(split.summary["placeholder"] is NSNull)
+        XCTAssertTrue(split.closeDetail())
+        try shown()
+        // A wider window: the box follows the pane.
+        width(try XCTUnwrap(window), 1200)
+        try shown()
+        // The driver's own chrome pushes: the box is in its route, hidden.
+        split.painted = true
+        XCTAssertTrue(own.isDescendant(of: library))
+        XCTAssertEqual(own.style["display"]?.string, "none")
+    }
+
+    /// LLP 1115.002 D5: the list's column draws no disclosure chevron, as
+    /// a hand-built Mac list beside its detail has none, also where the list
+    /// is no table but the painted grouped form (D6), as Excord's channels
+    /// are. Pushed, the rows draw them again.
+    func testAPaintedListBesideItsDetailDrawsNoChevrons() throws {
+        let grouped = app(tabs: false).replacingOccurrences(of: "list testId=\"books\"", with: "list testId=\"books\" appearance=\"auto\" listStyle=\"plain\"")
+        // A grouped list's rows are in sections; the link rows go.
+        let bare = replacing("text `Book ${id}`", with: [], in: replacing("link href=path(\"book\", id)", with: [], in: grouped))
+        let source = replacing("for id in [\"a\", \"b\", \"c\"] key=id", with: [
+            "section",
+            "  for id in [\"a\", \"b\", \"c\"] key=id",
+            "    button press=follow(path(\"book\", id)) testId=`row-${id}`",
+            "      row gap=8 align-items=\"center\" flex=1 min-width=0",
+            "        text `Book ${id}` flex=1",
+            "        image \"symbol:forward-chevron\" testId=`chevron-${id}`",
+        ], in: bare)
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: source)
+        _ = compose(ExactView(session: session), width: 1000, sidebar: false)
+        let p = session.presenter, split = p.navigation.split
+        XCTAssertTrue(split.active)
+        XCTAssertNil(p.tables.feeds[try node("books").id], "the grouped form is painted")
+        func drawn(_ id: String) throws -> CGFloat? { try node(id).symbolView?.alphaValue }
+        XCTAssertEqual(try drawn("chevron-a"), 0)
+        XCTAssertEqual(try drawn("chevron-c"), 0)
+        try press("row-b")
+        XCTAssertEqual(try drawn("chevron-b"), 0, "beside its detail too")
+        split.painted = true
+        XCTAssertEqual(try drawn("chevron-a"), 1, "a pushed stack's rows keep theirs")
+        split.painted = false
+        XCTAssertEqual(try drawn("chevron-a"), 0)
+    }
+
+    /// A node in the detail's pane is hovered as one in the page is: the
+    /// pane is beside the viewport, not in it.
+    func testHoverReachesTheDetailPane() throws {
+        let source = app(tabs: false)
+            .replacingOccurrences(of: "  state query = \"\"", with: "  state hot = false\n  state query = \"\"")
+            .replacingOccurrences(of: "  action count\n", with: "  action hovered(over: bool)\n    hot = over\n  action count\n")
+        let hovering = replacing("box testId=`half-${e.params.id}`", with: [
+            "box testId=`half-${e.params.id}` width=\"50%\" height=40 background-color=\"#f9ab00\" hover=hovered",
+            "text (hot ? \"hot\" : \"cold\") testId=\"hot\"",
+        ], in: source)
+        let session = try boot(tabs: false, size: CGSize(width: 1000, height: 500), source: hovering)
+        let columns = compose(ExactView(session: session), width: 1000, sidebar: false)
+        try press("row-a")
+        let box = try node("half-a"), agent = Agent(session: session)
+        XCTAssertTrue(box.isDescendant(of: columns.detailPane))
+        let reply = agent.tap(["id": Int(box.id), "hover": true])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(session.presenter.hoveredNodes.contains { $0 === box })
+        XCTAssertEqual(try node("hot").accessibleText, "hot")
+        // Over the list: the box is left.
+        XCTAssertNil(agent.tap(["id": Int(try node("row-b").id), "hover": true])["error"])
+        XCTAssertFalse(session.presenter.hoveredNodes.contains { $0 === box })
+        XCTAssertEqual(try node("hot").accessibleText, "cold")
+    }
 }
 #endif

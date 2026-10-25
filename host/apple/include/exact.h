@@ -833,7 +833,8 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
  * the same record for a scrollport, including at offset zero; kind 6 ignores
  * the offset. Kind 7 forgets either placement. Kind 10 is a cells
  * list's rows' cell margin (LLP 1138: float left, right, then two unused),
- * 11 clears it. */
+ * 11 clears it. Kind 14 shows a split's `navigationSplit="placeholder"` box
+ * and kind 15 hides it again (LLP 1116.006 D2; the floats unused). */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */

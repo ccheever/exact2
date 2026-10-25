@@ -12,8 +12,13 @@
 // up to its first sheet, live in the detail's pane: each is a subtree of
 // the one session laid out in a containing block the pane's size
 // (`BlockHost`, D8.2), so nothing about a route changes but the box it is
-// laid out in. The pane shows the top one. With none it says so, in
-// AppKit's words.
+// laid out in. The pane shows the top one. With none it shows the box the
+// root route marks `navigationSplit="placeholder"` (LLP 1116.006 D2), as
+// the web's shell does, or else says so in AppKit's words.
+//
+// **A row of the list draws no disclosure chevron** (D5): a table's row
+// draws none in its cell (TableInkMac.swift), and a painted list's row (the
+// grouped form, D6) draws none while its list is the list's column.
 //
 // **What a row's detail is.** A route some row of the list links to is
 // that row's detail (the rule names the pairs), and so is one that came
@@ -148,6 +153,20 @@ final class SplitHost {
     private var lastDetail: UInt32?
     private weak var groundList: NodeView?
     private var queued = false
+    /// The root route's own placeholder while the pane shows it.
+    private weak var placeholder: NodeView?
+    /// The painted list whose chevrons are not drawn, and whether its rows
+    /// may have changed since they were looked at (`NavigationHost.sync`).
+    private weak var veiled: NodeView?
+    var rowsChanged = true
+    /// A commit restyled or moved the placeholder the pane shows (a margin
+    /// or an inset changes its frame and sends no style): its shown style
+    /// is asked for again (`Runner::show_split_placeholder`).
+    private var placeholderRestyled = false
+    func restyled(_ id: UInt32) { if id == placeholder?.id { placeholderRestyled = true } }
+    /// The placeholder the pane shows, whose gates the navigation's pass
+    /// reads by its authored ancestors (`NavigationHost.sync`).
+    var shownPlaceholder: NodeView? { placeholder }
 
     /// Whether `route` is in the detail's pane: out of its tabpanel's
     /// views, so what hides and inerts the panel must reach it by name.
@@ -184,8 +203,8 @@ final class SplitHost {
     /// detail where its route was written, after the list. A route in a
     /// sheet's window is a Tab loop of its own, and stays out.
     func authored(_ mounted: [NodeView], in home: NSView) -> [NodeView] {
-        guard !held.isEmpty else { return mounted }
-        return presenter.blocks.authored(mounted, in: home).filter { node in mounted.contains { $0 === node } || holds(node) }
+        guard !held.isEmpty || placeholder != nil else { return mounted }
+        return presenter.blocks.authored(mounted, in: home).filter { node in mounted.contains { $0 === node } || holds(node) || node === placeholder }
     }
     /// The detail's pane, when `view` is in it.
     func pane(holding view: NSView?) -> NSView? {
@@ -199,8 +218,9 @@ final class SplitHost {
     /// runner knows no block.
     func reset() {
         for entry in held.values { entry.route.removeFromSuperview() }
+        placeholder?.removeFromSuperview()
         held.removeAll(); rowOf.removeAll(); seen.removeAll(); kept.removeAll(); ended.removeAll()
-        shown = nil; pressing = nil; lastDetail = nil; selected = nil
+        shown = nil; pressing = nil; lastDetail = nil; selected = nil; placeholder = nil; veiled = nil
         controller?.split(false, width: nil, empty: false)
     }
 
@@ -271,6 +291,7 @@ final class SplitHost {
         seen = seen.filter { presenter.views[$0] != nil }
         guard let controller, capable else {
             release { _ in true }
+            showPlaceholder(nil); veil(nil)
             groundList?.sheetGroundChanged(); groundList = nil
             lastDetail = nil
             return
@@ -278,12 +299,14 @@ final class SplitHost {
         release { ended.contains($0) }
         ended.removeAll()
         guard let shown else {
+            showPlaceholder(nil); veil(nil)
             if !held.values.contains(where: { presenter.isLeaving($0.route) }) { controller.split(false, width: nil, empty: false) }
             groundList?.sheetGroundChanged(); groundList = nil
             lastDetail = nil
             return
         }
-        controller.split(true, width: shown.width, empty: shown.detail == nil)
+        let own = shown.detail == nil ? ownPlaceholder(in: shown.list) : nil
+        controller.split(true, width: shown.width, empty: shown.detail == nil && own == nil)
         if groundList !== shown.list {
             groundList = shown.list
             shown.list.sheetGroundChanged()
@@ -293,14 +316,64 @@ final class SplitHost {
         pane.positionChanged = { [weak self, weak pane] in
             if let pane { self?.resized(pane.bounds.size) }
         }
+        // The pointer over the pane hovers what is under it, as over the page: in the key window (LLP 1115.000 D7.9).
+        if pane.pointerTracking == nil {
+            pane.pointerTracking = { [weak presenter] event in
+                if event.window?.isKeyWindow == true || event.type == .mouseExited { presenter?.trackPointer(event) }
+            }
+        }
         for route in shown.routes where held[route.id]?.route !== route && presenter.views[route.id] === route {
             held[route.id] = (route, shown.list.id)
             presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size), placement: placement(of: route, in: pane))
             route.sheetGroundChanged()
             presenter.keyViewLoopStale = true
         }
+        showPlaceholder(own, in: pane)
         select(shown)
+        veil(shown.table.flatMap { presenter.tables.feeds[$0] == nil ? presenter.views[$0] : nil })
         lastDetail = shown.detail?.id
+    }
+
+    /// The box `list`, the stack's root route, marks as the split's own
+    /// placeholder: the first so marked whose route, by authored parents
+    /// (the pane holds it apart), is `list`.
+    private func ownPlaceholder(in list: NodeView) -> NodeView? {
+        presenter.carrying("split:placeholder").first { node in
+            presenter.logicalAncestry(of: node).dropFirst().first { ($0 as? NodeView)?.props["navigationKey"] != nil } === list
+        }
+    }
+
+    /// Show `own` in the pane, laid out at its size, or with nil give the
+    /// one shown back to its route, where it is `display: none` again.
+    private func showPlaceholder(_ own: NodeView?, in pane: BlockView? = nil) {
+        if let shown = placeholder, shown !== own || !presenter.blocks.owns(shown) {
+            placeholder = nil
+            presenter.blocks.release(shown)
+            presenter.keyViewLoopStale = true
+        }
+        guard let own, let pane else { return }
+        if placeholder === own {
+            // Cleared first: the answer can be applied before this returns.
+            if placeholderRestyled { placeholderRestyled = false; presenter.blocks.showAgain(own) }
+            return
+        }
+        placeholder = own
+        placeholderRestyled = false
+        presenter.blocks.show(own, in: pane, block: .size(pane.bounds.size), placement: placement(of: own, in: pane), placeholder: true)
+        presenter.keyViewLoopStale = true
+    }
+
+    /// A painted list in the list's column draws its rows' chevrons no
+    /// more than a table does (TableInkMac.swift `rowDisclosure`); one that
+    /// leaves the column draws them again. A table's rows are its feed's.
+    private func veil(_ list: NodeView?) {
+        if veiled !== list {
+            veiled?.rowDisclosure(hidden: false)
+            veiled = list
+            rowsChanged = true
+        }
+        if rowsChanged { list?.rowDisclosure(hidden: true) }
+        rowsChanged = false
     }
 
     private func release(where gone: (UInt32) -> Bool) {
@@ -326,14 +399,15 @@ final class SplitHost {
     private var samplingPlacement = false
     /// Runtime reads sample native movement even when the pane's model frame is unchanged.
     func samplePlacement() {
-        guard !samplingPlacement, active, !held.isEmpty, let pane = controller?.detailPane else { return }
+        guard !samplingPlacement, active, !held.isEmpty || placeholder != nil, let pane = controller?.detailPane else { return }
         samplingPlacement = true
         defer { samplingPlacement = false }
         resized(pane.bounds.size)
     }
 
     private func resized(_ size: CGSize) {
-        for entry in held.values { presenter.blocks.resize(entry.route, .size(size), placement: controller.map { placement(of: entry.route, in: $0.detailPane) } ?? nil) }
+        let shown = held.values.map(\.route) + [placeholder].compactMap { $0 }.filter(presenter.blocks.owns)
+        for route in shown { presenter.blocks.resize(route, .size(size), placement: controller.map { placement(of: route, in: $0.detailPane) } ?? nil) }
     }
 
     /// The list's selected row is the row whose detail the pane shows; when
@@ -380,7 +454,21 @@ final class SplitHost {
                 "listWidth": Agent.r2(controller.listColumnWidth), "detailWidth": Agent.r2(controller.detailWidth),
                 "authoredWidth": shown.width.map { Agent.r2($0) } ?? NSNull(),
                 "routes": shown.routes.map { Int($0.id) }, "detail": shown.detail.map { Int($0.id) } ?? NSNull(),
-                "base": shown.base, "row": shown.row.map { Int($0) } ?? NSNull(), "empty": controller.detail.saysNothing ?? NSNull()]
+                "base": shown.base, "row": shown.row.map { Int($0) } ?? NSNull(), "empty": controller.detail.saysNothing ?? NSNull(),
+                "placeholder": placeholder.map { Int($0.id) } ?? NSNull()]
+    }
+}
+
+extension Presenter {
+    /// The view over `view` in the authored tree: an open popover's authored
+    /// parent, and for a subtree the split's pane holds, its home in the
+    /// page; else its superview. What inerts or hides a node from
+    /// assistive technology is read up it.
+    func authoredSuperview(of view: NSView) -> NSView? {
+        if let pane = navigation.split.controller?.detailPane, view.superview === pane, navigation.split.active, let node = view as? NodeView {
+            return blocks.parent(of: node)
+        }
+        return menus.parent(of: view)
     }
 }
 
