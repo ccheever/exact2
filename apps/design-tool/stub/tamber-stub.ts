@@ -123,13 +123,14 @@ let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tambe
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
 const save = () => writeFileSync(DB, JSON.stringify(log));
+let lastBy = 'changed on disk';
 
 /** One event as a test adds it: logged, and the state it moves. */
 function take(e: Record<string, any>) {
   // (`pad`: an event this many bytes larger, up to 4 MiB, as a test makes one larger than a stream's default ceiling.)
   if (typeof e.pad === 'number') { const { pad, ...rest } = e; e = { ...rest, note: 'x'.repeat(Math.min(pad, 4 << 20)) }; }
-  // An event's `files` are the digests from then on.
-  if (e.files) FILES = { ...FILES, ...e.files };
+  // An event's `files` are the digests from then on, and its client (else a hand edit) who last changed them.
+  if (e.files) { FILES = { ...FILES, ...e.files }; lastBy = e.client ?? 'changed on disk'; }
   // A `builds` event is the list hello gives from then on, and a
   // `build-status` one that build's entry.
   // (A record is the server's: its last refusal kept on it.)
@@ -368,6 +369,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      // A write on digests the files have left is the server's conflict, naming who moved them (the third pass's #2).
+      if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit

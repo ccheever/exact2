@@ -301,7 +301,7 @@ const byWhom = (reply: Reply) => {
   const said = Object.entries(by).map(([file, who]) => `${file} was ${who === 'changed on disk' ? 'changed on disk' : `changed by ${who}`}`);
   return said.length ? said.join('; ') : '';
 };
-const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true;
+const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true, reviewedAt = new Map<string, Record<string, string>>(); // reviewedAt: a draft's digests as first reviewed: Apply writes against them, so another client's write since is refused by name, not silently built on (the third pass's #2)
 
 
 // The session changeset (LLP 1122 D9): every write since the tool opened,
@@ -951,27 +951,27 @@ const sources: Sources = {
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token).filter(t => typeof t === 'string'), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used, ops }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token).filter(t => typeof t === 'string'), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: reviewedAt.get(key) ?? (reviewedAt.clear(), reviewedAt.set(key, ok.files).get(key)), now: ok.files, diff: ok.diff, token: used, ops }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
     const key = keyOf(file, kind, target, when, value);
-    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string; ops?: Record<string, unknown>[] } = {};
+    let read: { key?: string; files?: Record<string, string>; now?: Record<string, string>; diff?: string; token?: string; ops?: Record<string, unknown>[] } = {};
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
     if (read.key !== key || !read.files || !read.token || !read.ops?.length) return stacks(false, 'Review the change before applying it.', '');
     // The operations reviewed, as reviewed.
     const ops = read.ops;
     const op = ops.at(-1)!;
-    const move = ops.length === 1 ? await rescopeFor(file, op, read.token, read.files) : null;
+    const move = ops.length === 1 ? await rescopeFor(file, op, read.token, read.now ?? read.files) : null;
     // A client paired at `propose` (T6) holds it for someone with write to accept instead.
     if (scopeNow() === 'propose') { const held = await call('/__tamber', { method: 'propose', hold: true, client, ops }, WRITE_WAIT, read.token); return { ...stacks(!held.error, held.error, ''), note: held.error ? '' : `Held for review as ${held.reply.ok?.proposal}: someone with write accepts it.` }; }
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops }, WRITE_WAIT, read.token);
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: reviewedAt.get(key) ?? read.files, ops }, WRITE_WAIT, read.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
-    if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
-    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it. ${read.now && reviewedAt.set(key, read.now) ? 'The proposal now shows the file as it is: Apply again to write over it.' : ''}`.trim() : error, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse; reviewedAt.delete(key);
     // A write that changed no byte has no inverse, and leaves redo be.
     // A re-scope is checked against the files as this write left them: one
     // that finds them moved since (another write, a hand edit) is refused.
@@ -1007,12 +1007,12 @@ const sources: Sources = {
     const of = [file, kind, target, when].join('␟');
     if (ask > scrubAsked) {
       scrubAsked = ask;
-      let read: { files?: Record<string, string>; token?: string } = {};
+      let read: { files?: Record<string, string>; now?: Record<string, string>; token?: string } = {};
       try { read = JSON.parse(review || '{}'); } catch { /* none */ }
       if (scrubbing) return scrubState(op);
       if (!op || !read.files || !read.token) { scrubEnded = 'Review the change before scrubbing it.'; return scrubState(op); }
       scrubEnded = '';
-      const s = { ask, client, of, token: read.token, files: read.files, id: '', shown: null, want: op, sending: null, error: '', errorOp: null, releasing: false };
+      const s = { ask, client, of, token: read.token, files: read.now ?? read.files, id: '', shown: null, want: op, sending: null, error: '', errorOp: null, releasing: false };
       scrubbing = s;
       // The last one gone at the server first.
       if (closing) await closing;
