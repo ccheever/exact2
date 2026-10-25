@@ -16,11 +16,16 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { 
 export function copyGpuCache(cache, out, { fresh, build, beforeRename = () => {} }) {
   const lock = `${cache}.lock`, copy = () => cpSync(cache, out, { recursive: true });
   mkdirSync(dirname(cache), { recursive: true });
-  if (withLock(lock, () => fresh(cache) && (copy(), true))) return false;
+  const previous = `${cache}.previous`;
+  if (withLock(lock, () => {
+    // A build killed between its renames left the cache it replaced at `.previous`: back in place first.
+    if (!existsSync(cache) && existsSync(previous)) renameSync(previous, cache);
+    return fresh(cache) && (copy(), true);
+  })) return false;
   // A stage a killed build left (its pid gone) is removed here, by the next build of the app.
-  const prefix = `${basename(cache)}.stage-`;
+  const stageName = new RegExp(`^${basename(cache).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.stage-(\\d+)-\\d+$`);
   for (const name of readdirSync(dirname(cache))) {
-    const pid = Number(name.startsWith(prefix) ? name.slice(prefix.length).split('-')[0] : 0);
+    const pid = Number(stageName.exec(name)?.[1] ?? 0);
     if (pid > 0 && pid !== process.pid && !alive(pid)) rmSync(resolve(dirname(cache), name), { recursive: true, force: true });
   }
   const stage = `${cache}.stage-${process.pid}-${++stages}`;
@@ -29,11 +34,13 @@ export function copyGpuCache(cache, out, { fresh, build, beforeRename = () => {}
     build(stage);
     beforeRename(stage);
     withLock(lock, () => {
-      // Two renames, under the lock every reader takes too, so none sees the gap between them.
-      const old = `${stage}.old`;
-      if (existsSync(cache)) renameSync(cache, old);
-      renameSync(stage, cache);
-      rmSync(old, { recursive: true, force: true });
+      // Two renames, under the lock every reader takes too, so none sees the gap between them; the cache replaced
+      // waits at `.previous` until its successor is in place, and goes back if that rename fails.
+      rmSync(previous, { recursive: true, force: true });
+      if (existsSync(cache)) renameSync(cache, previous);
+      try { renameSync(stage, cache); }
+      catch (error) { if (existsSync(previous)) renameSync(previous, cache); throw error; }
+      rmSync(previous, { recursive: true, force: true });
       copy();
     });
   } finally { rmSync(stage, { recursive: true, force: true }); }
