@@ -20,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
+import { copyGpuCache } from './gpu-cache.mjs';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
@@ -736,13 +737,17 @@ if (existsSync(gpuLib)) {
   const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
   const crates = [['gpu', target.crate('gpu')], ...gpuModules(target.manifest).map(({ name }) => [`gpu/${name}`, target.crate(`gpu-${name}`)])];
   const shaders = shaderWatchRoots(target).filter(existsSync);
-  if (!crates.every(([stem, crate]) => fresh(resolve(cache, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders))) {
-    rmSync(cache, { recursive: true, force: true });
-    const gpu = webGpuArtifacts(target, cache, { cargo: true });
-    if (!gpu.built) { rmSync(cache, { recursive: true, force: true }); console.error(`${app}: ${gpu.note}`); process.exit(1); }
-    copyShaders(target, resolve(cache, 'shaders'));
-  }
-  cpSync(cache, out, { recursive: true });
+  // Shared by every loop of the app on this target: built in a stage and renamed over the cache (gpu-cache.mjs).
+  try {
+    copyGpuCache(cache, out, {
+      fresh: dir => crates.every(([stem, crate]) => fresh(resolve(dir, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders)),
+      build: stage => {
+        const gpu = webGpuArtifacts(target, stage, { cargo: true });
+        if (!gpu.built) throw new Error(gpu.note);
+        copyShaders(target, resolve(stage, 'shaders'));
+      },
+    });
+  } catch (error) { console.error(`${app}: ${error.message}`); process.exit(1); }
   await copyLazyModules(['gpu-glue.js']);
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });

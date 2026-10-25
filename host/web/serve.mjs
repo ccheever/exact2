@@ -13,6 +13,7 @@ import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { withLock } from './build-lock.mjs';
 import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
@@ -697,21 +698,7 @@ export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
  * another is writing (app farm round 1: two of three concurrent builds failed and the third lost `app.css`). */
 export function replaceBuild(stage, dist) {
   mkdirSync(dirname(dist), { recursive: true });
-  const lock = `${dist}.lock`, started = Date.now(), nap = new Int32Array(new SharedArrayBuffer(4));
-  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-  for (;;) {
-    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let owner = 0, age = 0;
-      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
-      // A swap takes milliseconds: a lock whose owner is gone, or that names none after a second, is left over.
-      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
-      if (Date.now() - started > 30000) throw new Error(`${lock}: process ${owner} has held it for 30 s; remove it if that process is not a build`);
-      Atomics.wait(nap, 0, 0, 10);
-    }
-  }
-  try {
+  withLock(`${dist}.lock`, () => {
     // Before `.previous` goes: it may be the only tree left by a swap that
     // was killed between its renames.
     if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
@@ -728,7 +715,7 @@ export function replaceBuild(stage, dist) {
     try { renameSync(stage, dist); }
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
     keepGeneration(`${dist}.previous`, dist); reapGenerations(dist);
-  } finally { rmSync(lock, { force: true }); }
+  });
 }
 
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
