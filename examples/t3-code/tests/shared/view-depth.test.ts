@@ -222,7 +222,7 @@ function measure() {
     const p = new Parser(text);
     p.take(/[A-Za-z][\w-]*/y);
     const out: E[] = [];
-    while (!p.done()) { p.take(/-?[A-Za-z_][\w-]*(:[\w-]+)?=(?!=)/y); out.push(p.unary()); }
+    while (!p.done()) { p.take(/-?[A-Za-z_][\w-]*(\.[\w-]+)*(:[\w-]+)?=(?!=)/y); out.push(p.unary()); }
     return out;
   };
 
