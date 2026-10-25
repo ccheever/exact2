@@ -9,7 +9,7 @@ use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr};
 
 /// What only an `iframe` takes.
-const FRAME_ONLY: [&str; 10] = [
+const FRAME_ONLY: [&str; 11] = [
     "partition",
     "zoom",
     "currententrychange",
@@ -17,6 +17,7 @@ const FRAME_ONLY: [&str; 10] = [
     "navigateerror",
     "newwindow",
     "download",
+    "capture",
     "apple.allowsBackForwardNavigationGestures",
     "apple.allowsMagnification",
     "apple.inactiveSchedulingPolicy",
@@ -141,8 +142,23 @@ fn frame_ids(view: &[contract_syntax::Node]) -> Option<std::collections::BTreeMa
 /// The frame commands (@ref LLP 1020.002 D3), whose first argument is an
 /// iframe's `id`; `reload` only with one (bare, it is the app's reload).
 pub(crate) fn is_frame_command(name: &str, args: &[Expr]) -> bool {
-    matches!(name, "navigate" | "traverseHistory" | "stopLoading")
-        || name == "reload" && !args.is_empty()
+    matches!(
+        name,
+        "navigate" | "traverseHistory" | "stopLoading" | "captureScreenshot"
+    ) || name == "reload" && !args.is_empty()
+}
+
+/// Whether `path` names a file under one of the app's own roots, which a
+/// capture writes (@ref LLP 1069.002 D7): `app:/data/…`, `app:/cache/…`
+/// or `app:/tmp/…`, with no `.` or `..` part.
+fn app_file(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("app:/") else {
+        return false;
+    };
+    let mut parts = rest.split('/');
+    matches!(parts.next(), Some("data" | "cache" | "tmp"))
+        && rest.contains('/')
+        && parts.all(|p| !p.is_empty() && p != "." && p != "..")
 }
 
 /// A literal id a frame command names must be an iframe's, and a
@@ -152,6 +168,17 @@ pub(crate) fn check_command(
     name: &str,
     args: &[Expr],
 ) -> Result<(), LowerError> {
+    if name == "captureScreenshot" {
+        if let Some(Expr::Str(path, at)) = args.get(1) {
+            if !app_file(path) {
+                return err(
+                    "lower-frame-capture-path",
+                    format!("`captureScreenshot` writes the app's own files: an `app:/data/…`, `app:/cache/…` or `app:/tmp/…` path, not {path:?}"),
+                    *at,
+                );
+            }
+        }
+    }
     let target = match name {
         "postMessage" => args.get(1),
         _ if is_frame_command(name, args) => args.first(),

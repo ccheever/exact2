@@ -120,7 +120,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "seekforwardOffset",
         "an `audio` or `video` with `metadata=`",
     ),
-    // @ref LLP 1020.002 D1, D2, D5, D6, §9 — a browser shell's (`frames.rs`).
+    // @ref LLP 1020.002 D1, D2, D5, D6, D7, §9 — a browser shell's (`frames.rs`).
     ("partition", "`iframe`"),
     ("zoom", "`iframe`"),
     ("currententrychange", "`iframe`"),
@@ -128,6 +128,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("navigateerror", "`iframe`"),
     ("newwindow", "`iframe`"),
     ("download", "`iframe`"),
+    ("capture", "`iframe`"),
     ("apple.allowsBackForwardNavigationGestures", "`iframe`"),
     ("apple.allowsMagnification", "`iframe`"),
     ("apple.inactiveSchedulingPolicy", "`iframe`"),

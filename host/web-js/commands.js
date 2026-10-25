@@ -65,6 +65,8 @@ export const commands = (say, agentMode = () => false) => ({
   navigate: (...args) => frame(say, "navigate", args),
   traverseHistory: (...args) => frame(say, "traverseHistory", args),
   stopLoading: (...args) => frame(say, "stopLoading", args),
+  // A picture of a frame's guest (LLP 1020.002 D7): refused on the web, answered on its `capture=`.
+  captureScreenshot: (...args) => frame(say, "captureScreenshot", args),
   relaunch: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.

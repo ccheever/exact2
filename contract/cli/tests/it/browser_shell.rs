@@ -1,7 +1,8 @@
 //! A browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6, §9): the accept
-//! fixture lowers its props, zoom and six events, a host's
-//! `FrameNavigation`, `FrameNewWindow` and `FrameDownload` reach an action
-//! as its record, and the frame commands reach the host by position.
+//! fixture lowers its props, zoom and seven events, a host's
+//! `FrameNavigation`, `FrameNewWindow`, `FrameDownload` and `FrameCapture`
+//! reach an action as its record, and the frame commands reach the host by
+//! position.
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
@@ -54,7 +55,8 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
             EventKind::Navigatesuccess,
             EventKind::Navigateerror,
             EventKind::Newwindow,
-            EventKind::Download
+            EventKind::Download,
+            EventKind::Capture
         ]
     );
     let event = |payload: &str| Event::of_host_kind(58, payload).unwrap();
@@ -89,6 +91,24 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
     assert_eq!(
         r.slot("saved"),
         Some(&Value::str("completed f.txt app:/tmp/downloads/f.txt"))
+    );
+    r.dispatch(
+        id,
+        event("capture\n{\"path\":\"app:/tmp/shot.png\",\"width\":400,\"height\":200}"),
+    )
+    .unwrap();
+    assert_eq!(
+        r.slot("shot"),
+        Some(&Value::str("app:/tmp/shot.png 400x200 "))
+    );
+    r.dispatch(
+        id,
+        event("capture\n{\"path\":\"app:/tmp/shot.png\",\"error\":\"NotSupportedError\"}"),
+    )
+    .unwrap();
+    assert_eq!(
+        r.slot("shot"),
+        Some(&Value::str("app:/tmp/shot.png 0x0 NotSupportedError"))
     );
     assert!(Event::of_host_kind(58, "load\n{}").is_err());
 }
@@ -129,6 +149,27 @@ fn frame_commands_reach_the_host_by_position() {
         (c[0].name.as_str(), c[0].args.clone()),
         ("stopLoading", vec![Value::str("tab")])
     );
+    // A clip is a `DOMRect`, its fields in the constructor's order; none is the whole viewport.
+    let c = press(&mut r, "snap");
+    assert_eq!(
+        (c[0].name.as_str(), c[0].args.clone()),
+        (
+            "captureScreenshot",
+            vec![
+                Value::str("tab"),
+                Value::str("app:/tmp/shot.png"),
+                Value::record(vec![
+                    Value::Number(10.0),
+                    Value::Number(20.0),
+                    Value::Number(200.0),
+                    Value::Number(100.0)
+                ])
+            ]
+        )
+    );
+    let c = press(&mut r, "whole");
+    assert_eq!(c[0].args.len(), 3);
+    assert_eq!(c[0].args[2], Value::Option(None));
 }
 
 #[test]
@@ -158,6 +199,37 @@ fn a_partition_refuses_what_would_reach_the_app_and_the_words_are_an_iframes() {
     contract::compile("component A\n  action got(d: string)\n    let x = d\n  view\n    iframe \"https://a.test\" sandbox=\"allow-scripts\" message=got\n").unwrap();
     // A computed source is the host's to refuse at run time.
     contract::compile("component A\n  state u = \"https://a.test\"\n  view\n    iframe src=u partition=\"work\"\n").unwrap();
+    // A capture writes the app's own files, by a clip of Geometry's `DOMRect`, and answers on an iframe.
+    let command = |body: &str| {
+        contract::compile(&format!("component A\n  action go\n    {body}\n  view\n    column\n      iframe \"https://a.test\" id=\"tab\"\n      button \"go\" press=go\n"))
+    };
+    assert_eq!(
+        command("captureScreenshot(\"tab\", \"shot.png\")")
+            .unwrap_err()
+            .id,
+        "lower-frame-capture-path"
+    );
+    assert_eq!(
+        command("captureScreenshot(\"tab\", \"app:/tmp/../x.png\")")
+            .unwrap_err()
+            .id,
+        "lower-frame-capture-path"
+    );
+    assert_eq!(
+        command("captureScreenshot(\"page\", \"app:/tmp/x.png\")")
+            .unwrap_err()
+            .id,
+        "lower-frame-command"
+    );
+    assert_eq!(
+        command("captureScreenshot(\"tab\", \"app:/tmp/x.png\", clip=4)")
+            .unwrap_err()
+            .id,
+        "type-frame-command"
+    );
+    command("captureScreenshot(\"tab\", \"app:/cache/x.png\", clip=DOMRect(x=0, y=0, width=10, height=10))").unwrap();
+    let e = contract::compile("component A\n  action got(e: FrameCapture)\n    let x = e.path\n  view\n    column capture=got\n").unwrap_err();
+    assert_eq!(e.id, "lower-attr-tag", "{e}");
     // The root's `navigate=` keeps its location; an iframe's has none.
     let e = contract::compile("component A\n  action go(location: string)\n    let x = location\n  view\n    iframe \"https://a.test\" partition=\"w\" navigate=go\n").unwrap_err();
     assert_eq!(e.id, "analyze-handler-arity", "{e}");

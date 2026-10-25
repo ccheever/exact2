@@ -97,7 +97,7 @@ class FrameUI: NSObject, WKUIDelegate {
     var pages: [ObjectIdentifier: PageState] = [:]
     /// The sheets and panels up now, each with how it ends as Cancel when
     /// its frame or popup goes first.
-    private struct Shown { let id: Int; weak var web: WKWebView?; let end: () -> Void }
+    private struct Shown { let id: Int; weak var web: AnyObject?; let end: () -> Void }
     private var shown: [Shown] = []
     private var nextShown = 0
 
@@ -130,10 +130,11 @@ class FrameUI: NSObject, WKUIDelegate {
         return "\(scheme)://\(url.host?.lowercased() ?? ""):\(port == 80 && scheme == "http" || port == 443 && scheme == "https" ? 0 : port)"
     }
 
-    /// What was decided for `origin`'s requests in `web`.
-    func asked(_ web: WKWebView, _ origin: String) -> Asked { pages[ObjectIdentifier(web)]?.asked[origin] ?? Asked() }
+    /// What was decided for `origin`'s requests in `web` (a web view, or a
+    /// PDF frame's view, D10).
+    func asked(_ web: AnyObject, _ origin: String) -> Asked { pages[ObjectIdentifier(web)]?.asked[origin] ?? Asked() }
 
-    func record(_ web: WKWebView, _ origin: String, _ change: (inout Asked) -> Void) {
+    func record(_ web: AnyObject, _ origin: String, _ change: (inout Asked) -> Void) {
         change(&pages[ObjectIdentifier(web), default: PageState()].asked[origin, default: Asked()])
     }
 
@@ -151,7 +152,7 @@ class FrameUI: NSObject, WKUIDelegate {
     }
 
     /// A sheet or panel went up on `web`; `end` dismisses it as Cancel.
-    func showing(_ web: WKWebView, end: @escaping () -> Void) -> Int {
+    func showing(_ web: AnyObject, end: @escaping () -> Void) -> Int {
         nextShown += 1
         shown.append(Shown(id: nextShown, web: web, end: end))
         return nextShown
@@ -160,7 +161,7 @@ class FrameUI: NSObject, WKUIDelegate {
     func ended(_ id: Int) { shown.removeAll { $0.id == id } }
 
     /// Ends, as Cancel, the sheets and panels up on `web`, or all of them.
-    func endSheets(for web: WKWebView? = nil) {
+    func endSheets(for web: AnyObject? = nil) {
         var kept: [Shown] = [], ending: [Shown] = []
         for sheet in shown {
             if web == nil || sheet.web == nil || sheet.web === web { ending.append(sheet) } else { kept.append(sheet) }
@@ -345,7 +346,7 @@ class FrameUI: NSObject, WKUIDelegate {
 
     #if os(iOS)
     /// The view controller to present over: the frame window's topmost.
-    static func presenter(_ web: WKWebView) -> UIViewController? {
+    static func presenter(_ web: UIView) -> UIViewController? {
         var top = web.window?.rootViewController
         while let next = top?.presentedViewController, !next.isBeingDismissed { top = next }
         return top
@@ -427,7 +428,7 @@ class FrameUI: NSObject, WKUIDelegate {
     /// `byApp`: the app's own `navigate`, which a page's refusals never stop.
     /// `asker`: the origin of the frame that asked, whose Cancel refuses its
     /// further asks.
-    func confirmExternal(_ url: URL, from web: WKWebView, byApp: Bool = false, asker: String = "") {
+    func confirmExternal(_ url: URL, from web: PlatformView, byApp: Bool = false, asker: String = "") {
         let scheme = url.scheme ?? ""
         guard !prompting else { return log("\(scheme): refused: a confirmation is already up") }
         guard byApp || !asked(web, asker).schemesRefused else { return log("\(scheme): refused: the person cancelled one from this page") }
@@ -745,6 +746,9 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
             // there (the save panel asked; the agent named it), is replaced only
             // by a whole download, and kept when the download fails.
             let temp = target.deletingLastPathComponent().appendingPathComponent(".\(target.lastPathComponent).\(UUID().uuidString).download")
+            // A symbolic link to a directory on the way is followed: a person's
+            // save panel chose the place, and under the agent's
+            // `app:/tmp/downloads/` only the app can have made one.
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             item.path = target
             item.temp = temp
