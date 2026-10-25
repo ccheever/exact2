@@ -4,6 +4,8 @@
 // the runtime's objects from rt-link.js instead. Static imports of `./x.js` and dynamic ones of `./x.js` or
 // `new URL('./x.js', import.meta.url)` are read from the sources, the web host's glue and this runtime's together, as a
 // build lays them side by side (this runtime's taking precedence).
+// (Not read: an import by a computed specifier, a template literal or a URL against `document.baseURI`, as the GPU glue's
+// are; none of those reaches rt.js today.)
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
