@@ -65,10 +65,11 @@ function ids(all: Field[], field: number): string[] {
 
 export interface Folder { id: string; name: string; color: number | null; guildIds: string[] }
 
-// A wrapper message (Int64Value, StringValue, UInt64Value) holds its value in field 1.
-const wrapped = (all: Field[], field: number): Field | undefined => {
+// A wrapper message (Int64Value, StringValue, UInt64Value) holds its value in field 1; a wrapper that is
+// there with no field 1 holds the default, zero or "" (proto3).
+const wrapped = (all: Field[], field: number, empty: bigint | Uint8Array): Field['value'] | undefined => {
   const w = all.filter(f => f.field === field && f.wire === 2).at(-1);
-  return w ? fields(w.value as Uint8Array).find(f => f.field === 1) : undefined;
+  return w ? fields(w.value as Uint8Array).find(f => f.field === 1)?.value ?? empty : undefined;
 };
 
 /** The account's server list as folders, in its order: a folder with no id holds one guild that sits
@@ -79,10 +80,9 @@ export function guildFolders(proto: string): Folder[] | null {
   const inner = fields(folders.value as Uint8Array);
   const out = inner.filter(f => f.field === 1 && f.wire === 2).map(f => {
     const all = fields(f.value as Uint8Array);
-    const id = wrapped(all, 2), name = wrapped(all, 3), color = wrapped(all, 4);
-    return { id: typeof id?.value === 'bigint' ? id.value.toString() : '',
-      name: name?.value instanceof Uint8Array ? new TextDecoder().decode(name.value) : '',
-      color: typeof color?.value === 'bigint' ? Number(color.value) : null, guildIds: ids(all, 1) };
+    const id = wrapped(all, 2, 0n), name = wrapped(all, 3, new Uint8Array()), color = wrapped(all, 4, 0n);
+    return { id: typeof id === 'bigint' ? id.toString() : '', name: name instanceof Uint8Array ? new TextDecoder().decode(name) : '',
+      color: typeof color === 'bigint' ? Number(color) : null, guildIds: ids(all, 1) };
   });
   return out.length ? out : ids(inner, 2).map(id => ({ id: '', name: '', color: null, guildIds: [id] }));
 }
