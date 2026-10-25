@@ -150,10 +150,13 @@ extension Presenter {
         return views.values.first(where: { $0.headerField === native }) ?? NodeView.innermost(native)
     }
 
-    /// A native module's input may fill a large wrapper: reveal its caret,
-    /// not that wrapper's far edge. The input keeps its own internal scrolling.
+    /// The keys' reveal of the field being edited (`revealEditorAsTheKeysMove`,
+    /// `revealSettledEditor`). A native module's input may fill a large
+    /// wrapper: reveal its caret, not that wrapper's far edge. The input keeps
+    /// its own internal scrolling.
     func revealFocusedEditor() {
-        guard let editor else { return }
+        // While a finger drags the keyboard away, the offset is the finger's
+        guard let editor, !interactiveKeyboardDrag else { return }
         if editor.field == nil, editor.textArea == nil,
            let native = FirstResponder.current as? UIView, let input = native as? UITextInput,
            let end = input.selectedTextRange?.end, let view = input.textInputView {

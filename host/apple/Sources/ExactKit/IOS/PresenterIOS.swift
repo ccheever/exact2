@@ -240,7 +240,7 @@ package final class Presenter {
 
     var interactiveKeyboardDrag: Bool {
         let drags = { (sv: UIScrollView) in sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging) }
-        return drags(viewport) || views.values.contains { node in node.scrollView.map(drags) ?? false }
+        return drags(viewport) || scrollers.contains { views[$0]?.scrollView.map(drags) ?? false }
             || navigation.primaryRoutes.contains { $0.contentViewport.map(drags) ?? false }
     }
 
