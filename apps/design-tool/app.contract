@@ -183,13 +183,15 @@ component DesignTool
   // is on its way (upExpect >= 0); the page says how many steps it took (`moved`), and a move that reached the root
   // before `up` is said so.
   state upFromKey = ""
+  state upFromArrival = ""
   state upExpect = -1
   // Said of the selection the move lands on alone (the first after it), kept for that visit of it (a click away and
   // back is another).
   state upNote = ""
   state upNoteKey = ""
   derive upFailed = match selectedUp { case some(r) => not r.ok, case none => false }
-  task upLanded when upExpect >= 0 and inspected.has and inspected.key != upFromKey key=inspected.key
+  // Landed: another node, or this one said again with the move's own report (a move from the root stays on it).
+  task upLanded when upExpect >= 0 and inspected.has and inspected.arrival != upFromArrival and (inspected.key != upFromKey or inspected.movedUp == upExpect) key=inspected.arrival
     after(1, landUp)
   task upRefused when upExpect >= 0 and not pending(selectedUp) and upFailed key=upFromKey
     after(1, dropUp)
@@ -477,6 +479,7 @@ component DesignTool
     if not pending(selectedUp)
       // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
+      upFromArrival = inspected.arrival
       upRefusalsAt = refusalsKey
       upExpect = up
       upNote = ""
@@ -854,7 +857,7 @@ component DesignTool
   action markReady
     readyFor = draftReadyKey
   action landUp
-    upNote = inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : ""
+    upNote = inspected.movedUp > 0 and inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : ""
     upNoteKey = inspected.visit
     upExpect = -1
   action dropUp

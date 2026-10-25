@@ -51,7 +51,7 @@ const files = (digests: Record<string, string> = {}) => Object.entries(digests).
 type Change = Result<'waitChanges'>['recent'][number];
 // The session's changes, newest first, as the long poll brought them.
 let recent: Change[] = [];
-let answers = 0;
+let answers = 0, arrivals = 0; // (arrivals: selection reports as they come, `Inspected.arrival`: a move up that stays is told)
 // The place read to, and the run (its token) that answered there.
 let place = { seq: 0, epoch: '' }, placeRun = '';
 
@@ -497,7 +497,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // from before the hold moved (or unasked) is asked for again.
     else if (e.event === 'selection') {
       const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null); stepping.delete(String(e.build));
-      selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
+      selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e), arrival: ++arrivals };
     }
     // Inspect mode's owners as they move (tamber/1.6): this client's on or
     // off, or another's taking a build over. Inspect mode ending where the

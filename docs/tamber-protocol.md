@@ -194,7 +194,8 @@ on macOS and Linux.
   sets (`reading.edge = reading.card`, the app setting `reading.card = brand`, then `brand` edited), under the app's
   design file.
   And `inspect`'s `select` walks the page's own tree by the plan's copies (the third hands-on pass's #4, theme2's
-  rulings of the 25th): `copies` comes once per plan, with the `on` frame or, on a plan change, alone, a `select` is `{up, plan, from, instance}` plus the
+  rulings of the 25th): `copies` comes once per plan per registration to a build that registers the `copies`
+  capability, with the `on` frame or, on a plan change, alone, a `select` is `{up, plan, from, instance}` plus the
   1.16 `levels` for a page of an older build, and the page's selection reports `moved: {up, stepped}` (see The build channel's `inspect`). A slot's host
   is a step; past the last copy, the root.
 
@@ -1547,7 +1548,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `inspect` (*1.3*) `{on, seq, copies?}`, `{copies}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*; *1.17*
     by the page's own tree: an `on: true` frame carries `copies: {plan, data}`, each site of that plan's copy, an
     integer equal for every node whose call-site chain is the same, encoded as runs, `r1:` and base64 of LEB128 varints
-    of `[copy, run length]` pairs in site order; sent once per plan per build, with inspect mode on and again with the
+    of `[copy, run length]` pairs in site order, at most 4 bytes a varint and 2^20 sites (a page refuses more, and a
+    plan past it gets none); sent only to a build that registers the `copies` capability, which keeps them whatever
+    its mode, once per plan per registration (not again for an off and on under the same plan), with inspect mode on and again with the
     `on` frame a new registration (a new plan) gets, or alone, `{copies}`, changing no mode, when an inspected build's
     status names a new plan; none for a plan with no map. `levels` (1.16, for a page of a build before 1.17, which
     selects in the first level with a node above its selection, the outermost) are the plan sites of each enclosing
@@ -1579,7 +1582,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
     row bound by an expression is the element's computed CSS, said `computed: true` (*1.9*). tvOS and
     the Linux host answer `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
-    `inspect` among its `capabilities` (the wasm and JS web pages, and the iOS and Mac hosts).
+    `inspect` among its `capabilities` (the wasm and JS web pages, and the iOS and Mac hosts); one that walks a `select` by the plan's copies says `copies` too (*1.17*, the same hosts).
     Development builds only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
@@ -1778,7 +1781,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; write scope and the build's inspecting client alone, 409 otherwise, or with no selection to move from, or with `stale: true` when the selection moved since its chain was read: its selection moves `n` call sites up, past the outermost to the root, answered `{builds}`)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; write scope and the build's inspecting client alone, 409 otherwise, or with no selection to move from, or with `stale: true` when the selection moved since its chain was read: its selection moves `n` call sites up, past the outermost to the root; *1.17*: `n` copies up its page's own tree by the plan's `copies`, the selection's own copy seen and each new copy one step, a slot's host among them, landing on the `n`-th copy's outermost node or past the last on the root, its `selection` event carrying `moved: {up, stepped}`; answered `{builds}`)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops

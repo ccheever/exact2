@@ -303,13 +303,20 @@ async function select(el, clicked = false, click = null, moved = null) {
 let copiesHeld = { plan: null, list: null };
 function decodeCopies(text) {
   if (typeof text !== "string" || !text.startsWith("r1:")) return null;
-  const bytes = Uint8Array.from(atob(text.slice(3)), (c) => c.charCodeAt(0)), values = [];
+  // (Bounded: a varint of at most 4 bytes, 2^20 sites in all, whole pairs; anything else is no copies.)
+  let bytes;
+  try { bytes = Uint8Array.from(atob(text.slice(3)), (c) => c.charCodeAt(0)); } catch { return null; }
+  const values = [];
   for (let i = 0, v = 0, scale = 1; i < bytes.length; i++) {
     v += (bytes[i] & 127) * scale;
-    if (bytes[i] & 128) scale *= 128; else { values.push(v); v = 0; scale = 1; }
+    if (!(bytes[i] & 128)) { values.push(v); v = 0; scale = 1; } else if ((scale *= 128) > 128 ** 3) return null;
+    if (i === bytes.length - 1 && bytes[i] & 128) return null;
   }
-  const out = [];
-  for (let i = 0; i + 1 < values.length; i += 2) for (let n = 0; n < values[i + 1]; n++) out.push(values[i]);
+  if (values.length % 2) return null;
+  let sites = 0;
+  for (let i = 1; i < values.length; i += 2) if ((sites += values[i]) > 1 << 20) return null;
+  const out = new Array(sites);
+  for (let i = 0, at = 0; i < values.length; i += 2) out.fill(values[i], at, (at += values[i + 1]));
   return out;
 }
 async function selectUp({ up, plan, from, instance }) {
@@ -320,12 +327,15 @@ async function selectUp({ up, plan, from, instance }) {
   if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
   const copies = copiesHeld.plan === plan ? copiesHeld.list : null;
   if (!copies) { await refresh(); return; }
-  const copyOf = (at) => { const site = siteOf(at); return site == null ? undefined : copies[site]; };
+  // (null: a node with no site, passed over; undefined: a site past these copies, which are not this tree's: stale.)
+  const copyOf = (at) => { const site = siteOf(at); return site == null ? null : copies[site]; };
+  if (copyOf(el) == null) { await refresh(); return; }
   const seen = new Set([copyOf(el)]);
   let stepped = 0, target, landing = null, root = null;
   for (let at = above(el); at; at = above(at)) {
     const copy = copyOf(at);
-    if (copy === undefined) continue;
+    if (copy === null) continue;
+    if (copy === undefined) { await refresh(); return; }
     root = at;
     if (target === undefined && !seen.has(copy)) { seen.add(copy); if (++stepped === up) target = copy; }
     if (target !== undefined && copy === target) landing = at;

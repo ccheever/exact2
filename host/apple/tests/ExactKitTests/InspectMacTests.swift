@@ -207,12 +207,21 @@ final class InspectSelectUpMacTests: XCTestCase {
         XCTAssertEqual(Inspect.selected?.id, try view("glyph"), "a stale ask leaves the selection")
         // The wire's encoding, as scripts/tamber-inspect.mjs writes it: runs [0, 2], [1, 1].
         XCTAssertEqual(Inspect.decodeCopies("r1:AAIBAQ=="), [0, 0, 1])
+        // Bounded, as the pages are: a run past 2^20 sites, a varint past 4 bytes, one cut off, half a pair.
+        for bad in ["r1:AICAgIAQ", "r1:gICAgICAgICA", "r1:AIA=", "r1:AA=="] { XCTAssertNil(Inspect.decodeCopies(bad), bad) }
         XCTAssertNil(Inspect.decodeCopies("r2:AA=="))
         // An inspect frame's copies are kept for their plan; a bad encoding keeps none.
         ExactApp.shared.inspectCommand(["kind": "inspect", "on": true, "seq": 4, "copies": ["plan": "p", "data": "r1:AAIBAQ=="]])
         XCTAssertEqual(Inspect.copies?.plan, "p"); XCTAssertEqual(Inspect.copies?.list, [0, 0, 1])
         ExactApp.shared.inspectCommand(["kind": "inspect", "on": true, "seq": 4, "copies": ["plan": "p", "data": "nope"]])
         XCTAssertNil(Inspect.copies)
+        // A plan's copies alone (a status naming a new plan): kept, inspect mode as it was; then off, they stay kept.
+        ExactApp.shared.inspectCommand(["kind": "inspect", "copies": ["plan": "q", "data": "r1:AAIBAQ=="]])
+        XCTAssertTrue(Inspect.on, "copies alone never turn inspect mode off")
+        XCTAssertEqual(Inspect.copies?.plan, "q"); XCTAssertEqual(Inspect.copies?.list, [0, 0, 1])
+        ExactApp.shared.inspectCommand(["kind": "inspect", "on": false, "seq": 5])
+        XCTAssertEqual(Inspect.copies?.plan, "q", "a plan's copies outlast inspect mode off (they come once per plan)")
+        ExactApp.shared.inspectCommand(["kind": "inspect", "on": true, "seq": 6])
         // A `select` that is no object (the web pages take any but null or false) is no move, and leaves inspect on.
         let was = Inspect.selected?.id
         ExactApp.shared.inspectCommand(["kind": "inspect", "select": "up"])

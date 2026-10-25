@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel, selectRequest } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, copiesOf, decodeCopies, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, copiesOf, decodeCopies, COPIED_SITES, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -867,6 +867,13 @@ test('tamber/1.16: an inherited row\'s ancestor named by its source from the pag
   expect(copies[1]).toBe(copies[3]);
   expect(copies[1]).not.toBe(copies[0]);
   expect(decodeCopies('nope')).toBeNull();
+  // Bounded: a run past 2^20 sites, a varint past 4 bytes, a varint cut off, half a pair: no copies.
+  expect(decodeCopies('r1:AICAgIAQ')).toBeNull();
+  expect(decodeCopies('r1:gICAgICAgICA')).toBeNull();
+  expect(decodeCopies('r1:AIA=')).toBeNull();
+  expect(decodeCopies('r1:AA==')).toBeNull();
+  expect(decodeCopies('r1:AIBA')).toEqual(new Array(8192).fill(0));
+  expect(copiesOf({ nodes: { length: COPIED_SITES + 1 } })).toBeNull();
   // The raw `selected` event the server republishes carries no fromSite either.
   expect(JSON.stringify(published(selected, new Map()))).not.toContain('fromSite');
 });
@@ -903,40 +910,75 @@ test('tamber/1.16: inspect select moves only the inspecting client\'s selection,
   expect(frames.filter(f => f.kind === 'inspect')).toEqual([]);
 });
 
-test('tamber/1.17: inspect on carries the plan\'s copies, once per plan: again on a new plan\'s registration or status, none without a map', () => {
-  const frames = [], asked = [], [P1, P2, P3] = ['1', '2', '3'].map(c => c.repeat(64));
-  const channel = buildChannel({ send: () => {}, log: () => {}, copiesFor: d => (asked.push(d), d === P1 ? 'r1:AAE=' : d === P2 ? 'r1:AAI=' : null) });
+test('tamber/1.17: copies go once per plan per registration, to a build that walks by them: with inspect on, or alone on a new plan', () => {
+  const frames = [], [P1, P2, P3] = ['1', '2', '3'].map(c => c.repeat(64));
+  const channel = buildChannel({ send: () => {}, log: () => {}, copiesFor: d => (d === P1 ? 'r1:AAE=' : d === P2 ? 'r1:AAI=' : null) });
   const opened = channel.open(f => frames.push(f));
-  const register = planDigest => channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'web-1', host: 'web-js', capabilities: ['inspect'], plan: 'g', planDigest, design: 'd1' }));
+  const inspects = () => frames.filter(f => f.kind === 'inspect');
+  const register = (planDigest, capabilities = ['inspect', 'copies']) => channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'web-1', host: 'web-js', capabilities, plan: 'g', planDigest, design: 'd1' }));
+  const status = planDigest => channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'status', planDigest }));
   register(P1);
   // Off: no copies.
-  expect(frames.filter(f => f.kind === 'inspect').every(f => !f.copies)).toBe(true);
+  expect(inspects().every(f => !f.copies)).toBe(true);
   frames.length = 0;
   channel.inspect('tool', 'web-1', { on: true });
-  expect(frames.filter(f => f.kind === "inspect"), JSON.stringify(frames)).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number), copies: { plan: P1, data: 'r1:AAE=' } }]);
+  expect(inspects()).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number), copies: { plan: P1, data: 'r1:AAE=' } }]);
+  // Off and on again under the same plan: none again (the page keeps them).
+  channel.inspect('tool', 'web-1', { on: false });
+  frames.length = 0;
+  channel.inspect('tool', 'web-1', { on: true });
+  expect(inspects()).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number) }]);
   // A rebuild (a new plan, a new registration) brings them again, for its plan.
   frames.length = 0;
   register(P2);
-  expect(frames.filter(f => f.kind === 'inspect').map(f => f.copies)).toEqual([{ plan: P2, data: 'r1:AAI=' }]);
+  expect(inspects().map(f => f.copies)).toEqual([{ plan: P2, data: 'r1:AAI=' }]);
+  // So does a re-registration under the same plan (a reload: a new document holds none).
+  frames.length = 0;
+  register(P2);
+  expect(inspects().map(f => f.copies)).toEqual([{ plan: P2, data: 'r1:AAI=' }]);
   // A plan with no map: on, with no copies (the page then answers a select as stale).
   frames.length = 0;
   register(P3);
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number) }]);
+  expect(inspects()).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number) }]);
   // A page that registered before its plan was known: on, no copies, then its status names the plan and the copies
   // come alone (no inspect mode in the frame); the same plan again brings nothing.
   frames.length = 0;
   register(null);
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number) }]);
-  frames.length = 0;
-  const status = planDigest => channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'status', planDigest }));
-  status(P1);
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([{ kind: 'inspect', copies: { plan: P1, data: 'r1:AAE=' } }]);
+  expect(inspects()).toEqual([{ kind: 'inspect', on: true, seq: expect.any(Number) }]);
   frames.length = 0;
   status(P1);
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([]);
-  // Not inspecting: a plan change sends none.
+  expect(inspects()).toEqual([{ kind: 'inspect', copies: { plan: P1, data: 'r1:AAE=' } }]);
+  frames.length = 0;
+  status(P1);
+  expect(inspects()).toEqual([]);
+  // Not inspecting: a plan change sends none, and inspect on then does.
   channel.inspect('tool', 'web-1', { on: false });
   frames.length = 0;
   status(P2);
-  expect(frames.filter(f => f.kind === 'inspect')).toEqual([]);
+  expect(inspects()).toEqual([]);
+  channel.inspect('tool', 'web-1', { on: true });
+  expect(inspects().map(f => f.copies)).toEqual([{ plan: P2, data: 'r1:AAI=' }]);
+  // A page of a build before 1.17 (no `copies` capability) gets none, on or alone: it walks by `levels`.
+  frames.length = 0;
+  register(P1, ['inspect']);
+  status(P2);
+  expect(inspects().filter(f => f.copies)).toEqual([]);
+  expect(inspects().every(f => 'on' in f)).toBe(true);
+});
+
+test('tamber/1.17: a polled stream keeps a plan\'s copies past the inspect frames queued after them', () => {
+  const P1 = '1'.repeat(64), P2 = '2'.repeat(64);
+  const channel = buildChannel({ send: () => {}, log: () => {}, copiesFor: d => (d === P1 ? 'r1:AAE=' : d === P2 ? 'r1:AAI=' : null) });
+  const polled = channel.openPolled();
+  channel.report(JSON.stringify({ nonce: polled.nonce, kind: 'register', id: 'dev-1', host: 'apple', capabilities: ['inspect', 'copies'], plan: 'g', planDigest: P1, design: 'd1' }));
+  channel.poll(polled.nonce, 0);
+  // On, then a new plan's copies alone, then off and on again: inspect ends on, the latest copies (P2) stand.
+  channel.inspect('tool', 'dev-1', { on: true });
+  channel.report(JSON.stringify({ nonce: polled.nonce, kind: 'status', planDigest: P2 }));
+  channel.inspect('tool', 'dev-1', { on: false });
+  channel.inspect('tool', 'dev-1', { on: true });
+  const got = channel.poll(polled.nonce, 1).frames.filter(f => f.kind === 'inspect');
+  expect(got.filter(f => f.copies).map(f => f.copies.plan).at(-1)).toBe(P2);
+  expect(got.filter(f => 'on' in f).at(-1).on).toBe(true);
+  expect(got.every(f => !(f.copies && 'on' in f))).toBe(true);
 });
