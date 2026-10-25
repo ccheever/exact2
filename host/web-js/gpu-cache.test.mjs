@@ -151,13 +151,29 @@ test('waiters take the lock one at a time, wait for a live holder of either kind
   const lock = join(dir, 'app.lock'), inside = join(dir, 'inside');
   writeFileSync(join(dir, 'waiter.mjs'), `
 import { withLock } from ${JSON.stringify(LOCK)};
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 const nap = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// 'old': a checkout from before the flock, its lock as replaceBuild took it (the file made exclusively, naming its pid).
+const oldLock = (lock, fn) => {
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+  for (;;) {
+    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let owner = 0, age = 0;
+      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
+      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
+      nap(10);
+    }
+  }
+  try { return fn(); } finally { rmSync(lock, { force: true }); }
+};
+const take = process.argv[2] === 'old' ? oldLock : withLock;
 if (process.argv[2] === 'hold') withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(join(dir, 'holding'))}, ''); for (;;) nap(1000); });
 // All at once; a second holder at once finds the first's mark and fails.
 writeFileSync(${JSON.stringify(dir)} + '/ready-' + process.pid, '');
 while (!existsSync(${JSON.stringify(join(dir, 'go'))})) nap(1);
-withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)}, '', { flag: 'wx' }); nap(20); rmSync(${JSON.stringify(inside)}); });
+take(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)}, '', { flag: 'wx' }); nap(20); rmSync(${JSON.stringify(inside)}); });
 `);
   const waiter = (mode = 'quick') => {
     const child = spawn(process.execPath, [join(dir, 'waiter.mjs'), mode], { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -185,13 +201,25 @@ withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)
   expect(behind.child.exitCode).toBe(null);
   rmSync(lock);
   expect(await behind.exited).toEqual({ code: 0, said: '' });
+  // A flock holder is waited for by a flock taker and by an old checkout's file lock; killed, it holds up neither.
   const holder = waiter('hold');
   await waitFor(join(dir, 'holding'));
-  const next = waiter();
+  const next = waiter(), old = waiter('old');
   await Bun.sleep(1500);
-  expect(next.child.exitCode).toBe(null);
+  expect([next.child.exitCode, old.child.exitCode]).toEqual([null, null]);
   holder.child.kill('SIGKILL');
   const since = Date.now();
   expect(await next.exited).toEqual({ code: 0, said: '' });
+  expect(await old.exited).toEqual({ code: 0, said: '' });
   expect(Date.now() - since).toBeLessThan(5000);
+  expect(existsSync(lock)).toBe(false);
+  // And an old checkout's live holder is waited for by a flock taker (above, this process's pid standing in for it), here
+  // as a process taking the old lock for real while a flock taker and another old one wait.
+  rmSync(join(dir, 'go'), { force: true });
+  for (const name of readdirSync(dir)) if (name.startsWith('ready-')) rmSync(join(dir, name));
+  const mixed = ['old', 'quick', 'old', 'quick', 'old', 'quick'].map(mode => waiter(mode).exited);
+  while (readdirSync(dir).filter(name => name.startsWith('ready-')).length < 6) await Bun.sleep(5);
+  writeFileSync(join(dir, 'go'), '');
+  for (const ran of await Promise.all(mixed)) expect(ran).toEqual({ code: 0, said: '' });
+  expect(existsSync(lock)).toBe(false);
 }, 120_000);
