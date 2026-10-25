@@ -252,7 +252,8 @@ final class IframeAutomationTests: XCTestCase {
         #if os(macOS)
         XCTAssert(window.firstResponder === focus, "the focus went back to what had it: \(String(describing: window.firstResponder))")
         #else
-        XCTAssertFalse(trusted.contains(":true"), "iOS input is script-dispatched: \(trusted)")
+        // The events the arm dispatches are untrusted; the `input` that its `execCommand('insertText')` makes is the editor's own.
+        XCTAssertFalse(trusted.split(separator: " ").contains { $0.hasSuffix(":true") && !$0.hasPrefix("input:") }, "iOS input is script-dispatched: \(trusted)")
         #endif
         XCTAssertNil(run(arm, "releaseActions")["error"])
     }
