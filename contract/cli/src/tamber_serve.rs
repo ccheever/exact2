@@ -729,8 +729,12 @@ impl Server {
                     "explain" => self.explain(&request),
                     _ => self.uses(&request),
                 };
+                // A batch's answers are each presented as they are made, once.
+                let batch = m == "resolve" && request.get("tokens").is_some();
                 vec![reply(
-                    answer.map(|v| self.present(v)).map_err(|e| self.present(e)),
+                    answer
+                        .map(|v| if batch { v } else { self.present(v) })
+                        .map_err(|e| self.present(e)),
                 )]
             }
             Some("propose") => vec![reply(self.transaction(&request, false))],
