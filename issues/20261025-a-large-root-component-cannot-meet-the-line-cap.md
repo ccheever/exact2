@@ -38,7 +38,7 @@ Three rules of the component model keep these members in the root:
 
 - **Only the root may own resources, mutations and tasks** (`docs/contract-grammar.md:310`).
   So the 103 tasks, 85 resources and 44 mutations stay in the root.
-- **A task's schedule names an action with no parameters** (`docs/contract-grammar.md:291`,
+- **A task's schedule names an action with no parameters** (`docs/contract-grammar.md:291-292`,
   `after(expr, IDENT)` / `every(expr, IDENT)`). Each task keeps a named root action for its
   timer, about 107 of the 306 actions.
 - **`send` targets a mutation owned by the same component** (`docs/contract-for-agents.md:478`).
