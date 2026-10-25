@@ -669,3 +669,9 @@ test "Command-K opens the quick switcher from a channel's composer"
   clock settle
   expect state switching == true
   expect state draft == ""
+  type "switcher-search" "hel"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "help"

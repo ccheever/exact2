@@ -225,7 +225,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
       media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
     files: (m.attachments ?? []).filter((a: Record<string, any>) => !isImage(a)).map((a: Record<string, any>) =>
-      ({ id: String(a.id), name: String(a.filename ?? 'file'), size: byteSize(Number(a.size ?? 0)), url: String(a.url ?? '') })),
+      ({ id: String(a.id), name: String(a.filename ?? 'file'), size: byteSize(Number(a.size ?? 0)), url: String(a.url ?? ''),
+        spoiler: String(a.filename ?? '').startsWith('SPOILER_') })),
     embeds,
     reactions: (m.reactions ?? []).map((r: Record<string, any>) => ({ id: r.emoji.id || r.emoji.name,
       emoji: r.emoji.id ? '' : r.emoji.name, src: r.emoji.id ? dirs.emoji(r.emoji.id, r.emoji.animated === true) : '',
