@@ -23,9 +23,9 @@ component DiffFindBar
     op: action
     prefix: string
   action key(k: string, e: KeyboardEvent)
-    if k == "Enter"
+    if k == "Enter" and not e.isComposing
       op(e.shiftKey ? "previous" : "next", "")
-    if k == "Escape"
+    if k == "Escape" and not e.isComposing
       op("close", "")
   action query(value: string)
     op("query", value)

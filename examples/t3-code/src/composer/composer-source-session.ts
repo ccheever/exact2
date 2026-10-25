@@ -5,7 +5,7 @@ import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type Compose
 import { listContinuationForEnter, listIndentForTab } from './composer-list-continuation';
 import { composerSurround } from './composer-surround';
 import type { ComposerRange } from './composer-markdown';
-import { composerCharacterDeletion, composerChipDeletion, composerChipWordDeletion, composerChips, composerChipsInBlocks, composerWordDeletion, outsideComposerChips, reconcileComposerChips, type ComposerChip, type SkillOffer } from './composer-source-chips';
+import { composerCharacterDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, reconcileComposerChips, type ComposerChip, type SkillOffer } from './composer-source-chips';
 import type { ComposerBlock } from './composer-markdown';
 
 type FenceOrigins = Map<number, string>;
@@ -125,17 +125,6 @@ export class ComposerSourceSession {
   key(owner: string, value: string, selection: ComposerRange, key: ComposerKey): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
     const parsed = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
-    // Backspace and Delete (`Word…`: with Option) reach here at a reference. One that was
-    // admitted at a reference and waited while an earlier edit removed it deletes as the field
-    // would have, so a queued second press is never lost.
-    const deletes = /^(Word)?(Backspace|Delete)$/.exec(key.name);
-    if (deletes) {
-      const word = deletes[1] !== undefined, backward = deletes[2] === 'Backspace', chips = this.sourceChips(value, parsed);
-      const chip = word ? composerChipWordDeletion(value, selection, chips, backward) : composerChipDeletion(selection, chips, backward);
-      if (chip) return this.deleted(value, chip);
-      if (word) return this.deleted(value, composerWordDeletion(value, selection, backward));
-      if (this.mode !== 'rich') return this.deleted(value, composerCharacterDeletion(value, selection, backward));
-    }
     if (this.mode !== 'rich') {
       // The plain composer continues and indents Markdown lists typed as text; a literal answer does not.
       const list = this.mode === 'plain' && !key.command
@@ -149,7 +138,8 @@ export class ComposerSourceSession {
     }
     const blocks = parsed, code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
     const outcome = composerMarkdownKey(value, selection, key, code ? this.origins.get(code.start) : undefined, this.currentBlocks, this.sourceChips(value, parsed));
-    if (outcome.kind === 'default' && deletes) return this.deleted(value, composerCharacterDeletion(value, selection, deletes[2] === 'Backspace'));
+    // Backspace at a code block's start reaches here; one the grammar leaves deletes as the field would have.
+    if (outcome.kind === 'default' && (key.name === 'Backspace' || key.name === 'Delete')) return this.deleted(value, composerCharacterDeletion(value, selection, key.name === 'Backspace'));
     if (outcome.kind === 'edit') {
       const next = applyComposerEdit(value, outcome.edit), origins = this.after(outcome.edit);
       if (code && composerMarkdown(next).blocks.some(block => block.kind === 'code' && block.start === code.start)) {

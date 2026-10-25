@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { cancelFreshCitation, composerCharacterDeletion, composerChipDeletion, composerChipWordDeletion, composerChips, composerWordDeletion, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { cancelFreshCitation, composerCharacterDeletion, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips, reconcileComposerChips } from '../../src/composer/composer-source-chips';
 import { ComposerSourceSession } from '../../src/composer/composer-source-session';
 import { citationsToPlainText, expandCitations } from '../../src/composer/composer-editor-menu';
 import { citationOfLink } from '../../src/timeline/citation-comment';
@@ -140,51 +140,26 @@ describe('a composer reference is one unit (the reference\'s atom chips)', () =>
     expect(citationsToPlainText(prompt)).toBe('use arr[i for the quote please');
     expect(stashSnippet(prompt)).toBe('use arr[i for the quote please');
     expect(citationOfLink(`[i ${citation}`)).toBeNull();
-    const edit = composerChipDeletion({ start: at + citation.length, end: at + citation.length }, composerChips(prompt), true);
-    expect(edit && applyComposerEdit(prompt, edit)).toBe('use arr[i for  please');
     expect(messageChips({ text: prompt }, '', []).map(chip => chip.kind)).toEqual(['citation']);
   });
-  test('word deletion takes a reference and the spaces before it; with none, a word or a character', () => {
-    const value = `a ${citation}  b`, chips = composerChips(value), end = 2 + citation.length;
-    expect(composerChipWordDeletion(value, { start: end + 2, end: end + 2 }, chips, true)).toMatchObject({ start: 2, end: end + 2 });
-    expect(composerChipWordDeletion(value, { start: 1, end: 1 }, chips, false)).toMatchObject({ start: 1, end });
-    expect(composerChipWordDeletion(value, { start: value.length, end: value.length }, chips, true)).toBeNull();
-    expect(composerWordDeletion('foo bar ', { start: 8, end: 8 }, true)).toMatchObject({ start: 4, end: 8 });
-    expect(composerWordDeletion('foo bar', { start: 0, end: 0 }, false)).toMatchObject({ start: 0, end: 3 });
+  test('a deletion the grammar leaves takes the selection or one grapheme beside the caret', () => {
     expect(composerCharacterDeletion('a👍🏽', { start: 5, end: 5 }, true)).toMatchObject({ start: 1, end: 5 });
     expect(composerCharacterDeletion('ab', { start: 0, end: 0 }, true)).toBeNull();
     expect(composerCharacterDeletion('abc', { start: 1, end: 2 }, false)).toMatchObject({ start: 1, end: 2 });
   });
-  test('Backspace and Delete remove a whole reference at its edge or inside it; a range is widened over the ones it cuts', () => {
+  test('an app edit inside a reference goes after it; a range is widened over the ones it cuts', () => {
     const value = `a ${citation} [x.ts](src/x.ts) b`, chips = composerChips(value);
     const [cite, file] = chips as [typeof chips[0], typeof chips[0]];
-    const removed = (start: number, end: number, backward: boolean) => {
-      const edit = composerChipDeletion({ start, end }, chips, backward);
-      return edit && [edit.start, edit.end, edit.selection.start];
-    };
-    expect(removed(cite.end, cite.end, true)).toEqual([cite.start, cite.end, cite.start]);
-    expect(removed(cite.start, cite.start, false)).toEqual([cite.start, cite.end, cite.start]);
-    expect(removed(cite.start + 3, cite.start + 3, true)).toEqual([cite.start, cite.end, cite.start]);
-    expect(removed(file.end, file.end, true)).toEqual([file.start, file.end, file.start]);
-    expect(removed(cite.start, cite.start, true)).toBeNull();
-    expect(removed(cite.end, cite.end, false)).toBeNull();
-    expect(removed(0, cite.end, true)).toBeNull();
-    expect(removed(1, cite.start + 4, true)).toEqual([1, cite.end, 1]);
     expect(outsideComposerChips({ start: cite.start + 4, end: cite.start + 4 }, chips)).toEqual({ start: cite.end, end: cite.end });
     expect(outsideComposerChips({ start: cite.start + 4, end: file.start + 2 }, chips)).toEqual({ start: cite.start, end: file.end });
   });
-  test('the session removes a citation in one edit and Undo brings it back as a citation', () => {
+  test('the session forgets a deleted citation and Undo brings it back as a citation', () => {
     const session = new ComposerSourceSession(), value = `see ${citation} `;
     session.observe('one', value);
-    const result = session.key('one', value, { start: 4 + citation.length, end: 4 + citation.length }, { name: 'Backspace', shift: false, command: false });
-    if (result.kind !== 'edit') throw new Error(`expected edit, got ${result.kind}`);
-    expect(result.edit).toEqual({ start: 4, end: 4 + citation.length, text: '', selection: { start: 4, end: 4 } });
     session.observe('one', 'see  ', 'deleteContentBackward');
     expect(session.chips).toEqual([]);
     session.observe('one', value, 'historyUndo');
     expect(session.chips).toMatchObject([{ kind: 'citation', start: 4, end: 4 + citation.length }]);
-    const queued = session.key('one', value, { start: 4, end: 4 }, { name: 'Backspace', shift: false, command: false });
-    expect(queued.kind === 'edit' && queued.edit).toMatchObject({ start: 3, end: 4, text: '' });
     const typed = session.input('one', value, { start: 9, end: 9 }, 'x');
     expect(typed.kind === 'edit' && typed.edit).toMatchObject({ start: 4 + citation.length, end: 4 + citation.length, text: 'x' });
   });

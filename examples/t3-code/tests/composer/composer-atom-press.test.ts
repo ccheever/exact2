@@ -3,7 +3,8 @@ import {contractComponent, type Env} from '../support/contract-action-fixture';
 import {serializeAssistantCitation} from '../../src/timeline/diff-citations';
 
 const root = contractComponent('app.contract', 'T3Code');
-const references = contractComponent('composer-chip-controls.contract', 'ComposerChipControls');
+const card = contractComponent('composer.contract', 'ComposerCard');
+const preview = contractComponent('settings-prompt-preview.contract', 'PromptFontPreview');
 const code = contractComponent('composer-code-headers.contract', 'ComposerCodeHeaders');
 
 function fixture(surface = 'composer', token = '$frontend-design') {
@@ -11,32 +12,35 @@ function fixture(surface = 'composer', token = '$frontend-design') {
   const chip = {start: 0, end: token.length, source: token};
   const owner = `${surface}-owner`, serial = 7;
   const current = {generation: 3, owner, value, chips: [chip], mode: 'rich'};
-  const requests: unknown[] = [], frames: string[] = [];
+  const requests: unknown[] = [], frames: unknown[][] = [];
   const bounds = {unavailable: false, x: 24, y: 480, width: 160, height: 28};
   const scope: Env = {
     richComposer: current, richPromptPreview: current, data: {snapshotOwner: 'snapshot'},
     composerFieldLive: true, composerFieldInputSerial: serial, richComposerOwner: owner,
     composerText: value, composerComposing: false,
     promptPreviewVisible: true, promptPreviewSerial: serial, promptPreviewOwner: owner, promptPreviewText: value,
-    frame: (id: string) => {frames.push(id); return bounds;},
+    rangeFrame: (...args: unknown[]) => {frames.push(args); return bounds;},
     ComposerChipRequest: (request: unknown) => request,
     composerChipPressed: (request: unknown) => requests.push(request),
   };
-  function press(comment = false, props: Env = {}) {
-    const anchor = `${surface}-chip-${comment ? 'comment-' : ''}${chip.start}`;
-    references.call('press', {}, {
-      surface, owner, value, serial, ...props,
-      composerChipPress: (...args: unknown[]) => root.call('composerChipPress', {}, scope, args),
-    }, [chip.start, chip.end, chip.source, comment, anchor]);
-    return anchor;
+  // The field's atompress, through the surface's own action, with the AtomEvent the editor hands it.
+  function press(event: Env = {}, props: Env = {}) {
+    const e = {kind: token.startsWith('[') ? 'citation' : 'skill', source: chip.source, href: '', start: chip.start, end: chip.end,
+      shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...event};
+    const composerChipPress = (...args: unknown[]) => root.call('composerChipPress', {}, scope, args);
+    if (surface === 'preview') {
+      preview.call('pressed', {}, {promptPreviewOwner: owner, promptPreviewText: value, promptPreviewSerial: serial, composerChipPress, ...props}, [e]);
+    } else {
+      card.call('richAtom', {}, {richComposerOwner: owner, text: value, composerFieldInputSerial: serial, composerChipPress, ...props}, [e]);
+    }
   }
   return {scope, chip, current, owner, serial, value, requests, frames, bounds, press};
 }
 
-describe('ordinary reference controls dispatch through the real Contract actions', () => {
-  test('a current reference uses its own button frame and exact source identity', () => {
-    const f = fixture(), anchor = f.press();
-    expect(f.frames).toEqual([anchor]);
+describe('an atom press dispatches through the real Contract actions', () => {
+  test('a current reference anchors at its pill and keeps its exact source identity', () => {
+    const f = fixture(); f.press();
+    expect(f.frames).toEqual([['composer', 0, f.chip.end]]);
     expect(f.requests).toEqual([{
       generation: 3, snapshotOwner: 'snapshot', owner: f.owner, value: f.value, inputSerial: 7,
       ...f.chip, surface: 'composer', comment: false, frame: f.bounds,
@@ -44,8 +48,8 @@ describe('ordinary reference controls dispatch through the real Contract actions
   });
 
   test('stale owner, source value or input serial refuses before reading an anchor', () => {
-    for (const props of [{owner: 'previous-owner'}, {value: 'previous source'}, {serial: 6}]) {
-      const f = fixture(); f.press(false, props);
+    for (const props of [{richComposerOwner: 'previous-owner'}, {text: 'previous source'}, {composerFieldInputSerial: 6}]) {
+      const f = fixture(); f.press({}, props);
       expect(f.requests).toEqual([]); expect(f.frames).toEqual([]);
     }
   });
@@ -58,26 +62,25 @@ describe('ordinary reference controls dispatch through the real Contract actions
     expect(f.requests).toEqual([]); expect(f.frames).toEqual([]);
   });
 
-  test('missing or zero-sized button geometry cannot open a reference', () => {
+  test('missing or zero-sized pill geometry cannot open a reference', () => {
     for (const patch of [{unavailable: true}, {width: 0}, {height: 0}]) {
       const f = fixture(); Object.assign(f.bounds, patch); f.press();
       expect(f.frames).toHaveLength(1); expect(f.requests).toEqual([]);
     }
   });
 
-  test('citation comment activation uses the comment button anchor', () => {
+  test('an Option press on a citation opens its comment, the reference chip\'s pencil', () => {
     const citation = serializeAssistantCitation({environmentId: 'env', threadId: 'thread', messageId: 'message', start: 0, end: 5, text: 'hello'});
-    const f = fixture('composer', citation), anchor = f.press(true);
-    expect(anchor).toBe('composer-chip-comment-0');
-    expect(f.frames).toEqual([anchor]);
-    expect(f.requests).toEqual([{
-      generation: 3, snapshotOwner: 'snapshot', owner: f.owner, value: f.value, inputSerial: 7,
-      ...f.chip, surface: 'composer', comment: true, frame: f.bounds,
-    }]);
+    const f = fixture('composer', citation);
+    f.press(); f.press({altKey: true});
+    expect(f.requests.map(request => (request as {comment: boolean}).comment)).toEqual([false, true]);
+    const skill = fixture(); skill.press({altKey: true});
+    expect(skill.requests).toMatchObject([{comment: false}]);
   });
 
   test('preview keeps its own identity and refuses when its surface is no longer visible', () => {
     const f = fixture('preview'); f.press();
+    expect(f.frames).toEqual([['prompt-font-preview', 0, f.chip.end]]);
     expect(f.requests).toHaveLength(1);
     expect(f.requests[0]).toMatchObject({surface: 'preview', owner: 'preview-owner'});
     f.requests.length = 0; f.frames.length = 0; f.scope.promptPreviewVisible = false; f.press();

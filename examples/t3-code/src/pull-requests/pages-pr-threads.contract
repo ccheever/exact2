@@ -101,10 +101,10 @@ component PrdThreadCard
     if not card.pending and reply.trim() != ""
       act("thread-reply", `${card.id}|${reply}`)
   action replyKeys(k: string, e: KeyboardEvent)
-    if k == "Escape"
+    if k == "Escape" and not e.isComposing
       preventDefault()
       cancelReply()
-    else if k == "Enter" and (e.metaKey or e.ctrlKey) and not e.repeat
+    else if k == "Enter" and (e.metaKey or e.ctrlKey) and not e.repeat and not e.isComposing
       // isCommentSubmitShortcut: a non-empty reply that is not already sending.
       preventDefault()
       send()
@@ -244,10 +244,10 @@ component PrdCodeDraft
     edit(value)
     hold(true)
   action keys(k: string, e: KeyboardEvent)
-    if k == "Escape"
+    if k == "Escape" and not e.isComposing
       preventDefault()
       cancel()
-    else if k == "Enter" and (e.metaKey or e.ctrlKey) and text.trim() != ""
+    else if k == "Enter" and (e.metaKey or e.ctrlKey) and text.trim() != "" and not e.isComposing
       preventDefault()
       if reviewable
         add()

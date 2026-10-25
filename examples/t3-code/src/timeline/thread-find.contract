@@ -43,10 +43,10 @@ component ThreadFindBar
     find: ThreadFindView
     local: action
   action key(k: string, e: KeyboardEvent)
-    // The native field retains Enter/Escape while its input method has marked text (KeyEvents.passesComposition).
-    if k == "Enter"
+    // ThreadFindBar ignores a key that confirms an input method's candidate.
+    if k == "Enter" and not e.isComposing
       local((e.shiftKey ? "find-previous" : "find-next"), "", "")
-    if k == "Escape"
+    if k == "Escape" and not e.isComposing
       local("find-close", "", "")
   action edit(value: string)
     local("find-query", "", value)

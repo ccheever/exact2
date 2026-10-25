@@ -156,13 +156,13 @@ component PrdWords
     cancel()
     letGo()
   action keys(k: string, e: KeyboardEvent)
-    if open and k == "Enter" and (e.metaKey or e.ctrlKey) and not e.shiftKey and not e.altKey
+    if open and k == "Enter" and (e.metaKey or e.ctrlKey) and not e.shiftKey and not e.altKey and not e.isComposing
       preventDefault()
       stopPropagation()
       if not saveDisabled and not e.repeat
         keySaved = true
         save()
-    else if open and k == "Escape" and not saving
+    else if open and k == "Escape" and not saving and not e.isComposing
       preventDefault()
       cancelNow()
   action keysUp(k: string)
@@ -258,11 +258,11 @@ component PrdTitle
     else if not saving
       act("edit-title", draft)
       hold(false)
-  action keys(k: string)
-    if k == "Enter"
+  action keys(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.isComposing
       preventDefault()
       save()
-    else if k == "Escape"
+    else if k == "Escape" and not e.isComposing
       preventDefault()
       cancel()
   view

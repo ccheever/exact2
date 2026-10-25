@@ -100,7 +100,6 @@ export function reconcileComposerChips(previous: string, value: string, current:
   return [...carried, ...composerChips(value, skills).filter(chip => !carried.some(old => overlaps(chip, old)))].sort((a, b) => a.start - b.start);
 }
 
-
 /** The selection with each end that falls inside a reference moved out of it, as the
  *  reference's atom chips never hold the caret: a caret after its reference, a range's
  *  ends outward over the references they cut. */
@@ -113,33 +112,9 @@ export function outsideComposerChips(selection: ComposerRange, chips: readonly C
   return { start: within(selection.start)?.start ?? selection.start, end: within(selection.end)?.end ?? selection.end };
 }
 
-/** Backspace or Delete at a reference removes all of its source in one edit, as at the
- *  reference's atom chip; null when the key deletes no reference. */
-export function composerChipDeletion(selection: ComposerRange, chips: readonly ComposerChip[], backward: boolean): ComposerEdit | null {
-  let range = outsideComposerChips(selection, chips);
-  if (selection.start === selection.end) {
-    const at = selection.start, chip = chips.find(chip => backward ? at > chip.start && at <= chip.end : at >= chip.start && at < chip.end);
-    if (!chip) return null;
-    range = chip;
-  } else if (range.start === selection.start && range.end === selection.end) return null;
-  return { start: range.start, end: range.end, text: '', selection: { start: range.start, end: range.start } };
-}
-
-/** Option-Backspace or Option-Delete at a reference, or with only spaces between it and the
- *  caret, removes the reference and those spaces, as word deletion takes an atom chip whole. */
-export function composerChipWordDeletion(value: string, selection: ComposerRange, chips: readonly ComposerChip[], backward: boolean): ComposerEdit | null {
-  if (selection.start !== selection.end) return composerChipDeletion(selection, chips, backward);
-  const at = selection.start, gap = (from: number, to: number) => /^[^\S\n]*$/.test(value.slice(from, to));
-  const chip = chips.find(chip => at > chip.start && at < chip.end)
-    ?? (backward ? chips.filter(chip => chip.end <= at && gap(chip.end, at)).at(-1) : chips.find(chip => chip.start >= at && gap(at, chip.start)));
-  if (!chip) return null;
-  const start = backward ? chip.start : Math.min(at, chip.start), end = backward ? Math.max(at, chip.end) : chip.end;
-  return { start, end, text: '', selection: { start, end: start } };
-}
-
 const graphemes = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
-/** What Backspace or Delete removes with no reference at the caret: the selection, or the one
- *  character beside the caret (a grapheme where the runtime segments them, else a code point). */
+/** What Backspace or Delete removes: the selection, or the one character beside the caret (a
+ *  grapheme where the runtime segments them, else a code point). */
 export function composerCharacterDeletion(value: string, selection: ComposerRange, backward: boolean): ComposerEdit | null {
   let { start, end } = selection;
   if (start === end) {
@@ -148,18 +123,6 @@ export function composerCharacterDeletion(value: string, selection: ComposerRang
     const step = (backward ? parts.at(-1) : parts[0])?.length ?? 0;
     if (!step) return null;
     if (backward) start -= step; else end += step;
-  }
-  return { start, end, text: '', selection: { start, end: start } };
-}
-
-/** What Option-Backspace or Option-Delete removes with no reference beside the caret: the
- *  selection, or the word and the spaces beside the caret. */
-export function composerWordDeletion(value: string, selection: ComposerRange, backward: boolean): ComposerEdit | null {
-  let { start, end } = selection;
-  if (start === end) {
-    const word = backward ? /[\p{L}\p{N}_]*[^\p{L}\p{N}_\n]*$/u.exec(value.slice(0, start))?.[0] ?? '' : /^[^\p{L}\p{N}_\n]*[\p{L}\p{N}_]*/u.exec(value.slice(end))?.[0] ?? '';
-    if (!word) return composerCharacterDeletion(value, selection, backward);
-    if (backward) start -= word.length; else end += word.length;
   }
   return { start, end, text: '', selection: { start, end: start } };
 }
