@@ -7,6 +7,7 @@
 routes nav
   tab large "/"
   tab inline "/inline"
+  tab panes "/panes"
 
 component EdgeEffect
   state pulls = 0
@@ -21,18 +22,27 @@ component EdgeEffect
         for t in nav.tabs key = t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key = e.id
-              column navigationKey=`${e.id}` navigationScroll=`content-${e.name}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+              column navigationKey=`${e.id}` navigationScroll=(e.name == "panes" ? "pane-first" : `content-${e.name}`) testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header
-                  text (e.name == "large" ? "Large" : "Inline") role="heading" aria-level=(e.name == "large" ? 1 : 2)
-                scroll id=`content-${e.name}` testId=`content-${e.name}` flex=1 min-height=0 refresh=reload refreshing=false
-                  if e.name == "large"
-                    column position="sticky" top=0 z-index=1 padding="8px 16px"
-                      text "Pinned"
-                  for r in rows key = r
-                    row padding="12px 16px" align-items="center" position=(e.name == "inline" ? "relative" : "static")
-                      text `Row ${r}` flex=1
-                      button press=reload aria-label="Mark" testId=`${e.name}-mark-${r}`
-                        image "symbol:bookmark"
+                  text (e.name == "large" ? "Large" : "Inline") role="heading" aria-level=(e.name == "inline" ? 2 : 1)
+                if e.name == "panes"
+                  column flex=1 min-height=0 overflow="hidden"
+                    column id="arrangement" testId="arrangement" display="flex" flex-direction="row" flex=1 min-height=0
+                      for pane in ["first", "second"] key = pane
+                        scroll id=`pane-${pane}` testId=`pane-${pane}` flex=1 min-width=0 min-height=0 box-sizing="border-box" height="100%" overflow-x="hidden"
+                          for r in rows key = r
+                            row padding=16
+                              text `${pane} row ${r}` testId=`${pane}-row-${r}`
+                else
+                  scroll id=`content-${e.name}` testId=`content-${e.name}` flex=1 min-height=0 refresh=reload refreshing=false
+                    if e.name == "large"
+                      column position="sticky" top=0 z-index=1 padding="8px 16px"
+                        text "Pinned"
+                    for r in rows key = r
+                      row padding="12px 16px" align-items="center" position=(e.name == "inline" ? "relative" : "static")
+                        text `Row ${r}` flex=1
+                        button press=reload aria-label="Mark" testId=`${e.name}-mark-${r}`
+                          image "symbol:bookmark"
       row role="tablist"
         button role="tab" aria-controls="panel-large" aria-selected=(nav.tab == "large") press=pick("large") testId="tab-large" flex=1
           image "symbol:bookmark"
@@ -40,3 +50,6 @@ component EdgeEffect
         button role="tab" aria-controls="panel-inline" aria-selected=(nav.tab == "inline") press=pick("inline") testId="tab-inline" flex=1
           image "symbol:bookmark"
           text "Inline"
+        button role="tab" aria-controls="panel-panes" aria-selected=(nav.tab == "panes") press=pick("panes") testId="tab-panes" flex=1
+          image "symbol:bookmark"
+          text "Panes"

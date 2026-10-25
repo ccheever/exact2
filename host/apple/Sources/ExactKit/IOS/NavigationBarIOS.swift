@@ -1022,7 +1022,8 @@ extension NavigationHost {
         let covered: Bool
         if case .edges(let edges)? = covers[c.node.id] { covered = edges.top > 0.5 } else { covered = false }
         let ordinary = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
-        let target = !riders.isEmpty ? (covered ? nil : scroller) : ordinary
+        let arranged = scroller.flatMap { node in arrangementScrollers(in: c, top: true).contains(where: { $0 === node }) ? node : nil }
+        let target = !riders.isEmpty ? (covered ? nil : scroller) : (ordinary ?? arranged)
         if let target, !riders.isEmpty {
             let frame = target.convert(target.bounds, to: c.node)
             let band = UIEdgeInsets(top: max(0, frame.minY), left: 0, bottom: target.pageBand.bottom, right: 0)
@@ -1120,7 +1121,9 @@ extension NavigationHost {
         // the authored one: a scroller there ends that far above it. The
         // cover it has without one, so a scroller that does not grow as the
         // cover goes is at the edge either way.
-        let found = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
+        let peers = arrangementScrollers(in: c, top: false)
+        let peer = contentScroller(of: c).flatMap { node in peers.contains(where: { $0 === node }) ? node : nil } ?? peers.first
+        let found = presented || presenter.viewportFit != "cover" ? (Self.bottomScroller(in: c.node, cover: c.bottomClearance) ?? peer) : nil
         let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
@@ -1202,7 +1205,15 @@ extension NavigationHost {
     /// Whether UIKit insets this scroller under its bars (`.automatic`): a
     /// route's collapse or bottom-edge scroller.
     func insetByUIKit(_ node: NodeView) -> Bool {
-        controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
+        controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node ||
+            (arrangementScrollers(in: $0, top: true) + arrangementScrollers(in: $0, top: false)).contains(where: { $0 === node }) }
+    }
+
+    func arrangementScrollers(in route: RouteController, top: Bool) -> [NodeView] {
+        #if os(iOS)
+        if #available(iOS 27.1, *), !Self.transparentBar(route.node) { return presenter.arrangements.scrollers(in: route.node, top: top) }
+        #endif
+        return []
     }
 
     /// UIKit's zero-width fixed space splits shared glass without authored metrics.
