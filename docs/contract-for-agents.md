@@ -2898,6 +2898,9 @@ alerts move to the trailing side of a book fold and can move to the top of a lap
 fold, and that action sheets, menus and popovers move clear too, which was not
 measured.
 
+A route moved off a window edge is still padded as if it reached it: its top on a
+laptop fold, its right on a book fold's segment 0.
+
 ## Inspection and testing
 
 On Apple development builds, an `iframe`'s web content is inspectable from
