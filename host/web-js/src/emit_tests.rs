@@ -838,3 +838,69 @@ fn a_refusal_at_a_plan_node_is_said_at_its_source() {
     assert!(crate::at_source("a refusal with no node", &map).is_none());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Right to left (d19cfb141a), a bound side stays the side its author wrote,
+/// as the wasm target and the kernel keep it: the JS target writes a bound
+/// `margin-left` and `padding-left` as themselves, never the logical
+/// property css.rs gives a side only the sheet set; and the sheet's own
+/// sides, a grouped row's insets, are still those logical ones.
+#[test]
+fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
+    let plan = contract::compile(
+        "component App\n  state wide = false\n  view\n    column direction=\"rtl\"\n      text \"a\" margin-left=(wide ? 12 : 4) padding-left=(wide ? 8 : 2) testId=\"bound\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"margin-left\"") && js.contains("\"padding-left\""),
+        "{js}"
+    );
+    assert!(!js.contains("inline-start"), "{js}");
+    let grouped = contract::compile(include_str!(
+        "../../../scripts/fixtures/grouped-list.contract"
+    ))
+    .unwrap();
+    let out = crate::emit::emit(&grouped, false, false).unwrap();
+    assert!(
+        out.css.contains("padding-inline-start"),
+        "the sheet's unsaid side mirrors: {}",
+        out.css
+    );
+    // A grouped row's inset beside a symbol shown by a condition is the
+    // sheet's own binding, no author's: it is bound to the logical side.
+    let conditional = contract::compile(
+        "component App\n  state show = true\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&conditional, false, false).unwrap().js;
+    assert!(js.contains("\"padding-inline-start\""), "{js}");
+    // Its author writing the other side of the pair, neither mirrors (as the kernel and wasm keep them).
+    let mixed = contract::compile(
+        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&mixed, false, false).unwrap().js;
+    assert!(
+        js.contains("\"padding-left\"") && js.contains("\"padding-right\""),
+        "{js}"
+    );
+    assert!(
+        !js.contains("inline-start") && !js.contains("inline-end"),
+        "{js}"
+    );
+    // And beside the sheet's static inset (an unconditional symbol): that inset stays left too.
+    let mixed = contract::compile(
+        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&mixed, false, false).unwrap();
+    let all = format!("{}{}", out.css, out.js);
+    assert!(
+        all.contains("padding-left:") && out.js.contains("\"padding-right\""),
+        "{all}"
+    );
+    assert!(
+        !all.contains("padding-inline-start") && !all.contains("padding-inline-end"),
+        "{all}"
+    );
+}
