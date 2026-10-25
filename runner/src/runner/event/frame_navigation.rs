@@ -101,10 +101,11 @@ impl FrameNavigation {
     }
 }
 
-/// Kind 58's `newwindow` (a `FrameNewWindow`: `url`, `disposition`) or
+/// Kind 58's `newwindow` (a `FrameNewWindow`: `url`, `disposition`),
 /// `download` (a `FrameDownload`: `url`, `suggestedFilename`, `state`,
-/// `path`), the record in the compiler's order
-/// (`contract/types/src/selection.rs`).
+/// `path`) or `capture` (a `FrameCapture`: `path`, `width`, `height`,
+/// `error`, `message`, @ref LLP 1020.002 D7), the record in the compiler's
+/// order (`contract/types/src/selection.rs`).
 pub fn other(payload: &str) -> Option<(EventKind, Value)> {
     let (name, json) = payload.split_once('\n')?;
     let (kind, fields): (_, &[&str]) = match name {
@@ -113,15 +114,22 @@ pub fn other(payload: &str) -> Option<(EventKind, Value)> {
             EventKind::Download,
             &["url", "suggestedFilename", "state", "path"],
         ),
+        "capture" => (
+            EventKind::Capture,
+            &["path", "width", "height", "error", "message"],
+        ),
         _ => return None,
     };
     let serde_json::Value::Object(o) = serde_json::from_str(json).ok()? else {
         return None;
     };
-    let text = |k: &str| o.get(k).and_then(|v| v.as_str()).unwrap_or_default();
+    let field = |k: &str| match k {
+        "width" | "height" => Value::Number(o.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0)),
+        _ => Value::str(o.get(k).and_then(|v| v.as_str()).unwrap_or_default()),
+    };
     Some((
         kind,
-        Value::record(fields.iter().map(|k| Value::str(text(k))).collect()),
+        Value::record(fields.iter().map(|k| field(k)).collect()),
     ))
 }
 
@@ -133,6 +141,7 @@ pub(super) fn name(kind: EventKind) -> &'static str {
         EventKind::Navigateerror => "navigateerror",
         EventKind::Newwindow => "newwindow",
         EventKind::Download => "download",
+        EventKind::Capture => "capture",
         _ => "navigate",
     }
 }
@@ -161,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_request_and_a_download_decode_in_the_compilers_order() {
+    fn a_window_request_a_download_and_a_capture_decode_in_the_compilers_order() {
         let (kind, v) =
             other("newwindow\n{\"url\":\"https://a.test/\",\"disposition\":\"foreground-tab\"}")
                 .unwrap();
@@ -180,6 +189,19 @@ mod tests {
         };
         assert_eq!(fields.len(), 4);
         assert_eq!(fields[3], Value::str(""));
+        let (kind, v) =
+            other("capture\n{\"path\":\"app:/tmp/a.png\",\"width\":200,\"height\":100}").unwrap();
+        assert_eq!(kind, EventKind::Capture);
+        assert_eq!(
+            v,
+            Value::record(vec![
+                Value::str("app:/tmp/a.png"),
+                Value::Number(200.0),
+                Value::Number(100.0),
+                Value::str(""),
+                Value::str("")
+            ])
+        );
         assert!(other("navigate\n{}").is_none());
         assert!(FrameNavigation::parse("download\n{}").is_none());
     }

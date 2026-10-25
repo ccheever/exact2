@@ -1255,6 +1255,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `tap @<ticket> ok` (or `cancel`, or `type @<ticket> <text>` for a prompt).
   (LLP 1020.002, stage 2, 2026-10-25.)
 
+- **A local PDF in an `iframe` is no web page on Apple.** An unsandboxed,
+  unpartitioned frame of an `app:/` or `assets/` PDF shows PDFKit's view: `tree`
+  gives it `pdf` and `pages` and no guest outline, a guest `tap` or `type` fails, and
+  the frame commands answer `NotSupportedError`. `captureScreenshot` still works,
+  its `clip` in the view's points. A `sandbox` keeps WebKit's PDF view. A capture's
+  answer is the frame's `capture=`: a path that is not an `app:/data`, `app:/cache`
+  or `app:/tmp` file answers `SyntaxError`, and the web always `NotSupportedError`.
+  (LLP 1020.002, stage 3, 2026-10-25.)
+
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
   own document. With a `sandbox` on macOS, and always on iOS, it is the child of a
