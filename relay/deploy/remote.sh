@@ -129,12 +129,22 @@ EOF
     sshd -t || { rm -f /etc/ssh/sshd_config.d/10-$APP.conf; die "sshd rejects its config: the drop-in removed, nothing reloaded"; }
     systemctl reload ssh 2>/dev/null || systemctl reload sshd
   fi
-  # A Match block can turn passwords back on for some connections, which sshd -T alone doesn't show: refused outright,
-  # and the settings checked as sshd evaluates them for this very connection, as root and as the operator's user.
-  if awk 'FNR == 1 {m = 0} tolower($1) == "match" {m = 1} m && tolower($1) ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && tolower($2) == "yes" {f = 1} END {exit !f}' \
-       /etc/ssh/sshd_config $(ls /etc/ssh/sshd_config.d/*.conf 2>/dev/null); then
-    die "a Match block in /etc/ssh turns password or keyboard-interactive login back on: remove it, then provision again"
-  fi
+  # A Match block can turn passwords back on for some connections, which no single sshd -T shows, and sshd's syntax
+  # for it (keyword=value, quotes, aliases, a Match left open across an Include) is more than a scan can follow. So
+  # none is allowed: any Match line in sshd_config, its drop-ins or any file they Include is refused (stock Ubuntu
+  # and Debian images have none), and the settings then hold for every connection, checked below as sshd evaluates
+  # them for this very one.
+  local files=(/etc/ssh/sshd_config) seen=" " f inc
+  while [ ${#files[@]} -gt 0 ]; do
+    f=${files[0]}; files=("${files[@]:1}")
+    [ -f "$f" ] && [ "${seen#* $f }" = "$seen" ] || continue
+    seen="$seen$f "
+    if grep -qiE '^[[:space:]]*match([[:space:]=]|$)' "$f"; then die "$f has a Match block: provision allows none (it can turn password login back on for some connections); remove it, then provision again"; fi
+    while read -r inc; do
+      case "$inc" in /*) ;; *) inc=/etc/ssh/$inc;; esac
+      for g in $inc; do files+=("$g"); done
+    done < <(sed -nE 's/^[[:space:]]*[Ii][Nn][Cc][Ll][Uu][Dd][Ee][[:space:]=]+//p' "$f" | tr ' ' '\n' | grep . || true)
+  done
   local who eff
   for who in root "${RELAY_SSH_USER:-root}"; do
     eff=$(sshd -T -C "user=$who,host=${conn[0]},addr=${conn[0]},laddr=${conn[2]},lport=${conn[3]}" 2>/dev/null) || die "sshd -T -C failed for $who from ${conn[0]}"
