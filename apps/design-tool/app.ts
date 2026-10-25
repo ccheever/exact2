@@ -301,7 +301,7 @@ const byWhom = (reply: Reply) => {
   const said = Object.entries(by).map(([file, who]) => `${file} was ${who === 'changed on disk' ? 'changed on disk' : `changed by ${who}`}`);
   return said.length ? said.join('; ') : '';
 };
-const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true
+const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true;
 
 
 // The session changeset (LLP 1122 D9): every write since the tool opened,
