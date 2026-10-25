@@ -349,7 +349,7 @@ Ports    none. Runs to completion.`,
       ['--pair-ttl <duration>', 'serve: a paired client\'s token lifetime (90m, 12h, 2d; default 12h)'],
       ['--scope <s>', 'pair: the code\'s scope, read, propose or write'],
       ['--name <name>', 'pair: the name the paired client is listed by'],
-      ['--via <url>', 'tool: the app\'s dev loop, which holds its design; the tool reaches it through its own port'],
+      ['--via <url>', 'tool: the app\'s dev loop, which holds its design; the tool reaches it through its own port, waiting (up to 20 min) while the loop starts'],
       ['--no-open', 'tool: print the URL; open no browser'],
     ],
     body: `The design is the file app.json's "tamber" names, else app.tamber beside app.contract

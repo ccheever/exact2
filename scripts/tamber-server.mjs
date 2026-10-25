@@ -103,7 +103,7 @@ import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { earlyAnswer, readBody, parseRequest as parse, tooDeep, upstream, viaDoor } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
+import { earlyAnswer, probeTool, readBody, parseRequest as parse, tooDeep, upstream, viaDoor, waitForAnswer } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
@@ -1308,15 +1308,7 @@ async function buildTool() {
 /** What answers at `origin` (TOOL_ORIGIN unless named) now: null for
  * nothing, else the app its design server serves (null when it gave none),
  * and that server run's epoch. */
-export async function toolAnswers(origin = TOOL_ORIGIN, tries = 1) { // `{app, epoch}`, or null; a token probe that times out is tried again, `tries` in all (a loaded dev loop answers late), one refused never
-  try {
-    let got; for (let i = 1; !got; i++) try { got = await upstream(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; }
-    if (!got.ok) return { app: null };
-    const { token } = await got.json();
-    const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json(); // (a loop that gave its token is up: one loaded starts its design server late)
-    return { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null };
-  } catch { return null; }
-}
+export async function toolAnswers(origin = TOOL_ORIGIN, tries = 1) { return (await probeTool(origin, tries)).answer ?? null; } // (scripts/tamber-request.mjs probeTool: no answer yet, refused or timed out, is null here)
 
 /** `bun exact.mjs tamber tool [<app>] [--via <dev loop url>] [--no-open]`
  * (LLP 1122 D2): the design tool, built if stale, at its own local URL,
@@ -1348,6 +1340,10 @@ export async function toolCommand(argv) {
   const url = `${TOOL_ORIGIN}/__tamber/tool/`;
   const open = () => { if (!argv.includes('--no-open') && process.platform === 'darwin') spawnSync('open', [url]); };
   const there = await toolAnswers();
+  // `--via`'s dev loop, waited for while it starts (its first build, then its design server), saying why (third pass #9).
+  const WAITS = { listening: 'not listening yet (its first build can take minutes)', starting: 'its design server is starting' };
+  const reach = () => waitForAnswer(() => probeTool(target, 5), { capMs: TIMING.viaWait, say: why => console.error(`tamber tool: waiting for the dev loop at ${target}: ${WAITS[why]}; ctrl-c to stop`) });
+  const after = got => (got.waited == null ? '' : got.waited < 60_000 ? ` after ${Math.round(got.waited / 1000)} s` : ` after ${Math.round(got.waited / 60_000)} min`);
   if (there) {
     let same = false;
     try { same = there.app !== null && realpathSync(there.app) === realpathSync(dir); } catch { /* gone */ }
@@ -1355,7 +1351,8 @@ export async function toolCommand(argv) {
     // `--via` names the design server the tool goes through: the tool
     // there is reused only when it forwards to that server's run (the same
     // epoch), never its own server or another loop's.
-    if (target && (await toolAnswers(target, 5))?.epoch !== there.epoch) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves this design, not through ${target}; stop it first`); return 1; }
+    const through = target ? await reach() : null;
+    if (target && through.answer?.epoch !== there.epoch) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves this design, not through ${target}${through.answer ? '' : ` (it does not answer${after(through)})`}; stop it first`); return 1; }
     // And this checkout's tool, as just built: another checkout's server
     // serves its own.
     // Its page, module and plan (whose names carry no digest) as built here.
@@ -1369,10 +1366,10 @@ export async function toolCommand(argv) {
   }
   const port = TOOL_PORT;
   if (target) {
-    const upstream = await toolAnswers(target, 5);
+    const got = await reach(), upstream = got.answer ?? null;
     let same = false;
     try { same = upstream?.app != null && realpathSync(upstream.app) === realpathSync(dir); } catch { /* gone */ }
-    if (!same) { console.error(`tamber tool: ${target} ${upstream ? `serves ${upstream.app ? `the design of ${upstream.app}` : 'no design server'}` : 'does not answer'}, not ${dir}'s`); return 1; }
+    if (!same) { console.error(`tamber tool: ${target} ${upstream ? `serves ${upstream.app ? `the design of ${upstream.app}` : 'no design server'}` : `does not answer${after(got)}`}, not ${dir}'s`); return 1; }
     if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
     console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`); tellCanvas(await canvasCheck(target, TOOL_ORIGIN));
   } else {
