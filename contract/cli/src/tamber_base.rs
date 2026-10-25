@@ -8,6 +8,10 @@ use super::*;
 use exact_kernel::style::scale::{self, ScaleSource, ScaleValue};
 use serde_json::{json, Value};
 
+/// The most names one `resolve` answers (`tokens`, *1.17*): the clone's
+/// design has 267, the importer's stress design 3,000.
+const RESOLVE_BATCH: usize = 4096;
+
 /// A cell's value as the shape writes it: a CSS length (`16px`), `full`
 /// (radius.full, the pill), or the terminal's `<n>cell` (`0` for none).
 fn value(v: ScaleValue) -> String {
@@ -409,17 +413,66 @@ impl Server {
 
     /// A token's stored value per tuple and scheme; a host value (a role, a
     /// platform colour) is a residual, labelled so, with its fallback.
+    /// `tokens` (*1.17*) asks for several from one snapshot and one fold:
+    /// `{files, answers}`, each answer the one `token` would give without
+    /// its `files`, a name one would refuse its refusal (`{error}`), in
+    /// place.
     pub(super) fn resolve(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding, name) = self.lookup(request)?;
+        let Some(asked) = request.get("tokens") else {
+            let (snap, folding, name) = self.lookup(request)?;
+            return self.resolve_in(request, &required(request, "token")?, &snap, &folding, name);
+        };
+        // Refused whole, before any fold.
+        if request.get("token").is_some() {
+            return Err(json!({"message": "a resolve names `token` or `tokens`, not both"}));
+        }
+        let names: Vec<&str> = asked
+            .as_array()
+            .and_then(|all| all.iter().map(Value::as_str).collect())
+            .ok_or_else(|| json!({"message": "`tokens` is a list of names"}))?;
+        if names.len() > RESOLVE_BATCH {
+            return Err(
+                json!({"message": format!("tamber-resolve-batch: one resolve names at most {RESOLVE_BATCH} tokens, not {}", names.len()), "id": "tamber-resolve-batch"}),
+            );
+        }
+        let app = self.app_params();
+        let (snap, folding, _) = self.design_with(request, &app)?;
+        let answers: Vec<Value> = names
+            .iter()
+            .map(|given| {
+                match Self::token_of(&app, given)
+                    .and_then(|name| self.resolve_in(request, given, &snap, &folding, name))
+                {
+                    Ok(mut answer) => {
+                        answer.as_object_mut().map(|o| o.remove("files"));
+                        answer
+                    }
+                    Err(error) => json!({ "error": error }),
+                }
+            })
+            .collect();
+        Ok(json!({"files": files_json(&snap), "answers": answers}))
+    }
+
+    /// [`Self::resolve`] of the name `given`, looked up as `name`, in
+    /// `snap` folded as `folding`.
+    fn resolve_in(
+        &self,
+        request: &Value,
+        given: &str,
+        snap: &Snapshot,
+        folding: &exact_tamber::Folding,
+        name: String,
+    ) -> Result<Value, Value> {
         // A base name (*1.14*), not a param named like one: unset, its row
         // and no fold (each column's value); set, its token's tuples and row.
-        let base = (required(request, "token")? == name)
+        let base = (given == name)
             .then(|| Ok::<_, Value>(row(&name, &file(self, request)?, &folding.design)))
             .transpose()?
             .flatten();
         if let Some(base) = &base {
             if base["override"].is_null() {
-                return Ok(json!({"name": name, "base": base, "files": files_json(&snap)}));
+                return Ok(json!({"name": name, "base": base, "files": files_json(snap)}));
             }
         }
         let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
@@ -436,10 +489,10 @@ impl Server {
             let tuples: Vec<Value> = (0..folding.tuples)
                 .map(|t| json!({"modes": modes_of(&folding.design.axes, t), "kind": "icon", "sf": icon.sf, "material": icon.material, "svg": icon.svg}))
                 .collect();
-            let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
+            let mut out = json!({"token": name, "tuples": tuples, "files": files_json(snap)});
             levelled(&mut out);
             // A package's icon names its package and file, as a token does (stage 13, *1.16*).
-            crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
+            crate::tamber_packages::fields(&app, snap, &file, &name, &mut out, false);
             return Ok(out);
         }
         let token = folding
@@ -553,12 +606,12 @@ impl Server {
             .collect();
         // The digests it read, so a client reading several tokens can tell
         // one revision from two.
-        let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
+        let mut out = json!({"token": name, "tuples": tuples, "files": files_json(snap)});
         levelled(&mut out);
         if let Some(base) = base {
             out["base"] = base;
         }
-        crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
+        crate::tamber_packages::fields(&app, snap, &file, &name, &mut out, false);
         Ok(out)
     }
 

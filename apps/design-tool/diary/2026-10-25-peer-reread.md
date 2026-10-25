@@ -13,12 +13,15 @@ task: make another client's edit show in the tool's token grid quickly
   then the lock, then the `file:` package paths all pointed at another
   checkout. `bun exact.mjs update` and `lock` with `EXACT2=<checkout>`
   fixed the first two; the package paths were edited by hand.
-- A write's `changed` event names its tokens and their dependents in the
-  same file. It does not name a package's token that derives from one the
-  app's file set (the package's `reading.edge = reading.card` when the app
-  sets `reading.card`). So the read again also resolves every token whose
-  `describe` entry moved: describe already carries each token's folded
-  values.
+- From reading session.rs (a plan folds each file's own text), I took a
+  write's `changed` to miss a package's token derived from one the app's
+  file set (the package's `reading.edge = reading.card` when the app sets
+  `reading.card`), so the read again also resolves every token whose
+  `describe` entry moved. A server test later showed `changed` does name
+  it: the app's design is planned folded with its packages' (the synthetic
+  file's params carry them). The entry comparison stays as belt and
+  braces. Lesson: test a protocol claim against the server before building
+  on it.
 - `app.ts` sits at the 1,500-line cap, so the logic went into
   `reread.ts`, and `app.ts` has two more joined lines.
 

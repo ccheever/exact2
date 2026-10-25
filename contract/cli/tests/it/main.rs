@@ -195,6 +195,7 @@ mod tamber_package_params;
 mod tamber_params;
 mod tamber_params_scope;
 mod tamber_params_tools;
+mod tamber_resolve_batch;
 mod tamber_retention_reuse;
 mod tamber_rows_bound;
 mod tamber_rows_check;

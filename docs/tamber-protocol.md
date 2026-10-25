@@ -181,6 +181,14 @@ on macOS and Linux.
   And an `accept`, `drop` or `edit-held` of a proposal replaced since answers 409 `{stale: true, replacedBy, by}`
   (the latest replacement and its maker, one client's name; 256 ids remembered, then 404; see Held proposals; the
   third hands-on pass's #2).
+  It also adds **`resolve` with `tokens: [name, …]`** (the third pass's #5 B), in place of `token`: several names from
+  one snapshot and one fold, `{files, answers}`, each answer the one `resolve` with that `token` gives but its `files`
+  (said once), and a name one would refuse answered `{error}` in its place. At most 4,096 names: more, `token` beside
+  it, or `tokens` not a list of names is refused whole, before any fold (`tamber-resolve-batch` for the bound). Its
+  scope is `resolve`'s, `read`. And it says what a write's and a scrub frame's `changed` always held: the app's
+  design is planned folded with its packages' designs, so `changed` names a package's token derived from one the app
+  sets (`reading.edge = reading.card`, the app setting `reading.card = brand`, then `brand` edited), under the app's
+  design file.
 
 ## Where it runs
 
@@ -573,6 +581,10 @@ tuple:
 - **The reply** is `{token, tuples, files}`.
   - `files` gives the digests it read, so a client reading many tokens can tell one revision from
     two (*1.1*).
+- **Several at once** (*1.17*): `{tokens: [name, …], file?}` answers `{files, answers}` from one
+  snapshot and one fold, each answer what `{token: name}` gives but its `files`, a refused name's
+  answer `{error}` in its place. At most 4,096 names; more, or `token` beside `tokens`, is refused
+  whole, before any fold.
 - **A constant tuple** is `{modes, value, light, dark, srgb}`:
   - `modes` is `{axis: value}`;
   - `value` is the folded CSS (`#rrggbbaa`, `light-dark(…)`, or a wide colour's serialization);

@@ -15,7 +15,7 @@ import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { opWords, whenText } from './optext';
-import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, type Kept } from './reread';
+import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, resolveAll, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { carriedChoice, startsChosen } from './choice';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -40,9 +40,8 @@ const WRITE_WAIT = 130_000;
 // A design read's requests' (its describe, resolves and hello), queued at
 // the one server behind each other: as long as a write's.
 const READ_WAIT = WRITE_WAIT;
-// The resolves a read has in flight at once (a browser opens six
-// connections to one origin).
-const RESOLVES_AT_ONCE = 4, LEVEL_WAIT = 5000;
+// The params' levels' read's wait (after the design shows).
+const LEVEL_WAIT = 5000;
 // The one `tamber/1` client (wire.ts): this machine's server at API, or
 // another machine's the tool paired with.
 const { call, longPoll, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
@@ -114,19 +113,12 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     if (described.error) return { error: described.error };
     const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
     if (!ir || !Array.isArray(ir.tokens) || !Array.isArray(ir.axes) || ir.axes.some((a: Axis) => !Array.isArray(a.values))) return { error: 'The design server answered describe with no design in it.' };
-    // A few at a time, so the browser keeps connections for the long poll and the other reads; each waits behind the
-    // others at the one design server, so the wait is the whole read's, not one request's.
     // And, in the app's design, each package component's param (an icon's has no level), whose levels `loadLevels` reads after.
     const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = (!file || file === designFile) && [...owned].some(f => f.endsWith('.contract'));
     const params: string[] = listed ? (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; }).flatMap((c: { params?: { name: string; kind: string }[] }) => (c.params ?? []).filter(p => p.kind !== 'icon').map(p => p.name)) : [];
     const kept = keptReads.get(file), redo = again(kept, epoch, described.reply.ok, changeset), asks = ir.tokens.map((t: { name: string }) => t.name).filter((t: string) => !redo || redo.has(t));
-    const resolved: Awaited<ReturnType<typeof call>>[] = []; let next = 0;
-    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, asks.length) }, async () => {
-      while (next < asks.length && wanted()) {
-        const i = next++;
-        resolved[i] = await call('/__tamber', { method: 'resolve', token: asks[i], ...which }, READ_WAIT);
-      }
-    }));
+    // One `resolve` for them all (reread.ts), its wait the whole read's.
+    const resolved = await resolveAll(call, asks, which, READ_WAIT, wanted);
     if (!wanted()) return { error: 'overtaken by a newer read' };
     const failed = resolved.find(r => r.error);
     if (failed) return { error: failed.error };
@@ -1130,7 +1122,8 @@ const sources: Sources = {
   },
   loadLevels: async ([answer]) => { // (components.ts `levelsOf`: after the design shows, so a slow resolve delays only its words)
     const snap = snapshots.get(answer), which = snap?.file ? { file: snap.file } : {}, fits = (ok: any) => !!snap && digestKey(ok?.files) === snap.digests && (ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => { const col = snap.columns.find(c => c.tuple === i); return !col || snap.axes.every((a, k) => t.modes?.[a.name] === col.values[k]); });
-    return { ok: true, answer, rows: !snap ? [] : await levelsOf(snap.levelParams, name => call('/__tamber', { method: 'resolve', token: name, ...which }, LEVEL_WAIT), () => answer === issued, fits) };
+    const names = snap?.levelParams ?? [], got = await resolveAll(call, names, which, LEVEL_WAIT, () => answer === issued); // (one resolve for them all)
+    return { ok: true, answer, rows: !snap ? [] : await levelsOf(names, name => Promise.resolve(got[names.indexOf(name)] ?? { error: 'overtaken by a newer read', reply: null }), () => answer === issued, fits) };
   },
   loadContrast: async ([a, b, answer]) => {
     if (!a || !b) return { ok: true, error: '', ratios: [] };
