@@ -17,6 +17,7 @@ import { pairingSources } from './pairing';
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { opWords, whenText } from './optext';
 import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
+import { carriedChoice, startsChosen } from './choice';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
@@ -607,12 +608,6 @@ let heldRaw: any[] = [], heldDesign = -1;
 /** An import's review (LLP 1122 D11) as the view lists it: the mapped
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
-/** Whether a held import's card begins with everything it holds chosen (a recomputed import holds only what was
- * chosen) or as a fresh import's does, its tokens in and its role overrides off until ticked. A value edit holds the
- * import whole again (third pass #6), so it begins fresh, the card's choice carried to it: an edit-held one replaces
- * the proposal its review came `from`, and names who edited it; one held by the older propose path replaces none and
- * is not marked kept. */
-const startsChosen = (h: any, r: any) => !!r && (!!h?.replaces || !!r.kept) && !(h?.editedBy && h.replaces && r.from === h.replaces);
 function reviewOf(p: any) {
   const r = p.review, none = { importer: '', mapped: [], offers: [], unmapped: [], counted: '', countOk: true, from: '', kept: false };
   if (!r?.importer) return none;
@@ -1384,12 +1379,7 @@ const sources: Sources = {
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
     const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
-    // The new one begins as a fresh import (`startsChosen`): a token the card had left out, and an override it had
-    // ticked, flipped there.
-    const carried = [
-      ...ops.slice(0, tokens).map((_, i) => i).filter(i => !was.has(i)).map(i => `${fresh}:${i}`),
-      ...(r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => was.has(i))).map((o: any) => `${fresh}:${o.items.join(',')}`),
-    ];
+    const carried = carriedChoice(fresh, tokens, r.offers ?? [], was);
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
   },
