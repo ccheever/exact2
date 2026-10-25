@@ -6,9 +6,11 @@
 //!   which `plan.str()` and the string pool don't take, and which can't be
 //!   hashed or ordered (exact_plan's compile-fail doc tests hold the
 //!   bypasses). Its one method out is called by `exact_runner::icon_of`
-//!   alone. The scan: that method's name, as text, anywhere in any `.rs`
-//!   file (comments and strings too) fails, but on two exact lines: its
-//!   signature in exact_plan and the one call in `icon_of`. Excepted: this
+//!   alone. The scan: that method's name, as text (comments and strings
+//!   too), occurs EXACTLY twice across every scanned `.rs` file: on its
+//!   definition line in exact_plan, and once inside the body of
+//!   `exact_runner::icon_of` (the nearest `fn` line above the call). Any
+//!   other occurrence, or a second one in `icon_of`, fails. Excepted: this
 //!   file, which builds fixtures of it.
 //! - JavaScript (`.js`, `.mjs`, `.ts`) in the files that handle a symbol
 //!   source (they name `data-symbol`, `symbolSource`, `symbolPath`,
@@ -37,18 +39,56 @@ fn escape() -> String {
     ["raw", "for", "icon"].join("_")
 }
 
-/// The only Rust lines that may name the escape, by file and whole text:
-/// its signature, and the one call in `exact_runner::icon_of`.
-const RUST_LINES: &[(&str, &str)] = &[
-    (
-        "plan/src/lib.rs",
-        "    pub fn raw_for_icon(self) -> StrId {",
-    ),
-    (
-        "runner/src/bridge.rs",
-        "        s(row.path.raw_for_icon()),",
-    ),
-];
+/// The escape's definition line: the one occurrence of its name allowed in
+/// plan/src/lib.rs.
+const DEFINITION: (&str, &str) = (
+    "plan/src/lib.rs",
+    "    pub fn raw_for_icon(self) -> StrId {",
+);
+
+/// The file and function whose body holds the one call.
+const CALLER: (&str, &str) = ("runner/src/bridge.rs", "icon_of");
+
+/// The name of the function a line sits in: the nearest `fn` line above it.
+fn enclosing_fn<'a>(lines: &[&'a str], at: usize) -> Option<&'a str> {
+    lines[..at].iter().rev().find_map(|l| {
+        let mut t = l.trim_start();
+        for vis in ["pub(crate) ", "pub(super) ", "pub "] {
+            t = t.strip_prefix(vis).unwrap_or(t);
+        }
+        let rest = t.strip_prefix("fn ")?;
+        Some(rest.split(['(', '<']).next().unwrap_or("").trim())
+    })
+}
+
+/// The escape's occurrences in one `.rs` file: those allowed (`(definition,
+/// call)` counts, the definition line in exact_plan and lines inside
+/// `icon_of`'s body in exact_runner) and every other one, as `rel:line: text`.
+/// The whole scan must find exactly one of each and no other (C2, the
+/// escape named exactly twice).
+fn rust_escapes(rel: &str, text: &str) -> ((usize, usize), Vec<String>) {
+    let escape = escape();
+    let lines: Vec<&str> = text.lines().collect();
+    let (mut allowed, mut other) = ((0, 0), Vec::new());
+    for (i, line) in lines.iter().enumerate() {
+        let n = line.matches(&escape).count();
+        if n == 0 {
+            continue;
+        }
+        if (rel, *line) == DEFINITION && n == 1 {
+            allowed.0 += 1;
+        } else if rel == CALLER.0
+            && n == 1
+            && enclosing_fn(&lines, i) == Some(CALLER.1)
+            && !line.trim_start().starts_with("fn ")
+        {
+            allowed.1 += 1;
+        } else {
+            other.push(format!("{rel}:{}: {}", i + 1, line.trim()));
+        }
+    }
+    (allowed, other)
+}
 
 /// JavaScript lines allowed, by file and whole (trimmed) text, with why.
 const LINES: &[(&str, &str, &str)] = &[
@@ -114,12 +154,7 @@ fn handles_a_source(text: &str) -> bool {
 fn readers(rel: &str, text: &str) -> (Vec<String>, Vec<usize>) {
     let (mut found, mut seen) = (Vec::new(), Vec::new());
     if rel.ends_with(".rs") {
-        let escape = escape();
-        for (i, line) in text.lines().enumerate() {
-            if line.contains(&escape) && !RUST_LINES.iter().any(|(f, l)| *f == rel && line == *l) {
-                found.push(format!("{rel}:{}: {}", i + 1, line.trim()));
-            }
-        }
+        found.extend(rust_escapes(rel, text).1);
     } else if handles_a_source(text) {
         for (i, line) in text.lines().enumerate() {
             let hit = [
@@ -154,6 +189,7 @@ fn excepted(rel: &str) -> bool {
 fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let (mut found, mut seen) = (Vec::new(), vec![false; LINES.len()]);
+    let mut escapes = (0, 0);
     for dir in SCANNED {
         let mut all = Vec::new();
         files(&root.join(dir), &mut all);
@@ -171,6 +207,10 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
             };
             let (f, s) = readers(&rel, &text);
             found.extend(f);
+            if rel.ends_with(".rs") {
+                let ((d, c), _) = rust_escapes(&rel, &text);
+                escapes = (escapes.0 + d, escapes.1 + c);
+            }
             s.into_iter().for_each(|k| seen[k] = true);
         }
     }
@@ -178,6 +218,13 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
         found.is_empty(),
         "read an icon's path through exact_runner::icon_of / exact_kernel::Icon, not by hand:\n{}",
         found.join("\n")
+    );
+    // The escape is named exactly twice: its definition, and one call in
+    // icon_of (a second call there, or a missing one, fails).
+    assert_eq!(
+        escapes,
+        (1, 1),
+        "the escape's definition and its one call in icon_of, each exactly once"
     );
     let stale: Vec<_> = LINES
         .iter()
@@ -207,9 +254,9 @@ fn the_scan_catches_each_bypass() {
     ] {
         assert!(!rust(bypass.clone()).is_empty(), "missed: {bypass}");
     }
-    // Only the two exact lines pass: a doc mention beside the signature, or
-    // a call that hides inside braces in comments (Astra's `// {` … `// }`),
-    // fails.
+    // The definition line passes; a doc mention beside it fails; a call
+    // that hides inside braces in comments (Astra's `// {` … `// }`) is a
+    // second occurrence in icon_of, which the exactly-twice count fails.
     let allowed = "    pub fn raw_for_icon(self) -> StrId {\n        StrId(self.0)\n    }\n";
     assert!(readers("plan/src/lib.rs", allowed).0.is_empty());
     let doc = "/// The one way out, raw_for_icon.\n    pub fn raw_for_icon(self) -> StrId {\n";
@@ -219,9 +266,28 @@ fn the_scan_catches_each_bypass() {
         "the doc mention"
     );
     let braces = format!("pub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n    // {{\n    let raw = row.path.{e}();\n    // }}\n        s(row.path.{e}()),\n}}\n");
-    let found = readers("runner/src/bridge.rs", &braces).0;
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert!(found[0].contains("let raw"), "{found:?}");
+    // Astra's duplicate line: a second helper in the same file with the
+    // identical call line fails; a second call inside icon_of counts twice.
+    let duplicate = format!("pub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n        s(row.path.{e}()),\n}}\nfn other(plan: &Plan, row: &IconsRow) {{\n        s(row.path.{e}()),\n}}\n");
+    let (counts, other) = rust_escapes("runner/src/bridge.rs", &duplicate);
+    assert_eq!((counts, other.len()), ((0, 1), 1), "{other:?}");
+    assert!(other[0].contains(":5:"), "{other:?}");
+    let twice = format!("pub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n        s(row.path.{e}()),\n        s(row.path.{e}()),\n}}\n");
+    assert_eq!(
+        rust_escapes("runner/src/bridge.rs", &twice).0,
+        (0, 2),
+        "two calls: the total check fails them"
+    );
+    let elsewhere =
+        format!("pub fn icon_of_too(row: &IconsRow) {{\n        s(row.path.{e}()),\n}}\n");
+    assert_eq!(
+        rust_escapes("runner/src/bridge.rs", &elsewhere).1.len(),
+        1,
+        "a function only named alike"
+    );
+    // Astra's `// {` … `// }` case: the hidden call is a second occurrence
+    // in icon_of, which the exactly-twice count fails.
+    assert_eq!(rust_escapes("runner/src/bridge.rs", &braces).0, (0, 2));
     let js = |body: &str| readers("x/a.js", &format!("// handles data-symbol-source\n{body}")).0;
     for bypass in [
         r#"const f = name.split("|");"#,
