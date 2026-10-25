@@ -257,8 +257,10 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
 from_pass!(contract_lower::LowerError, "lower");
 /// A source text's components' `param.` names as their tokens (LLP 1121
 /// D15), as the loader writes them for a file; a text with no path is
-/// `app.contract`, as an app's root is.
+/// `app.contract`, as an app's root is. A text with no path has no members
+/// files either, so one that names any is refused.
 pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    sources::standalone_members(file)?;
     for c in &mut file.components {
         c.params
             .identity

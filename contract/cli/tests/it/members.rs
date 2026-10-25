@@ -229,3 +229,97 @@ fn a_members_file_formats_as_a_component_does() {
     let root = "component App\n  members \"./more.contract\"\n  view\n    text \"x\"\n";
     assert_eq!(contract_syntax::fmt::format(root).unwrap(), root);
 }
+
+#[test]
+fn a_member_in_another_file_shadows_a_timeline_as_one_written_here_does() {
+    let app = App::new("timeline");
+    let root = "\
+timeline Pending
+keyframes p
+  to opacity=0
+component App
+  members \"./more.contract\"
+  view
+    text \"x\" animation=\"p 1s\" animation-timeline=Pending
+";
+    app.write(
+        "more.contract",
+        "members App\n  state Pending = \"--drag\"\n",
+    );
+    let split = contract::compile_path(&app.write("app.contract", root)).unwrap();
+    let flat = root.replace(
+        "  members \"./more.contract\"\n",
+        "  state Pending = \"--drag\"\n",
+    );
+    let flat = contract::compile(&flat).unwrap();
+    assert_eq!(split.encode(), flat.encode());
+}
+
+#[test]
+fn a_text_with_no_path_names_no_members_file() {
+    let error = contract::compile(SMALL).unwrap_err();
+    assert_eq!(error.id, "contract-use-unresolved", "{error}");
+    let block = "members App\n  state step = 1\ncomponent App\n  view\n    text \"x\"\n";
+    let error = contract::compile(block).unwrap_err();
+    assert_eq!(error.id, "contract-members-unlisted", "{error}");
+    let (result, _) = contract::compile_warned(SMALL);
+    assert_eq!(result.unwrap_err().id, "contract-use-unresolved");
+}
+
+#[test]
+fn a_param_in_a_members_files_state_is_refused_as_in_the_components_own() {
+    let app = App::new("params");
+    let root = "\
+component App
+  params
+    fill: color = \"#ffffff\"
+  members \"./more.contract\"
+  view
+    column background-color=\"param.fill\"
+      text c
+";
+    app.write("more.contract", "members App\n  state c = \"param.fill\"\n");
+    let error = app.refuse(root);
+    assert_eq!(error.id, "tamber-param-scope", "{error}");
+    assert_eq!(error.span.source_id, 1, "{error}");
+}
+
+#[test]
+fn fmt_uses_writes_no_use_back_to_the_file_that_lists_a_members_file() {
+    let app = App::new("uses");
+    let root = app.write(
+        "app.contract",
+        "fn helper(): number = 1\ncomponent App\n  members \"./more.contract\"\n  view\n    text `${value}`\n",
+    );
+    let more = app.write("more.contract", "members App\n  derive value = helper()\n");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["fmt", "--uses"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    let written = std::fs::read_to_string(&more).unwrap();
+    assert!(
+        !written.contains("use helper"),
+        "{written}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let error = contract::compile_path(&root).unwrap_err();
+    assert_eq!(error.id, "contract-use-missing", "{error}");
+}
+
+#[test]
+fn an_initializer_sees_another_files_members_as_it_sees_its_own() {
+    // A state's initializer sees props, injects and the states before it,
+    // not actions: a call there of a name only another file's `fn` and a
+    // members file's action declare is the `fn`'s, which needs its `use`.
+    let app = App::new("initializer");
+    app.write(
+        "math.contract",
+        "fn one(): number = 1\nfn helper(x: number): number = x\n",
+    );
+    app.write("more.contract", "members App\n  action helper\n    n = 1\n");
+    let error = app.refuse(
+        "use one from \"./math.contract\"\ncomponent App\n  state n = helper(one())\n  members \"./more.contract\"\n  view\n    text `${n}`\n",
+    );
+    assert_eq!(error.id, "contract-use-missing", "{error}");
+}
