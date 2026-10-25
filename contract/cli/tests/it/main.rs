@@ -96,6 +96,7 @@ mod locals;
 mod markdown_editing;
 mod media;
 mod media_session;
+mod members;
 mod menu_rows;
 mod menus;
 mod midi;

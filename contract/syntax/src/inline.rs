@@ -268,6 +268,7 @@ fn expand_with_sites(
         view: Vec::new(),
         params: source.params.clone(),
         anatomy: source.anatomy.clone(),
+        members: Default::default(),
         span: source.span,
     };
     // A child's device facts are the root's resources, one a component.
