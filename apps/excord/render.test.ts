@@ -135,10 +135,11 @@ test('user, channel and role mentions resolve through READY directories', () => 
 });
 
 test('a mention or a link to Discord names what pressing it opens', () => {
-  const content = `<@${ada.id}> <#${help}> https://discord.com/channels/${gid}/${cid}/${missing} https://discord.com/channels/@me/${cid} https://example.com/x`;
-  const runs = fixture([message(0, { content })]).view().rows[0].blocks[0].runs.filter(r => r.ref !== '' || r.kind === 'link');
-  expect(runs.map(r => [r.kind, r.ref])).toEqual([['user', `u:${ada.id}`], ['channel', `c:${gid}:${help}`],
-    ['link', `m:${gid}:${cid}:${missing}`], ['link', `m::${cid}:`], ['link', '']]);
+  const content = `<@${ada.id}> <#${help}> <#${missing}> https://discord.com/channels/${gid}/${cid}/${missing} https://Discord.com/channels/@me/${cid}?x=1 https://discord.com/channels/${gid}/${missing} https://example.com/x`;
+  const runs = fixture([message(0, { content })]).view().rows[0].blocks[0].runs.filter(r => r.ref !== '' || r.kind === 'link' || r.kind === 'channel');
+  // The channel's own guild, whatever the link says; a channel the store does not hold opens nothing here.
+  expect(runs.map(r => [r.kind, r.ref])).toEqual([['user', `u:${ada.id}`], ['channel', `c:${gid}:${help}`], ['channel', ''],
+    ['link', `m:${gid}:${cid}:${missing}`], ['link', `m:${gid}:${cid}:`], ['link', ''], ['link', '']]);
 });
 
 test('mention flags count wire mentions and leave code and own wire mentions unhighlighted', () => {

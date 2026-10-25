@@ -55,11 +55,13 @@ function run(id: string, kind: string, text: string, marks: Mark[], spoiler: str
 }
 
 // A link to a Discord channel or message (`https://discord.com/channels/<guild or @me>/<channel>[/<message>]`)
-// opens in the app: its run's `ref` is `m:<guild>:<channel>:<message>` ("" for a DM's guild or no message).
-const DISCORD_LINK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d+)\/(\d+)(?:\/(\d+))?\/?$/;
-function messageLink(href: string): string {
+// opens in the app when the store holds the channel: its run's `ref` is `m:<guild>:<channel>:<message>` (""
+// for a DM's guild or no message). One the account cannot open opens in the browser, as any link does.
+const DISCORD_LINK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d+)\/(\d+)(?:\/(\d+))?\/?(?:[?#].*)?$/i;
+function messageLink(href: string, dirs: Directories): string {
   const m = DISCORD_LINK.exec(href);
-  return m ? `m:${m[1] === '@me' ? '' : m[1]}:${m[2]}:${m[3] ?? ''}` : '';
+  if (!m || dirs.channelName(m[2]) === 'unknown-channel') return '';
+  return `m:${dirs.channelGuild(m[2])}:${m[2]}:${m[3] ?? ''}`;
 }
 
 function inlines(nodes: Inline[], b: Block, ctx: Context): void {
@@ -80,12 +82,15 @@ function inlines(nodes: Inline[], b: Block, ctx: Context): void {
     if (node.kind === 'link') {
       for (const child of node.children) visit(child, node.url, marks);
     } else if (node.kind === 'text' || node.kind === 'code') {
-      emit(href ? 'link' : node.kind, node.text, marks, { href, ref: href ? messageLink(href) : '' });
+      emit(href ? 'link' : node.kind, node.text, marks, { href, ref: href ? messageLink(href, ctx.dirs) : '' });
     } else if (node.kind === 'user') {
       const u = ctx.dirs.user(node.id), self = node.id === ctx.dirs.me();
       if (self) ctx.mentionsMe = true;
       emit('user', `@${displayName(u, node.id)}`, marks, { self, ref: `u:${node.id}` });
-    } else if (node.kind === 'channel') emit('channel', `#${ctx.dirs.channelName(node.id)}`, marks, { ref: `c:${ctx.dirs.channelGuild(node.id)}:${node.id}` });
+    } else if (node.kind === 'channel') {
+      const known = ctx.dirs.channelName(node.id) !== 'unknown-channel';
+      emit('channel', `#${ctx.dirs.channelName(node.id)}`, marks, { ref: known ? `c:${ctx.dirs.channelGuild(node.id)}:${node.id}` : '' });
+    }
     else if (node.kind === 'role') emit('role', `@${ctx.dirs.roleName(node.id)}`, marks);
     else if (node.kind === 'everyone') {
       ctx.mentionsMe = true; emit('everyone', `@${node.which}`, marks);
