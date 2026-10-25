@@ -402,12 +402,23 @@ fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
     let summary = json::to_string(&bytes).unwrap();
     assert_eq!(
         summary,
-        format!("{{\"bytes\":256,\"hash\":\"0x{:016x}\"}}", hash::of(&bytes))
+        format!(
+            "{{\"summary\":\"u8 × 256\",\"bytes\":256,\"hash\":\"0x{:016x}\"}}",
+            hash::of(&bytes)
+        )
     );
     assert!(json::from_str::<Vec<u8>>(&summary)
         .unwrap_err()
         .to_string()
         .contains("inspection-only"));
+    let short: Vec<u8> = (0..exact_game::data::json::INLINE_BULK as u8).collect();
+    let inline = json::to_string(&short).unwrap();
+    assert!(inline.starts_with("[0,1,2,"), "{inline}");
+    assert_eq!(json::from_str::<Vec<u8>>(&inline).unwrap(), short);
+    let long: Vec<u8> = (0..=exact_game::data::json::INLINE_BULK as u8).collect();
+    assert!(json::to_string(&long)
+        .unwrap()
+        .starts_with("{\"summary\":\"u8 × 65\""));
     let mut cursor = bin::Decoder::new(&encoded);
     cursor
         .claim(exact_game::data::MAX_LOAD_BYTES - 255)
