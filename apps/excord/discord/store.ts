@@ -23,6 +23,8 @@ export interface HistoryQuery { before?: string; after?: string; around?: string
 export interface PendingMessage {
   nonce: string;
   content: string;
+  // Files the send carries, shown from their local copies until Discord answers.
+  attachments?: DiscordObject[];
   replyTo?: { messageId: string; channelId?: string; guildId?: string };
   nowMs: number;
 }
@@ -789,6 +791,7 @@ export function addPending(s: Store, channelId: string, message: PendingMessage)
   const reply = message.replyTo;
   const entry: Entry = {
     row: { id: null, channel_id: channelId, key: message.nonce, nonce: message.nonce, content: message.content,
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       author: s.users.get(s.meId ?? '') ?? { id: s.meId }, createdAtMs: message.nowMs, status: 'pending',
       ...(reply ? { message_reference: { message_id: reply.messageId, channel_id: reply.channelId ?? channelId,
         ...(reply.guildId ? { guild_id: reply.guildId } : {}) } } : {}) },

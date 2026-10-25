@@ -13,7 +13,7 @@
 // POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
 // each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
 // `identify_token` is the token the last IDENTIFY carried.
-import { avatarPng } from './avatar.ts';
+import { avatarPng, imageSize } from './avatar.ts';
 import { constants, createDeflate } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ServerWebSocket } from 'bun';
@@ -260,6 +260,9 @@ export function startFixture(options: FixtureOptions = {}) {
   const reactionDebounceMs = integer(options.reactionDebounceMs, 500, 2147483647);
   let world: World;
   let origin = '', gatewayUrl = '';
+  // Files a send uploads, as Discord's upload bucket holds them: by the name its slot gave, bytes once PUT.
+  const uploads = new Map<string, { filename: string; bytes: Uint8Array | null }>();
+  let uploadCount = 0;
   let connectionCounter = 0, sessionCounter = 0, identifyCount = 0, resumeCount = 0, loginsDone = 0;
   let rotatedToken: string | null = null, identifyToken: string | null = null;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
@@ -549,6 +552,16 @@ export function startFixture(options: FixtureOptions = {}) {
         ...(destination.guild_id ? { guild_id: destination.guild_id } : {}) };
       created.referenced_message = replySnapshot(earlier);
     }
+    if (Array.isArray(body.attachments)) created.attachments = body.attachments.map((a: any, i: number) => {
+      const held = uploads.get(textField(a, 'uploaded_filename'));
+      if (!held?.bytes) throw new HttpError(400, 'Attachment was not uploaded', 50035);
+      const url = `${origin}/uploads/${encodeURIComponent(textField(a, 'uploaded_filename'))}`;
+      const kind = held.filename.split('.').pop()?.toLowerCase() ?? '';
+      const content_type = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[kind]
+        ?? 'application/octet-stream';
+      return { id: snowflakeFromMs(ms, 200000 + i), filename: held.filename, size: held.bytes.length, url, proxy_url: url,
+        content_type, ...imageSize(held.bytes) };
+    });
     created.mentions = world.users.filter(user => content.includes(`<@${user.id}>`) || content.includes(`<@!${user.id}>`));
     created.mention_roles = world.guilds.flatMap(guild => guild.roles)
       .filter(role => content.includes(`<@&${role.id}>`)).map(role => role.id);
@@ -871,6 +884,19 @@ export function startFixture(options: FixtureOptions = {}) {
     const path = url.pathname.slice('/api/v9'.length), method = request.method;
     if (method === 'GET' && path === '/gateway') return { status: 200, body: { url: gatewayUrl } };
     if (method === 'GET' && path === '/users/@me') return { status: 200, body: world.me };
+    const slots = /^\/channels\/([^/]+)\/attachments$/.exec(path);
+    if (slots && method === 'POST') {
+      channel(slots[1]);
+      const files = (await readBody(request)).files;
+      if (!Array.isArray(files) || !files.length || files.length > 10) throw new HttpError(400, 'files must list 1 to 10 files');
+      return { status: 200, body: { attachments: files.map((f: any) => {
+        const filename = textField(f, 'filename');
+        if (!/^[^/\\]{1,200}$/.test(filename)) throw new HttpError(400, 'Invalid filename');
+        const name = `${String(++uploadCount).padStart(8, '0')}/${filename}`;
+        uploads.set(name, { filename, bytes: null });
+        return { id: f.id, upload_url: `${origin}/upload/${encodeURIComponent(name)}`, upload_filename: name };
+      }) } };
+    }
     const match = /^\/channels\/([^/]+)\/(messages|typing)(?:\/([^/]+)(?:\/(ack|reactions)(?:\/([^/]+)\/@me)?)?)?$/.exec(path);
     if (!match) throw new HttpError(404, 'Unknown endpoint');
     const [, channelId, kind, messageId, action, encodedEmoji] = match;
@@ -900,6 +926,7 @@ export function startFixture(options: FixtureOptions = {}) {
       if (holdSends) await new Promise<void>(resume => heldSends.push(resume));
       if (failNext.delete(channelId)) throw new HttpError(500, 'Fixture failure');
       const body = await readBody(request), content = textField(body, 'content');
+      if (!content.trim() && !(Array.isArray(body.attachments) && body.attachments.length)) throw new HttpError(400, 'Cannot send an empty message', 50006);
       if (body.nonce !== undefined && !['string', 'number'].includes(typeof body.nonce)) throw new HttpError(400, 'Invalid nonce');
       if (body.enforce_nonce && body.nonce !== undefined) {
         const now = nowMs();
@@ -977,6 +1004,21 @@ export function startFixture(options: FixtureOptions = {}) {
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
         headers.set('Content-Type', 'image/png');
         return new Response(file, { headers });
+      }
+      const upload = /^\/(upload|uploads)\/([^/]+)$/.exec(url.pathname);
+      if (upload) {
+        let name: string;
+        try { name = decodeURIComponent(upload[2]); } catch { return json({ message: 'Unknown upload', code: 0 }, 404); }
+        const held = uploads.get(name);
+        if (!held) return json({ message: 'Unknown upload', code: 0 }, 404);
+        if (upload[1] === 'upload' && request.method === 'PUT') {
+          // The bucket takes the bytes alone: a Discord credential sent here would be a leak.
+          if (request.headers.has('Authorization')) return json({ message: 'Credentials sent to the upload bucket', code: 0 }, 400);
+          held.bytes = new Uint8Array(await request.arrayBuffer());
+          return new Response(null, { status: 200, headers });
+        }
+        if (upload[1] === 'uploads' && request.method === 'GET' && held.bytes) return new Response(held.bytes, { headers });
+        return json({ message: 'Unknown upload', code: 0 }, 404);
       }
       const avatar = request.method === 'GET' ? avatarPng(url.pathname) : null;
       if (avatar) {

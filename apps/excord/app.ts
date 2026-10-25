@@ -2,11 +2,11 @@
 // The gateway is a stream resource whose snapshot is versions; each list the view shows is a
 // resource that takes its version and answers from the store. The open channel's window answers from
 // the store too and names the page it lacks, which a mutation fetches.
-import type { Answer, Result, Sources } from './app.contract.d.ts';
+import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
-import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live } from './live';
+import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
 import { resolveMentions, suggest } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
@@ -24,10 +24,14 @@ const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
     'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock',
+    'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload',
     'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
     'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock',
+    // A message's files go to Discord's upload bucket (`upload` below), with no credentials.
+    'net.fetch https://discord-attachments-uploads-prd.storage.googleapis.com',
+    'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload',
     'fs.read app:/data/discord-identifies.json',
     'fs.write app:/data/discord-identifies.json'],
 };
@@ -138,6 +142,36 @@ function channelRecord(id: string): Channel {
     arrived: live.arrived.get(id) ?? 0,
     typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
 }
+// Discord's upload limit for an account without Nitro; a picture over it, or in a format other people's
+// clients may not draw (HEIC), is sent as a JPEG that fits.
+const UPLOAD_LIMIT = 10 * 1024 * 1024;
+/** A send's files uploaded as Discord's clients upload them: a slot for each from the channel, the
+ * file PUT to the slot's URL (no Discord credentials go there), and the names the message then gives. */
+async function upload(channel: string, key: string, files: Upload[], storage: Storage): Promise<rest.Uploaded[]> {
+  const ready = await Promise.all(files.map(async (f, i) => {
+    if (!f.type.startsWith('image/') || (f.size <= UPLOAD_LIMIT && !/hei[cf]/i.test(f.type))) return f;
+    const to = `app:/tmp/upload/${key}-${i}.jpg`;
+    const shrunk = await storage.fs.compressImage(f.path, to, { maxDimension: 4096, maxBytes: UPLOAD_LIMIT - 65536, type: 'image/jpeg' });
+    return { ...f, path: shrunk.path, size: shrunk.size, type: shrunk.type, name: f.name.replace(/\.[^.]*$/, '') + '.jpg' };
+  }));
+  const slots = await call(live, rest.uploadSlots(context(live, true), channel,
+    ready.map((f, i) => ({ id: String(i), filename: f.name, file_size: f.size }))));
+  const given: { id: string | number; upload_url: string; upload_filename: string }[] = slots?.attachments ?? [];
+  if (given.length !== ready.length) throw new Error('Discord did not offer a place for every file.');
+  await Promise.all(given.map(async (slot, i) => {
+    let response: Response;
+    try {
+      response = await fetch(slot.upload_url, { method: 'PUT', exactBodyFrom: ready[i].path } as RequestInit);
+    } catch (error) {
+      // A host that cannot send a file by its path (Windows, for now) sends its bytes.
+      if (!(error instanceof Error) || !/Unsupported/.test(`${(error as { kind?: string }).kind ?? ''} ${error.message}`)) throw error;
+      response = await fetch(slot.upload_url, { method: 'PUT', body: await storage.fs.readFile(ready[i].path) });
+    }
+    if (!response.ok) throw new Error(`The upload of ${ready[i].name} failed (HTTP ${response.status}).`);
+  }));
+  return given.map((slot, i) => ({ id: String(slot.id), filename: ready[i].name, uploaded_filename: slot.upload_filename }));
+}
+
 const TEXT = new Set([0, 5]);
 const readable = (guild: string) => S.guildChannelList(store, guild).filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c));
 
@@ -243,23 +277,30 @@ const sources: Sources = {
   }),
   viewChannel: ([channel]) => { view(live, channel); return OK; },
   suggest: ([channel, draft]) => suggest(store, live.origins.cdn, channel, draft),
-  echoMessage: ([channel, written, replyTo, now]) => {
-    if (!written.trim()) return { ok: false, error: 'A message needs some text.', key: '', channel };
+  echoMessage: ([channel, written, replyTo, now, picked]) => {
+    const files: Upload[] = (picked ?? []).map(f => ({ path: f.path, name: f.name, type: f.type, size: f.size,
+      width: f.width ?? 0, height: f.height ?? 0 }));
+    if (!written.trim() && !files.length) return { ok: false, error: 'A message needs some text.', key: '', channel };
     const content = resolveMentions(store, channel, written);
     const key = nonce(live, now);
     S.addPending(store, channel, { nonce: key, content, nowMs: clock.now,
+      // Until Discord answers, each file shows from its local copy.
+      attachments: files.map((f, i) => ({ id: `${key}.${i}`, filename: f.name, size: f.size, url: f.path,
+        content_type: f.type, ...(f.width && f.height ? { width: f.width, height: f.height } : {}) })),
       ...(replyTo ? { replyTo: { messageId: replyTo, guildId: S.channel(store, channel)?.guild_id } } : {}) });
-    live.sends.set(key, { channel, content, replyTo });
+    live.sends.set(key, { channel, content, replyTo, files });
     touched(live, channel);
     live.arrived.set(channel, (live.arrived.get(channel) ?? 0) + 1);
     return { ok: true, error: '', key, channel };
   },
-  postMessage: async ([channel, key]) => {
+  postMessage: async ([channel, key], _secrets, storage) => {
     const send = live.sends.get(key);
     if (!send) return refused('That message is no longer waiting to send.');
     try {
       const reply = send.replyTo ? { messageId: send.replyTo, guildId: S.channel(store, channel)?.guild_id } : undefined;
-      const sent = await call(live, rest.sendMessage(context(live, true), channel, { content: send.content, nonce: key, replyTo: reply }));
+      if (send.files.length && !send.uploaded) send.uploaded = await upload(channel, key, send.files, storage);
+      const sent = await call(live, rest.sendMessage(context(live, true), channel,
+        { content: send.content, nonce: key, replyTo: reply, attachments: send.uploaded }));
       live.sends.delete(key);
       applyEvent(live, 'MESSAGE_CREATE', sent);
       return OK;
