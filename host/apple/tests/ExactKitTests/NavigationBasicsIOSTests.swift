@@ -260,7 +260,8 @@ final class NavigationBasicsIOSTests: XCTestCase {
         until("the route settles") { !p.navigation.inTransition }
         _ = Agent(session: session).clock(["settle": true])
         let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
-        let content = try XCTUnwrap(route.contentViewport)
+        let document = try node(session, "viewport-scroll")
+        let content = try XCTUnwrap(document.scroll)
         let opener = try node(session, "viewport-info-open"), info = try node(session, "viewport-info")
         p.press(opener.id)
         until("the popover opens") { p.menus.isOpen(info) && !p.menus.inTransition }
@@ -287,17 +288,17 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(p.elementScrolls.names, ["viewport-target"])
         let shown = target.convert(target.bounds, to: content)
         let moved = try XCTUnwrap(target.grid).layout.offsetBy(dx: 0, dy: content.bounds.maxY + 100 - shown.minY)
-        let extent = max(route.node.content.height, content.bounds.height + 200)
+        let extent = max(document.content.height, content.bounds.height + 200)
         session.publishFillForTests(route.node.id, wireBatch([
-            ["op": "content", "id": route.node.id, "w": content.bounds.width, "h": extent],
+            ["op": "content", "id": document.id, "w": content.bounds.width, "h": extent],
             ["op": "frame", "id": target.id, "x": moved.minX, "y": moved.minY, "w": moved.width, "h": moved.height],
         ]), generation: session.generation)
         session.landFill()
         until("the fill lands and the target is revealed") { !session.fillInFlight && p.elementScrolls.names.isEmpty && content.contentOffset.y > 0 }
         XCTAssertTrue(content.bounds.contains(target.convert(target.bounds, to: content)), "the reveal uses the target's new frame")
         for behavior in ["auto", "contain", "none", "auto"] {
-            route.node.style["overscroll_behavior_y"] = .string(behavior)
-            content.contentOffset = .zero
+            document.style["overscroll_behavior_y"] = .string(behavior)
+            content.contentOffset.y = -content.adjustedContentInset.top
             p.viewport.contentOffset.y = 100
             XCTAssertEqual(content.handsOff(CGPoint(x: 0, y: 400)), behavior == "auto", "\(behavior) controls route chaining")
             XCTAssertEqual(content.bounces, behavior != "none", "\(behavior) controls the native affordance")

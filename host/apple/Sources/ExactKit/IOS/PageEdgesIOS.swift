@@ -85,7 +85,6 @@ extension Presenter {
             let r = routes[ObjectIdentifier(c)]
             if c.bandedTop !== r?.top { c.bandedTop = r?.top; c.setContentScrollView(r?.top ?? c.collapseScrollView, for: .top) }
             if c.bandedBottom !== r?.bottom { c.bandedBottom = r?.bottom; c.setContentScrollView(r?.bottom ?? c.edgeScroll?.scrollView, for: .bottom) }
-            c.syncViewportEdgeEffects()
         }
         #endif
         ControlBars.sync(bars, in: self)

@@ -120,14 +120,15 @@ component PushedTitle
                       section
                         input value=query input=search autofocus=true testId="edit-draft" aria-label="Draft"
                 else if e.name == "viewport"
-                  column height=1200 flex-shrink=0
-                    box height=100 flex-shrink=0
-                    button appearance="none" popovertarget=`viewport-info-${e.id}` testId="viewport-info-open" width=160 height=44
-                      text "Details"
-                    box height=800 flex-shrink=0
-                    text "Reveal target" id="viewport-target" testId="viewport-target"
-                    box popover="auto" id=`viewport-info-${e.id}` testId="viewport-info" width=160 height=60
-                      text "Viewport details"
+                  scroll id="viewport-scroll" testId="viewport-scroll" flex=1 min-height=0
+                    column height=1200
+                      box height=100 flex-shrink=0
+                      button appearance="none" popovertarget=`viewport-info-${e.id}` testId="viewport-info-open" width=160 height=44
+                        text "Details"
+                      box height=800 flex-shrink=0
+                      text "Reveal target" id="viewport-target" testId="viewport-target"
+                      box popover="auto" id=`viewport-info-${e.id}` testId="viewport-info" width=160 height=60
+                        text "Viewport details"
                 else if e.name == "home"
                   list appearance="auto" listStyle="inset-grouped" testId="home-scroll" flex=1 min-height=0
                     section
