@@ -327,7 +327,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 
 /// A header's search field as UIKit's search controller (LLP 1075.003
 /// §9.6): text, focus and blur go to the authored field's handlers.
-final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
+final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
     let controller = UISearchController(searchResultsController: nil)
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
@@ -371,7 +371,6 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     init(host: NavigationHost) {
         self.host = host
         super.init()
-        controller.searchResultsUpdater = self
         controller.searchBar.delegate = self
         controller.delegate = self
         #if os(iOS)
@@ -405,13 +404,15 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         showScopes()
         #endif
     }
-    func updateSearchResults(for search: UISearchController) {
-        // Ignore the dismissed bar's reset while its final edit is being committed
-        guard editingCompletion == nil else { return }
-        let text = search.searchBar.text ?? ""
+    func searchBar(_ bar: UISearchBar, textDidChange text: String) {
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
         field.typedText(text)
     }
+    #if os(iOS)
+    func searchBarCancelButtonClicked(_ bar: UISearchBar) {
+        searchBar(bar, textDidChange: "")
+    }
+    #endif
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         guard field?.textField(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true else { return false }
         return textDelegate?.textField?(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true

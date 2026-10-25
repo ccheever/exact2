@@ -44,6 +44,8 @@ pub trait Routing {
     fn initial(&self, carried: Option<&Router>, launch: &str) -> Result<Value, RunnerError>;
     /// `value` as a router, when it is a valid one.
     fn read(&self, value: &Value) -> Option<Router>;
+    /// Return to an earlier visit in the selected stack, only from its current top.
+    fn back_to(&self, value: &Value, source: u64, destination: u64) -> Option<Value>;
     /// What changed since the last commit, for the host (LLP 1038 D7).
     fn change(&self, value: &Value) -> Result<Option<RouterChange>, RunnerError>;
     /// Remember `value` as committed, and keep `change` for the host.
@@ -478,6 +480,20 @@ impl Routing for RouterContext {
         self.router(value)
     }
 
+    fn back_to(&self, value: &Value, source: u64, destination: u64) -> Option<Value> {
+        let mut router = self.router(value)?;
+        let tab = router.tabs.iter_mut().find(|tab| tab.name == router.tab)?;
+        if tab.stack.last()?.id != source {
+            return None;
+        }
+        let at = tab.stack.iter().position(|entry| entry.id == destination)?;
+        if at + 1 == tab.stack.len() {
+            return None;
+        }
+        tab.stack.truncate(at + 1);
+        Some(self.value(&router))
+    }
+
     fn change(&self, value: &Value) -> Result<Option<RouterChange>, RunnerError> {
         // A committed value was validated, so it holds no NaN: the same
         // object is an equal one.
@@ -685,6 +701,17 @@ impl<D: DataSource> Runner<D> {
             .is_some_and(|r| r.matches_pattern(location))
     }
 
+    /// The canonical location of a retained visit, or `None` when it is absent.
+    pub fn visit_location(&self, id: u64) -> Option<String> {
+        let (_, router) = self.carry_router()?;
+        router
+            .tabs
+            .iter()
+            .flat_map(|tab| &tab.stack)
+            .find(|entry| entry.id == id)
+            .map(|entry| entry.url.clone())
+    }
+
     /// The location of the visit beneath visit `id` on the stack that holds
     /// it, or `None` (no router, no such visit, or a stack's root). A host's
     /// own Back for a route with no authored Back control delivers it to the
@@ -722,6 +749,24 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         };
         self.host_commit(slot, next, "host back")
+    }
+
+    /// Complete a platform Back-history jump in one commit. Both endpoints are
+    /// visit identities: repeated URLs must retain the visit UIKit selected.
+    /// A stale source or a destination outside the selected stack does nothing.
+    pub fn host_back_to(
+        &mut self,
+        source: u64,
+        destination: u64,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(context) = self.router.as_deref() else {
+            return Ok(None);
+        };
+        let slot = context.slot().0 as usize;
+        let Some(next) = context.back_to(&self.slots[slot], source, destination) else {
+            return Ok(None);
+        };
+        self.host_commit(slot, next, "host back to")
     }
 
     /// The platform's own navigation to `location` under a navigation root

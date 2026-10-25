@@ -127,6 +127,17 @@ The ordinary `back()` invokes the platform's handler;
 it does not establish touch delivery. XCTest can wait a minute for the app and another
 minute for SpringBoard to idle before tapping, so the native call has a 150-second bound.
 
+`ModalStackIOSTests` also drives UIKit's animated `popToViewController` to
+check multi-entry Back in primary and presented stacks. It asserts the retained
+controllers and the router's chosen visit, including return to the sheet root
+without changing the background stack. It also checks that header search commits
+and blurs once before dispatch, newer app navigation wins during a pop (including
+navigation from blur), and an unmapped destination restores the declared stack.
+A test sends UIKit's registered search-cancellation action and checks the live query and native bar state.
+The runner tests distinguish visits with the same URL and reject stale or
+cross-tab jumps. These tests use UIKit's public stack API; they do not establish
+activation of its Back-history menu.
+
 With `EXACT_SIM` naming an iPhone Duo, rebuild Duo Lab and the host fixture, then run
 `bun scripts/smoke.mjs duo --only navigation,navigation-gestures,host-navigation`.
 These legs cover native Back taps, completed and cancelled edge and content swipes,
