@@ -1,6 +1,6 @@
 //! The process owns exactly two persistent PNG workers. Waiting work is source
 //! identity/metadata; encoded bytes and raster buffers never enter this queue.
-use super::{assets::ImageInput, png_decode, svg_picture, Assets, Bitmap};
+use super::{assets::ImageInput, png_decode, remote, svg_picture, Assets, Bitmap};
 use crate::wake::Stream as UnixStream;
 use exact_raster::{
     DecodePermit, Gate, RasterSession, Refusal, ResidentBytes, COLD_ENTRIES, PENDING_JOBS,
@@ -26,10 +26,19 @@ pub(super) struct SourceOwner {
     name: String,
     assets: Weak<Assets>,
     prepared: Mutex<Prepared>,
+    /// A URL's download: the body a worker reads once it is settled.
+    remote: Option<Arc<remote::Load>>,
 }
 impl SourceOwner {
-    /// The file it reads, when it is one (not an update's bytes).
+    /// The file it reads, when it is one (not an update's bytes): a URL's
+    /// is its spool file.
     pub(super) fn file(&self) -> Option<std::path::PathBuf> {
+        if let Some(load) = &self.remote {
+            return match load.outcome()? {
+                Ok(body) => Some(body.path.clone()),
+                Err(_) => None,
+            };
+        }
         match self.assets.upgrade()?.image_input(&self.name)? {
             ImageInput::Path(path) => Some(path),
             ImageInput::Bytes(_) => None,
@@ -40,6 +49,22 @@ impl SourceOwner {
     pub(super) fn name(&self) -> &str {
         &self.name
     }
+
+    /// A URL's body this host cannot decode: let go of its spool file (the
+    /// cache's hold too, so the URL is fetched again when next asked for),
+    /// and say so once.
+    fn release(&self, refusal: Refusal, downloads: &remote::Downloads) {
+        let message = format!("not an image this host decodes ({refusal:?})");
+        let failure = remote::Failure {
+            refusal,
+            message: message.clone(),
+        };
+        let Some(body) = self.remote.as_ref().and_then(|load| load.release(failure)) else {
+            return;
+        };
+        downloads.forget(&self.name, &body);
+        eprintln!("exact: image {}: {message}", self.name);
+    }
 }
 struct State {
     sources: BTreeMap<u64, Weak<SourceOwner>>,
@@ -48,6 +73,10 @@ struct State {
 }
 pub(super) struct Backend {
     pub session: RasterSession,
+    /// Where a URL's body comes from.
+    pub downloads: Arc<remote::Downloads>,
+    /// This backend, for a download to wake its workers when it lands.
+    me: Weak<Backend>,
     state: Mutex<State>,
     pub changed: Condvar,
     pub revision: Mutex<u64>,
@@ -75,8 +104,10 @@ impl Backend {
         let (wake_read, wake_write) = UnixStream::pair().expect("raster wake pair");
         wake_read.set_nonblocking(true).unwrap();
         wake_write.set_nonblocking(true).unwrap();
-        let backend = Arc::new(Self {
+        let backend = Arc::new_cyclic(|me| Self {
             session: workers.gate.session(),
+            downloads: remote::Downloads::process().clone(),
+            me: me.clone(),
             state: Mutex::new(State {
                 sources: BTreeMap::new(),
                 next_source: 1,
@@ -130,27 +161,46 @@ impl Backend {
             || owners
                 .iter()
                 .filter(|s| {
-                    matches!(
-                        *s.prepared.lock().unwrap(),
-                        Prepared::Queued | Prepared::Reading
-                    )
+                    // A download is bounded by the downloads' own admission.
+                    !s.remote.as_ref().is_some_and(|load| !load.settled())
+                        && matches!(
+                            *s.prepared.lock().unwrap(),
+                            Prepared::Queued | Prepared::Reading
+                        )
                 })
                 .count()
                 >= PENDING_JOBS
         {
             Err(Refusal::QueueFull)
         } else if let Some(next) = state.next_source.checked_add(1) {
-            let source = Arc::new(SourceOwner {
-                id: state.next_source,
-                generation,
-                name: name.to_owned(),
-                assets: Arc::downgrade(assets),
-                prepared: Mutex::new(Prepared::Queued),
-            });
-            state.next_source = next;
-            state.sources.insert(source.id, Arc::downgrade(&source));
-            queued = true;
-            Ok(source)
+            // A URL downloads now, off the workers; one reads its header
+            // once it is settled (`prepare`).
+            let remote = if remote::is_remote(name) {
+                let me = self.me.clone();
+                self.downloads
+                    .load(name, move || {
+                        if let Some(backend) = me.upgrade() {
+                            backend.session.wake();
+                        }
+                    })
+                    .map(Some)
+            } else {
+                Ok(None)
+            };
+            remote.map(|remote| {
+                let source = Arc::new(SourceOwner {
+                    id: state.next_source,
+                    generation,
+                    name: name.to_owned(),
+                    assets: Arc::downgrade(assets),
+                    prepared: Mutex::new(Prepared::Queued),
+                    remote,
+                });
+                state.next_source = next;
+                state.sources.insert(source.id, Arc::downgrade(&source));
+                queued = true;
+                source
+            })
         } else {
             Err(Refusal::Overflow)
         };
@@ -262,6 +312,9 @@ impl Backend {
     fn prepare(&self) -> bool {
         let owners = self.owners();
         let source = owners.iter().find(|source| {
+            if source.remote.as_ref().is_some_and(|load| !load.settled()) {
+                return false;
+            }
             let mut prepared = source.prepared.lock().unwrap();
             if !matches!(*prepared, Prepared::Queued) {
                 return false;
@@ -272,8 +325,17 @@ impl Backend {
         let Some(source) = source else {
             return false;
         };
-        let result =
-            open(source).and_then(|(mut input, bytes)| png_decode::inspect(&mut input, bytes));
+        let result = match source.remote.as_ref().and_then(|load| load.outcome()) {
+            // Linux sends no image events (LLP 1011.001): the reason is the
+            // log's, once for the source.
+            Some(Err(failure)) => {
+                eprintln!("exact: image {}: {}", source.name, failure.message);
+                Err(failure.refusal)
+            }
+            _ => open(source)
+                .and_then(|(mut input, bytes)| png_decode::inspect(&mut input, bytes))
+                .inspect_err(|e| source.release(*e, &self.downloads)),
+        };
         *source.prepared.lock().unwrap() = match result {
             Ok(header) => Prepared::Ready(header),
             Err(e) => Prepared::Failed(e),
@@ -291,6 +353,7 @@ impl Backend {
             .get(&key.source)
             .and_then(Weak::upgrade);
         let mut later = None;
+        let decoded_source = source.clone();
         let result = source.ok_or(Refusal::Stale).and_then(|source| {
             if source.generation != key.generation || permit.is_cancelled() {
                 return Err(Refusal::Stale);
@@ -385,7 +448,14 @@ impl Backend {
                     source,
                 });
             }
-            Err(_) => permit.fail(),
+            Err(e) => {
+                if e == Refusal::DecodeFailed {
+                    if let Some(source) = &decoded_source {
+                        source.release(e, &self.downloads);
+                    }
+                }
+                permit.fail()
+            }
         }
         self.notify();
     }
@@ -399,6 +469,16 @@ impl Drop for Backend {
 trait Input: Read + Seek + Send {}
 impl<T: Read + Seek + Send> Input for T {}
 fn open(source: &SourceOwner) -> Result<(Box<dyn Input>, u64), Refusal> {
+    if let Some(load) = &source.remote {
+        let Some(Ok(body)) = load.outcome() else {
+            return Err(Refusal::DecodeFailed);
+        };
+        let file = crate::file::open_regular(&body.path).map_err(|_| Refusal::DecodeFailed)?;
+        if file.metadata().map_err(|_| Refusal::DecodeFailed)?.len() != body.len {
+            return Err(Refusal::DecodeFailed);
+        }
+        return Ok((Box::new(file), body.len));
+    }
     let assets = source.assets.upgrade().ok_or(Refusal::Stale)?;
     match assets
         .image_input(&source.name)

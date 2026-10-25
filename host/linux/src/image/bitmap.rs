@@ -86,6 +86,8 @@ impl Bitmap {
     pub fn animation_file(&self) -> Option<std::path::PathBuf> {
         let source = self._source.as_ref()?;
         let name = source.name().to_ascii_lowercase();
+        // A URL's path, not its query.
+        let name = name.split(['?', '#']).next().unwrap_or_default();
         if !(name.ends_with(".gif") || name.ends_with(".webp")) {
             return None;
         }

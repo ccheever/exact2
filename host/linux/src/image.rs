@@ -32,6 +32,8 @@ mod package;
 pub use package::Ask as PackageAsk;
 #[path = "image/png.rs"]
 mod png_decode;
+#[path = "image/remote.rs"]
+mod remote;
 #[path = "image/svg.rs"]
 mod svg_picture;
 #[cfg(test)]
@@ -641,9 +643,12 @@ impl Images {
         loop {
             let seen = self.revision();
             self.poll();
+            // A URL is not an asset an update vouches for: its download
+            // holds nothing back.
             if self.views.values().all(|v| {
                 v.source.is_empty()
                     || self.package.serves(&v.source)
+                    || remote::is_remote(&v.source)
                     || matches!(
                         v.source_id
                             .as_ref()
@@ -736,6 +741,8 @@ impl Images {
             "peakBytes":s.peak_bytes,"running":s.running,"processRunning":g.running,
             "ready":s.ready,"deliveryCells":s.delivery_cells,"pendingJobs":s.pending_jobs,
             "subscribers":s.subscribers,"coldEntries":s.cold_entries,"sourceEntries":self.backend.sources(),
+            "remoteFetches":self.backend.downloads.fetches.load(std::sync::atomic::Ordering::Relaxed),
+            "remoteCacheBytes":self.backend.downloads.cached_bytes(),
             "liveDiagnostics":self.loaded.len(),"deferred":self.deferred,
             "budgetWaits":waiting,"refusalReasons":reasons,
             "refused":self.views.values().filter(|v| v.refusal.is_some()).count()})
