@@ -773,6 +773,11 @@ component Excord
   action onReturn
     if launched and session.ready and session.lockOn
       lockedOut = true
+      // A dialog shows above everything, the lock included: the lock closes them.
+      switching = false
+      picking = false
+      close("switcher")
+      close("react-picker")
     launched = true
   action unlockTap
     if session.locked
@@ -827,24 +832,6 @@ component Excord
                 image "symbol:search"
               button popovertarget="account-menu" aria-label="Account" testId="account"
                 image "symbol:person"
-            dialog id="switcher" aria-label="Find or Start a Conversation" close=switcherClosed testId="switcher"
-              column gap=8 padding=12 width="28rem" max-width="100%"
-                input type="search" value=switchQuery input=searchSwitcher key=switcherKey placeholder="Where would you like to go?" aria-label="Where would you like to go?" autofocus=true testId="switcher-search"
-                scroll max-height="20rem"
-                  column
-                    for t in targets key=t.id
-                      button appearance="none" press=switchTo(t.server, t.id) aria-label=`${t.label}, ${t.detail}` testId=`switch-${t.id}` padding="8px 10px" border-radius=8
-                        row gap=10 align-items="center" min-width=0
-                          if t.avatar != ""
-                            image t.avatar width=24 height=24 border-radius=12 object-fit="cover" flex-shrink=0 aria-hidden=true
-                          else
-                            text t.glyph width="1.5rem" text-align="center" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
-                          text t.label font-weight=(t.unread ? 600 : 400) flex="0 1 auto" min-width=0 line-clamp=1
-                          text t.detail font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
-                          if t.mentions > 0
-                            Badge(label=`${t.mentions}`, tint=some("-exact-system-red"))
-                if targets.length == 0
-                  text (switchQuery == "" ? "Type a channel's or a person's name." : "Nothing matches.") font="-exact-footnote" color="-exact-secondary-label" padding="8px 10px"
             column id="account-menu" popover="auto" role="menu" aria-label="Account"
               text (gw.meName != "" ? `Signed in as ${gw.meName}` : "Connecting…") font="-exact-footnote" color="-exact-secondary-label" padding="6px 12px"
               if lockable
@@ -948,12 +935,15 @@ component Excord
               button press=toggleLive popovertarget="fixture-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=live testId="toggle-live"
                 text "Live traffic"
             column flex=1 min-height=0 position="relative"
-              list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
-                scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
-                reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
-                flex=1 min-height=0 padding-top=8 padding-bottom=22
-                for m in rows key=m.key
-                  MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply)
+              // A list of its own for each channel: one opened over another (a split replaces the
+              // route) starts at its newest message rather than at the last one's scroll position.
+              for ch in [open] key=ch
+                list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
+                  scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
+                  reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
+                  flex=1 min-height=0 padding-top=8 padding-bottom=22
+                  for m in rows key=m.key
+                    MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply)
               column id="message-menu" popover="auto" role="menu"
                 button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
                   image "symbol:reply"
@@ -1068,6 +1058,25 @@ component Excord
                   button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
                     retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
                     image "symbol:send"
+      // The quick switcher is the window's, so ⌘K shows it over whichever screen is on top.
+      dialog id="switcher" aria-label="Find or Start a Conversation" close=switcherClosed testId="switcher"
+        column gap=8 padding=12 width="28rem" max-width="100%"
+          input type="search" value=switchQuery input=searchSwitcher key=switcherKey placeholder="Where would you like to go?" aria-label="Where would you like to go?" autofocus=true testId="switcher-search"
+          scroll max-height="20rem"
+            column
+              for t in targets key=t.id
+                button appearance="none" press=switchTo(t.server, t.id) aria-label=`${t.label}, ${t.detail}` testId=`switch-${t.id}` padding="8px 10px" border-radius=8
+                  row gap=10 align-items="center" min-width=0
+                    if t.avatar != ""
+                      image t.avatar width=24 height=24 border-radius=12 object-fit="cover" flex-shrink=0 aria-hidden=true
+                    else
+                      text t.glyph width="1.5rem" text-align="center" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
+                    text t.label font-weight=(t.unread ? 600 : 400) flex="0 1 auto" min-width=0 line-clamp=1
+                    text t.detail font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
+                    if t.mentions > 0
+                      Badge(label=`${t.mentions}`, tint=some("-exact-system-red"))
+          if targets.length == 0
+            text (switchQuery == "" ? "Type a channel's or a person's name." : "Nothing matches.") font="-exact-footnote" color="-exact-secondary-label" padding="8px 10px"
       if viewing != "" and not locked
         for v in [viewing] key=v
           ImageViewer(src=v, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)

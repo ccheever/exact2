@@ -145,6 +145,8 @@ function channelRecord(id: string): Channel {
 // Discord's upload limit for an account without Nitro; a picture over it, or in a format other people's
 // clients may not draw (HEIC), is sent as a JPEG that fits.
 const UPLOAD_LIMIT = 10 * 1024 * 1024;
+// The most a host without `exactBodyFrom` sends as bytes from the data module (`upload`).
+const BYTES_IN_A_TURN = 1024 * 1024;
 /** A send's files uploaded as Discord's clients upload them: a slot for each from the channel, the
  * file PUT to the slot's URL (no Discord credentials go there), and the names the message then gives.
  * `done` keeps each file's upload as it lands, so a retry uploads only what did not; nothing goes on
@@ -155,10 +157,17 @@ async function upload(channel: string, key: string, files: Upload[], done: (rest
   const waiting = files.map((f, i) => ({ f, i })).filter(({ i }) => !done[i]);
   const ready = await Promise.all(waiting.map(async ({ f, i }) => {
     if (!f.type.startsWith('image/') || (f.size <= UPLOAD_LIMIT && !/hei[cf]/i.test(f.type))) return { f, i };
-    await storage.fs.mkdir('app:/tmp/upload').catch((e: { code?: string }) => { if (e?.code !== 'EEXIST') throw e; });
-    const shrunk = await storage.fs.compressImage(f.path, `app:/tmp/upload/${key}-${i}.jpg`,
-      { maxDimension: 4096, maxBytes: UPLOAD_LIMIT - 65536, type: 'image/jpeg' });
-    return { f: { ...f, path: shrunk.path, size: shrunk.size, type: shrunk.type, name: f.name.replace(/\.[^.]*$/, '') + '.jpg' }, i };
+    try {
+      await storage.fs.mkdir('app:/tmp/upload').catch((e: { code?: string }) => { if (e?.code !== 'EEXIST') throw e; });
+      const shrunk = await storage.fs.compressImage(f.path, `app:/tmp/upload/${key}-${i}.jpg`,
+        { maxDimension: 4096, maxBytes: UPLOAD_LIMIT - 65536, type: 'image/jpeg' });
+      return { f: { ...f, path: shrunk.path, size: shrunk.size, type: shrunk.type, name: f.name.replace(/\.[^.]*$/, '') + '.jpg' }, i };
+    } catch (error) {
+      // A host with no encoder (Linux, Windows, Android), or a browser that cannot decode HEIC, sends a
+      // picture that fits as it is.
+      if (f.size <= UPLOAD_LIMIT) return { f, i };
+      throw new Error(`${f.name} is over Discord's 10 MB limit, and this device cannot make it smaller.`);
+    }
   }));
   still();
   if (ready.length) {
@@ -172,8 +181,11 @@ async function upload(channel: string, key: string, files: Upload[], done: (rest
       try {
         response = await fetch(slot.upload_url, { method: 'PUT', exactBodyFrom: f.path } as RequestInit);
       } catch (error) {
-        // A host that cannot send a file by its path (Windows, for now) sends its bytes.
+        // A host that cannot send a file by its path (Windows, for now) sends its bytes, which cross the
+        // data module's turn: past about a megabyte that turn outlasts its 100 ms budget and is refused
+        // with no answer, so a larger file fails here instead, and its row offers Retry.
         if (!(error instanceof Error) || !/Unsupported/.test(`${(error as { kind?: string }).kind ?? ''} ${error.message}`)) throw error;
+        if (f.size > BYTES_IN_A_TURN) throw new Error(`${f.name} is too large to send from this device yet.`);
         still();
         response = await fetch(slot.upload_url, { method: 'PUT', body: await storage.fs.readFile(f.path) });
       }
