@@ -470,6 +470,7 @@ impl Parser {
             let mut sub = Parser {
                 depth: self.depth,
                 view_depth: self.view_depth,
+                in_block: self.in_block,
                 ..Parser::new(tokens)
             };
             let e = sub.expr()?;
