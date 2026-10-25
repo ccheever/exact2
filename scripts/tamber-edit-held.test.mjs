@@ -311,3 +311,24 @@ test('an accept that cannot hold again, its slot taken and every other held prop
     expect((await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals).toHaveLength(64);
   } finally { await wire.close(); }
 }, 60_000);
+
+test('a replaced proposal (1.17): its old id is refused 409 stale naming who replaced it, the latest of a chain; the new one is accepted', async () => {
+  const held = await post({ method: 'propose', hold: true, client: 'bea', ops: [{ op: 'set-token', name: 'edge', value: '#0a0a0a' }] });
+  const p1 = held.ok.proposal;
+  // Ada edits Bea's held proposal: held again as a new one.
+  const p2 = (await post({ method: 'edit-held', client: 'ada', proposal: p1, index: 0, value: '#0b0b0b' })).ok.proposal;
+  for (const method of ['accept', 'drop', 'edit-held']) {
+    const r = await post({ method, client: 'bea', proposal: p1, ...(method === 'edit-held' ? { index: 0, value: '#0c0c0c' } : {}) });
+    expect([method, r.status, r.error?.stale, r.error?.replacedBy, r.error?.by], JSON.stringify({ r, p1, p2 })).toEqual([method, 409, true, p2, "ada"]);
+  }
+  // Cy edits Ada's: the old id answers with the latest replacement and its maker.
+  const p3 = (await post({ method: 'edit-held', client: 'cy', proposal: p2, index: 0, value: '#0d0d0d' })).ok.proposal;
+  const chained = await post({ method: 'accept', client: 'bea', proposal: p1 });
+  expect([chained.status, chained.error.replacedBy, chained.error.by]).toEqual([409, p3, 'cy']);
+  expect((await post({ method: 'accept', client: 'bea', proposal: p2 })).error.replacedBy).toBe(p3);
+  // Bea accepts the one there is, knowingly; accepted, it is gone, not replaced: 404.
+  const accepted = await post({ method: 'accept', client: 'bea', proposal: p3 });
+  expect(accepted.status, JSON.stringify(accepted)).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #0d0d0d');
+  expect((await post({ method: 'accept', client: 'bea', proposal: p3 })).status).toBe(404);
+}, 60_000);
