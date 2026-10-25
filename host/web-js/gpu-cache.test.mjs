@@ -99,6 +99,17 @@ test('a warm rebuild copies the cache without building', async () => {
   expect(whose(warm.out)).toBe('g');
 }, 60_000);
 
+test('a warm build sweeps a killed build\'s stage and a .previous left beside the cache', async () => {
+  const { cache } = setup();
+  await loop(cache, 'm').done;
+  tree(`${cache}.stage-${deadPid()}-1`, 'n');
+  tree(`${cache}.previous`, 'o');
+  const warm = loop(cache, 'r', 'warm');
+  expect(JSON.parse((await warm.done).said)).toEqual({ built: false });
+  expect(whose(warm.out)).toBe('m');
+  expect(leftovers(cache)).toEqual([]);
+}, 60_000);
+
 test('a failed build leaves the cache as it was and no stage', async () => {
   const { cache } = setup();
   await loop(cache, 'i').done;
@@ -149,6 +160,8 @@ withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)
 `);
   for (let round = 0; round < 10; round++) {
     writeFileSync(lock, String(deadPid()));
+    // Every other round a waiter was killed inside its steal too, its `.steal` left behind.
+    if (round % 2) writeFileSync(`${lock}.steal`, String(deadPid()));
     rmSync(join(dir, 'go'), { force: true });
     for (const name of readdirSync(dir)) if (name.startsWith('ready-')) rmSync(join(dir, name));
     const waiters = Array.from({ length: 8 }, () => {
@@ -161,6 +174,20 @@ withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)
     while (readdirSync(dir).filter(name => name.startsWith('ready-')).length < 8) await Bun.sleep(5);
     writeFileSync(join(dir, 'go'), '');
     for (const ran of await Promise.all(waiters)) expect(ran).toEqual({ code: 0, said: '' });
-    expect(existsSync(lock)).toBe(false);
+    expect(readdirSync(dir).filter(name => name.startsWith('app.lock'))).toEqual([]);
   }
+  // A live waiter's `.steal` (this process's pid) is honoured: the lock waits for it, then is taken.
+  writeFileSync(lock, String(deadPid()));
+  writeFileSync(`${lock}.steal`, String(process.pid));
+  rmSync(join(dir, 'go'), { force: true });
+  writeFileSync(join(dir, 'go'), '');
+  const child = spawn(process.execPath, [join(dir, 'waiter.mjs')], { stdio: ['ignore', 'ignore', 'pipe'] });
+  waiting.add(child);
+  const exited = new Promise(ok => child.once('exit', ok));
+  await Bun.sleep(1500);
+  expect(child.exitCode).toBe(null);
+  expect(existsSync(lock)).toBe(true);
+  rmSync(`${lock}.steal`);
+  expect(await exited).toBe(0);
+  expect(readdirSync(dir).filter(name => name.startsWith('app.lock'))).toEqual([]);
 }, 120_000);
