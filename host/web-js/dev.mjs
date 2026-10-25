@@ -327,8 +327,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], detached: true });
     let err = '';
     child.stderr.on('data', (d) => { err = (err + d).slice(-64000); });
-    child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); } });
-    child.on('exit', (code, signal) => {
+    child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); resumeAfterReader(); } });
+    // EXACT_DEV_READER_HOLD_MS (a test's): the reader's build taken that much later, as a slow one ends.
+    child.on('exit', (code, signal) => setTimeout(() => {
       if (tool.child !== child) return;
       tool.child = null;
       tool.ready = code === 0 && existsSync(tool.path);
@@ -355,7 +356,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
       if (tool.ready) console.log('design reader ready'); // (until then a live proposal is taken as a rebuild, dev-inline.mjs)
-    });
+      resumeAfterReader();
+    }, Number(process.env.EXACT_DEV_READER_HOLD_MS) || 0));
   };
   // Ready, and built from the compiler's sources as they are (a compiler
   // edit the loop does not watch, under contract/ or kernel/, rebuilds it).
@@ -433,6 +435,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // Builds set aside in a row past three are said: an input that moves in
   // every build (a build that writes one of its own) is never published.
   let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false, asideRun = 0;
+  // A value-only edit waiting for the design reader to build again (it does after every other edit): it reads the
+  // edit then, in seconds, where the full build it would otherwise take is minutes on a large app, said nowhere until
+  // it ended (the third hands-on pass: 343 s, the canvas on the old value). A reader that fails gives it the full build.
+  let readerWait = false;
+  const resumeAfterReader = () => { if (!readerWait || stopping) return; readerWait = false; rebuild(); };
   const stopYoungBuild = () => {
     const age = Date.now() - buildBegan;
     if (!building || building.exitCode !== null || building.signalCode !== null || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
@@ -474,9 +481,15 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // A value-only edit reads its design and sends its batch whatever builds
     // meanwhile (that build is set aside); any other waits for it.
     if (designing || (building && !fast)) { again = true; return; }
+    if (fast && !toolFresh() && (tool.child || tool.cleaner)) {
+      if (!readerWait) console.log('edit → waiting for the design reader, building again, to read it');
+      readerWait = true;
+      return;
+    }
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
+    let checking = false; // the build below checks a batch the read sent
     if (fast && toolFresh()) {
       designing = true;
       let next;
@@ -498,6 +511,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         return rebuild();
       }
       if (!next.error && sameShape(design, next)) {
+        checking = true;
         const from = scrubbed ?? design;
         design = next;
         served = { digest: design.digest ?? null, source: designFrom = createHash('sha256').update(text).digest('hex') };
@@ -544,6 +558,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     buildBegan = Date.now();
+    console.log(`edit → building${checking ? ' (checking the batch)' : designOnly ? ' (the design reader can\'t read it in place)' : ''}`);
     built = await build(app, dist, keep, compiler, () => inputs !== began);
     if (built.superseded && ++asideRun === 3) console.log('edit → three builds in a row set aside: an input moves during every build (does one write its own input?)');
     if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }

@@ -188,6 +188,35 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
   }
 }, 1_200_000);
 
+test('the JS loop: a value-only design edit while the design reader builds waits for it, then is a batch, no full build', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-reader-wait-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Reader wait', app: { id: 'com.exact.readerwait', name: 'Reader wait' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column background-color="surface.card" min-height=40\n      text "qz-wait"\n');
+  const design = (light) => `tamber readerwait\n\ntheme\n  surface.card = light-dark(${light}, #16181c)\n`;
+  writeFileSync(join(dir, 'app.tamber'), design('#f1f3f5'));
+  let loop = null;
+  try {
+    // The reader's first build ends 30 s late (as on a loaded machine, or after any other edit): the app's first
+    // build is ready well before it.
+    loop = await devLoop(dir, { EXACT_DEV_READER_HOLD_MS: '30000' });
+    const { said } = loop;
+    const count = (re) => (said().match(re) ?? []).length;
+    const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
+    await until(() => said().includes('plan ready'), 900_000);
+    if (said().includes('design reader ready')) throw new Error(`the reader was ready before the first build; the hold is too short: ${said().slice(-1500)}`);
+    writeFileSync(join(dir, 'app.tamber'), design('#e0f7e9'));
+    await until(() => said().includes('edit → waiting for the design reader'), 60_000);
+    await until(() => count(/edit → batch ready/g) >= 1, 120_000);
+    // The edit's batch came after the reader, and no full build took it: the one build after it checks the batch.
+    expect(said().indexOf('design reader ready')).toBeLessThan(said().indexOf('edit → batch ready'));
+    expect(count(/edit → building(?! \(checking the batch\))/g)).toBe(0);
+    expect(count(/edit → plan ready/g)).toBe(0);
+  } finally {
+    await loop?.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);
+
 test("the JS loop: an edit to theme-fixture's `when` token builds with setMode and its pins, and a refused one says the design's refusal", async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-axes-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Axes', app: { id: 'com.exact.axes', name: 'Axes' } }));
