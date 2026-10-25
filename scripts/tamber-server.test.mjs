@@ -987,17 +987,20 @@ test('a file whose text is HEAD\'s again is a new baseline: committed by hand, t
   gitIn('reset', '-q');
   await freshWire();
   await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2a2a2a' }] });
-  // The person commits the session's edit by hand: HEAD moved, and the file is HEAD's.
+  // The person commits the session's edit by hand: HEAD moved, and the file is HEAD's. The next write is a new
+  // baseline (no commit asked between), and the session commits it.
   gitIn('commit', '-q', '-am', 'by hand');
-  const nothing = await post({ method: 'commit', client: 'person' });
-  expect(nothing.error.refused).toBeUndefined();
-  expect(nothing.error.message).toContain('nothing to commit');
-  // The next write is a new baseline, and the session commits it.
   await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2b2b2b' }] });
   const at = head();
   const committed = await post({ method: 'commit', client: 'person', message: 'ink' });
-  expect(committed.ok.commit).toBeTruthy();
+  expect(committed.ok?.commit, JSON.stringify(committed)).toBeTruthy();
   expect(head()).not.toBe(at);
+  // Committed by hand again, then a commit asked: nothing of the session's is left, said so, refusing nothing.
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2d2d2d' }] });
+  gitIn('commit', '-q', '-am', 'by hand again');
+  const nothing = await post({ method: 'commit', client: 'person' });
+  expect(nothing.error.refused).toBeUndefined();
+  expect(nothing.error.message).toContain('nothing to commit');
   // A hand edit since the session's write, then HEAD moving with the file still differing: refused, as before.
   await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#2c2c2c' }] });
   gitIn('commit', '-q', '--allow-empty', '-m', 'elsewhere');
