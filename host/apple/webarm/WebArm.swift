@@ -18,6 +18,41 @@ final class ExactWebView: WKWebView {
         super.viewDidMoveToWindow()
         pinInsets()
     }
+    /// The keyboard input source selected when the view last had the keys.
+    private var inputSource: String?
+    private var observingInputSource = false
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        if !observingInputSource {
+            observingInputSource = true
+            NotificationCenter.default.addObserver(self, selector: #selector(inputSourceChanged),
+                                                   name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        }
+        inputSource = inputContext?.selectedKeyboardInputSource
+        return true
+    }
+    /// A source another process selects (an input source switcher, through
+    /// `TISSelectInputSource`) while the view has the keys can leave WebKit's
+    /// input context with no input method: keys then reach the page as the
+    /// layout's characters and nothing composes until the view is focused
+    /// again: after 6 of 8 switches to Korean 2-Set on macOS 27.2 (`gksskf`
+    /// for 한날), none after the system's own input source shortcut (macOS 26).
+    /// Deactivating and activating the context reconnects it: 26 of 26
+    /// switches then composed. Only the current context is touched:
+    /// activating another would take the input method from the view that has
+    /// it; nor one holding marked text, which deactivating may commit or drop.
+    @objc private func inputSourceChanged(_ note: Notification) {
+        guard window?.firstResponder === self else { return }
+        // Without an editable element WebKit gives no context: the source is
+        // unknown until the page focuses one again.
+        guard let context = inputContext else { inputSource = nil; return }
+        let source = context.selectedKeyboardInputSource
+        guard source != inputSource else { return }
+        inputSource = source
+        guard NSTextInputContext.current === context, (self as AnyObject as? NSTextInputClient)?.hasMarkedText() != true else { return }
+        context.deactivate()
+        context.activate()
+    }
     override func layout() {
         super.layout()
         pinInsets()
