@@ -521,6 +521,17 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const dev = simulator(undefined, { app: id, dir: a.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
   return withSoftwareKeyboard(dev, () => exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess })));
 }
+/** Whether the app `simctl launch --console` started (its first line, `<bundle>: <pid>`) still runs, and
+ * where a screenshot of the simulator's display went. */
+function stuckLaunch(udid, hostLines) {
+  const pid = hostLines.map((l) => /^\S+: (\d+)$/.exec(l.trim())?.[1]).find(Boolean);
+  let running = false;
+  try { if (pid) { process.kill(Number(pid), 0); running = true; } } catch {}
+  const shot = resolve(tmpdir(), `exact-ios-launch-${Date.now()}.png`);
+  const io = spawnSync('xcrun', ['simctl', 'io', udid, 'screenshot', shot], { encoding: 'utf8', timeout: 10000 });
+  return [pid ? `its process ${pid} ${running ? 'is still running' : 'has exited'}` : 'simctl named no process for it',
+    io.status === 0 ? `the simulator's display is in ${shot}` : 'the simulator\'s display could not be captured'].join('; ');
+}
 async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }) {
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
@@ -544,11 +555,13 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     while (!socket) {
       if (launch.done && !launch.retry()) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw crashed('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n'), true); }
       if (Date.now() - t > 20000) {
+        // What was on the simulator, seen rather than guessed (LLP 1143 D6): a boot logo, a crash alert, a blank window.
+        const seen = stuckLaunch(dev.udid, hostLines);
         try { launch.process.kill('SIGKILL'); } catch {}
         await launch.exited;
         rmSync(dir, { recursive: true, force: true });
         await touches?.close();
-        throw crashed('the app never opened its agent socket; ' + hostLines.join('\n'));
+        throw crashed(`the app never opened its agent socket; ${seen}\n` + hostLines.join('\n'));
       }
       socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
       if (!socket) await sleep(50);
