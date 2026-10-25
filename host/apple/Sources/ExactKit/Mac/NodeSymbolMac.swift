@@ -45,12 +45,7 @@ extension NodeView {
                 showSymbol(image, on: leaf); leaf.setAccessibilityElement(false)
             }
             // The symbol's size when the kernel's measurer could not say
-            let size = SymbolMeasure.size(name, points: points, weight: weight)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter,
-                      presenter.views[self.id] === self else { return }
-                presenter.intrinsic(self.id, size)
-            }
+            presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
         symbolView?.contentTintColor = symbolInk
         symbolView?.symbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
