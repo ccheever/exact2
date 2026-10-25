@@ -89,6 +89,7 @@ final class EdgeEffectIOSTests: XCTestCase {
             if #available(iOS 26.0, *) {
                 XCTAssertFalse(platform.isEmpty, "UIKit's edge effect hangs after the content", file: file, line: line)
             }
+            // Later subviews draw above content at the same layer depth
             for view in platform {
                 XCTAssertGreaterThanOrEqual(view.layer.zPosition, content, "\(type(of: view)) draws over the content in \(type(of: port))", file: file, line: line)
             }
@@ -109,6 +110,10 @@ final class EdgeEffectIOSTests: XCTestCase {
         content.bottomEdgeEffect.style = .hard
         content.bottomEdgeEffect.isHidden = true
         p.reachPageEdges()
+        for effect in [viewport.topEdgeEffect, viewport.bottomEdgeEffect] {
+            XCTAssertEqual(effect.style, .hard, "a style change forwards without changing the owner")
+            XCTAssertTrue(effect.isHidden)
+        }
         for edge in [NSDirectionalRectEdge.top, .bottom] {
             let effect = edge == .top ? viewport.topEdgeEffect : viewport.bottomEdgeEffect
             route.setContentScrollView(content, for: edge)
