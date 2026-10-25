@@ -51,8 +51,9 @@ const POLLED_MS = 5_000, POLLED = 64, STREAMS = 256, BUILDS = 256, DESIGN_TOLD_M
 const QUEUED = 64, QUEUE_BYTES = 128 * 1024;
 // One poll's answer, and so any frame in it, is at most this many bytes:
 // Linux reads a commands response of at most 64 KiB, and the resident loop
-// writes each frame it relays as one event, which Apple bounds at 64 KiB
-// (PlanURL.swift). A frame over it goes as a notice.
+// writes each frame it relays as one event, which Apple bounds at 1 MiB
+// (PlanURL.swift). A frame over it goes as a notice, or (not live: a plan's
+// copies, at most COPIES_BYTES) alone.
 const POLL_BYTES = 32 * 1024;
 // A long poll (`wait`) is held at most this long: well under the 5 s a
 // polled stream lives unpolled, and the 5 s a client's request lasts.
@@ -589,6 +590,10 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       // everywhere (theme2 15:02), so the client reads its chain again; never `unsupported`, which is a page that can't.
       const pick = picks.get(id);
       if (!pick || pick.plan !== plan || pick.site !== from || pick.instance !== JSON.stringify(instance ?? [])) return { stale: true, error: 'the selection moved since its chain was read: select again' };
+      // Its plan's copies first, when none went yet (its source map read since the plan was named: a native build's
+      // arrives after its status).
+      const copies = copiesOf(id);
+      if (copies) frame(id, { kind: 'inspect', copies });
       frame(id, { kind: 'inspect', select: { up, levels, plan, from, instance } });
       return { builds: [id] };
     },

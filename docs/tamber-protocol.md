@@ -1548,11 +1548,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `inspect` (*1.3*) `{on, seq, copies?}`, `{copies}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*; *1.17*
     by the page's own tree: an `on: true` frame carries `copies: {plan, data}`, each site of that plan's copy, an
     integer equal for every node whose call-site chain is the same, encoded as runs, `r1:` and base64 of LEB128 varints
-    of `[copy, run length]` pairs in site order, at most 4 bytes a varint and 2^20 sites (a page refuses more, and a
-    plan past it gets none); sent only to a build that registers the `copies` capability, which keeps them whatever
+    of `[copy, run length]` pairs in site order, at most 4 bytes a varint and 2^20 sites (a page refuses more), and at
+    most 512 KiB encoded (half Apple's event limit; a plan past either gets none, its selects stale); sent only to a build that registers the `copies` capability, which keeps them whatever
     its mode, once per plan per registration (not again for an off and on under the same plan), with inspect mode on and again with the
     `on` frame a new registration (a new plan) gets, or alone, `{copies}`, changing no mode, when an inspected build's
-    status names a new plan; none for a plan with no map. `levels` (1.16, for a page of a build before 1.17, which
+    status names a new plan, or, still unsent (its source map read after the plan was named), alone just before a
+    `select`; none for a plan with no map. `levels` (1.16, for a page of a build before 1.17, which
     selects in the first level with a node above its selection, the outermost) are the plan sites of each enclosing
     copy from `up` call sites out to the app's own, each that owns a node, nearest first; a 1.17 page ignores them. A page whose selection or plan is
     another than the select's, or that holds no copies for `plan`, reports its selection as it is now; else, walking up

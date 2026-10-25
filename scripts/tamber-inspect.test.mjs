@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel, selectRequest } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, copiesOf, decodeCopies, COPIED_SITES, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, copiesOf, decodeCopies, COPIED_SITES, COPIES_BYTES, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -874,6 +874,9 @@ test('tamber/1.16: an inherited row\'s ancestor named by its source from the pag
   expect(decodeCopies('r1:AA==')).toBeNull();
   expect(decodeCopies('r1:AIBA')).toEqual(new Array(8192).fill(0));
   expect(copiesOf({ nodes: { length: COPIED_SITES + 1 } })).toBeNull();
+  // Past COPIES_BYTES encoded (110,000 distinct chains, about 580 KB), none either: the frame would pass Apple's event.
+  expect(copiesOf({ nodes: Array.from({ length: 110_000 }, (_, i) => ({ chain: [{ file: 'a.contract', line: i, col: 1 }] })) })).toBeNull();
+  expect(copiesOf({ nodes: Array.from({ length: 50_000 }, (_, i) => ({ chain: [{ file: 'a.contract', line: i, col: 1 }] })) }).length).toBeLessThanOrEqual(COPIES_BYTES);
   // The raw `selected` event the server republishes carries no fromSite either.
   expect(JSON.stringify(published(selected, new Map()))).not.toContain('fromSite');
 });
@@ -964,6 +967,26 @@ test('tamber/1.17: copies go once per plan per registration, to a build that wal
   status(P2);
   expect(inspects().filter(f => f.copies)).toEqual([]);
   expect(inspects().every(f => 'on' in f)).toBe(true);
+});
+
+test('tamber/1.17: a select sends the plan\'s copies first when none went yet (its source map read after the plan was named)', () => {
+  const frames = [], P1 = '1'.repeat(64);
+  let mapped = false;
+  const channel = buildChannel({ send: () => {}, log: () => {}, copiesFor: d => (mapped && d === P1 ? 'r1:AAE=' : null) });
+  const opened = channel.open(f => frames.push(f));
+  channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'register', id: 'ios-1', host: 'ios', capabilities: ['inspect', 'copies'], plan: 'g', planDigest: P1, design: 'd1' }));
+  channel.inspect('tool', 'ios-1', { on: true });
+  expect(frames.filter(f => f.copies)).toEqual([]);
+  const seqNow = frames.filter(f => f.kind === 'inspect' && f.on).at(-1).seq;
+  expect(channel.report(JSON.stringify({ nonce: opened.nonce, kind: 'selected', inspect: seqNow, selected: { node: 9, site: 2, instance: [], planDigest: P1, rows: [] }, plan: 'g', design: 'd1', revision: 0 })).status).toBe(204);
+  mapped = true;
+  frames.length = 0;
+  expect(selectRequest(channel, { client: 'tool', build: 'ios-1', select: { up: 1 } }, () => ({ levels: [], plan: P1, from: 2, instance: [] }))).toEqual({ ok: { builds: ['ios-1'] } });
+  expect(frames.filter(f => f.kind === 'inspect').map(f => (f.copies ? 'copies' : f.select ? 'select' : '?'))).toEqual(['copies', 'select']);
+  // Once sent, the next select carries none before it.
+  frames.length = 0;
+  selectRequest(channel, { client: 'tool', build: 'ios-1', select: { up: 1 } }, () => ({ levels: [], plan: P1, from: 2, instance: [] }));
+  expect(frames.filter(f => f.kind === 'inspect').map(f => (f.copies ? 'copies' : 'select'))).toEqual(['select']);
 });
 
 test('tamber/1.17: a polled stream keeps a plan\'s copies past the inspect frames queued after them', () => {
