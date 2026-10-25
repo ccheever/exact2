@@ -204,6 +204,7 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        ExactApp.shared.refreshDevPills() // in the window it joined, or another's (DevPill.swift)
         // The window it joined takes the accent; one it left has its own back
         session.presenter.accent.apply()
         if window != nil { reportScheme() }

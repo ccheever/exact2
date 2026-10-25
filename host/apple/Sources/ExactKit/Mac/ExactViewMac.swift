@@ -299,6 +299,7 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        ExactApp.shared.refreshDevPills() // in the window it joined, or another's (DevPill.swift)
         observeEnvironment()
         toolbarVisibilityObservation = nil
         windowToolbarObservation = window?.observe(\.toolbar, options: [.initial, .new]) { [weak self] window, _ in
