@@ -48,6 +48,8 @@ const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < ep
 // A box at a segment's edge, which lies on a half point (455.5, 495.5): iOS draws every box on the device's pixel
 // grid, so the edge lands on the nearest third of a point at 3x.
 const onGrid = (a, b) => near(a, b, 1 / 3 + 0.01);
+/** Whether box `b` lies within segment `seg` (`[x, y, w, h]`) from left to right. */
+const within = (b, seg) => !!b && b.x >= seg[0] - 0.01 && b.x + b.w <= seg[0] + seg[2] + 0.01;
 
 // The matrix, and the Duo's geometry under iOS 27.1 (LLP 1008 §9): the
 // cover panel 466×678, the inner panel 951×669, the division (455.5, 0, 40, 669)
@@ -425,6 +427,15 @@ async function suite({ open: openSession, check: record }, reset) {
     });
     check(on.length === 0, `${tag}: no control on the band ${JSON.stringify(band)}: ${JSON.stringify(on.map((m) => ({ id: m.testId ?? m.id, x: m.x, y: m.y, w: m.w, h: m.h })))}`);
   };
+  /** Combinations and the note screen are each one pane that does not scroll, which a fold moves
+   * (docs/recipes/foldables.md): in layout `l` at hinge `deg`, box `id` keeps to the trailing segment on a book fold,
+   * and fully open it is centred. */
+  const paneMoves = (l, id, tag, deg) => {
+    const b = box(l, id), trailing = l.env['viewport-segments']?.[1];
+    if (!check(b, `${tag}: ${id} is laid out`)) return;
+    if (l.env['horizontal-viewport-segments'] === 2) check(within(b, trailing), `${tag}: ${id} keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(b)}`);
+    else if (deg === 180) check(b.w < l.viewport.w && near(b.x + b.w / 2, l.viewport.w / 2, 0.5), `${tag}: ${id} is centred: ${JSON.stringify(b)} in ${JSON.stringify(l.viewport)}`);
+  };
   /** With the keyboard up where one is expected (layout `l`), the note sheet rides on it: it ends with the routes in the
    * shortened viewport, below the note's header, with its Dismiss button and its textarea above that end. Given `top`,
    * the lower segment's before the keyboard, the fold keeps its two segments, the lower one's top there and ending where
@@ -689,10 +700,13 @@ async function suite({ open: openSession, check: record }, reset) {
       check(byTestId(await s.tree(), 'screen-combos') != null, 'the Combinations tab opened');
       await eachPose(s, 'combos', async ({ l: l0 }, tag, deg) => {
         if (folded(deg)) await offBand(s, l0, tag);
+        paneMoves(l0, 'combos-title', tag, deg);
         await s.tap('open-note'); await settle(s);
         let t = await s.tree();
         check(byTestId(t, 'screen-note') != null && byTestId(t, 'note-sheet') != null, `${tag}: the note screen pushed with its sheet`);
-        if (folded(deg)) await offBand(s, await s.layout(), `${tag} note`);
+        const pushed = await s.layout();
+        if (folded(deg)) await offBand(s, pushed, `${tag} note`);
+        paneMoves(pushed, 'note-sheet', tag, deg);
         // The title field raises the keyboard (a textarea under the driver's `type` takes
         // text and focus but no keyboard, 2026-10-02); the textarea takes the draft.
         // Each pose writes its own, so a value left from the last cannot pass.
@@ -1187,7 +1201,7 @@ async function suite({ open: openSession, check: record }, reset) {
       await foldScreen(s, l, where, 130, chosen);
       await offBand(s, l, where);
       const drawn = await tabBarFrame(s), trailing = l.env['viewport-segments'][1];
-      check(drawn && drawn.x >= trailing[0] - 0.01 && drawn.x + drawn.w <= trailing[0] + trailing[2] + 0.01, `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
+      check(within(drawn, trailing), `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
       where = 'web-130-landscape-right';
       await orient('landscape-right', s);
       for (let i = 0; i < 50 && l.env['vertical-viewport-segments'] !== 2; i++) { await sleep(100); l = await s.layout(); }
