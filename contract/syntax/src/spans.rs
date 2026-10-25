@@ -122,7 +122,7 @@ structs! {
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
         mutations, actions, tasks, sequences, view, params, anatomy, members, span }
-    Members { lines, outer }
+    Members { lines, props, outer }
     MembersLine { path, at, span }
     Anatomy { parts, marks }
     PartDecl { name, groups, span }

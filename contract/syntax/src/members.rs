@@ -59,9 +59,10 @@ impl Splice {
 pub struct Members {
     /// Its `members` lines, in order.
     pub lines: Vec<MembersLine>,
-    /// Members of the component declared in its other files (and, for a
-    /// members block, the component's props and injects), each with whether
-    /// it is an action, prop or inject. The loader fills this so that
+    /// For a members block, the component's props and injects.
+    pub props: Vec<String>,
+    /// Members of the component declared in its other files, each with
+    /// whether it is an action. The loader fills this and `props` so that
     /// scoping binds every member, as the type checker will.
     pub outer: Vec<(String, bool)>,
 }

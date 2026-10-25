@@ -272,7 +272,8 @@ impl Loader<'_> {
         None
     }
 
-    /// Whether unit `from` uses unit `to`, through any chain of uses.
+    /// Whether unit `from` loads unit `to`, through any chain of `use` and
+    /// `members` lines.
     fn reaches(&self, from: usize, to: usize) -> bool {
         let mut seen = vec![false; self.units.len()];
         let mut stack = vec![from];
@@ -281,7 +282,7 @@ impl Loader<'_> {
                 return true;
             }
             if !std::mem::replace(&mut seen[u], true) {
-                stack.extend(self.units[u].targets.iter().copied());
+                stack.extend(self.units[u].loads());
                 // And the edges the other fixes would add.
                 stack.extend(
                     self.proposed
@@ -565,14 +566,14 @@ impl Loader<'_> {
         beside
     }
 
-    /// The units the root reaches through the `use` lines written and the
+    /// The units the root reaches through the `use` and `members` lines written and the
     /// ones the fixes write (`brings`, never an edge a fix refused, such as
     /// a cycle's); the first `reached` units are the root's own program.
     fn reached_with_fixes(&self, reached: usize) -> HashSet<usize> {
         let mut seen: HashSet<usize> = (0..reached).collect();
         let mut todo: Vec<usize> = seen.iter().copied().collect();
         while let Some(at) = todo.pop() {
-            let written = self.units[at].targets.iter().copied();
+            let written = self.units[at].loads();
             let fixes = self.fixes.iter().filter(|f| f.unit == at);
             let added = fixes.flat_map(|f| f.brings.iter().copied());
             for next in written.chain(added).collect::<Vec<_>>() {

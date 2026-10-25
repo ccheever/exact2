@@ -351,19 +351,21 @@ impl Rewriter<'_> {
         if declared {
             self.scope.rename(Kind::Component, name, *span)?;
         }
-        // The members its other files declare (LLP 1091.002 D5); then, in
-        // the order the type checker brings them into scope, props and
-        // injects, each state, seen by those after it, and the rest.
+        // In the order the type checker brings them into scope: props and
+        // injects (a members block's are its component's); each state, seen
+        // by those after it; the members the component's other files
+        // declare (LLP 1091.002 D5); then the rest.
         let mark = self.locals.len();
-        for (name, callable) in &members.outer {
-            self.bind_as([name.clone()], *callable);
-        }
+        self.bind_callable(members.props.iter().cloned());
         self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
         self.params(props)?;
         self.params(injects)?;
         for b in states.iter_mut() {
             self.expr(&mut b.expr)?;
             self.bind([b.name.clone()]);
+        }
+        for (name, callable) in &members.outer {
+            self.bind_as([name.clone()], *callable);
         }
         self.bind(
             derives

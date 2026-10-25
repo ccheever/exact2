@@ -5,6 +5,7 @@ mod home;
 mod library;
 mod load;
 mod members;
+pub(crate) use members::standalone_members;
 pub(crate) mod packages;
 mod refused;
 mod uses;
