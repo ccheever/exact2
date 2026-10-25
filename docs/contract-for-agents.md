@@ -2110,6 +2110,20 @@ web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view dec
 prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
 `tool` or `wake`, that of the commit that did it. `packages/fixtures/swatch` is a whole one.
 
+## Arrange existing content on iPhone Duo
+
+On iOS 27.1, an element hatch can call `element.arrange(using: controller)` with a
+`UIArrangementViewController` configured with `UISplitArrangement`. Exact places the
+marked element’s two authored children in the controller and lays out each in its
+allocated bounds. The content, controls, styles, and bindings stay the same. Keep
+navigation outside the arrangement; use a bounded scroller in each child for
+independent scrolling. Pass `nil` to restore the authored layout.
+
+Declare the hatch for iOS in `app.json`. On older systems, keep the authored CSS
+layout; a single set of components can stack in a compact layout and sit beside one
+another when expanded. See Apple’s [arrangement guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
+
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an

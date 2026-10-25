@@ -122,6 +122,18 @@ private typealias HatchAfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt6
 private let hatchFrames: HatchFramesFn = { host, token, on in hatchSession(host)?.natives.hatchClock.frames(token, on: on != 0) }
 private let hatchAfter: HatchAfterFn = { host, token, ms in hatchSession(host)?.natives.hatchClock.after(token, ms: ms) }
 
+private typealias HatchArrangementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?) -> Int32
+private let hatchArrangement: HatchArrangementFn = { host, node, object in
+    #if os(iOS)
+    if #available(iOS 27.1, *), let presenter = hatchSession(host)?.presenter {
+        let controller = object.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+        guard object == nil || controller is UIArrangementViewController else { return 1 }
+        return presenter.arrangements.set(node, controller: controller as? UIArrangementViewController) ? 0 : 1
+    }
+    #endif
+    return 1
+}
+
 private typealias HatchOwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
 private typealias HatchPartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
 private let hatchOwns: HatchOwnsFn = { host, scope, scopeLength, node, kind, object, what, whatLength, flags in
@@ -357,7 +369,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 168
+    let size = 176
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -381,6 +393,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchSurfaceHas, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchSurfaceSensor, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchInvoke, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchArrangement, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 

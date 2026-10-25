@@ -11,6 +11,53 @@ import XCTest
 /// navigation; the document, the session's one viewport (D1), stays in the
 /// session's view at its own size.
 final class ContentOwnersIOSTests: XCTestCase {
+    @available(iOS 27.1, *)
+    func testAnArrangementKeepsAuthoredChildrenAndRestoresTheirContainment() throws {
+        let presenter = Presenter()
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 900, height: 600))
+        window.rootViewController = host
+        host.view.addSubview(presenter.viewport)
+        presenter.viewport.frame = window.bounds
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        presenter.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["hatch": "arrangement-test"]],
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "button", "props": ["text": "Same control"]],
+            ["op": "children", "id": 2, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 900, "h": 600],
+        ]))
+        let root = try XCTUnwrap(presenter.views[1])
+        let controller = UIArrangementViewController()
+        controller.updateArrangement(.split.axes(.horizontal))
+        XCTAssertTrue(presenter.arrangements.set(1, controller: controller))
+        let first = try XCTUnwrap(presenter.views[2])
+        let second = try XCTUnwrap(presenter.views[3], "an initially flat child becomes a native pane")
+        let button = try XCTUnwrap(presenter.views[4])
+        host.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        XCTAssertTrue(controller.parent === host)
+        XCTAssertTrue(first.isDescendant(of: controller.view))
+        XCTAssertTrue(second.superview === controller.viewController(for: .secondary)?.view, "a collapsed pane keeps its authored content")
+        XCTAssertTrue(button.superview === first.container, "arranging panes keeps the existing controls")
+        let blocks = presenter.arrangements.blocks
+        XCTAssertEqual(blocks.count, 2)
+        XCTAssertEqual(blocks[2]?.placement?.within, root.id)
+        XCTAssertEqual(blocks[3]?.placement?.within, root.id)
+        presenter.placeChildren(root, [2, 3])
+        XCTAssertTrue(first.isDescendant(of: controller.view), "a later children batch retains native containment")
+        XCTAssertTrue(presenter.arrangements.set(1, controller: nil))
+        XCTAssertTrue(first.superview === root.container)
+        XCTAssertTrue(second.superview === root.container)
+        XCTAssertTrue(button.superview === first.container)
+        XCTAssertNil(controller.parent)
+        XCTAssertTrue(presenter.arrangements.blocks.isEmpty)
+    }
+
     /// A touch resting on `target` at `point`, as UIKit hands a view one.
     private final class SheetTouch: UITouch {
         let target: UIView, point: CGPoint
