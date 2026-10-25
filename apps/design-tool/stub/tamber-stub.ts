@@ -284,11 +284,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
           if (pageSelectGone) { pageSelectGone = false; log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'the selected node is gone in this generation: select it again', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           if (pageRefusesSelect) { log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'this build cannot move its selection up (select): click the node instead', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
-          // (`/__stub/shallow-select`: a page whose tree changed has fewer above, and lands at the root.)
+          // (`/__stub/shallow-select`: a page with no other copy above it, which lands at the root having stepped none.)
           const chain = last?.source?.chain ?? [], up = shallowSelect ? chain.length : Math.min(Number(request.select.up), chain.length);
           if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
           // (Another node, as the page's ancestor is: its own view id.)
-          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, seq: seq() + 1 }); save();
+          // (With the page's `moved` (1.17): the up asked and the steps it took.)
+          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, moved: { up: Number(request.select.up), stepped: shallowSelect ? 0 : up }, seq: seq() + 1 }); save();
           return send({ ok: { builds: [request.build] } });
         }
         // A refresh asks a build's page to report again, inspect mode as it is:

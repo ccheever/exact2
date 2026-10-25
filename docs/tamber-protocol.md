@@ -193,6 +193,10 @@ on macOS and Linux.
   design is planned folded with its packages' designs, so `changed` names a package's token derived from one the app
   sets (`reading.edge = reading.card`, the app setting `reading.card = brand`, then `brand` edited), under the app's
   design file.
+  And `inspect`'s `select` walks the page's own tree by the plan's copies (the third hands-on pass's #4, theme2's
+  rulings of the 25th): `copies` comes once per plan, with the `on` frame or, on a plan change, alone, a `select` is `{up, plan, from, instance}` plus the
+  1.16 `levels` for a page of an older build, and the page's selection reports `moved: {up, stepped}` (see The build channel's `inspect`). A slot's host
+  is a step; past the last copy, the root.
 
 ## Where it runs
 
@@ -1540,12 +1544,20 @@ The tool drives no input into an app; a command changes only what `prefer` would
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*:
-    `levels` are the plan sites of each enclosing copy from `up` call sites out to the app's own,
-    each that owns a node, nearest first, as the server's map gives them for the selection at site
-    `from` (its instance path `instance`) under `plan`; a page whose selection or plan is another reports its selection as it is now, else it
-    selects, in the first level with a node above its selection, the outermost by its own tree,
-    and reports it as a click's selection): inspect mode on or off (`seq` numbers
+  - `inspect` (*1.3*) `{on, seq, copies?}`, `{copies}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*; *1.17*
+    by the page's own tree: an `on: true` frame carries `copies: {plan, data}`, each site of that plan's copy, an
+    integer equal for every node whose call-site chain is the same, encoded as runs, `r1:` and base64 of LEB128 varints
+    of `[copy, run length]` pairs in site order; sent once per plan per build, with inspect mode on and again with the
+    `on` frame a new registration (a new plan) gets, or alone, `{copies}`, changing no mode, when an inspected build's
+    status names a new plan; none for a plan with no map. `levels` (1.16, for a page of a build before 1.17, which
+    selects in the first level with a node above its selection, the outermost) are the plan sites of each enclosing
+    copy from `up` call sites out to the app's own, each that owns a node, nearest first; a 1.17 page ignores them. A page whose selection or plan is
+    another than the select's, or that holds no copies for `plan`, reports its selection as it is now; else, walking up
+    its own tree from the selection, its own copy seen, each ancestor of a copy not yet seen is one step (a slot's
+    host, a library card whose slot holds the selection, among them; a component that only renders another, none), and
+    at step `up` it selects that copy's outermost ancestor, with fewer the root (the outermost node with a site), and
+    reports it as a click's selection with `selected.moved: {up, stepped}`, the steps it took, fewer only at the root;
+    the server passes `moved` to clients on the `selection`): inspect mode on or off (`seq` numbers
     the command), or the selection
     reported again under the digests now (found again by its site and instance path after a
     new generation, or said gone). In inspect mode the page shows a banner with a close control

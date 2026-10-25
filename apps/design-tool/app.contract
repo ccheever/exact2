@@ -179,8 +179,9 @@ component DesignTool
   // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
   // before either on the clone).
   state filesShown = false
-  // A move up the chain (tamber/1.16 `select`): the selection it moved from, and the chain length it should land at;
-  // the page's own tree may have fewer above it (a rebuild), and its selection then lands higher, said so.
+  // A move up the chain (tamber/1.16 `select`; 1.17 by the page's own tree): the selection it moved from, and whether one
+  // is on its way (upExpect >= 0); the page says how many steps it took (`moved`), and a move that reached the root
+  // before `up` is said so.
   state upFromKey = ""
   state upExpect = -1
   // Said of the selection the move lands on alone (the first after it), kept for that visit of it (a click away and
@@ -477,7 +478,7 @@ component DesignTool
       // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
       upRefusalsAt = refusalsKey
-      upExpect = inspected.chain.length - up
+      upExpect = up
       upNote = ""
       send selectedUp = sendSelectUp(client, inspected.build, up)
   action showInitial(key: string)
@@ -853,7 +854,7 @@ component DesignTool
   action markReady
     readyFor = draftReadyKey
   action landUp
-    upNote = inspected.chain.length < upExpect ? `The page's tree had fewer above it: it selected ${inspected.source}.` : ""
+    upNote = inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : ""
     upNoteKey = inspected.visit
     upExpect = -1
   action dropUp

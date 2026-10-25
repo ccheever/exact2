@@ -91,7 +91,7 @@ import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 import { buildChannel, navigateRequest, selectRequest } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { correspondingSite, current, join, levelsUp, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { copiesOf, correspondingSite, current, join, levelsUp, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
@@ -210,7 +210,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // 1122 T2c): each build's own plan's, as the dev loop gives it now (`sourceMap(digest)`; with none, the running
   // generation's). A map can change under one plan digest (an edit that moves only source locations), so the dev loop
   // is asked each time; its bytes are parsed once.
-  const parsed = new WeakMap();
+  const parsed = new WeakMap(), copied = new WeakMap(); // (copied: each map's copies, 1.17)
   const mapOf = (digest) => {
     let raw = null, map = null;
     try { raw = sourceMap(digest); } catch { raw = null; }
@@ -219,7 +219,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     else { try { map = JSON.parse(Buffer.from(raw).toString('utf8')); } catch { map = null; } parsed.set(raw, map); }
     return map?.nodes && typeof map.digest === 'string' && (!digest || map.digest === digest) ? map : null;
   };
-  const channel = buildChannel({
+  const channel = buildChannel({ copiesFor: digest => { const m = mapOf(digest); if (!m) return null; if (!copied.has(m)) copied.set(m, copiesOf(m)); return copied.get(m); },
     // A build that reports no selection (inspect mode left) has none to read.
     send: e => { if (e.event === 'selected' && e.selected == null) lastSelection.delete(e.build); send({ ...e, seq: ++seq, epoch }); }, log,
     // A held site in a build's new plan (LLP 1122 D8): the one site at the
