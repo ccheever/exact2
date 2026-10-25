@@ -95,6 +95,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
 };
 // No trap, as the reference has none: a Popover, Menu, hover card, toast, page or non-modal panel there.
 const NOT_MODAL: Record<string, string> = {
+  'browser-frames.contract "browser-page-dialog"': 'Chromium\'s tab-modal JavaScript dialog: modal to its page only',
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-controls.contract `notice-details-card-${id}`': 'Popover (NoticeDescription, openOnHover)',
   'composer-chip-popover.contract "chip-popover"': 'Popover',

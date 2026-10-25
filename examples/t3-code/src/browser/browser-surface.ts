@@ -28,12 +28,12 @@ import {
 } from './browser-state';
 import { describePreviewError, previewErrorLabel, previewHost, previewPdfAssetUrl, resolveAddressBarInput } from './browser-url';
 // Annotate, Capture, Float preview, the separate window and the floating player.
-import { adoptCaptureNative, browserAutoShowFloatingPreview, floatingTabOf, toggleFloat, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
+import { adoptAgentDownload, adoptCaptureNative, browserAutoShowFloatingPreview, floatingTabOf, toggleFloat, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
-import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { browserKey, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
 import { environmentHostname, preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
@@ -46,7 +46,7 @@ import { adoptAutomationTabs, automationOverlay, automationPrepare, toggleFrameM
 import { openExternal } from '../client/external-open';
 import { adoptFrameEvent, clearFramePartition, commandFrame, frameCommandDone, frameNav, frames, namerLoaded, navigateFrame, syncFrames, type LiveFrame } from './browser-frames';
 import { openFrameWindow } from './browser-links';
-import { adoptFramePrompt } from './browser-automation';
+import { adoptFramePrompt, answerFramePrompt } from './browser-automation';
 
 // ── Profiles (browser-profiles.ts) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
@@ -66,11 +66,13 @@ type Host = {
   listing: Map<string, Promise<void>>;
   /** usePreviewBridge's dedupe: the last (kind, url) reported per runtime tab. */
   reported: Map<string, Report>;
+  /** Frames reloaded once for the cookies moved into their partition. */
+  migrationReloads: Set<string>;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function browserHost(client: T3Client): Host {
   let host = hosts.get(client);
-  if (!host) { host = { serverSeen: new Map(), store: new PreviewStateStore(), listed: new Map(), listing: new Map(), reported: new Map() }; hosts.set(client, host); }
+  if (!host) { host = { serverSeen: new Map(), store: new PreviewStateStore(), listed: new Map(), listing: new Map(), reported: new Map(), migrationReloads: new Set() }; hosts.set(client, host); }
   return host;
 }
 const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => client.rpc(native, method, payload);
@@ -303,7 +305,17 @@ export function liveSessions(client: T3Client): LiveFrame[] {
   }
   return live;
 }
-export function syncNativeSessions(client: T3Client): void { syncFrames(client, liveSessions(client)); }
+/** The live tabs' frames; a page whose profile's old cookies the hatch just moved in (T3BrowserPage.swift `migrateCookies`)
+ *  reloads once, so a site the person was signed in to sees them. */
+export function syncNativeSessions(client: T3Client): void {
+  syncFrames(client, liveSessions(client));
+  const pages = obj(client.presentation.browserPages), reloaded = browserHost(client).migrationReloads;
+  for (const entry of frames(client).entries.values()) {
+    if (!(Number(obj(pages[entry.frameId]).migrated) > 0) || reloaded.has(entry.frameId)) continue;
+    reloaded.add(entry.frameId);
+    commandFrame(client, entry.runtimeId, 'refresh');
+  }
+}
 function frameOp(client: T3Client): void { requirePermission(client.scopes, 'preview:operate'); }
 
 /** Mirrors the module's tab state into the store and reports navigations to the server (usePreviewBridge). */
@@ -464,8 +476,8 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
 
 // ── The frames' records and requests (browser-frames.contract) ──────────────────────────────────
 /** `surface-browser-frame*`: a frame's navigation record, its window request, download and agent-held dialog, a namer
- *  frame's load, and the root's acknowledgement of a frame command. They are the pages' own, not a person's use of the
- *  panel, so they run before its state. */
+ *  frame's load and the root's acknowledgement of a frame command, which are the pages' own; and the person's answer to a
+ *  held dialog and a View chord over a shown page. None is a use of the panel, so they run before its state. */
 export async function frameLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   switch (op) {
     case 'frame': adoptFrameEvent(client, id, value, navigationNow(client)); break;
@@ -473,9 +485,11 @@ export async function frameLocal(client: T3Client, native: Native, op: string, i
     case 'frame-named': await namerLoaded(client, id); break;
     case 'frame-window': { const q = new URLSearchParams(value); await openFrameWindow(client, native, id, q.get('disposition') ?? '', q.get('url') ?? ''); break; }
     case 'frame-prompt': adoptFramePrompt(client, id, value); break;
-    // A download asks where with the platform's save sheet, or goes to the agent's artifact folder (setDownloadBehavior);
-    // the app shows nothing about it, as the reference's handler shows nothing.
-    case 'frame-download': break;
+    case 'frame-answer': await answerFramePrompt(client, id, value); break;
+    case 'frame-key': await browserKey(client, id, value); break;
+    // A person's download asks where with the platform's save sheet; an agent's goes to setDownloadBehavior's folder and
+    // then into the artifact directory. The app shows nothing about either, as the reference's handler shows nothing.
+    case 'frame-download': await adoptAgentDownload(client, native, value); break;
   }
   return '';
 }

@@ -4,7 +4,7 @@
 //
 // The reference mounts a `<webview>` per live preview session at the app root and positions the one a slot shows.
 // Here the window's frame layer (browser-frames.contract) mounts an `iframe` per live session with the session's
-// partition, and the stage or the floating player measures the box it shows the page in. This file is the data
+// partition, and places the page in the box the stage measures or at the floating player's frame. This file is the data
 // module's half: each tab's frame (its id, partition, mount URL, zoom and appearance), the page state its records
 // give (the reference's nav status), the commands the frames take (a queue the root's `frameCommand` task runs one at
 // a time), and clearing a profile's partitions.
@@ -48,8 +48,14 @@ export type FrameEntry = {
   controller: string;
   /** Records the frame sent, counted: a test or a waiter reads it. */
   events: number;
+  /** The last record's event and the navigation that committed a document last (its `currententrychange`). */
+  event: string; committedId: number;
+  /** A dialog the frame holds while it is the agent's and no agent run uses it, waiting on the person (D9 `userpromptopened`). */
+  prompt: FramePrompt | null;
 };
-export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 'reload' | 'stop' | ''; id: string; url: string; delta: number; flag: boolean };
+export type FramePrompt = { type: string; title: string; message: string; defaultValue: string };
+/** `window`: the window's own View command a preview chord fell through to, `reload()` (`flag`) or the zoom step `delta`. */
+export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 'reload' | 'stop' | 'window' | ''; id: string; url: string; delta: number; flag: boolean };
 const NO_COMMAND: FrameCommand = { serial: 0, kind: '', id: '', url: '', delta: 0, flag: false };
 
 type Waiter = { frameId: string; test: (entry: FrameEntry, event: string) => boolean; done: (ok: boolean) => void };
@@ -100,7 +106,7 @@ export function syncFrames(owner: object, live: readonly LiveFrame[]): void {
     store.entries.set(tab.runtimeId, {
       frameId, runtimeId: tab.runtimeId, partition: partitionOf(tab.environment, tab.profile), environment: tab.environment, profile: tab.profile, src,
       record: null, pending: src === 'about:blank' ? '' : src, pendingId: 0, failure: null, failures: 0, zoom: tab.zoom, colorScheme: tab.colorScheme,
-      favicon: null, crashed: false, controller: 'person', events: 0,
+      favicon: null, crashed: false, controller: 'person', events: 0, event: '', committedId: 0, prompt: null,
     });
     store.byFrame.set(frameId, tab.runtimeId);
   }
@@ -158,6 +164,8 @@ export function adoptFrameEvent(owner: object, frameId: string, packed: string, 
   if (!['navigate', 'currententrychange', 'navigatesuccess', 'navigateerror'].includes(event)) return false;
   entry.events++;
   entry.record = record;
+  entry.event = event;
+  if (event === 'currententrychange' && record.navigationId) entry.committedId = record.navigationId;
   entry.controller = record.controller;
   switch (event) {
     case 'navigate':
@@ -208,7 +216,7 @@ function settle(owner: object, waiter: Waiter, ok: boolean): void {
 }
 
 // ── Commands (Manager.ts navigate / goBack / goForward / refresh / hardReload) ──────────────────
-function enqueue(owner: object, command: Omit<FrameCommand, 'serial'>): void {
+export function enqueue(owner: object, command: Omit<FrameCommand, 'serial'>): void {
   const store = frames(owner);
   store.queue.push({ ...command, serial: ++store.serial });
 }
@@ -299,25 +307,37 @@ export async function namerLoaded(owner: object, frameId: string): Promise<void>
 // ── The layer's projection (browser-frames.contract BrowserFrameView) ───────────────────────────
 export type BrowserFrameView = {
   frameId: string; src: string; partition: string; zoom: number; colorScheme: string;
-  /** Where it shows: "panel" (the stage's slot), "mini" (the floating player's), or "" (mounted, hidden). */
+  /** The tab's environment and profile, which the hatch reads to move a profile's old cookies in (T3BrowserPage.swift). */
+  environment: string; profile: string;
+  /** Where it shows: "panel" (the stage's slot), "mini" (the floating player's frame), or "" (mounted, hidden). */
   place: string;
   /** A fixed viewport's CSS size (0 in fill): the frame lays out at it times its zoom and is scaled into the slot. */
   pageWidth: number; pageHeight: number;
+  /** Hidden but recorded or shown in its separate window: it stays laid out at its last size, transparent. */
+  held: boolean; heldWidth: number; heldHeight: number;
+  /** The dialog it holds for the person (`FramePrompt`), "" when none. */
+  promptType: string; promptTitle: string; promptMessage: string; promptDefault: string;
 };
 export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand };
-export const EMPTY_FRAME: BrowserFrameView = { frameId: '', src: 'about:blank', partition: '', zoom: 1, colorScheme: 'system', place: '', pageWidth: 0, pageHeight: 0 };
+export const EMPTY_FRAME: BrowserFrameView = { frameId: '', src: 'about:blank', partition: '', zoom: 1, colorScheme: 'system', environment: '', profile: '', place: '', pageWidth: 0, pageHeight: 0,
+  held: false, heldWidth: 0, heldHeight: 0, promptType: '', promptTitle: '', promptMessage: '', promptDefault: '' };
 export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND });
-const viewOf = (entry: FrameEntry, place = '', pageWidth = 0, pageHeight = 0): BrowserFrameView =>
-  ({ frameId: entry.frameId, src: entry.src, partition: entry.partition, zoom: entry.zoom, colorScheme: entry.colorScheme, place, pageWidth, pageHeight });
-/** The layer's frames, the panel's tab placed in its slot (`panel`: its runtime id and fixed viewport, if it shows one),
- *  and the floating player's tab, which the player mounts itself and the layer leaves out. */
-export function frameLayerView(owner: object, panel: { runtimeId: string; pageWidth: number; pageHeight: number } | null, miniRuntimeId: string | null): { layer: BrowserFramesView; mini: BrowserFrameView } {
+/** A hidden page that must keep drawing, and the size it last laid out at. */
+export type FrameHold = (runtimeId: string) => { width: number; height: number } | null;
+/** The layer's frames: the panel's tab placed in its slot (`panel`: its runtime id and fixed viewport, if it shows one), the
+ *  floating player's at the player's frame, and the rest hidden, those `held` says keep drawing, transparent. */
+export function frameLayerView(owner: object, panel: { runtimeId: string; pageWidth: number; pageHeight: number } | null, miniRuntimeId: string | null, held: FrameHold): BrowserFramesView {
   const store = frames(owner), layer: BrowserFrameView[] = [];
-  let mini = EMPTY_FRAME;
   for (const entry of store.entries.values()) {
-    if (entry.runtimeId === miniRuntimeId) { mini = viewOf(entry, 'mini'); continue; }
-    layer.push(panel?.runtimeId === entry.runtimeId ? viewOf(entry, 'panel', panel.pageWidth, panel.pageHeight) : viewOf(entry));
+    const place = panel?.runtimeId === entry.runtimeId ? 'panel' : entry.runtimeId === miniRuntimeId ? 'mini' : '';
+    const hold = place ? null : held(entry.runtimeId), prompt = entry.prompt;
+    layer.push({
+      frameId: entry.frameId, src: entry.src, partition: entry.partition, zoom: entry.zoom, colorScheme: entry.colorScheme, environment: entry.environment, profile: entry.profile, place,
+      pageWidth: place === 'panel' ? panel!.pageWidth : 0, pageHeight: place === 'panel' ? panel!.pageHeight : 0,
+      held: hold !== null, heldWidth: hold?.width || 1280, heldHeight: hold?.height || 800,
+      promptType: prompt?.type ?? '', promptTitle: prompt?.title ?? '', promptMessage: prompt?.message ?? '', promptDefault: prompt?.defaultValue ?? '',
+    });
   }
   const namers = [...store.namers.keys()].map(partition => ({ ...EMPTY_FRAME, frameId: namerIdOf(partition), partition }));
-  return { layer: { frames: layer, namers, command: frameCommandView(owner) }, mini };
+  return { frames: layer, namers, command: frameCommandView(owner) };
 }

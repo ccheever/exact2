@@ -29,7 +29,9 @@ import {
 } from './browser-viewport';
 import { addBrowserSurface, browserHost, browserTabFavicon, effectiveNav, nativeTabs, openBrowserIn, type NativeTab } from './browser-surface';
 import { browserOpenDefaults } from './browser-defaults';
-import { navigateFrame, setFrame } from './browser-frames';
+import { commandFrame, enqueue, frameByElement, navigateFrame, setFrame, type FrameEntry } from './browser-frames';
+import { automationCalls } from './browser-automation-run';
+import { SANDBOX } from './browser-automation-scripts';
 
 // ── Per-client state the reference keeps in components (HostedBrowserWebview, ZoomIndicator) ──────
 /** `now`: the latest projection's wall time (a data source reads no clock), the time a visit an op makes is recorded at. */
@@ -89,10 +91,34 @@ export const emptyNavigationView = (): BrowserNavigationView => ({
 
 /** The chords the module answers while the preview has the focus (`when: previewFocus`), as `chord=command` words. */
 const PREVIEW_COMMANDS: Record<string, string> = { 'preview.refresh': 'refresh', 'preview.focusUrl': 'focus-url', 'preview.zoomIn': 'zoom-in', 'preview.zoomOut': 'zoom-out', 'preview.resetZoom': 'reset-zoom' };
+const previewWinners = (client: T3Client) => chordWinners(arr(client.config.keybindings), { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false,
+  draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false, previewFocus: true });
 export function previewKeys(client: T3Client): string {
-  const winners = chordWinners(arr(client.config.keybindings), { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false,
-    settingsOpen: false, diffOpen: false, previewFocus: true });
-  return [...winners].filter(([, command]) => PREVIEW_COMMANDS[command]).map(([chord, command]) => `${chord}=${PREVIEW_COMMANDS[command]}`).join(' ');
+  return [...previewWinners(client)].filter(([, command]) => PREVIEW_COMMANDS[command]).map(([chord, command]) => `${chord}=${PREVIEW_COMMANDS[command]}`).join(' ');
+}
+
+/** A View chord the window's menu took while the panel shows a Browser page (settings-shortcuts.contract ViewReload and
+ *  ViewZoom: `chord`, its ARIA name; `step`, the window zoom step it would set). A partitioned frame reports no focus
+ *  (clone/issues/browser-frame-focus-chords.md), so the page is asked, `document.hasFocus()` as a read. While it holds the
+ *  focus, ⌘R reloads it (Manager.ts isPreviewRefreshShortcut) and a chord bound to a preview command under `previewFocus`
+ *  runs that command (Manager.ts forwardedShortcuts); otherwise the window does what the chord does there, through the
+ *  root's `window` frame command. */
+export async function browserKey(client: T3Client, frameIds: string, packed: string): Promise<void> {
+  const q = new URLSearchParams(packed), chord = (q.get('chord') ?? '').replaceAll(' ', '+').toLowerCase(); // the View items send `meta+r` unencoded
+  const bound = [...previewWinners(client)].find(([candidate]) => candidate.toLowerCase() === chord)?.[1] ?? '';
+  const command = chord === 'meta+r' ? 'refresh' : PREVIEW_COMMANDS[bound] ?? '';
+  let focused: FrameEntry | null = null;
+  for (const frameId of command ? frameIds.split(',') : []) {
+    const entry = frameByElement(client, frameId);
+    if (!entry) continue;
+    try { if ((await automationCalls().evaluate({ id: frameId, expression: 'document.hasFocus()', sandbox: SANDBOX })).result === true) { focused = entry; break; } }
+    catch (error) { if (letGo(error)) throw error; }
+  }
+  if (focused && command === 'refresh') commandFrame(client, focused.runtimeId, 'refresh');
+  else if (focused && (command === 'zoom-in' || command === 'zoom-out')) setFrame(client, focused.runtimeId, { zoomStep: command === 'zoom-in' ? 'in' : 'out' });
+  else if (focused && command === 'reset-zoom') setFrame(client, focused.runtimeId, { zoom: 1 });
+  else enqueue(client, { kind: 'window', id: '', url: '', delta: Number(q.get('step')) || 0, flag: chord === 'meta+r' });
+  client.revision++;
 }
 
 /** A recent site's or a local server's icon: a Browser tab's captured icon of that origin, the public service, the globe. */

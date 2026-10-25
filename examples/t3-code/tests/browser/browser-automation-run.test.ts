@@ -4,8 +4,8 @@
 // a viewport that never renders, a target that is not editable, an operation failure whose cause stays out of the
 // answer, and an error a plan carried.
 import { describe, expect, it } from 'bun:test';
-import { adoptFramePrompt, automationAudio, automationControllerOf, keyActions, runAutomation, toggleFrameMute, useAutomationCalls, type AutomationCalls, type RunDeps } from '../../src/browser/browser-automation-run';
-import { adoptFrameEvent, frameCommandView, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
+import { adoptFramePrompt, answerFramePrompt, automationAudio, automationControllerOf, keyActions, runAutomation, toggleFrameMute, useAutomationCalls, type AutomationCalls, type RunDeps } from '../../src/browser/browser-automation-run';
+import { adoptFrameEvent, frameByElement, frameCommandView, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
 import { browserHost } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { adoptCaptureNative } from '../../src/browser/browser-capture';
@@ -187,15 +187,34 @@ describe('the executor', () => {
     expect(answer.ok).toBe(false);
   });
 
-  it('answers an agent-held dialog at once, and lists it for the agent', async () => {
+  it('answers a dialog at once while an agent request runs on the tab, and lists it for the agent', async () => {
+    const page = fakePage();
+    let asked = false;
+    const { client } = await run('navigate', { timeoutMs: 200 }, page, { navigate: { url: 'http://127.0.0.1:16751/b' } }, current => {
+      if (asked) return;
+      asked = true;
+      adoptFramePrompt(current, FRAME, 'type=alert&message=Hi&default=');
+      adoptFramePrompt(current, FRAME, 'type=confirm&message=Sure%3F&default=');
+    });
+    expect(page.log.filter(call => call.name === 'handleUserPrompt').map(call => call.options)).toEqual([{ id: FRAME, accept: true }, { id: FRAME, accept: false }]);
+    expect(frameByElement(client, FRAME)?.prompt).toBeNull();
+  });
+
+  it('holds a dialog for the person when no agent request runs, and answers it with their choice', async () => {
     const { client } = setup(), page = fakePage();
     useAutomationCalls(page.calls);
     try {
-      adoptFramePrompt(client, FRAME, 'type=alert&message=Hi&default=');
-      adoptFramePrompt(client, FRAME, 'type=confirm&message=Sure%3F&default=');
-      await new Promise(resolve => setTimeout(resolve, 0));
+      adoptFramePrompt(client, FRAME, 'type=prompt&message=Name%3F&default=Ada');
+      expect(page.log).toEqual([]);
+      expect(frameByElement(client, FRAME)?.prompt).toEqual({ type: 'prompt', title: '127.0.0.1:16751 says', message: 'Name?', defaultValue: 'Ada' });
+      await answerFramePrompt(client, FRAME, 'accept=true&text=Grace');
+      expect(page.log.map(call => call.options)).toEqual([{ id: FRAME, accept: true, userText: 'Grace' }]);
+      expect(frameByElement(client, FRAME)?.prompt).toBeNull();
+      adoptFramePrompt(client, FRAME, 'type=beforeunload&message=&default=');
+      expect(frameByElement(client, FRAME)?.prompt).toEqual({ type: 'beforeunload', title: 'Leave site?', message: 'Changes that you made may not be saved.', defaultValue: '' });
+      await answerFramePrompt(client, FRAME, 'accept=false&text=');
+      expect(page.log.at(-1)?.options).toEqual({ id: FRAME, accept: false });
     } finally { useAutomationCalls(null); }
-    expect(page.log.map(call => call.options)).toEqual([{ id: FRAME, accept: true }, { id: FRAME, accept: false }]);
   });
 
   it('Mute sets the page’s media and the tab’s audio state; the controller follows the frame', async () => {

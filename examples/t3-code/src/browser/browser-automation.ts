@@ -353,4 +353,4 @@ export function automationOverlay(client: T3Client, runtimeId: string): Partial<
   return { ...(automationAudio(client, runtimeId) ?? {}), controller: automationControllerOf(client, runtimeId) };
 }
 
-export { adoptFramePrompt, toggleFrameMute } from './browser-automation-run';
+export { adoptFramePrompt, answerFramePrompt, toggleFrameMute } from './browser-automation-run';

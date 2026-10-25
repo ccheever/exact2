@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CryptoKit
 import WebKit
 
 /// The `t3-browser-page` hatch: each Browser tab's partitioned frame (browser-frames.contract `BrowserFrame`) hands
@@ -14,6 +15,8 @@ import WebKit
 /// - The artifact directory (`T3BrowserArtifacts`), the local server's state directory outside the app's files: a capture
 ///   the frame wrote under `app:/tmp/browser-shots` moves in, and a screenshot or recording there is revealed in the Finder
 ///   or copied, which have no framework call; a saved recording is uploaded to an environment from there.
+/// - The profiles' cookies from the stores the module kept before the frames (`migrateCookies`), moved once into the
+///   frame's partition, which the framework names by its own scheme.
 ///
 /// The arm owns the view (its delegates, zoom, appearance and user scripts): this adds one script message handler in the
 /// client world and evaluates there, and never moves the view. A page is keyed by its frame's element id.
@@ -21,6 +24,8 @@ final class T3BrowserPages {
     let agent: Bool
     final class Page {
         weak var web: WKWebView?
+        /// Cookies moved into the page's partition from the profile's old store; the data module reloads the page once for them.
+        var migrated = 0
         let recording = T3BrowserRecording()
         var pip: T3BrowserPictureInPicture?
         /// The file the encoder finished last, which `save` may move into the artifact directory (once).
@@ -48,6 +53,60 @@ final class T3BrowserPages {
     func install(_ element: ExactElement) {
         guard element.hatch == .t3BrowserPage, let id = element.data[.browserFrame], !id.isEmpty, let web = element.platform as? WKWebView else { return }
         attach(id, web)
+        let environment = element.data[.browserEnvironment] ?? "", profile = element.data[.browserProfile] ?? ""
+        if !agent, !environment.isEmpty, !profile.isEmpty, profile != "incognito" {
+            migrateCookies(environment: environment, profile: profile, into: web.configuration.websiteDataStore) { [weak self] moved in
+                guard moved > 0, let page = self?.pages[id] else { return }
+                page.migrated = moved
+                self?.changed()
+            }
+        }
+    }
+
+    // MARK: The profiles' old stores
+    /// `remove(forIdentifier:)` refuses a store the network process still holds, which it lets go of shortly after the
+    /// last reference: asked again every half second.
+    @available(macOS 14.0, *)
+    static func removeStore(_ identifier: UUID, attempts: Int, done: @escaping (Error?) -> Void) {
+        WKWebsiteDataStore.remove(forIdentifier: identifier) { error in
+            guard error != nil, attempts > 1 else { return done(error) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { removeStore(identifier, attempts: attempts - 1, done: done) }
+        }
+    }
+
+    /// The store the module kept an environment's profile in before the frames (SHA-256 of the scope as an RFC 9562 v8 UUID).
+    static func oldStoreIdentifier(environment: String, profile: String) -> UUID {
+        var bytes = Array(SHA256.hash(data: Data("t3code-preview\u{0}\(environment)\u{0}\(profile)".utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x80
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+    /// Scopes asked this run: a store is looked for once.
+    private var migrations: Set<String> = []
+    /// Moves the cookies of the profile's old store, if one is left, into `target` (the frame's partition), then deletes the
+    /// old store (`WKWebsiteDataStore.remove(forIdentifier:)`), so this happens once. Local storage, IndexedDB and the cache
+    /// stay behind: WebKit gives no call that reads them out of a store. `done` gets the number of cookies moved.
+    func migrateCookies(environment: String, profile: String, into target: WKWebsiteDataStore, done: @escaping (Int) -> Void) {
+        guard #available(macOS 14.0, *), migrations.insert("\(environment)\u{0}\(profile)").inserted else { return done(0) }
+        let identifier = Self.oldStoreIdentifier(environment: environment, profile: profile)
+        WKWebsiteDataStore.fetchAllDataStoreIdentifiers { [weak self] identifiers in
+            guard identifiers.contains(identifier) else { return done(0) }
+            // The store and its cookie store are released in this pool, so the old store can be deleted after.
+            var old: WKWebsiteDataStore? = WKWebsiteDataStore(forIdentifier: identifier)
+            autoreleasepool {
+                old?.httpCookieStore.getAllCookies { cookies in
+                    let group = DispatchGroup()
+                    for cookie in cookies { group.enter(); target.httpCookieStore.setCookie(cookie) { group.leave() } }
+                    group.notify(queue: .main) {
+                        old = nil
+                        Self.removeStore(identifier, attempts: 10) { error in
+                            self?.note("profile store moved: \(cookies.count) cookies\(error.map { ", the old store kept: \($0.localizedDescription)" } ?? "")")
+                            done(cookies.count)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// The frame `id`'s web view, new or a replacement (a changed partition makes a new one).
@@ -72,10 +131,10 @@ final class T3BrowserPages {
     func destroy() { for page in pages.values { page.close() }; pages.removeAll() }
 
     /// `presentation.browserPages[frameId]`: the page's laid-out size (the floating player sizes itself from it), the
-    /// separate window, and the recording.
+    /// separate window, the recording, and the cookies moved in from the profile's old store.
     var status: [String: Any] {
         ["browserPages": pages.mapValues { page -> [String: Any] in
-            ["size": [Double(page.web?.frame.width ?? 0), Double(page.web?.frame.height ?? 0)], "pip": page.pip != nil, "recording": page.recording.report]
+            ["size": [Double(page.web?.frame.width ?? 0), Double(page.web?.frame.height ?? 0)], "pip": page.pip != nil, "recording": page.recording.report, "migrated": page.migrated]
         }]
     }
 
@@ -191,21 +250,27 @@ final class T3BrowserPages {
 
     /// `adopt` moves a capture the frame wrote under `app:/tmp/browser-shots` into the artifact directory as
     /// `browser-screenshot-<site>-<millis36>-<8 hex>.png` (the first eight characters of a v4 UUID, so two captures in one
-    /// millisecond never share a file). `reveal`, `copy-image` and `copy-path` act on a file inside the directory only.
+    /// millisecond never share a file), and an agent's finished download under `app:/tmp/browser-downloads` as
+    /// `browser-download-<millis36>-<8 hex>-<its name>`. `reveal`, `copy-image` and `copy-path` act on a file inside the
+    /// directory only.
     private func artifact(_ request: [String: Any], answer: ([String: Any]) -> Void, refuse: (String, String) -> Void) {
         if request["action"] as? String == "adopt" {
-            let relative = (request["path"] as? String ?? "").replacingOccurrences(of: "app:/tmp/", with: "")
-            guard let temporary = temporaryRoot, relative.hasPrefix("browser-shots/"), !relative.contains("..") else { return refuse("ArtifactPath", "The capture is not one of the frame's.") }
+            let raw = request["path"] as? String ?? "", root = temporaryRoot?.standardizedFileURL.path ?? "/nonexistent"
+            let relative = raw.hasPrefix("app:/tmp/") ? String(raw.dropFirst(9)) : raw.hasPrefix(root + "/") ? String(raw.dropFirst(root.count + 1)) : ""
+            let download = relative.hasPrefix("browser-downloads/")
+            guard let temporary = temporaryRoot, relative.hasPrefix("browser-shots/") || download, !relative.contains("..") else { return refuse("ArtifactPath", "The capture is not one of the frame's.") }
             let source = temporary.appendingPathComponent(relative)
-            let now = Date(), id = "browser-screenshot-\(T3BrowserArtifacts.slug(request["url"] as? String))-\(T3BrowserArtifacts.millis36(now))-\(UUID().uuidString.lowercased().prefix(8))"
-            let target = artifactDirectory.appendingPathComponent("\(id).png")
+            let now = Date(), stamp = "\(T3BrowserArtifacts.millis36(now))-\(UUID().uuidString.lowercased().prefix(8))"
+            let name = source.lastPathComponent.replacingOccurrences(of: "[/:]", with: "-", options: .regularExpression)
+            let id = download ? "browser-download-\(stamp)-\(name)" : "browser-screenshot-\(T3BrowserArtifacts.slug(request["url"] as? String))-\(stamp)"
+            let target = artifactDirectory.appendingPathComponent(download ? id : "\(id).png")
             do {
                 try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: source, to: target)
-            } catch { return refuse("Screenshot", "The screenshot could not be saved: \(error.localizedDescription)") }
+            } catch { return refuse(download ? "Download" : "Screenshot", "The \(download ? "download" : "screenshot") could not be saved: \(error.localizedDescription)") }
             let size = (try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? Int) ?? 0
-            note("screenshot \(target.lastPathComponent)")
-            return answer(["id": id, "path": target.path, "mimeType": "image/png", "sizeBytes": size, "createdAt": T3BrowserArtifacts.iso(now)])
+            note("\(download ? "download" : "screenshot") \(target.lastPathComponent)")
+            return answer(["id": id, "path": target.path, "mimeType": download ? "" : "image/png", "sizeBytes": size, "createdAt": T3BrowserArtifacts.iso(now)])
         }
         guard let target = T3BrowserArtifacts.resolve(request["path"] as? String ?? "", in: artifactDirectory) else {
             return refuse("ArtifactPath", "Preview artifact path is outside \(artifactDirectory.path)")

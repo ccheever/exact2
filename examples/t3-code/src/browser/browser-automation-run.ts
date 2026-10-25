@@ -25,7 +25,7 @@ import { shownBrowserTab } from '../panel/panel-surfaces';
 import { captureNativeCall, floatingTabOf } from './browser-capture';
 import { browserHost } from './browser-surface';
 import { previewRuntimeTabId, type PreviewViewportSetting } from './browser-state';
-import { frameEntry, frameNav, frames, navigateFrame, setFrame, type FrameEntry } from './browser-frames';
+import { frameByElement, frameEntry, frameNav, frames, navigateFrame, setFrame, type FrameEntry } from './browser-frames';
 import { makePreviewAutomationKeySequence, type PressInput } from './browser-automation-keys';
 import { nativeDeps, runRecordingRequest, type RecordingRequest } from './browser-automation-recording';
 import type { BrowserController, HostErrorJson, PreviewAutomationOperation } from './browser-automation-plan';
@@ -64,6 +64,8 @@ type Tab = {
   downloads: boolean;
   /** The last poll of its media and diagnostics (the snapshot's wall time). */
   polled: number; polling: boolean;
+  /** Agent requests running on the tab now: while one does, its page's dialogs are answered at once. */
+  runs: number;
 };
 type Host = { tabs: Map<string, Tab>; pointerSequence: number; actionSequence: number; shots: number };
 const hosts = new WeakMap<object, Host>();
@@ -76,7 +78,7 @@ function tabOf(client: object, runtimeId: string): Tab {
   const tabs = host(client).tabs;
   let tab = tabs.get(runtimeId);
   if (!tab) {
-    tab = { console: [], network: [], actions: [], muted: false, audible: false, agentEver: false, lastNavigation: 0, installed: false, installing: false, downloads: false, polled: 0, polling: false };
+    tab = { console: [], network: [], actions: [], muted: false, audible: false, agentEver: false, lastNavigation: 0, installed: false, installing: false, downloads: false, polled: 0, polling: false, runs: 0 };
     tabs.set(runtimeId, tab);
   }
   return tab;
@@ -96,21 +98,20 @@ export function automationAudio(client: object, runtimeId: string): { audioMuted
 }
 
 // ── The page's scripts, media and diagnostics (before the agent needs them) ─────────────────────
-/** Each document of a frame that has reported gets the diagnostics (page world) and media (sandbox) scripts with
- *  `callFunction`, once its navigation settles; both are idempotent. They go in as reads, not preload scripts: any
- *  other call makes the frame the agent's (LLP 1020.002 D9), and a person's page would then have its dialogs held and
- *  its downloads moved. So a document's logs before the scripts run are not kept. Then, at most every two seconds of the
- *  snapshot's wall time, its media state and diagnostics are read: Mute is set again on a new document, and an audible
- *  change redraws the tab. Calls a let-go answer loses are made by the next one. */
+/** Each document of a frame gets the diagnostics (page world) and media (sandbox) scripts with `callFunction` as it
+ *  commits (the frame's `currententrychange` of a new navigation); both are idempotent. They go in as reads, not preload
+ *  scripts: any other call makes the frame the agent's (LLP 1020.002 D9), and a person's page would then have its dialogs
+ *  held and its downloads moved. So what a document logs before its commit reaches the app is not kept. Then, at most
+ *  every two seconds of the snapshot's wall time, its media state and diagnostics are read: Mute is set again on a new
+ *  document, and an audible change redraws the tab. Calls a let-go answer loses are made by the next one. */
 export async function automationTick(client: T3Client): Promise<void> {
   const now = composerNow(client);
   for (const entry of frames(client).entries.values()) {
     if (!entry.record) continue;
     const tab = tabOf(client, entry.runtimeId), id = entry.frameId;
-    if (entry.record.navigationId < tab.lastNavigation) tab.downloads = false; // a new web view: its download place goes too
-    if (entry.record.navigationId !== tab.lastNavigation && !entry.record.loading) tab.installed = false;
-    if (!entry.record.loading) tab.lastNavigation = entry.record.navigationId;
-    if (!tab.installed && !tab.installing && !entry.record.loading) {
+    if (entry.committedId < tab.lastNavigation) tab.downloads = false; // a new web view: its download place goes too
+    if (entry.committedId && entry.committedId !== tab.lastNavigation) { tab.installed = false; tab.lastNavigation = entry.committedId; }
+    if (!tab.installed && !tab.installing && entry.committedId) {
       tab.installing = true;
       try {
         await calls.callFunction({ id, functionDeclaration: scripts.DIAGNOSTICS });
@@ -150,17 +151,38 @@ export async function toggleFrameMute(client: T3Client, _native: Native, runtime
   catch (error) { if (letGo(error)) throw error; }
 }
 
-/** An agent-driven page's own `alert`, `confirm`, `prompt` or `beforeunload` (the frame's `userpromptopened`): no sheet
- *  shows while the agent holds the page, so the host answers it at once, an alert and a leave-page prompt with OK, a
- *  confirm and a prompt with Cancel, and lists it among the page's console entries for the agent's next snapshot. */
+/** An agent-driven page's own `alert`, `confirm`, `prompt` or `beforeunload` (the frame's `userpromptopened`, which comes
+ *  only while the frame is the agent's). While an agent request runs on the tab no dialog shows, so the host answers it at
+ *  once, an alert and a leave-page prompt with OK, a confirm and a prompt with Cancel, and lists it among the page's
+ *  console entries for the agent's next snapshot. Otherwise the agent is done with the page and the person answers it:
+ *  the layer shows it over the page (browser-frames.contract BrowserFrame) as Chromium's tab-modal dialog words it. */
 export function adoptFramePrompt(client: T3Client, frameId: string, packed: string): void {
-  const entry = [...frames(client).entries.values()].find(candidate => candidate.frameId === frameId);
+  const entry = frameByElement(client, frameId);
   if (!entry) return;
-  const q = new URLSearchParams(packed), type = q.get('type') ?? 'alert', accept = type === 'alert' || type === 'beforeunload';
+  const q = new URLSearchParams(packed), type = q.get('type') ?? 'alert', message = q.get('message') ?? '';
   const tab = tabOf(client, entry.runtimeId);
-  tab.console.push({ level: 'info', text: `Dialog (${type}) answered ${accept ? 'OK' : 'Cancel'}: ${q.get('message') ?? ''}`, source: 'dialog', timestamp: new Date(composerNow(client) || 0).toISOString() });
+  if (tab.runs === 0) {
+    let host = ''; try { host = new URL(entry.record?.url ?? '').host; } catch { /* no page URL */ }
+    entry.prompt = type === 'beforeunload'
+      ? { type, title: 'Leave site?', message: 'Changes that you made may not be saved.', defaultValue: '' }
+      : { type, title: `${host || 'This page'} says`, message, defaultValue: q.get('default') ?? '' };
+    client.revision++;
+    return;
+  }
+  const accept = type === 'alert' || type === 'beforeunload';
+  tab.console.push({ level: 'info', text: `Dialog (${type}) answered ${accept ? 'OK' : 'Cancel'}: ${message}`, source: 'dialog', timestamp: new Date(composerNow(client) || 0).toISOString() });
   capped(tab.console);
   void calls.handleUserPrompt({ id: frameId, accept }).catch(() => undefined); // a call a let-go answer loses leaves the dialog held until a person's click shows its sheet
+}
+/** The person's answer to a held dialog (`accept`, and a prompt's `text`). */
+export async function answerFramePrompt(client: T3Client, frameId: string, packed: string): Promise<void> {
+  const entry = frameByElement(client, frameId), prompt = entry?.prompt;
+  if (!entry || !prompt) return;
+  const q = new URLSearchParams(packed), accept = q.get('accept') === 'true';
+  entry.prompt = null;
+  client.revision++;
+  try { await calls.handleUserPrompt({ id: frameId, accept, ...(accept && prompt.type === 'prompt' ? { userText: q.get('text') ?? '' } : {}) }); }
+  catch (error) { if (letGo(error)) throw error; }
 }
 
 // ── Errors (previewAutomationErrors.ts `serializePreviewAutomationHostError`) ────────────────────
@@ -229,12 +251,15 @@ const iso = (run: Run): string => new Date((run.context.startedAt || 0) + elapse
 /** One request, run to its end and answered. */
 export async function runAutomation(client: T3Client, plan: Obj, deps: RunDeps): Promise<{ ok: boolean; result?: unknown; error?: HostErrorJson }> {
   const run: Run = { client, context: readContext(plan, composerNow(client)), deps };
+  const tab = run.context.runtimeId ? tabOf(client, run.context.runtimeId) : null;
   let outcome: { ok: boolean; result?: unknown; error?: HostErrorJson };
+  if (tab) tab.runs++;
   try { outcome = await execute(run); }
   catch (error) {
     if (letGo(error)) throw error;
     outcome = { ok: false, error: hostErrorJson(error instanceof HostError ? error.failure : { kind: 'operation', cause: String(error) }, run.context) };
   }
+  finally { if (tab) tab.runs--; }
   const payload: Obj = { clientId: run.context.clientId, connectionId: run.context.connectionId, requestId: run.context.requestId, ok: outcome.ok };
   if (outcome.ok && outcome.result !== undefined) payload.result = outcome.result as Json;
   if (!outcome.ok) payload.error = outcome.error as unknown as Json;
@@ -585,9 +610,10 @@ export function keyActions(input: PressInput): unknown[] | null {
 async function press(run: Run, entry: FrameEntry): Promise<void> {
   const key = obj(run.context.plan.key), input = run.context.input as unknown as PressInput, commands = Array.isArray(key.commands) ? key.commands.map(String) : [];
   // macOS editing shortcuts edit the focused element in the page without native focus; a paste is the platform's own
-  // key, which reads the system clipboard (the data module reads no clipboard).
+  // key, which reads the system clipboard (the data module reads no clipboard). Each acts (`userActivation`), so the frame
+  // is the agent's again after a person took it back, as Manager.ts's control session makes it.
   if (str(key.editing) && !commands.includes('paste')) {
-    try { await calls.evaluate({ id: entry.frameId, expression: str(key.editing) }); }
+    try { await calls.evaluate({ id: entry.frameId, expression: str(key.editing), userActivation: true }); }
     catch (error) { if (letGo(error)) throw error; operation(`editing: ${codeOf(error)}`); }
     return;
   }
@@ -609,12 +635,12 @@ const utf8Length = (text: string): number => { let bytes = 0; for (const c of te
 async function evaluate(run: Run, entry: FrameEntry): Promise<unknown> {
   const expression = str(run.context.input.expression), awaitPromise = run.context.input.awaitPromise !== false;
   let text: unknown;
-  try { text = (await calls.callFunction({ id: entry.frameId, functionDeclaration: scripts.evaluateExpression(expression, awaitPromise), awaitPromise: true })).result; }
+  try { text = (await calls.callFunction({ id: entry.frameId, functionDeclaration: scripts.evaluateExpression(expression, awaitPromise), awaitPromise: true, userActivation: true })).result; }
   catch (error) {
     if (letGo(error)) throw error;
     // A script that is no expression is a SyntaxError in an expression position: run it as a script.
     if (codeOf(error) !== 'SyntaxError') return operation(`evaluation: ${codeOf(error)}`);
-    try { text = (await calls.callFunction({ id: entry.frameId, functionDeclaration: scripts.evaluateScript(expression) })).result; }
+    try { text = (await calls.callFunction({ id: entry.frameId, functionDeclaration: scripts.evaluateScript(expression), userActivation: true })).result; }
     catch (again) { if (letGo(again)) throw again; return operation(`evaluation: ${codeOf(again)}`); }
   }
   if (typeof text !== 'string' || text === scripts.UNDEFINED_MARK) return undefined;

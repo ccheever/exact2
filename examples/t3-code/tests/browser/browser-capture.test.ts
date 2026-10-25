@@ -9,8 +9,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
-import { frameIdOf, syncFrames } from '../../src/browser/browser-frames';
-import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
+import { adoptFrameEvent, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
+import { automationTick, toggleFrameMute, useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
 import { annotateState } from '../../src/browser/browser-annotate';
 import { adoptAppFiles } from '../../src/media/save-file';
@@ -65,7 +65,10 @@ function fakePage(next: () => unknown | Promise<unknown>, fail: Partial<Record<'
       if (fail.captureScreenshot) throw Object.assign(new Error('WebKit gave no picture.'), { code: 'UnknownError' });
       return { path: options.path, width: 120, height: 80 };
     },
-    async addPreloadScript() { return { script: 'p' }; }, async performActions() { return {}; }, async handleUserPrompt() { return {}; }, async setDownloadBehavior() { return {}; },
+    async addPreloadScript(options) { calls.push({ call: 'addPreloadScript', ...options }); return { script: 'p' }; },
+    async performActions(options) { calls.push({ call: 'performActions', ...options }); return {}; },
+    async handleUserPrompt(options) { calls.push({ call: 'handleUserPrompt', ...options }); return {}; },
+    async setDownloadBehavior(options) { calls.push({ call: 'setDownloadBehavior', ...options }); return {}; },
   };
   useAutomationCalls(fake);
   adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(812), writeFile: async () => {}, mkdir: async () => {} } });
@@ -187,6 +190,22 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
     expect(calls.some(call => call.call === 'evaluate' && String(call.expression).includes('.captured()'))).toBe(true);
     expect(captureHost(client).sendSerial).toBe(0);
     expect(annotateState(client, runtimeId)).toEqual({ active: false, serial: 1 });
+  });
+
+  it('Annotate, Capture, Mute and the page scripts only read: no call makes a person\'s frame the agent\'s (LLP 1020.002 D9)', async () => {
+    const module = fakeModule({ editorState: () => ({ text: '' }), editorInsert: () => ({ applied: true }),
+      'browserArtifact:adopt': () => ({ id: 'browser-screenshot-example-com-abc', path: '/a/browser-screenshot-example-com-abc.png', sizeBytes: 9, createdAt: '2026-10-25T00:00:00.000Z' }) });
+    const annotate = await pick(client, module.native, picked('attach'));
+    const rest = fakePage(() => null);
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
+    await toggleFrameMute(client, module.native, runtimeId, true);
+    const commit = new URLSearchParams({ event: 'currententrychange', id: '1', type: 'push', loading: 'false', back: 'false', forward: 'false', controller: 'person', error: '', recovering: 'false', url: 'https://example.com/', title: '' });
+    adoptFrameEvent(client, frameIdOf(runtimeId), commit.toString(), 0);
+    await automationTick(client);
+    useAutomationCalls(null);
+    const all = [...annotate, ...rest];
+    for (const name of ['captureScreenshot', 'callFunction', 'evaluate']) expect(all.some(call => call.call === name)).toBe(true);
+    expect(all.filter(call => ['addPreloadScript', 'performActions', 'handleUserPrompt', 'setDownloadBehavior'].includes(String(call.call)) || call.userActivation === true)).toEqual([]);
   });
 
   it('goes to a new thread\'s draft composer, whose tab names the id the draft was given', async () => {
@@ -577,11 +596,16 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     const player = block(contract, 'component BrowserMiniPlayer', '//');
     // The agent's hover moves first and enters second: entering reads the zone the move found.
     expect(player).toContain('  action overPlayer(value: bool)\n    over = value\n    dotOver = value and (zone == "dot" or (zone == "pill" and (pillFocus != "" or dragging != "")))\n    zone = value ? zone : ""');
-    expect(player).toContain('    let at = bcPlayerZone(e.offsetX, e.offsetY, frame.width, frame.pillInset, pillWidth, rem)\n    let shown = over and (at == "dot" or (at == "pill" and pill))');
+    expect(player).toContain('  action movePlayer(e: PointerEvent)\n    interacted()\n    moveAt(e.offsetX, e.offsetY)');
+    expect(player).toContain('    let at = bcPlayerZone(x, y, frame.width, frame.pillInset, pillWidth, rem)\n    let shown = over and (at == "dot" or (at == "pill" and pill))');
     // The tooltips' slot is the pill's own coordinates: the pill's box sits `pillInset` from the player's top right.
-    expect(player).toContain('bcPillSlot(e.offsetX - (frame.width - frame.pillInset - pillWidth), e.offsetY - frame.pillInset, rem, mini.recording)');
+    expect(player).toContain('bcPillSlot(x - (frame.width - frame.pillInset - pillWidth), y - frame.pillInset, rem, mini.recording)');
     expect(player).toContain('  derive pill = dotOver or pillFocus != "" or dragging != ""');
-    expect(player.match(/hover=/g)).toHaveLength(1);
+    // Over a frame the player's box lets the pointer through, and the handle's padded box hears the hover and the moves
+    // in the player's place, in the player's coordinates.
+    expect(player).toContain('  action moveHandle(e: PointerEvent)\n    interacted()\n    moveAt(frame.width - frame.pillInset + grace - handleBoxWidth + e.offsetX, frame.pillInset - grace + e.offsetY)');
+    expect(player).toContain('  action overHandle(value: bool)\n    if framed\n      overPlayer(value)');
+    expect(player.match(/hover=/g)).toHaveLength(2);
   });
 
   it('a resize\'s pans under one serial land where one pan of their total does; a serial per pan overshoots', async () => {

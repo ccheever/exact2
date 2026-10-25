@@ -4,8 +4,8 @@ import WebKit
 import XCTest
 
 // What a Browser frame hands the `t3-browser-page` hatch, end to end over a real page in a window (T3BrowserPage.swift):
-// a frame's capture adopted into the artifact directory, the artifact actions, the separate preview window, the
-// recording ops and the agent's cursor. Ported reference tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own
+// a frame's capture and an agent's download adopted into the artifact directory, the artifact actions, the separate
+// preview window, the recording ops, the agent's cursor and a profile's old cookies moved into its partition. Ported reference tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own
 // names: Manager.test.ts `fitPictureInPictureContentSize` (2) and `recordingFileExtension` (1). The Manager tests of
 // captureScreenshot's file name, revealArtifact and copyArtifactToClipboard are clone rows here (`testACapture…`,
 // `testArtifactActions…`): the reference's mocks of Electron's shell and clipboard become the Finder (recorded in an agent
@@ -100,6 +100,55 @@ final class BrowserCaptureTests: XCTestCase {
         XCTAssertEqual(T3BrowserArtifacts.slug("https://Docs.Example.com:8443/x"), "docs-example-com")
         XCTAssertEqual(T3BrowserArtifacts.slug("about:blank"), "site")
         XCTAssertEqual(T3BrowserArtifacts.slug("https://" + String(repeating: "a.", count: 60) + "com").count, 79, "at most 80, a cut-off dash dropped")
+    }
+
+    func testAnAgentsFinishedDownloadIsAdoptedUnderItsOwnName() throws {
+        let downloads = temporary.appendingPathComponent("browser-downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        try Data("a,b\n".utf8).write(to: downloads.appendingPathComponent("report.csv"))
+        try Data("x".utf8).write(to: downloads.appendingPathComponent("notes.txt"))
+        let reply = op(["op": "browserArtifact", "action": "adopt", "path": "app:/tmp/browser-downloads/report.csv"])
+        let path = try XCTUnwrap(value(reply)["path"] as? String, "\(reply)")
+        XCTAssertNotNil((path as NSString).lastPathComponent.range(of: #"^browser-download-[0-9a-z]+-[0-9a-f]{8}-report\.csv$"#, options: .regularExpression), path)
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "a,b\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloads.appendingPathComponent("report.csv").path), "moved, not copied")
+        // The frame's record may name the file by its path in the app's temporary directory.
+        let absolute = op(["op": "browserArtifact", "action": "adopt", "path": downloads.appendingPathComponent("notes.txt").path])
+        XCTAssertTrue((value(absolute)["path"] as? String ?? "").hasSuffix("-notes.txt"), "\(absolute)")
+        XCTAssertEqual((op(["op": "browserArtifact", "action": "adopt", "path": "app:/tmp/browser-downloads/../saves/x"])["error"] as? [String: Any])?["kind"] as? String, "ArtifactPath")
+    }
+
+    func testAProfilesOldCookiesMoveOnceIntoTheFramesPartitionAndTheOldStoreGoes() throws {
+        guard #available(macOS 14.0, *) else { throw XCTSkip("per-identifier stores are macOS 14") }
+        let environment = "test-\(UUID().uuidString)", identifier = T3BrowserPages.oldStoreIdentifier(environment: environment, profile: "default")
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.name: "session", .value: "signed-in", .domain: "example.test", .path: "/", .expires: Date().addingTimeInterval(3600)]))
+        var set = false
+        autoreleasepool {
+            let old = WKWebsiteDataStore(forIdentifier: identifier)
+            old.httpCookieStore.setCookie(cookie) { set = true }
+            CaptureSpin.until({ set })
+        }
+        let target = WKWebsiteDataStore.nonPersistent()
+        var moved: Int?
+        pages.migrateCookies(environment: environment, profile: "default", into: target) { moved = $0 }
+        CaptureSpin.until({ moved != nil }, timeout: 15)
+        XCTAssertEqual(moved, 1)
+        var cookies: [HTTPCookie]?
+        target.httpCookieStore.getAllCookies { cookies = $0 }
+        CaptureSpin.until({ cookies != nil })
+        XCTAssertEqual(cookies?.map { "\($0.name)=\($0.value)" }, ["session=signed-in"])
+        var identifiers: [UUID]?
+        WKWebsiteDataStore.fetchAllDataStoreIdentifiers { identifiers = $0 }
+        CaptureSpin.until({ identifiers != nil })
+        XCTAssertEqual(identifiers?.contains(identifier), false, "the old store is deleted")
+        // Once per scope, and nothing for a profile that had no store.
+        var again: Int?, none: Int?
+        pages.migrateCookies(environment: environment, profile: "default", into: target) { again = $0 }
+        pages.migrateCookies(environment: environment, profile: "work", into: target) { none = $0 }
+        CaptureSpin.until({ again != nil && none != nil })
+        XCTAssertEqual([again, none], [0, 0])
+        XCTAssertEqual(T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "default"), T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "default"))
+        XCTAssertNotEqual(T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "default"), T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "work"))
     }
 
     func testArtifactActionsOnlyTouchFilesInsideTheArtifactDirectory() throws {

@@ -91,6 +91,8 @@
     "focus-stop",
     "dialog-return",
     "editable",
-    "browser-frame"
+    "browser-frame",
+    "browser-environment",
+    "browser-profile"
   ]
 }

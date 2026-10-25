@@ -4,9 +4,9 @@
 // `playwrightInjectedRuntimeInstallExpression`). The reference runs them over CDP (`Runtime.evaluate`); here each is a
 // function body `@exact/browser-automation`'s `callFunction` runs in the host's sandbox (`SANDBOX`, a content world that
 // shares the page's DOM and not its globals, so a page cannot see or replace them). `preview_evaluate` alone runs in the
-// page's world, as `Runtime.evaluate` does. Console and network diagnostics come from a page-world preload script in
-// place of CDP's Runtime, Log and Network domains: console calls, uncaught errors, and failed `fetch`, XHR and element
-// loads, kept in the page until the host reads them; a failed subresource that is none of those has no entry, and an
+// page's world, as `Runtime.evaluate` does. Console and network diagnostics come from a page-world script each document
+// gets at its commit, in place of CDP's Runtime, Log and Network domains: console calls, uncaught errors, and failed
+// `fetch`, XHR and element loads, kept in the page until the host reads them; a failed subresource that is none of those has no entry, and an
 // element's failed load has no status.
 import { PLAYWRIGHT_INJECTED } from './page-scripts';
 

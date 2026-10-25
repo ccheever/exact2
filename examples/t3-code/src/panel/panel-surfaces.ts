@@ -41,7 +41,7 @@ import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import type { PrTarget } from './pr-surface';
 import { letGo } from '../client/let-go';
 // Browser tabs over the module's WKWebView (browser-surface.ts).
-import { annotationDispatchView, annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
+import { annotationDispatchView, annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, heldFrame, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from '../browser/browser-automation-recording';
 import { emptyFramesView, frameLayerView, type BrowserFramesView } from '../browser/browser-frames';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
@@ -472,12 +472,11 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   };
 }
 /** The panel's Browser tab, the floating player's, and every tab's frame: the panel's sits in its stage's slot while its
- *  page shows (not the empty state or the load-failed page), and the player's is the player's own. */
+ *  page shows (not the empty state or the load-failed page), and the player's at the player's frame. */
 function browserFramesOf(client: T3Client, browser: BrowserView, mini: BrowserMiniView): { browser: BrowserView; browserMini: BrowserMiniView; frames: BrowserFramesView } {
   const fixed = browser.viewportMode !== 'fill';
   const panel = browser.live && !browser.server && browser.runtimeId ? { runtimeId: browser.runtimeId, pageWidth: fixed ? browser.viewportWidth : 0, pageHeight: fixed ? browser.viewportHeight : 0 } : null;
-  const { layer, mini: frame } = frameLayerView(client, panel, mini.show && !mini.server ? mini.runtimeId : null);
-  return { browser, browserMini: { ...mini, frame }, frames: layer };
+  return { browser, browserMini: mini, frames: frameLayerView(client, panel, mini.show && !mini.server ? mini.runtimeId : null, runtimeId => heldFrame(client, runtimeId)) };
 }
 /** The Browser tab the rendered right panel shows, if any (shouldRenderPreviewMiniPlayer). */
 export function shownBrowserTab(client: T3Client): string | null {

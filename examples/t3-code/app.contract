@@ -2728,8 +2728,8 @@ component T3Code
       composerTyping = false
       draftOwner = "__unset__"
       jumpRequest = jumpRequest + 1
-  // A Browser tab frame's next command (browser-frames.ts), one at a time. The two sends name the packages' calls, which
-  // data code makes itself (LLP 1133.002 D14): clearing a profile, and answering an agent-driven page's dialog.
+  // A Browser tab frame's next command (browser-frames.ts), one at a time, or a View chord no page took (`window`). The two
+  // sends name the packages' calls, which data code makes itself (LLP 1133.002 D14): clearing a profile, answering a dialog.
   mutation siteCleared as shape ClearedSiteData
   mutation promptAnswered as shape EmptyResult
   task frameCommand when shell.panel.frames.command.serial > 0 key=shell.panel.frames.command.serial
@@ -2748,6 +2748,10 @@ component T3Code
       send siteCleared = clearSiteData(partition=c.url, types=["cookies", "storage"])
     else if c.kind == "prompt"
       send promptAnswered = handleUserPrompt(id=c.id, accept=c.flag)
+    else if c.kind == "window" and c.flag
+      reload()
+    else if c.kind == "window"
+      zoomTo(c.delta)
     chatLocal("surface-browser-frame-done", c.id, `${c.serial}`)
   state automationRecordingHandled = 0
   task automationRecording when shell.panel.automationRecording.serial > automationRecordingHandled key=shell.panel.automationRecording.serial

@@ -41,7 +41,7 @@ import { reservedAttachments } from '../composer/composer-editor-attach';
 import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
 import { appFiles } from '../media/save-file';
-import { EMPTY_FRAME, frameEntry, frameIdOf, type BrowserFrameView } from './browser-frames';
+import { frameEntry, frameIdOf } from './browser-frames';
 import { activePicks, annotateState, cancelAnnotate, startAnnotate, type ApplyPick } from './browser-annotate';
 import { automationCalls } from './browser-automation-run';
 
@@ -229,6 +229,15 @@ export function floatingTabOf(client: T3Client): string | null {
   return source?.kind === 'browser' ? source.tabId : null;
 }
 
+/** A hidden tab's page that must keep drawing (browser-frames.ts FrameHold): the hatch records it or shows it in its
+ *  separate window, or an agent's recording holds it. */
+export function heldFrame(client: T3Client, runtimeId: string): { width: number; height: number } | null {
+  const tab = report(client, runtimeId), recording = obj(tab.recording);
+  const held = tab.pip === true || recording.armed === true || recording.capturing === true || recording.recording === true
+    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId);
+  return held ? browserMiniSourceSize(client, runtimeId) : null;
+}
+
 export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string): boolean {
   const recordings = captureHost(client).recordings;
   return recordings.readActiveBrowserRecordingTabIds().has(runtimeId) || recordings.findActiveBrowserRecordingRuntimeTabId(ref, tabId) !== null;
@@ -332,6 +341,16 @@ async function capture(client: T3Client, host: Host, target: CaptureTarget, reco
     return;
   }
   screenshotSavedToast(client, artifact);
+}
+
+/** An agent-driven tab's finished download (the frame's `download` record, `completed` under setDownloadBehavior's folder):
+ *  the file moves into the artifact directory beside the screenshots, as the reference's download path is that directory. */
+export async function adoptAgentDownload(client: T3Client, native: Native, packed: string): Promise<void> {
+  const q = new URLSearchParams(packed), path = q.get('path') ?? '';
+  if (q.get('state') !== 'completed' || !/(^app:\/tmp\/|\/)browser-downloads\//.test(path)) return;
+  const host = captureHost(client);
+  host.native = native;
+  try { await nativeCall(host, { op: 'browserArtifact', action: 'adopt', path }); } catch (error) { if (letGo(error)) throw error; }
 }
 
 const artifactAction = (label: string, action: string, path: string): ToastAction => ({ label, op: `shelllocal:surface-browser-artifact-${action}`, id: path });
@@ -469,11 +488,9 @@ export type BrowserMiniView = {
   hasWebContents: boolean; recording: boolean; separateWindow: boolean; width: number; height: number;
   /** The main window's zoom. */
   windowZoom: number;
-  /** The tab's frame, which the player mounts itself (browser-frames.ts frameLayerView fills it in). */
-  frame: BrowserFrameView;
 };
 export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', url: '', profileId: 'default', environment: '',
-  hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1, frame: EMPTY_FRAME });
+  hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1 });
 
 /** The page's last laid-out size (resolveFittedBrowserViewport with the fill viewport): its box, else 1280×800. */
 export function browserMiniSourceSize(client: T3Client, runtimeId: string): { width: number; height: number } {
@@ -495,7 +512,7 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
     pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', url: session.url, profileId: session.profileId, environment: ref.environmentId,
     hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
-    windowZoom: readWindowZoom(client.presentation), frame: EMPTY_FRAME };
+    windowZoom: readWindowZoom(client.presentation) };
 }
 
 /** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close. */

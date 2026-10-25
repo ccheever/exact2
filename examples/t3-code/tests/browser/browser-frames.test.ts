@@ -104,12 +104,13 @@ describe('names and the layer', () => {
     expect(partitionOf('env', 'incognito')).toMatch(/^t3-incognito-[0-9a-f]{16}$/);
     expect(frameIdOf('["env","t","e","tab"]')).toMatch(/^browser-frame-[0-9a-f]{16}$/);
   });
-  it('places the panel\'s tab in its slot at its fixed viewport and leaves the floating player\'s out', () => {
+  it('places the panel\'s tab in its slot at its fixed viewport, the floating player\'s at the player, and keeps a held tab drawing', () => {
     const owner = {};
-    syncFrames(owner, [tab('a', 'https://a.test/'), tab('b'), tab('c')]);
-    const { layer, mini } = frameLayerView(owner, { runtimeId: 'a', pageWidth: 390, pageHeight: 844 }, 'c');
-    expect(layer.frames.map(frame => [frame.frameId, frame.place, frame.pageWidth, frame.src])).toEqual([[frameIdOf('a'), 'panel', 390, 'https://a.test/'], [frameIdOf('b'), '', 0, 'about:blank']]);
-    expect([mini.frameId, mini.place]).toEqual([frameIdOf('c'), 'mini']);
+    syncFrames(owner, [tab('a', 'https://a.test/'), tab('b'), tab('c'), tab('d')]);
+    const layer = frameLayerView(owner, { runtimeId: 'a', pageWidth: 390, pageHeight: 844 }, 'c', runtimeId => runtimeId === 'd' ? { width: 900, height: 700 } : null);
+    expect(layer.frames.map(frame => [frame.frameId, frame.place, frame.pageWidth, frame.src, frame.held, frame.heldWidth])).toEqual([
+      [frameIdOf('a'), 'panel', 390, 'https://a.test/', false, 1280], [frameIdOf('b'), '', 0, 'about:blank', false, 1280],
+      [frameIdOf('c'), 'mini', 0, 'about:blank', false, 1280], [frameIdOf('d'), '', 0, 'about:blank', true, 900]]);
   });
 });
 

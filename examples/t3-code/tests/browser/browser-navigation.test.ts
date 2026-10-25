@@ -7,7 +7,8 @@
 // when its list is not empty; both empty draw "No preview yet").
 import { describe, expect, it } from 'bun:test';
 import { browserHost, browserLocal, browserView } from '../../src/browser/browser-surface';
-import { navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
+import { browserKey, navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
+import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { browserHistory } from '../../src/browser/browser-history';
 import { discoveredServersEvent } from '../../src/browser/browser-targets';
 import { previewRuntimeTabId, type PreviewSessionSnapshot, type PreviewViewportSetting } from '../../src/browser/browser-state';
@@ -258,6 +259,28 @@ describe('the preview keys and ⇧⌘J', () => {
     ];
     expect(previewKeys(s.client).split(' ').sort()).toEqual(['Meta+-=zoom-out', 'Meta+0=reset-zoom', 'Meta+==zoom-in', 'Meta+Plus=zoom-in', 'Meta+l=focus-url', 'Meta+r=refresh']);
     expect(browserView(s.client, s.surface, Date.now()).keys).toBe(previewKeys(s.client));
+  });
+  it('a View chord over a shown page acts on the page when it holds the focus, else on the window', async () => {
+    const s = setup(), frameId = frameIdOf(s.runtimeId), asked: Obj[] = [];
+    const focus = { type: 'identifier', name: 'previewFocus' };
+    (s.client.config as Obj).keybindings = [{ command: 'preview.zoomIn', shortcut: { key: '=', modKey: true }, whenAst: focus }];
+    let focused = true;
+    useAutomationCalls({ evaluate: async (options: Obj) => { asked.push(options); return { result: focused }; } } as unknown as AutomationCalls);
+    try {
+      await browserKey(s.client, frameId, 'chord=meta+r');
+      expect(asked).toEqual([{ id: frameId, expression: 'document.hasFocus()', sandbox: 't3-preview-automation' }]);
+      await browserKey(s.client, `browser-frame-gone,${frameId}`, 'chord=meta%2B%3D&step=3');
+      expect(frameOf(s).zoom).toBe(1.1);
+      focused = false;
+      await browserKey(s.client, frameId, 'chord=meta+r');
+      await browserKey(s.client, frameId, 'chord=meta%2B%3D&step=3');
+      // ⌘- has no preview binding here: the page is not asked.
+      asked.length = 0;
+      await browserKey(s.client, frameId, 'chord=meta%2B-&step=1');
+      expect(asked).toEqual([]);
+    } finally { useAutomationCalls(null); }
+    expect(commands(s)).toEqual([{ kind: 'reload', url: '', delta: 0, flag: false }, { kind: 'window', url: '', delta: 0, flag: true },
+      { kind: 'window', url: '', delta: 3, flag: false }, { kind: 'window', url: '', delta: 1, flag: false }]);
   });
   it('closes a shown Browser panel, else shows the thread\'s tab without opening another', async () => {
     const s = setup();

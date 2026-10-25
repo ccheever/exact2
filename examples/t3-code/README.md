@@ -632,12 +632,17 @@ Differences that belong to the app:
   file chooser and a download's destination are the platform's panels, another app's scheme asks in Safari's words,
   fullscreen takes the screen, and camera, microphone, geolocation and clipboard reads are refused. Each profile is a
   `persist:` partition per environment and Incognito an in-memory one, and cookies cannot be imported from other
-  browsers (LLP 1020.002 D4). Floating a
-  tab, or putting it back in the panel, loads its page again at its URL: a frame lives in one place in the tree. A
-  hidden tab runs its timers but not its animations, so a recording or the separate window of one shows no motion.
-  With the page focused, ⌘R and the preview's other chords go to the window's menus, since a frame reports no focus
-  (a frame gaining focus fires nothing an app hears). An agent-held dialog is answered at once (OK for `alert`, Cancel for
-  `confirm` and `prompt`), and the console, network log and audible state are read from the page every few seconds
+  browsers (LLP 1020.002 D4). A profile's cookies from the module's old stores move into its partition once, and the
+  page reloads for them; its local storage, IndexedDB and cache stay behind, since WebKit reads none of them out of a
+  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
+  timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
+  the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
+  reports no focus); ⇧⌘R reloads the window, as the reference's menu does, and ⌘L does nothing. A page's dialog while
+  an agent request runs on its tab is answered at once (OK for `alert`, Cancel for `confirm` and `prompt`); one left
+  from an agent's run shows over the page as Chromium's tab-modal dialog and takes the person's answer. The console,
+  network log and media scripts go in as each document commits, so what a page logs before that is not kept
+  (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
+  from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
