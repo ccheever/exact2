@@ -2037,9 +2037,10 @@ An `iframe` marked `hatch="word"` hands `element.platform` its `WKWebView` on
 macOS and iOS, or the `PDFView` of a local PDF it shows, after the arm set its
 data store, preferences, delegates and content worlds; `changed` hands the new
 one when the arm replaces it (a new `partition`, a PDF to HTML). The arm owns
-`navigationDelegate`, `uiDelegate`, `pageZoom`, the appearance and a PDF view's
-`delegate`, and a development build names one the hatch changed (LLP 1020.002
-§9). The moment before construction, with the `WKWebViewConfiguration`, is not
+`navigationDelegate`, `uiDelegate`, `pageZoom`, the appearance, the user
+scripts of its content controller and a PDF view's `delegate`, and a
+development build names one the hatch changed (LLP 1020.002 §9); a script
+message handler a hatch adds is not detected. The moment before construction, with the `WKWebViewConfiguration`, is not
 built.
 
 **Linux, Windows and Android paint their own pixels**, so there is no platform

@@ -746,6 +746,9 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
             // there (the save panel asked; the agent named it), is replaced only
             // by a whole download, and kept when the download fails.
             let temp = target.deletingLastPathComponent().appendingPathComponent(".\(target.lastPathComponent).\(UUID().uuidString).download")
+            // A symbolic link to a directory on the way is followed: a person's
+            // save panel chose the place, and under the agent's
+            // `app:/tmp/downloads/` only the app can have made one.
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             item.path = target
             item.temp = temp

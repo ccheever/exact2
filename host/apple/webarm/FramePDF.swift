@@ -11,24 +11,34 @@ import UIKit
 #endif
 
 /// `PDFView` at its automatic scale times the frame's `zoom`, opened at a
-/// page once it has a size to scroll in.
+/// page once it has a size to scroll in. The scale is set only when `zoom`
+/// or the document changes, or at the first layout with a size: a person's
+/// own zoom then stands through later layouts, as in a `PDFView` of its own.
 final class ExactPDFView: PDFView {
     var zoom: CGFloat = 1 {
-        didSet { if zoom != oldValue { settle() } }
+        didSet { if zoom != oldValue { unsettled = true; settle() } }
     }
     /// The page `#page=N` asked for, until the view first lays out.
     var pendingPage: Int?
+    /// The scale waits for the view's first size.
+    var unsettled = true
+    /// `PDFView`'s own scale bounds, put back when `zoom` returns to 1.
+    private var bounds0: (min: CGFloat, max: CGFloat)?
 
     func settle() {
-        guard let document, bounds.width > 0, bounds.height > 0 else { return }
+        guard unsettled, let document, bounds.width > 0, bounds.height > 0 else { return }
+        unsettled = false
         if zoom == 1 {
-            if !autoScales { autoScales = true }
+            if let (low, high) = bounds0 { minScaleFactor = low; maxScaleFactor = high; bounds0 = nil }
+            autoScales = true
         } else {
-            if autoScales { autoScales = false }
+            if bounds0 == nil { bounds0 = (minScaleFactor, maxScaleFactor) }
+            autoScales = true
             let want = scaleFactorForSizeToFit * zoom
-            minScaleFactor = min(minScaleFactor, want)
-            maxScaleFactor = max(maxScaleFactor, want)
-            if want > 0, abs(scaleFactor - want) > 0.0001 { scaleFactor = want }
+            autoScales = false
+            minScaleFactor = min(bounds0!.min, want)
+            maxScaleFactor = max(bounds0!.max, want)
+            if want > 0 { scaleFactor = want }
         }
         if let index = pendingPage, let page = document.page(at: index) {
             pendingPage = nil
@@ -68,6 +78,7 @@ final class FramePDF: NSObject, PDFViewDelegate {
     func show(_ document: PDFDocument, page: Int?) {
         view.document = document
         view.pendingPage = page.map { max(0, min($0, document.pageCount - 1)) }
+        view.unsettled = true
         view.settle()
     }
 

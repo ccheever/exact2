@@ -313,6 +313,30 @@ final class IframeCaptureTests: XCTestCase {
         pause(0.2)
         XCTAssertTrue(view.autoScales)
 
+        // A person's own zoom stands through a later layout, as in a `PDFView`
+        // of its own; `zoom` back to 1 gives `PDFView` its own scale bounds.
+        let (low, high) = (view.minScaleFactor, view.maxScaleFactor)
+        view.zoomIn(nil)
+        view.zoomIn(nil)
+        let zoomed = view.scaleFactor
+        XCTAssertGreaterThan(zoomed, fit * 1.2, "the person zoomed in")
+        view.frame = CGRect(x: 0, y: 0, width: 420, height: 320)
+        #if os(macOS)
+        view.layoutSubtreeIfNeeded()
+        #else
+        view.layoutIfNeeded()
+        #endif
+        pause(0.2)
+        XCTAssertEqual(view.scaleFactor, zoomed, accuracy: 0.001, "a resize keeps the person's zoom")
+        XCTAssertFalse(view.autoScales)
+        json(["newwindow": true, "zoom": 3], arm.configure, handle)
+        pause(0.2)
+        json(["newwindow": true], arm.configure, handle)
+        pause(0.2)
+        XCTAssertTrue(view.autoScales)
+        XCTAssertEqual(view.minScaleFactor, low, accuracy: 0.001)
+        XCTAssertEqual(view.maxScaleFactor, high, accuracy: 0.001)
+
         // A link is the frame's: an http(s) one a `foreground-tab` for `newwindow=`.
         view.delegate?.pdfViewWillClick?(onLink: view, with: URL(string: "https://example.com/linked")!)
         XCTAssertEqual(seen.records.last?.event, "newwindow")
@@ -377,6 +401,7 @@ final class IframeCaptureTests: XCTestCase {
         dup2(pipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
         web.navigationDelegate = nil
         web.pageZoom = 2
+        web.configuration.userContentController.addUserScript(WKUserScript(source: "1", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         arm.checkOwned(handle)
         arm.checkOwned(handle)
         dup2(saved, STDERR_FILENO)
@@ -385,6 +410,7 @@ final class IframeCaptureTests: XCTestCase {
         let said = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         XCTAssert(said.contains("the app's hatch changed navigationDelegate, which the web arm owns"), said)
         XCTAssert(said.contains("changed pageZoom"), said)
+        XCTAssert(said.contains("changed the user scripts of the arm's content controller"), said)
         XCTAssertEqual(said.components(separatedBy: "navigationDelegate").count, 2, "said once: \(said)")
     }
     #endif

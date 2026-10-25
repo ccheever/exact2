@@ -111,6 +111,9 @@ enum FrameCaptures {
     static func write(_ image: CGImage, to file: URL) -> String? {
         guard let data = png(image) else { return "the PNG did not encode" }
         do {
+            // A symbolic link to a directory under the app's roots is followed:
+            // only the app can have made one there. `.atomic` renames over the
+            // file, so a link in the file's place is replaced, not followed.
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: file, options: .atomic)
             return nil

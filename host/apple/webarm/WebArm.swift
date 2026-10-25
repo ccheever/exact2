@@ -200,6 +200,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// What the arm owns that the app's hatch changed, each said once (§9).
     var ownedSaid = Set<String>()
     #endif
+    /// How many user scripts the arm put in the web view's content controller.
+    var ownScripts = 0
     /// A partitioned frame's name; its guest is a top-level page in that
     /// partition's data store, with no message bridge, no `exact-app` scheme
     /// and no script in the page's world (@ref LLP 1020.002 D1).
@@ -308,6 +310,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         #endif
         applied = []
         applyOptions(to: web)
+        ownScripts = controller.userScripts.count
         return web
     }
 
@@ -426,7 +429,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// The app's hatch has the web view or PDF view (@ref LLP 1020.002 §9):
     /// a development build says by name what it changed of what the arm owns,
-    /// as LLP 1133 D3 detects and does not enforce.
+    /// as LLP 1133 D3 detects and does not enforce. A script message handler
+    /// a hatch adds is not detected: WebKit lists no handlers.
     func checkOwned() {
         #if EXACT_DEVELOPMENT
         var changed: [String] = []
@@ -435,6 +439,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         } else if let web = built {
             if web.navigationDelegate !== self { changed.append("navigationDelegate") }
             if web.uiDelegate !== ui { changed.append("uiDelegate") }
+            if controller.userScripts.count != ownScripts { changed.append("the user scripts of the arm's content controller") }
             if abs(Double(web.pageZoom) - ((options["zoom"] as? NSNumber)?.doubleValue ?? 1)) > 0.001 { changed.append("pageZoom") }
             #if os(macOS)
             if web.appearance != nil { changed.append("appearance") }
