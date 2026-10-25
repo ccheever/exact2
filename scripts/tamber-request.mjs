@@ -112,7 +112,7 @@ export async function probeTool(origin, tries = 1) {
     // (Held while its design server starts: a dev loop's first compiler build.)
     const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json();
     return { answer: { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null } };
-  } catch (e) { return e?.name === 'TimeoutError' ? { wait: 'starting' } : { failed: true }; }
+  } catch (e) { return why(e); } // (refused now: it stopped listening between the two, a loop restarting)
 }
 
 /** `probe()` again every `everyMs` while it says `{wait}` (`tamber tool --via` while the dev loop starts, the design
@@ -123,13 +123,19 @@ export async function waitForAnswer(probe, { say, capMs, everyMs = 2000, now = D
   let said = null;
   try {
     for (const [signal, handler] of handlers) process.once(signal, handler);
-    for (;;) {
-      const got = await probe();
-      if (!got.wait) return got;
-      if (got.wait !== said) say((said = got.wait));
-      if (now() - start >= capMs) return { waited: now() - start };
-      await new Promise(done => setTimeout(done, everyMs));
-    }
+    // (The cap bounds a probe in flight too: a hello held 120 s ends the wait at the cap, not after it.)
+    let timer;
+    const capped = new Promise(done => { timer = setTimeout(() => done({ waited: now() - start }), Math.max(0, capMs)); });
+    try {
+      for (;;) {
+        const got = await Promise.race([probe(), capped]);
+        if (!got.wait) return got;
+        if (got.wait !== said) say((said = got.wait));
+        if (now() - start >= capMs) return { waited: now() - start };
+        const next = await Promise.race([new Promise(done => setTimeout(() => done(null), everyMs)), capped]);
+        if (next) return next;
+      }
+    } finally { clearTimeout(timer); }
   } finally {
     for (const [signal, handler] of handlers) process.off(signal, handler);
   }

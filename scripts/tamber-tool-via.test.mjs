@@ -15,7 +15,7 @@ toolTurns();
 const freePort = () => new Promise(done => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => done(port)); }); });
 const appDir = () => { const dir = mkdtempSync(join(tmpdir(), 'exact-tool-via-')); writeFileSync(join(dir, 'app.tamber'), '{}\n'); return dir; };
 // A dev loop's design server, as far as the tool's probe goes.
-const loop = (port, app) => Bun.serve({ port, hostname: '127.0.0.1', async fetch(req) {
+const loop = (port, app) => Bun.serve({ port, hostname: '127.0.0.1', idleTimeout: 0, async fetch(req) {
   const path = new URL(req.url).pathname;
   if (path === '/__tamber/token') return Response.json({ token: 't' });
   if (path === '/__tamber' && req.method === 'POST') return Response.json({ ok: { app, epoch: 'e1' } });
@@ -50,7 +50,8 @@ test('a loop whose design server is starting (its hello held) is waited for, the
   const app = appDir(), port = await freePort(), target = `http://127.0.0.1:${port}`;
   // (Held past the tool's 120 s hello timeout once, then answered.)
   let asked = 0;
-  const server = Bun.serve({ port, hostname: '127.0.0.1', async fetch(req) {
+  // (No idle timeout: Bun's default 10 s would reset the held hello before the tool's own 120 s.)
+  const server = Bun.serve({ port, hostname: '127.0.0.1', idleTimeout: 0, async fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/__tamber/token') return Response.json({ token: 't' });
     if (path === '/__tamber' && req.method === 'POST') { if (asked++ === 0) await Bun.sleep(125_000); return Response.json({ ok: { app, epoch: 'e1' } }); }
