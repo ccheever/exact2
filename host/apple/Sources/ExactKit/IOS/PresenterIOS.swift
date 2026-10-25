@@ -631,6 +631,8 @@ package final class Presenter {
     private var waiting: [(UInt32?, () -> Void)] = []
     /// Paragraphs whose presented colour a batch changed, painted as it ends.
     var presentedText: Set<UInt32> = []
+    /// Each painted popover's region not yet told the kernel, the latest, with the view it is for (`tellRegion`).
+    var regionsUntold: [UInt32: (view: ObjectIdentifier?, block: HostBlock?)] = [:]
     /// Paragraphs whose words the batch being applied changed (`paintChangedText`)
     var changedText: Set<UInt32> = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {

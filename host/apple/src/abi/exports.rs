@@ -986,6 +986,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.covers(len), |n| n)
         }
 
+        /// A trial layout of a block's root (`Bridge::measure_block`): its border
+        /// box and margins, six LE f32s, in the output buffer; 0 when refused.
+        /// No batch.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_block(rt: u32, view: u32, width: f32, height: f32, width_policy: u32, height_policy: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_block(view, [width, height], [width_policy, height_policy]), |_| 0)
+        }
+
         /// Common LE collection feedback from the input buffer; returns batch length.
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {
