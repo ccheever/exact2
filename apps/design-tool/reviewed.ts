@@ -6,12 +6,17 @@
 // knowingly.
 type Files = Record<string, string>;
 const pins = new Map<string, Files>();
+let asked = 0;
 
 export const reviewed = {
-  /** The draft `key`'s pinned digests, pinned now to `files` if it has none (and every other draft's dropped). */
-  pin(key: string, files: Files): Files {
-    if (!pins.has(key)) { pins.clear(); pins.set(key, files); }
-    return pins.get(key)!;
+  /** A proposal asked: its ticket. Only the latest asked may pin, so a slow answer for a value since replaced (or a
+   * draft since put away) neither drops the open draft's pin nor brings its own back. */
+  ask: (): number => ++asked,
+  /** The draft `key`'s pinned digests, pinned now to `files` if it has none (and every other draft's dropped), when
+   * `ticket` is the latest proposal asked; else what it has, pinning nothing. */
+  pin(key: string, files: Files, ticket = asked): Files {
+    if (ticket === asked && !pins.has(key)) { pins.clear(); pins.set(key, files); }
+    return pins.get(key) ?? files;
   },
   get: (key: string): Files | undefined => pins.get(key),
   /** After a refusal: the files as the server has them now, the next Apply's. */
