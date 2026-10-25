@@ -60,8 +60,7 @@ function whose(out) {
   return names[0][0];
 }
 const waitFor = async path => { for (let i = 0; !existsSync(path); i++) { if (i > 3000) throw new Error(`${path} never came`); await Bun.sleep(10); } };
-// The lock file stays (build-lock.mjs): nothing else beside the cache.
-const leftovers = cache => readdirSync(join(cache, '..')).filter(name => name !== 'app' && name !== 'app.lock').sort();
+const leftovers = cache => readdirSync(join(cache, '..')).filter(name => name !== 'app').sort();
 
 test('two loops at once, one held before its rename, each copy a complete cache', async () => {
   const { cache } = setup(), hold = join(dir, 'hold');
@@ -147,7 +146,7 @@ test('a build killed between its renames leaves the cache it replaced, put back 
   expect(whose(warm.out)).toBe('p');
 }, 60_000);
 
-test('waiters take the lock one at a time, wait for a live holder, and take it when that holder is killed', async () => {
+test('waiters take the lock one at a time, wait for a live holder of either kind, and take it from one killed', async () => {
   dir = mkdtempSync(join(tmpdir(), 'exact-gpu-cache-'));
   const lock = join(dir, 'app.lock'), inside = join(dir, 'inside');
   writeFileSync(join(dir, 'waiter.mjs'), `
@@ -177,6 +176,15 @@ withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)
     writeFileSync(join(dir, 'go'), '');
     for (const ran of await Promise.all(waiters)) expect(ran).toEqual({ code: 0, said: '' });
   }
+  expect(existsSync(lock)).toBe(false);
+  // A file lock's live holder (a checkout without the flock, or the fallback: this process's pid, no flock) is waited for.
+  writeFileSync(lock, String(process.pid));
+  writeFileSync(join(dir, 'go'), '');
+  const behind = waiter();
+  await Bun.sleep(1500);
+  expect(behind.child.exitCode).toBe(null);
+  rmSync(lock);
+  expect(await behind.exited).toEqual({ code: 0, said: '' });
   const holder = waiter('hold');
   await waitFor(join(dir, 'holding'));
   const next = waiter();
