@@ -175,7 +175,7 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     if (rng() < (channel === 'random' ? 0.65 : 0.08)) msg.attachments.push(attachment(imageNumber++));
     // Some of #random's photos come in twos, threes and fours, which the transcript tiles.
     if (channel === 'random' && msg.attachments.length && i % 9 === 4) {
-      for (let extra = 1 + i % 3; extra > 0; extra--) msg.attachments.push(attachment(imageNumber++));
+      for (let extra = 1 + Math.floor(i / 9) % 3; extra > 0; extra--) msg.attachments.push(attachment(imageNumber++));
     }
     if (channel === 'announcements' || i % 47 === 0) {
       msg.author = members[13 + i % 2];

@@ -54,12 +54,13 @@ shape Media
   spoiler: bool
 
 // A file attached to a message that is not a picture: its name, its size as
-// shown ("3.1 MB") and where it downloads from.
+// shown ("3.1 MB") and where it downloads from; a spoiler's waits to be revealed.
 shape FileRef
   id: string
   name: string
   size: string
   url: string
+  spoiler: bool
 
 shape Embed
   id: string

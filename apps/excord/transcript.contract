@@ -101,21 +101,31 @@ component MessageRow
                   text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
               for b in m.blocks key=b.id
                 BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
-              // Two pictures or more tile, as Discord lays them out: two or four in two columns, others in three.
-              if m.media.length > 1
+              // Two pictures or more tile, as Discord lays them out: two or four in two columns, three as one tall
+              // and two beside it, more in three columns.
+              if m.media.length == 3
+                // Three: the first tall beside the other two, stacked.
+                view display="grid" grid-template-columns="2fr 1fr" grid-template-rows="1fr 1fr" aspect-ratio="3 / 2" gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                  for i, n in m.media key=i.id
+                    TileView(i=i, mkey=m.key, square=false, tall=(n == 0), revealed=revealed, reveal=reveal, show=show)
+              else if m.media.length > 1
                 view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
                   for i in m.media key=i.id
-                    TileView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+                    TileView(i=i, mkey=m.key, square=true, tall=false, revealed=revealed, reveal=reveal, show=show)
               else
                 for i in m.media key=i.id
                   MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
               for f in m.files key=f.id
-                link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
-                  row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
-                    image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
-                    column flex=1 min-width=0
-                      text f.name color="AccentColor" font-weight=500 line-clamp=1
-                      text f.size font="-exact-caption1" color="-exact-secondary-label"
+                if f.spoiler and not revealed.includes(`${m.key}:${f.id}`)
+                  button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
+                    text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+                else
+                  link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
+                    row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
+                      image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
+                      column flex=1 min-width=0
+                        text f.name color="AccentColor" font-weight=500 line-clamp=1
+                        text f.size font="-exact-caption1" color="-exact-secondary-label"
               for e in m.embeds key=e.id
                 EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
               if m.reactions.length > 0
@@ -312,16 +322,18 @@ component MediaView
         button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
           image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`
 
-// A picture in a mosaic: a square of it, cropped to fill.
+// A picture in a mosaic, cropped to fill its cell: a square, or the grid's cell (`tall` spans its rows).
 component TileView
   props
     i: Media
     mkey: string
+    square: bool
+    tall: bool
     revealed: string[]
     reveal: action
     show: action
   view
-    view position="relative" aspect-ratio="1 / 1" overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
+    view position="relative" aspect-ratio=(square ? "1 / 1" : "auto") grid-row=(tall ? "1 / 3" : "auto") overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
       if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
         image i.src width="100%" height="100%" object-fit="cover" aria-hidden=true
         button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
