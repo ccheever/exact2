@@ -196,9 +196,9 @@ test('the JS loop: a value-only design edit while the design reader builds waits
   writeFileSync(join(dir, 'app.tamber'), design('#f1f3f5'));
   let loop = null;
   try {
-    // The reader's first build ends 30 s late (as on a loaded machine, or after any other edit): the app's first
-    // build is ready well before it.
-    loop = await devLoop(dir, { EXACT_DEV_READER_HOLD_MS: '30000' });
+    // The reader's first build is taken 3 minutes after cargo ends (a reader building again after any other edit, on
+    // a loaded machine): the app's first build is ready well before it.
+    loop = await devLoop(dir, { EXACT_DEV_READER_HOLD_MS: '180000' });
     const { said } = loop;
     const count = (re) => (said().match(re) ?? []).length;
     const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
@@ -206,11 +206,17 @@ test('the JS loop: a value-only design edit while the design reader builds waits
     if (said().includes('design reader ready')) throw new Error(`the reader was ready before the first build; the hold is too short: ${said().slice(-1500)}`);
     writeFileSync(join(dir, 'app.tamber'), design('#e0f7e9'));
     await until(() => said().includes('edit → waiting for the design reader'), 60_000);
+    // Nothing builds while it waits.
+    expect(count(/edit → building/g)).toBe(0);
+    await until(() => said().includes('design reader ready'), 400_000);
     await until(() => count(/edit → batch ready/g) >= 1, 120_000);
-    // The edit's batch came after the reader, and no full build took it: the one build after it checks the batch.
+    // The edit's batch came after the reader, then the one build that checks it, and no other.
     expect(said().indexOf('design reader ready')).toBeLessThan(said().indexOf('edit → batch ready'));
-    expect(count(/edit → building(?! \(checking the batch\))/g)).toBe(0);
+    await until(() => count(/edit → checked/g) >= 1, 300_000);
+    expect(count(/edit → building \(checking the batch\)/g)).toBe(1);
+    expect(count(/edit → building/g)).toBe(1);
     expect(count(/edit → plan ready/g)).toBe(0);
+    expect(JSON.stringify(await (await fetch(`${loop.base}/__dev/design`)).json())).toContain('e0f7e9');
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
