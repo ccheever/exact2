@@ -856,3 +856,558 @@ pub(super) mod extraction {
         assert_eq!(task(runner, "composerFieldRestoreFocus"), None);
     }
 }
+
+#[derive(Clone, Copy)]
+struct PlacementCase {
+    name: &'static str,
+    target: Option<f64>,
+    row: Option<f64>,
+    port: (f64, f64),
+    tries: f64,
+    miss: f64,
+    smooth: bool,
+    reduced: bool,
+    scroll: Option<(&'static str, f64)>,
+    next_tries: f64,
+    next_miss: f64,
+    next_smooth: bool,
+    settled: bool,
+}
+
+thread_local! {
+    static PLACEMENT_GEOMETRY: std::cell::RefCell<(Vec<u32>, [exact_runner::geometry::GeometryAnswer; 3])> =
+        Default::default();
+}
+
+fn placement_frame(
+    _: &exact_kernel::Kernel,
+    _: &exact_runner::geometry::Scrolled,
+    view: u32,
+) -> exact_runner::geometry::GeometryAnswer {
+    PLACEMENT_GEOMETRY.with(|state| {
+        let mut state = state.borrow_mut();
+        state.0.push(view);
+        state.1[view as usize - 1]
+    })
+}
+
+fn placement_slot(
+    plan: &Plan,
+    original: bool,
+    citation: bool,
+    field: &str,
+) -> (usize, Option<usize>) {
+    let flat = match (citation, field) {
+        (true, "key") => "citeKey",
+        (true, "nonce") => "citeNonce",
+        (true, "done") => "citeDone",
+        (true, "tries") => "citeTries",
+        (true, "smooth") => "citeSmooth",
+        (true, "miss") => "citeMiss",
+        (false, "tries") => "findTries",
+        (false, "miss") => "findMiss",
+        (false, "placing") => "findPlacing",
+        _ => panic!("unknown placement field"),
+    };
+    let name = if original {
+        flat
+    } else if citation {
+        "citationPlacement"
+    } else {
+        "findPlacement"
+    };
+    let (index, slot) = plan
+        .slots
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| slot.owner.is_none() && plan.str(slot.name) == name)
+        .expect("placement root slot");
+    (
+        index,
+        (!original).then(|| {
+            plan.field_index(slot.ty, field)
+                .expect("placement record field")
+        }),
+    )
+}
+
+fn placement_assign(
+    plan: &Plan,
+    slots: &mut [Value],
+    original: bool,
+    citation: bool,
+    field: &str,
+    value: Value,
+) {
+    let (index, member) = placement_slot(plan, original, citation, field);
+    if let Some(member) = member {
+        let Value::Record(fields) = &slots[index] else {
+            panic!("placement record")
+        };
+        let mut fields = fields.to_vec();
+        fields[member] = value;
+        slots[index] = Value::record(fields);
+    } else {
+        slots[index] = value;
+    }
+}
+
+fn placement_case(plan: &Plan, original: bool, citation: bool, case: PlacementCase) {
+    use exact_kernel::{Kernel, NodeType, Op, PropId};
+    use exact_runner::geometry::{GeometryAnswer, GeometryEnv, GeometryLinks, Scrolled};
+    use exact_runner::held::Held;
+    use exact_runner::vm::{self, Env, Strings};
+
+    let key = "fixture-entry";
+    let mut slots: Vec<_> = plan.slots.iter().map(|slot| empty(plan, slot.ty)).collect();
+    let initial = if citation {
+        vec![
+            ("key", Value::str(key)),
+            ("nonce", Value::Number(7.0)),
+            ("done", Value::Number(3.0)),
+            ("tries", Value::Number(case.tries)),
+            ("smooth", Value::Bool(case.smooth)),
+            ("miss", Value::Number(case.miss)),
+        ]
+    } else {
+        vec![
+            ("tries", Value::Number(case.tries)),
+            ("miss", Value::Number(case.miss)),
+            ("placing", Value::Bool(true)),
+        ]
+    };
+    for (field, value) in &initial {
+        placement_assign(plan, &mut slots, original, citation, field, value.clone());
+    }
+    let mut resources: Vec<_> = plan
+        .resources
+        .iter()
+        .map(|row| Some(Held::new(empty(plan, row.ty))))
+        .collect();
+    for (name, field, value) in [
+        (
+            "viewport",
+            "prefersReducedMotion",
+            Value::Bool(case.reduced),
+        ),
+        ("threadFind", "entry", Value::str(key)),
+    ] {
+        let (index, row) = plan
+            .resources
+            .iter()
+            .enumerate()
+            .find(|(_, row)| plan.str(row.name) == name)
+            .expect("placement resource");
+        let mut record = empty(plan, row.ty);
+        set(plan, row.ty, &mut record, &[field], value);
+        resources[index] = Some(Held::new(record));
+    }
+
+    let mut kernel = Kernel::with_monospace();
+    let mut ops = Vec::new();
+    for (index, id) in [
+        if citation {
+            format!("cite-{key}")
+        } else {
+            "thread-find-active".to_owned()
+        },
+        format!("row-{key}"),
+        "transcript".to_owned(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let view = index as u32 + 1;
+        ops.push(Op::CreateView {
+            id: view,
+            node_type: NodeType::View,
+        });
+        ops.push(Op::SetProp {
+            id: view,
+            prop: PropId::Id,
+            value: id.into(),
+        });
+    }
+    kernel.apply(0, 1, &ops).unwrap();
+    let answer = |y: Option<f64>| {
+        y.map_or(GeometryAnswer::UNAVAILABLE, |y| GeometryAnswer {
+            y,
+            width: 600.0,
+            height: 100.0,
+            ..Default::default()
+        })
+    };
+    PLACEMENT_GEOMETRY.with(|state| {
+        *state.borrow_mut() = (
+            vec![],
+            [
+                answer(case.target),
+                answer(case.row),
+                GeometryAnswer {
+                    y: case.port.0,
+                    height: case.port.1,
+                    width: 600.0,
+                    ..Default::default()
+                },
+            ],
+        )
+    });
+    static LINKS: GeometryLinks = GeometryLinks::new(
+        placement_frame,
+        |kernel, scrolled, view| placement_frame(kernel, scrolled, view),
+        |_, _, _, _| None,
+        |_, _, _, _| vec![],
+        |_, _, _, _| true,
+    );
+    let scrolled = Scrolled::default();
+    let geometry = GeometryEnv::new(&kernel, &scrolled, &LINKS, &[]);
+    let strings = Strings::new(plan);
+    let derives = vec![None; plan.derives.len()];
+    let pending_resources = vec![false; plan.resources.len()];
+    let failed_resources = vec![None; plan.resources.len()];
+    let failed_why = vec![None; plan.resources.len()];
+    let pending_mutations = vec![false; plan.mutations.len()];
+    let failed_mutations = vec![None; plan.mutations.len()];
+    let env = Env {
+        plan,
+        strings: &strings,
+        router: None,
+        lists: None,
+        format: None,
+        geometry: Some(&geometry),
+        slots: &slots,
+        derives: &derives,
+        resources: &resources,
+        params: &[],
+        frames: &[],
+        now_ms: 0.0,
+        pending_resources: &pending_resources,
+        failed_resources: &failed_resources,
+        failed_why: &failed_why,
+        pending_mutations: &pending_mutations,
+        failed_mutations: &failed_mutations,
+        store_dependent_derives: &[],
+        store_dependent_resources: &[],
+    };
+    let name = if citation { "citePlace" } else { "findPlace" };
+    let action = plan
+        .actions
+        .iter()
+        .find(|action| plan.str(action.name) == name)
+        .expect("compiled placement action");
+    assert_eq!(action.params.len, 0);
+    let allowed: Vec<_> = action.writes.iter().map(|id| plan.write(id).slot).collect();
+    let outcome = vm::eval(plan.code(action.body), &env, &allowed)
+        .unwrap_or_else(|error| panic!("{} original={original}: {error:?}", case.name));
+    PLACEMENT_GEOMETRY.with(|state| assert_eq!(state.borrow().0, [1, 2, 3], "{}", case.name));
+    let expected_commands = case.scroll.map_or_else(Vec::new, |(behavior, offset)| {
+        vec![(
+            "scrollIntoView".to_owned(),
+            vec![
+                Value::str("transcript"),
+                Value::str(key),
+                Value::NONE,
+                Value::NONE,
+                Value::str(behavior),
+                Value::NONE,
+                Value::Number(offset),
+            ],
+        )]
+    });
+    assert_eq!(
+        outcome.commands, expected_commands,
+        "{} original={original}",
+        case.name
+    );
+    assert!(
+        outcome.sends.is_empty() && outcome.refreshes.is_empty() && outcome.row_writes.is_empty()
+    );
+    assert_eq!(outcome.value, Value::Unit);
+    let expected_names = if !original {
+        vec![if citation {
+            "citationPlacement"
+        } else {
+            "findPlacement"
+        }]
+    } else if case.target.is_none() || case.row.is_none() {
+        vec![if citation { "citeTries" } else { "findTries" }]
+    } else if case.settled {
+        vec![if citation { "citeDone" } else { "findPlacing" }]
+    } else if citation && case.next_smooth {
+        vec!["citeSmooth", "citeMiss", "citeTries"]
+    } else if citation {
+        vec!["citeMiss", "citeTries"]
+    } else {
+        vec!["findMiss", "findTries"]
+    };
+    let mut actual_names: Vec<_> = outcome
+        .writes
+        .iter()
+        .map(|(index, _)| plan.str(plan.slots[*index as usize].name))
+        .collect();
+    let mut expected_names = expected_names;
+    actual_names.sort_unstable();
+    expected_names.sort_unstable();
+    assert_eq!(
+        actual_names, expected_names,
+        "{} original={original}",
+        case.name
+    );
+    let mut expected_slots = slots.clone();
+    placement_assign(
+        plan,
+        &mut expected_slots,
+        original,
+        citation,
+        "tries",
+        Value::Number(case.next_tries),
+    );
+    placement_assign(
+        plan,
+        &mut expected_slots,
+        original,
+        citation,
+        "miss",
+        Value::Number(case.next_miss),
+    );
+    if citation {
+        placement_assign(
+            plan,
+            &mut expected_slots,
+            original,
+            true,
+            "smooth",
+            Value::Bool(case.next_smooth),
+        );
+        placement_assign(
+            plan,
+            &mut expected_slots,
+            original,
+            true,
+            "done",
+            Value::Number(if case.settled { 7.0 } else { 3.0 }),
+        );
+    } else {
+        placement_assign(
+            plan,
+            &mut expected_slots,
+            original,
+            false,
+            "placing",
+            Value::Bool(!case.settled),
+        );
+    }
+    let mut actual_slots = slots;
+    for (index, value) in outcome.writes {
+        actual_slots[index as usize] = value;
+    }
+    assert_eq!(
+        actual_slots, expected_slots,
+        "{} original={original}",
+        case.name
+    );
+}
+
+#[test]
+fn extraction_placement_citation_geometry_and_retries() {
+    let base = PlacementCase {
+        name: "first smooth",
+        target: Some(430.0),
+        row: Some(400.0),
+        port: (50.0, 600.0),
+        tries: 0.0,
+        miss: 1_000_000.0,
+        smooth: false,
+        reduced: false,
+        scroll: Some(("smooth", -88.0)),
+        next_tries: 1.0,
+        next_miss: 262.0,
+        next_smooth: true,
+        settled: false,
+    };
+    let cases = [
+        base,
+        PlacementCase {
+            name: "missing target",
+            target: None,
+            smooth: true,
+            scroll: Some(("instant", -120.0)),
+            next_miss: base.miss,
+            ..base
+        },
+        PlacementCase {
+            name: "missing row",
+            row: None,
+            smooth: true,
+            scroll: Some(("instant", -120.0)),
+            next_miss: base.miss,
+            ..base
+        },
+        PlacementCase {
+            name: "reduced motion",
+            reduced: true,
+            scroll: Some(("instant", -88.0)),
+            next_smooth: false,
+            ..base
+        },
+        PlacementCase {
+            name: "retry",
+            tries: 1.0,
+            scroll: Some(("instant", -88.0)),
+            next_tries: 2.0,
+            next_smooth: false,
+            ..base
+        },
+        PlacementCase {
+            name: "short port",
+            port: (0.0, 300.0),
+            target: Some(700.0),
+            row: Some(700.0),
+            scroll: Some(("smooth", -98.0)),
+            next_miss: 602.0,
+            ..base
+        },
+        PlacementCase {
+            name: "positive tolerance",
+            target: Some(169.0),
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: base.miss,
+            next_smooth: false,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "negative tolerance",
+            target: Some(167.0),
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: base.miss,
+            next_smooth: false,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "unchanged miss",
+            miss: 262.0,
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: 262.0,
+            next_smooth: false,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "half point",
+            miss: 262.5,
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: 262.5,
+            next_smooth: false,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "over half point",
+            miss: 262.5001,
+            ..base
+        },
+    ];
+    for (bytes, original) in extraction_plans() {
+        let plan = Plan::decode(bytes).unwrap();
+        for case in cases {
+            placement_case(&plan, original, true, case);
+        }
+    }
+}
+
+#[test]
+fn extraction_placement_find_geometry_and_retries() {
+    let base = PlacementCase {
+        name: "find offset",
+        target: Some(430.0),
+        row: Some(400.0),
+        port: (50.0, 600.0),
+        tries: 0.0,
+        miss: 1_000_000.0,
+        smooth: false,
+        reduced: false,
+        scroll: Some(("instant", -66.0)),
+        next_tries: 1.0,
+        next_miss: 284.0,
+        next_smooth: false,
+        settled: false,
+    };
+    let cases = [
+        base,
+        PlacementCase {
+            name: "missing target",
+            target: None,
+            scroll: None,
+            next_miss: base.miss,
+            ..base
+        },
+        PlacementCase {
+            name: "missing row",
+            row: None,
+            scroll: None,
+            next_miss: base.miss,
+            ..base
+        },
+        PlacementCase {
+            name: "negative miss",
+            target: Some(100.0),
+            row: Some(130.0),
+            scroll: Some(("instant", -126.0)),
+            next_miss: -46.0,
+            ..base
+        },
+        PlacementCase {
+            name: "positive tolerance",
+            target: Some(147.0),
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: base.miss,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "negative tolerance",
+            target: Some(145.0),
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: base.miss,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "unchanged miss",
+            miss: 284.0,
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: 284.0,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "half point",
+            miss: 284.5,
+            scroll: None,
+            next_tries: 0.0,
+            next_miss: 284.5,
+            settled: true,
+            ..base
+        },
+        PlacementCase {
+            name: "over half point",
+            miss: 284.5001,
+            ..base
+        },
+    ];
+    for (bytes, original) in extraction_plans() {
+        let plan = Plan::decode(bytes).unwrap();
+        for case in cases {
+            placement_case(&plan, original, false, case);
+        }
+    }
+}
