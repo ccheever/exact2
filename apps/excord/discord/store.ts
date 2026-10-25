@@ -462,10 +462,12 @@ function unreadSignature(s: Store, id: string): string {
   return `${state.unread}:${state.mentionCount}`;
 }
 
-function setRead(s: Store, id: string, lastReadId: string | null | undefined, mentionCount: number | undefined, c: Changes): void {
+function setRead(s: Store, id: string, lastReadId: string | number | null | undefined, mentionCount: number | undefined, c: Changes): void {
   const before = unreadSignature(s, id);
   const previous = s.readStates.get(id);
-  const next = { lastReadId: lastReadId === undefined ? previous?.lastReadId ?? null : lastReadId,
+  // An id, which a read state may give as the number 0 (nothing read): kept as a string, as every id is.
+  const read = lastReadId === undefined || lastReadId === null ? lastReadId : String(lastReadId);
+  const next = { lastReadId: read === undefined ? previous?.lastReadId ?? null : read,
     mentionCount: mentionCount ?? previous?.mentionCount ?? 0 };
   if (previous?.lastReadId === next.lastReadId && previous.mentionCount === next.mentionCount) return;
   s.readStates.set(id, next);

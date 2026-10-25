@@ -180,7 +180,9 @@ component Excord
   derive pageTitle = locked ? "Excord" : `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) or dmUnread ? "• " : ""}Excord${reading and chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
   resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
-  derive channels = categories.map(g => g.channels).flat()
+  // The server's channels, never another's: a load that failed keeps the last server's answer.
+  derive here = categories.filter(g => g.channels.map(c => c.guild).includes(guild.id))
+  derive channels = here.map(g => g.channels).flat()
   // A browser window wide enough to show the channel beside the list (the web's split, from 900
   // points) opens the server's last channel, or its first, as Discord's web app does. The Mac's split
   // gives the list its own column's width, and Windows and Android push, so they show the list first.
@@ -421,6 +423,8 @@ component Excord
     nav = top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
   action toggleFolder(id: string)
     openFolders = openFolders.includes(id) ? openFolders.filter(f => f != id) : openFolders.concat([id])
+  action retryChannels
+    refresh categories
   action pickServer(v: string)
     server = v
     pendingOpen = ""
@@ -1033,7 +1037,14 @@ component Excord
                             Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
                           image "symbol:forward-chevron"
                 else
-                  for g in categories key=g.id
+                  if failed(categories)
+                    section
+                      button press=retryChannels testId="channels-retry"
+                        row gap=8 align-items="center" flex=1 min-width=0
+                          image "symbol:alert" color="-exact-system-orange"
+                          text "Couldn't load this server's channels." flex=1 min-width=0
+                          text "Try Again" color="AccentColor"
+                  for g in here key=g.id
                     if g.name == ""
                       section
                         for c in g.channels key=c.id
