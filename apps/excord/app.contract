@@ -184,10 +184,10 @@ component Excord
   // A send shows at once (`echoed`, the local row), then posts (`sent`).
   mutation echoed as shape Sent queue refreshes win, chan then postEchoed
   mutation sent as shape Ack queue refreshes win, chan, categories
-  mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds
+  mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds, rail
   mutation edited as shape Ack refreshes win then afterEdit
   // An ack changes the read state, not the history the window shows.
-  mutation acked as shape Ack queue refreshes chan, categories, dms, guilds then afterAck
+  mutation acked as shape Ack queue refreshes chan, categories, dms, guilds, rail then afterAck
   // The page the window names (`win.need`), one at a time.
   mutation paged as shape Ack queue refreshes win, chan then afterPage
   mutation beat as shape Ack
@@ -200,7 +200,7 @@ component Excord
   mutation joined as shape Ack
   // A token kept re-asks the session and the gateway, which then connects with it.
   mutation signedIn as shape Ack refreshes session, gateway then afterSignIn
-  mutation signedOut as shape Ack refreshes session, gateway, guilds, categories, dms, chan, win
+  mutation signedOut as shape Ack refreshes session, gateway, guilds, rail, categories, dms, chan, win
   // The launch's unlock reads the token behind the check; a return's check
   // gates the screen, the token being in memory already. Turning the lock on
   // asks first, as WhatsApp does, then keeps the token locked.

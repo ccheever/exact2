@@ -14,6 +14,8 @@ test('a folder carries its id, name and colour; a guild in none is a folder of o
   const proto = settingsProto([{ ids: ['30'] }, { ids: ['10', big], id: 77, name: 'Work ⚙️', color: 0x5865f2 }]);
   expect(guildFolders(proto)).toEqual([{ id: '', name: '', color: null, guildIds: ['30'] },
     { id: '77', name: 'Work ⚙️', color: 0x5865f2, guildIds: ['10', big] }]);
+  // A wrapper with nothing in it holds zero: folder 0, black.
+  expect(guildFolders(settingsProto([{ ids: ['10', '20'], id: 0, color: 0 }]))).toEqual([{ id: '0', name: '', color: 0, guildIds: ['10', '20'] }]);
 });
 
 test('settings without folders say nothing about the order', () => {
