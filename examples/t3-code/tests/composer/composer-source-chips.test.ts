@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { cancelFreshCitation, composerCharacterDeletion, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { cancelFreshCitation, composerCharacterDeletion, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips } from '../../src/composer/composer-source-chips';
 import { ComposerSourceSession } from '../../src/composer/composer-source-session';
 import { citationsToPlainText, expandCitations } from '../../src/composer/composer-editor-menu';
 import { citationOfLink } from '../../src/timeline/citation-comment';
@@ -37,18 +37,21 @@ describe('composer source chips and active triggers', () => {
     expect(composerChips(source).map(chip => [chip.kind, chip.label])).toEqual([['context', 'see $tool and @file '], ['mention', 'a b.ts']]);
     expect(composerChips('[web](https://example.com) [a.ts](other.ts) ')).toEqual([]);
   });
-  test('completed atoms survive adjacent edits and delimiter deletion while touched source is reparsed', () => {
-    const source = '😀 $deploy $deploy ', original = composerChips(source), withoutSpace = source.slice(0, -1);
-    const carried = reconcileComposerChips(source, withoutSpace, original);
-    expect(carried).toEqual(original);
-    const shifted = reconcileComposerChips(withoutSpace, 'x' + withoutSpace, carried);
-    expect(shifted.map(chip => chip.start)).toEqual(original.map(chip => chip.start + 1));
-    expect(shifted.map(chip => ('x' + withoutSpace).slice(chip.start, chip.end))).toEqual(['$deploy', '$deploy']);
-    const last = shifted.at(-1);
-    if (!last) throw new Error('second occurrence must retain its own source range');
-    const changed = ('x' + withoutSpace).slice(0, last.start + 3) + '☃' + ('x' + withoutSpace).slice(last.start + 4);
-    expect(reconcileComposerChips('x' + withoutSpace, changed, shifted).map(chip => chip.start)).toEqual([shifted[0]?.start]);
-    expect(reconcileComposerChips(source, '$new ', original).map(chip => chip.label)).toEqual(['new']);
+  test('a reference is its source: an edit that takes its delimiter or lengthens it leaves text, as the editor\'s atom does', () => {
+    const session = new ComposerSourceSession(), value = 'Look at @README.md later';
+    session.observe('o', value);
+    expect(session.chips.map(chip => [chip.kind, chip.start, chip.end])).toEqual([['mention', 8, 18]]);
+    // The space before `later` deleted: the editor shows `@README.mdlater` as text, so no chip holds the caret or a paste.
+    const joined = 'Look at @README.mdlater';
+    session.observe('o', joined, 'deleteContentBackward');
+    expect(session.chips).toEqual([]);
+    const paste = session.input('o', joined, { start: 12, end: 12 }, 'XYZ', true);
+    expect(paste.kind === 'edit' && paste.edit).toMatchObject({ start: 12, end: 12, text: 'XYZ' });
+    // A character typed right after the mention makes a new source, text until something names it.
+    session.observe('o', 'Look at @README.mdx later', 'insertText');
+    expect(session.chips.map(chip => chip.source)).toEqual(['@README.mdx']);
+    session.observe('o', '😀 $deploy $deploy', 'deleteContentBackward');
+    expect(session.chips.map(chip => chip.source)).toEqual(['$deploy']);
   });
   test('source content admits references and retains repeated payloads', () => {
     const context = '[Thread](t3-context://v1/thread/thread_one)', image = '![image](t3-context://v1/image/image_one)';
@@ -74,9 +77,7 @@ describe('composer source chips and active triggers', () => {
       { ...tail, start: tail.start - 1, source: '\n' + tail.source },
     ];
     expect(composerChipsInBlocks(value, parsed.blocks, [...candidates, ...invalid]).map(chip => chip.source)).toEqual(['$heading', '$tail']);
-    const completed = composerChips('$deploy '), carried = reconcileComposerChips('$deploy ', '$deploy', completed);
     expect(composerChips('$deploy')).toEqual([]);
-    expect(composerChipsInBlocks('$deploy', composerMarkdown('$deploy').blocks, carried)).toEqual(completed);
   });
   test('commands open only at the line start; code and chip interiors suppress suggestions', () => {
     expect(composerTrigger('line\n/plan', 10)).toMatchObject({ kind: 'slash-command', query: 'plan', start: 5 });

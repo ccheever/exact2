@@ -1,5 +1,7 @@
 import {describe, expect, test} from 'bun:test';
-import {contractComponent, type Env} from '../support/contract-action-fixture';
+import {contractComponent, contractFns, type Env} from '../support/contract-action-fixture';
+import {readFileSync} from 'node:fs';
+import {appPath} from '../support/app-files';
 import {serializeAssistantCitation} from '../../src/timeline/diff-citations';
 
 const root = contractComponent('app.contract', 'T3Code');
@@ -123,5 +125,64 @@ describe('ordinary code-language control retains the current source owner', () =
     for (const patch of [{richComposer: {mode: 'plain'}}, {composerRichCurrent: false}, {composerComposing: true}]) {
       const f = fixture(); Object.assign(f.scope, patch); f.pick(); expect(f.focus).toEqual([]); expect(f.calls).toEqual([]);
     }
+  });
+});
+
+describe('a chip\'s face is its pill', () => {
+  const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face}) as {
+    composerAtomFace: (chip: Env) => Env; composerAtomSymbol: (icon: string) => string;
+  };
+  const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
+    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ...patch});
+  test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
+    expect(fns.composerAtomFace({source: '@README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc', title: 'README.md'});
+    expect(fns.composerAtomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
+      .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: ''});
+    // A citation's tooltip says how its comment opens; the preview's citation has no comment.
+    expect(fns.composerAtomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
+      .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment'});
+  });
+  test('each glyph the faces use has an SF Symbol, and an unknown one the dashed circle', () => {
+    const symbols = Object.fromEntries(['at-sign', 'file', 'folder', 'sparkles', 'film', 'quote', 'image', 'messages-square', 'square-terminal',
+      'message-circle', 'mouse-pointer-2', 'git-merge', 'git-pull-request', 'git-pull-request-draft', 'git-pull-request-closed', 'circle-dashed', 'nope']
+      .map(icon => [icon, fns.composerAtomSymbol(icon)]));
+    expect(symbols).toEqual({'at-sign': 'doc', file: 'doc', folder: 'folder', sparkles: 'sparkles', film: 'film', quote: 'quote.opening', image: 'photo',
+      'messages-square': 'bubble.left.and.bubble.right', 'square-terminal': 'apple.terminal', 'message-circle': 'bubble.left', 'mouse-pointer-2': 'cursorarrow',
+      'git-merge': 'arrow.triangle.merge', 'git-pull-request': 'arrow.triangle.pull', 'git-pull-request-draft': 'arrow.triangle.pull',
+      'git-pull-request-closed': 'arrow.triangle.pull', 'circle-dashed': 'circle.dashed', nope: 'circle.dashed'});
+  });
+  test('the skill atom begins with every currency symbol composerChips\' skill token does', () => {
+    const declared = /^atom skill prefix="([^"]+)"/m.exec(readFileSync(appPath('src/composer/composer-rich.contract'), 'utf8'))?.[1] ?? '';
+    let currency = '';
+    for (let c = 0; c <= 0x10ffff; c++) if ((c < 0xd800 || c > 0xdfff) && /\p{Sc}/u.test(String.fromCodePoint(c))) currency += String.fromCodePoint(c);
+    expect(declared).toBe(currency);
+  });
+});
+
+describe('a change of mode remounts the composer and keeps its focus', () => {
+  const run = (focused: boolean) => {
+    const calls: unknown[][] = [];
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false};
+    const scope = (mode: string): Env => ({richComposer: {mode}, composerText: 'Look at @README.md later', composerSelectionStart: 12, composerSelectionEnd: 12, min: Math.min,
+      modifierEditableFocus: () => {}, focus: (id: string) => calls.push(['focus', id]), setSelectionRange: (...args: unknown[]) => calls.push(['select', ...args])});
+    if (focused) root.call('composerFocus', state, scope('rich'), []);
+    // The setting turns Markdown off: the field is replaced, and its removal blurs it after the mode changed.
+    if (focused) root.call('composerBlur', state, scope('plain'), []);
+    root.call('composerRestore', state, scope('plain'), []);
+    return calls;
+  };
+  test('a field focused across the change takes back the focus at its selection; an unfocused one does not', () => {
+    expect(run(true)).toEqual([['focus', 'composer'], ['select', 'composer', 12, 12]]);
+    expect(run(false)).toEqual([]);
+  });
+  test('a blur before the change ends the hold', () => {
+    const calls: unknown[][] = [];
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false};
+    const scope = (mode: string): Env => ({richComposer: {mode}, composerText: 'x', composerSelectionStart: 1, composerSelectionEnd: 1, min: Math.min, modifierEditableFocus: () => {},
+      focus: (id: string) => calls.push(['focus', id]), setSelectionRange: (...args: unknown[]) => calls.push(['select', ...args])});
+    root.call('composerFocus', state, scope('rich'), []);
+    root.call('composerBlur', state, scope('rich'), []);
+    root.call('composerRestore', state, scope('plain'), []);
+    expect(calls).toEqual([]);
   });
 });

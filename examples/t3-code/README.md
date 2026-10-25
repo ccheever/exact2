@@ -688,9 +688,10 @@ above.
   per scheme.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
-- With Markdown formatting off, and in a literal answer, a reference shows its source: the
-  editor draws atoms only where it styles Markdown (LLP 1045.000 D3). Settings › Appearance's
-  prompt sample styles Markdown so its chips draw, where the reference's disables rich syntax.
+- With Markdown formatting off a reference shows its source: the editor draws atoms only where
+  it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
+  Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
+  disables rich syntax.
 - A character typed right after a mention or a skill makes its source longer, and deleting the
   space after one makes it text again; the reference keeps the chip until its document is
   rebuilt (LLP 1045.000 §6).

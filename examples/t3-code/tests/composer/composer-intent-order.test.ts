@@ -355,6 +355,22 @@ describe('a composer reference is the editor\'s atom', () => {
     settle(f);
     expect([f.state.draft, f.state.composerSelectionStart]).toEqual(['z', 1]);
   });
+  test('⇧⇥ just after a citation opens its comment at the citation, before plan mode\'s ⇧⇥', () => {
+    const presses: unknown[][] = [];
+    const press = (caret: number, held = {}) => {
+      const f = fixture(draft, caret);
+      f.call('composerKeyEvent', key('Tab', {shiftKey: true, ...held}), {composerChipPress: (...args: unknown[]) => presses.push(args),
+        data: {snapshotOwner: 'snapshot', requestKey: '', requestMode: '', connected: true, composer: {sendChords: 'Meta+Enter', sendCommandChords: '', planVisible: true, planActive: false}},
+        menuPick: (...args: unknown[]) => presses.push(['plan', ...args])});
+      return f.suppressed;
+    };
+    expect(press(end)).toBe(1);
+    expect(presses).toEqual([['composer', 'draft', draft, 0, start, end, cite, true]]);
+    presses.length = 0;
+    // Elsewhere, or with ⌥, ⇧⇥ is plan mode's toggle.
+    for (const [caret, held] of [[start, {}], [end + 1, {}], [end, {altKey: true}]] as const) press(caret, held);
+    expect(presses.map(entry => entry[0])).toEqual(['plan', 'plan', 'plan']);
+  });
   test('a caret or range the field reports stays where it is', () => {
     for (const [from, to] of [[start + 2, start + 2], [1, start + 2]] as const) {
       const f = fixture(draft, 0);

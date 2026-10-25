@@ -82,24 +82,6 @@ export function composerChipsInBlocks(value: string, blocks: readonly ComposerBl
       && chip.start >= block.contentStart && chip.end <= block.end));
 }
 
-/** Existing atoms keep their identity when an edit only changes adjacent text,
- *  including the delimiter that originally completed a mention or skill. */
-export function reconcileComposerChips(previous: string, value: string, current: readonly ComposerChip[], skills: SkillOffer = null): ComposerChip[] {
-  let prefix = 0, suffix = 0;
-  while (prefix < previous.length && prefix < value.length && previous[prefix] === value[prefix]) prefix++;
-  while (suffix < previous.length - prefix && suffix < value.length - prefix
-    && previous[previous.length - suffix - 1] === value[value.length - suffix - 1]) suffix++;
-  const end = previous.length - suffix, delta = value.length - previous.length;
-  const carried: ComposerChip[] = [];
-  for (const chip of current) {
-    if (previous.slice(chip.start, chip.end) !== chip.source
-      || prefix < chip.end && end > chip.start || prefix > chip.start && prefix < chip.end) continue;
-    const shift = end <= chip.start ? delta : 0, next = { ...chip, start: chip.start + shift, end: chip.end + shift };
-    if (value.slice(next.start, next.end) === chip.source) carried.push(next);
-  }
-  return [...carried, ...composerChips(value, skills).filter(chip => !carried.some(old => overlaps(chip, old)))].sort((a, b) => a.start - b.start);
-}
-
 /** The selection with each end that falls inside a reference moved out of it, as the
  *  reference's atom chips never hold the caret: a caret after its reference, a range's
  *  ends outward over the references they cut. */

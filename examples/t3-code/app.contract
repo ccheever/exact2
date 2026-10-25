@@ -1364,14 +1364,15 @@ component T3Code
   state composerIntentInputEnd = 0
   state composerIntentPreserves = false
   state composerIntentCaretSeen = false
-  action composerChipPress(surface: string, owner: string, value: string, serial: number, e: AtomEvent)
+  // A reference's pill pressed (`comment`: a citation's comment, which the reference's chip opens from its pencil). The
+  // pill anchors the popover.
+  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
     let preview = surface == "preview"
     let current = preview ? richPromptPreview : richComposer
-    if (preview ? promptPreviewVisible and serial == promptPreviewSerial and owner == promptPreviewOwner and value == promptPreviewText : composerFieldLive and serial == composerFieldInputSerial and owner == richComposerOwner and value == composerText and not composerComposing) and current.owner == owner and current.value == value and current.chips.filter((chip) => chip.start == e.start and chip.end == e.end and chip.source == e.source).length == 1
-      // The pill anchors the popover. ⌥ opens a citation's comment, which the reference's chip opens from its pencil.
-      let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", e.start, e.end)
+    if (preview ? promptPreviewVisible and serial == promptPreviewSerial and owner == promptPreviewOwner and value == promptPreviewText : composerFieldLive and serial == composerFieldInputSerial and owner == richComposerOwner and value == composerText and not composerComposing) and current.owner == owner and current.value == value and current.chips.filter((chip) => chip.start == start and chip.end == end and chip.source == source).length == 1
+      let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", start, end)
       if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
-        send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=e.start, end=e.end, source=e.source, surface=surface, comment=(e.kind == "citation" and e.altKey), frame=bounds))
+        send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds))
   mutation composerEdited as shape ComposerIntentReply queue then composerEditDone
   state composerFieldInputSerial = 0
   state composerFieldAfter = 0
@@ -1632,6 +1633,14 @@ component T3Code
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
         else
           format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
+    else if not composing and k == "Tab" and e.shiftKey and not e.altKey and not heldCommand and composerRichCurrent and composerSelectionCurrent and composerSelectionStart == composerSelectionEnd and richComposer.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart).length > 0
+      // ⇧⇥ just after a citation reaches its comment (ComposerPromptEditorTiptap handleKeyDown), before plan mode's.
+      preventDefault()
+      stopPropagation()
+      match first(richComposer.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart))
+        case some(c)
+          composerChipPress("composer", richComposerOwner, composerText, composerFieldInputSerial, c.start, c.end, c.source, true)
+        case none
     else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode
       // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), in a list or with a menu open too.
       // A code block outdents first (ComposerPromptEditorTiptap); without the toggle the key gives the focus back
@@ -1725,8 +1734,20 @@ component T3Code
   action composerFocus
     composerFocused = true
     composerComposing = false
+    composerHeldMode = richComposer.mode
     modifierEditableFocus()
+  // A change of mode remounts the composer (atoms need a literal markup); as the reference's restoreFocusRef does, a field
+  // focused across it takes back the focus and selection. The remount's own blur comes after the change: it keeps the hold.
+  state composerHeldMode = ""
+  task composerRemounted key=richComposer.mode
+    after(1, composerRestore)
+  action composerRestore
+    if composerHeldMode != "" and composerHeldMode != richComposer.mode
+      composerHeldMode = richComposer.mode
+      focus("composer")
+      setSelectionRange("composer", min(composerSelectionStart, composerText.length), min(composerSelectionEnd, composerText.length))
   action composerBlur
+    composerHeldMode = composerHeldMode == richComposer.mode ? "" : composerHeldMode
     composerFocused = false
     composerTyping = false
     composerComposing = false

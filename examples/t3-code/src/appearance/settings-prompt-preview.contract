@@ -27,7 +27,7 @@ component PromptFontPreview
   action write(value: string, e: InputEvent)
     promptPreviewWrite(value, e)
   action pressed(e: AtomEvent)
-    composerChipPress("preview", promptPreviewOwner, promptPreviewText, promptPreviewSerial, e)
+    composerChipPress("preview", promptPreviewOwner, promptPreviewText, promptPreviewSerial, e.start, e.end, e.source, false)
   view
     // rounded-lg border bg-background px-3 py-2 around ComposerPromptEditor (min-h-14, max-h-42, leading-relaxed):
     // the bare box (appearance none: no field look), and focus:outline-none is `outline="none"`, no focus ring

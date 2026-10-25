@@ -92,7 +92,7 @@ component ServerBrowserPage
       preventDefault()
       streamWheel(runtimeId, e, "", pageWidth, pageHeight)
   action key(phase: string, k: string, e: KeyboardEvent)
-    if frame.controlled and not composing and k != "Process" and k != "Unidentified"
+    if frame.controlled and not composing and not e.isComposing and k != "Process" and k != "Unidentified"
       if k == "Escape" and e.shiftKey
         preventDefault()
         blur()

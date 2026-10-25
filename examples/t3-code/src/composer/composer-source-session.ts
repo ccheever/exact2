@@ -5,11 +5,11 @@ import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type Compose
 import { listContinuationForEnter, listIndentForTab } from './composer-list-continuation';
 import { composerSurround } from './composer-surround';
 import type { ComposerRange } from './composer-markdown';
-import { composerCharacterDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, reconcileComposerChips, type ComposerChip, type SkillOffer } from './composer-source-chips';
+import { composerCharacterDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, type ComposerChip, type SkillOffer } from './composer-source-chips';
 import type { ComposerBlock } from './composer-markdown';
 
 type FenceOrigins = Map<number, string>;
-type SourceOrigins = { chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
+type SourceOrigins = { blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
 type SourceChange = ComposerRange & { text: string };
 type Pending = { value: string; origins: FenceOrigins; blocks: ComposerBlockOrigin[] };
 export type ComposerMode = 'rich' | 'plain' | 'literal';
@@ -26,7 +26,7 @@ export class ComposerSourceSession {
   private currentChips: ComposerChip[] = [];
   private offer: SkillOffer = null;
   private offerKey: string | null = null;
-  // Exact source signatures retain block and reference origins for native history, not edit commands.
+  // Exact source signatures retain block and fence origins for native history, not edit commands.
   private historyOrigins = new Map<string, SourceOrigins>();
 
   matches(owner: string, value: string): boolean { return owner === this.owner && value === this.value; }
@@ -42,7 +42,7 @@ export class ComposerSourceSession {
       this.offerKey = offerKey;
       this.offer = names ? name => names.has(name) : null;
       // The provider changed what it offers: chips follow it without touching the source or its history.
-      if (this.currentMode !== 'literal') this.currentChips = this.offered(this.value, this.currentChips);
+      if (this.currentMode !== 'literal') this.currentChips = composerChips(this.value, this.offer);
     }
     const enteredRichText = this.currentMode === 'literal' && mode !== 'literal';
     if (mode !== this.currentMode) { this.origins = new Map(); this.pending = null; this.currentBlocks = []; }
@@ -62,7 +62,7 @@ export class ComposerSourceSession {
       else if (enteredRichText) this.currentChips = composerChips(value, this.offer);
       return;
     }
-    this.rememberOrigins(this.value, this.currentChips, this.currentBlocks, this.origins);
+    this.rememberOrigins(this.value, this.currentBlocks, this.origins);
     if (this.pending?.value === value) {
       this.origins = this.pending.origins;
       this.currentBlocks = this.pending.blocks;
@@ -88,15 +88,15 @@ export class ComposerSourceSession {
       }
       this.origins = next;
     }
-    this.currentChips = mode === 'literal' ? [] : enteredRichText ? composerChips(value, this.offer)
-      : reconcileComposerChips(this.value, value, this.currentChips, this.offer);
+    // A reference is its source, recognized afresh as the editor's atoms are (LLP 1045.000 D1): one whose
+    // delimiter an edit took is text again, in the editor and here alike.
+    this.currentChips = mode === 'literal' ? [] : composerChips(value, this.offer);
     if (inputType === 'historyUndo' || inputType === 'historyRedo') {
       const remembered = this.historyOrigins.get(value);
       this.currentBlocks = mode === 'rich' ? remembered?.blocks.map(block => ({ ...block })) ?? [] : [];
       this.origins = mode === 'rich' ? new Map(remembered?.fences) : new Map();
-      if (remembered && mode !== 'literal') this.currentChips = this.offered(value, remembered.chips.map(chip => ({ ...chip })));
     }
-    this.rememberOrigins(value, this.currentChips, this.currentBlocks, this.origins);
+    this.rememberOrigins(value, this.currentBlocks, this.origins);
     this.value = value;
     this.pending = null;
   }
@@ -154,13 +154,6 @@ export class ComposerSourceSession {
       this.pending = { value: next, origins, blocks };
     }
     return outcome;
-  }
-
-  /** `chips` with the skills the provider no longer offers dropped and the ones it now offers added. */
-  private offered(value: string, chips: readonly ComposerChip[]): ComposerChip[] {
-    const kept = chips.filter(chip => chip.kind !== 'skill' || !this.offer || this.offer(chip.name));
-    const added = composerChips(value, this.offer).filter(chip => chip.kind === 'skill' && !kept.some(old => chip.start < old.end && chip.end > old.start));
-    return [...kept, ...added].sort((a, b) => a.start - b.start);
   }
 
   /** The references the projection draws: none in code or a rule. */
@@ -241,16 +234,17 @@ export class ComposerSourceSession {
     return next.slice(-1024);
   }
 
-  private rememberOrigins(value: string, chips: readonly ComposerChip[], blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
+  private rememberOrigins(value: string, blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
     this.historyOrigins.delete(value);
-    if (!chips.length && !blocks.length && !fences.size || value.length > 262_144 || chips.length + blocks.length + fences.size > 1024) return;
-    this.historyOrigins.set(value, { chips: chips.map(chip => ({ ...chip })), blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
+    if (!blocks.length && !fences.size || value.length > 262_144 || blocks.length + fences.size > 1024) return;
+    this.historyOrigins.set(value, { blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
     let characters = 0, count = 0;
-    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.chips.length + retained.blocks.length + retained.fences.size; }
+    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.blocks.length + retained.fences.size; }
     for (const [source, retained] of this.historyOrigins) {
       if (this.historyOrigins.size <= 32 && characters <= 262_144 && count <= 1024) break;
       this.historyOrigins.delete(source);
-      characters -= source.length; count -= retained.chips.length + retained.blocks.length + retained.fences.size;
+      characters -= source.length; count -= retained.blocks.length + retained.fences.size;
     }
   }
+
 }
