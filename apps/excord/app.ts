@@ -146,30 +146,43 @@ function channelRecord(id: string): Channel {
 // clients may not draw (HEIC), is sent as a JPEG that fits.
 const UPLOAD_LIMIT = 10 * 1024 * 1024;
 /** A send's files uploaded as Discord's clients upload them: a slot for each from the channel, the
- * file PUT to the slot's URL (no Discord credentials go there), and the names the message then gives. */
-async function upload(channel: string, key: string, files: Upload[], storage: Storage): Promise<rest.Uploaded[]> {
-  const ready = await Promise.all(files.map(async (f, i) => {
-    if (!f.type.startsWith('image/') || (f.size <= UPLOAD_LIMIT && !/hei[cf]/i.test(f.type))) return f;
-    const to = `app:/tmp/upload/${key}-${i}.jpg`;
-    const shrunk = await storage.fs.compressImage(f.path, to, { maxDimension: 4096, maxBytes: UPLOAD_LIMIT - 65536, type: 'image/jpeg' });
-    return { ...f, path: shrunk.path, size: shrunk.size, type: shrunk.type, name: f.name.replace(/\.[^.]*$/, '') + '.jpg' };
+ * file PUT to the slot's URL (no Discord credentials go there), and the names the message then gives.
+ * `done` keeps each file's upload as it lands, so a retry uploads only what did not; nothing goes on
+ * once the account has changed (a sign-out, another sign-in). */
+async function upload(channel: string, key: string, files: Upload[], done: (rest.Uploaded | undefined)[], storage: Storage): Promise<rest.Uploaded[]> {
+  const account = live.account;
+  const still = () => { if (live.account !== account) throw new RestError(0, 'Signed out'); };
+  const waiting = files.map((f, i) => ({ f, i })).filter(({ i }) => !done[i]);
+  const ready = await Promise.all(waiting.map(async ({ f, i }) => {
+    if (!f.type.startsWith('image/') || (f.size <= UPLOAD_LIMIT && !/hei[cf]/i.test(f.type))) return { f, i };
+    await storage.fs.mkdir('app:/tmp/upload').catch((e: { code?: string }) => { if (e?.code !== 'EEXIST') throw e; });
+    const shrunk = await storage.fs.compressImage(f.path, `app:/tmp/upload/${key}-${i}.jpg`,
+      { maxDimension: 4096, maxBytes: UPLOAD_LIMIT - 65536, type: 'image/jpeg' });
+    return { f: { ...f, path: shrunk.path, size: shrunk.size, type: shrunk.type, name: f.name.replace(/\.[^.]*$/, '') + '.jpg' }, i };
   }));
-  const slots = await call(live, rest.uploadSlots(context(live, true), channel,
-    ready.map((f, i) => ({ id: String(i), filename: f.name, file_size: f.size }))));
-  const given: { id: string | number; upload_url: string; upload_filename: string }[] = slots?.attachments ?? [];
-  if (given.length !== ready.length) throw new Error('Discord did not offer a place for every file.');
-  await Promise.all(given.map(async (slot, i) => {
-    let response: Response;
-    try {
-      response = await fetch(slot.upload_url, { method: 'PUT', exactBodyFrom: ready[i].path } as RequestInit);
-    } catch (error) {
-      // A host that cannot send a file by its path (Windows, for now) sends its bytes.
-      if (!(error instanceof Error) || !/Unsupported/.test(`${(error as { kind?: string }).kind ?? ''} ${error.message}`)) throw error;
-      response = await fetch(slot.upload_url, { method: 'PUT', body: await storage.fs.readFile(ready[i].path) });
-    }
-    if (!response.ok) throw new Error(`The upload of ${ready[i].name} failed (HTTP ${response.status}).`);
-  }));
-  return given.map((slot, i) => ({ id: String(slot.id), filename: ready[i].name, uploaded_filename: slot.upload_filename }));
+  still();
+  if (ready.length) {
+    const slots = await call(live, rest.uploadSlots(context(live, true), channel,
+      ready.map(({ f, i }) => ({ id: String(i), filename: f.name, file_size: f.size }))));
+    const given: { id: string | number; upload_url: string; upload_filename: string }[] = slots?.attachments ?? [];
+    if (given.length !== ready.length) throw new Error('Discord did not offer a place for every file.');
+    await Promise.all(given.map(async (slot, n) => {
+      const { f, i } = ready[n];
+      let response: Response;
+      try {
+        response = await fetch(slot.upload_url, { method: 'PUT', exactBodyFrom: f.path } as RequestInit);
+      } catch (error) {
+        // A host that cannot send a file by its path (Windows, for now) sends its bytes.
+        if (!(error instanceof Error) || !/Unsupported/.test(`${(error as { kind?: string }).kind ?? ''} ${error.message}`)) throw error;
+        still();
+        response = await fetch(slot.upload_url, { method: 'PUT', body: await storage.fs.readFile(f.path) });
+      }
+      if (!response.ok) throw new Error(`The upload of ${f.name} failed (HTTP ${response.status}).`);
+      done[i] = { id: String(i), filename: f.name, uploaded_filename: slot.upload_filename };
+    }));
+  }
+  still();
+  return done as rest.Uploaded[];
 }
 
 const TEXT = new Set([0, 5]);
@@ -300,9 +313,9 @@ const sources: Sources = {
     if (!send) return refused('That message is no longer waiting to send.');
     try {
       const reply = send.replyTo ? { messageId: send.replyTo, guildId: S.channel(store, channel)?.guild_id } : undefined;
-      if (send.files.length && !send.uploaded) send.uploaded = await upload(channel, key, send.files, storage);
+      const attachments = send.files.length ? await upload(channel, key, send.files, send.uploaded ??= [], storage) : undefined;
       const sent = await call(live, rest.sendMessage(context(live, true), channel,
-        { content: send.content, nonce: key, replyTo: reply, attachments: send.uploaded }));
+        { content: send.content, nonce: key, replyTo: reply, attachments }));
       live.sends.delete(key);
       applyEvent(live, 'MESSAGE_CREATE', sent);
       return OK;

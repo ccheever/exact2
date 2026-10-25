@@ -121,3 +121,9 @@ test('the quick switcher finds text channels in every server and the DMs, unread
     timestamp: '2026-10-22T12:05:00.000Z', attachments: [], embeds: [] }, 5);
   expect(switchTargets(s, cdn, '', name).map(t => [t.label, t.mentions])).toEqual([['help', 1], ['general', 0]]);
 });
+
+test('code is what the parser reads as code: a fence closes at the next three backticks', () => {
+  const s = store();
+  expect(resolveMentions(s, cid, '```\n@adam\n```` then @adam')).toBe('```\n@adam\n```` then <@3>');
+  expect(resolveMentions(s, cid, '\\`@adam\\` and `@adam`')).toBe('\\`<@3>\\` and `@adam`');
+});
