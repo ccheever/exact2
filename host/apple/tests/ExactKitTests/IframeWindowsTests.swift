@@ -32,7 +32,7 @@ final class IframeWindowsTests: XCTestCase {
     }
 
     private struct Arm {
-        let create: CreateFn, view: ViewFn, setSrc: SetFn, configure: PostFn, command: PostFn, answer: PostFn, destroy: DestroyFn
+        let create: CreateFn, view: ViewFn, setSrc: SetFn, setSandbox: SetFn, configure: PostFn, command: PostFn, answer: PostFn, destroy: DestroyFn
     }
 
     private func arm() throws -> Arm {
@@ -42,7 +42,7 @@ final class IframeWindowsTests: XCTestCase {
         let library = try XCTUnwrap(dlopen(path, RTLD_NOW | RTLD_LOCAL), String(cString: dlerror()))
         func symbol<T>(_ name: String, _: T.Type) throws -> T { unsafeBitCast(try XCTUnwrap(dlsym(library, name), "missing \(name)"), to: T.self) }
         return Arm(create: try symbol("exact_web_create", CreateFn.self), view: try symbol("exact_web_platform_view", ViewFn.self),
-                   setSrc: try symbol("exact_web_set_src", SetFn.self), configure: try symbol("exact_web_configure", PostFn.self),
+                   setSrc: try symbol("exact_web_set_src", SetFn.self), setSandbox: try symbol("exact_web_set_sandbox", SetFn.self), configure: try symbol("exact_web_configure", PostFn.self),
                    command: try symbol("exact_web_command", PostFn.self), answer: try symbol("exact_web_answer", PostFn.self),
                    destroy: try symbol("exact_web_destroy", DestroyFn.self))
     }
@@ -87,7 +87,7 @@ final class IframeWindowsTests: XCTestCase {
         pause(0.2)
     }
 
-    private func mount(_ arm: Arm, _ seen: Seen, configuration: [String: Any], src: String) -> (UnsafeMutableRawPointer, WKWebView) {
+    private func mount(_ arm: Arm, _ seen: Seen, configuration: [String: Any], src: String, sandbox: String? = nil) -> (UnsafeMutableRawPointer, WKWebView) {
         let handle = arm.create(9, Unmanaged.passUnretained(seen).toOpaque(), Self.event, Self.reply)!
         json(configuration, arm.configure, handle)
         let web = Unmanaged<WKWebView>.fromOpaque(arm.view(handle)!).takeUnretainedValue()
@@ -106,6 +106,7 @@ final class IframeWindowsTests: XCTestCase {
         window.isHidden = false
         windows.append(window)
         #endif
+        if let sandbox { Array(sandbox.utf8).withUnsafeBufferPointer { arm.setSandbox(handle, $0.baseAddress, UInt32($0.count), 1) } }
         Array(src.utf8).withUnsafeBufferPointer { arm.setSrc(handle, $0.baseAddress, UInt32($0.count), 1) }
         return (handle, web)
     }
@@ -414,42 +415,211 @@ final class IframeWindowsTests: XCTestCase {
         XCTAssertEqual(answered as? Bool, false)
     }
 
-    // MARK: Permissions (§12 Q8): each row as a guest sees it
+    // MARK: Permissions (§12 Q8)
 
+    /// Each permission the arm's delegate is asked for is denied. WebKit asks
+    /// it only in a process that may use the device (a usage string, a
+    /// location authorization), which this test process is not, so the test
+    /// asks the delegate itself, with a frame the page really has; the
+    /// fixture drives measured what a guest sees (RFC §11).
     func testPermissionsAGuestAsksForAreDenied() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen, configuration: ["partition": "permissions"], src: "\(base)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
-        func ask(_ body: String) -> String {
-            var out = "", done = false
-            web.callAsyncJavaScript(body, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value): out = "\(value)"
-                case .failure(let error): out = "threw \(error.localizedDescription)"
-                }
-                done = true
-            }
-            spin(until: { done }, 6)
-            return done ? out : "pending"
+        let probe = FrameProbe()
+        web.configuration.userContentController.add(probe, name: "probe")
+        defer { web.configuration.userContentController.removeScriptMessageHandler(forName: "probe") }
+        _ = run(web, "webkit.messageHandlers.probe.postMessage(1); 0")
+        spin { probe.frame != nil }
+        let frame = try XCTUnwrap(probe.frame)
+        let ui = try XCTUnwrap(web.uiDelegate)
+        var decisions: [String: WKPermissionDecision] = [:]
+        ui.webView?(web, requestMediaCapturePermissionFor: frame.securityOrigin, initiatedByFrame: frame, type: .camera) { decisions["camera"] = $0 }
+        ui.webView?(web, requestMediaCapturePermissionFor: frame.securityOrigin, initiatedByFrame: frame, type: .microphone) { decisions["microphone"] = $0 }
+        if #available(macOS 27.0, iOS 27.0, *) {
+            ui.webView?(web, requestGeolocationPermissionFor: frame.securityOrigin, initiatedByFrame: frame) { decisions["location"] = $0 }
+            XCTAssertEqual(decisions["location"], .deny)
         }
-        let camera = ask("try { await navigator.mediaDevices.getUserMedia({video: true}); return 'granted' } catch (e) { return e.name }")
-        let microphone = ask("try { await navigator.mediaDevices.getUserMedia({audio: true}); return 'granted' } catch (e) { return e.name }")
-        let location = ask("return await new Promise(r => navigator.geolocation.getCurrentPosition(() => r('granted'), e => r('code ' + e.code), {timeout: 4000}))")
-        let notification = ask("return typeof Notification === 'undefined' ? 'no Notification' : Notification.permission + ' ' + await Notification.requestPermission()")
-        let fullscreen = ask("return document.fullscreenEnabled")
-        print("IframeWindowsTests permissions: camera=\(camera) microphone=\(microphone) location=\(location) notification=\(notification) fullscreenEnabled=\(fullscreen)")
-        XCTAssertNotEqual(camera, "granted")
-        XCTAssertNotEqual(microphone, "granted")
-        XCTAssertNotEqual(location, "granted")
-        XCTAssertFalse(notification.hasSuffix("granted"), notification)
-        XCTAssertEqual(fullscreen, "1", "element fullscreen is on")
         #if os(iOS)
-        let motion = ask("return typeof DeviceOrientationEvent.requestPermission === 'function' ? await DeviceOrientationEvent.requestPermission() : 'no requestPermission'")
-        print("IframeWindowsTests permissions: motion=\(motion)")
-        XCTAssertNotEqual(motion, "granted")
+        ui.webView?(web, requestDeviceOrientationAndMotionPermissionFor: frame.securityOrigin, initiatedByFrame: frame) { decisions["motion"] = $0 }
+        XCTAssertEqual(decisions["motion"], .deny)
         #endif
+        XCTAssertEqual(decisions["camera"], .deny)
+        XCTAssertEqual(decisions["microphone"], .deny)
+        // What the page itself sees of notifications and fullscreen, which no delegate decides.
+        var notification = "", done = false
+        web.callAsyncJavaScript("return typeof Notification === 'undefined' ? 'none' : Notification.permission + ' ' + await Notification.requestPermission()",
+                                arguments: [:], in: nil, in: .page) { if case .success(let v) = $0 { notification = "\(v)" }; done = true }
+        spin { done }
+        #if os(macOS)
+        XCTAssertEqual(notification, "default denied")
+        #else
+        XCTAssertEqual(notification, "none")
+        #endif
+        XCTAssertEqual(run(web, "document.fullscreenEnabled") as? Bool, true, "element fullscreen is on")
     }
+
+    // MARK: Review round 1
+
+    /// A download's destination that is a folder is refused, never replaced:
+    /// an agent's typed `/Users/me/Downloads` or `/` must not delete it.
+    func testADownloadNeverReplacesAFolder() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "folders", "agent": true], src: "\(base)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("iframe-windows-folder-\(UUID().uuidString)")
+        let kept = folder.appendingPathComponent("kept.txt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("kept".utf8).write(to: kept)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for (path, shown) in [(folder.path, folder.path), (folder.path + "/", folder.path + "/"), ("/", "/")] {
+            seen.records = []
+            seen.asked = []
+            json(["op": "navigate", "url": "\(base)/report"], arm.command, handle)
+            spin { !seen.asked.isEmpty }
+            json(["token": seen.asked.last?["token"] ?? 0, "path": path, "shown": shown], arm.answer, handle)
+            spin { seen.records.count >= 2 }
+            XCTAssertEqual(seen.records.map { $0.record["state"] as? String }, ["progressing", "cancelled"], path)
+            XCTAssertEqual(try? String(contentsOf: kept, encoding: .utf8), "kept", "\(path) left the folder as it was")
+        }
+    }
+
+    #if os(macOS)
+    /// Another app's scheme asks only for a link a person follows, and a
+    /// page whose confirmation was cancelled asks no more until it navigates.
+    func testAnotherAppsSchemeCannotAskInALoop() throws {
+        guard NSWorkspace.shared.urlForApplication(toOpen: URL(string: "mailto:a@b.test")!) != nil else {
+            throw XCTSkip("no app opens mailto: on this Mac")
+        }
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "loops"], src: "\(base)/timer-scheme")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/timer-scheme")
+        let window = try XCTUnwrap(web.window)
+        // The page sets `location` to `mailto:` every 200 ms, with no person's gesture.
+        pause(1)
+        XCTAssertNil(window.attachedSheet, "a script's navigation never asks")
+        _ = run(web, "document.getElementById('mail').click(); 0")
+        spin { window.attachedSheet != nil }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        pause(0.3)
+        _ = run(web, "document.getElementById('mail').click(); 0")
+        pause(0.8)
+        XCTAssertNil(window.attachedSheet, "a page whose confirmation was cancelled asks no more")
+        // A new document may ask again.
+        json(["op": "reload"], arm.command, handle)
+        loaded(seen, web, "/timer-scheme")
+        _ = run(web, "document.getElementById('mail').click(); 0")
+        spin { window.attachedSheet != nil }
+        XCTAssertNotNil(window.attachedSheet)
+        if let again = window.attachedSheet { window.endSheet(again, returnCode: .alertSecondButtonReturn) }
+    }
+
+    /// From a page's second dialog on, the sheet offers to prevent more; once
+    /// chosen, the page's dialogs answer at once with no sheet.
+    func testAPageCanBeStoppedFromRaisingMoreDialogs() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "suppress"], src: "\(base)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        let window = try XCTUnwrap(web.window)
+        start(web, "alert('one')")
+        spin { window.attachedSheet != nil }
+        var sheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertFalse(suppression(sheet) != nil, "the first dialog offers no suppression")
+        window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        pause(0.3)
+        start(web, "alert('two')")
+        spin { window.attachedSheet != nil }
+        sheet = try XCTUnwrap(window.attachedSheet)
+        let box = try XCTUnwrap(suppression(sheet), "the second dialog offers it")
+        XCTAssertEqual(box.title, "Prevent this page from creating additional dialogs")
+        box.state = .on
+        window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        pause(0.3)
+        XCTAssertEqual(run(web, "confirm('three')") as? Bool, false, "suppressed: Cancel at once")
+        XCTAssertNil(window.attachedSheet)
+    }
+
+    private func suppression(_ sheet: NSWindow) -> NSButton? {
+        func find(_ view: NSView) -> NSButton? {
+            if let button = view as? NSButton, button.title.hasPrefix("Prevent this page"), !button.isHidden { return button }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return sheet.contentView.flatMap(find)
+    }
+
+    /// A sheet up when its frame goes, or when its popup closes, ends as
+    /// Cancel: the page's script gets its answer, and no sheet is left.
+    func testSheetsEndWithTheirFrameOrPopup() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "endings", "newwindow": true], src: "\(base)/opener")
+        loaded(seen, web, "/opener")
+        let window = try XCTUnwrap(web.window)
+        _ = run(web, "window.open('/b', 'p', 'width=300,height=200'); 0")
+        spin { !self.popups().isEmpty && self.popups().first?.isLoading == false && self.popups().first?.url?.path == "/b" }
+        let popup = try XCTUnwrap(popups().first)
+        let popupWindow = try XCTUnwrap(popup.window)
+        var popupAnswer: Any?
+        popup.evaluateJavaScript("confirm('Stay?')") { value, error in popupAnswer = value ?? error.map { "\($0)" } ?? "none" }
+        spin { popupWindow.attachedSheet != nil }
+        XCTAssertNotNil(popupWindow.attachedSheet)
+        popupWindow.performClose(nil)
+        popupWindow.close()
+        spin { popupAnswer != nil }
+        XCTAssertEqual(popupAnswer as? Bool, false, "the popup's sheet ended as Cancel")
+        var answer: Any?
+        web.evaluateJavaScript("confirm('Leave?')") { value, error in answer = value ?? error.map { "\($0)" } ?? "none" }
+        spin { window.attachedSheet != nil }
+        XCTAssertNotNil(window.attachedSheet)
+        arm.destroy(handle)
+        spin { answer != nil && window.attachedSheet == nil }
+        XCTAssertNil(window.attachedSheet, "the frame's sheet ended with it")
+        XCTAssertEqual(answer as? Bool, false)
+    }
+
+    /// A sandboxed frame opens another app's scheme only with a token that
+    /// allows it (HTML's `allow-top-navigation-to-custom-protocols` note).
+    func testASandboxWithoutTheTokensCannotAskForAnotherApp() throws {
+        guard NSWorkspace.shared.urlForApplication(toOpen: URL(string: "mailto:a@b.test")!) != nil else {
+            throw XCTSkip("no app opens mailto: on this Mac")
+        }
+        let arm = try arm()
+        for (sandbox, asks) in [("allow-scripts", false), ("allow-scripts allow-popups", true)] {
+            let seen = Seen()
+            let (handle, web) = mount(arm, seen, configuration: [:], src: "\(base)/sandboxed-mail", sandbox: sandbox)
+            let window = try XCTUnwrap(web.window)
+            spin(until: { window.attachedSheet != nil }, 3)
+            XCTAssertEqual(window.attachedSheet != nil, asks, sandbox)
+            if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .alertSecondButtonReturn) }
+            arm.destroy(handle)
+        }
+    }
+    #endif
+
+    /// A partition change replaces the web view: a request held for the
+    /// agent ends with the old one, as Cancel.
+    func testAPartitionChangeEndsAHeldRequest() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "first", "agent": true], src: "\(base)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        var answered: Any?
+        web.evaluateJavaScript("confirm('Switch?')") { value, _ in answered = value ?? "none" }
+        spin { !seen.asked.isEmpty }
+        json(["partition": "second", "agent": true], arm.configure, handle)
+        spin { answered != nil }
+        XCTAssertEqual(answered as? Bool, false)
+    }
+}
+
+/// Takes the frame a page's message came from.
+private final class FrameProbe: NSObject, WKScriptMessageHandler {
+    var frame: WKFrameInfo?
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) { frame = message.frameInfo }
 }
 
 /// Pages on a loopback port: `/opener` (links, a form, a file input, and a
@@ -489,6 +659,10 @@ final class WindowPages {
                 """)
             case "/popup": response = Self.page("Popup", "<script>opener && opener.postMessage('signed-in', '*')</script>")
             case "/b": response = Self.page("Page B", "B")
+            case "/timer-scheme":
+                response = Self.page("Timer", "<a id=mail href=\"mailto:a@b.test\">mail</a><script>setInterval(() => { location.href = 'mailto:loop@b.test' }, 200)</script>")
+            case "/sandboxed-mail":
+                response = Self.page("Sandboxed", "<a id=mail href=\"mailto:a@b.test\">mail</a><script>setTimeout(() => document.getElementById('mail').click(), 300)</script>")
             case "/posted": response = Self.page("Posted", method)
             case "/report":
                 let body = "report body"

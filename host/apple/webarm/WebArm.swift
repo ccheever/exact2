@@ -380,7 +380,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                                    source: { [weak self] in self?.src })
         browser.external = { [weak self] url in
             guard let self, let web = self.built else { return }
-            self.ui?.confirmExternal(url, from: web)
+            self.ui?.confirmExternal(url, from: web, byApp: true)
         }
         browser.install(on: controller)
         self.browser = browser
@@ -448,6 +448,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         browser?.close(controller: controller)
         browser = nil
         ui?.close()
+        endAsked()
         old.stopLoading()
         old.navigationDelegate = nil
         old.uiDelegate = nil
@@ -466,10 +467,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         invalidated = true
         browser?.close(controller: controller)
         ui?.close()
-        // A held request ends unanswered: a dialog as Cancel, a panel as nothing chosen.
-        let held = asked.values
-        asked = [:]
-        held.forEach { $0(nil) }
+        endAsked()
         built?.uiDelegate = nil
         built?.stopLoading()
         setPageBridge(false)
@@ -561,6 +559,14 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             return done(nil)
         }
         emit(kind: 6, text: String(decoding: data, as: UTF8.self))
+    }
+
+    /// Held requests end unanswered with their web view: a dialog as
+    /// Cancel, a panel as nothing chosen.
+    func endAsked() {
+        let held = asked.values
+        asked = [:]
+        held.forEach { $0(nil) }
     }
 
     func answer(_ value: [String: Any]) {
@@ -999,6 +1005,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        ui?.committed(webView)
         guard !invalidated, !isBlank(navigation) else { return }
         browser?.committed(navigation)
     }

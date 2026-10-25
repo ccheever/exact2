@@ -78,6 +78,21 @@ final class IframePartitionSessionTests: XCTestCase {
 final class IframeWindowsSessionTests: XCTestCase {
     nonisolated(unsafe) private static var server: WindowPages?
 
+    /// The agent's default place never overwrites an earlier download: the
+    /// next free name, as Finder makes one.
+    func testAnAgentDownloadTakesAFreshName() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("fresh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report.txt")
+        try Data().write(to: folder.appendingPathComponent("report.txt"))
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report 2.txt")
+        try Data().write(to: folder.appendingPathComponent("report 2.txt"))
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report 3.txt")
+        try Data().write(to: folder.appendingPathComponent("notes"))
+        XCTAssertEqual(WebViews.freshName("notes", in: folder), "notes 2")
+    }
+
     func testANewWindowReachesItsAction() throws {
         guard let module = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
             throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")

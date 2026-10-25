@@ -529,15 +529,32 @@ final class WebViews {
             answer["path"] = path
             answer["shown"] = path
         case (_, "save-file"):
-            // The agent's default place (§10): the app's own temporary files.
-            let shown = "app:/tmp/downloads/\(asked.args["suggestedFilename"] as? String ?? "download")"
-            guard let url = AppFiles.url(shown) else { answer["cancel"] = true; break }
+            // The agent's default place (§10): the app's own temporary files,
+            // under a name no earlier download there has.
+            guard let folder = AppFiles.url("app:/tmp/downloads") else {
+                answer["cancel"] = true
+                break
+            }
+            let name = WebViews.freshName(asked.args["suggestedFilename"] as? String ?? "download", in: folder)
+            let shown = "app:/tmp/downloads/\(name)", url = folder.appendingPathComponent(name)
             answer["path"] = url.path
             answer["shown"] = shown
         default: answer["cancel"] = true
         }
         deliver(entry, answer)
         return true
+    }
+
+    /// `name`, or Finder's next free form of it in `folder`: `report.txt`,
+    /// then `report 2.txt`, `report 3.txt`.
+    static func freshName(_ name: String, in folder: URL) -> String {
+        let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+        var candidate = name, n = 1
+        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+            n += 1
+            candidate = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
+        }
+        return candidate
     }
 
     private func deliver(_ entry: WebEntry, _ answer: [String: Any]) {
