@@ -308,6 +308,7 @@ mod tests {
                 shot: None,
                 dev_plan: None,
                 dev_url: development.then(|| "http://127.0.0.1:1/".into()),
+                dev_said: None,
                 dev_identity: development.then(|| "A".into()),
                 card: String::new(),
                 vnc: None,

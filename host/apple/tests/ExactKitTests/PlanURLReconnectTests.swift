@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) || os(iOS)
 import CryptoKit
 import Darwin
 import Foundation
@@ -15,6 +15,7 @@ import XCTest
 final class PlanURLReconnectTests: XCTestCase {
     private static let program = String(repeating: "a", count: 64), other = String(repeating: "b", count: 64)
 
+    #if os(macOS)
     func testAHostSubscribesAndRegistersAgainAcrossADroppedStreamAndARestart() throws {
         try XCTSkipUnless(BuildChannel.enabled, "a production bake has no build channel")
         let server = try DevServerStub()
@@ -118,6 +119,42 @@ final class PlanURLReconnectTests: XCTestCase {
         XCTAssertEqual(server.opened(in: server.epoch), 1)
     }
 
+    #endif
+
+    /// A loop whose producers are starting answers its dev status, not a
+    /// plan (dtool2's pass 3 #8, theme2's condition c): the host says it once
+    /// however often it asks, keeps asking, and takes the generation once
+    /// there is one, the status gone; a start that failed is said once too,
+    /// as the failure it is.
+    func testAStartingLoopIsSaidOnceAndThePlanThatFollowsIsTaken() throws {
+        let server = try DevServerStub()
+        defer { server.stop() }
+        try server.start(program: Self.program, plan: Data("plan one".utf8))
+        server.status = ("503 Service Unavailable", #"{"exact":1,"status":"preparing","message":"building the module producer"}"#)
+        var said: [String] = [], shown: [PlanURL.DevStatus?] = []
+        let host = Host.open(server.page) { connection in
+            connection.log = { said.append($0) }
+            connection.onDevStatus = { shown.append($0) }
+        }
+        defer { host.close() }
+        settle { server.requests(in: server.epoch).filter { $0 == "GET /" }.count >= 3 }
+        XCTAssertEqual(said.filter { $0.contains("building the module producer") }, ["dev loop: building the module producer"])
+        XCTAssertFalse(said.contains { $0.contains("cannot reach") }, "\(said)")
+        XCTAssertEqual(host.connection?.devStatus, .preparing("building the module producer"))
+        XCTAssertEqual(host.applied, [])
+        server.status = nil
+        settle { host.applied.count == 1 }
+        XCTAssertNil(host.connection?.devStatus)
+        XCTAssertEqual(shown, [.preparing("building the module producer"), nil])
+
+        // A start that failed: its error, said once, and asked again later.
+        server.status = ("500 Internal Server Error", #"{"exact":1,"status":"failed","message":"the resident loop exited 1: error: could not compile"}"#)
+        host.connection?.reload()
+        settle { host.connection?.devStatus == .failed("the resident loop exited 1: error: could not compile") }
+        settle { server.requests(in: server.epoch).filter { $0 == "GET /" }.count >= 6 }
+        XCTAssertEqual(said.filter { $0.contains("failed to start") }.count, 1, "\(said)")
+    }
+
     /// The pin `revision` replayed on stream `nonce`: a pin frame the host
     /// took on that stream itself, and the status it sent for it, after the
     /// one its hello sent (which names the revision it held already), taken
@@ -153,7 +190,7 @@ private final class Host {
     func pins(on nonce: String) -> [[String: Any]] { pins.filter { $0.nonce == nonce }.map(\.frame) }
     private var revision: Int?
 
-    static func open(_ page: String) -> Host {
+    static func open(_ page: String, _ configure: (PlanURL) -> Void = { _ in }) -> Host {
         let host = Host()
         host.connection = PlanURL.open(page, acceptProgram: { [weak host] program in
             guard let host else { return false }
@@ -165,6 +202,7 @@ private final class Host {
             host?.applied.append(candidate.identity)
             return true
         })
+        host.connection.map(configure)
         return host
     }
 
@@ -191,7 +229,7 @@ private final class Host {
 /// every connection and the listener; `start` listens again on the same
 /// port as a new process: a new epoch, its sequence from 1. Its pins outlive
 /// a restart, as a channel kept by a process the restart does not take down.
-private final class DevServerStub: @unchecked Sendable {
+final class DevServerStub: @unchecked Sendable {
     struct Report { let epoch: String; let status: Int; let body: [String: Any]
         var kind: String? { body["kind"] as? String }
         var nonce: String { body["nonce"] as? String ?? "" }
@@ -222,6 +260,12 @@ private final class DevServerStub: @unchecked Sendable {
     private var subscribed: [String] = []
 
     var page: String { "http://127.0.0.1:\(port)/" }
+    /// A dev status the page answers instead of itself (a loop whose producers start).
+    var status: (line: String, body: String)? {
+        get { lock.lock(); defer { lock.unlock() }; return statusAnswer }
+        set { lock.lock(); statusAnswer = newValue; lock.unlock() }
+    }
+    private var statusAnswer: (line: String, body: String)?
     var epoch: String { lock.lock(); defer { lock.unlock() }; return currentEpoch }
     var reports: [Report] { lock.lock(); defer { lock.unlock() }; return reported }
     func registers(in epoch: String) -> [Report] { reports.filter { $0.epoch == epoch && $0.kind == "register" && $0.status == 200 } }
@@ -389,6 +433,9 @@ private final class DevServerStub: @unchecked Sendable {
         lock.unlock()
         let parts = path.split(separator: "/").map(String.init)
         switch (method, path) {
+        case ("GET", "/") where status != nil:
+            let answer = status!
+            respond(client, answer.line, PlanURL.devStatusType, Data(answer.body.utf8))
         case ("GET", "/"):
             lock.lock(); let envelope = announcement(latest)["envelope"] as! String; lock.unlock()
             let html = "<!doctype html><html><head><link rel=\"alternate\" type=\"\(PlanURL.envelopeType)\" href=\"\(envelope)\"></head></html>"

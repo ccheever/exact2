@@ -923,6 +923,8 @@ package final class Presenter {
     var isApplying: Bool { applying }
     /// Each painted popover's region not yet told the kernel, the latest, with the view it is for (`tellRegion`).
     var regionsUntold: [UInt32: (view: ObjectIdentifier?, block: HostBlock?)] = [:]
+    /// The dev loop's status pill (DevPill.swift), while one shows.
+    var devPill: PlatformView?
     /// Painted popovers' measures in their regions this batch (`placePainted`).
     var regionMeasures = PositionArea.MeasureCache()
     private var resetting = false
