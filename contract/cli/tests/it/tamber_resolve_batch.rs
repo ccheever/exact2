@@ -22,7 +22,7 @@ fn reading(tag: &str) -> std::path::PathBuf {
     package(
         &dir,
         "reading",
-        "component Card\n  view\n    column background-color=\"reading.card\" border-color=\"reading.edge\" border-width=1\n      text \"c\"\n",
+        "component Card\n  params\n    fill: color = \"reading.card\"\n  view\n    column background-color=\"param.fill\" border-color=\"reading.edge\" border-width=1\n      text \"c\"\n",
         "tamber reading\n\ntheme\n  reading.card = #112233\n  reading.edge = reading.card\n",
     );
     std::fs::write(
@@ -37,7 +37,16 @@ fn reading(tag: &str) -> std::path::PathBuf {
 fn a_batch_answers_each_name_as_its_own_resolve_would_a_refused_one_in_place() {
     let dir = reading("resolve-batch");
     let mut s = Serve::start(&dir, &[]);
-    let names = ["brand", "reading.edge", "no.such", "accent", "brand"];
+    // A package component's param by its short and full names too, each answer named in full as one alone is.
+    let names = [
+        "brand",
+        "reading.edge",
+        "no.such",
+        "accent",
+        "brand",
+        "Card.fill",
+        "@acme/reading/index.contract#Card.fill",
+    ];
     let (batch, _) = s.ask(json!({"method": "resolve", "tokens": names}));
     let answers = batch["ok"]["answers"].as_array().expect("answers");
     assert_eq!(answers.len(), names.len(), "{batch}");
@@ -60,6 +69,14 @@ fn a_batch_answers_each_name_as_its_own_resolve_would_a_refused_one_in_place() {
         "{batch}"
     );
     assert!(answers[2]["error"]["message"].is_string(), "{batch}");
+    for param in &answers[5..] {
+        assert_eq!(
+            param["token"],
+            json!("@acme/reading/index.contract#Card.fill"),
+            "{batch}"
+        );
+        assert_eq!(param["tuples"][0]["light"], json!("#336699ff"), "{batch}");
+    }
 }
 
 #[test]
