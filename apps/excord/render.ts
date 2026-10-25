@@ -185,14 +185,9 @@ const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinn
 
 export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Directories): Row {
   const ctx = context(dirs), content = String(m.content ?? ''), parsed = parse(content), isJumbo = jumbo(parsed);
-  let blocks = flatten(parsed, ctx);
+  // A jumbo message's custom emoji are images in its paragraph, in order with its Unicode ones.
+  const blocks = flatten(parsed, ctx);
   const text = plain(blocks);
-  if (isJumbo && blocks.some(b => b.runs.some(r => r.kind === 'emoji'))) {
-    const custom = block(ctx, 'emoji', false), unicode = block(ctx, 'paragraph', false);
-    for (const b of blocks) for (const r of b.runs) (r.kind === 'emoji' ? custom : unicode).runs.push(r);
-    blocks = [custom];
-    if (unicode.runs.some(r => r.text.trim())) blocks.push(unicode);
-  }
   const edited = m.edited_timestamp != null;
   if (edited) {
     if (blocks[blocks.length - 1]?.kind !== 'paragraph') blocks.push(block(ctx, 'paragraph', false));

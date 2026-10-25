@@ -235,7 +235,7 @@ component Runs
                   text r.text font="-exact-caption2" color="-exact-tertiary-label"
                 else
                   if r.kind == "emoji"
-                    text r.text color="-exact-secondary-label"
+                    image r.href width="1.375em" height="1.375em" object-fit="contain" vertical-align="middle" aria-label=r.text
                   else
                     text r.text font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
 
@@ -271,7 +271,10 @@ component JumboRuns
     runs: Run[]
   view
     for r in runs key=r.id
-      text r.text font-size="2.75rem" line-height=1.2
+      if r.kind == "emoji"
+        image r.href width=48 height=48 object-fit="contain" vertical-align="middle" aria-label=r.text
+      else
+        text r.text font-size="2.75rem" line-height=1.2
 
 component TimeRun
   props

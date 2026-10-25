@@ -1,6 +1,7 @@
 # An image cannot sit inside a paragraph's text
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Built as LLP 1011.002: an image is a paragraph's child between its runs, with vertical-align, on the web, Apple and the Linux presenter; Excord draws custom emoji with it.
 **Systems:** Contract lowering (`lower-leaf-children`), the kernel's text, every host
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)

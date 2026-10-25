@@ -2551,6 +2551,16 @@
       ],
       "default": "auto"
     },
+    "VerticalAlign": {
+      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align`'s keywords that an inline image takes: `baseline` puts its margin box's bottom on the baseline, `middle` its middle half the parent's x-height above it, `text-top` and `text-bottom` its top and bottom on the parent font's ascent and descent.",
+      "values": [
+        "baseline",
+        "middle",
+        "text-top",
+        "text-bottom"
+      ],
+      "default": "baseline"
+    },
     "OutlineStyle": {
       "_comment": "@ref LLP 1104 D6: CSS `outline-style`, bounded to `none`, CSS's initial value, which an author writes to take a text field's focus ring off. The other line styles are refused by name.",
       "values": [
@@ -4404,6 +4414,27 @@
       "layout": true,
       "default": 1,
       "_comment": "@ref LLP 1020.002 D6: CSS `zoom` (CSS Viewport 1 §5), admitted on an `iframe` alone: the kernel multiplies the element's own absolute lengths (sizes, margins, padding, borders, insets and its default object size; never a percentage) and the host zooms the guest's page by it (`pageZoom` on Apple; the property itself on the web), as Chrome applies `zoom` to a frame."
+    },
+    {
+      "bit": 220,
+      "field": "vertical_align",
+      "codec": "enum:VerticalAlign",
+      "rare": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align`'s keywords (CSS Inline 3 §4: its `alignment-baseline`) on an `image` in a paragraph's text, where the compiler admits it: which of the line's baselines or edges the image's margin box aligns to. A length is `baseline_shift`."
+    },
+    {
+      "bit": 221,
+      "field": "baseline_shift",
+      "codec": "dimension",
+      "rare": true,
+      "admitsAuto": false,
+      "refusesPercent": true,
+      "text": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align: <length>` (CSS Inline 3 §4.3, `baseline-shift`) on an `image` in a paragraph's text: how far its box is raised above the place `vertical_align` puts it; negative lowers it. The web writes it as `vertical-align`."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

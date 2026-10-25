@@ -297,8 +297,8 @@ impl Kernel {
             }
             let refused = if self.arena.is_root(slot) {
                 Some("a root is laid out in its offer")
-            } else if self.arena.is_inline_run(slot) {
-                Some("an inline run has no box")
+            } else if self.arena.in_paragraph(slot) {
+                Some("an inline run or image has no box of its own")
             } else if self.region.is_some() {
                 Some("no block while a content region is registered")
             } else {
@@ -346,7 +346,7 @@ impl Kernel {
                 // registered content region stays in the region's trial
                 // (theme2 09:54; the native region captures it: QUEUE).
                 let boxed = !arena.is_root(slot)
-                    && !arena.is_inline_run(slot)
+                    && !arena.in_paragraph(slot)
                     && arena.cover(slot) != Some(super::HostCover::Whole)
                     && region.is_none_or(|owner| !arena.is_ancestor(owner, slot));
                 (slot, viewport.filter(|_| lifted.contains(slot) && boxed))

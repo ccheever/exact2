@@ -99,6 +99,17 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
         }
 
+        /// Each inline box's origin in its paragraph (LLP 1011.002 D2), with
+        /// the context `exact_set_measure` was given; `None` leaves an image
+        /// at its paragraph's content origin.
+        #[no_mangle]
+        pub extern "C" fn exact_set_inline_boxes(
+            rt: u32,
+            boxes: ::std::option::Option<$crate::measure::LinesFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.inline_boxes = boxes; });
+        }
+
         /// A system symbol's natural size, measured before layout
         /// (`TextMeasurer::symbol_size`), with the context `exact_set_measure`
         /// was given, beside the text measurer it registered: with the

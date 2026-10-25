@@ -73,6 +73,7 @@ mod grouped_title;
 mod headings;
 mod height_binding;
 mod inference_order;
+mod inline_image;
 mod insets;
 mod instance;
 mod instance_work;
