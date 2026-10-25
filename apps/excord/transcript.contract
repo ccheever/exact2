@@ -40,6 +40,7 @@ component MessageRow
     hovered: bool
     hover: action
     reply: action
+    profile: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -88,14 +89,15 @@ component MessageRow
                       text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
           row gap=12 align-items="flex-start"
             if leads
-              image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill" aria-hidden=true
+              button appearance="none" press=profile(m.authorId, m.id) flex-shrink=0 aria-label=`${m.author}, profile` testId=`avatar-${m.id}`
+                image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" background-color="-exact-tertiary-fill"
             else
               // A pointer over a grouped message shows its time in the gutter, as Discord's desktop app does.
               text (hovered ? formatTime(m.at, offset, "short") : "") width="2.5rem" flex-shrink=0 font="-exact-caption2" font-variant-numeric="tabular-nums" color="-exact-secondary-label" text-align="right" white-space="nowrap" padding-top=3 aria-hidden=true
             column flex=1 min-width=0 gap=4
               if leads
                 row gap=6 align-items="baseline" flex-wrap="wrap"
-                  text m.author font-weight=600 color=(m.color != "" ? m.color : "-exact-label") testId=`author-${m.id}`
+                  text m.author font-weight=600 color=(m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
                   if m.bot
                     Badge(label="APP", tint=some("AccentColor"))
                   text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"

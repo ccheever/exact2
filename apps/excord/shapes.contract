@@ -274,3 +274,19 @@ shape SwitchTarget
   glyph: string
   unread: bool
   mentions: number
+
+// A person's card, opened from their avatar or name: what Discord shows of them
+// in the server the message is in (`roles`, highest first, each with its colour).
+shape RoleTag
+  id: string
+  name: string
+  color: string
+
+shape Profile
+  id: string
+  name: string
+  handle: string
+  avatar: string
+  bot: bool
+  color: string
+  roles: RoleTag[]
