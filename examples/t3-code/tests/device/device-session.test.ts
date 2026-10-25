@@ -151,7 +151,10 @@ describe('the Device surface after onboarding', () => {
     // A new module instance counts from 1 again: its asks are its own.
     (c.presentation as Obj).deviceHub = { want: 2, module: 'm2' };
     expect(await hub()).toEqual({ origin: 'http://127.0.0.1:4001', ticket: 'ticket-3', ask: 'm2:2' });
-    refuse = true; (c.presentation as Obj).deviceHub = { want: 3, module: 'm2' };
+    // Once the module reports the ask answered, the node no longer carries the ticket.
+    (c.presentation as Obj).deviceHub = { want: 2, module: 'm2', answered: 2 };
+    expect(await hub()).toEqual({ origin: '', ticket: '', ask: 'm2:2' });
+    refuse = true; (c.presentation as Obj).deviceHub = { want: 3, module: 'm2', answered: 2 };
     expect(await hub()).toEqual({ origin: '', ticket: '', ask: 'm2:3' });
     expect(calls.filter(entry => entry.op === 'deviceHubAccess')).toHaveLength(4);
   });

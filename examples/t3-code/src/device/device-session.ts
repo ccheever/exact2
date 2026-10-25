@@ -109,18 +109,22 @@ export function streamView(client: T3Client, key: string, platform: string): Dev
 }
 
 /**
- * The module asks for a fresh ticket each time a device stream, feed or read (re)connects, and counts its asks in
+ * The module asks for a fresh ticket each time a device stream (re)connects, and counts its asks in
  * `presentation.deviceHub` (`want`, under the module instance's `module` id); an answer that sees an ask it has not
  * answered mints one on the focused connection, and the stream nodes carry it with that ask. A failed mint carries
- * an empty ticket, and the module tells the view to reconnect.
+ * an empty ticket, and the module tells the view to reconnect. Once the module reports the ask `answered`, the
+ * nodes stop carrying the ticket.
  */
 export async function refreshDeviceHub(client: T3Client, native: Native): Promise<void> {
-  const store = storeOf(client), facts = obj(obj(client.presentation).deviceHub), want = Number(facts.want) || 0;
-  const ask = `${str(facts.module)}:${want}`;
-  if (!str(facts.module) || want <= 0 || ask === store.served) return;
-  try { const access = obj(await client.restAccess(native).call({ op: 'deviceHubAccess' })); store.hub = { origin: str(access.origin), ticket: str(access.ticket), ask }; }
-  catch (error) { if (letGo(error)) throw error; store.hub = { ...NO_HUB, ask }; }
-  store.served = ask;
+  const store = storeOf(client), facts = obj(obj(client.presentation).deviceHub), module = str(facts.module), want = Number(facts.want) || 0;
+  const ask = `${module}:${want}`;
+  if (module && want > 0 && ask !== store.served) {
+    try { const access = obj(await client.restAccess(native).call({ op: 'deviceHubAccess' })); store.hub = { origin: str(access.origin), ticket: str(access.ticket), ask }; }
+    catch (error) { if (letGo(error)) throw error; store.hub = { ...NO_HUB, ask }; }
+    store.served = ask;
+  }
+  const cut = store.hub.ask.lastIndexOf(':'), owner = store.hub.ask.slice(0, cut), count = Number(store.hub.ask.slice(cut + 1));
+  if (store.hub.ticket && owner === module && (Number(facts.answered) || 0) >= count) store.hub = { ...NO_HUB, ask: store.hub.ask };
 }
 
 const EMPTY_STREAM: DeviceStreamState = { status: '', message: '', error: false, inputNotice: '' };

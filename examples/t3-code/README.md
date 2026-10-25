@@ -605,7 +605,9 @@ Differences that belong to the app:
   stream settles.
 - The module holds no server connection or bearer. The device hub's tickets are minted by the
   transport (`deviceHubAccess`) when the module asks for one (`presentation.deviceHub.want`) and
-  reach the device view as its `t3-media` node's `data-device-origin` and `data-device-ticket`. A
+  reach the device view as its `t3-media` node's `data-device-origin` and `data-device-ticket`,
+  which the node drops once the module reports the ask answered; the Tools drawer's feeds and
+  accessibility reads reuse a ticket for 60 s, as the reference keeps its hub access. A
   Browser recording's upload is minted and cleaned up on the transport's socket; only its bytes go
   from the module (`browserRecordingUpload`), because the saved recording is in the artifact
   directory, outside the app's files the data module can read. Each terminal page opens a socket of

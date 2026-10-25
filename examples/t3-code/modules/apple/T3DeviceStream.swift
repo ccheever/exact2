@@ -408,18 +408,22 @@ final class T3DeviceScreenView: NSView {
     }
 }
 /// The device hub's access (resolveDeviceHubAccess) from the data module, which holds the
-/// connection: each use (a stream, feed or read connecting again) asks for a fresh ticket by
-/// counting up `presentation.deviceHub.want` under this instance's `module` id, and the answer
-/// comes back as a stream node's `data-device-origin`, `data-device-ticket` and `data-device-ask`
-/// (`<module>:<count>`, the last ask it answers). It answers every ask up to that count; an empty
-/// ticket (the mint failed) or none within 8 s (TICKET_TIMEOUT_MS) answers none. On main.
+/// connection. A stream connecting (again) asks for a fresh ticket by counting up
+/// `presentation.deviceHub.want` under this instance's `module` id; the answer comes back as a
+/// stream node's `data-device-origin`, `data-device-ticket` and `data-device-ask` (`<module>:<count>`,
+/// the last ask it answers), which answers every ask up to that count, and `answered` tells the data
+/// module it may take the ticket off the node. An empty ticket (the mint failed) or none within 8 s
+/// (TICKET_TIMEOUT_MS) answers none. The Tools drawer's feeds and reads, which come round every
+/// 2 s, reuse a ticket for 60 s (the reference keeps its access that long) until the hub refuses
+/// one. On main.
 final class T3DeviceHubAccess {
-    static let timeout: TimeInterval = 8
+    static let timeout: TimeInterval = 8, reuse: TimeInterval = 60
     let id = UUID().uuidString
-    private(set) var want = 0
+    private(set) var want = 0, answered = 0
     private var waiting: [(ask: Int, done: (URL?, String?) -> Void)] = []
+    private var last: (origin: URL, ticket: String, at: Date)?
     var changed: () -> Void = {}
-    var status: [String: Any] { ["want": want, "module": id] }
+    var status: [String: Any] { ["want": want, "module": id, "answered": answered] }
 
     func access(_ done: @escaping (URL?, String?) -> Void) {
         DispatchQueue.main.async { [self] in
@@ -434,13 +438,26 @@ final class T3DeviceHubAccess {
         }
     }
 
+    /// A ticket from the last 60 s, else a fresh one.
+    func reusing(_ done: @escaping (URL?, String?) -> Void) {
+        DispatchQueue.main.async { [self] in
+            if let last, Date().timeIntervalSince(last.at) < Self.reuse { return done(last.origin, last.ticket) }
+            access(done)
+        }
+    }
+
+    func expire() { last = nil }
+
     /// A stream node's words; a node without an answer for this instance (the event log's, an older module's) changes nothing.
     func received(origin: String?, ticket: String?, ask: String?) {
-        guard let ask, ask.hasPrefix(id + ":"), let answered = Int(ask.dropFirst(id.count + 1)) else { return }
+        guard let ask, ask.hasPrefix(id + ":"), let count = Int(ask.dropFirst(id.count + 1)), count > answered else { return }
+        answered = count
         let ticket = ticket ?? "", url = ticket.isEmpty ? nil : origin.flatMap(URL.init(string:))
-        let calls = waiting.filter { $0.ask <= answered }
-        waiting.removeAll { $0.ask <= answered }
+        last = url.map { ($0, ticket, Date()) }
+        let calls = waiting.filter { $0.ask <= count }
+        waiting.removeAll { $0.ask <= count }
         for call in calls { call.done(url, url == nil ? nil : ticket) }
+        changed()
     }
 
     func destroy() { let calls = waiting; waiting = []; for call in calls { call.done(nil, nil) } }
@@ -455,16 +472,17 @@ final class T3DeviceStreams {
 
     private let tools: T3DeviceToolFeeds
 
-    init(access: @escaping T3DeviceScreenView.Access, changed: @escaping (String) -> Void, hub: T3DeviceHubAccess? = nil) {
+    init(access: @escaping T3DeviceScreenView.Access, changed: @escaping (String) -> Void, hub: T3DeviceHubAccess? = nil, toolAccess: T3DeviceScreenView.Access? = nil) {
         self.access = access; self.changed = changed; self.hub = hub
-        tools = T3DeviceToolFeeds(access: access, changed: changed)
+        tools = T3DeviceToolFeeds(access: toolAccess ?? access, changed: changed)
+        if let hub { tools.expired = { [weak hub] in hub?.expire() } }
     }
 
     /// Access through the data module (T3DeviceHubAccess).
     convenience init(changed: @escaping (String) -> Void) {
         let hub = T3DeviceHubAccess()
         hub.changed = { changed("t3.status") }
-        self.init(access: { [hub] done in hub.access(done) }, changed: changed, hub: hub)
+        self.init(access: { [hub] done in hub.access(done) }, changed: changed, hub: hub, toolAccess: { [hub] done in hub.reusing(done) })
     }
 
     /// key → the panel's report when the panel shows it, else the most advanced among the views
@@ -505,8 +523,12 @@ final class T3DeviceStreams {
     private func configure(_ view: T3DeviceScreenView, _ element: ExactElement) {
         view.deviceName = element.data[.mediaName] ?? ""
         view.presentation = element.data[.deviceView] ?? ""
-        view.axOverlay = element.data[.deviceAx] == "1"
-        view.axSource = view.axOverlay ? { [tools] done in tools.readAx(platform: view.platform, deviceId: view.deviceId, hostId: view.hostId, done) } : nil
+        // Only a change of the overlay restarts its reads: every other word (a new ticket among them) leaves them be.
+        let overlay = element.data[.deviceAx] == "1"
+        view.axOverlay = overlay
+        if overlay != (view.axSource != nil) {
+            view.axSource = overlay ? { [tools] done in tools.readAx(platform: view.platform, deviceId: view.deviceId, hostId: view.hostId, done) } : nil
+        }
         tools.watchForeground(panels: views.values.filter { !$0.presentation.isEmpty }.map { ($0.key, $0.platform, $0.deviceId, $0.hostId) })
         changed("t3.status")
     }
