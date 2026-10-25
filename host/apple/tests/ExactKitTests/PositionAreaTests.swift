@@ -330,4 +330,29 @@ final class PositionAreaTests: XCTestCase {
             XCTAssertEqual(placed.origin.y, -scroll.y, "moved with the anchor")
         }
     }
+
+    /// A second placement in the same batch measures nothing; a new batch
+    /// measures again, as does a moved layout stamp (a layout whose batch was
+    /// empty), and a refusal is asked again (theme2's cache test).
+    func testMeasuresAreKeptForOneBatch() {
+        var cache = PositionArea.MeasureCache(), asked = 0
+        let region = CGSize(width: 100, height: 480)
+        func measure(_ batch: Int, stamp: UInt64 = 1, _ view: UInt32 = 7, _ size: CGSize = region, refuse: Bool = false) -> PositionArea.Measured? {
+            cache.measured(view, size, batch: batch, stamp: stamp) {
+                asked += 1
+                return refuse ? nil : .init(size: CGSize(width: 100, height: 54))
+            }
+        }
+        XCTAssertEqual(measure(1), .init(size: CGSize(width: 100, height: 54)))
+        XCTAssertEqual(measure(1), .init(size: CGSize(width: 100, height: 54)))
+        XCTAssertEqual(asked, 1, "the same batch: measured once")
+        _ = measure(1, 8); _ = measure(1, 7, CGSize(width: 120, height: 480))
+        XCTAssertEqual(asked, 3, "another view, another region: each its own")
+        _ = measure(2)
+        XCTAssertEqual(asked, 4, "a new batch measures again")
+        _ = measure(2, stamp: 2)
+        XCTAssertEqual(asked, 5, "a moved stamp in the same batch measures again")
+        XCTAssertNil(measure(3, refuse: true)); XCTAssertNil(measure(3, refuse: true))
+        XCTAssertEqual(asked, 7, "a refusal is not kept")
+    }
 }

@@ -1058,7 +1058,7 @@ public final class ExactSession {
     func oweColorsForTests() { colorsOwed = true }
     #endif
 
-    /// Batches that reached `apply` (`IdleTickTests` read it).
+    /// Batches that reached `apply` (`IdleTickTests` read it, and painted popovers keep their measures for one: `PositionArea.MeasureCache`).
     private(set) var appliedBatches = 0
     package func apply(_ batch: Batch) {
         guard state != .destroyed, !batch.busy else { return }

@@ -994,6 +994,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_block(view, [width, height], [width_policy, height_policy]), |_| 0)
         }
 
+        /// What moves whenever a block measure could answer differently
+        /// (`Bridge::layout_stamp`): a host keeps measures while it stands.
+        #[no_mangle]
+        pub extern "C" fn exact_layout_stamp(rt: u32) -> u64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.layout_stamp(), |_| 0)
+        }
+
         /// Common LE collection feedback from the input buffer; returns batch length.
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {

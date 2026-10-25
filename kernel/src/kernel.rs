@@ -456,6 +456,15 @@ impl Kernel {
         self.epoch
     }
 
+    /// What moves whenever a trial measure (`Kernel::measure_block`) could
+    /// answer differently: the incarnation, the epoch (a commit that changed
+    /// something) and the layout publications. A host that keeps measures
+    /// keeps them while this stands: a change a trial would read either is
+    /// such a commit or waits for a layout (`measure_block` refuses until).
+    pub fn layout_stamp(&self) -> (u64, u64, u64) {
+        (self.incarnation, self.epoch, self.arena.last_pass())
+    }
+
     /// The kernel incarnation: bumps on every [`Kernel::reset`]. Keys from an
     /// earlier incarnation never resolve.
     pub fn incarnation(&self) -> u64 {

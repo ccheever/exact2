@@ -633,6 +633,8 @@ package final class Presenter {
     var presentedText: Set<UInt32> = []
     /// Each painted popover's region not yet told the kernel, the latest, with the view it is for (`tellRegion`).
     var regionsUntold: [UInt32: (view: ObjectIdentifier?, block: HostBlock?)] = [:]
+    /// Painted popovers' measures in their regions this batch (`placePainted`).
+    var regionMeasures = PositionArea.MeasureCache()
     /// Paragraphs whose words the batch being applied changed (`paintChangedText`)
     var changedText: Set<UInt32> = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {

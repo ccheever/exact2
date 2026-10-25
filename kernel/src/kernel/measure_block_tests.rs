@@ -375,6 +375,23 @@ fn a_measure_waits_for_a_layout_that_must_prepare_first() {
     assert_eq!(Some(measured), k.host_block_size(3));
 }
 
+/// The layout stamp stands across measures and moves with a commit that
+/// changes something and with a layout, even one that moves no frame (a
+/// `max-width` past the box's size: Astra on the host cache).
+#[test]
+fn the_layout_stamp_moves_whenever_a_measure_could() {
+    let mut k = page(&[(StyleId::Width, t("100%"))], "a b");
+    let stamp = k.layout_stamp();
+    k.measure_block(3, region(400.0, 600.0)).unwrap();
+    assert_eq!(k.layout_stamp(), stamp, "a measure moves nothing");
+    k.apply(0, 2, &[style(3, &[(StyleId::MaxWidth, n(300.0))])])
+        .unwrap();
+    let committed = k.layout_stamp();
+    assert_ne!(committed, stamp, "a commit that changed something");
+    let receipt = k.compute_layout(1, OFFER).unwrap();
+    assert_ne!(k.layout_stamp(), committed, "a layout: {receipt:?}");
+}
+
 /// Only a block's root is measured; a bad length and an unknown view are
 /// refused.
 #[test]

@@ -29,7 +29,11 @@ extension Presenter {
         }
         let at = PositionArea.place(placed.area, anchor: anchor, margins: margins, fallbacks: placed.fallbacks,
                                     overflow: overflow, rtl: rtl, scroll: scroll, pageScroll: pageScroll, history: &history, in: bounds) { region in
-            self.session?.runtime.measureBlock(id, in: .region(region)) ?? PositionArea.Measured(size: laid, margins: margins)
+            guard let session = self.session else { return PositionArea.Measured(size: laid, margins: margins) }
+            let stamp = session.runtime.layoutStamp()
+            return self.regionMeasures.measured(id, region, batch: session.appliedBatches, stamp: stamp) {
+                session.runtime.measureBlock(id, in: .region(region))
+            } ?? PositionArea.Measured(size: laid, margins: margins)
         }
         tellRegion(id, .region(at.region.size), told: &told)
         return at
@@ -84,5 +88,29 @@ extension Presenter {
         let inBatch = applying
         #endif
         if inBatch { afterBatch(tell) } else { DispatchQueue.main.async(execute: tell) }
+    }
+}
+
+extension PositionArea {
+    /// Each popover's measures in its regions, kept until the next batch
+    /// applies or the kernel's layout stamp moves (`Runtime.layoutStamp`: a
+    /// commit that changed something, a layout, even one whose batch was
+    /// empty): a placement runs on every menus layout, several while one
+    /// popover opens, and what the kernel answers for a region stands until
+    /// then. A refusal is not kept.
+    struct MeasureCache {
+        private struct Key: Hashable { let view: UInt32, width: CGFloat, height: CGFloat }
+        private var batch = -1, stamp: UInt64 = 0, kept: [Key: Measured] = [:]
+
+        /// `view`'s measure in a region `region` big, asked of `measure` only
+        /// when it hasn't been asked since the batch and stamp were these.
+        mutating func measured(_ view: UInt32, _ region: CGSize, batch: Int, stamp: UInt64, _ measure: () -> Measured?) -> Measured? {
+            if batch != self.batch || stamp != self.stamp { (self.batch, self.stamp, kept) = (batch, stamp, [:]) }
+            let key = Key(view: view, width: region.width, height: region.height)
+            if let known = kept[key] { return known }
+            let answer = measure()
+            if let answer { kept[key] = answer }
+            return answer
+        }
     }
 }
