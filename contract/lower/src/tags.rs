@@ -521,6 +521,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "currententrychange" => AttrTarget::Handler("currententrychange"),
         "navigatesuccess" => AttrTarget::Handler("navigatesuccess"),
         "navigateerror" => AttrTarget::Handler("navigateerror"),
+        // @ref LLP 1020.002 D5 — a guest's window request and its downloads.
+        "newwindow" => AttrTarget::Handler("newwindow"),
+        "download" => AttrTarget::Handler("download"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
         "transformrelease" => AttrTarget::Handler("transformrelease"),

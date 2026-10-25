@@ -70,3 +70,57 @@ final class IframePartitionSessionTests: XCTestCase {
     }
 }
 #endif
+
+#if os(macOS)
+/// scripts/fixtures/iframe-windows.contract: a guest's `newwindow` reaches
+/// its frame's action with a `FrameNewWindow`, and a frame that handles it
+/// is told so before its web view is made (LLP 1020.002 D5).
+final class IframeWindowsSessionTests: XCTestCase {
+    nonisolated(unsafe) private static var server: WindowPages?
+
+    /// The agent's default place never overwrites an earlier download: the
+    /// next free name, as Finder makes one.
+    func testAnAgentDownloadTakesAFreshName() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("fresh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report.txt")
+        try Data().write(to: folder.appendingPathComponent("report.txt"))
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report 2.txt")
+        try Data().write(to: folder.appendingPathComponent("report 2.txt"))
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder), "report 3.txt")
+        try Data().write(to: folder.appendingPathComponent("notes"))
+        XCTAssertEqual(WebViews.freshName("notes", in: folder), "notes 2")
+        // A name handed to a download still coming in is taken too.
+        XCTAssertEqual(WebViews.freshName("report.txt", in: folder, taken: ["report 3.txt"]), "report 4.txt")
+    }
+
+    func testANewWindowReachesItsAction() throws {
+        guard let module = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
+        }
+        _ = NSApplication.shared
+        if Self.server == nil { Self.server = try WindowPages(port: 16621) }
+        let session = ExactApp.shared.makeSession(label: "iframe-windows")
+        session.webviews.moduleLocation = { module }
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try fixturePlan("IFRAME_WINDOWS"), size: CGSize(width: 640, height: 500)).error)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = ExactView(session: session)
+        window.orderFrontRegardless()
+        defer { window.close() }
+        let seen = { session.presenter.views.values.first { $0.props["testId"] == "seen" }?.props["text"] ?? "" }
+        let until = { (seconds: TimeInterval, done: () -> Bool) in
+            let end = Date(timeIntervalSinceNow: seconds)
+            while !done() && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        }
+        let guest = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "guest" })
+        until(20) { (guest.web as? WKWebView)?.url?.path == "/opener" && (guest.web as? WKWebView)?.isLoading == false }
+        let web = try XCTUnwrap(guest.web as? WKWebView)
+        web.evaluateJavaScript("document.getElementById('blank').click()") { _, _ in }
+        until(10) { seen().hasPrefix("foreground-tab ") }
+        XCTAssertEqual(seen(), "foreground-tab http://127.0.0.1:16621/b|")
+    }
+}
+#endif
