@@ -141,14 +141,14 @@ const watch = topic => (watched.get(topic) ?? watched.set(topic, new Set()).get(
 // Its source's readers are the answers' that read it last: each answer's own
 // reads replace the last's, as the runner's `watching` does.
 const moduleWatched = new Map(); // module key -> sources
-// Whether the answer that made the call still wants its reply is its ticket's `held` (rt.js `reply`), which a
-// registration's reply reads (LLP 1133.011 D11).
+// Whether the answer that made the call still wants its reply is its call's `wanted`, its ticket's `held` (rt.js
+// `reply`), which a registration's reply reads (LLP 1133.011 D11).
 globalThis.__exact_module = body => {
   const key = `${body.extension}.${body.source}`, call = answering.call;
   if (body.source && watching) (moduleWatched.get(key) ?? moduleWatched.set(key, new Set()).get(key)).add(watching);
   // A tool handler's call carries its origin (`data.tool`); every other is the app's.
   const origin = call?.origin ?? 'app';
-  return ordinary(() => globalThis.exact?.extensions?.call?.({ ...body, origin }, () => call?.held?.() ?? true) ?? Promise.resolve({ error: 'NotSupportedError' }));
+  return ordinary(() => globalThis.exact?.extensions?.call?.({ ...body, origin }, () => call?.wanted?.() ?? true) ?? Promise.resolve({ error: 'NotSupportedError' }));
 };
 (globalThis.exact ??= {}).announceModule = topic => announce(topic, 'module');
 globalThis.exact.moduleReaders = key => Resources.filter(r => moduleWatched.get(key)?.has(r.source)).map(r => r.name);
