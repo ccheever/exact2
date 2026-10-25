@@ -135,6 +135,13 @@ interactive transition and check content clearance within the moving route. Afte
 release they assert the route, draft, focus and scroll position. UIKit owns the
 [content swipe recognizer](https://developer.apple.com/documentation/uikit/uinavigationcontroller/interactivecontentpopgesturerecognizer).
 
+`--only secondary-navigation` checks an unfolded Duo's centered UIKit sheet
+with its own navigation stack over a background stack that also has Back.
+It covers native Back taps, completed and cancelled edge and content swipes,
+the secondary editor's focus and draft, destination scroll restoration, and
+horizontal clearance during the gesture. The sheet's root refuses a native
+Back tap rather than targeting the stack behind it.
+
 ## Browsers
 
 - **Launch Chromium through `chromium()`, never by a path.** It
