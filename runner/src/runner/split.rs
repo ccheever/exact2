@@ -68,6 +68,11 @@ pub struct StackSplit {
     /// Each route above the root in its stack whose location a row of the
     /// list links to, with that row's press: `(route, row)`, bottom to top.
     pub rows: Vec<(ViewId, ViewId)>,
+    /// Each route above the root in its stack with its visit's location,
+    /// bottom to top: a row's association with a route holds while the
+    /// route keeps the location it had, as `replace` keeps a visit's id
+    /// (LLP 1127 D3).
+    pub locations: Vec<(ViewId, String)>,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -101,10 +106,20 @@ impl<D: DataSource> Runner<D> {
             Some((list, links)) => (Some(list), links),
             None => (None, Vec::new()),
         };
+        let locations = self.pane_locations(route);
+        // A route whose location a row's link names is that row's detail.
+        let rows = locations
+            .iter()
+            .filter_map(|(route, url)| {
+                let (row, _) = links.iter().find(|(_, href)| href == url)?;
+                Some((*route, *row))
+            })
+            .collect();
         Some(StackSplit {
             list,
             width,
-            rows: self.detail_rows(route, &links),
+            rows,
+            locations,
         })
     }
 
@@ -273,12 +288,9 @@ impl<D: DataSource> Runner<D> {
         press_writes_router(&self.plan, self.ids.site(view)?)
     }
 
-    /// The routes after `root` among its parent's children whose visit's
-    /// location one of `links` names, each with that link.
-    fn detail_rows(&self, root: ViewId, links: &[(ViewId, String)]) -> Vec<(ViewId, ViewId)> {
-        if links.is_empty() {
-            return Vec::new();
-        }
+    /// The routes after `root` among its parent's children, each with its
+    /// visit's location.
+    fn pane_locations(&self, root: ViewId) -> Vec<(ViewId, String)> {
         let Some((_, router)) = self.carry_router() else {
             return Vec::new();
         };
@@ -289,7 +301,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|p| self.kernel.node(p))
             .map(|p| p.children())
             .unwrap_or_default();
-        let location = |route: ViewId| -> Option<&str> {
+        let location = |route: ViewId| -> Option<String> {
             let id: u64 = self
                 .kernel
                 .node(route)?
@@ -302,17 +314,13 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .flat_map(|tab| tab.stack.iter())
                 .find(|e| e.id == id)
-                .map(|e| e.url.as_str())
+                .map(|e| e.url.clone())
         };
         siblings
             .into_iter()
             .skip_while(|id| *id != root)
             .skip(1)
-            .filter_map(|route| {
-                let url = location(route)?;
-                let (row, _) = links.iter().find(|(_, href)| href == url)?;
-                Some((route, *row))
-            })
+            .filter_map(|route| Some((route, location(route)?)))
             .collect()
     }
 }

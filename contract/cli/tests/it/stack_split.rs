@@ -118,6 +118,13 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
             (view(&r, "item-c"), view(&r, "row-c")),
         ]
     );
+    assert_eq!(
+        found.locations,
+        vec![
+            (view(&r, "item-b"), "/item/b".to_string()),
+            (view(&r, "item-c"), "/item/c".to_string()),
+        ]
+    );
     // A pushed route is no stack's root, and a button in a row is not the row.
     assert_eq!(r.stack_split(view(&r, "item-c"), None), None);
     assert_eq!(r.stack_split(view(&r, "star-a"), None), None);
@@ -236,10 +243,20 @@ fn a_row_whose_press_writes_the_router_splits_and_one_that_writes_none_does_not(
             "              for id in [\"a\", \"b\"] key=id\n                button press={action}(id) testId=`row-${{id}}`\n                  text id"
         )
     };
-    let r = boot(&app("", "", &pressed("open")));
+    let mut r = boot(&app("", "", &pressed("open")));
     let found = split(&r).expect("a press that writes the router pushes");
     assert_eq!(found.list, Some(view(&r, "rows")));
     assert!(found.rows.is_empty(), "a press names no location");
+    assert!(found.locations.is_empty(), "nothing is pushed yet");
+    // What a press pushes is named with its location, which a host reads to
+    // tell when `replace` moves it (LLP 1127 D3).
+    r.dispatch(view(&r, "row-b"), Event::Press).unwrap();
+    let found = split(&r).unwrap();
+    assert!(found.rows.is_empty());
+    assert_eq!(
+        found.locations,
+        vec![(view(&r, "item-b"), "/item/b".to_string())]
+    );
 
     // Rows that select into state push nothing: the header's button, which
     // does write the router, is no row of the list.

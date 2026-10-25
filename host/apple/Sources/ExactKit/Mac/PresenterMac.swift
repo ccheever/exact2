@@ -867,6 +867,10 @@ package final class Presenter {
               fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
         guard views[node.id] === node else { return }
+        // A route this press brings is the row's detail (SplitMac.swift).
+        let split = navigation.split, row = split.pressing == nil && split.pressesPaintedRow(node)
+        if row { split.pressing = node.id }
+        defer { if row { split.pressing = nil } }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
