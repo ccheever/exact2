@@ -24,6 +24,11 @@ extension Presenter {
         guard !(settled ? navigation.changing : navigation.transitioning), !modals.inTransition else { return }
         let choice = statusBarChoice()
         guard choice != statusBar else { return }
+        HostLog.note(session, {
+            let style = choice.style == .lightContent ? "light content" : choice.style == .darkContent ? "dark content" : "default"
+            let scheme = session?.view?.traitCollection.userInterfaceStyle == .dark ? "dark" : "light"
+            return "appearance: status bar \(style)\(choice.source.map { " (from #\($0))" } ?? " (no declaration)"), under a \(scheme) interface style"
+        }())
         statusBar = choice
         let apply = { [self] in
             onStatusBar?(choice)

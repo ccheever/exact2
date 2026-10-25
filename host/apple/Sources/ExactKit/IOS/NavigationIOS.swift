@@ -1193,6 +1193,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         guard navigationController === navigation else { return }
+        HostLog.note(presenter.session, {
+            let by = navigationController.transitionCoordinator?.isInteractive == true ? "the edge swipe" : nativePopPending(on: navigationController) ? "UIKit's Back" : "the app"
+            return "navigation: willShow \((viewController as? RouteController)?.key ?? "?") (\(animated ? "animated" : "unanimated"), by \(by))"
+        }())
         // The route coming into view was out of the window while it was
         // covered, so no scroll asked for its text; paint what shows of it
         // as the transition starts, not when the reader next scrolls.
@@ -1235,6 +1239,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             recordPop(navigationController)
             return
         }
+        HostLog.note(presenter.session, "navigation: didShow \((viewController as? RouteController)?.key ?? "?")")
         // An animated push or pop ends in its coordinator's completion
         guard pushOrPop(on: navigationController) == nil else { return }
         transitionEnded(navigationController, swipe: nil, cancelled: false)

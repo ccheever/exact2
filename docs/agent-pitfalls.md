@@ -1085,6 +1085,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   failed. Judge a build by its exit status (`bun host/web/build.mjs`, `bun
   host/apple/build.mjs`). (Excord port, `symbol:warning`, LLP 1142 D7, 2026-10-25.)
 
+- **A host timing bug on iOS is chased with `NSLog` and rebuilds of exact2.** A
+  development build already journals what the host did: `logs` has `host:` lines for
+  navigation (`willShow`, `didShow`, and whether the app, UIKit's Back or the edge swipe
+  started it), sheets presented and dismissed, autofocus applied or skipped with what holds
+  the focus, the keyboard, and the status bar's style. A run driven by hand prints them to
+  `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "dev.exact"
+  AND category == "host"'`. Read them before patching the host (LLP 1143 D2).
+
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied
   value. Even one character per call is replacement, so `" suffix"` does not append
