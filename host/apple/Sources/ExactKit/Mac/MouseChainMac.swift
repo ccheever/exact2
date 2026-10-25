@@ -483,6 +483,24 @@ extension Presenter {
         link.add(to: .main, forMode: .common)
         followLink = link
     }
+    /// A scroll moved content under a resting pointer: its hover follows once
+    /// the scroll rests, `scrollRestInterval` after its last move, as a
+    /// browser's does (WebKit fires its fake mouse move once per scroll, at its
+    /// end: https://trac.webkit.org/r134150; Chromium keeps that timer). One a
+    /// frame was a hit-test and a round trip to the runner for every row a
+    /// fling carried under the pointer.
+    static let scrollRestInterval: TimeInterval = 0.1
+    func followPointerAfterScroll() {
+        // A drive's frozen clock has no wall time to wait out: its hover follows at the frame.
+        if ExactEnv.agentFreezes { followPointer(); return }
+        scrollRestFollow?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.scrollRestFollow = nil
+            self?.followPointer()
+        }
+        scrollRestFollow = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollRestInterval, execute: work)
+    }
     /// Whether a hit-test waits for the next frame.
     var followPending: Bool { followLink?.isPaused == false }
     /// The pointer in window points while it rests over this window's
