@@ -505,7 +505,9 @@ impl Em<'_> {
                 let (say, view) = (self.uses.rt("say"), self.uses.rt("viewId"));
                 one("--exact-layout-transition", Some(style::layout_transition_map(&values, &format!("{view}({e})"), &say)))
             }
-            _ => style::style_writes(b.id, timeline)
+            // A side is the author's when they wrote it or the other of its
+            // pair (css.rs `unsaid_side`): only a side the sheet alone sets mirrors.
+            _ => style::style_writes(b.id, timeline, b.written || style::other_side(id).and_then(binding).is_some_and(|o| o.written))
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
                 .map(|w| {
@@ -1045,7 +1047,6 @@ pub(crate) fn pressed_transition_map() -> String {
                     crate::style::TRANSITION_ENTRIES.as_str()
                 )
 }
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1373,7 +1374,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let page = dir.join("col.html");
         let cursor_writes =
-            crate::style::style_writes(exact_kernel::StyleId::Cursor as u16, false).unwrap();
+            crate::style::style_writes(exact_kernel::StyleId::Cursor as u16, false, true).unwrap();
         let cursor_map = cursor_writes[0].map.unwrap();
         let html = format!(
             r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}button{{cursor:default}}</style><div id="flow">column</div><div style="cursor:grab"><button id="cursor">Cursor</button></div><pre id="out"></pre><script>
