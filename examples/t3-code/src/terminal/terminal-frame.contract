@@ -55,7 +55,9 @@ component TerminalFrame
       message(payload)
   view
     box flex=1 min-width=0 min-height=0 position="relative" overflow="hidden"
-      iframe id=frame.id src=frame.src message=received aria-label=label testId=testId position="absolute" left=0 top=0 width="100%" height="100%" border-width=0
+      // WebKit suspends an unpartitioned frame's page a while after its window is covered or never shown, so a
+      // command's output would wait for the window; the reference keeps receiving (LLP 1020.002, stage 1 as built).
+      iframe id=frame.id src=frame.src message=received aria-label=label testId=testId apple.inactiveSchedulingPolicy="throttle" position="absolute" left=0 top=0 width="100%" height="100%" border-width=0
       if boots > 0
         for key in [`${boots}|${config}`] key=key
           TerminalFramePostOnce(text=config, target=frame.id)
