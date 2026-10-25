@@ -694,7 +694,11 @@ extension Presenter {
             let projected = node.headerField != nil
             guard shown || projected, let window = node.window ?? root.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
-            guard !hasFocus(window) else { continue }
+            guard !hasFocus(window) else {
+                HostLog.note(session, "focus: autofocus #\(node.id) not applied: \(Self.focusHolder(in: window)) holds the focus")
+                continue
+            }
+            HostLog.note(session, "focus: autofocus #\(node.id)")
             if projected {
                 autofocused(node)
                 focusNode(node)
