@@ -567,6 +567,31 @@ component Excord
     else if k == "Enter" and not e.shiftKey and not e.isComposing
       preventDefault()
       post()
+    // A hardware keyboard's keys, as Discord's desktop app has them (llp/0001 §3.13): Up in an empty
+    // composer edits your last message; Escape ends an edit or a reply, else goes to the newest message
+    // and reads the channel; Page Up and Page Down scroll the transcript a screen.
+    else if k == "ArrowUp" and draft == "" and editing == "" and not e.isComposing and not e.shiftKey and not e.altKey and not e.metaKey and not e.ctrlKey
+      match rows.filter(r => r.mine and r.state == "sent").at(-1)
+        case some(r)
+          preventDefault()
+          stash = ""
+          editing = r.id
+          editError = ""
+          drafts = withDraft(drafts, open, r.source)
+        case none
+          aimed = aimed
+    else if k == "Escape" and not e.isComposing
+      if editing != ""
+        cancelEdit()
+      else if replyTo != ""
+        cancelReply()
+      else
+        toPresent()
+        if chan.unread > 0
+          dismissUnread()
+    else if (k == "PageUp" or k == "PageDown") and not e.isComposing
+      preventDefault()
+      scrollBy("transcript", 0, (k == "PageUp" ? -1 : 1) * max(80, frame("transcript").height - 60))
   // A suggestion picked: its name replaces the one being written.
   action pick(text: string)
     drafts = withDraft(drafts, open, text)
