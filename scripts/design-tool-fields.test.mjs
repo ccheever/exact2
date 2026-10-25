@@ -129,21 +129,21 @@ test('third pass #6, end to end: ticking a role override then editing a value, a
   try {
     let st = await step(['type name Ada', 'tap save-name', 'clock data', ...importOne], true);
     const a = st.resources.changes.held.find(h => h.importer === 'shadcn').proposal, nth = k => a.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
-    // In one page's session (a card's choice is the page's): order one, tick AccentColor and leave shadcn.foreground
-    // out, then edit a value; order two, a second import of the same file, edit the value first, then tick and leave
-    // out on the edited one; then accept order two's, recomputed to its choice, and that.
+    // Each order within one page's session (a card's choice is the page's): order one, tick AccentColor and leave
+    // shadcn.foreground out, then edit a value; order two, a second import of the same file, edit the value first,
+    // then tick and leave out on the edited one; then accept order two's, recomputed to its choice, and that.
     const [a2, b, b2, kept] = [nth(1), nth(2), nth(3), nth(4)];
     const settle = ['clock data', 'clock +1', 'clock data'];
-    const replies = (await drive(tool.url, session, [...settle,
-      `tap override-${a}-AccentColor`, `tap take-${a}-1`, ...editOne(a), ...settle, 'state',
-      ...importOne, ...settle, 'state',
-      ...editOne(b), ...settle, `tap override-${b2}-AccentColor`, `tap take-${b2}-1`, ...settle, 'state',
-      `tap accept-${b2}`, ...settle, `tap accept-${kept}`, ...settle, 'state',
-    ], { keepStorage: true })).filter(r => r.resources);
+    const run = async steps => (await drive(tool.url, session, [...settle, ...steps], { keepStorage: true })).filter(r => r.resources);
     const heldOf = (r, id) => r.resources.changes.held.find(h => h.proposal === id);
-    expect(heldOf(replies[1], b)).toBeDefined();
-    const one = { held: heldOf(replies[0], a2), choice: choice(replies[0], heldOf(replies[0], a2)) };
-    const two = { held: heldOf(replies[2], b2), choice: choice(replies[2], heldOf(replies[2], b2)) };
+    const first = await run([`tap override-${a}-AccentColor`, `tap take-${a}-1`, ...editOne(a), ...settle, 'state', ...importOne, ...settle, 'state']);
+    const one = { held: heldOf(first[0], a2), choice: choice(first[0], heldOf(first[0], a2)) };
+    // (the second import's held list may land after the drive: waited for, as order one's choice is already read)
+    for (let i = 0; i < 40 && !heldOf(st = await step([]), b); i++) await new Promise(ok => setTimeout(ok, 250));
+    expect(heldOf(st, b)).toBeDefined();
+    const replies = await run([...editOne(b), ...settle, `tap override-${b2}-AccentColor`, `tap take-${b2}-1`, ...settle, 'state',
+      `tap accept-${b2}`, ...settle, `tap accept-${kept}`, ...settle, 'state']);
+    const two = { held: heldOf(replies[0], b2), choice: choice(replies[0], heldOf(replies[0], b2)) };
     expect([one.held.from, two.held.from]).toEqual([a, b]);
     // The same held import (its diff, tokens and every override offered) and the same choice, either way.
     expect(two.held.diff).toBe(one.held.diff);
@@ -154,7 +154,7 @@ test('third pass #6, end to end: ticking a role override then editing a value, a
     expect(two.choice.offers).toEqual(['AccentColor']);
     expect(two.choice.tokens).not.toContain('shadcn.foreground');
     // Accepted: written with the override and the edit, without what was left out.
-    expect(replies[3].slots.written.note).toBe(`Accepted ${kept}.`);
+    expect(replies[1].slots.written.note).toBe(`Accepted ${kept}.`);
     const written = tool.writes.at(-1).after;
     expect(written).toContain('AccentColor = shadcn.primary');
     expect(written).toContain(`shadcn.background = ${value}`);
