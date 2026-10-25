@@ -228,6 +228,11 @@ package final class Presenter {
     /// Use notifications for animation timing; read geometry from the guide at layout.
     @objc func keyboardChanged(_ n: Notification) {
         if let screen = n.object as? UIScreen, screen !== viewport.window?.screen { return }
+        HostLog.note(session, {
+            let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+            let shown = end.height > 0 && end.minY < (viewport.window?.screen.bounds.height ?? .infinity)
+            return shown ? "keyboard: shown, \(Int(end.width))×\(Int(end.height)) at y \(Int(end.minY))" : "keyboard: hidden"
+        }())
         refitKeyboard(duration: n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0,
                       curve: n.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7)
     }
