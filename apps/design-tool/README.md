@@ -67,7 +67,14 @@ whose design the port serves.
   The design is read again only when the files move (a `changed` event, a
   gap, a new server run), not on a build's status or a scrub's frame: a
   read is `describe`, a `resolve` per token (four at a time, stopped once
-  a newer read starts) and `hello`, which on a big design takes seconds. A
+  a newer read starts) and `hello`, which on a big design takes seconds.
+  After writes that named their tokens (`reread.ts`), back to the file's
+  last whole read, it resolves only those and each token whose `describe`
+  entry moved (a package's token derived from one the app set), and keeps
+  the rest: a peer's edit on the clone went from 267 resolves (4.5 s to
+  the grid) to one (1.4 s; its params' levels are read after it shows).
+  A hand edit, which names none, a gap, another server run, or a token
+  added, removed or of another kind reads whole. A
   proposal is asked again on every poll answer but while a scrub is shown,
   since its class can move with no file moving.
 - Every write is `design-tool:<person>`, the person asked once and kept.
