@@ -432,6 +432,86 @@ test "a 1.17 server edits a held import's value in place (edit-held): no ops sen
   expect text "held-edited-edited-1" == "Edited by design-tool:Ada"
   expect text "held-replaces-edited-1" == "Held again from imp with your edit, on the files as they are now: review its diff, then accept it."
   request POST "/__stub/restart" {} as ada
+test "a role override ticked, then a value edited (third pass #6): the edit keeps it, ticked, and accepting writes both"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  tap "override-imp-AccentColor"
+  expect text "override-imp-AccentColor" == "true"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect tree has "override-edited-1-AccentColor"
+  expect text "override-edited-1-AccentColor" == "true"
+  expect text "take-edited-1-0" == "true"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "Accepted edited-1."
+
+test "a value edited, then a role override ticked (third pass #6): the override is still offered, off, and ticking it ends as ticking first does"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect tree has "override-edited-1-AccentColor"
+  expect text "override-edited-1-AccentColor" == "false"
+  expect text "take-edited-1-0" == "true"
+  tap "override-edited-1-AccentColor"
+  expect text "override-edited-1-AccentColor" == "true"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "Accepted edited-1."
+
+test "a value edited with a role override left unticked (third pass #6): it stays offered and off, so accepting recomputes without it"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect tree has "override-edited-1-AccentColor"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "edited-1 was recomputed on the files as they are now, as edited-1-r: review its diff and accept it again."
+
 test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
   type "name" "Ada"
   tap "save-name"
