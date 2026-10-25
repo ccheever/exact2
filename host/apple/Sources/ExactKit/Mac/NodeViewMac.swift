@@ -155,8 +155,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// colours and radii. Cleared by whatever it reads (style, size, clip,
     /// raster, symbol, surface).
     var layerPaintCache: Bool?
-    /// What `applyProps` last wrote to AppKit's accessibility (see there).
-    struct AccessibilityWrite: Equatable { var enabled = true; var identifier: String?; var label: String? }
+    /// What the host last wrote to AppKit accessibility (props and form state).
+    struct AccessibilityWrite: Equatable { var enabled = true; var identifier: String?; var label: String?; var help: String?; var required = false; var formInitialized = false }
     var lastAccessibilityWrite = AccessibilityWrite()
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
@@ -1006,9 +1006,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }
         // Each AppKit accessibility write posts a notification, changed or
-        // not: write only what differs from the last write (a new view's
-        // is AppKit's own: enabled, no identifier, no label).
-        let ax = AccessibilityWrite(enabled: !disabled && !ariaUnavailable, identifier: props["testId"], label: props["accessibilityLabel"])
+        // not: write only what differs from the last write. The first form
+        // sync establishes enabled/help/required (`Accessibility.swift`).
+        var ax = lastAccessibilityWrite
+        ax.enabled = !disabled && !ariaUnavailable
+        ax.identifier = props["testId"]
+        ax.label = props["accessibilityLabel"]
         if ax != lastAccessibilityWrite {
             let last = lastAccessibilityWrite
             if ax.enabled != last.enabled { setAccessibilityEnabled(ax.enabled) }
