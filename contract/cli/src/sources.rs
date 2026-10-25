@@ -977,7 +977,7 @@ impl Loader<'_> {
                 .chain(refused)
                 .collect());
         }
-        self.splice_members();
+        self.splice_members()?;
         Ok(self.merge())
     }
 
@@ -989,7 +989,10 @@ impl Loader<'_> {
     fn unique_names(&self) -> Vec<HashMap<(Kind, String), String>> {
         let mut taken: HashSet<(Kind, String)> = HashSet::new();
         // Each file's local bindings: another file's `fn` or shape of one of
-        // these names is renamed, or the binding's calls would reach it.
+        // these names is renamed, or the binding's calls would reach it. The
+        // files of one component across files are one file here (LLP
+        // 1091.002 D4).
+        let family = self.families();
         let bound: Vec<HashSet<String>> = self
             .units
             .iter()
@@ -1059,10 +1062,9 @@ impl Loader<'_> {
                                     && unit.file.shapes.iter().any(|s| s.name == name))
                                 || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
-                                || bound
-                                    .iter()
-                                    .enumerate()
-                                    .any(|(other, names)| other != index && names.contains(name)))
+                                || bound.iter().enumerate().any(|(other, names)| {
+                                    family[other] != family[index] && names.contains(name)
+                                }))
                     };
                     // A generated name is no binding's in any file either, or
                     // the binding's calls (in its own file too) would reach it.
@@ -1342,6 +1344,7 @@ impl Loader<'_> {
             components: all!(components),
             // Each block is spliced into its component (LLP 1091.002 D4).
             members: None,
+            deferred: Vec::new(),
         }
     }
 }

@@ -323,3 +323,59 @@ fn an_initializer_sees_another_files_members_as_it_sees_its_own() {
     );
     assert_eq!(error.id, "contract-use-missing", "{error}");
 }
+
+#[test]
+fn an_action_named_like_a_method_is_the_components_wherever_it_is_written() {
+    let app = App::new("method");
+    let root = "\
+component App
+  state count = 0
+  members \"./more.contract\"
+  view
+    button press=trim(1) aria-label=\"Trim\"
+      text count.toString()
+";
+    app.write(
+        "more.contract",
+        "members App\n  action trim(n: number)\n    count = n\n",
+    );
+    let split = contract::compile_path(&app.write("app.contract", root)).unwrap();
+    let flat = root.replace(
+        "  members \"./more.contract\"\n",
+        "  action trim(n: number)\n    count = n\n",
+    );
+    assert_eq!(split.encode(), contract::compile(&flat).unwrap().encode());
+
+    // A method call the component's action would capture is refused, as in
+    // one file.
+    let root = root.replace("text count.toString()", "text \" x \".trim()");
+    let error = app.refuse(&root);
+    assert_eq!(error.id, "syntax-method-shadowed", "{error}");
+    assert_eq!(error.span.source_id, 0, "{error}");
+    // And a free call of a method's name no file declares, as in one file.
+    app.write(
+        "more.contract",
+        "members App\n  action other\n    count = 1\n",
+    );
+    let error = app.refuse(&root.replace("text \" x \".trim()", "text \"x\""));
+    assert_eq!(error.id, "syntax-method-form", "{error}");
+}
+
+#[test]
+fn a_member_shares_its_name_with_a_shape_as_in_one_file() {
+    let app = App::new("shape");
+    let root = "\
+shape Item
+  value: number
+component App
+  state Item = 0
+  members \"./more.contract\"
+  state item = Item(value=1)
+  view
+    text item.value.toString()
+";
+    app.write("more.contract", "members App\n  state extra = 0\n");
+    let split = contract::compile_path(&app.write("app.contract", root)).unwrap();
+    let flat = root.replace("  members \"./more.contract\"\n", "  state extra = 0\n");
+    assert_eq!(split.encode(), contract::compile(&flat).unwrap().encode());
+}

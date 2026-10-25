@@ -7,7 +7,7 @@ use crate::resolve::resolve;
 use crate::{CompileError, RelatedLocation};
 use contract_syntax::members::{declared, splice};
 use contract_syntax::{File, Span};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 /// A `members` line and the file it loaded.
@@ -223,11 +223,34 @@ impl Loader<'_> {
         Ok(())
     }
 
+    /// The files of each component across files, as one family: the units
+    /// a `members` line joins, by a representative unit. Names one family's
+    /// files bind are one component's, as if in one file (D4).
+    pub(super) fn families(&self) -> Vec<usize> {
+        fn root(family: &[usize], mut i: usize) -> usize {
+            while family[i] != i {
+                i = family[i];
+            }
+            i
+        }
+        let mut family: Vec<usize> = (0..self.units.len()).collect();
+        for (host, unit) in self.units.iter().enumerate() {
+            for part in &unit.parts {
+                let (a, b) = (root(&family, host), root(&family, part.unit));
+                family[b] = a;
+            }
+        }
+        (0..family.len()).map(|i| root(&family, i)).collect()
+    }
+
     /// Splice every members block, scoped, into its component at its line
     /// (D4): last line first, so each line's place among the component's own
-    /// members holds.
-    pub(super) fn splice_members(&mut self) {
-        for ((host, component), mut parts) in self.hosts() {
+    /// members holds. Then decide the refusals the parser left to the whole
+    /// component: a method's name that is, or is not, one of its actions.
+    pub(super) fn splice_members(&mut self) -> Result<(), Vec<CompileError>> {
+        let hosts = self.hosts();
+        for (&(host, component), parts) in &hosts {
+            let mut parts = parts.clone();
             parts.sort_by_key(|p| std::cmp::Reverse(p.line));
             for part in parts {
                 let block = self.units[part.unit].file.members.take();
@@ -236,6 +259,32 @@ impl Loader<'_> {
                 let at = c.members.lines[part.line].at;
                 splice(c, at, block);
             }
+        }
+        // Each file's actions: those of every component it is a file of.
+        let mut actions: HashMap<usize, HashSet<String>> = HashMap::new();
+        for (&(host, component), parts) in &hosts {
+            let c = &self.units[host].file.components[component];
+            let names: Vec<String> = c.actions.iter().map(|a| a.name.clone()).collect();
+            for unit in std::iter::once(host).chain(parts.iter().map(|p| p.unit)) {
+                actions
+                    .entry(unit)
+                    .or_default()
+                    .extend(names.iter().cloned());
+            }
+        }
+        let mut errors = Vec::new();
+        for (unit, names) in actions {
+            for d in std::mem::take(&mut self.units[unit].file.deferred) {
+                if names.contains(&d.name) == d.if_action {
+                    errors.push(CompileError::from(d.error));
+                }
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            errors.sort_by_key(|e| (e.span.source_id, e.span.line, e.span.col));
+            Err(errors)
         }
     }
 }
