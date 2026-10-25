@@ -1,12 +1,14 @@
 use ComposerChipRequest from "../composer/composer-chip-controls.contract"
 use ComposerFieldObservation from "../composer/composer-rich.contract"
-use AppDecision, CommandArgs, ComposerFieldArgs, TwoTextArgs from "./app-decisions.contract"
+use AppDecision, ChatLocalResult, CommandArgs, ComposerFieldArgs, TwoTextArgs from "./app-decisions.contract"
 use ComposerDraftState, ComposerIntentState, ComposerMenuState from "./app-protocols.contract"
 use ComposerSelectionState, KeybindingEditorState from "./app-protocols.contract"
 use PaletteSessionState, ProviderWizardState, SettingsPageState from "./app-protocols.contract"
 use SshResponseState from "./app-protocols.contract"
 use UiDecision from "./app-ui-decisions.contract"
 use UiStart from "./app-ui-start.contract"
+use TranscriptViewportState from "./app-protocols.contract"
+use PanelView from "../panel/panel-shapes.contract"
 
 fn stepComposerBlur(
   d: UiDecision,
@@ -80,9 +82,9 @@ fn transitionComposerChipPressWrites4(
   root=AppDecision(
     d.root,
     chip=some(ComposerChipRequest(generation=((surface == "preview") ? s.richPromptPreview
-      : s.richComposer).generation, snapshotOwner=s.data.snapshotOwner, owner=owner, value=value,
-      inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment,
-      frame=bounds))
+          : s.richComposer).generation, snapshotOwner=s.data.snapshotOwner, owner=owner, value=value,
+        inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment,
+        frame=bounds))
   )
 )
 
@@ -630,7 +632,7 @@ fn transitionEditCredentialWrites1(
     d.root,
     writeOrigin=true,
     origin=s.pairFields.host != "" and s.pairFields.source == s.origin ? s.pairFields.host
-      : s.origin
+    : s.origin
   )
 )
 
@@ -735,275 +737,119 @@ fn transitionSshAnswerGuard1(
 // the Code tab's gutter drags and "+", in turn
 // fragmentOpened
 // a table popup's trigger frame
+// Keep the guard chain narrow; only the final adapter copies the incoming decision.
 fn stepChatLocal(
   d: UiDecision,
   s: UiStart,
   op: string,
   id: string,
   value: string
-): UiDecision = transitionChatLocalGuard5(
-  transitionChatLocalGuard3(
-    transitionChatLocalGuard1(
-      d,
-      s,
-      op,
-      id,
-      value
+): UiDecision = finishChatLocal(
+  d,
+  decideChatLocal(
+    ChatLocalResult(
+      writeFoldHold=d.root.writeFoldHold,
+      foldHold=d.root.foldHold,
+      writeRightPanelAt=d.root.writeRightPanelAt,
+      rightPanelAt=d.root.rightPanelAt,
+      sendKind="",
+      args=CommandArgs(p0="", p1="", p2="", p3=0)
     ),
-    s,
+    s.transcriptViewport,
+    s.composerOwner,
+    s.shell.panel,
+    op,
+    id,
+    value
+  )
+)
+
+fn decideChatLocal(
+  before: ChatLocalResult,
+  viewport: TranscriptViewportState,
+  composerOwner: string,
+  panel: PanelView,
+  op: string,
+  id: string,
+  value: string
+): ChatLocalResult = chatLocalSend(
+  chatLocalPanel(
+    chatLocalFold(before, viewport, composerOwner, op),
+    panel,
     op,
     id,
     value
   ),
-  s,
   op,
   id,
   value
 )
 
-fn transitionChatLocalWrites2(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    writeFoldHold=true,
-    foldHold=true
-  )
-)
-
-fn transitionChatLocalGuard1(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = (
+fn chatLocalFold(
+  before: ChatLocalResult,
+  viewport: TranscriptViewportState,
+  composerOwner: string,
+  op: string
+): ChatLocalResult = (
   (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir")
-    and not (s.transcriptViewport.atEnd and s.transcriptViewport.owner == s.composerOwner)
-  ? transitionChatLocalWrites2(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : d
+  and not (viewport.atEnd and viewport.owner == composerOwner)
+  ? ChatLocalResult(before, writeFoldHold=true, foldHold=true)
+  : before
 )
 
-fn transitionChatLocalWrites4(
-  d: UiDecision,
-  s: UiStart,
+fn chatLocalPanel(
+  before: ChatLocalResult,
+  panel: PanelView,
   op: string,
   id: string,
   value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    writeRightPanelAt=true,
-    rightPanelAt=""
-  )
-)
-
-fn transitionChatLocalGuard3(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = (
+): ChatLocalResult = (
   op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all"
-    or (op == "surface-close" and s.shell.panel.tabs.filter((tab) => tab.id == id
-    and tab.closeTitle != "").length == 0) or (op == "surface-browser-float"
-    and not s.shell.panel.browser.capture.floating) or op == "surface-session-float"
-    or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
-  ? transitionChatLocalWrites4(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : d
+  or (op == "surface-close" and panel.tabs.filter((tab) => tab.id == id
+      and tab.closeTitle != "").length == 0) or (op == "surface-browser-float"
+    and not panel.browser.capture.floating) or op == "surface-session-float"
+  or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
+  ? ChatLocalResult(before, writeRightPanelAt=true, rightPanelAt="")
+  : before
 )
 
-fn transitionChatLocalWrites6(
-  d: UiDecision,
-  s: UiStart,
+fn chatLocalSend(
+  before: ChatLocalResult,
   op: string,
   id: string,
   value: string
-): UiDecision = UiDecision(
+): ChatLocalResult = ChatLocalResult(
+  before,
+  sendKind=(
+    op.startsWith("inline-doc-") ? "inlineDocument"
+    : op == "surface-pr-quick" ? "prQuick"
+    : op.startsWith("surface-files-comment-") ? "fileComment"
+    : op == "pr-code-drag" or op == "pr-code-begin" ? "lineDrag"
+    : op == "link-open" and value.startsWith("#") ? "fragment"
+    : "local"
+  ),
+  args=CommandArgs(p0=`chatlocal:${op}`, p1=id, p2=value, p3=0)
+)
+
+fn finishChatLocal(d: UiDecision, result: ChatLocalResult): UiDecision = UiDecision(
   d,
   root=AppDecision(
     d.root,
-    sendInlineDocumentChanged=true,
-    inlineDocument=CommandArgs(
-      p0=`chatlocal:${op}`,
-      p1=id,
-      p2=value,
-      p3=0
-    )
+    writeFoldHold=result.writeFoldHold,
+    foldHold=result.foldHold,
+    writeRightPanelAt=result.writeRightPanelAt,
+    rightPanelAt=result.rightPanelAt,
+    sendInlineDocumentChanged=d.root.sendInlineDocumentChanged or result.sendKind == "inlineDocument",
+    inlineDocument=result.sendKind == "inlineDocument" ? result.args : d.root.inlineDocument,
+    sendPrQuickChanged=d.root.sendPrQuickChanged or result.sendKind == "prQuick",
+    prQuick=result.sendKind == "prQuick" ? result.args : d.root.prQuick,
+    sendFileCommentChanged=d.root.sendFileCommentChanged or result.sendKind == "fileComment",
+    fileComment=result.sendKind == "fileComment" ? result.args : d.root.fileComment,
+    sendLineDragChanged=d.root.sendLineDragChanged or result.sendKind == "lineDrag",
+    lineDrag=result.sendKind == "lineDrag" ? result.args : d.root.lineDrag,
+    sendFragmentChanged=d.root.sendFragmentChanged or result.sendKind == "fragment",
+    fragment=result.sendKind == "fragment" ? result.args : d.root.fragment,
+    sendLocalChanged=d.root.sendLocalChanged or result.sendKind == "local",
+    local=result.sendKind == "local" ? result.args : d.root.local
   )
-)
-
-fn transitionChatLocalWrites7(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    sendPrQuickChanged=true,
-    prQuick=CommandArgs(
-      p0=`chatlocal:${op}`,
-      p1=id,
-      p2=value,
-      p3=0
-    )
-  )
-)
-
-fn transitionChatLocalWrites8(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    sendFileCommentChanged=true,
-    fileComment=CommandArgs(
-      p0=`chatlocal:${op}`,
-      p1=id,
-      p2=value,
-      p3=0
-    )
-  )
-)
-
-fn transitionChatLocalWrites9(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    sendLineDragChanged=true,
-    lineDrag=CommandArgs(
-      p0=`chatlocal:${op}`,
-      p1=id,
-      p2=value,
-      p3=0
-    )
-  )
-)
-
-fn transitionChatLocalWrites10(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    sendFragmentChanged=true,
-    fragment=CommandArgs(
-      p0=`chatlocal:${op}`,
-      p1=id,
-      p2=value,
-      p3=0
-    )
-  )
-)
-
-fn transitionChatLocalWrites11(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = UiDecision(
-  d,
-  root=AppDecision(
-    d.root,
-    sendLocalChanged=true,
-    local=CommandArgs(
-      p0=`chatlocal:${op}`,
-      p1=id,
-      p2=value,
-      p3=0
-    )
-  )
-)
-
-fn transitionChatLocalGuard5(
-  d: UiDecision,
-  s: UiStart,
-  op: string,
-  id: string,
-  value: string
-): UiDecision = (
-  op.startsWith("inline-doc-")
-  ? transitionChatLocalWrites6(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : op == "surface-pr-quick"
-  ? transitionChatLocalWrites7(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : op.startsWith("surface-files-comment-")
-  ? transitionChatLocalWrites8(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : op == "pr-code-drag" or op == "pr-code-begin"
-  ? transitionChatLocalWrites9(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : op == "link-open" and value.startsWith("#")
-  ? transitionChatLocalWrites10(
-    d,
-    s,
-    op,
-    id,
-    value
-  )
-  : transitionChatLocalWrites11(
-  d,
-  s,
-  op,
-  id,
-  value
-)
 )

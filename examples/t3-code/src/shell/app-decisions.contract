@@ -37,6 +37,14 @@ fn initialCommandArgs(): CommandArgs = CommandArgs(
   p3=0
 )
 
+shape ChatLocalResult
+  writeFoldHold: bool
+  foldHold: bool
+  writeRightPanelAt: bool
+  rightPanelAt: string
+  sendKind: string
+  args: CommandArgs
+
 shape ProviderChangeArgs
   p0: string
   p1: string
