@@ -76,6 +76,9 @@ export interface Live {
   ackToken: string | null;
   // Channels with a history page in flight: one at a time each (§2).
   paging: Set<string>;
+  // `channel:anchor` for an anchor whose page did not hold it (a deleted message, a link past the
+  // channel's end, an empty channel): the window shows the channel's end rather than ask again.
+  missed: Set<string>;
   // Sends that failed, by nonce, so a retry knows what to post.
   // A send's files are its picked copies (`app:/tmp/picked/…`), uploaded when it posts; `uploaded` keeps
   // each file's upload as it lands, so a retry uploads only what did not.
@@ -111,7 +114,7 @@ export function createLive(origins: Origins): Live {
   return { origins, store: S.createStore(), gw: null, socket: null, identity: null, token: '',
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
     history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
-    ackToken: null, paging: new Set(), sends: new Map(), attempt: 0, ready: false,
+    ackToken: null, paging: new Set(), missed: new Set(), sends: new Map(), attempt: 0, ready: false,
     queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0, signedOut: false };
 }
 
@@ -334,6 +337,7 @@ function forget(live: Live, secrets: Secrets | null): void {
   live.held = null;
   live.ackToken = null;
   live.sends.clear();
+  live.missed.clear();
   live.viewing = { channel: '', guild: '' };
   live.subscribed = '';
   S.forgetAccount(live.store);

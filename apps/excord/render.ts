@@ -22,6 +22,8 @@ export interface Directories {
   channelName(id: string): string;
   /** The guild a channel is in ("" for a DM or one the store does not hold). */
   channelGuild(id: string): string;
+  /** Whether the reader can open a channel: the store holds it and the account can see it. */
+  canOpen(id: string): boolean;
   roleName(id: string): string;
   message(channel: string, id: string): Stored | undefined;
   deleted(channel: string, id: string): boolean;
@@ -55,12 +57,12 @@ function run(id: string, kind: string, text: string, marks: Mark[], spoiler: str
 }
 
 // A link to a Discord channel or message (`https://discord.com/channels/<guild or @me>/<channel>[/<message>]`)
-// opens in the app when the store holds the channel: its run's `ref` is `m:<guild>:<channel>:<message>` (""
+// opens in the app when the reader can open the channel: its run's `ref` is `m:<guild>:<channel>:<message>` (""
 // for a DM's guild or no message). One the account cannot open opens in the browser, as any link does.
 const DISCORD_LINK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d+)\/(\d+)(?:\/(\d+))?\/?(?:[?#].*)?$/i;
 function messageLink(href: string, dirs: Directories): string {
   const m = DISCORD_LINK.exec(href);
-  if (!m || dirs.channelName(m[2]) === 'unknown-channel') return '';
+  if (!m || !dirs.canOpen(m[2])) return '';
   return `m:${dirs.channelGuild(m[2])}:${m[2]}:${m[3] ?? ''}`;
 }
 
@@ -88,8 +90,8 @@ function inlines(nodes: Inline[], b: Block, ctx: Context): void {
       if (self) ctx.mentionsMe = true;
       emit('user', `@${displayName(u, node.id)}`, marks, { self, ref: `u:${node.id}` });
     } else if (node.kind === 'channel') {
-      const known = ctx.dirs.channelName(node.id) !== 'unknown-channel';
-      emit('channel', `#${ctx.dirs.channelName(node.id)}`, marks, { ref: known ? `c:${ctx.dirs.channelGuild(node.id)}:${node.id}` : '' });
+      emit('channel', `#${ctx.dirs.channelName(node.id)}`, marks,
+        { ref: ctx.dirs.canOpen(node.id) ? `c:${ctx.dirs.channelGuild(node.id)}:${node.id}` : '' });
     }
     else if (node.kind === 'role') emit('role', `@${ctx.dirs.roleName(node.id)}`, marks);
     else if (node.kind === 'everyone') {
