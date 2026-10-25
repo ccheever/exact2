@@ -1,7 +1,7 @@
 // The device's copies of attached files (composer-attach-stage.ts writes them): an image's draft beside SnapShot's,
 // and a plain file's copy for its chip, read once at send and removed.
 import { appFiles } from '../media/save-file';
-import { toBase64 } from '../browser/browser-import-io';
+import { toBase64 } from '../shared/base64';
 import { videoMimeType } from './composer-video';
 
 export const DRAFTS = 'app:/data/snapshots/drafts';

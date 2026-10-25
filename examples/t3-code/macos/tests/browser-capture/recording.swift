@@ -38,7 +38,7 @@ final class MockRecordingCanvas: T3RecordingCanvas {
 private let primaryColor = "oklch(0.65 0.2 310)"
 private func pointer(_ phase: String, _ x: Double = 100) -> [String: Any] { ["type": "pointer", "phase": phase, "x": x, "y": 80, "width": 800, "height": 600] }
 
-/// A small page in a window, its web view sharing a configuration the recording registers on.
+/// A small page in a window, its web view handed to the recording as the hatch hands a frame's.
 private final class RecordingPage {
     let window: NSWindow
     let web: WKWebView
@@ -46,7 +46,7 @@ private final class RecordingPage {
     let configuration = WKWebViewConfiguration()
     init(width: CGFloat = 640, height: CGFloat = 400) {
         configuration.websiteDataStore = .nonPersistent()
-        recording = T3BrowserRecording(configuration: configuration)
+        recording = T3BrowserRecording()
         web = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: configuration)
         let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
         if web.responds(to: occlusion) { web.perform(occlusion, with: false) }
@@ -54,7 +54,7 @@ private final class RecordingPage {
         window.isReleasedWhenClosed = false
         window.contentView = web
         window.orderFrontRegardless()
-        recording.page = web
+        recording.attach(web)
     }
     func load(_ url: String) {
         let done = Loaded()
@@ -173,8 +173,7 @@ final class RecordingDecorationsTests: XCTestCase {
 
     // describe("detached recording compositor")
     func testKeepsNativeCaptureWhenBothDecorationsAreOff() {
-        let configuration = WKWebViewConfiguration()
-        let recording = T3BrowserRecording(configuration: configuration)
+        let recording = T3BrowserRecording()
         XCTAssertFalse(recording.useDecorations(showKeyPresses: false, showMousePresses: false, primaryColor: primaryColor))
         XCTAssertNil(recording.decorations, "no compositor is allocated")
         recording.close()
@@ -354,10 +353,9 @@ final class BrowserRecordingTests: XCTestCase {
         XCTAssertNil(arm(page))
         XCTAssertTrue(cursorPresent())
         page.load("\(fixture.base)/next")
-        XCTAssertFalse(cursorPresent(), "a new document has no cursor")
-        page.recording.documentReady()
+        // The recording observes the load's end (the arm owns the navigation delegate) and installs the cursor again.
         CaptureSpin.until({ self.cursorPresent() }, timeout: 5)
-        XCTAssertTrue(cursorPresent())
+        XCTAssertTrue(cursorPresent(), "the new document has the cursor once its load ends")
         page.recording.disarm()
         page.recording.documentReady()
         CaptureSpin.wait(0.3)

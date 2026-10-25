@@ -369,9 +369,10 @@ component ChatColumn
       // A device floated over the chat (device-workspace.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
-      // A Browser tab floated over the chat (browser-capture.contract).
-      if shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
-        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
+      // A server Browser tab floated over the chat (browser-capture.contract); a tab with a frame floats in the page layer
+      // (browser-frames.contract BrowserFrameLayer).
+      if shell.panel.browserMini.show and shell.panel.browserMini.server and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
+        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside, framed=false)
       if hero and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.

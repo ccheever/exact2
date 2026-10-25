@@ -13,11 +13,12 @@ import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes
 // and PreviewView handleMoveTab through the More menu's move row.
 import { describe, expect, it } from 'bun:test';
 import {
-  DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTabFavicon, browserTabTitle, browserView,
+  DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTab, browserTabFavicon, browserTabTitle, browserView,
   revealServerSessions, effectiveNav, buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState, browserPrepare,
   reconcileBrowserSurfaces, syncNativeSessions, alternatePreviewRuntime, type NativeTab, type Rpc,
 } from '../../src/browser/browser-surface';
 import { toasts } from '../../src/shell/toast';
+import { adoptFrameEvent, frameCommandDone, frameCommandView, frameIdOf, frames, partitionOf } from '../../src/browser/browser-frames';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { BrowserSettingsReadError, resolveBrowserDefaults } from '../../src/browser/browser-profiles';
 import { panelState, panelView, surfaceLocal, surfaceStore, panelKey, type PanelState } from '../../src/panel/panel-surfaces';
@@ -218,103 +219,114 @@ describe('the chrome row and the native host', () => {
     return openBrowserIn(state, tab.tabId, 'local:thread-1');
   };
 
-  it('an idle tab shows the empty state; the module page state drives the chrome', () => {
+  /** One record the tab's frame sends (browser-frames.contract `record`). */
+  const record = (client: T3Client, tabId: string, query: string) => adoptFrameEvent(client, frameIdOf(previewRuntimeTabId(threadRef, 'epoch-1', tabId)), query, 0);
+  const queued = (client: T3Client) => frames(client).queue.map(({ kind, id, url, delta, flag }) => ({ kind, id, url, delta, flag }));
+
+  it('an idle tab shows the empty state; its frame\'s records drive the chrome', () => {
     const { client } = fakeClient(() => ({}));
     const state = emptyPanel(), surface = opened(client, state, idle('tab-1'));
     expect(browserView(client, surface)).toMatchObject({ empty: true, live: false, url: '', refreshDisabled: true, hasWebContents: false, profileName: 'Default', showProfile: false });
-    const runtimeId = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1');
-    (client as unknown as { presentation: Obj }).presentation = { browserTabs: { [runtimeId]: { kind: 'Loading', url: 'https://example.com/', title: '', canGoBack: true } } };
+    syncNativeSessions(client);
+    record(client, 'tab-1', 'event=navigate&id=1&destination=https%3A%2F%2Fexample.com%2F&loading=true&back=true');
     expect(browserView(client, surface)).toMatchObject({ empty: false, live: true, loading: true, url: 'https://example.com/', canGoBack: true, refreshDisabled: false, hasWebContents: true });
-    (client as unknown as { presentation: Obj }).presentation = { browserTabs: { [runtimeId]: { kind: 'LoadFailed', url: 'http://localhost:16699/', title: '', code: -1004, description: 'ERR_CONNECTION_REFUSED' } } };
+    record(client, 'tab-1', 'event=navigatesuccess&id=1&url=https%3A%2F%2Fexample.com%2F&title=Example&back=true');
+    expect(browserView(client, surface)).toMatchObject({ live: true, loading: false, url: 'https://example.com/' });
+    record(client, 'tab-1', 'event=navigate&id=2&destination=http%3A%2F%2Flocalhost%3A16699%2F&loading=true');
+    record(client, 'tab-1', 'event=navigateerror&id=2&url=https%3A%2F%2Fexample.com%2F&error=NetworkError&message=' + encodeURIComponent('NSURLErrorDomain -1004: Could not connect to the server.'));
     expect(browserView(client, surface)).toMatchObject({ failed: true, live: false, failHost: 'localhost:16699', failMessage: 'Connection refused', failLabel: 'ERR_CONNECTION_REFUSED' });
+    // A cancelled load is no failure (Manager.ts `failed`): the next navigation clears the failure, its abort leaves none.
+    record(client, 'tab-1', 'event=navigate&id=3&destination=https%3A%2F%2Fexample.com%2Fb&loading=true');
+    record(client, 'tab-1', 'event=navigateerror&id=3&url=https%3A%2F%2Fexample.com%2F&error=AbortError&message=stopLoading');
+    expect(browserView(client, surface)).toMatchObject({ failed: false, live: true, loading: false, url: 'https://example.com/' });
   });
 
-  it('handleSubmitUrl: a good address loads in the tab web view, other text searches for it; one the rules refuse does nothing', async () => {
-    const { client, native } = fakeClient(() => ({}));
+  it('a frame that has not reported its title keeps the server\'s title for the same URL', () => {
+    const { client } = fakeClient(() => ({}));
+    const state = emptyPanel(), surface = opened(client, state, { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example Domain' } });
+    syncNativeSessions(client);
+    record(client, 'tab-1', 'event=navigatesuccess&id=1&url=https%3A%2F%2Fexample.com%2F');
+    expect(browserTab(client, surface!)).toMatchObject({ title: 'Example Domain' });
+    record(client, 'tab-1', 'event=currententrychange&id=2&url=https%3A%2F%2Fexample.com%2Fother');
+    expect(browserTab(client, surface!).title).toBe('example.com');
+  });
+
+  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse does nothing', async () => {
+    const { client } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
+    syncNativeSessions(client);
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'localhost:16651');
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'ftp://example.com');
     await browserLocal(client, module, state, 'navigate', 'tab-1', '   ');
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'how to center a div');
-    const tab = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), search = 'https://duckduckgo.com/?q=how%20to%20center%20a%20div';
-    expect(native.map(call => call.payload)).toEqual([
-      { op: 'browserNavigate', tab, url: 'http://localhost:16651/', profile: 'default', environment: 'local' },
-      { op: 'browserNavigate', tab, url: search, profile: 'default', environment: 'local' },
+    const id = frameIdOf(previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1')), search = 'https://duckduckgo.com/?q=how%20to%20center%20a%20div';
+    expect(queued(client)).toEqual([
+      { kind: 'navigate', id, url: 'http://localhost:16651/', delta: 0, flag: false },
+      { kind: 'navigate', id, url: search, delta: 0, flag: false },
     ]);
     expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual([search, 'http://localhost:16651/']);
+    // The root runs one command at a time and acknowledges it (app.contract frameCommand).
+    expect(frameCommandView(client).url).toBe('http://localhost:16651/');
+    frameCommandDone(client, frameCommandView(client).serial);
+    expect(frameCommandView(client).url).toBe(search);
   });
 
-  it('Back, Forward, Refresh and Hard reload go to the tab web view; Open in system browser opens its URL', async () => {
-    const { client, native } = fakeClient(() => ({}));
+  it('Back, Forward, Refresh and Hard reload go to the tab\'s frame; Open in system browser opens its URL', async () => {
+    const { client } = fakeClient(() => ({}));
     const state = emptyPanel();
     resetExternalOpensForTests();
     opened(client, state, { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example Domain' } });
+    syncNativeSessions(client);
+    record(client, 'tab-1', 'event=navigatesuccess&id=1&url=https%3A%2F%2Fexample.com%2F&back=true&forward=true');
     for (const op of ['back', 'forward', 'refresh', 'hard-reload', 'external']) await browserLocal(client, module, state, op, 'tab-1', '');
-    const runtimeId = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1');
-    expect(native.map(call => call.payload)).toEqual([
-      { op: 'browserCommand', tab: runtimeId, command: 'back' }, { op: 'browserCommand', tab: runtimeId, command: 'forward' },
-      { op: 'browserCommand', tab: runtimeId, command: 'refresh' }, { op: 'browserCommand', tab: runtimeId, command: 'hard-reload' },
+    const id = frameIdOf(previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'));
+    expect(queued(client)).toEqual([
+      { kind: 'traverse', id, url: '', delta: -1, flag: false }, { kind: 'traverse', id, url: '', delta: 1, flag: false },
+      { kind: 'reload', id, url: '', delta: 0, flag: false }, { kind: 'reload', id, url: '', delta: 0, flag: true },
     ]);
     expect(externalOpensForTests()).toEqual(['https://example.com/']);
   });
 
-  it('ElectronBrowserHost: one web view per live session of every thread, at its last URL', () => {
+  it('ElectronBrowserHost: one frame per live session of every thread, at its last URL, in its profile\'s partition', () => {
     const { client } = fakeClient(() => ({}));
     const store = browserHost(client).store;
-    store.reconcileServerSessions(threadRef, { sessions: [idle('tab-1'), { ...idle('tab-2'), navStatus: { _tag: 'Success', url: 'https://example.com/', title: '' }, profileId: 'default' }], serverEpoch: 'epoch-1', revision: 1 });
+    store.reconcileServerSessions(threadRef, { sessions: [idle('tab-1'), { ...idle('tab-2'), navStatus: { _tag: 'Success', url: 'https://example.com/', title: '' }, profileId: 'incognito' }], serverEpoch: 'epoch-1', revision: 1 });
     store.reconcileServerSessions({ environmentId: 'local', threadId: 'thread-2' }, { sessions: [{ ...idle('tab-1'), threadId: 'thread-2' }], serverEpoch: 'epoch-1', revision: 1 });
-    expect(liveSessions(client)).toEqual([
-      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: '', profile: 'default', environment: 'local' },
-      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: 'https://example.com/', profile: 'default', environment: 'local' },
-      { id: previewRuntimeTabId({ environmentId: 'local', threadId: 'thread-2' }, 'epoch-1', 'tab-1'), url: '', profile: 'default', environment: 'local' },
+    expect(liveSessions(client).map(({ runtimeId, url, profile }) => ({ runtimeId, url, profile }))).toEqual([
+      { runtimeId: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: '', profile: 'default' },
+      { runtimeId: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: 'https://example.com/', profile: 'incognito' },
+      { runtimeId: previewRuntimeTabId({ environmentId: 'local', threadId: 'thread-2' }, 'epoch-1', 'tab-1'), url: '', profile: 'default' },
     ]);
+    syncNativeSessions(client);
+    const entries = [...frames(client).entries.values()];
+    expect(entries.map(entry => [entry.src, entry.partition])).toEqual([
+      ['about:blank', partitionOf('local', 'default')], ['https://example.com/', partitionOf('local', 'incognito')], ['about:blank', partitionOf('local', 'default')],
+    ]);
+    expect(partitionOf('local', 'incognito')).toMatch(/^t3-incognito-[0-9a-f]{16}$/);
+    // A session that ends unmounts its frame.
+    store.reconcileServerSessions(threadRef, { sessions: [idle('tab-1')], serverEpoch: 'epoch-1', revision: 2 });
+    syncNativeSessions(client);
+    expect(frames(client).entries.size).toBe(2);
   });
 });
 
-describe('a page made at its fixed size (#352: its first layout is the tab’s viewport)', () => {
-  it('a live session at a fixed viewport carries its size and the zoom the module last reported; Fill carries none', () => {
-    const { client } = fakeClient(() => ({}));
-    const store = browserHost(client).store;
-    store.reconcileServerSessions(threadRef, { sessions: [
-      { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'http://127.0.0.1:16701/', title: '' }, viewport: { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } },
-      { ...idle('tab-2'), viewport: { _tag: 'freeform', width: 1280, height: 800 } },
-      { ...idle('tab-3'), viewport: { _tag: 'fill' } },
-    ], serverEpoch: 'epoch-1', revision: 1 });
-    client.presentation.browserTabs = { [previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1')]: { kind: 'Success', url: 'http://127.0.0.1:16701/', zoomFactor: 1.25 } };
-    expect(liveSessions(client)).toEqual([
-      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: 'http://127.0.0.1:16701/', profile: 'default', environment: 'local', width: 390, height: 844, zoom: 1.25 },
-      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: '', profile: 'default', environment: 'local', width: 1280, height: 800, zoom: 1 },
-      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-3'), url: '', profile: 'default', environment: 'local' },
-    ]);
-  });
-
-  it('a page the module has not reported yet is made at the default zoom, so its first layout is at it; unread settings make it at 100%', async () => {
+describe('a new frame at the default zoom and appearance (desktopTabLifetime browserDefaultTabState)', () => {
+  it('a frame starts at the configured defaults and keeps its own zoom after; unread settings start it at 100% and System', () => {
     const iphone = { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } as const;
-    const { client, native } = fakeClient(() => ({}), { local: { clientSettings: {}, deviceSettings: {}, composerControls: false, browserDefaultViewport: iphone, browserDefaultZoomFactor: 1.25, browserDefaultAppearance: 'dark' }, preferencesLoaded: true });
+    const { client } = fakeClient(() => ({}), { local: { clientSettings: {}, deviceSettings: {}, composerControls: false, browserDefaultViewport: iphone, browserDefaultZoomFactor: 1.25, browserDefaultAppearance: 'dark' }, preferencesLoaded: true });
     const store = browserHost(client).store;
-    store.reconcileServerSessions(threadRef, { sessions: [
-      { ...idle('tab-1'), navStatus: { _tag: 'Loading', url: 'http://127.0.0.1:16751/', title: '' }, viewport: iphone },
-      { ...idle('tab-2'), viewport: { _tag: 'freeform', width: 1280, height: 800 } },
-    ], serverEpoch: 'epoch-1', revision: 1 });
-    const tab1 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), tab2 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2');
-    await syncNativeSessions(client, module);
-    // browserSync makes each page at its CSS size × the default zoom, then browserSet gives it the default appearance.
-    expect(native.map(call => call.payload)).toEqual([
-      { op: 'browserSync', tabs: [
-        { id: tab1, url: 'http://127.0.0.1:16751/', profile: 'default', environment: 'local', width: 390, height: 844, zoom: 1.25 },
-        { id: tab2, url: '', profile: 'default', environment: 'local', width: 1280, height: 800, zoom: 1.25 },
-      ], adopted: [] },
-      { op: 'browserSet', tab: tab1, zoom: 1.25, colorScheme: 'dark' },
-      { op: 'browserSet', tab: tab2, zoom: 1.25, colorScheme: 'dark' },
-    ]);
-    // A zoom the module reported (a person's ⌘+ in the tab) is the tab's own.
-    client.presentation.browserTabs = { [tab1]: { kind: 'Success', url: 'http://127.0.0.1:16751/', zoomFactor: 1.5 } };
-    expect(liveSessions(client).map(entry => entry.zoom)).toEqual([1.5, 1.25]);
-    // Before the settings were read, nothing is made at a guessed default.
+    store.reconcileServerSessions(threadRef, { sessions: [{ ...idle('tab-1'), viewport: iphone }], serverEpoch: 'epoch-1', revision: 1 });
+    syncNativeSessions(client);
+    const tab1 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1');
+    expect(frames(client).entries.get(tab1)).toMatchObject({ zoom: 1.25, colorScheme: 'dark' });
+    frames(client).entries.get(tab1)!.zoom = 1.5; // a person's ⌘+ in the tab
+    syncNativeSessions(client);
+    expect(frames(client).entries.get(tab1)!.zoom).toBe(1.5);
     (client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = false;
-    client.presentation.browserTabs = {};
-    expect(liveSessions(client).map(entry => entry.zoom)).toEqual([1, 1]);
+    store.reconcileServerSessions(threadRef, { sessions: [{ ...idle('tab-1'), viewport: iphone }, idle('tab-2')], serverEpoch: 'epoch-1', revision: 2 });
+    syncNativeSessions(client);
+    expect(frames(client).entries.get(previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'))).toMatchObject({ zoom: 1, colorScheme: 'system' });
   });
 });
 
@@ -360,43 +372,43 @@ describe('desktopTabLifetime (through the panel)', () => {
     return {};
   };
 
-  it('a tab outlives a hidden panel and a thread switch; closing it ends its session and its web view', async () => {
-    const { client, calls, native } = fakeClient(server);
+  it('a tab outlives a hidden panel and a thread switch; closing it ends its session and its frame', async () => {
+    const { client, calls } = fakeClient(server);
     await surfaceLocal(client, module, 'open', '', 'browser');
-    const synced = () => native.filter(call => call.method === 'browserSync').map(call => (call.payload.tabs as Obj[]).map(tab => tab.id));
+    const synced = () => [...frames(client).entries.keys()];
     const tab1 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1');
-    expect(synced().at(-1)).toEqual([tab1]);
+    expect(synced()).toEqual([tab1]);
     expect(panelState(client).surfaces.map(surface => surface.id)).toEqual(['browser:tab-1']);
     // The panel hides and shows: nothing closes.
     await surfaceLocal(client, module, 'hide', '', '');
     await panelView(client, module, 0);
     await surfaceLocal(client, module, 'show', '', '');
     expect((await panelView(client, module, 0)).tabs.map(tab => tab.id)).toEqual(['browser:tab-1']);
-    // Another thread: its own panel; the first thread's web view stays.
+    // Another thread: its own panel; the first thread's frame stays.
     (client as unknown as { threadId: string }).threadId = 'thread-2';
     (client as unknown as { draftKey: string }).draftKey = 'local:thread-2';
     expect((await panelView(client, module, 0)).tabs).toEqual([]);
-    expect(native.some(call => call.method === 'browserSync' && (call.payload.tabs as Obj[]).length === 0)).toBe(false);
+    expect(synced()).toEqual([tab1]);
     (client as unknown as { threadId: string }).threadId = 'thread-1';
     (client as unknown as { draftKey: string }).draftKey = 'local:thread-1';
     const back = await panelView(client, module, 0);
     expect(back.tabs.map(tab => `${tab.id} ${tab.title} ${tab.icon}`)).toEqual(['browser:tab-1 Browser earth']);
     expect(back.browser).toMatchObject({ tabId: 'tab-1', runtimeId: tab1, empty: true });
-    // Closing the tab closes its session and drops its web view.
+    // Closing the tab closes its session and unmounts its frame.
     await surfaceLocal(client, module, 'close', 'browser:tab-1', '');
     expect(calls.filter(call => call.method === 'preview.close').map(call => call.payload)).toEqual([{ threadId: 'thread-1', tabId: 'tab-1' }]);
-    expect(synced().at(-1)).toEqual([]);
+    expect(synced()).toEqual([]);
     expect(panelState(client).surfaces).toEqual([]);
   });
 });
 
-it('a server runtime keeps server navigation and never creates or reports a local web view', () => {
+it('a server runtime keeps server navigation and never mounts or reports a local frame', () => {
   const { client } = fakeClient(() => ({}));
   const server = { ...snapshot, runtime: 'server' as const };
   browserHost(client).store.applyServerSnapshot(threadRef, server);
-  const id = previewRuntimeTabId(threadRef, null, server.tabId);
-  client.presentation = { browserTabs: { [id]: nativeTab({ url: 'https://stale-local.example' }) } };
   expect(liveSessions(client)).toEqual([]);
+  syncNativeSessions(client);
+  expect(frames(client).entries.size).toBe(0);
   expect(effectiveNav(client, threadRef, server.tabId)).toMatchObject({ tab: null, nav: server.navStatus });
 });
 

@@ -249,10 +249,11 @@ describe('the device toolbar toggle and bounds (clone)', () => {
   });
 });
 
-// BrowserStage hands the module the requested CSS size (`page-size`) beside the
-// fitted box, so the module sizes the page from the fields at its zoom, not from the box over its scale.
-describe('BrowserStage page size (clone)', () => {
-  it('passes the requested size, held or dragged, beside a fractional fit scale; fill passes none', async () => {
+// BrowserStage fits a fixed viewport into its area and measures that box as the frame's slot; the frame lays the page out at
+// the viewport's CSS size times the tab's zoom and is scaled into the slot (browser-frames.contract BrowserFrame), so the page
+// measures the size it asked for whatever the fitted box rounds to.
+describe('BrowserStage slot and the frame in it (clone)', () => {
+  it('fits a fixed viewport at a fractional scale; the frame lays out at the viewport and scales into the box; fill does neither', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const { contractFn } = await import('../support/contract-fn-fixture');
     const file = 'browser-stage.contract', math = { min: Math.min, max: Math.max, round: Math.round, floor: Math.floor, ceil: Math.ceil };
@@ -262,19 +263,25 @@ describe('BrowserStage page size (clone)', () => {
       bvLockedHeight: await contractFn(file, 'bvLockedHeight', ['h', 'ratio'], math) };
     const stage = contractComponent(file, 'BrowserStage');
     const view = { viewportMode: 'preset', zoomFactor: 1.25, windowZoom: 1, server: false, viewportWidth: 390, viewportHeight: 844, aspectLocked: false, viewportKey: 'preset:390:844:iphone-12-pro', viewportSerial: 0 };
-    const derived = (state: Record<string, unknown>, v: Record<string, unknown>, pw = 620, ph = 560) => stage.derives(state, { ...fns, view: v, pw, ph, urlFocused: false });
+    const derived = (state: Record<string, unknown>, v: Record<string, unknown>, pw = 620, ph = 560) => stage.derives(state, { ...fns, view: v, pw, ph });
     const at125 = derived(stage.state(), view);
-    expect(at125.pageSize).toBe('390x844');
     expect(Number.isInteger(at125.vw)).toBe(false); // the box: 390 × 1.25 × the fit scale
     expect(at125.scale).toBeLessThan(1);
-    const dragging = { ...stage.state(), dragDir: 'east', dragX: 37, dragY: 0 };
-    expect(derived(dragging, view).pageSize).toBe(`${derived(dragging, view).liveW}x844`);
-    expect(derived(stage.state(), { ...view, viewportMode: 'fill' }).pageSize).toBe('');
+    expect(at125.vw).toBeCloseTo(390 * 1.25 * at125.scale, 6);
+    const fill = derived(stage.state(), { ...view, viewportMode: 'fill' });
+    expect([fill.vw, fill.vh, fill.vx, fill.vy]).toEqual([620, 560, 0, 0]);
     // The window zoomed to 125% (resolveBrowserLayoutZoomFactor): the box is laid out at the page's zoom over it, so it
     // keeps its size on screen; a server tab's stream keeps its own zoom.
-    expect(derived(stage.state(), { ...view, windowZoom: 1.25 })).toMatchObject({ z: 1, pageSize: '390x844' });
+    expect(derived(stage.state(), { ...view, windowZoom: 1.25 }).z).toBe(1);
     expect(derived(stage.state(), { ...view, windowZoom: 1.25, server: true }).z).toBe(1.25);
-    const page = (await Bun.file(appPath(file)).text()).split('\n').find(line => line.trim().startsWith('t3-browser '))!;
-    expect(page).toContain('fit-scale=`${scale}` page-size=pageSize window-zoom=`${view.windowZoom}`');
+    const frame = contractComponent('browser-frames.contract', 'BrowserFrame');
+    const f = { frameId: 'browser-frame-1', src: 'about:blank', partition: 'persist:p', zoom: 1.25, colorScheme: 'system', place: 'panel', pageWidth: 390, pageHeight: 844 };
+    const placed = frame.derives(frame.state(), { f, width: at125.vw, height: at125.vh, left: 0, top: 0, shown: true, scheme: 'light' });
+    expect([placed.layoutW, placed.layoutH]).toEqual([390 * 1.25, 844 * 1.25]);
+    const filled = frame.derives(frame.state(), { f: { ...f, pageWidth: 0, pageHeight: 0 }, width: 620, height: 560, left: 0, top: 0, shown: true, scheme: 'light' });
+    expect([filled.layoutW, filled.layoutH, filled.fixed]).toEqual([620, 560, false]);
+    const iframe = (await Bun.file(appPath('browser-frames.contract')).text()).split('\n').find(line => line.trim().startsWith('iframe id=f.frameId'))!;
+    expect(iframe).toContain('scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0"');
+    expect(iframe).toContain('partition=f.partition zoom=f.zoom');
   });
 });
