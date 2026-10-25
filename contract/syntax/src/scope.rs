@@ -229,6 +229,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         tests,
         launch: _,
         components,
+        members,
     } = file;
     for m in modules {
         r.scope.rename(Kind::Call, &mut m.name, m.span)?;
@@ -296,7 +297,12 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         }
     }
     for c in components {
-        r.component(c)?;
+        r.component(c, true)?;
+    }
+    // A members block's name is the component's that lists it, not a
+    // declaration of this file's.
+    if let Some(block) = members {
+        r.component(block, false)?;
     }
     Ok(())
 }
@@ -321,7 +327,7 @@ const PRIMITIVES: [&str; 4] = ["number", "string", "bool", "unit"];
 type R = Result<(), SyntaxError>;
 
 impl Rewriter<'_> {
-    fn component(&mut self, c: &mut Component) -> R {
+    fn component(&mut self, c: &mut Component, declared: bool) -> R {
         let Component {
             name,
             props,
@@ -339,12 +345,20 @@ impl Rewriter<'_> {
             view,
             params: _,
             anatomy: _,
+            members,
             span,
         } = c;
-        self.scope.rename(Kind::Component, name, *span)?;
-        // In the order the type checker brings them into scope: props and
-        // injects; each state, seen by those after it; then the rest.
-        let mark = self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
+        if declared {
+            self.scope.rename(Kind::Component, name, *span)?;
+        }
+        // The members its other files declare (LLP 1091.002 D5); then, in
+        // the order the type checker brings them into scope, props and
+        // injects, each state, seen by those after it, and the rest.
+        let mark = self.locals.len();
+        for (name, callable) in &members.outer {
+            self.bind_as([name.clone()], *callable);
+        }
+        self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
         self.params(props)?;
         self.params(injects)?;
         for b in states.iter_mut() {

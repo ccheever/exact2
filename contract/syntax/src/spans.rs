@@ -1,6 +1,7 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
 use crate::anatomy::{Anatomy, Mark, PartDecl};
+use crate::members::{Members, MembersLine};
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
 use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
@@ -70,8 +71,20 @@ macro_rules! leaves {
     )* };
 }
 leaves!(
-    String, bool, f64, u16, [u16; 2], u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue,
-    ModuleKind
+    String,
+    bool,
+    f64,
+    u16,
+    [u16; 2],
+    u32,
+    usize,
+    BinOp,
+    UnOp,
+    TaskKind,
+    TapForm,
+    ParamValue,
+    ModuleKind,
+    crate::members::Splice
 );
 
 macro_rules! structs {
@@ -86,7 +99,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components, members }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -108,7 +121,9 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, sequences, view, params, anatomy, span }
+        mutations, actions, tasks, sequences, view, params, anatomy, members, span }
+    Members { lines, outer }
+    MembersLine { path, at, span }
     Anatomy { parts, marks }
     PartDecl { name, groups, span }
     Mark { part, span, node, own }

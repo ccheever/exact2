@@ -3,6 +3,8 @@
 
 mod home;
 mod library;
+mod load;
+mod members;
 pub(crate) mod packages;
 mod refused;
 mod uses;
@@ -677,6 +679,8 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
 struct Unit {
     file: File,
     targets: Vec<usize>,
+    /// What its components' `members` lines loaded (LLP 1091.002).
+    parts: Vec<members::Part>,
 }
 
 struct Loader<'a> {
@@ -774,6 +778,7 @@ impl Loader<'_> {
         self.units.push(Unit {
             file,
             targets: Vec::new(),
+            parts: Vec::new(),
         });
         self.link(path, source_id as usize)
     }
@@ -817,65 +822,17 @@ impl Loader<'_> {
                     self.sources.packages.push(package);
                 }
             }
-            let key = resolved.key;
-            if self.active.contains(&key) {
-                return Err(vec![use_error(
-                    "contract-use-cycle",
-                    format!("{} returns to a file already being loaded", described(u)),
-                    u,
-                )]);
-            }
-            let used = match self.cache.get(&key) {
-                Some(&used) => used,
-                None => {
-                    let used_src = match resolved.builtin {
-                        Some(text) => text.to_owned(),
-                        None => contract_text(&key)
-                            .map_or_else(|| std::fs::read_to_string(&key), Ok)
-                            .map_err(|e| {
-                                vec![use_error(
-                                    "contract-use-unreadable",
-                                    format!("{}: {}: {e}", described(u), key.display()),
-                                    u,
-                                )]
-                            })?,
-                    };
-                    let used = self.sources.paths.len();
-                    self.sources.paths.push(key.clone());
-                    self.sources.origins.push(resolved.origin);
-                    self.sources.digests.push(digest(&used_src));
-                    self.sources.texts.push(used_src.as_str().into());
-                    self.active.push(key.clone());
-                    if key.file_name().is_some_and(|f| f == "exact.json") {
-                        // A package's module declaration (LLP 1133.001), whose
-                        // `use`s name its implementations' files.
-                        let file = crate::declaration::read(&key, &used_src, used as u32).map_err(
-                            |(id, message)| {
-                                vec![use_error(id, format!("{}: {message}", described(u)), u)]
-                            },
-                        )?;
-                        self.units.push(Unit {
-                            file,
-                            targets: Vec::new(),
-                        });
-                        self.link(&key, used)?;
-                    } else {
-                        self.load_source(&key, &used_src, used as u32)?;
-                    }
-                    self.active.pop();
-                    self.cache.insert(key, used);
-                    used
-                }
-            };
+            let used = self.load_resolved(resolved, &described(u), u.span)?;
             self.units[index].targets.push(used);
         }
-        Ok(())
+        self.link_members(path, index)
     }
 
     /// Give every declaration its program-unique name (D4), rewrite each
     /// file through its own scope (D1, D5), and merge the files into the one
     /// `File` every later pass reads.
     fn scope(&mut self) -> Result<File, Vec<CompileError>> {
+        self.prepare_members()?;
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
             self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
@@ -1019,6 +976,7 @@ impl Loader<'_> {
                 .chain(refused)
                 .collect());
         }
+        self.splice_members();
         Ok(self.merge())
     }
 
@@ -1381,6 +1339,8 @@ impl Loader<'_> {
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),
+            // Each block is spliced into its component (LLP 1091.002 D4).
+            members: None,
         }
     }
 }

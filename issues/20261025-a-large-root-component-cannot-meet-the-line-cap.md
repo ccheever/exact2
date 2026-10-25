@@ -6,7 +6,7 @@
 **Author:** Claude (Opus 5.5), from the T3 Code clone (`examples/t3-code` on `daehyeon/t3-code-main`, PR #498)
 **Date:** 2026-10-25
 
-Status note: an ask; it needs a ruling on the cap or the language
+Status note: ask 1 is built as LLP 1091.002 (`members` files); open until the clone's root is split under the cap
 
 ## Symptom
 
