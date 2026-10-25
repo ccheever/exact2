@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use ServerButton from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
@@ -45,6 +45,9 @@ fn placeOf(places: Place[], channel: string): Place = match first(places.filter(
 
 // A row's key for a message id: a send confirmed here keeps its nonce as key.
 fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
+shape Viewport
+  width: number
+
 // The page's visibility, for acknowledging what the reader sees (§2: an ack is a
 // write, sent as the official client sends it).
 shape Page
@@ -64,6 +67,8 @@ component Excord
   state drafts: string[] = [] persist
   // The server whose channels the list shows, "@me" for the direct messages.
   state server = "" persist
+  // The channel last opened in each server ("@me" for the direct messages), as `server\tchannel`.
+  state lastChannels: string[] = [] persist
   state tokenDraft = ""
   state replyTo = ""
   state replyName = ""
@@ -104,6 +109,8 @@ component Excord
   state aimedText = ""
   state aimedMine = false
   state aimedAuthor = ""
+  state hoverKey = ""
+  state composing = false
   state swipeKey = ""
   state swipeX = 0
   state dragging = false
@@ -119,6 +126,7 @@ component Excord
   state lockedOut = false
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
+  resource viewport = exactViewport() as shape Viewport
   // The gateway opens once the kept credentials are read, which only `session` reads, so
   // keeping a new identify or token re-asks it and not the socket. The launch's epoch makes
   // the session clock real from its first step.
@@ -136,6 +144,12 @@ component Excord
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
   resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
   derive channels = categories.map(g => g.channels).flat()
+  // A window wide enough to show the channel beside the list (the split view, from 900 points)
+  // opens the server's last channel, or its first, rather than an empty pane, as Discord's desktop app does.
+  derive wide = viewport.width >= 900
+  derive listed = dmsShown ? dms : channels
+  derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
+  derive resumeChannel = listed.map(c => c.id).includes(remembered) ? remembered : match first(listed) { case some(c) => c.id, case none => "" }
   resource dms = loadDms(gw.sidebar) as shape Channel[] else empty()
   // The snapshot carries the versions of the channel on screen; until it names the
   // one just opened, the lists' version stands in, which moves with its changes too.
@@ -184,9 +198,11 @@ component Excord
   // landed). A window's pin asks for the same rows, so pinning it keeps it current.
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
   derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
-  // The transcript is on screen, not the channel list.
-  derive reading = top(nav).name == "channel"
+  // The transcript is on screen, not the channel list or a picture over it.
+  derive reading = top(nav).name == "channel" and viewing == ""
   derive draft = draftOf(drafts, open)
+  // A name being written (`@ada`, `#gen`, `:fer`) and what it could be.
+  resource suggestions = suggest(open, draft) as shape Suggestion[] else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
   derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
@@ -213,6 +229,8 @@ component Excord
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
+  task resume when wide and top(nav).name == "home" and resumeChannel != "" and not signedOutNow
+    after(1, openResume)
   task signedOutHome when signedOutNow and top(nav).name != "home"
     after(1, toSignIn)
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
@@ -327,9 +345,15 @@ component Excord
     ackTries = 0
     pageTries = 0
     send joined = viewChannel(id)
+    lastChannels = withDraft(lastChannels, c.guild != "" ? c.guild : "@me", id)
     nav = push(nav, path("channel", id))
   action pickServer(v: string)
     server = v
+    if wide and top(nav).name != "home"
+      nav = go(nav, "/")
+  action openResume
+    if wide and top(nav).name == "home" and resumeChannel != ""
+      openChannel(resumeChannel)
   // Signing in keeps the pasted token; the field is cleared once it is taken.
   action editToken(v: string)
     tokenDraft = v
@@ -495,9 +519,20 @@ component Excord
     if v.trim() != "" and editing == ""
       send typed = sendTyping(open, time.epochAtZero + performanceNow())
   action keyed(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.shiftKey
+    if (k == "Enter" or k == "Tab") and not e.shiftKey and suggestions.length > 0
+      preventDefault()
+      match first(suggestions)
+        case some(s)
+          pick(s.text)
+        case none
+          aimed = aimed
+    else if k == "Enter" and not e.shiftKey
       preventDefault()
       post()
+  // A suggestion picked: its name replaces the one being written.
+  action pick(text: string)
+    drafts = withDraft(drafts, open, text)
+    focus("composer")
   action post
     if draft.trim() != ""
       if editing != ""
@@ -562,13 +597,16 @@ component Excord
   // At fit, a drag down far or fast enough closes the viewer; otherwise the
   // pinch's scale is kept between fit and 4x and the pan stays inside the picture.
   action viewerRelease(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
-    let fit = photoFit(viewBoxWidth, viewBoxHeight, viewingWidth, viewingHeight)
+    // A picture Discord gave no size is taken as filling the box.
+    let w = viewingWidth > 0 ? viewingWidth : viewBoxWidth
+    let h = viewingHeight > 0 ? viewingHeight : viewBoxHeight
+    let fit = photoFit(viewBoxWidth, viewBoxHeight, w, h)
     if photoZoom(scale) == 1 and (y > 120 or vy > 800)
       viewing = ""
     else
       viewZoom = photoZoom(scale)
-      viewPanX = fit > 0 ? photoClamp(x, viewingWidth, fit, photoZoom(scale), viewPortWidth) : 0
-      viewPanY = fit > 0 ? photoClamp(y, viewingHeight, fit, photoZoom(scale), viewPortHeight) : 0
+      viewPanX = fit > 0 ? photoClamp(x, w, fit, photoZoom(scale), viewPortWidth) : 0
+      viewPanY = fit > 0 ? photoClamp(y, h, fit, photoZoom(scale), viewPortHeight) : 0
   action viewerToggleZoom
     viewZoom = viewZoom > 1 ? 1 : 2
     viewPanX = 0
@@ -606,6 +644,17 @@ component Excord
     send echoed = retrySend(open, key)
   action discard(key: string)
     send changed = deleteMessage(open, key)
+  action composerFocus(on: bool)
+    composing = on
+  action hoverRow(key: string, on: bool)
+    if on
+      hoverKey = key
+    else if hoverKey == key
+      hoverKey = ""
+  action startReply(id: string, author: string)
+    replyTo = id
+    replyName = author
+    focus("composer")
   action swipe(key: string, dx: number, dy: number)
     swipeKey = key
     swipeX = min(80, max(0, swipeX - dx))
@@ -661,7 +710,7 @@ component Excord
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
       for e in stack(nav) key=e.id
         if e.name == "home" and signedOutNow
-          column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0
+          column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0 inert=(viewing != "")
             header display="flex" align-items="center" padding="8px 16px"
               h1 "Sign In to Discord" flex=1 min-width=0
             list id="sign-in" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -686,7 +735,7 @@ component Excord
                 else if gw.detail != ""
                   text (gw.detail.includes("4004") ? "Discord didn't accept the last token. Sign in with a new one." : gw.detail) color="-exact-system-red" testId="signed-out-detail"
         else if e.name == "home"
-          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0
+          column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0 inert=(viewing != "")
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               h1 (dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1
               button popovertarget="account-menu" aria-label="Account" testId="account"
@@ -758,7 +807,7 @@ component Excord
                                 Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
                               image "symbol:forward-chevron"
         else
-          column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
+          column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=(viewing != "")
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
               if gw.fixture
@@ -795,11 +844,11 @@ component Excord
                 reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                 flex=1 min-height=0 padding-top=8 padding-bottom=22
                 for m in rows key=m.key
-                  MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show)
+                  MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply)
               column id="message-menu" popover="auto" role="menu"
                 button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
-                  text "Reply"
                   image "symbol:reply"
+                  text "Reply"
                 button press=reactAimed("👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
                   text "👍 Thumbs Up"
                 button press=reactAimed("❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
@@ -839,6 +888,18 @@ component Excord
                 button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
                   text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
             column padding="4px 12px 6px"
+              if suggestions.length > 0
+                column margin="0px 0px 6px" padding="4px 0px" border-radius=12 border="1px solid -exact-separator" background-color="-exact-background" testId="suggestions"
+                  for g in suggestions key=g.id
+                    button appearance="none" press=pick(g.text) testId=`suggest-${g.id}` aria-label=g.label
+                      row gap=10 align-items="center" padding="6px 12px" min-width=0
+                        if g.avatar != ""
+                          image g.avatar width=24 height=24 border-radius=(g.glyph == "" and g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
+                        else
+                          text g.glyph width="1.5rem" text-align="center" font="-exact-title3" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
+                        text g.label font-weight=500 flex="0 1 auto" min-width=0 line-clamp=1
+                        if g.detail != ""
+                          text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
               if replyTo != ""
                 row align-items="center" gap=8 padding="4px 4px"
                   text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
@@ -852,10 +913,12 @@ component Excord
                 if editError != ""
                   text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
               // One line of text is as tall as Send beside it, so the text sits at its middle.
-              row align-items="flex-end" padding="3px 3px 3px 14px" border-radius=21 border="1px solid -exact-separator"
+              // The field draws no ring of its own: the pill's border shows the focus.
+              row align-items="flex-end" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                focusin=composerFocus(true) focusout=composerFocus(false)
                 textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
                   placeholder=(chan.guild != "" ? `Message #${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
-                  line-height="20px" padding="8px 0px" border="none" background-color="transparent"
+                  line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
                 button press=post disabled=(draft.trim() == "") buttonStyle="filled"
                   retainFocus=true aria-label="Send" testId="send"
                   image "symbol:send"

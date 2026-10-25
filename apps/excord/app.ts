@@ -7,6 +7,7 @@ import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
 import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live } from './live';
+import { resolveMentions, suggest } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
@@ -69,6 +70,7 @@ const dirs: Directories = {
   deleted: (channel, id) => S.deleted(store, channel, id),
   emoji: (id, animated) => `${live.origins.cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
   avatar: u => avatarUrl(live.origins.cdn, u),
+  roles: channel => store.guildMap.get(S.channel(store, channel)?.guild_id ?? '')?.roles,
   nameColor: (channel, roles) => {
     const guild = roles.length ? store.guildMap.get(S.channel(store, channel)?.guild_id ?? '') : undefined;
     if (!guild) return '';
@@ -240,8 +242,10 @@ const sources: Sources = {
     await page(live, channel, query(cursor));
   }),
   viewChannel: ([channel]) => { view(live, channel); return OK; },
-  echoMessage: ([channel, content, replyTo, now]) => {
-    if (!content.trim()) return { ok: false, error: 'A message needs some text.', key: '', channel };
+  suggest: ([channel, draft]) => suggest(store, live.origins.cdn, channel, draft),
+  echoMessage: ([channel, written, replyTo, now]) => {
+    if (!written.trim()) return { ok: false, error: 'A message needs some text.', key: '', channel };
+    const content = resolveMentions(store, channel, written);
     const key = nonce(live, now);
     S.addPending(store, channel, { nonce: key, content, nowMs: clock.now,
       ...(replyTo ? { replyTo: { messageId: replyTo, guildId: S.channel(store, channel)?.guild_id } } : {}) });
@@ -282,7 +286,7 @@ const sources: Sources = {
   }),
   editMessage: ([channel, id, content]) => write(async () => {
     if (!content.trim()) throw new Error('A message needs some text.');
-    const edited = await call(live, rest.editMessage(context(live, true), channel, id, content));
+    const edited = await call(live, rest.editMessage(context(live, true), channel, id, resolveMentions(store, channel, content)));
     applyEvent(live, 'MESSAGE_UPDATE', edited);
   }),
   react: ([channel, id, emoji]) => write(async () => {

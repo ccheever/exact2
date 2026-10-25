@@ -43,6 +43,7 @@ export interface MessageWindow {
 export interface ChannelGroup { category: Channel | null; channels: Channel[] }
 export interface UnreadState { unread: boolean; mentionCount: number; lastReadId: string | null }
 export interface TypingUser { user: User; expiresAtMs: number }
+export interface GuildEmoji { id: string; name: string; animated: boolean; available: boolean }
 interface ReadState { lastReadId: string | null; mentionCount: number }
 interface Entry {
   row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
@@ -87,6 +88,8 @@ export interface Store {
   versions: Map<string, number>;
   // The server list's order from the account's settings (`settings.ts`).
   guildOrder: string[];
+  // Each guild's custom emoji, for the composer's suggestions.
+  emojis: Map<string, GuildEmoji[]>;
   sidebarRevision: number;
   sequence: number;
 }
@@ -96,7 +99,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], emojis: new Map(), sidebarRevision: 0, sequence: 0,
   };
 }
 
@@ -104,7 +107,7 @@ export function createStore(opts: { meId?: string } = {}): Store {
  * answer asked after it can match one asked before. */
 export function forgetAccount(s: Store): void {
   s.meId = null;
-  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles]) map.clear();
+  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles, s.emojis]) map.clear();
   s.guildOrder = [];
   s.removals++;
   for (const [id, version] of s.versions) s.versions.set(id, version + 1);
@@ -369,13 +372,20 @@ function setGuild(s: Store, data: DiscordObject, c: Changes): void {
   // What the app never shows is not kept: a large account's READY is mostly these.
   const { properties, channels, threads, members, emojis, stickers, guild_scheduled_events, stage_instances,
     voice_states, embedded_activities, activity_instances, presences, soundboard_sounds, ...rest } = data;
-  const guild = { ...properties, ...rest };
+  const { emojis: listed, ...metadata } = properties ?? {};
+  const guild = { ...metadata, ...rest };
   if (!sameFields(s.guildMap.get(data.id), guild)) {
     s.guildMap.set(data.id, { ...s.guildMap.get(data.id), ...guild } as Guild);
     c.sidebar = true;
   }
+  if (Array.isArray(emojis ?? listed)) setEmojis(s, data.id, emojis ?? listed);
   for (const channel of [...(channels ?? []), ...(threads ?? [])]) setChannel(s, { ...channel, guild_id: data.id }, c);
   for (const member of members ?? []) rememberMember(s, data.id, member, c);
+}
+
+function setEmojis(s: Store, guildId: string, emojis: DiscordObject[]): void {
+  s.emojis.set(guildId, emojis.filter(e => e.id && e.name).map(e => ({ id: String(e.id), name: String(e.name),
+    animated: e.animated === true, available: e.available !== false })));
 }
 
 function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
@@ -588,7 +598,7 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
   switch (t) {
     case 'READY':
       for (const id of new Set([...s.channelMap.keys(), ...s.readStates.keys()])) c.channels.add(id);
-      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear();
+      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear(); s.emojis.clear();
       s.guildOrder = [];
       s.removals++;
       ingestReady(s, d, c);
@@ -618,10 +628,12 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       if (d.unavailable) setGuild(s, d, c);
       else {
         c.sidebar = s.guildMap.delete(d.id);
+        s.emojis.delete(d.id);
         for (const channel of s.channelMap.values()) if (channel.guild_id === d.id) removeChannel(s, channel.id, c);
       }
       break;
     case 'GUILD_MEMBER_UPDATE': rememberMember(s, d.guild_id, d, c); break;
+    case 'GUILD_EMOJIS_UPDATE': if (d.guild_id && Array.isArray(d.emojis)) setEmojis(s, d.guild_id, d.emojis); break;
     case 'GUILD_ROLE_CREATE':
     case 'GUILD_ROLE_UPDATE': if (d.role?.id) setRole(s, d.guild_id, d.role, d.role.id, c); break;
     case 'GUILD_ROLE_DELETE': setRole(s, d.guild_id, null, d.role_id, c); break;

@@ -1,6 +1,7 @@
 // A store row (a Discord message, `discord/store.ts`) as the transcript's `Message` (shapes.contract):
 // Markdown parsed and flattened into blocks of runs, mentions resolved, images in their declared box.
 import { parse, jumbo } from './discord/markdown';
+import { highlight } from './discord/highlight';
 import type { Block as MarkdownBlock, Inline, Mark } from './discord/markdown';
 import { cmpId, msFromSnowflake } from './discord/ids';
 import type { Result } from './app.contract.d.ts';
@@ -26,6 +27,8 @@ export interface Directories {
   avatar(user: User): string;
   /** The name colour, `#rrggbb`, of the highest of a channel's guild roles that has one; "" for none. */
   nameColor(channel: string, roles: string[]): string;
+  /** What `nameColor` reads for a channel, which the store replaces when a role changes. */
+  roles(channel: string): unknown;
 }
 interface Context { dirs: Directories; block: number; spoiler: number; mentionsMe: boolean }
 const displayName = (u: User | undefined | null, fallback = ''): string => u?.global_name || u?.username || fallback;
@@ -109,7 +112,11 @@ function flatten(nodes: MarkdownBlock[], ctx: Context, quote = false, depth = 0)
       });
     } else {
       const b = block(ctx, node.kind === 'codeblock' ? 'code' : node.kind, quote, node.kind === 'heading' ? node.level : 0);
-      if (node.kind === 'codeblock') { b.text = node.text; b.lang = node.lang; }
+      if (node.kind === 'codeblock') {
+        b.text = node.text; b.lang = node.lang;
+        // A known language's block is its tokens, each a run of kind `hl-<token>`.
+        b.runs = (highlight(node.text, node.lang) ?? []).map((t, i) => run(`${b.id}.r${i}`, `hl-${t.kind}`, t.text, [], ''));
+      }
       else inlines(node.inlines, b, ctx);
       out.push(b);
     }
@@ -156,6 +163,15 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
     state: 'present' }];
 }
 
+/** A message's text as the composer shows it for an edit: a mention of a person, channel or custom
+ * emoji the directories know is its name (`@ada`, `#general`, `:ferris:`), as `compose.ts` sends it back. */
+function editable(content: string, dirs: Directories): string {
+  return content
+    .replace(/<@!?(\d+)>/g, (whole, id) => { const u = dirs.user(id); return u?.username ? `@${u.username}` : whole; })
+    .replace(/<#(\d+)>/g, (whole, id) => { const name = dirs.channelName(id); return name !== 'unknown-channel' ? `#${name}` : whole; })
+    .replace(/<a?:([a-z0-9_]{2,32}):\d+>/gi, ':$1:');
+}
+
 const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinned a message.`, 7: who => `${who} joined the server.` };
 
 export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Directories): Row {
@@ -196,7 +212,7 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
       (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
     edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
-    system, plain: system || text, source: content, isNew: false, blocks,
+    system, plain: system || text, source: editable(content, dirs), isNew: false, blocks,
     media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
       media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
     embeds,
@@ -206,19 +222,20 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     reply: replyOf(m, dirs) };
 }
 
-/** A renderer that redraws a row only when its message, its predecessor or its reply's original changed
- * (or was deleted): the store replaces a row's object whenever it changes it. */
+/** A renderer that redraws a row only when its message, its predecessor, its reply's original (or its
+ * deletion) or its guild's roles changed: the store replaces each of these objects whenever it changes it. */
 export function createRenderer(dirs: Directories): (m: Stored, previous?: Stored) => Row {
-  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; row: Row }>();
+  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; roles: unknown; row: Row }>();
   return (m, previous) => {
     const refId = m.message_reference?.message_id;
     const ref = refId ? dirs.message(m.channel_id, String(refId)) : undefined;
     const gone = refId ? dirs.deleted(m.channel_id, String(refId)) : false;
+    const roles = dirs.roles(m.channel_id);
     const key = `${m.channel_id}:${m.key}`, found = cache.get(key);
-    if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone) return found.row;
+    if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone && found.roles === roles) return found.row;
     const row = renderMessage(m, previous, dirs);
     cache.delete(key);
-    cache.set(key, { m, previous, ref, gone, row });
+    cache.set(key, { m, previous, ref, gone, roles, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;
   };
