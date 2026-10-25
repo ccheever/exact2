@@ -34,14 +34,19 @@ const dmChat = [
 
 export function createTranscriptWorld(assetOrigin: string): World {
   const users = members.map((user, i) => ({ id: snowflakeFromMs(DIRECTORY_EPOCH, i),
-    username: user.username, global_name: user.global_name!, discriminator: '0', avatar: null, bot: user.bot }));
+    username: user.username, global_name: user.global_name!, discriminator: '0',
+    // Most members set a picture; every fourth keeps Discord's default.
+    avatar: i % 4 === 3 ? null : `a${(i * 2654435761 >>> 0).toString(16)}`, bot: user.bot }));
   const me = users[0];
   const userIds = new Map(members.map((user, i) => [user.id, users[i].id]));
   const guildId = snowflakeFromMs(DIRECTORY_EPOCH + 1);
   const role: Role = { id: guildId, name: '@everyone', color: 0, position: 0, permissions: '104324673',
     hoist: false, managed: false, mentionable: false };
-  const roles = [role, ...['Maintainers', 'Cyclists'].map((name, i) => ({ ...role,
-    id: snowflakeFromMs(DIRECTORY_EPOCH + 1, i + 1), name, position: i + 1, hoist: true, mentionable: true }))];
+  const roles = [role, ...[['Maintainers', 0xe67e22], ['Cyclists', 0x1abc9c]].map(([name, color], i) => ({ ...role,
+    id: snowflakeFromMs(DIRECTORY_EPOCH + 1, i + 1), name: name as string, color: color as number, position: i + 1,
+    hoist: true, mentionable: true }))];
+  // Who holds which role: the higher role's colour names its holders.
+  const memberRoles = (i: number) => [...(i % 3 === 1 ? [roles[1].id] : []), ...(i % 2 === 0 && i > 0 ? [roles[2].id] : [])];
   const roleIds = new Map([['201', roles[1].id], ['202', roles[2].id]]);
   const guildChannels: Channel[] = channelSpecs.map((spec, i) => ({
     id: snowflakeFromMs(DIRECTORY_EPOCH + 2, i), guild_id: guildId, name: spec.name,
@@ -69,6 +74,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
     const history = source.messages.map((message, i): Message => {
       const author = users[members.findIndex(user => user.id === message.author.id)];
       const converted = emptyMessage(channel, author, message.timestamp, content(message.content));
+      converted.member = { roles: memberRoles(users.indexOf(author)) };
       converted.id = ids.get(message.id)!;
       converted.type = message.type;
       converted.edited_timestamp = message.edited_timestamp === null ? null : new Date(message.edited_timestamp).toISOString();
@@ -119,7 +125,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
   }
   const guild: Guild = { id: guildId, name: 'Exact Club', icon: null, owner_id: me.id,
     description: 'Building Exact, and everything around it.', features: ['COMMUNITY'], member_count: users.length,
-    roles, channels: guildChannels, members: users.map(user => ({ user, roles: [], nick: null,
+    roles, channels: guildChannels, members: users.map((user, i) => ({ user, roles: memberRoles(i), nick: null,
       joined_at: new Date(DIRECTORY_EPOCH).toISOString(), deaf: false, mute: false, flags: 0 })), unavailable: false,
     emojis: emojiNames.map((name, i) => ({ id: String(500 + i), name, animated: false, available: true })) };
   return { seed: 1, token: 'fixture-token', me, users, guilds: [guild], channels: [...guildChannels, ...private_channels],
