@@ -79,7 +79,7 @@ export interface Live {
   // Sends that failed, by nonce, so a retry knows what to post.
   // A send's files are its picked copies (`app:/tmp/picked/…`), uploaded when it posts; `uploaded` keeps
   // each file's upload as it lands, so a retry uploads only what did not.
-  sends: Map<string, { channel: string; content: string; replyTo: string; files: Upload[]; uploaded?: (rest.Uploaded | undefined)[] }>;
+  sends: Map<string, { channel: string; content: string; replyTo: string; mention: boolean; files: Upload[]; uploaded?: (rest.Uploaded | undefined)[] }>;
   attempt: number;
   // The kept credentials have been read: a missing token is then signed out, not loading.
   ready: boolean;

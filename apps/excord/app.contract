@@ -80,6 +80,8 @@ component Excord
   state tokenDraft = ""
   state replyTo = ""
   state replyName = ""
+  // Whether a reply pings its original's author (Discord's @ ON), as Discord's default has it.
+  state replyMention = true
   state editing = ""
   state editError = ""
   state stash = ""
@@ -616,7 +618,7 @@ component Excord
         savingStash = stash
         send edited = editMessage(open, editing, draft.trim())
       else
-        send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow(), picked)
+        send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow(), picked, replyMention)
         picked = []
         replyTo = ""
         drafts = withDraft(drafts, open, "")
@@ -646,6 +648,8 @@ component Excord
         editError = editFailure
   action cancelReply
     replyTo = ""
+  action toggleReplyMention
+    replyMention = not replyMention
   action cancelEdit
     editing = ""
     editError = ""
@@ -696,6 +700,7 @@ component Excord
   action replyAimed
     replyTo = aimedId
     replyName = aimedAuthor
+    replyMention = true
     focus("composer")
   action editAimed
     if editing == ""
@@ -788,6 +793,7 @@ component Excord
   action startReply(id: string, author: string)
     replyTo = id
     replyName = author
+    replyMention = true
     focus("composer")
   action swipe(key: string, dx: number, dy: number)
     swipeKey = key
@@ -797,6 +803,7 @@ component Excord
     if swipeX >= 56
       replyTo = id
       replyName = author
+      replyMention = true
       haptic("impact-light")
       focus("composer")
     swipeX = 0
@@ -1077,6 +1084,8 @@ component Excord
               if replyTo != ""
                 row align-items="center" gap=8 padding="4px 4px"
                   text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
+                  button appearance="none" press=toggleReplyMention aria-pressed=replyMention aria-label=(replyMention ? "Mention on" : "Mention off") testId="reply-mention" padding="2px 6px"
+                    text (replyMention ? "@ ON" : "@ OFF") font="-exact-footnote" font-weight=700 color=(replyMention ? "AccentColor" : "-exact-secondary-label")
                   button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
                     image "symbol:close"
               if editing != ""

@@ -352,7 +352,7 @@ const sources: Sources = {
   emojiChoices: ([channel, query]) => emojiChoices(store, live.origins.cdn, channel, query),
   userProfile: ([channel, userId, messageId]) => profileOf(channel, userId, messageId),
   switchTargets: ([query, open]) => open ? switchTargets(store, live.origins.cdn, query, channelRecord) : [],
-  echoMessage: ([channel, written, replyTo, now, picked]) => {
+  echoMessage: ([channel, written, replyTo, now, picked, mention]) => {
     const files: Upload[] = (picked ?? []).map(f => ({ path: f.path, name: f.name, type: f.type, size: f.size,
       width: f.width ?? 0, height: f.height ?? 0 }));
     if (!written.trim() && !files.length) return { ok: false, error: 'A message needs some text.', key: '', channel };
@@ -363,7 +363,7 @@ const sources: Sources = {
       attachments: files.map((f, i) => ({ id: `${key}.${i}`, filename: f.name, size: f.size, url: f.path,
         content_type: f.type, ...(f.width && f.height ? { width: f.width, height: f.height } : {}) })),
       ...(replyTo ? { replyTo: { messageId: replyTo, guildId: S.channel(store, channel)?.guild_id } } : {}) });
-    live.sends.set(key, { channel, content, replyTo, files });
+    live.sends.set(key, { channel, content, replyTo, mention: mention !== false, files });
     touched(live, channel);
     live.arrived.set(channel, (live.arrived.get(channel) ?? 0) + 1);
     return { ok: true, error: '', key, channel };
@@ -372,7 +372,7 @@ const sources: Sources = {
     const send = live.sends.get(key);
     if (!send) return refused('That message is no longer waiting to send.');
     try {
-      const reply = send.replyTo ? { messageId: send.replyTo, guildId: S.channel(store, channel)?.guild_id } : undefined;
+      const reply = send.replyTo ? { messageId: send.replyTo, guildId: S.channel(store, channel)?.guild_id, mention: send.mention } : undefined;
       const attachments = send.files.length ? await upload(channel, key, send.files, send.uploaded ??= [], storage) : undefined;
       const sent = await call(live, rest.sendMessage(context(live, true), channel,
         { content: send.content, nonce: key, replyTo: reply, attachments }));
