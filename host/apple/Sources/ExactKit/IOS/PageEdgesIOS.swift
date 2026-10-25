@@ -85,15 +85,7 @@ extension Presenter {
             let r = routes[ObjectIdentifier(c)]
             if c.bandedTop !== r?.top { c.bandedTop = r?.top; c.setContentScrollView(r?.top ?? c.collapseScrollView, for: .top) }
             if c.bandedBottom !== r?.bottom { c.bandedBottom = r?.bottom; c.setContentScrollView(r?.bottom ?? c.edgeScroll?.scrollView, for: .bottom) }
-            if #available(iOS 26.0, *), let viewport = c.contentViewport {
-                // Keep UIKit's enclosing effect in sync with the authored content scroller
-                let top = c.contentScrollView(for: .top).flatMap { $0 === viewport ? nil : $0.topEdgeEffect }
-                let bottom = c.contentScrollView(for: .bottom).flatMap { $0 === viewport ? nil : $0.bottomEdgeEffect }
-                for (effect, content) in [(viewport.topEdgeEffect, top), (viewport.bottomEdgeEffect, bottom)] {
-                    effect.style = content?.style ?? .automatic
-                    effect.isHidden = content?.isHidden ?? false
-                }
-            }
+            c.syncViewportEdgeEffects()
         }
         #endif
         ControlBars.sync(bars, in: self)

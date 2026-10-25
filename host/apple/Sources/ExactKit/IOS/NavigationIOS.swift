@@ -209,6 +209,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         }
         if node.superview !== contentMount { contentMount.addSubview(node) }
         host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
+        syncViewportEdgeEffects()
     }
     /// Scroll the document inside the native container; the navigation and tab bars stay in their viewport.
     func fitContentViewport(in block: CGRect? = nil) {
@@ -280,6 +281,21 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     override func setContentScrollView(_ scrollView: UIScrollView?, for edge: NSDirectionalRectEdge) {
         super.setContentScrollView(scrollView, for: edge)
         (parent as? HeldStack)?.setContentScrollView(scrollView, for: edge)
+        syncViewportEdgeEffects()
+    }
+
+    func syncViewportEdgeEffects() {
+        #if os(iOS)
+        guard #available(iOS 26.0, *), let viewport = contentViewport else { return }
+        // UIKit also draws navigation material through the enclosing viewport (LLP 1077 D16).
+        for (edge, effect) in [(NSDirectionalRectEdge.top, viewport.topEdgeEffect), (.bottom, viewport.bottomEdgeEffect)] {
+            let owner = contentScrollView(for: edge)
+            let content = owner === viewport ? nil : (edge == .top ? owner?.topEdgeEffect : owner?.bottomEdgeEffect)
+            let style = content?.style ?? .automatic, hidden = content?.isHidden ?? false
+            if effect.style != style { effect.style = style }
+            if effect.isHidden != hidden { effect.isHidden = hidden }
+        }
+        #endif
     }
 }
 

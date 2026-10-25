@@ -61,8 +61,8 @@ final class EdgeEffectIOSTests: XCTestCase {
     }
 
     /// The route's scroller, scrolled under its bar, is the one the bar's
-    /// top edge follows. UIKit's content and document effects use the authored
-    /// soft style and draw above their content.
+    /// top edge follows. The enclosing effect follows its authored or default
+    /// style and draws above the content.
     private func assertEffectOverContent(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
         let session = try XCTUnwrap(self.session)
         let route = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController as? RouteController)
@@ -75,8 +75,9 @@ final class EdgeEffectIOSTests: XCTestCase {
         let viewport = try XCTUnwrap(route.contentViewport, file: file, line: line)
         XCTAssertTrue(viewport.documentNode === route.node, file: file, line: line)
         if #available(iOS 26.0, *) {
-            XCTAssertEqual(sv.topEdgeEffect.style, .soft, "the content scroller keeps its authored effect", file: file, line: line)
-            XCTAssertEqual(viewport.topEdgeEffect.style, .soft, "the enclosing effect follows the authored style", file: file, line: line)
+            let style: UIScrollEdgeEffect.Style = name == "large" ? .soft : .automatic
+            XCTAssertEqual(sv.topEdgeEffect.style, style, "the content scroller keeps its own effect", file: file, line: line)
+            XCTAssertEqual(viewport.topEdgeEffect.style, style, "the enclosing effect follows the content style", file: file, line: line)
             XCTAssertFalse(viewport.topEdgeEffect.isHidden, "UIKit keeps its enclosing effect", file: file, line: line)
         }
         for port in [sv, viewport] {
@@ -100,19 +101,29 @@ final class EdgeEffectIOSTests: XCTestCase {
         let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
         let content = try XCTUnwrap(p.navigation.shownScroll(try node("content-large")))
         let viewport = try XCTUnwrap(route.contentViewport)
+        let other = UIScrollView()
+        other.topEdgeEffect.style = .soft
+        other.bottomEdgeEffect.style = .soft
         content.topEdgeEffect.style = .hard
         content.topEdgeEffect.isHidden = true
+        content.bottomEdgeEffect.style = .hard
+        content.bottomEdgeEffect.isHidden = true
         p.reachPageEdges()
-        XCTAssertEqual(viewport.topEdgeEffect.style, .hard)
-        XCTAssertTrue(viewport.topEdgeEffect.isHidden)
-        route.setContentScrollView(viewport, for: .top)
-        p.reachPageEdges()
-        XCTAssertEqual(viewport.topEdgeEffect.style, .automatic)
-        XCTAssertFalse(viewport.topEdgeEffect.isHidden)
-        route.setContentScrollView(content, for: .top)
-        p.reachPageEdges()
-        XCTAssertEqual(viewport.topEdgeEffect.style, .hard)
-        XCTAssertTrue(viewport.topEdgeEffect.isHidden)
+        for edge in [NSDirectionalRectEdge.top, .bottom] {
+            let effect = edge == .top ? viewport.topEdgeEffect : viewport.bottomEdgeEffect
+            route.setContentScrollView(content, for: edge)
+            XCTAssertEqual(effect.style, .hard)
+            XCTAssertTrue(effect.isHidden)
+            route.setContentScrollView(other, for: edge)
+            XCTAssertEqual(effect.style, .soft, "ownership changes forward the policy without a batch")
+            XCTAssertFalse(effect.isHidden)
+            route.setContentScrollView(nil, for: edge)
+            XCTAssertEqual(effect.style, .automatic)
+            XCTAssertFalse(effect.isHidden)
+            route.setContentScrollView(viewport, for: edge)
+            XCTAssertEqual(effect.style, .automatic, "a viewport never inherits its own stale effect")
+            XCTAssertFalse(effect.isHidden)
+        }
     }
 
     func testTheEdgeEffectDrawsOverRowsUnderALargeTitle() throws {
