@@ -113,6 +113,9 @@ test('what a read again resolves: the tokens each event since the kept read name
   // An answer not of describe's revision (another value, or a tuple short) keeps no entry: resolved again next.
   const torn = keep('e1', 7, described(base), [{ tuples: [{ value: '#999' }] }, { tuples: [] }, ...answersOf(base.slice(2))]);
   expect([...again(torn, 'e1', described(base), [])].sort()).toEqual(['accent', 'brand']);
+  // A token named as a param is (the param is read first, its default a package's source moves with no event): every time.
+  const card = [{ identity: '@acme/x/card.contract#Card', params: [{ name: '@acme/x/card.contract#Card.fill', short: 'other', token: 'param.y.Card.fill' }] }];
+  expect([...again(keep('e1', 7, described(base, card), answersOf(base)), 'e1', described(base, card), [])]).toEqual(['other']);
   // Nothing since and nothing moved: nothing.
   expect([...again(keep('e1', 7, described(base), answersOf(base)), 'e1', described(base), [])]).toEqual([]);
   // A full read for: a gap since, another run, no kept read, another outline (a token added, another kind, a param added).
