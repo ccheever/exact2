@@ -99,7 +99,7 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
-import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs'; import { accepted as acceptedOf, choose } from './tamber-held-choice.mjs';
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 export { op } from './tamber-op.mjs';
@@ -118,7 +118,7 @@ const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
 const GONE = 'this paired client was revoked or its token expired';
-export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'edit-held', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'edit-held', 'choose', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -744,7 +744,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
     }
-    if (request.method === 'accept') return needsClient(request) ?? accept(request);
+    if (request.method === 'accept') return needsClient(request) ?? accept(request); if (request.method === 'choose') return needsClient(request) ?? choose(request, { expire, proposals, stale: replacedIds.stale, bump: () => heldRevision++, announce: shown => send({ event: 'proposal', seq: ++seq, epoch, ...shown }) }); // (tamber-held-choice.mjs)
     if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, scope, { expire, proposals, hold, stale: replacedIds.stale, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
     if (request.method === 'history') return history(request);
     // Which app this server is, and which run of it, so `tamber tool` can
@@ -954,7 +954,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
-  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false, editedBy = undefined) {
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false, editedBy = undefined, choice = undefined) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -1001,7 +1001,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // The operations by index, as `accept`'s items name them.
     const size = Buffer.byteLength(JSON.stringify({ diff: planned.ok.diff, changed: planned.ok.changed, ops, review }));
     if (size > 4 << 20 || size + [...proposals].reduce((n, [k, q]) => n + (k === replaces ? 0 : q.size ?? 0), 0) > 32 << 20) return /* a proposal at most 4 MiB, all held at most 32 MiB */ { status: 413, error: { message: 'the proposal is over 4 MiB, or the held ones together over 32 MiB: accept or drop some, or propose it in parts' } };
-    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(editedBy ? { editedBy } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(editedBy ? { editedBy } : {}), ...(choice ?? {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
     // At most 64 held. A client below `write` may not drop another's
     // (theme2's ruling (a)): at the cap its own oldest goes, and with none
     // of its own its hold is refused, decided here, in the same turn as the
@@ -1024,7 +1024,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     expire();
     const id = request.proposal, p = proposals.get(id);
     if (!p || p.busy) return (!p && replacedIds.stale(id)) || { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
-    const items = request.items;
+    const took = acceptedOf(request, p), items = took.items; if (took.error) return took; // (no `items`: the choice recorded, tamber-held-choice.mjs)
     if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) {
       return { status: 400, error: { message: `\`items\` lists indices of the proposal's ${p.ops.length} operations` } };
     }
