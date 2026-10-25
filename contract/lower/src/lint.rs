@@ -408,6 +408,12 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
+                            let row =
+                                contract_syntax::state::state_of(&a.name).map(|(_, name)| Attr {
+                                    name: name.to_string(),
+                                    ..a.clone()
+                                });
+                            let a = row.as_ref().unwrap_or(a);
                             let check = |a: &contract_syntax::Attr| match tags::attr_valued(
                                 &a.name, &a.value,
                             ) {
