@@ -811,3 +811,30 @@ fn a_symbol_under_a_written_colour_is_marked() {
         );
     }
 }
+
+#[test]
+fn a_refusal_at_a_plan_node_is_said_at_its_source() {
+    let dir = std::env::temp_dir().join(format!("web-js-at-source-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    column\n      Notes()\n\ncomponent Notes\n  state kind = \"markdown\"\n  view\n    textarea markup=kind aria-label=\"Notes\"\n",
+    )
+    .unwrap();
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let refusal = crate::emit::emit(&plan, false, false)
+        .err()
+        .expect("a dynamic markup");
+    assert!(refusal.starts_with("node "), "{refusal}");
+    let located = crate::at_source(&refusal, &map).expect("located");
+    assert_eq!(located.id, "web-target");
+    assert_eq!(
+        located.message,
+        "a dynamic `markup` on a text field is not in the JS target"
+    );
+    assert_eq!(located.file.as_deref(), Some(path.as_path()));
+    assert_eq!(located.related.len(), 1, "the call site of Notes");
+    assert!(crate::at_source("a refusal with no node", &map).is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

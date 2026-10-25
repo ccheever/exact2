@@ -597,10 +597,35 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("{input}: {e}");
+            // A refusal at a plan node is said at its source, as `contract build`
+            // says an error (LLP 1143 D3). A production build compiled no map,
+            // so it compiles one now, on this failing path only.
+            if map.is_none() && !input.ends_with(".plan") {
+                map = contract::compile_path_all_with_warnings(path, true)
+                    .0
+                    .ok()
+                    .and_then(|(_, m)| m);
+            }
+            match map.as_ref().and_then(|m| at_source(&e, m)) {
+                Some(located) => eprintln!("{located}{}", contract::excerpt(&located)),
+                None => eprintln!("{input}: {e}"),
+            }
             ExitCode::from(1)
         }
     }
+}
+
+/// An emit refusal that names its plan node (`node 12: …`), resolved through
+/// the development source map to the declaration and its call sites.
+fn at_source(refusal: &str, map: &contract::SourceMap) -> Option<contract::CompileError> {
+    let (node, message) = refusal.strip_prefix("node ")?.split_once(": ")?;
+    let site = exact_plan::NodesId(node.parse().ok()?);
+    let located = map.bake_error(&contract::BakeError::Lint {
+        id: "web-target",
+        message: message.to_string(),
+        site: Some(site),
+    });
+    located.file.is_some().then_some(located)
 }
 
 fn dump_plan(plan: &exact_plan::Plan) {
