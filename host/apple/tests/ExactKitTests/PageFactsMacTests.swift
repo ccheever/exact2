@@ -56,7 +56,8 @@ final class PageFactsMacTests: XCTestCase {
         XCTAssertFalse(only.isMiniaturized, "AppKit restored the window")
         XCTAssertFalse(heard.isEmpty, "the restore is told to the page")
         XCTAssertEqual(PageFacts.hidden, !only.occlusionState.contains(.visible), "restored, it reads as its occlusion says")
-        XCTAssertEqual(PageFacts.bits(nil, page: only, readsOnLine: false) & ~0x3FF, 0, "nor a pageshow: nothing put away, no restore")
+        // Only the transitions: persisted (1024) and the restores (the high half); the low bits are facts.
+        XCTAssertEqual(PageFacts.bits(nil, page: only, readsOnLine: false) & (1024 | 0xFFFF << 16), 0, "nor a pageshow: nothing put away, no restore")
     }
 
     /// LLP 1069.010 D8: the one window of an app that keeps running is
