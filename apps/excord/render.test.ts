@@ -126,10 +126,11 @@ test('user, channel and role mentions resolve through READY directories', () => 
   ]);
   expect(row.plain).toBe(`@Charlie Cheever @Ada #help @Maintainers @everyone @here @${missing} #unknown-channel @unknown-role`);
   expect(row.mentionsMe).toBe(true);
-  // The text an edit starts from names what the directories know, as the composer sends it back.
-  expect(row.source).toBe(`@charlie @ada #help <@&${role}> @everyone @here <@${missing}> <#${missing}> <@&${missing}>`);
-  const emoji = fixture([message(0, { content: `<:ferris:${ferris}> <a:dance:${dance}>` })]).view().rows[0];
-  expect(emoji.source).toBe(':ferris: :dance:');
+  // The text an edit starts from names the people the directories know, outside code, as the composer
+  // sends them back; a channel or emoji stays as written.
+  expect(row.source).toBe(`@charlie @ada <#${help}> <@&${role}> @everyone @here <@${missing}> <#${missing}> <@&${missing}>`);
+  const coded = fixture([message(0, { content: `\`<@${ada.id}>\` <:ferris:${ferris}>` })]).view().rows[0];
+  expect(coded.source).toBe(`\`<@${ada.id}>\` <:ferris:${ferris}>`);
 });
 
 test('mention flags count wire mentions and leave code and own wire mentions unhighlighted', () => {

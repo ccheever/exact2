@@ -5,6 +5,7 @@
 import * as S from './discord/store';
 import { SHORTCODES } from './discord/shortcodes';
 import { avatarUrl } from './render';
+import { outsideCode } from './discord/markup';
 import type { Result } from './app.contract.d.ts';
 
 export type Suggestion = Result<'suggest'>[number];
@@ -42,12 +43,14 @@ export function suggest(store: S.Store, cdn: string, channelId: string, draft: s
   const guildId = S.channel(store, channelId)?.guild_id ?? '';
   const out: (Suggestion & { order: number })[] = [];
   if (trigger === '@') {
+    // The list's first entries, the most recent first: prefixes, then (while too few) substrings.
+    let prefixes = 0;
     for (const u of people(store, channelId)) {
       const order = Math.min(...[handle(u), shown(u)].map(n => rank(n, query)).filter(r => r >= 0));
-      if (!Number.isFinite(order)) continue;
+      if (!Number.isFinite(order) || (order > 0 && out.length - prefixes >= LIMIT)) continue;
       out.push({ id: `u${u.id}`, label: shown(u), detail: handle(u), avatar: avatarUrl(cdn, u), glyph: '',
         text: `${head}@${handle(u)} `, order });
-      if (out.length >= 50) break;
+      if (order === 0 && ++prefixes >= LIMIT) break;
     }
   } else if (trigger === '#') {
     if (!guildId) return [];
@@ -72,21 +75,35 @@ export function suggest(store: S.Store, cdn: string, channelId: string, draft: s
   return out.sort((a, b) => a.order - b.order).slice(0, LIMIT).map(({ order: _order, ...s }) => s);
 }
 
-/** The text Discord is sent for a draft: names the store knows become mentions, outside code. */
+// What may stand before a mention: the start, or anything but a word character or one that
+// joins a word to it (`me@ada.com`, `<@…>`, `a:b:`).
+const LEAD = '(^|[^a-z0-9_.@<:/])';
+
+/** The text Discord is sent for a draft: names the store knows become mentions, outside code. A
+ * name that could be either of two (two channels called #help) stays text. */
 export function resolveMentions(store: S.Store, channelId: string, text: string): string {
   const guildId = S.channel(store, channelId)?.guild_id ?? '';
   // A handle names one person; those who wrote here win a clash with a legacy name.
   const byHandle = new Map<string, string>();
   for (const u of [...store.users.values(), ...people(store, channelId).reverse()]) byHandle.set(handle(u).toLowerCase(), u.id);
-  const channels = new Map<string, string>();
-  if (guildId) for (const c of S.guildChannelList(store, guildId)) if (c.name) channels.set(String(c.name).toLowerCase(), c.id);
+  // The channels a suggestion offers, by name; a name two of them share is none's.
+  const channels = new Map<string, string | null>();
+  if (guildId) for (const c of S.guildChannelList(store, guildId)) {
+    if (![0, 5].includes(c.type ?? 0) || !S.canView(store, c) || !c.name) continue;
+    const name = String(c.name).toLowerCase();
+    channels.set(name, channels.has(name) ? null : c.id);
+  }
   const emojis = new Map((guildId ? store.emojis.get(guildId) ?? [] : []).filter(e => e.available).map(e => [e.name, e]));
-  const plain = (s: string) => s
-    .replace(/(^|[\s(])@([a-z0-9_.]{2,32})\b/giu, (whole, lead, name) => {
-      const id = byHandle.get(name.toLowerCase());
-      return id ? `${lead}<@${id}>` : whole;
+  const plain = (part: string) => part
+    .replace(new RegExp(`${LEAD}@([a-z0-9_.]{2,32})(?![a-z0-9_.])`, 'giu'), (whole, lead, name: string) => {
+      // A handle may end in a period; one that does not is followed by the sentence's.
+      let known = name;
+      while (!byHandle.has(known.toLowerCase()) && known.endsWith('.')) known = known.slice(0, -1);
+      const id = byHandle.get(known.toLowerCase());
+      return id ? `${lead}<@${id}>${name.slice(known.length)}` : whole;
     })
-    .replace(/(^|[\s(])#([^\s#<>.,!?;:'")\]]{1,100})/gu, (whole, lead, name) => {
+    // A channel's name may hold an underscore, so `_#help_` is not read as italics around one.
+    .replace(new RegExp(`${LEAD}#([^\\s#<>.,!?;:'")\\]*~|]{1,100})`, 'gu'), (whole, lead, name: string) => {
       const id = channels.get(name.toLowerCase());
       return id ? `${lead}<#${id}>` : whole;
     })
@@ -94,6 +111,5 @@ export function resolveMentions(store: S.Store, channelId: string, text: string)
       const e = emojis.get(name);
       return e ? `${lead}<${e.animated ? 'a' : ''}:${e.name}:${e.id}>` : whole;
     });
-  // Code blocks and spans are sent as written.
-  return text.split(/(```[\s\S]*?```|`[^`\n]*`)/).map((part, i) => (i % 2 ? part : plain(part))).join('');
+  return outsideCode(text, plain);
 }
