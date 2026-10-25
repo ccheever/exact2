@@ -59,7 +59,7 @@ function run(id: string, kind: string, text: string, marks: Mark[], spoiler: str
 // A link to a Discord channel or message (`https://discord.com/channels/<guild or @me>/<channel>[/<message>]`)
 // opens in the app when the reader can open the channel: its run's `ref` is `m:<guild>:<channel>:<message>` (""
 // for a DM's guild or no message). One the account cannot open opens in the browser, as any link does.
-const DISCORD_LINK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d+)\/(\d+)(?:\/(\d+))?\/?(?:[?#].*)?$/i;
+const DISCORD_LINK = /^https:\/\/(?:(?:www|ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d+)\/(\d+)(?:\/(\d+))?\/?(?:[?#].*)?$/i;
 function messageLink(href: string, dirs: Directories): string {
   const m = DISCORD_LINK.exec(href);
   if (!m || !dirs.canOpen(m[2])) return '';
