@@ -607,6 +607,12 @@ let heldRaw: any[] = [], heldDesign = -1;
 /** An import's review (LLP 1122 D11) as the view lists it: the mapped
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
+/** Whether a held import's card begins with everything it holds chosen (a recomputed import holds only what was
+ * chosen) or as a fresh import's does, its tokens in and its role overrides off until ticked. A value edit holds the
+ * import whole again (third pass #6), so it begins fresh, the card's choice carried to it: an edit-held one replaces
+ * the proposal its review came `from`, and names who edited it; one held by the older propose path replaces none and
+ * is not marked kept. */
+const startsChosen = (h: any, r: any) => !!r && (!!h?.replaces || !!r.kept) && !(h?.editedBy && h.replaces && r.from === h.replaces);
 function reviewOf(p: any) {
   const r = p.review, none = { importer: '', mapped: [], offers: [], unmapped: [], counted: '', countOk: true, from: '', kept: false };
   if (!r?.importer) return none;
@@ -655,14 +661,14 @@ function reviewOf(p: any) {
         return { index, kind: 'other', name, text: opText(op), modes: [] };
     }
   });
-  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept;
+  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r);
   return {
-    importer: String(r.importer), mapped, from: String(r.from ?? ''), kept: recomputed,
-    // Off until ticked; in a recomputed (or edited) import, the ones it
-    // kept were ticked already, so they are on. One with no items is one
+    importer: String(r.importer), mapped, from: String(r.from ?? ''), kept: on,
+    // Off until ticked; in a recomputed import, the ones it kept were
+    // ticked already, so they are on. One with no items is one
     // the importer could not make, its note saying why; in a recomputed
     // import, one with neither was not chosen, and is left out.
-    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: recomputed && (o.items ?? []).length > 0 })),
+    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: on && (o.items ?? []).length > 0 })),
     // Each with where it came from (a file, a CSS block), so two of one
     // name in two modes are told apart.
     unmapped: (r.unmapped ?? []).map((u: any, i: number) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)', block: String(u.block ?? ''), key: `${i}` })),
@@ -671,11 +677,11 @@ function reviewOf(p: any) {
 }
 /** An import's items its card has chosen: the mapped tokens unless
  * unticked, the role overrides only if ticked (LLP 1121 D1), or, on a
- * recomputed import or an edit of one (`kept`), on unless unticked.
+ * recomputed import (`startsChosen`), on unless unticked.
  * `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`. */
 function chosen(proposal: string, picked: string): number[] {
   const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
-  const recomputed = !!held.find(h => h.proposal === proposal)?.replaces || !!r?.kept;
+  const recomputed = startsChosen(held.find(h => h.proposal === proposal), r);
   const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
   const tokens = Number(r?.tokens ?? 0);
   return ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
@@ -1355,9 +1361,10 @@ const sources: Sources = {
   },
   editImport: async ([client, proposal, index, mode, value, picked]) => {
     // A mapped token's value in one mode changed before accepting: the import held again (on the same server run)
-    // as what the card has chosen, with the edit, its review renumbered to those items and its overrides on, since
-    // they were ticked; the old one dropped. So its diff is what Accept writes, and an override left unticked is not
-    // checked along with an edit it has no part in.
+    // whole, with the edit, the old one dropped. Every role override is still offered, ticked or not, and the new one
+    // begins as a fresh import does (tokens in, overrides off), what the card had chosen carried to it: so editing
+    // before or after ticking ends with the same held proposal and the same choice, and a page loaded again later
+    // never finds an override on that no one ticked.
     const at = session;
     const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
     const op = ops[index];
@@ -1366,21 +1373,23 @@ const sources: Sources = {
     if (mode === 0) op.value = value.trim();
     else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
     else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
-    const keep = chosen(proposal, picked);
-    if (!keep.includes(index)) return { ...stacks(false, `${op.name} is left out of the import: tick it to edit it.`, ''), note: '', carried: [] };
+    const was = new Set(chosen(proposal, picked));
+    if (!was.has(index)) return { ...stacks(false, `${op.name} is left out of the import: tick it to edit it.`, ''), note: '', carried: [] };
     const tokens = Number(r.tokens ?? 0);
-    const review = {
-      ...r, kept: true, from: proposal, tokens: keep.filter(i => i < tokens).length,
-      offers: (r.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })),
-    };
+    const review = { ...r, kept: false, from: proposal };
     // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
-    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim(), items: keep } : { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
+    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim() } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
     const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
-    const carried: string[] = [];
+    // The new one begins as a fresh import (`startsChosen`): a token the card had left out, and an override it had
+    // ticked, flipped there.
+    const carried = [
+      ...ops.slice(0, tokens).map((_, i) => i).filter(i => !was.has(i)).map(i => `${fresh}:${i}`),
+      ...(r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => was.has(i))).map((o: any) => `${fresh}:${o.items.join(',')}`),
+    ];
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
   },

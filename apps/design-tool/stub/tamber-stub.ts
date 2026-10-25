@@ -416,7 +416,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
         const keep: number[] = request.items ?? ops.map((_: unknown, i: number) => i);
         const id = `edited-${++holds}`;
-        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), review: { ...old.review, kept: true, from: request.proposal }, replaces: request.proposal, editedBy: request.client }]);
+        // (its review renumbered to the items kept, as the server's: an offer whose items all go is offered no more)
+        const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: (old.review.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })) };
+        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), ...(review ? { review } : {}), replaces: request.proposal, editedBy: request.client }]);
         return send({ ok: { recomputed: true, replaces: request.proposal, proposal: id, client: old.client, editedBy: request.client } });
       }
       if (request.method === 'drop') { held = held.filter(h => h.proposal !== request.proposal); return send({ ok: { dropped: request.proposal } }); }
