@@ -10,14 +10,22 @@
 //!   too), occurs EXACTLY twice across every scanned `.rs` file: on its
 //!   definition line in exact_plan, and once inside the body of
 //!   `exact_runner::icon_of` (the nearest `fn` line above the call). Any
-//!   other occurrence, or a second one in `icon_of`, fails. Excepted: this
-//!   file, which builds fixtures of it.
+//!   other occurrence, or a second one in `icon_of`, fails; the one call must
+//!   be exactly the line `        s(row.path.<escape>()),`, and `fn icon_of`
+//!   must be declared exactly once in that file. Excepted: this file, which
+//!   builds fixtures of it.
 //! - JavaScript (`.js`, `.mjs`, `.ts`) in the files that handle a symbol
 //!   source (they name `data-symbol`, `symbolSource`, `symbolPath`,
 //!   `symbol-source`, a quoted `symbol:` or `icon|`), tests aside: any string
 //!   literal that is exactly a bar or a colon (any quote), a regex on a bar
 //!   or a colon (`\|`, `/:/`), or the even-odd marker's text (`evenodd:`),
 //!   fails unless that exact line is allowed below, with why.
+//!
+//! The threat model (theme2): the guard stops ACCIDENTAL raw readers, code
+//! that reaches for an icons row's path or a source form's `<path>` by hand.
+//! Deliberate laundering of the escape (through a static, a const, a
+//! closure, a macro, a re-export) is out of its scope and is caught by
+//! review.
 //!
 //! The JS scan is a TRIPWIRE with a stated limit (theme2's ruling): it covers
 //! only the files that name a symbol source, so a reader that never does
@@ -46,19 +54,24 @@ const DEFINITION: (&str, &str) = (
     "    pub fn raw_for_icon(self) -> StrId {",
 );
 
-/// The file and function whose body holds the one call.
+/// The file and function whose body holds the one call, and the call's
+/// exact line.
 const CALLER: (&str, &str) = ("runner/src/bridge.rs", "icon_of");
+const CALL_LINE: &str = "        s(row.path.raw_for_icon()),";
+
+/// The function a line declares, when it is a `fn` line.
+fn declared_fn(line: &str) -> Option<&str> {
+    let mut t = line.trim_start();
+    for vis in ["pub(crate) ", "pub(super) ", "pub "] {
+        t = t.strip_prefix(vis).unwrap_or(t);
+    }
+    let rest = t.strip_prefix("fn ")?;
+    Some(rest.split(['(', '<']).next().unwrap_or("").trim())
+}
 
 /// The name of the function a line sits in: the nearest `fn` line above it.
 fn enclosing_fn<'a>(lines: &[&'a str], at: usize) -> Option<&'a str> {
-    lines[..at].iter().rev().find_map(|l| {
-        let mut t = l.trim_start();
-        for vis in ["pub(crate) ", "pub(super) ", "pub "] {
-            t = t.strip_prefix(vis).unwrap_or(t);
-        }
-        let rest = t.strip_prefix("fn ")?;
-        Some(rest.split(['(', '<']).next().unwrap_or("").trim())
-    })
+    lines[..at].iter().rev().find_map(|l| declared_fn(l))
 }
 
 /// The escape's occurrences in one `.rs` file: those allowed (`(definition,
@@ -77,14 +90,25 @@ fn rust_escapes(rel: &str, text: &str) -> ((usize, usize), Vec<String>) {
         }
         if (rel, *line) == DEFINITION && n == 1 {
             allowed.0 += 1;
-        } else if rel == CALLER.0
-            && n == 1
-            && enclosing_fn(&lines, i) == Some(CALLER.1)
-            && !line.trim_start().starts_with("fn ")
+        } else if rel == CALLER.0 && *line == CALL_LINE && enclosing_fn(&lines, i) == Some(CALLER.1)
         {
             allowed.1 += 1;
         } else {
             other.push(format!("{rel}:{}: {}", i + 1, line.trim()));
+        }
+    }
+    // `fn icon_of` declared exactly once in its file (a second one, even in
+    // a comment, could hold a second call that passes as the first's).
+    if rel == CALLER.0 {
+        let declared = lines
+            .iter()
+            .filter(|l| declared_fn(l) == Some(CALLER.1))
+            .count();
+        if declared != 1 {
+            other.push(format!(
+                "{rel}: `fn {}` declared {declared} times, not once",
+                CALLER.1
+            ));
         }
     }
     (allowed, other)
@@ -280,14 +304,30 @@ fn the_scan_catches_each_bypass() {
     );
     let elsewhere =
         format!("pub fn icon_of_too(row: &IconsRow) {{\n        s(row.path.{e}()),\n}}\n");
+    let (counts, other) = rust_escapes("runner/src/bridge.rs", &elsewhere);
     assert_eq!(
-        rust_escapes("runner/src/bridge.rs", &elsewhere).1.len(),
-        1,
-        "a function only named alike"
+        (counts, other.len()),
+        ((0, 0), 2),
+        "a function only named alike: {other:?}"
     );
-    // Astra's `// {` … `// }` case: the hidden call is a second occurrence
-    // in icon_of, which the exactly-twice count fails.
-    assert_eq!(rust_escapes("runner/src/bridge.rs", &braces).0, (0, 2));
+    // Astra's `// {` … `// }` case: the hidden call is not the exact call
+    // line, so it fails; the real call line is the one allowed.
+    let (counts, other) = rust_escapes("runner/src/bridge.rs", &braces);
+    assert_eq!((counts, other.len()), ((0, 1), 1), "{other:?}");
+    assert!(other[0].contains("let raw"), "{other:?}");
+    // A second `fn icon_of` (in a block comment, or nested) fails, whatever
+    // it holds: the function is declared exactly once.
+    for second in [
+        format!("/*\npub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n*/\npub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n        s(row.path.{e}()),\n}}\n"),
+        format!("pub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n    fn icon_of(row: &IconsRow) {{\n        s(row.path.{e}()),\n    }}\n}}\n"),
+    ] {
+        let other = rust_escapes("runner/src/bridge.rs", &second).1;
+        assert!(other.iter().any(|o| o.contains("`fn icon_of` declared 2 times")), "{other:?}");
+    }
+    // A call line not exactly the one (spaced otherwise) fails.
+    let spaced =
+        format!("pub fn icon_of<'a>(plan: &Plan, row: &IconsRow) {{\n    s(row.path.{e}()),\n}}\n");
+    assert_eq!(rust_escapes("runner/src/bridge.rs", &spaced).1.len(), 1);
     let js = |body: &str| readers("x/a.js", &format!("// handles data-symbol-source\n{body}")).0;
     for bypass in [
         r#"const f = name.split("|");"#,
