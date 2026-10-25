@@ -141,9 +141,12 @@ extension TextEngine {
     }
     func controlFont(size: CGFloat, weight: Int, family: Int, italic: Bool) -> NSFont? {
         guard family == platformControlID.map(Int.init), let base = platformControlFont else { return nil }
-        if size == base.pointSize, weight == Self.controlWeight(base), italic == base.fontDescriptor.symbolicTraits.contains(.italic) { return base }
         let key = "control/\(family)/\(size)/\(weight)/\(italic)"
         if let font = fonts[key] { return font }
+        if size == base.pointSize, weight == Self.controlWeight(base), italic == base.fontDescriptor.symbolicTraits.contains(.italic) {
+            fonts[key] = base
+            return base
+        }
         let font = TextEngine.cssWeight(weight, size: size) { stop in
             var descriptor = base.fontDescriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: TextEngine.namedWeight(stop).rawValue]])
             if italic { descriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.italic)) }
