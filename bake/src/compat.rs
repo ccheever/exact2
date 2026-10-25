@@ -189,27 +189,11 @@ pub fn compatibility_id_sources_with_entries(
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
     crate::reach::derive(app_dir, platform, &mut compat)?;
-    // The entry plans that ship beside the app's (widgets, activities:
-    // `plans/<kind>.plan`), resolved once: the receipt writes them, and an
-    // even-odd icon in one needs the rule too (stage 14 C2, round 2).
-    let compiled;
-    let entries = match entries {
-        Some(entries) => entries,
-        None => {
-            compiled = contract::snapshot::entries(app_dir)?;
-            &compiled
-        }
-    };
-    // An even-odd icon in a plan that ships needs a binary that reads its
-    // rule (stage 14 C2).
-    let out = std::env::var_os("OUT_DIR").map(std::path::PathBuf::from);
-    let entry_plans: Vec<&exact_plan::Plan> = entries.values().map(|e| &e.plan).collect();
-    if let Some(rules) =
-        crate::icon_rules::needed(app_dir, plan.as_ref(), out.as_deref(), &entry_plans)?
-    {
-        compat.inputs["iconFillRules"] = serde_json::json!(rules);
-        compat.id = compatibility_digest(&compat.inputs);
-    }
+    // The entry plans, resolved once (the receipt writes them); an even-odd
+    // icon in any plan that ships moves the id (stage 14 C2, icon_rules.rs).
+    let mut owned = None;
+    let entries = crate::icon_rules::entries(app_dir, entries, &mut owned)?;
+    crate::icon_rules::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
     if let Some(out) = std::env::var_os("OUT_DIR") {
         // What an Apple archive links is part of its cohort (LLP 1047.001
         // D2), named before anything binds the id.
