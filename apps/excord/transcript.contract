@@ -294,8 +294,12 @@ component MediaView
           button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
             image i.src width="100%" height="100%" object-fit="cover"
     else
-      button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-        image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`
+      if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
+        button appearance="none" press=reveal(`${mkey}:${i.id}`) align-self="flex-start" padding="40px 60px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal" testId=`media-${mkey}-${i.id}`
+          text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+      else
+        button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`
 
 component EmbedView
   props

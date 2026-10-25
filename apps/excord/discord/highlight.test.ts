@@ -18,3 +18,12 @@ test('an unknown language, or none, is left plain', () => {
   expect(highlight('x = 1', 'brainfuck')).toBeNull();
   expect(highlight('ab'.repeat(10001), 'js')).toBeNull();
 });
+
+test('an unclosed comment or string runs to the end of its text or line, in linear time', () => {
+  expect(highlight('a /* b', 'js')).toEqual([{ kind: 'plain', text: 'a ' }, { kind: 'comment', text: '/* b' }]);
+  expect(highlight('"a\nb', 'js')!.map(t => t.kind)).toEqual(['string', 'plain']);
+  const nasty = '/* '.repeat(1300) + '" '.repeat(1300);
+  const started = performance.now();
+  for (let i = 0; i < 200; i++) highlight(nasty, 'js');
+  expect(performance.now() - started).toBeLessThan(200);
+});

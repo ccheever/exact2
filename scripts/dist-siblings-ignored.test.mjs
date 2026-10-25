@@ -45,7 +45,8 @@ test('two builds swapped in a sample app\'s dist, one leased, leave its git stat
 test('a dist\'s swap siblings are no build input: a later build\'s reap leaves a drive\'s build fresh', () => {
   const root = mkdtempSync(join(tmpdir(), 'exact-dist-inputs-'));
   try {
-    for (const name of ['dist.gen.reaped', 'dist.lock', 'web-dist.gen.reaped', 'serve.mjs']) writeFileSync(join(root, name), 'x');
-    expect(newerThan(0, [{ shallow: root }]).map((p) => p.slice(p.lastIndexOf('/') + 1))).toEqual(['serve.mjs']);
+    for (const name of ['dist.gen.reaped', 'dist.lock', 'dist.stage-abc123', 'web-dist.gen.reaped', 'serve.mjs', 'dist.ts', 'web-dist.json']) writeFileSync(join(root, name), 'x');
+    // A source that only starts with the word is an input.
+    expect(newerThan(0, [{ shallow: root }]).map((p) => p.slice(p.lastIndexOf('/') + 1)).sort()).toEqual(['dist.ts', 'serve.mjs', 'web-dist.json']);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
