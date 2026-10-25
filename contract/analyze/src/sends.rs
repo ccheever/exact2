@@ -275,17 +275,18 @@ impl<'a> Walk<'a> {
     }
 }
 
-/// The union of two arms' sends; a send made before the branch keeps only
-/// what both arms still know of its path.
+/// The union of two arms' sends. One source and innermost call can be reached
+/// under different outer guards; keep those alternatives, including any that
+/// lost facts when an arm changed a name.
 fn merge<'a>(into: &mut Sent<'a>, from: Sent<'a>) {
     for (target, sends) in from {
         let have = into.entry(target).or_default();
         for (span, guard, frame, armed) in sends {
             match have
                 .iter_mut()
-                .find(|(s, _, f, _)| *s == span && *f == frame)
+                .find(|(s, g, f, _)| *s == span && *g == guard && *f == frame)
             {
-                Some((_, kept, _, _)) => kept.retain(|f| guard.contains(f)),
+                Some((_, _, _, kept_armed)) => *kept_armed |= armed,
                 None => have.push((span, guard, frame, armed)),
             }
         }
