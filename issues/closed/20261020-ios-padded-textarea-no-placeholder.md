@@ -1,6 +1,7 @@
 # A padded textarea shows no placeholder on iOS
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: TextArea.draw drew the placeholder with draw(in:) in a content box shorter than a line (UIKit's inset plus the authored padding), which drops the line; it now draws from the box's first line, clipped by the view
 **Systems:** Apple host (iOS), native fields (textarea)
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the Linear Port lane's friction log

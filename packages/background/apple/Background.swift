@@ -1,25 +1,26 @@
-// @exact/background on Apple (LLP 1133.017 D2, D8, D17): the registrations
-// kept in `UserDefaults`, a `sync` fired while the path is satisfied
-// (`NWPathMonitor`), a `periodicsync` by `NSBackgroundActivityScheduler` on
-// the Mac and by the host's one `BGAppRefreshTask` on iOS. The app's composed
+// @exact/background on Apple (LLP 1133.017 D2, D8, D12, D17): the
+// registrations kept in `UserDefaults`; a `sync` fired while the path is
+// satisfied (`NWPathMonitor`) and the app runs; every other run asked of the
+// host's wake requests (`context.wakes`), which the host submits as iOS's
+// refresh and processing tasks and the Mac's schedulers. The app's composed
 // module calls it outside the agent; under the agent the runner's substitute
 // answers, unless the drive binds it (`--bind background`).
 //
-// - Each tag fired is its own wake, raised through `context.wake`; its end
-//   is `woke(id, outcome)`, which completes the platform's task.
+// - Each tag fired is its own invocation, raised through `context.wake` or a
+//   host wake's `raise`, and told its outcome.
 // - Retrying is D1's: a handler that registers its tag again keeps it,
 //   eligible after 5 minutes, doubling to an hour; the third attempt in a row
 //   is `lastChance`, after which it is retired unless registered again.
-// - iOS has no wake for the network's return: a `sync` registered offline
-//   fires at the next refresh wake or launch (D2). The host registers the
-//   refresh identifier at launch and offers each task here (ExactKit's
-//   BackgroundRefresh.swift, D8); one that arrives with no session booted
-//   ends unsuccessful at its expiry, since the headless boot is not built.
+// - iOS has no wake for the network's return: a `sync` waiting asks for the
+//   next refresh wake and a processing wake with a network connection, and
+//   fires at whichever comes first, or at the next launch (D2).
+// - `periodicsync` asks for a wake at its due time, the refresh kind unless
+//   `apple.task` is `processing`; `apple.requiresExternalPower` asks a
+//   processing wake for power.
 import ExactPackage
 import Foundation
 import Network
 #if os(iOS)
-import BackgroundTasks
 import UIKit
 #endif
 
@@ -30,6 +31,8 @@ public final class BackgroundModule: NSObject, ExactPackage {
         var notBefore: Double?
         var minInterval: Double?
         var lastRun: Double?
+        var task: String?
+        var power: Bool?
     }
 
     private static let backoff = 5 * 60_000.0, longest = 60 * 60_000.0, attempts = 3
@@ -38,20 +41,13 @@ public final class BackgroundModule: NSObject, ExactPackage {
     private let context: ExactPackageContext
     /// By kind (`sync`, `periodicsync`), then tag.
     private var tags: [String: [String: Registration]] = [:]
-    /// Wakes raised and not ended: the wake's id → (kind, tag).
-    private var raised: [String: (kind: String, tag: String)] = [:]
-    /// Tags registered again during their own invocation.
+    /// Invocations raised and not ended, as `kind tag`.
+    private var raised: Set<String> = []
+    /// Tags registered again during their own invocation, as `kind tag`.
     private var again: Set<String> = []
     private var satisfied = false
     private let monitor = NWPathMonitor()
     private var timer: Timer?
-    #if os(macOS)
-    private var schedulers: [String: NSBackgroundActivityScheduler] = [:]
-    private var finishing: [String: (NSBackgroundActivityScheduler.Result) -> Void] = [:]
-    #endif
-    #if os(iOS)
-    private var task: BGTask?
-    #endif
 
     public required init(context: ExactPackageContext) {
         self.context = context
@@ -65,40 +61,28 @@ public final class BackgroundModule: NSObject, ExactPackage {
             DispatchQueue.main.async { self?.path(path.status == .satisfied) }
         }
         monitor.start(queue: .main)
-        #if os(macOS)
-        for (tag, r) in tags["periodicsync"] ?? [:] { schedule(tag, r.minInterval ?? 900_000) }
-        #endif
-        #if os(iOS)
-        NotificationCenter.default.addObserver(forName: Self.offered, object: nil, queue: .main) { [weak self] note in
-            guard let self, self.task == nil, let offer = note.object as? NSMutableDictionary,
-                  offer["taken"] == nil, let task = offer["task"] as? BGTask else { return }
-            offer["taken"] = true
-            self.refresh(task)
-        }
-        NotificationCenter.default.post(name: Self.ask, object: nil)
-        #endif
+        ask()
     }
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
             let tag = args["tag"] as? String ?? ""
             let bad = tag.isEmpty || tag.utf8.count > 64
+            let apple = args["apple"] as? [String: Any] ?? [:]
             switch name {
             case "registerSync":
                 if bad { return reply(["error": "TypeError"]) }
                 if denied { return reply(["error": "NotAllowedError"]) }
-                register("sync", tag, interval: nil)
+                register("sync", tag, interval: nil, task: nil, power: apple["requiresExternalPower"] as? Bool)
                 reply([:])
             case "registerPeriodicSync":
                 if bad { return reply(["error": "TypeError"]) }
                 if denied { return reply(["error": "NotAllowedError"]) }
-                register("periodicsync", tag, interval: max(args["minInterval"] as? Double ?? 900_000, 900_000))
+                let interval = max(args["minInterval"] as? Double ?? 900_000, 900_000)
+                register("periodicsync", tag, interval: interval, task: apple["task"] as? String, power: apple["requiresExternalPower"] as? Bool)
                 reply([:])
             case "unregisterPeriodicSync":
                 tags["periodicsync"]?[tag] = nil
-                #if os(macOS)
-                schedulers.removeValue(forKey: tag)?.invalidate()
-                #endif
                 keep("periodicsync")
                 reply([:])
             case "syncTags": reply(["exact:answer": listed("sync")])
@@ -115,11 +99,13 @@ public final class BackgroundModule: NSObject, ExactPackage {
 
     private func status() -> [String: Any] {
         #if os(iOS)
-        let state = UIApplication.shared.backgroundRefreshStatus == .available ? "granted" : "denied"
+        let refresh = UIApplication.shared.backgroundRefreshStatus
+        let word = refresh == .available ? "available" : refresh == .denied ? "denied" : "restricted"
+        let apple: [String: Any] = ["backgroundRefreshStatus": word, "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled]
+        return ["available": true, "state": refresh == .available ? "granted" : "denied", "periodic": true, "sync": true, "apple": apple]
         #else
-        let state = "granted"
+        return ["available": true, "state": "granted", "periodic": true, "sync": true]
         #endif
-        return ["available": true, "state": state, "periodic": true, "sync": true]
     }
 
     private func listed(_ kind: String) -> [[String: Any]] {
@@ -130,65 +116,109 @@ public final class BackgroundModule: NSObject, ExactPackage {
 
     // MARK: registrations
 
-    private func register(_ kind: String, _ tag: String, interval: Double?) {
-        if raised.values.contains(where: { $0 == (kind, tag) }) { again.insert(kind + " " + tag) }
+    private func register(_ kind: String, _ tag: String, interval: Double?, task: String?, power: Bool?) {
+        if raised.contains(kind + " " + tag) { again.insert(kind + " " + tag) }
         var r = tags[kind]?[tag] ?? Registration(registered: context.now())
         r.minInterval = interval
+        r.task = task
+        r.power = power
         tags[kind, default: [:]][tag] = r
         keep(kind)
-        #if os(macOS)
-        if kind == "periodicsync" { schedule(tag, interval ?? 900_000) }
-        #endif
-        #if os(iOS)
-        submit()
-        #endif
         fire()
     }
 
     private func keep(_ kind: String) {
         if let data = try? JSONEncoder().encode(tags) { UserDefaults.standard.set(data, forKey: Self.key) }
         context.changed(kind == "sync" ? "background.syncTags" : "background.periodicSyncTags")
+        ask()
     }
+
+    /// The host's wakes this module needs now: a `sync` waiting (iOS), each periodic tag's due time.
+    private func ask() {
+        guard !context.agent else { return }
+        let wakes = context.wakes
+        #if os(iOS)
+        let waiting = (tags["sync"] ?? [:]).filter { !raised.contains("sync " + $0.key) }
+        if let soonest = waiting.values.map({ $0.notBefore ?? 0 }).min() {
+            let at = max(soonest, context.now())
+            wakes.request(kind: "refresh", at: at, key: "sync")
+            wakes.request(kind: "processing", at: at, key: "sync processing", power: waiting.values.contains { $0.power == true })
+        } else {
+            wakes.cancel(key: "sync")
+            wakes.cancel(key: "sync processing")
+        }
+        #endif
+        for (tag, r) in tags["periodicsync"] ?? [:] {
+            wakes.request(kind: r.task == "processing" ? "processing" : "refresh", at: due(r), key: "periodicsync " + tag, power: r.power == true)
+        }
+    }
+
+    private func due(_ r: Registration) -> Double { (r.lastRun ?? r.registered) + (r.minInterval ?? 900_000) }
 
     private func path(_ ok: Bool) {
         satisfied = ok
         if ok { fire() }
     }
 
-    /// Each `sync` tag eligible while the path is satisfied, as its own wake; a look again at the soonest backoff.
+    /// Each `sync` tag eligible while the path is satisfied, as an
+    /// invocation of its own; a look again at the soonest backoff.
     private func fire() {
         guard satisfied, !context.agent else { return }
         timer?.invalidate()
         let now = context.now()
         var soonest = Double.infinity
-        for (tag, r) in tags["sync"] ?? [:] where !raised.values.contains(where: { $0 == ("sync", tag) }) {
-            if (r.notBefore ?? 0) > now { soonest = min(soonest, r.notBefore!); continue }
-            let lastChance = r.attempts + 1 >= Self.attempts
-            raise("sync", tag, ["tag": tag, "lastChance": lastChance], id: "sync \(tag) \(r.attempts)")
+        for (tag, r) in tags["sync"] ?? [:] where !raised.contains("sync " + tag) {
+            if let at = r.notBefore, at > now { soonest = min(soonest, at); continue }
+            raise("sync", tag) { event, args, ended in self.context.wake(event, args, id: "sync \(tag) \(now)", ended: ended) }
         }
         if soonest < .infinity {
             timer = Timer.scheduledTimer(withTimeInterval: (soonest - now) / 1000, repeats: false) { [weak self] _ in self?.fire() }
         }
     }
 
-    private func raise(_ kind: String, _ tag: String, _ event: [String: Any]?, id: String) {
-        raised[id] = (kind, tag)
+    /// Raise `tag`'s event through `via`; `done` hears whether it completed.
+    private func raise(_ kind: String, _ tag: String, done: ((Bool) -> Void)? = nil,
+                       via: (String, [Any], @escaping (String) -> Void) -> Void) {
+        let r = tags[kind]?[tag]
+        let args: [Any] = kind == "sync" ? [tag, ["tag": tag, "lastChance": (r?.attempts ?? 0) + 1 >= Self.attempts]] : [tag]
+        raised.insert(kind + " " + tag)
         again.remove(kind + " " + tag)
-        context.wake(kind, event.map { [tag, $0] } ?? [tag], id: id)
+        via(kind, args) { [weak self] outcome in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.raised.remove(kind + " " + tag)
+                let registered = self.again.remove(kind + " " + tag) != nil
+                self.ended(kind, tag, outcome, registered: registered)
+                done?(outcome == "completed")
+                self.fire()
+            }
+        }
     }
 
-    public func woke(_ id: String, _ outcome: String) {
+    /// The host ran the app for due requests: each tag they cover, then done.
+    public func woke(_ wake: ExactWake) {
         DispatchQueue.main.async { [self] in
-            guard let (kind, tag) = raised.removeValue(forKey: id) else { return }
-            let registered = again.remove(kind + " " + tag) != nil
-            ended(kind, tag, outcome, registered: registered)
-            #if os(macOS)
-            finishing.removeValue(forKey: id)?(.finished)
-            #endif
-            #if os(iOS)
-            if raised.isEmpty, let task { self.task = nil; task.setTaskCompleted(success: outcome == "completed"); submit() }
-            #endif
-            fire()
+            let now = context.now()
+            var due: [(String, String)] = []
+            for key in wake.keys {
+                if key.hasPrefix("sync") {
+                    due += (tags["sync"] ?? [:]).filter { !raised.contains("sync " + $0.key) && ($0.value.notBefore ?? 0) <= now }.keys.map { ("sync", $0) }
+                } else if key.hasPrefix("periodicsync "), let tag = Optional(String(key.dropFirst(13))), tags["periodicsync"]?[tag] != nil {
+                    due.append(("periodicsync", tag))
+                }
+            }
+            var unique: [(String, String)] = []
+            for d in due where !unique.contains(where: { $0 == d }) { unique.append(d) }
+            context.log("background: a \(wake.kind) wake: \(unique.map { "\($0.0) \($0.1)" }.joined(separator: ", "))")
+            guard !unique.isEmpty else { ask(); return wake.done(success: true) }
+            var left = unique.count, success = true
+            for (kind, tag) in unique {
+                raise(kind, tag, done: { completed in
+                    success = success && completed
+                    left -= 1
+                    if left == 0 { wake.done(success: success) }
+                }, via: { event, args, ended in wake.raise(event, args, ended: ended) })
+            }
         }
     }
 
@@ -216,55 +246,4 @@ public final class BackgroundModule: NSObject, ExactPackage {
         tags[kind]?[tag] = r
         keep(kind)
     }
-
-    // MARK: the Mac's scheduler
-
-    #if os(macOS)
-    private func schedule(_ tag: String, _ interval: Double) {
-        guard !context.agent else { return }
-        schedulers.removeValue(forKey: tag)?.invalidate()
-        let s = NSBackgroundActivityScheduler(identifier: "\(Bundle.main.bundleIdentifier ?? "app").periodicsync.\(tag)")
-        s.repeats = true
-        s.interval = interval / 1000
-        s.schedule { [weak self] done in
-            DispatchQueue.main.async {
-                guard let self, self.satisfied, self.tags["periodicsync"]?[tag] != nil else { return done(.deferred) }
-                let id = "periodicsync \(tag) \(self.context.now())"
-                self.finishing[id] = done
-                self.raise("periodicsync", tag, nil, id: id)
-            }
-        }
-        schedulers[tag] = s
-    }
-    #endif
-
-    // MARK: iOS's refresh task
-
-    #if os(iOS)
-    /// The host's offer of a refresh task, and a module's ask for one offered before it was made.
-    static let offered = Notification.Name("exact.background.refresh"), ask = Notification.Name("exact.background.ask")
-
-    /// A refresh wake: every due periodic tag and every eligible sync tag.
-    private func refresh(_ task: BGTask) {
-        self.task = task
-        let now = context.now()
-        for (tag, r) in tags["periodicsync"] ?? [:] where now >= (r.lastRun ?? r.registered) + (r.minInterval ?? 900_000) {
-            raise("periodicsync", tag, nil, id: "periodicsync \(tag) \(now)")
-        }
-        fire()
-        if raised.isEmpty { self.task = nil; task.setTaskCompleted(success: true); submit() }
-    }
-
-    /// The one refresh request, at the soonest due time of a periodic tag, or at once for a sync tag waiting.
-    private func submit() {
-        guard !context.agent else { return }
-        let id = "\(Bundle.main.bundleIdentifier ?? "app").refresh"
-        let due = (tags["periodicsync"] ?? [:]).values.map { ($0.lastRun ?? $0.registered) + ($0.minInterval ?? 900_000) }
-        let soonest = (tags["sync"]?.isEmpty == false) ? context.now() : due.min()
-        guard let soonest else { return BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: id) }
-        let request = BGAppRefreshTaskRequest(identifier: id)
-        request.earliestBeginDate = Date(timeIntervalSince1970: soonest / 1000)
-        do { try BGTaskScheduler.shared.submit(request) } catch { context.log("background: refresh not submitted: \(error)") }
-    }
-    #endif
 }

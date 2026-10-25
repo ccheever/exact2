@@ -131,7 +131,8 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   actions, bar items: the platform tint unless the control's own `color`/`accent-color` is set.
 - **D5. Back is always there.** A pushed route without an authored back control still gets the
   system back button, edge swipe and sheet swipe-down; the host pops and reports it as
-  `history.back()` would. An authored control is still what the button presses.
+  `history.back()` would. An adjacent Back still presses its authored control; native
+  history jumps follow LLP 1115.000 D4.3.
 - **D6. Confirmations are the platform's alert** (`issues/20261009-ios-confirmation-shape.md`):
   an `alertdialog` becomes `UIAlertController(.alert)` with its title and Cancel kept; `showModal`
   is honoured on iOS; the compiler stops requiring `closedby="any"` for it. *Landed (wave 2,

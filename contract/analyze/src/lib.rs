@@ -360,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 75] = [
+pub const HANDLERS: [&str; 79] = [
     "press",
     "change",
     "input",
@@ -460,6 +460,16 @@ pub const HANDLERS: [&str; 75] = [
     "currententrychange",
     "navigatesuccess",
     "navigateerror",
+    // A guest's window request and its downloads (LLP 1020.002 D5), with a
+    // `FrameNewWindow` or a `FrameDownload`.
+    "newwindow",
+    "download",
+    // A frame's `captureScreenshot` answered (LLP 1020.002 D7), with a
+    // `FrameCapture`.
+    "capture",
+    // An agent-controlled frame's dialog (LLP 1020.002 D9), with a
+    // `FrameUserPrompt`.
+    "userpromptopened",
     "heightrelease",
     "transformgeometry",
     "transformrelease",
@@ -474,10 +484,12 @@ pub const HANDLERS: [&str; 75] = [
 
 /// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
 /// with anything but an action (an `Ident` or a `Call`, never valid CSS
-/// there), which is CSS's `resize` property.
+/// there), which is CSS's `resize` property, and `capture` with anything
+/// but an action, which is a file input's attribute (refused by lowering).
 pub fn is_handler(name: &str, value: &Expr) -> bool {
     HANDLERS.contains(&name)
-        && (name != "resize" || matches!(value, Expr::Ident(..) | Expr::Call(..)))
+        && (!matches!(name, "resize" | "capture")
+            || matches!(value, Expr::Ident(..) | Expr::Call(..)))
 }
 
 /// What a handler's event carries as its action's last argument: `input`

@@ -123,6 +123,9 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     let emit: (String, [String: Any]) -> Void
     /// The source to load again after a crash when nothing committed.
     var source: () -> String?
+    /// Another app's URL `navigate` was given: the platform's confirmation
+    /// decides (@ref LLP 1020.002 D3, D5).
+    var external: ((URL) -> Void)?
     var nextId = 0
     var flight: Flight?
     var lastId = 0
@@ -144,6 +147,8 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     /// has no document to reload, so `reload` loads the URL again.
     var dead = false
     var closed = false
+    /// Who drives the frame: `agent` after an automation call that acts, until a person's input (@ref LLP 1020.002 D9).
+    var controller = "person"
 
     init(emit: @escaping (String, [String: Any]) -> Void, source: @escaping () -> String?) {
         self.emit = emit
@@ -194,7 +199,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
             "canGoForward": web?.canGoForward ?? false,
             "loading": ending == nil && flight != nil,
             "partitioned": true,
-            "controller": "person",
+            "controller": controller,
             "error": error,
             "message": message,
             "recovering": recovering,
@@ -401,6 +406,10 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
         case "navigate":
             let text = op["url"] as? String ?? ""
             guard let url = GuestURL.web(text) else {
+                if let other = GuestScheme.external(URL(string: text)) {
+                    external?(other)
+                    return
+                }
                 let scheme = URL(string: text)?.scheme.map { "\($0):" } ?? "this URL"
                 return refuse("NotSupportedError", "navigate: \(scheme) is not a web page a partitioned frame shows (http, https or about:blank)")
             }

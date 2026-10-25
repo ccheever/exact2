@@ -1027,7 +1027,7 @@ async function main(args, lockHeld = false) {
   // and the default is macosx — the same MacOSX-sysroot-for-an-iPhone-target the
   // presenter's link step hits above. The module cache stays in this app-owned
   // Swift scratch while the completed dylib remains invocation-private.
-  const frameBrowser = resolve(root, 'host/apple/webarm/FrameBrowser.swift'), ownArgs = (args) => args.filter(value => value !== frameBrowser), webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'webarm-module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), frameBrowser, '-o', webBuilt, '-framework', 'WebKit']; // its second source, a partitioned frame's browser (LLP 1020.002), the other arms' arguments drop
+  const frameSources = ['FrameBrowser.swift', 'FrameWindows.swift', 'FrameCapture.swift', 'FramePDF.swift', 'FrameAutomation.swift'].map(f => resolve(root, 'host/apple/webarm', f)), ownArgs = (args) => args.filter(value => !frameSources.includes(value)), webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'webarm-module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), ...frameSources, '-o', webBuilt, '-framework', 'WebKit', '-framework', 'PDFKit']; // its other sources, a partitioned frame's browser, every frame's windows, dialogs and downloads, its pictures, a local PDF's view and its automation (LLP 1020.002), the other arms' arguments drop
   if (ios) {
     webArgs.push('-target', iosTripleFor(app, device, tv), '-sdk', sdk);
   } else {
@@ -1061,7 +1061,7 @@ async function main(args, lockHeld = false) {
   const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
   const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
-  if (hasWeb) arms.push(arm([...webArgs, ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])], [resolve(root, 'host/apple/webarm/WebArm.swift'), frameBrowser], webBuilt));
+  if (hasWeb) arms.push(arm([...webArgs, ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])], [resolve(root, 'host/apple/webarm/WebArm.swift'), ...frameSources], webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
   const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
@@ -1428,7 +1428,7 @@ async function test(args) {
     env[`${named}EXACT_WIDGET_RELOAD_TEST`] = arm('WidgetReloadTest', [resolve(pkg, 'tests/ExactKitTests/WidgetContainerTests.swift'), '-D', 'EXACT_TEST_WIDGET_RELOAD'], ['Foundation']);
     env[`${named}EXACT_VIDEO_DYLIB`] = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
     if (!ios) env.EXACT_MIDI_DYLIB = arm('ExactMIDIArm', [resolve(root, 'host/apple/midiarm/MIDIArm.swift'), '-import-objc-header', resolve(root, 'host/apple/midiarm/midi_ring.h')], ['CoreMIDI']); // MIDITests' loopback
-    env[`${named}EXACT_TEST_WEB_MODULE`] = arm('ExactWebArm', ['WebArm.swift', 'FrameBrowser.swift'].map(f => resolve(root, 'host/apple/webarm', f)).concat(['-D', 'EXACT_DEVELOPMENT']), ['WebKit']);
+    env[`${named}EXACT_TEST_WEB_MODULE`] = arm('ExactWebArm', ['WebArm.swift', 'FrameBrowser.swift', 'FrameWindows.swift', 'FrameCapture.swift', 'FramePDF.swift', 'FrameAutomation.swift'].map(f => resolve(root, 'host/apple/webarm', f)).concat(['-D', 'EXACT_DEVELOPMENT']), ['WebKit', 'PDFKit']);
     // The GPU module goes to its own tests alone: loaded, every canvas draws on the GPU (xctest.mjs).
     const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
     run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-canvas-vello', '--lib', ...(ios ? ['--target', iosTarget] : []), '--target-dir', modules, '--manifest-path', resolve(root, 'Cargo.toml')],

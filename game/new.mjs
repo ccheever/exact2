@@ -75,7 +75,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
       .replaceAll('bun /path/to/exact2/game/app/shells.mjs', `bun ${script('app/shells.mjs', destination)}`));
   }
   // assets/ and its manifest are the bake's outputs from art/, written by test-rust and every build.
-  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.exact/\n/.shells/\n/app.contract.d.ts\n/assets/\n/.baked-assets.json\n');
+  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/dist.*\n/artifacts/\n/.exact/\n/.shells/\n/app.contract.d.ts\n/assets/\n/.baked-assets.json\n');
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
@@ -853,7 +853,7 @@ ${patchLines(dir).join('\n')}
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
     '.cargo/config.toml': readFileSync(resolve(ROOT, '.cargo/config.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
-    '.gitignore': '/target/\n/dist/\n/node_modules/\n/app.contract.d.ts\n/.exact/\n',
+    '.gitignore': '/target/\n/dist/\n/dist.*\n/node_modules/\n/app.contract.d.ts\n/.exact/\n',
     // Contract libraries come through node_modules (LLP 1091 D9): \`bun add\`
     // one, or \`"name": "file:../path"\` for a local library.
     'package.json': JSON.stringify({ name, private: true, dependencies: {} }, null, 2) + '\n',

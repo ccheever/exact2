@@ -614,8 +614,9 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await mouse('mouseReleased', painted);
     await settle();
     expect(await look('painted')).toBe(rest);
-    await evaluate('new Promise(ok => setTimeout(ok, 0))');
-    expect(await evaluate(`document.getElementById('painted').hasAttribute('data-exact-painting')`)).toBe(false);
+    // The paint ends on its ease's finish event, which the browser sends with an animation frame, not a task: wait
+    // frames for it (2 s at most), where one timer turn can come first on a loaded machine.
+    expect(await evaluate(`new Promise(ok => { const end = performance.now() + 2000, look = () => { const on = document.getElementById('painted').hasAttribute('data-exact-painting'); if (!on || performance.now() > end) ok(on); else requestAnimationFrame(look); }; look(); })`)).toBe(false);
     // An authored transition of the same properties running at the press is
     // left to run, above the paint (a transition is above every declaration
     // in the cascade); the paint shows as it ends, and released, the node

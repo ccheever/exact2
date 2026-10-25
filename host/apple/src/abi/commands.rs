@@ -120,6 +120,17 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// A retained visit's canonical location, UTF-8; empty when absent.
+    pub fn visit_location(&mut self, id: u64) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().visit_location(id))
+            .unwrap_or_default()
+            .into_bytes();
+        self.output.len() as u32
+    }
+
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now
     /// stands at `(left, top)` CSS px, for `frame` (LLP 1051.000 D1).
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {

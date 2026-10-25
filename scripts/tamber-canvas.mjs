@@ -110,6 +110,9 @@ export function needs(method, path) {
   // `/__dev/open` is the loop's opening page; theme2 ruled it `write`.
   if (path === '/__dev/open') return 'write';
   if (READS.has(path) || READ_PREFIXES.some(p => path.startsWith(p))) return 'read';
+  // A page's files under the build generation it booted (host/web/generations.mjs): that exact form only, the id's
+  // case and length its own; anything else under `/.exact` stays closed.
+  if (/^\/\.exact\/gen\/[0-9a-f]{32}\/[^/]/.test(path)) return 'read';
   if (lower.startsWith('/__') || lower.startsWith('/.exact') || ENTRY.test(path)) return null;
   return 'read';
 }

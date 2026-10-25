@@ -369,6 +369,10 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("currententrychange", "view", "currententrychange=done"),
         ("navigatesuccess", "view", "navigatesuccess=done"),
         ("navigateerror", "view", "navigateerror=done"),
+        ("newwindow", "view", "newwindow=done"),
+        ("download", "view", "download=done"),
+        ("capture", "view", "capture=done"),
+        ("userpromptopened", "view", "userpromptopened=done"),
         (
             "apple.allowsBackForwardNavigationGestures",
             "view",

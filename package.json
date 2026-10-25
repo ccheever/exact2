@@ -20,6 +20,7 @@
     "@exact/scale-fixture-cards": "workspace:*",
     "@exact/actions": "workspace:*",
     "@exact/browser": "workspace:*",
+    "@exact/browser-automation": "workspace:*",
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",

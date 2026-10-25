@@ -297,33 +297,37 @@ extension Presenter {
     /// as SwiftUI's focus moves through a `Form`. Past the list's last field
     /// the keyboard goes; outside a list, the window's next field.
     func focusNextField(after node: NodeView) -> Bool {
-        guard let (list, owner, path) = Self.listCell(of: node), let rows = groupedLists?.rows(for: owner.id),
+        guard let (_, owner, path) = Self.listCell(of: node), let rows = groupedLists?.rows(for: owner.id),
               rows.indices.contains(path.section), rows[path.section].indices.contains(path.item) else {
             return moveFocus(backward: false, fields: true)
         }
         // The fields after `node` in its own row, then each later row's.
-        var candidates = Self.fields(in: views[rows[path.section][path.item]]).drop { $0 !== node }.dropFirst().map { (path, $0) }
+        var candidates = Array(Self.fields(in: views[rows[path.section][path.item]]).drop { $0 !== node }.dropFirst())
         for (s, section) in rows.enumerated() where s >= path.section {
             for (i, row) in section.enumerated() where s > path.section || i > path.item {
-                candidates += Self.fields(in: views[row]).map { (IndexPath(item: i, section: s), $0) }
+                candidates += Self.fields(in: views[row])
             }
             if !candidates.isEmpty { break }
         }
-        guard let (at, next) = candidates.first, let field = next.field ?? next.textArea else { return false }
-        let hidden = sequence(first: next as UIView, next: \.superview).contains { $0.isHidden }
-        if next.window == nil || hidden {
-            // Its row has no cell: bring it into the list's port first,
-            // which makes its cell and carries the row there.
-            guard let frame = list.layoutAttributesForItem(at: at)?.frame else { return false }
-            let visible = list.bounds.inset(by: list.adjustedContentInset), i = list.adjustedContentInset
-            var y = list.contentOffset.y
-            if frame.maxY > visible.maxY { y += frame.maxY - visible.maxY } else if frame.minY < visible.minY { y -= visible.minY - frame.minY }
-            y = min(max(y, -i.top), max(-i.top, list.contentSize.height + i.bottom - list.bounds.height))
-            if ExactEnv.agentFreezes { list.contentOffset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list) } else { UIView.animate(withDuration: 0.25) { list.contentOffset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list) } }
-            carryRows(laying: list)
-        }
+        guard let next = candidates.first, let field = next.field ?? next.textArea else { return false }
+        carryGroupedRow(containing: next)
         chooseFocus(next)
         return field.becomeFirstResponder()
+    }
+
+    /// Carry a field's row into a native cell before focus. Read native geometry
+    /// because rows with no cell wait in a hidden authored section.
+    func carryGroupedRow(containing node: NodeView) {
+        guard let list = groupedLists?.scroller(for: node.id),
+              node.window == nil || sequence(first: node as UIView, next: \.superview).contains(where: { $0.isHidden }),
+              let frame = groupedLists?.projectedRect(for: node, in: list) else { return }
+        let visible = list.bounds.inset(by: list.adjustedContentInset), insets = list.adjustedContentInset
+        var y = list.contentOffset.y
+        if frame.maxY > visible.maxY { y += frame.maxY - visible.maxY } else if frame.minY < visible.minY { y -= visible.minY - frame.minY }
+        y = min(max(y, -insets.top), max(-insets.top, list.contentSize.height + insets.bottom - list.bounds.height))
+        let offset = PixelGrid.offset(CGPoint(x: list.contentOffset.x, y: y), in: list)
+        if ExactEnv.agentFreezes { list.contentOffset = offset } else { UIView.animate(withDuration: 0.25) { list.contentOffset = offset } }
+        carryRows(laying: list)
     }
 
     /// The grouped list cell `node` is carried in: its collection view, the

@@ -254,6 +254,8 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         let add = match last.strip_prefix("device.") {
             Some(device) if !named(device) => format!("`{last}` to the app's grants"),
             Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
+            // A line that names no target (LLP 1020.002 D9).
+            None if last == "browser.automation" => format!("`{last}` to the app's grants"),
             None => format!("`{last} <its target>` to the app's grants"),
         };
         out.push(CompileError {
