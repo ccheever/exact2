@@ -766,8 +766,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     package func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView else { return }
-        let post = Presenter.signposts.beginInterval("scrolled")
-        defer { Presenter.signposts.endInterval("scrolled", post) }
+        let post = Presenter.signposts.beginInterval("scrolled"), phase = HostPhases.shared.begin(.scroll)
+        defer { Presenter.signposts.endInterval("scrolled", post); HostPhases.shared.end(phase) }
         // The kernel's authored frames already include this content room.
         // Keep the physical UI inset basis, but do not count native padding twice.
         let room = extras?.nativeScrollContentInsets ?? .zero
@@ -1447,8 +1447,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // nothing redisplays a row the lead drew off-screen when it
             // scrolls in: draw it now, visible or not.
             if textRaster == nil && (!canRasterText || Capture.capturing || presenter?.textIsVisible(self) == true) {
-                let post = Presenter.signposts.beginInterval("text-draw")
-                defer { Presenter.signposts.endInterval("text-draw", post) }
+                let post = Presenter.signposts.beginInterval("text-draw"), phase = HostPhases.shared.begin(.text)
+                defer { Presenter.signposts.endInterval("text-draw", post); HostPhases.shared.end(phase) }
                 let spec = paragraphSpec()
                 if let paragraph = paragraphLayout() { eachFragment(ctx) { box, at in
                     paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: box)

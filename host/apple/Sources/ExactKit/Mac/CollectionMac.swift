@@ -300,6 +300,8 @@ extension CollectionHost {
     /// under it); a momentum scroll's next delta goes on from there.
     func shift(_ id: UInt32, by delta: Double, extent: Double, from start: Double?) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
+        let phase = HostPhases.shared.begin(.anchor)
+        defer { HostPhases.shared.end(phase) }
         let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
         let content = node.contentBox()
         if animating.contains(id), delta.isFinite, let headed = owedTargets[id] ?? animationTargets[id] {

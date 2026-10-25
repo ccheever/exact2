@@ -730,8 +730,8 @@ package final class Presenter {
         defer { applyLanguage(batch); applyWakeLock(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }
-        let post = Self.signposts.beginInterval("apply")
-        defer { Self.signposts.endInterval("apply", post) }
+        let post = Self.signposts.beginInterval("apply"), phase = HostPhases.shared.begin(.apply)
+        defer { Self.signposts.endInterval("apply", post); HostPhases.shared.end(phase) }
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
         pool.begin(batch)

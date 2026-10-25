@@ -758,6 +758,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        // A resource refused, a request or a send failed (LLP 1142 D4): on
+        // stderr as well as in the journal. The runner queues none unless it
+        // measures, so a production binary prints none.
+        for line in self.host.runner().take_alerts() {
+            eprintln!("exact: {line}");
+        }
         self.restore_scroll_anchors();
         self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP

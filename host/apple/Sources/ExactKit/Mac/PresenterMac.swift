@@ -441,8 +441,8 @@ package final class Presenter {
         menus.layout()
         inScrollCallback = true
         defer { inScrollCallback = false }
-        let post = Self.signposts.beginInterval("scrolled")
-        defer { Self.signposts.endInterval("scrolled", post) }
+        let post = Self.signposts.beginInterval("scrolled"), phase = HostPhases.shared.begin(.scroll)
+        defer { Self.signposts.endInterval("scrolled", post); HostPhases.shared.end(phase) }
         // Most ticks move inside the band the mounted rows already cover: then
         // there is nothing to report, and nothing here reads or writes the
         // scroll view again until AppKit next calls in.
@@ -544,12 +544,12 @@ package final class Presenter {
         defer { pumping = false }
         if !collections.fillPending.isEmpty {
             let post = Self.signposts.beginInterval("pump-collection")
-            fillCollections(deadline: CACurrentMediaTime() + sliceBudget)
+            HostPhases.shared.measure(.rows) { fillCollections(deadline: CACurrentMediaTime() + sliceBudget) }
             Self.signposts.endInterval("pump-collection", post)
         }
         if textPending {
             let post = Self.signposts.beginInterval("pump-text")
-            textPending = refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true)
+            textPending = HostPhases.shared.measure(.text) { refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true) }
             Self.signposts.endInterval("pump-text", post)
         }
         if !textPending && collections.fillPending.isEmpty { stopPump() }
@@ -1040,8 +1040,8 @@ package final class Presenter {
         session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch); applyWakeLock(batch) }
         PaintOrder.begin()
-        let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
-        defer { Self.signposts.endInterval("apply", post) }
+        let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops"), phase = HostPhases.shared.begin(.apply)
+        defer { Self.signposts.endInterval("apply", post); HostPhases.shared.end(phase) }
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
         // The window's bar is read again only by a batch that can change it (`WindowToolbarHost.concerns`).

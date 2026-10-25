@@ -21,6 +21,7 @@ extension BatchReader {
         var clock: Double?, due: Double?, error: String?
         var images: [String] = []
         var seq: (UInt64, UInt64)?
+        var alerts: [String] = []
         var modes: [String: String]?
         var live: String?, unsupported = false, design: String?, facts = false, wakelock: Bool?
         var unchanged = false, storeReadPending = false, storeActivationPending = false
@@ -54,6 +55,7 @@ extension BatchReader {
             case "design": design = try r.value().string
             case "facts": facts = try r.bool()
             case "wakelock": wakelock = try r.bool()
+            case "alerts": alerts = try r.array { try $0.string() }
             case "seq":
                 let range = try r.array { try $0.number() }
                 if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
@@ -73,6 +75,7 @@ extension BatchReader {
         batch.layoutProvisional = layoutProvisional
         batch.canvasImages = images
         batch.seq = seq
+        batch.alerts = alerts
         batch.modes = modes
         batch.live = live
         batch.unsupported = unsupported

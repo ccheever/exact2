@@ -192,6 +192,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
         session.hatchesOwnProcess = true
+        // `SIGUSR1` saves its trace (LLP 1142 D5): a simulator app is a Mac process.
+        TraceSignal.install { session }
         if ExactEnv.agentFreezes { session.clock = 0 }
         return true
     }

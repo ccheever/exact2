@@ -63,9 +63,15 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn give_up(&mut self, owed: &[usize], why: &RunnerError) {
         for &i in owed {
             self.failed_args[i] = self.resources[i].as_ref().map(|s| s.args.clone());
-            self.failed_why[i] = Some(Failure::error(format!(
+            let failure = Failure::error(format!(
                 "the commit that asked it again was refused: {why:?}"
-            )));
+            ));
+            self.count_failure(i);
+            self.alert(super::lines::failed_now(
+                self.plan.str(self.plan.resources[i].name),
+                &failure.message,
+            ));
+            self.failed_why[i] = Some(failure);
             self.awaiting[i] = false;
             self.refresh_next.retain(|r| *r != i);
             // An older ask still in flight would answer over the failure
@@ -172,6 +178,7 @@ impl<D: DataSource> Runner<D> {
                 // another ask independently of that answer's store revision.
                 self.failed_args[i] = failed_args;
                 self.failed_why[i] = Some(why);
+                self.count_failure(i);
                 // Unless a watched topic changed while it was in flight: the
                 // answer may differ now, so it is asked once more, forced
                 // (LLP 1016.002 D4).
@@ -189,7 +196,7 @@ impl<D: DataSource> Runner<D> {
         };
         let what =
             format!("request {ticket} ({name}) failed and is no longer pending: {next}: {reason}");
-        self.log(what.clone());
+        self.alert(what.clone());
         if ask_again {
             self.log(super::lines::asked_again(ticket, &name));
         }
@@ -463,5 +470,59 @@ mod tests {
         assert!(r.take_requests().is_empty());
         assert_eq!(r.resource("value"), Some(&Value::some(Value::str("fresh"))));
         assert!(r.failed_resources().is_empty());
+    }
+
+    /// LLP 1142 D4: each refused answer is counted while measuring, a
+    /// success does not reset the count, and each failure line reaches the
+    /// host once; a runner that measures nothing collects none of it.
+    #[test]
+    fn refused_answers_are_counted_and_alerted_once_while_measuring() {
+        let mut quiet = boot(false);
+        let request = ask(&mut quiet);
+        refuse(&mut quiet, request.ticket);
+        assert!(quiet.failure_counts().is_empty());
+        assert!(quiet.take_alerts().is_empty());
+
+        let mut r = boot(false);
+        r.measure(true, false);
+        for _ in 0..2 {
+            let request = ask(&mut r);
+            refuse(&mut r, request.ticket);
+        }
+        let next = ask(&mut r);
+        r.fulfill(next.ticket, response(200)).unwrap();
+        assert!(r.failed_resources().is_empty());
+        let request = ask(&mut r);
+        refuse(&mut r, request.ticket);
+        let counts = r.failure_counts();
+        assert_eq!(counts.len(), 1);
+        assert_eq!((counts[0].0, counts[0].1.count), ("value", 3));
+        let alerts = r.take_alerts();
+        assert_eq!(alerts.len(), 3, "{alerts:?}");
+        assert!(
+            alerts
+                .iter()
+                .all(|l| l.contains("(value) failed and is no longer pending")),
+            "{alerts:?}"
+        );
+        assert!(r.take_alerts().is_empty(), "each line is taken once");
+    }
+
+    /// The queue a host has not taken is bounded, and says what it dropped.
+    #[test]
+    fn untaken_alerts_are_bounded() {
+        let mut r = boot(false);
+        r.measure(true, false);
+        for i in 0..crate::perf::ALERTS + 6 {
+            r.alert(format!("line {i}"));
+        }
+        let alerts = r.take_alerts();
+        assert_eq!(alerts.len(), crate::perf::ALERTS + 1);
+        assert!(
+            alerts[0].starts_with("6 earlier alert lines were dropped"),
+            "{}",
+            alerts[0]
+        );
+        assert_eq!(alerts[1], "line 6");
     }
 }
