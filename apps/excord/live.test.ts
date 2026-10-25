@@ -402,7 +402,7 @@ test('9. deleting an uncached original advances history and redraws its cached r
   const original = reply.message_reference.message_id;
   expect(S.message(live.store, channel, original)).toBeNull();
   const render = createRenderer({ me: () => live.store.meId!, user: id => S.user(live.store, id),
-    channelName: id => S.channel(live.store, id)?.name ?? '', roleName: id => id,
+    channelName: id => S.channel(live.store, id)?.name ?? '', channelGuild: () => '', roleName: id => id,
     message: (channel, id) => (S.message(live.store, channel, id) as Stored | null) ?? undefined,
     deleted: (channel, id) => S.deleted(live.store, channel, id), emoji: id => `${fixture.origin}/emojis/${id}.png`,
     avatar: () => '', nameColor: () => '', roles: () => undefined,
