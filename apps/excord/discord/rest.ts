@@ -11,7 +11,8 @@ export interface RestRequest {
 }
 export interface RestContext { origin: string; headers: Record<string, string> }
 export interface HistoryQuery { before?: string; after?: string; around?: string; limit?: number }
-export interface ReplyTo { messageId: string; channelId?: string; guildId?: string }
+// `mention` false sends the reply without pinging its original's author, as Discord's @ OFF does.
+export interface ReplyTo { messageId: string; channelId?: string; guildId?: string; mention?: boolean }
 /** A file uploaded for a message: the slot's id and the name Discord's upload gave it. */
 export interface Uploaded { id: string; filename: string; uploaded_filename: string }
 export interface SendMessage { content: string; nonce: string; replyTo?: ReplyTo; attachments?: Uploaded[] }
@@ -74,6 +75,7 @@ export function sendMessage(ctx: RestContext, channelId: string, message: SendMe
       ...(reply.guildId ? { guild_id: reply.guildId } : {}),
       channel_id: reply.channelId ?? channelId, message_id: reply.messageId,
     } } : {}),
+    ...(reply?.mention === false ? { allowed_mentions: { parse: ['users', 'roles', 'everyone'], replied_user: false } } : {}),
   });
 }
 
