@@ -96,6 +96,7 @@ final class ArrangementHost {
             controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             node.container.addSubview(controller.view)
             controller.didMove(toParent: owner)
+            controller.view.layoutIfNeeded()
             // Keep visible content in its window while changing containment
             for holder in entry.holders { holder.view.addSubview(holder.node) }
         }
