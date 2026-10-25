@@ -215,6 +215,12 @@ section binds (`rules/RULES.md`, "Agents").
   Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
+- An app under `apps/` keeps a diary, as an app `exact new` made does (`docs/diary.md`,
+  "What to keep": the header, then Rough, Lean in, Needed and Checkpoints). Write it as
+  you work, at `apps/<app>/diary/<YYYY-MM-DD>-<topic>.md`, and commit it with the
+  change: it is how the team sees where building on Exact was rough, including what you
+  fixed in exact2 to get past it. The app's name may appear; secrets and personal data
+  may not. Nothing is sent: the repository is the record.
 - Each worktree builds into its own `target/`: never symlink or share another
   checkout's (the scripts refuse); a private `CARGO_TARGET_DIR` outside every
   checkout is fine. What a development Apple build takes from the machine
