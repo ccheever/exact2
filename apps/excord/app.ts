@@ -67,6 +67,7 @@ const dirs: Directories = {
   user: id => S.user(store, id),
   channelName: id => S.channel(store, id)?.name ?? 'unknown-channel',
   channelGuild: id => S.channel(store, id)?.guild_id ?? '',
+  canOpen: id => { const c = S.channel(store, id); return !!c && (!c.guild_id || (TEXT.has(c.type ?? 0) && S.canView(store, c))); },
   roleName: id => {
     for (const guild of S.guilds(store)) for (const role of guild.roles ?? []) if (role.id === id) return role.name;
     return 'unknown-role';
@@ -264,8 +265,11 @@ const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anc
 // window's edge, since the view moves its anchor there only as the reader nears that edge (§2: one
 // page on opening a channel, the next as the reader moves toward the edge).
 const EDGE = 15;
-export function loadWindow(channel: string, anchor: string, since: string): Window {
-  if (!channel) return emptyWindow(channel, anchor);
+export function loadWindow(channel: string, asked: string, since: string): Window {
+  if (!channel) return emptyWindow(channel, asked);
+  // An anchor Discord's page did not hold is answered with the channel's end, under the anchor asked.
+  if (asked && live.missed.has(`${channel}:${asked}`)) return { ...loadWindow(channel, '', since), anchor: asked, pin: asked };
+  const anchor = asked;
   const w = anchor ? S.windowAround(store, channel, anchor, LIMIT) : S.latestWindow(store, channel, LIMIT);
   const held = (r: S.MessageRow) => r.id === null || S.verified(store, channel, r.id);
   let lo: number, hi: number, pos = -1;
@@ -274,8 +278,10 @@ export function loadWindow(channel: string, anchor: string, since: string): Wind
     while (lo > 0 && held(w.rows[lo - 1])) lo--;
   } else {
     pos = w.rows.findIndex(r => r.id === anchor || r.key === anchor);
-    // An anchor that is gone (deleted) holds its place: the first row after it.
+    // An anchor that is gone (deleted) holds its place: the first row after it, or the newest row when it
+    // was past the channel's end.
     if (pos < 0 && !w.fetchAround) pos = w.rows.findIndex(r => r.id !== null && cmpId(r.id, anchor) > 0);
+    if (pos < 0 && !w.fetchAround && w.reachesNewest) pos = w.rows.length - 1;
     if (pos < 0 || !held(w.rows[pos])) { lo = hi = 0; pos = -1; }
     else {
       lo = pos; hi = pos + 1;
@@ -369,6 +375,7 @@ const sources: Sources = {
     const query = QUERIES[need];
     if (!query) throw new Error(`No page called ${need}`);
     await page(live, channel, query(cursor));
+    if (need === 'around' && S.windowAround(store, channel, cursor, LIMIT).fetchAround) live.missed.add(`${channel}:${cursor}`);
   }),
   viewChannel: ([channel]) => { view(live, channel); return OK; },
   suggest: ([channel, draft]) => suggest(store, live.origins.cdn, channel, draft),

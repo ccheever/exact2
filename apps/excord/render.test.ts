@@ -35,6 +35,7 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
     user: id => S.user(store, id),
     channelName: id => S.channel(store, id)?.name ?? 'unknown-channel',
     channelGuild: id => S.channel(store, id)?.guild_id ?? '',
+    canOpen: id => S.channel(store, id) !== null,
     roleName: id => {
       for (const guild of S.guilds(store)) for (const role of guild.roles ?? []) if (role.id === id) return role.name;
       return 'unknown-role';

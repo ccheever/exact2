@@ -238,6 +238,9 @@ component Excord
   state profileUser = ""
   state profileMessage = ""
   state profileChannel = ""
+  // A channel a link or mention opens once its server's list holds it, and the message to show there.
+  state pendingOpen = ""
+  state pendingMessage = ""
   resource profile = userProfile(profileUser != "" ? profileChannel : "", profileUser, profileMessage) as shape Profile else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
@@ -265,7 +268,9 @@ component Excord
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
-  task resume when wide and top(nav).name == "home" and resumeChannel != "" and not signedOutNow
+  task opening when pendingOpen != "" and listed.map(c => c.id).includes(pendingOpen)
+    after(1, openPending)
+  task resume when wide and top(nav).name == "home" and resumeChannel != "" and not signedOutNow and pendingOpen == ""
     after(1, openResume)
   task signedOutHome when signedOutNow and top(nav).name != "home"
     after(1, toSignIn)
@@ -398,6 +403,7 @@ component Excord
     openFolders = openFolders.includes(id) ? openFolders.filter(f => f != id) : openFolders.concat([id])
   action pickServer(v: string)
     server = v
+    pendingOpen = ""
     if wide and top(nav).name != "home"
       leaving()
       nav = go(nav, "/")
@@ -719,7 +725,7 @@ component Excord
   action copyAimed
     copyText(aimedText)
   action copyLink
-    copyText(`https://discord.com/channels/@me/${open}/${aimedId}`)
+    copyText(`https://discord.com/channels/${chan.guild != "" ? chan.guild : "@me"}/${open}/${aimedId}`)
   action reactAimed(emoji: string)
     send changed = react(open, aimedId, emoji)
   action openPicker
@@ -735,7 +741,8 @@ component Excord
   action pickerClosed
     picking = false
   // What a mention or a Discord link in a message opens (a run's `ref`, shapes.contract): a person's
-  // card, a channel, or a message in its channel, highlighted.
+  // card, a channel, or a message in its channel, highlighted. Another server's channel opens once that
+  // server's list holds it (`opening`), so it opens with its unread state, as from the list.
   action follow(ref: string)
     let part = ref.split(":")
     if piece(part, 0) == "u"
@@ -748,12 +755,23 @@ component Excord
         jumpTo(messageId)
       else if channelId != "" and channelId != open
         server = guildId != "" ? guildId : "@me"
-        openChannel(channelId)
-        if messageId != ""
-          highlight = messageId
-          anchor = messageId
-          target = messageId
-          targetBlock = "center"
+        pendingOpen = channelId
+        pendingMessage = messageId
+  action openPending
+    let id = pendingOpen
+    let message = pendingMessage
+    pendingOpen = ""
+    pendingMessage = ""
+    openChannel(id)
+    // A message that is not there leaves the reader at the channel's end.
+    if message != ""
+      highlight = message
+      anchor = message
+      target = message
+      targetBlock = "center"
+      jumpFromAnchor = ""
+      jumpFromKey = "end"
+      jumpFromOffset = 0
   action showProfile(userId: string, messageId: string)
     if not locked
       profileUser = userId
