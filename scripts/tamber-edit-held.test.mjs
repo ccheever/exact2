@@ -332,3 +332,16 @@ test('a replaced proposal (1.17): its old id is refused 409 stale naming who rep
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #0d0d0d');
   expect((await post({ method: 'accept', client: 'bea', proposal: p3 })).status).toBe(404);
 }, 60_000);
+
+test('replaced by an accept\'s recompute (the file moved since it was held): the old id names the accepter, not the proposer', async () => {
+  const held = await post({ method: 'propose', hold: true, client: 'bea', ops: [{ op: 'set-token', name: 'edge', value: '#0e0e0e' }] });
+  const p1 = held.ok.proposal;
+  // The design moves under it (a hand edit), so Ada's accept recomputes it rather than writing.
+  writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace(/ink = #[0-9a-f]{6}/, 'ink = #010101'));
+  await Bun.sleep(600);
+  const recomputed = await post({ method: 'accept', client: 'ada', proposal: p1 });
+  expect(recomputed.ok?.recomputed, JSON.stringify(recomputed)).toBe(true);
+  const again = await post({ method: 'accept', client: 'bea', proposal: p1 });
+  expect([again.status, again.error.replacedBy, again.error.by]).toEqual([409, recomputed.ok.proposal, 'ada']);
+  await post({ method: 'drop', client: 'bea', proposal: recomputed.ok.proposal });
+}, 60_000);
