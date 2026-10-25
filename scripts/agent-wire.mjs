@@ -31,7 +31,7 @@ export function simulatorConsole(spawn, hostLines, onProcess) {
 }
 
 /** What an op answers while the app is out of the foreground: it is suspended, and answers nothing until it is back. */
-export const AWAY = 'the app left the foreground (a link, a share extension or another app took the screen), so it is suspended and answers nothing; `logs` says what it opened';
+export const AWAY = 'the app left the foreground (a share extension or another app took the screen), so it is suspended and every op fails until it is back; `logs` has the host lines up to then';
 
 /** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone).
  * A line the app pushes unasked (`{"pushed":"background"|"foreground"}`, LLP 1143 D1) answers nothing: leaving fails the

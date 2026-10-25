@@ -104,7 +104,9 @@ impl Writer for Encoder {
     /// (`summary`), so a reader cannot take it for missing data (LLP 1143 D4).
     fn bytes(&mut self, value: super::Bulk<'_>) {
         use super::Bulk;
-        if value.len() <= INLINE_BULK {
+        // A non-finite float is no JSON number: such a bulk is summarized, as a long one is.
+        let finite = !matches!(value, Bulk::F32(v) if v.iter().any(|n| !n.is_finite()));
+        if finite && value.len() <= INLINE_BULK {
             self.text.push('[');
             for i in 0..value.len() {
                 if i > 0 {

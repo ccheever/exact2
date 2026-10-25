@@ -698,15 +698,17 @@ extension Presenter {
                 HostLog.note(session, "focus: autofocus #\(node.id) not applied: \(Self.focusHolder(in: window)) holds the focus")
                 continue
             }
-            HostLog.note(session, "focus: autofocus #\(node.id)")
             if projected {
+                HostLog.note(session, "focus: autofocus #\(node.id)")
                 autofocused(node)
                 focusNode(node)
                 continue
             }
             let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
-            if target.becomeFirstResponder() {
+            let took = target.becomeFirstResponder()
+            HostLog.note(session, took ? "focus: autofocus #\(node.id)" : "focus: autofocus #\(node.id) not applied: its view declined the focus")
+            if took {
                 if let (input, at) = caret { input.selectedTextRange = input.textRange(from: at, to: at) }
                 autofocusedThisTurn = node
                 DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }
