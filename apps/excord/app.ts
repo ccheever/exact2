@@ -197,6 +197,21 @@ async function upload(channel: string, key: string, files: Upload[], done: (rest
   return done as rest.Uploaded[];
 }
 
+/** A person's card: their names and picture, and the roles the message they were opened from says they
+ * hold in its server, highest first. */
+function profileOf(channel: string, userId: string, messageId: string): Result<'userProfile'> {
+  const u = S.user(store, userId) ?? { id: userId };
+  const message = messageId ? S.message(store, channel, messageId) : null;
+  const held: string[] = message?.member?.roles ?? (userId === store.meId ? store.roles.get(S.channel(store, channel)?.guild_id ?? '') ?? [] : []);
+  const guild = store.guildMap.get(S.channel(store, channel)?.guild_id ?? '');
+  const roles = ((guild?.roles ?? []) as Record<string, any>[]).filter(r => held.includes(String(r.id)))
+    .sort((a, b) => Number(b.position ?? 0) - Number(a.position ?? 0))
+    .map(r => { const color = Number(r.colors?.primary_color ?? r.color ?? 0);
+      return { id: String(r.id), name: String(r.name ?? ''), color: color ? `#${(color & 0xffffff).toString(16).padStart(6, '0')}` : '' }; });
+  return { id: userId, name: u.global_name || u.username || userId, handle: u.username ?? '', avatar: avatarUrl(live.origins.cdn, u),
+    bot: u.bot === true, color: roles.find(r => r.color)?.color ?? '', roles };
+}
+
 const TEXT = new Set([0, 5]);
 const readable = (guild: string) => S.guildChannelList(store, guild).filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c));
 
@@ -303,6 +318,7 @@ const sources: Sources = {
   viewChannel: ([channel]) => { view(live, channel); return OK; },
   suggest: ([channel, draft]) => suggest(store, live.origins.cdn, channel, draft),
   emojiChoices: ([channel, query]) => emojiChoices(store, live.origins.cdn, channel, query),
+  userProfile: ([channel, userId, messageId]) => profileOf(channel, userId, messageId),
   switchTargets: ([query, open]) => open ? switchTargets(store, live.origins.cdn, query, channelRecord) : [],
   echoMessage: ([channel, written, replyTo, now, picked]) => {
     const files: Upload[] = (picked ?? []).map(f => ({ path: f.path, name: f.name, type: f.type, size: f.size,
