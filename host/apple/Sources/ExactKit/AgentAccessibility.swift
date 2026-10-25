@@ -92,6 +92,10 @@ extension Presenter {
         var modalView: AnyObject?
         var modalDepth = -1
         var limits: [[String: Any]] = []
+        #if os(iOS) || os(tvOS)
+        var nativeTabBar: UIView?
+        var nativeTabBarExcluded = false
+        #endif
         var remaining: Int { budget - visited }
     }
     /// The elements' own budget (D7), under the reply's 256 KB.
@@ -132,7 +136,24 @@ extension Presenter {
                     limits: [[String: Any]] = [], foreign: @escaping (AnyObject) -> Bool = { _ in false }) -> [String: Any] {
         // A scroll view's indicators and other unexposed views cost visits too.
         var w = AxWalk(limit: limit, budget: 5 * limit + 64, excluded: excluded, foreign: foreign, modalRoot: modalRoot, limits: limits)
+        #if os(iOS) || os(tvOS)
+        w.nativeTabBar = navigation.tabController.flatMap { tabs -> UIView? in
+            guard let owner = tabs.viewIfLoaded,
+                  roots.contains(where: { ($0 as? UIView).map { owner.isDescendant(of: $0) } ?? false }),
+                  let bar = tabs.projectedTabBar, bar.window != nil,
+                  sequence(first: bar, next: { $0.superview }).allSatisfy({ view in
+                      !view.isHidden && view.alpha != 0 && !view.accessibilityElementsHidden && (view === bar || !view.isAccessibilityElement)
+                  }) else { return nil }
+            return bar
+        }
+        #endif
         for root in roots where !w.stopped { visit(root, parent: nil, depth: 0, exclusion: [], into: &w) }
+        #if os(iOS) || os(tvOS)
+        // Report an unverified native projection when the walk excludes the controller's bar
+        if !w.stopped, let bar = w.nativeTabBar, w.nativeTabBarExcluded || !w.seen.contains(ObjectIdentifier(bar)) {
+            w.limits.append(["root": "tab-bar", "reason": "the native tab bar is excluded by the view walk; its accessibility projection cannot be verified"])
+        }
+        #endif
         #if os(macOS)
         if let modal = w.modalView as? NodeView {
             let popovers = menus.presented(within: modal)
@@ -208,6 +229,7 @@ extension Presenter {
             let geometry = v.bounds.isEmpty ? "emptyBounds" : v.convert(v.bounds, to: nil).isEmpty ? "emptyFrame" : nil
             if let geometry, !exclusion.contains(geometry) { exclusion.append(geometry) }
             if v.alpha == 0, !exclusion.contains("transparent") { exclusion.append("transparent") }
+            if v === w.nativeTabBar, !exclusion.isEmpty { w.nativeTabBarExcluded = true }
         }
         if !exclusion.isEmpty && !w.excluded { return }
         let o = obj as! NSObject
@@ -236,6 +258,7 @@ extension Presenter {
         for child in kids {
             if w.stopped { break }
             let hidden = modal != nil && child !== modal
+            if hidden, let sibling = child as? UIView, w.nativeTabBar?.isDescendant(of: sibling) == true { w.nativeTabBar = nil }
             if hidden && !w.excluded { continue }
             visit(child, parent: here, depth: depth + 1, exclusion: hidden ? exclusion + ["modalSibling"] : exclusion, into: &w)
         }
