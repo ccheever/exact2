@@ -5,7 +5,7 @@
 // MESSAGE_CREATE replaces them in place, keeping the row's key (§3.9). A send's REST reply can be
 // applied as a MESSAGE_CREATE too; the gateway's copy then updates the same row.
 import { cmpId } from './ids.ts';
-import { guildOrder } from './settings.ts';
+import { guildFolders, type Folder } from './settings.ts';
 
 export type DiscordObject = Record<string, any>;
 export interface User extends DiscordObject { id: string }
@@ -90,6 +90,8 @@ export interface Store {
   versions: Map<string, number>;
   // The server list's order from the account's settings (`settings.ts`).
   guildOrder: string[];
+  // The same list as the account's folders (`settings.ts`), each guild in exactly one.
+  folders: Folder[];
   // Each guild's custom emoji, for the composer's suggestions.
   emojis: Map<string, GuildEmoji[]>;
   sidebarRevision: number;
@@ -101,7 +103,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], emojis: new Map(), sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), sidebarRevision: 0, sequence: 0,
   };
 }
 
@@ -111,6 +113,7 @@ export function forgetAccount(s: Store): void {
   s.meId = null;
   for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles, s.emojis]) map.clear();
   s.guildOrder = [];
+  s.folders = [];
   s.removals++;
   for (const [id, version] of s.versions) s.versions.set(id, version + 1);
   s.sidebarRevision++;
@@ -456,10 +459,11 @@ function ingestReady(s: Store, data: DiscordObject, c: Changes): void {
 
 // Settings that cannot be read leave the order as it was.
 function setOrder(s: Store, proto: string, c: Changes): void {
-  let order: string[] | null;
-  try { order = guildOrder(proto); } catch { return; }
-  if (!order || (order.length === s.guildOrder.length && order.every((id, i) => id === s.guildOrder[i]))) return;
-  s.guildOrder = order;
+  let folders: Folder[] | null;
+  try { folders = guildFolders(proto); } catch { return; }
+  if (!folders || JSON.stringify(folders) === JSON.stringify(s.folders)) return;
+  s.folders = folders;
+  s.guildOrder = folders.flatMap(f => f.guildIds);
   c.sidebar = true;
 }
 
@@ -608,6 +612,7 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       for (const id of new Set([...s.channelMap.keys(), ...s.readStates.keys()])) c.channels.add(id);
       s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear(); s.emojis.clear();
       s.guildOrder = [];
+      s.folders = [];
       s.removals++;
       ingestReady(s, d, c);
       for (const [id, h] of s.histories) {

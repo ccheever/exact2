@@ -475,6 +475,21 @@ test('13. a READY too large for one turn waits for digest, which applies it a pa
   expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready', queued: 0 });
 });
 
+test('14. the rail puts the folder\'s servers under it, in the account\'s order, with what they hold unread', async () => {
+  await rig.control('ready-size', { bytes: 300000 });
+  const app = await rig.app(), peer = await app.dial();
+  const sidebar = peer.snapshots.at(-1)!.sidebar;
+  const rail = await app.ask('loadRail', [sidebar]);
+  const guilds = await app.ask('loadGuilds', [sidebar]);
+  const folder = rail.find((r: any) => r.folder)!;
+  expect(folder).toMatchObject({ id: 'folder-4242', name: 'Workshops', color: '#5865f2' });
+  expect(folder.guilds.length).toBeGreaterThan(1);
+  // Every server shows once: alone, or in its folder.
+  expect(rail.flatMap((r: any) => r.guilds.map((g: any) => g.id)).sort()).toEqual(guilds.map((g: any) => g.id).sort());
+  expect(folder.mentions).toBe(folder.guilds.reduce((n: number, g: any) => n + g.mentions, 0));
+  expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready' });
+});
+
 // A scheduler whose yields wait until the test lets them go, so a frame can arrive between two turns of
 // a digest.
 function gatedScheduler() {

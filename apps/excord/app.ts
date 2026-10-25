@@ -213,6 +213,22 @@ function profileOf(channel: string, userId: string, messageId: string): Result<'
 }
 
 const TEXT = new Set([0, 5]);
+// Each server's row, with what is unread and mentioned in the channels the account can see: worked out
+// once per change to the lists, for the server list and the rail alike.
+let guildCache: { version: number; records: Result<'loadGuilds'> } | null = null;
+function guildRecords(): Result<'loadGuilds'> {
+  const version = S.sidebarVersion(store);
+  if (guildCache?.version === version) return guildCache.records;
+  const records = S.guilds(store).filter(g => !g.unavailable).map(g => {
+    const reads = readable(g.id).map(c => S.unread(store, c.id));
+    const name = g.name ?? '';
+    return { id: g.id, name, icon: g.icon ? `${live.origins.cdn}/icons/${g.id}/${g.icon}.png?size=128` : '',
+      acronym: name.split(/\s+/).filter(Boolean).map((w: string) => Array.from(w)[0]).join('').slice(0, 5),
+      unread: reads.some(r => r.unread), mentions: reads.reduce((n, r) => n + r.mentionCount, 0) };
+  });
+  guildCache = { version, records };
+  return records;
+}
 const readable = (guild: string) => S.guildChannelList(store, guild).filter(c => TEXT.has(c.type ?? 0) && S.canView(store, c));
 
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
@@ -295,13 +311,29 @@ const sources: Sources = {
   gatewayState: ([ready, epoch], secrets, _storage, native) => connect(live, secrets, native, ready, epoch),
   heartbeat: ([now]) => { heartbeat(live, now); return OK; },
   digest: ([now], secrets) => digest(live, secrets, now),
-  loadGuilds: () => S.guilds(store).filter(g => !g.unavailable).map(g => {
-    const reads = readable(g.id).map(c => S.unread(store, c.id));
-    const name = g.name ?? '';
-    return { id: g.id, name, icon: g.icon ? `${live.origins.cdn}/icons/${g.id}/${g.icon}.png?size=128` : '',
-      acronym: name.split(/\s+/).filter(Boolean).map((w: string) => Array.from(w)[0]).join('').slice(0, 5),
-      unread: reads.some(r => r.unread), mentions: reads.reduce((n, r) => n + r.mentionCount, 0) };
-  }),
+  loadGuilds: () => guildRecords(),
+  // The rail: each server the list shows, in the account's order, those in a folder of several under it.
+  loadRail: () => {
+    const records = guildRecords(), byId = new Map(records.map(g => [g.id, g]));
+    const filed = new Map<string, string>();
+    for (const f of store.folders) {
+      const here = f.guildIds.filter(id => byId.has(id));
+      if (f.id && here.length) for (const id of here) filed.set(id, f.id);
+    }
+    const out: Result<'loadRail'> = [], seen = new Set<string>();
+    for (const g of records) {
+      const folderId = filed.get(g.id);
+      if (!folderId) { out.push({ id: g.id, folder: false, name: '', color: '', guilds: [g], unread: g.unread, mentions: g.mentions }); continue; }
+      if (seen.has(folderId)) continue;
+      seen.add(folderId);
+      const f = store.folders.find(x => x.id === folderId)!;
+      const inside = f.guildIds.filter(id => filed.get(id) === folderId).map(id => byId.get(id)!);
+      out.push({ id: `folder-${folderId}`, folder: true, name: f.name,
+        color: f.color == null ? '' : `#${(f.color & 0xffffff).toString(16).padStart(6, '0')}`, guilds: inside,
+        unread: inside.some(x => x.unread), mentions: inside.reduce((n, x) => n + x.mentions, 0) });
+    }
+    return out;
+  },
   // A guild's text channels the account can see, by category; a category with none is left out.
   loadChannels: ([guild]) => S.guildChannels(store, guild).map(group => ({
     id: group.category?.id ?? '', name: group.category?.name ?? '',

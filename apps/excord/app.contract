@@ -10,9 +10,9 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry from "./shapes.contract"
 use MessageRow from "./transcript.contract"
-use ServerButton from "./servers.contract"
+use ServerButton, FolderButton from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
@@ -148,6 +148,9 @@ component Excord
   mutation digested as shape Gateway queue
   derive gw = match digested { case some(d) => (d.seq > gateway.seq ? d : gateway), case none => gateway }
   resource guilds = loadGuilds(gw.sidebar) as shape Guild[] else empty()
+  resource rail = loadRail(gw.sidebar) as shape RailEntry[] else empty()
+  // The rail's open folders, kept across launches.
+  state openFolders: string[] = [] persist
   derive dmsShown = server == "@me" or guilds.length == 0
   // What covers the screens: the image viewer, or the lock while the launch or a return waits on it.
   // Nothing under it takes a press, a key or a shortcut.
@@ -385,6 +388,8 @@ component Excord
     lastChannels = withDraft(lastChannels, c.guild != "" ? c.guild : "@me", id)
     // Beside the list (a split) one channel replaces another, as a sidebar's selection does.
     nav = top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
+  action toggleFolder(id: string)
+    openFolders = openFolders.includes(id) ? openFolders.filter(f => f != id) : openFolders.concat([id])
   action pickServer(v: string)
     server = v
     if wide and top(nav).name != "home"
@@ -902,8 +907,19 @@ component Excord
                 column padding="8px 0px"
                   ServerButton(id="@me", name="Direct Messages", icon="", acronym="", symbol="symbol:messages", selected=dmsShown, unread=dmUnread, mentions=dmMentions, pick=pickServer)
                   view width=32 height=2 border-radius=1 margin="4px 20px" background-color="-exact-separator" aria-hidden=true
-                  for g in guilds key=g.id
-                    ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
+                  for r in rail key=r.id
+                    if r.folder
+                      FolderButton(id=r.id, name=r.name, color=r.color, icons=r.guilds, open=openFolders.includes(r.id),
+                        selected=(not dmsShown and r.guilds.map(g => g.id).includes(guild.id)), unread=r.unread, mentions=r.mentions, toggle=toggleFolder)
+                      if openFolders.includes(r.id)
+                        // The folder's servers on a band behind their icons, the pills outside it.
+                        column position="relative" padding="2px 0px" margin-bottom=4
+                          view position="absolute" top=0 bottom=0 left=8 width="3.5rem" border-radius=16 background-color="-exact-quaternary-fill" aria-hidden=true
+                          for g in r.guilds key=g.id
+                            ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
+                    else
+                      for g in r.guilds key=g.id
+                        ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
               list id="channels" appearance="auto" listStyle="plain" flex=1 min-width=0
                 if gw.state == "stopped"
                   section
