@@ -370,7 +370,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       // A write on digests the files have left is the server's conflict, naming who moved them (the third pass's #2).
-      if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
+      if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, files: FILES, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
@@ -507,7 +507,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/restart': {
     POST: (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
-      EPOCH = `stub-epoch-${++restarts}`;
+      EPOCH = `stub-epoch-${++restarts}`; lastBy = 'changed on disk';
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       held = [];
