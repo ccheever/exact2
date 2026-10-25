@@ -2,12 +2,18 @@
 // More menu's separate window, their toasts and the floating player's browser source (browser-capture.ts), each named
 // after the reference code it follows (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: PreviewView.tsx handlePickElement,
 // handleCapture, handlePictureInPicture, handleNativePictureInPicture; PreviewChromeRow.tsx; ThreadPreviewMiniPlayer.tsx;
-// ChatView.tsx closePreviewPanel and shouldRenderPreviewMiniPlayer). The module is a fake answering the capture ops as
-// T3BrowserCapture.swift does; PreviewView.test.tsx's annotation rows ("forwards Cmd/Ctrl+Enter annotations to the
+// ChatView.tsx closePreviewPanel and shouldRenderPreviewMiniPlayer). The tab's frame answers `@exact/browser-automation`
+// through a fake (browser-automation-run.ts `useAutomationCalls`), and the module is a fake answering the page ops as
+// T3BrowserPage.swift does; PreviewView.test.tsx's annotation rows ("forwards Cmd/Ctrl+Enter annotations to the
 // composer send path", "warns when main dropped the crop before handing over the pick") are followed here.
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { applyCaptureResults as applyCaptureResultsActual, artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
+import { artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
+import { adoptFrameEvent, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
+import { automationTick, toggleFrameMute, useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
+import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
+import { annotateState } from '../../src/browser/browser-annotate';
+import { adoptAppFiles } from '../../src/media/save-file';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { browserMiniSessions, browserHost, browserView } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId } from '../../src/browser/browser-state';
@@ -31,14 +37,50 @@ import { appPath } from '../support/app-files';
 const ref = { environmentId: 'local', threadId: 'thread-1' };
 const threadKey = 'local:thread-1';
 const runtimeId = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
-async function applyCaptureResults(client: T3Client, native: Native, tabs: Parameters<typeof applyCaptureResultsActual>[2]) {
+/** The composer's half of an insert: a fake module's applied edit lands in the observed composer. */
+function shared(client: T3Client, native: Native): Native {
   observeComposer(client, client.draft);
-  const shared: Native = { available: native.available, watch: topic => native.watch(topic), later: async request => {
+  return { available: native.available, watch: topic => native.watch(topic), later: async request => {
     const reply = obj(await native.later(request)), value = obj(reply.value);
     if (obj(request).op === 'editorInsert' && reply.ok && value.applied === true) return { ...reply, value: { ...value, applied: acceptComposerEdit(client, request) } };
     return reply;
   } };
-  return applyCaptureResultsActual(client, shared, tabs);
+}
+/** `@exact/browser-automation` as the tab's frame answers it: Annotate's overlay (`next` is its next outcome), the React
+ *  read, the viewport and the crop. A crop's draft image reads 812 bytes. */
+function fakePage(next: () => unknown | Promise<unknown>, fail: Partial<Record<'captureScreenshot', boolean>> = {}, crop?: () => void | Promise<void>) {
+  const calls: Obj[] = [];
+  const fake: AutomationCalls = {
+    async evaluate(options) {
+      calls.push({ call: 'evaluate', ...options });
+      if (options.expression.includes('.next()')) return { result: JSON.stringify(await next()) };
+      if (options.expression.includes('__reactFiber')) return { result: '{}' };
+      if (options.expression.includes('innerWidth')) return { result: '[800,600]' };
+      return { result: true };
+    },
+    async callFunction(options) { calls.push({ call: 'callFunction', ...options }); return { result: true }; },
+    async captureScreenshot(options) {
+      calls.push({ call: 'captureScreenshot', ...options });
+      await crop?.();
+      if (fail.captureScreenshot) throw Object.assign(new Error('WebKit gave no picture.'), { code: 'UnknownError' });
+      return { path: options.path, width: 120, height: 80 };
+    },
+    async addPreloadScript(options) { calls.push({ call: 'addPreloadScript', ...options }); return { script: 'p' }; },
+    async performActions(options) { calls.push({ call: 'performActions', ...options }); return {}; },
+    async handleUserPrompt(options) { calls.push({ call: 'handleUserPrompt', ...options }); return {}; },
+    async setDownloadBehavior(options) { calls.push({ call: 'setDownloadBehavior', ...options }); return {}; },
+  };
+  useAutomationCalls(fake);
+  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(812), writeFile: async () => {}, mkdir: async () => {} } });
+  return calls;
+}
+/** Annotate on the tab, then the window's queued send its pick waits in (browser-annotate.ts). */
+async function pick(client: T3Client, native: Native, next: () => unknown | Promise<unknown>, theTarget = target, crop?: () => void | Promise<void>) {
+  const calls = fakePage(next, {}, crop);
+  await captureLocal(client, native, browserPanel(), 'annotate', theTarget, 'dark');
+  await serveRecordingRequests(client, shared(client, native), 0);
+  useAutomationCalls(null);
+  return calls;
 }
 type Call = Obj & { op: string };
 
@@ -49,23 +91,26 @@ function fakeModule(handlers: Record<string, (request: Call) => Obj | Promise<Ob
     const call = request as Call;
     calls.push(call);
     const key = call.action ? `${call.op}:${call.action}` : call.op;
-    const handler = handlers[key] ?? handlers[call.op];
+    const handler = handlers[key] ?? handlers[call.op] ?? (call.op === 'timelineSleep' ? timelineSleep : undefined);
     if (!handler) return { ok: true, generation: 0, value: {} };
     try { return { ok: true, generation: 0, value: await handler(call) }; }
     catch (error) { return { ok: false, generation: 0, error: { kind: (error as { kind?: string }).kind ?? 'Fake', message: (error as Error).message } }; }
   } };
   return { native, calls, ops: () => calls.map(call => (call.action ? `${call.op}:${call.action}` : call.op)) };
 }
-function fakeClient(tab: Obj = { kind: 'Success', url: 'https://example.com/', title: 'Example' }) {
-  return {
+/** A client with the tab's frame mounted (browser-frames.ts) and `page` as its hatch reports it (T3BrowserPage.swift). */
+function fakeClient(page: Obj = {}) {
+  const client = {
     scopes: ['preview:operate'],
     environmentId: 'local', threadId: 'thread-1', projectId: 'p1', snapshotOwner: threadKey, projection: { turnItems: [], runtimeRequests: [] }, generation: 1, connection: 'connected', ready: true, diffOpen: false, draftKey: threadKey,
-    presentation: { browserTabs: { [runtimeId]: tab } } as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [] },
+    presentation: { browserPages: { [frameIdOf(runtimeId)]: page } } as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [] },
     local: { clientSettings: {}, deviceSettings: {}, drafts: {} as Record<string, string>, snapshotDrafts: {} as Record<string, Obj[]> },
     get snapshotDrafts() { return (this.local.snapshotDrafts as Record<string, Obj[]>)[threadKey] ?? []; },
     get draft() { return (this.local.drafts as Record<string, string>)[threadKey] ?? ''; },
     async rpc() { return {}; }, async raw() { return { ok: true, generation: 0, value: {} }; },
   } as unknown as T3Client;
+  syncFrames(client, [{ runtimeId, url: 'https://example.com/', environment: 'local', profile: 'default', zoom: 1, colorScheme: 'system' }]);
+  return client;
 }
 const target = { ref, tabId: 'tab-1', runtimeId };
 const browserPanel = (): PanelState => ({ surfaces: [{ id: 'browser:tab-1', kind: 'browser', path: '', line: 0, reveal: 0, browser: { tabId: 'tab-1', threadKey } }], active: 'browser:tab-1', visible: true, userRevision: 0 });
@@ -78,11 +123,14 @@ const timelineSleep = (request: Call) => new Promise<Obj>(resolve => setTimeout(
 const crop = { id: '0f8c1b52-9a4c-4d2e-8a0b-3c2d1e0f9a8b', name: 'preview-annotation-annotation_1.png', sizeBytes: 812, width: 120, height: 80, cropRect: { x: 0, y: 0, width: 60, height: 40 } };
 
 describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
-  it('names Annotate after its state and gives a failed page its reason', () => {
+  it('names Annotate after its state and gives a failed page its reason', async () => {
     const client = fakeClient();
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false)).toMatchObject({ pickActive: false, pickDisabled: false, pickTip: 'Annotate elements, regions, and drawings',
       captureDisabled: false, recording: false, floating: false, floatDisabled: false, separateWindow: false });
-    (client.presentation.browserTabs as Obj)[runtimeId] = { kind: 'Success', pick: { active: true, serial: 0, ready: false }, pip: true };
+    (client.presentation.browserPages as Obj)[frameIdOf(runtimeId)] = { pip: true };
+    fakePage(() => new Promise(() => {}));
+    await captureLocal(client, fakeModule({}).native, browserPanel(), 'annotate', target, 'dark');
+    useAutomationCalls(null);
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false)).toMatchObject({ pickActive: true, pickTip: 'Cancel annotation (Esc)', separateWindow: true });
     // pickDisabled: a failed load covers the page; captureDisabled and floatDisabled: no web contents, or a failed load.
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, true)).toMatchObject({ pickDisabled: true, pickTip: 'Page didn’t load — pick unavailable until the page renders', captureDisabled: true, floatDisabled: true });
@@ -90,71 +138,96 @@ describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
     expect(browserCaptureView(client, ref, '', runtimeId, true, false).pickDisabled).toBe(true);
   });
 
-  it('handlePickElement: a press starts the overlay in the app\'s scheme, a second press cancels it', async () => {
+  it('handlePickElement: a press starts the overlay in a sandbox of the frame in the app\'s scheme, a second press cancels it', async () => {
     const client = fakeClient(), module = fakeModule({});
+    const calls = fakePage(() => new Promise(() => {}));
     await captureLocal(client, module.native, browserPanel(), 'annotate', target, 'dark');
-    expect(module.calls[0]).toMatchObject({ op: 'browserAnnotate', tab: runtimeId, action: 'start', theme: { colorScheme: 'dark', primary: '#346bf1' } });
-    (client.presentation.browserTabs as Obj)[runtimeId] = { kind: 'Success', pick: { active: true, serial: 0, ready: false } };
+    expect(calls[0]).toMatchObject({ call: 'callFunction', id: frameIdOf(runtimeId), sandbox: 't3-annotate', arguments: [{ colorScheme: 'dark', primary: '#346bf1' }] });
+    expect(String(calls[0]!.functionDeclaration)).toContain('globalThis.__t3codeAnnotate.start(theme)');
+    expect(annotateState(client, runtimeId)).toEqual({ active: true, serial: 0 });
     await captureLocal(client, module.native, browserPanel(), 'annotate', target, 'dark');
-    expect(module.ops()).toEqual(['browserAnnotate:start', 'browserAnnotate:cancel']);
+    expect(calls[1]).toMatchObject({ call: 'evaluate', sandbox: 't3-annotate' });
+    expect(String(calls[1]!.expression)).toContain('.cancel()');
+    expect(annotateState(client, runtimeId)).toEqual({ active: false, serial: 1 });
+    useAutomationCalls(null);
   });
 });
 
 describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () => {
   let client: T3Client;
-  beforeEach(() => { client = fakeClient({ kind: 'Success', pick: { active: false, serial: 1, ready: true } }); });
-  it('never directly appends into a background target that becomes the active field during OS take', async () => {
+  beforeEach(() => { client = fakeClient(); });
+  const picked = (submission: string, extra: Obj = {}) => () => ({ type: 'picked', annotation: { ...annotation, ...extra }, rect: { x: 1, y: 2, width: 30, height: 40 }, submission });
+
+  it('never directly appends into a background target that becomes the active field while its crop is taken', async () => {
     const targetKey = 'local:thread-2', targetRuntime = previewRuntimeTabId({ environmentId: 'local', threadId: 'thread-2' }, 'epoch-1', 'tab-2');
-    client.presentation.browserTabs[targetRuntime] = { kind: 'Success', pick: { active: false, serial: 1, ready: true } };
-    const module = fakeModule({ 'browserAnnotate:take': async () => {
+    syncFrames(client, [{ runtimeId, url: '', environment: 'local', profile: 'default', zoom: 1, colorScheme: 'system' }, { runtimeId: targetRuntime, url: '', environment: 'local', profile: 'default', zoom: 1, colorScheme: 'system' }]);
+    const module = fakeModule({});
+    await pick(client, module.native, picked('send'), { ref: { environmentId: 'local', threadId: 'thread-2' }, tabId: 'tab-2', runtimeId: targetRuntime }, async () => {
       await Promise.resolve();
       Object.assign(client, { threadId: 'thread-2', draftKey: targetKey, snapshotOwner: targetKey });
       client.local.drafts[targetKey] = 'new active source';
       observeComposer(client, 'new active source', true);
-      return { result: { annotation, submission: 'send' }, serial: 1 };
-    } });
-    await applyCaptureResults(client, module.native, [{ runtimeId: targetRuntime, threadKey: targetKey }]);
+    });
     expect(client.local.drafts[targetKey]).toBe('new active source');
     expect(module.calls.some(call => call.op === 'editorInsert')).toBe(false);
     expect(captureHost(client).sendSerial).toBe(0);
-    expect(module.calls.at(-1)).toMatchObject({ action: 'applied', outcome: 'refused' });
   });
 
-  it('puts the chip at the composer\'s caret and the crop on the shelf, once per pick', async () => {
+  it('puts the chip at the composer\'s caret and the crop, the pick\'s rect from the frame, on the shelf', async () => {
     const inserted: string[] = [];
-    const module = fakeModule({
-      'browserAnnotate:take': () => ({ result: { annotation, submission: 'attach', screenshotFailed: false, screenshot: crop }, serial: 1 }),
-      editorState: () => ({ text: inserted.join('') }), editorInsert: request => { inserted.push(String(request.text)); return { applied: true }; },
-    });
-    await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
+    const module = fakeModule({ editorState: () => ({ text: inserted.join('') }), editorInsert: request => { inserted.push(String(request.text)); return { applied: true }; } });
+    const calls = await pick(client, module.native, picked('attach'));
     expect(inserted).toEqual(['[Tighten this spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_1)']);
-    expect(client.snapshotDrafts).toEqual([{ id: crop.id, name: crop.name, mimeType: 'image/png', sizeBytes: 812 }]);
+    const shot = calls.find(call => call.call === 'captureScreenshot')!;
+    expect(shot).toMatchObject({ id: frameIdOf(runtimeId), clip: { x: 1, y: 2, width: 30, height: 40 } });
+    expect(String(shot.path)).toMatch(/^app:\/data\/snapshots\/drafts\/[0-9a-f-]{36}\.png$/);
+    const id = String(shot.path).slice('app:/data/snapshots/drafts/'.length, -4);
+    expect(client.snapshotDrafts).toEqual([{ id, name: 'preview-annotation-annotation_1.png', mimeType: 'image/png', sizeBytes: 812 }]);
     expect(module.calls.find(call => call.op === 'editorInsert')).toMatchObject({ focus: true });
     expect(module.ops()).not.toContain('editorFocus');
     expect(toasts(client)).toEqual([]);
-    await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
-    expect(module.ops().filter(op => op === 'browserAnnotate:take')).toHaveLength(1);
-    expect(module.calls.find(call => call.action === 'applied')).toMatchObject({ serial: 1, outcome: 'chip+image' });
+    // The overlay tears down once its marks are in the crop.
+    expect(calls.some(call => call.call === 'evaluate' && String(call.expression).includes('.captured()'))).toBe(true);
     expect(captureHost(client).sendSerial).toBe(0);
+    expect(annotateState(client, runtimeId)).toEqual({ active: false, serial: 1 });
+  });
+
+  it('Annotate, Capture, Mute and the page scripts only read: no call makes a person\'s frame the agent\'s (LLP 1020.002 D9)', async () => {
+    const module = fakeModule({ editorState: () => ({ text: '' }), editorInsert: () => ({ applied: true }),
+      'browserArtifact:adopt': () => ({ id: 'browser-screenshot-example-com-abc', path: '/a/browser-screenshot-example-com-abc.png', sizeBytes: 9, createdAt: '2026-10-25T00:00:00.000Z' }) });
+    const annotate = await pick(client, module.native, picked('attach'));
+    const rest = fakePage(() => null);
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
+    await toggleFrameMute(client, module.native, runtimeId, true);
+    const commit = new URLSearchParams({ event: 'currententrychange', id: '1', type: 'push', loading: 'false', back: 'false', forward: 'false', controller: 'person', error: '', recovering: 'false', url: 'https://example.com/', title: '' });
+    adoptFrameEvent(client, frameIdOf(runtimeId), commit.toString(), 0);
+    await automationTick(client);
+    useAutomationCalls(null);
+    const all = [...annotate, ...rest];
+    for (const name of ['captureScreenshot', 'callFunction', 'evaluate']) expect(all.some(call => call.call === name)).toBe(true);
+    expect(all.filter(call => ['addPreloadScript', 'performActions', 'handleUserPrompt', 'setDownloadBehavior'].includes(String(call.call)) || call.userActivation === true)).toEqual([]);
   });
 
   it('goes to a new thread\'s draft composer, whose tab names the id the draft was given', async () => {
-    const draft = fakeClient({ kind: 'Success', pick: { active: false, serial: 1, ready: true } });
+    const draft = fakeClient();
     Object.assign(draft, { threadId: '', draftKey: 'local:new:p1' });
     (draft.local as Obj).composerControls = { draftThreads: { 'local:new:p1': 'thread-1' } };
     const inserted: string[] = [];
-    const module = fakeModule({ 'browserAnnotate:take': () => ({ result: { annotation, submission: 'attach' }, serial: 1 }), editorInsert: request => { inserted.push(String(request.text)); return { applied: true }; } });
-    await applyCaptureResults(draft, module.native, [{ runtimeId, threadKey }]);
+    const module = fakeModule({ editorInsert: request => { inserted.push(String(request.text)); return { applied: true }; } });
+    await pick(draft, module.native, picked('attach'));
     expect(inserted).toHaveLength(1);
-    expect(module.calls.at(-1)).toMatchObject({ op: 'browserAnnotate', action: 'applied', serial: 1, outcome: 'chip' });
     // Float preview keys the player by the same thread.
     await captureLocal(draft, module.native, browserPanel(), 'float', target, '');
     expect(floatingTabOf(draft)).toBe('tab-1');
   });
 
-  it('warns when main dropped the crop before handing over the pick, and keeps the annotation', async () => {
-    const module = fakeModule({ 'browserAnnotate:take': () => ({ result: { annotation, submission: 'attach', screenshotFailed: true }, serial: 1 }), editorInsert: () => ({ applied: false }) });
-    await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
+  it('warns when the crop failed, and keeps the annotation', async () => {
+    const module = fakeModule({ editorInsert: () => ({ applied: false }) });
+    const calls = fakePage(picked('attach'), { captureScreenshot: true });
+    await captureLocal(client, module.native, browserPanel(), 'annotate', target, 'dark');
+    await serveRecordingRequests(client, shared(client, module.native), 0);
+    useAutomationCalls(null);
+    expect(calls.some(call => call.call === 'captureScreenshot')).toBe(true);
     expect(client.snapshotDrafts).toEqual([]);
     expect(client.draft).toBe('');
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([
@@ -164,20 +237,20 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
   });
 
   it('forwards Cmd/Ctrl+Enter annotations to the composer send path', async () => {
-    const module = fakeModule({ 'browserAnnotate:take': () => ({ result: { annotation, submission: 'send' }, serial: 1 }), editorInsert: () => ({ applied: true }) });
-    await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
+    const module = fakeModule({ editorInsert: () => ({ applied: true }) });
+    await pick(client, module.native, picked('send'));
     expect(captureHost(client).sendSerial).toBe(1);
   });
 
   it('drops a cancelled pick and a payload the validator refuses', async () => {
-    const module = fakeModule({ 'browserAnnotate:take': () => ({ result: { annotation: { ...annotation, screenshot: { dataUrl: 'from the page' } }, submission: 'attach' }, serial: 1 }) });
-    await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
+    const module = fakeModule({});
+    await pick(client, module.native, picked('attach', { screenshot: { dataUrl: 'from the page' }, pageUrl: 42 }));
     expect(client.draft).toBe('');
-    const cancelled = fakeClient({ kind: 'Success', pick: { active: false, serial: 2, ready: true } });
-    const quiet = fakeModule({ 'browserAnnotate:take': () => ({ result: { cancelled: true }, serial: 2 }) });
-    await applyCaptureResults(cancelled, quiet.native, [{ runtimeId, threadKey }]);
-    expect(quiet.ops()).toEqual(['browserAnnotate:take', 'browserAnnotate:applied']);
+    const cancelled = fakeClient();
+    await pick(cancelled, module.native, () => ({ type: 'cancelled' }));
+    expect(module.calls.some(call => call.op === 'editorInsert')).toBe(false);
     expect(cancelled.draft).toBe('');
+    expect(annotateState(cancelled, runtimeId)).toEqual({ active: false, serial: 1 });
   });
 });
 
@@ -186,11 +259,16 @@ describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () 
     const { client } = await opened();
     client.config.keybindings = DEFAULT_SEND_RULES;
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
-    const ref = activeRef(client)!, tab = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
-    (client.presentation as Obj).browserTabs = { [tab]: { kind: 'Success', pick: { active: true, serial: 1, ready: true } } };
+    const ref = activeRef(client)!, tab = previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), other = previewRuntimeTabId({ ...ref, threadId: 'other' }, 'epoch-1', 'tab-1');
+    syncFrames(client, [tab, other].map(id => ({ runtimeId: id, url: '', environment: ref.environmentId, profile: 'default', zoom: 1, colorScheme: 'system' as const })));
+    fakePage(() => new Promise(() => {}));
+    const quiet = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as Native;
+    await captureLocal(client, quiet, { surfaces: [], active: '', visible: true, userRevision: 0 }, 'annotate', { ref, tabId: 'tab-1', runtimeId: tab }, 'light');
     expect(snapshot(client).composer.sendChords).toBe('Meta+Alt+Enter');
     // Another thread's overlay, or one that has closed, leaves the shortcut alone.
-    (client.presentation as Obj).browserTabs = { [previewRuntimeTabId({ ...ref, threadId: 'other' }, 'epoch-1', 'tab-1')]: { pick: { active: true } }, [tab]: { pick: { active: false } } };
+    await captureLocal(client, quiet, { surfaces: [], active: '', visible: true, userRevision: 0 }, 'annotate', { ref, tabId: 'tab-1', runtimeId: tab }, 'light');
+    await captureLocal(client, quiet, { surfaces: [], active: '', visible: true, userRevision: 0 }, 'annotate', { ref: { ...ref, threadId: 'other' }, tabId: 'tab-1', runtimeId: other }, 'light');
+    useAutomationCalls(null);
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
   });
   // ChatView's onSendAnnotation: onSend(undefined, "auto", "foreground", …): even a press that names ⌘↩, which in a
@@ -230,8 +308,15 @@ describe('handleCapture', () => {
   it('saves a screenshot and offers Copy path, Reveal in Finder and Copy image; a copy reads "Copied!" for 2 s', async () => {
     const client = fakeClient();
     const path = '/lane/t3-home/userdata/browser-artifacts/browser-screenshot-example-com-abc.png';
-    const module = fakeModule({ browserScreenshot: () => ({ id: 'browser-screenshot-example-com-abc', path, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
+    const module = fakeModule({ 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-example-com-abc', path, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
+    const calls = fakePage(() => null);
     await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
+    useAutomationCalls(null);
+    // The frame's picture under app:/tmp/browser-shots, which the module moves into the artifact directory.
+    const shot = calls.find(call => call.call === 'captureScreenshot')!;
+    expect(shot).toMatchObject({ id: frameIdOf(runtimeId) });
+    expect(String(shot.path)).toMatch(/^app:\/tmp\/browser-shots\/browser-frame-[0-9a-f]{16}-1\.png$/);
+    expect(module.calls.find(call => call.op === 'browserArtifact')).toMatchObject({ action: 'adopt', path: shot.path });
     const [toast] = toasts(client);
     expect(toast).toMatchObject({ kind: 'success', title: 'Screenshot saved', stacked: true, secondaryVariant: 'outline' });
     expect(toast?.action).toEqual({ label: 'Copy image', op: 'shelllocal:surface-browser-artifact-copy-image', id: path, value: String(toast?.id) });
@@ -250,14 +335,14 @@ describe('handleCapture', () => {
   // captureErrors.ts normalizeCaptureFailure (74541bab17): the toast says what to check, not the host's error.
   it('reports a failed capture and a failed copy in the reference\'s words', async () => {
     const client = fakeClient();
-    const refusal = (kind: string) => () => { throw Object.assign(new Error('The page could not be captured.'), { kind }); };
-    let screenshot = refusal('Screenshot');
-    const module = fakeModule({ browserScreenshot: () => screenshot(), browserArtifact: () => { throw new Error('Preview artifact path is outside /x'); } });
-    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
-    screenshot = refusal('CapturePage');
-    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
-    screenshot = refusal('NotFound');
-    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
+    const module = fakeModule({ browserArtifact: () => { throw Object.assign(new Error('Preview artifact path is outside /x'), { kind: 'Screenshot' }); } });
+    fakePage(() => null);
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, ''); // the module could not save it
+    fakePage(() => null, { captureScreenshot: true });
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, ''); // the frame gave no picture
+    syncFrames(client, []);
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, ''); // the tab has no frame
+    useAutomationCalls(null);
     expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([
       ['Unable to capture screenshot', 'Preview capture failed during screenshot. Check the preview host and target tab before retrying.'],
       ['Unable to capture screenshot', 'Preview capture failed during capture-page. Check the preview host and target tab before retrying.'],
@@ -271,15 +356,18 @@ describe('handleCapture', () => {
   // path keeps only Reveal (actionProps: revealAction), while updateScreenshotToast keeps the screenshot's three buttons.
   it('a failed Reveal says nothing; a recording\'s failed Copy path keeps only Reveal, a screenshot\'s keeps its buttons', async () => {
     const client = fakeClient(), dir = '/lane/t3-home/userdata/browser-artifacts';
-    const saved = fakeModule({ timelineSleep, browserScreenshot: () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
+    fakePage(() => null);
+    const saved = fakeModule({ timelineSleep, 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
       'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }),
       'browserRecord:finish': () => ({ path: '/var/folders/x/T/r.mp4', mimeType: 'video/mp4;codecs=avc1', sizeBytes: 9 }),
       'browserRecord:save': request => ({ id: 'browser-recording-b', tabId: request.tab, path: `${dir}/browser-recording-b.mp4`, mimeType: request.mimeType, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
     await captureLocal(client, saved.native, browserPanel(), 'capture', target, '');
     await captureLocal(client, saved.native, browserPanel(), 'capture', target, 'record');
     await captureLocal(client, saved.native, browserPanel(), 'capture', target, '');
+    useAutomationCalls(null);
     const [shot, recording] = toasts(client);
     expect([shot?.title, recording?.title]).toEqual(['Screenshot saved', 'Recording saved']);
+    expect(saved.calls.find(call => call.op === 'browserRecord')).toMatchObject({ frame: frameIdOf(runtimeId) });
     const failing = fakeModule({ browserArtifact: () => { throw new Error('Clipboard is busy.'); } });
     await artifactLocal(client, failing.native, 'reveal', `${dir}/browser-recording-b.mp4`, String(recording?.id));
     await artifactLocal(client, failing.native, 'reveal', `${dir}/browser-screenshot-a.png`, '');
@@ -344,7 +432,7 @@ describe('the floating player and the separate window', () => {
   });
 
   it('shows the floating tab unless the panel shows it (shouldRenderPreviewMiniPlayer), sized by its page', () => {
-    const client = fakeClient({ kind: 'Success', url: 'https://example.com/', size: [640, 360], pip: true });
+    const client = fakeClient({ size: [640, 360], pip: true });
     browserHost(client).store.applyServerSnapshot(ref, { threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' });
     browserHost(client).store.reconcileServerSessions(ref, { sessions: [{ threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' }], serverEpoch: 'epoch-1', revision: 1 });
     miniStoreOf(client).open('thread-1', { kind: 'browser', tabId: 'tab-1' });
@@ -383,9 +471,9 @@ describe('the floating player and the separate window', () => {
   it('handleNativePictureInPicture opens and closes the separate window, and the More menu names it', async () => {
     const client = fakeClient(), module = fakeModule({});
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
-    (client.presentation.browserTabs as Obj)[runtimeId] = { kind: 'Success', pip: true };
+    (client.presentation.browserPages as Obj)[frameIdOf(runtimeId)] = { pip: true };
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
-    expect(module.calls.map(call => call.action)).toEqual(['open', 'close']);
+    expect(module.calls.map(call => [call.action, call.frame])).toEqual([['open', frameIdOf(runtimeId)], ['close', frameIdOf(runtimeId)]]);
     expect(browserView(client, browserPanel().surfaces[0]!).capture.separateWindow).toBe(false); // no session: the empty view
   });
 });
@@ -394,45 +482,49 @@ describe('the floating player and the separate window', () => {
 // "Annotation attached to draft" when Send cannot go (ChatView onSend's notifyDirectAnnotationAttached), and the
 // window-level rules of this task (Float closes the right panel, a screenshot's buttons keep their toast) are held here.
 describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSend\'s guard)', () => {
-  /** A server thread's client and a module answering Annotate's take with `result` (audit-wave-followups.test.ts's harness). */
-  function threadClient(result: Obj) {
-    const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1'), calls: Obj[] = [];
+  /** A server thread's client with its Browser tab's frame, and a module that applies a composer insert. */
+  function threadClient() {
+    const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1');
     Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1', configLive: true, shellLive: true, threadLive: true,
       scopes: ['orchestration:read', 'orchestration:operate', 'preview:operate'], config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
     client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
     client.shell.threads = [{ id: 't1', projectId: 'p1' }];
     client.thread = { projection: { thread: { id: 't1' }, runtimeRequests: [], turnItems: [], runs: [], checkpoints: [] }, sequence: 0, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null };
+    browserHost(client).store.reconcileServerSessions(scoped, { sessions: [{ threadId: 't1', tabId: 'tab-1', navStatus: { _tag: 'Idle' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' }], serverEpoch: 'epoch-1', revision: 1 });
+    syncFrames(client, [{ runtimeId: tab, url: '', environment: 'env', profile: 'default', zoom: 1, colorScheme: 'system' }]);
     const native: Native = { available: true, watch() {}, async later(input) {
-      const request = obj(input); calls.push(request);
-      if (request.op === 'browserAnnotate' && request.action === 'take') return { ok: true, generation: 1, value: { result, serial: 1 } };
-      if (request.op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
+      if (obj(input).op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
       return { ok: true, generation: 1, value: {} };
     } };
-    const cancels = () => calls.filter(call => call.op === 'browserAnnotate' && call.action === 'cancel').map(call => call.tab);
-    return { client, native, tab, cancels };
+    return { client, native, tab, target: { ref: scoped, tabId: 'tab-1', runtimeId: tab } };
   }
 
   // PreviewView unmounts with the panel (usePanelPresence), and its cleanup cancels the pick: in the reference, Annotate
   // and then Float leaves the floating page without the overlay, and a pick there does nothing (review drive, 2026-10-10).
   it('Float or a closed panel ends the tab\'s pick, once (PreviewView\'s unmount: cancelPickElement)', async () => {
-    const { client, native, tab, cancels } = threadClient({});
-    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: true, serial: 3, ready: false } } };
+    const { client, native, tab, target: own } = threadClient();
+    const calls = fakePage(() => new Promise(() => {}));
+    const cancels = () => calls.filter(call => call.call === 'evaluate' && String(call.expression).includes('.cancel()')).length;
+    await captureLocal(client, native, browserPanel(), 'annotate', own, 'light');
     await panelView(client, native, 0); // the thread's panel is closed
-    expect(cancels()).toEqual([tab]);
-    await panelView(client, native, 0); // the module's status still says active: asked once
-    expect(cancels()).toEqual([tab]);
-    // A later pick (its own serial) on a tab the panel shows is left alone.
-    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: true, serial: 4, ready: false } } };
-    await cancelHiddenPicks(client, native, tab);
-    expect(cancels()).toEqual([tab]);
-    await cancelHiddenPicks(client, native, null);
-    expect(cancels()).toEqual([tab, tab]);
+    expect([cancels(), annotateState(client, tab).active]).toEqual([1, false]);
+    await panelView(client, native, 0); // asked once
+    expect(cancels()).toBe(1);
+    // A later pick on a tab the panel shows is left alone.
+    await captureLocal(client, native, browserPanel(), 'annotate', own, 'light');
+    await cancelHiddenPicks(client, tab);
+    expect(cancels()).toBe(1);
+    await cancelHiddenPicks(client, null);
+    expect(cancels()).toBe(2);
+    useAutomationCalls(null);
   });
 
   it('a pick that settled with ⌘↩ as the panel hid still sends at once: the serial is the panel\'s, not the Browser tab\'s view', async () => {
-    const { client, native, tab } = threadClient({ annotation, submission: 'send' });
-    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: false, serial: 1, ready: true } } };
-    await applyCaptureResults(client, native, [{ runtimeId: tab, threadKey: 'env:t1' }]);
+    const { client, native, target: own } = threadClient();
+    fakePage(() => ({ type: 'picked', annotation, rect: null, submission: 'send' }));
+    await captureLocal(client, native, browserPanel(), 'annotate', own, 'light');
+    await serveRecordingRequests(client, shared(client, native), 0);
+    useAutomationCalls(null);
     const view = await panelView(client, native, 0);
     expect(view).toMatchObject({ open: false, annotationSend: 1 });
     expect(view.browser.capture).toEqual(emptyCaptureView());
@@ -504,11 +596,16 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     const player = block(contract, 'component BrowserMiniPlayer', '//');
     // The agent's hover moves first and enters second: entering reads the zone the move found.
     expect(player).toContain('  action overPlayer(value: bool)\n    over = value\n    dotOver = value and (zone == "dot" or (zone == "pill" and (pillFocus != "" or dragging != "")))\n    zone = value ? zone : ""');
-    expect(player).toContain('    let at = bcPlayerZone(e.offsetX, e.offsetY, frame.width, frame.pillInset, pillWidth, rem)\n    let shown = over and (at == "dot" or (at == "pill" and pill))');
+    expect(player).toContain('  action movePlayer(e: PointerEvent)\n    interacted()\n    moveAt(e.offsetX, e.offsetY)');
+    expect(player).toContain('    let at = bcPlayerZone(x, y, frame.width, frame.pillInset, pillWidth, rem)\n    let shown = over and (at == "dot" or (at == "pill" and pill))');
     // The tooltips' slot is the pill's own coordinates: the pill's box sits `pillInset` from the player's top right.
-    expect(player).toContain('bcPillSlot(e.offsetX - (frame.width - frame.pillInset - pillWidth), e.offsetY - frame.pillInset, rem, mini.recording)');
+    expect(player).toContain('bcPillSlot(x - (frame.width - frame.pillInset - pillWidth), y - frame.pillInset, rem, mini.recording)');
     expect(player).toContain('  derive pill = dotOver or pillFocus != "" or dragging != ""');
-    expect(player.match(/hover=/g)).toHaveLength(1);
+    // Over a frame the player's box lets the pointer through, and the handle's padded box hears the hover and the moves
+    // in the player's place, in the player's coordinates.
+    expect(player).toContain('  action moveHandle(e: PointerEvent)\n    interacted()\n    moveAt(frame.width - frame.pillInset + grace - handleBoxWidth + e.offsetX, frame.pillInset - grace + e.offsetY)');
+    expect(player).toContain('  action overHandle(value: bool)\n    if framed\n      overPlayer(value)');
+    expect(player.match(/hover=/g)).toHaveLength(2);
   });
 
   it('a resize\'s pans under one serial land where one pan of their total does; a serial per pan overshoots', async () => {

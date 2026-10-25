@@ -10,9 +10,9 @@
 // (32 pt) with 10 pt resize rails. A fixed viewport larger than the panel is scaled down to fit (presentation
 // only: the page keeps its CSS viewport). Zoom steps along Chrome's ladder, 25% to 500%.
 //
-// WebKit: the zoom is the web view's `pageZoom` (the page's CSS pixels grow, as Chromium's zoom
-// does); a fixed viewport is a web view sized at `width × zoom` by `height × zoom` points inside a box whose
-// bounds scale it into the fitted footprint (T3BrowserView.swift), so the page measures the requested viewport.
+// WebKit: the zoom is the frame's `zoom` (the page's CSS pixels grow, as Chromium's zoom does); a fixed viewport
+// is a frame laid out at `width × zoom` by `height × zoom` and scaled into the fitted footprint
+// (browser-frames.contract BrowserFrame), so the page measures the requested viewport.
 // The main window's own zoom (View › Zoom In, T3Menus.swift) leaves the page as it is (74541bab17,
 // `resolveBrowserLayoutZoomFactor`): the layout divides the page's zoom by the window's, so a fixed viewport keeps its
 // size on screen, and the module lays a filled page out at the screen's points.
@@ -70,7 +70,7 @@ const normalizeLayoutZoom = (zoomFactor: number): number => Number.isFinite(zoom
  *  the page's own zoom. */
 export const resolveBrowserLayoutZoomFactor = (previewZoomFactor: number, windowZoomFactor: number): number =>
   normalizeLayoutZoom(previewZoomFactor) / normalizeLayoutZoom(windowZoomFactor);
-/** The main window's zoom as the module reports it (`presentation.browserWindowZoom`, T3BrowserSessions.swift); 1 until then. */
+/** The main window's zoom as the module reports it (`presentation.browserWindowZoom`); 1 while it reports none. */
 export const readWindowZoom = (presentation: unknown): number =>
   normalizeLayoutZoom(Number((presentation as { browserWindowZoom?: unknown } | null | undefined)?.browserWindowZoom));
 

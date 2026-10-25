@@ -3,12 +3,13 @@
 // apps/web/src/lib/composerContextRecords.ts `previewAnnotationContext*`, apps/web/src/lib/previewAnnotation.ts, and
 // composerDraftStore.ts `addPreviewAnnotation`).
 //
-// The module's overlay (assets/browser-annotate.js, T3BrowserAnnotate.swift) hands back a PreviewAnnotationPayload and,
-// when the crop worked, a PNG it wrote among the composer's draft images. This file validates the payload as the
+// Annotate's overlay (assets/browser-annotate.js, browser-annotate.ts) hands back a PreviewAnnotationPayload and,
+// when the crop worked, a PNG written among the composer's draft images. This file validates the payload as the
 // desktop's validator does (a page can reach the overlay's DOM, so nothing it sends is trusted), keeps a compact copy
 // beside the drafts (as terminal contexts are kept, terminal-integrations.ts), puts the annotation's chip in the
 // composer (`[label](t3-context://v1/preview-annotation/<id>)`) and the crop on the shelf, and builds the
 // `preview-annotation` record a send carries. The sent chip is drawn by message-chips.ts.
+import { activePicks } from './browser-annotate';
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { composerNow } from '../composer/composer-controls'; // the window's clock: a data source reads no wall clock
@@ -202,11 +203,10 @@ export function adoptPreviewAnnotations(next: object, previous: Obj): void {
   Object.assign(next, { previewAnnotations: records });
 }
 
-/** Whether Annotate is on in a Browser tab of the thread (`presentation.browserTabs[runtimeId].pick.active`; the runtime id
- *  names its environment and thread, browser-state.ts `previewRuntimeTabId`). */
+/** Whether Annotate is on in a Browser tab of the thread (browser-annotate.ts; the runtime id names its environment and
+ *  thread, browser-state.ts `previewRuntimeTabId`). */
 export function annotatingInThread(client: T3Client, environmentId: string, threadId: string): boolean {
-  for (const [runtimeId, tab] of Object.entries(obj(obj(client.presentation).browserTabs))) {
-    if (obj(obj(tab).pick).active !== true) continue;
+  for (const runtimeId of activePicks(client)) {
     try {
       const parts: unknown = JSON.parse(runtimeId);
       if (Array.isArray(parts) && parts[0] === environmentId && parts[1] === threadId) return true;

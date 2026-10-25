@@ -10,6 +10,8 @@ shape ChatCanvasMini
   height: number
   radius: number // resolveDeviceMiniPlayerCornerRadius
   pillInset: number
+  originX: number // the chat column's own place in the window: the Browser page layer draws there (browser-frames.contract)
+  originY: number
 
 shape ChatCanvasView
   ready: bool

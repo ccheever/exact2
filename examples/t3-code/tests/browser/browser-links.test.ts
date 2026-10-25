@@ -8,11 +8,12 @@
 // openUrlInPreview's `profileId` and `background`), the tab menu's Mute row, and the "Open links in" setting.
 import { describe, expect, it } from 'bun:test';
 import {
-  TerminalLinkPreviewOpenError, linkTargetPreference, openLink, openLinkFromUi, openRequestedLinks, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
+  TerminalLinkPreviewOpenError, linkTargetPreference, openFrameWindow, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
 } from '../../src/browser/browser-links';
 import { tabAudioState, tabContextMenuItems, tabMuteMenuItem } from '../../src/panel/right-panel-tabs';
 import { browserTabMute } from '../../src/browser/browser-automation-tabs';
-import { browserHost, browserSurfaceId } from '../../src/browser/browser-surface';
+import { browserHost, browserSurfaceId, syncNativeSessions } from '../../src/browser/browser-surface';
+import { frameIdOf } from '../../src/browser/browser-frames';
 import { previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { surfaceStore, type Surface } from '../../src/panel/panel-surfaces';
 import { restCommand } from '../../src/settings/settings-rest-commands';
@@ -293,24 +294,23 @@ describe('a page’s target=_blank links (ElectronBrowserHost onOpenLink)', () =
     host.listed.set(scopedThreadKey(ref), link.client.generation);
     const panel = { surfaces: [], active: browserSurfaceId('tab-src'), visible: true, userRevision: 0 };
     surfaceStore(link.client).panels.set('local:thread-1', panel);
-    const requests = (list: Obj[]) => { (link.client as unknown as { presentation: Obj }).presentation = { browserTabs: { [previewRuntimeTabId(ref, 'epoch-1', 'tab-src')]: { kind: 'Success', openLinks: list } } }; };
+    // The source tab's frame, which sends the `newwindow` requests (browser-frames.contract `opened`).
+    syncNativeSessions(link.client);
+    const frameId = frameIdOf(previewRuntimeTabId(ref, 'epoch-1', 'tab-src'));
+    const requests = async (list: Array<{ disposition: string; url: string }>) => { for (const entry of list) await openFrameWindow(link.client, link.native, frameId, entry.disposition, entry.url); };
     return { ...link, host, panel, requests };
   }
-  it('opens a link as another tab of the thread under the source tab’s profile, once, and the module forgets it', async () => {
-    const { client, rpcs, ops, native, host, panel, requests } = pageClient();
-    requests([{ serial: 7, url: 'https://docs.test/a', background: false }]);
-    await openRequestedLinks(client, native);
-    await openRequestedLinks(client, native); // the same status again: nothing new
+  it('opens a foreground-tab request as another tab of the thread under the source tab’s profile', async () => {
+    const { rpcs, ops, host, panel, requests } = pageClient();
+    await requests([{ disposition: 'foreground-tab', url: 'https://docs.test/a' }]);
     expect(rpcs.filter(call => call.method === 'preview.open').map(call => call.payload)).toEqual([{ threadId: 'thread-1', url: 'https://docs.test/a', viewport: { _tag: 'fill' }, profileId: 'work' }]);
     expect(panel.active).toBe(browserSurfaceId('tab-1'));
     expect(host.store.read(ref).activeTabId).toBe('tab-1');
-    expect(ops.filter(op => op.op === 'browserOpenLinks')).toEqual([{ op: 'browserOpenLinks', tab: previewRuntimeTabId(ref, 'epoch-1', 'tab-src'), taken: 7 }]);
     expect(external(ops)).toEqual([]);
   });
-  it('a background link (⌘- or middle-click) leaves the shown tab where it was; a non-web request opens nothing', async () => {
-    const { client, rpcs, native, host, panel, requests } = pageClient();
-    requests([{ serial: 3, url: 'https://docs.test/b', background: true }, { serial: 4, url: 'javascript:alert(1)', background: false }]);
-    await openRequestedLinks(client, native);
+  it('a background-tab request (⌘-click) leaves the shown tab where it was; a popup or a non-web request opens no tab', async () => {
+    const { rpcs, host, panel, requests } = pageClient();
+    await requests([{ disposition: 'background-tab', url: 'https://docs.test/b' }, { disposition: 'foreground-tab', url: 'javascript:alert(1)' }, { disposition: 'new-window', url: 'https://auth.test/' }]);
     expect(rpcs.filter(call => call.method === 'preview.open').map(call => call.payload.url)).toEqual(['https://docs.test/b']);
     expect(panel.active).toBe(browserSurfaceId('tab-src'));
     expect(host.store.read(ref).activeTabId).toBe('tab-src');
@@ -318,7 +318,7 @@ describe('a page’s target=_blank links (ElectronBrowserHost onOpenLink)', () =
   });
   it('the server’s "opened" event during a background open is handed back, unless the person picked a tab meanwhile', async () => {
     for (const picked of [false, true]) {
-      const { client, native, host, panel, requests } = pageClient();
+      const { client, host, panel, requests } = pageClient();
       const request = client.request;
       client.request = async (nativeArg, method, payload) => {
         const answer = await request(nativeArg, method, payload);
@@ -328,8 +328,7 @@ describe('a page’s target=_blank links (ElectronBrowserHost onOpenLink)', () =
         }
         return answer;
       };
-      requests([{ serial: 1, url: 'https://docs.test/c', background: true }]);
-      await openRequestedLinks(client, native);
+      await requests([{ disposition: 'background-tab', url: 'https://docs.test/c' }]);
       expect(host.store.read(ref).activeTabId).toBe(picked ? 'tab-1' : 'tab-src');
     }
   });
@@ -372,7 +371,7 @@ describe('the tab menu’s Mute row and the audible indicator', () => {
     store.reconcileServerSessions(ref, { sessions: [{ ...snapshot, navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' } }], serverEpoch: 'epoch-1', revision: 1 });
     const keyed: Surface = { id: browserSurfaceId('tab-1'), kind: 'browser', path: '', line: 0, reveal: 0, browser: { tabId: 'tab-1', threadKey: scopedThreadKey(ref) } };
     expect(tabContextMenuItems(keyed, [keyed], entry => browserTabMute(client, entry))[0]).toEqual({ id: 'toggle-mute', label: 'Mute tab', disabled: true });
-    client.presentation = { browserTabs: { [previewRuntimeTabId(ref, 'epoch-1', 'tab-1')]: { kind: 'Success', url: 'https://example.com/', title: 'Example' } } };
+    syncNativeSessions(client); // its page: the tab's frame
     store.applyDesktopState(ref, 'tab-1', { hasWebContents: true, canGoBack: false, canGoForward: false, loading: false, zoomFactor: 1, pictureInPicture: false, colorScheme: 'system', audioMuted: true, audible: true, controller: 'none', favicon: null });
     expect(tabContextMenuItems(keyed, [keyed], entry => browserTabMute(client, entry))[0]).toEqual({ id: 'toggle-mute', label: 'Unmute tab', disabled: false });
     expect(tabAudioState({ audioMuted: true, audible: true })).toBe('muted');

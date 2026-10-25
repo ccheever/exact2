@@ -1,20 +1,20 @@
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names: packages/contracts/src/
 // browserProfile.test.ts (9 of 9; BrowserProfileId's schema is the clone's `isBrowserProfileId`) and
 // apps/web/src/components/settings/IntegrationsSettings.logic.test.ts's clearBrowserProfileData (4) and
-// browserProfileRemovalAvailable (1) (its importFailureReason rows are in browser-import.test.ts). Then the clone's own
-// rows, each named after the reference code it follows: browserDefaults' profile resolution, the saved settings,
-// PreviewView's badge, RightPanelTabs' profile lists, the settings writes of BrowserProfilesSetting and
-// runWizardImport's registration of a new profile, the More menu's Clear cookies / Clear cache, and the page's projection.
+// browserProfileRemovalAvailable (1). Then the clone's own rows, each named after the reference code it follows:
+// browserDefaults' profile resolution, the saved settings, PreviewView's badge, RightPanelTabs' profile lists, the
+// settings writes of BrowserProfilesSetting, the More menu's Clear cookies / Clear cache, and the page's projection.
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
   BUILT_IN_BROWSER_PROFILES, DEFAULT_BROWSER_PROFILE_ID, INCOGNITO_BROWSER_PROFILE_ID, adoptBrowserProfilePrefs, browserDefaults, browserProfileChoices, browserProfileName,
   browserProfileRemovalAvailable, clearBrowserProfileData, findBrowserProfile, isBrowserProfileId, isBuiltInBrowserProfileId, launcherOffersProfiles, resolveBrowserProfiles,
   tabProfile, type BrowserProfile,
 } from '../../src/browser/browser-profiles';
-import { browserProfilesLocal, browserProfilesView, createBrowserProfile, primaryEnvironmentLabel, renameBrowserProfile, runWizardImport } from '../../src/browser/browser-profiles-settings';
+import { browserProfilesLocal, browserProfilesView, createBrowserProfile, renameBrowserProfile } from '../../src/browser/browser-profiles-settings';
 import { browserHost, browserLocal, browserView, openBrowserIn } from '../../src/browser/browser-surface';
+import { partitionOf, useBrowserCalls } from '../../src/browser/browser-frames';
 import type { T3Client } from '../../src/client/client';
-import { ClientError, type Files, type Native } from '../../src/client/protocol';
+import type { Files, Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
 import type { PanelState } from '../../src/panel/panel-surfaces';
 import { resetPrimary } from '../support/local-primary-fixture';
@@ -178,24 +178,29 @@ describe('BrowserProfilesSetting writes', () => {
     expect(createBrowserProfile(client, 'New profile')).toBeUndefined();
   });
   it('sets the default, clears a profile in every known environment, and removes it with its data', async () => {
-    const { client, native } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' }, request => request.op === 'browserClearData' ? { cleared: true } : {});
+    const { client } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' });
+    const cleared: Array<{ partition: string; types: string[] }> = [];
+    useBrowserCalls({ clearSiteData: async options => { cleared.push(options); return options; } });
     await browserProfilesLocal(client, module, storage, 'browser-profiles-default', `id=${work.id}`);
     expect((client.local as unknown as { browserDefaultProfileId: string }).browserDefaultProfileId).toBe(work.id);
     await browserProfilesLocal(client, module, storage, 'browser-profiles-clear', `id=${work.id}`);
-    const cleared = native.filter(request => request.op === 'browserClearData').map(request => `${request.environment}/${request.profile}/${request.what}`);
-    expect(cleared.sort()).toEqual(['env-remote/profile-work/cache', 'env-remote/profile-work/cookies', 'local/profile-work/cache', 'local/profile-work/cookies']);
-    native.length = 0;
+    const names = cleared.map(entry => `${entry.partition}/${entry.types.join('+')}`).sort();
+    expect(names).toEqual([`${partitionOf('env-remote', work.id)}/cache`, `${partitionOf('env-remote', work.id)}/cookies+storage`, `${partitionOf('local', work.id)}/cache`, `${partitionOf('local', work.id)}/cookies+storage`].sort());
+    cleared.length = 0;
     await browserProfilesLocal(client, module, storage, 'browser-profiles-remove-ask', `id=${work.id}`);
     expect((await browserProfilesView(client, module))).toMatchObject({ removalOpen: true, removalId: work.id, removalName: 'Work', removalAvailable: true });
     await browserProfilesLocal(client, module, storage, 'browser-profiles-remove', '');
-    expect(native.filter(request => request.op === 'browserClearData')).toHaveLength(4);
+    expect(cleared).toHaveLength(4);
+    useBrowserCalls(null);
     expect(client.local).toMatchObject({ browserProfiles: [], browserDefaultProfileId: 'default' });
     expect((await browserProfilesView(client, module))).toMatchObject({ removalOpen: false, removalId: '' });
   });
   it('keeps a profile whose data could not be deleted, and says so', async () => {
-    const { client } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' }, () => ({ cleared: false }));
+    const { client } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' });
+    useBrowserCalls({ clearSiteData: async () => { throw Object.assign(new Error('The partition could not be cleared.'), { code: 'UnknownError' }); } });
     await browserProfilesLocal(client, module, storage, 'browser-profiles-remove-ask', `id=${work.id}`);
     await browserProfilesLocal(client, module, storage, 'browser-profiles-remove', '');
+    useBrowserCalls(null);
     expect(client.local).toMatchObject({ browserProfiles: [work] });
     expect(await browserProfilesView(client, module)).toMatchObject({ removalOpen: true, removalError: 'Profile data could not be deleted. Try again.', removalBusy: false });
   });
@@ -207,79 +212,26 @@ describe('BrowserProfilesSetting writes', () => {
   });
 });
 
-describe('runWizardImport', () => {
-  const wizard = (sourceName = 'Helium') => ({ source: { id: 'helium' as const, name: sourceName, profiles: [] }, environmentId: 'local', environmentName: 'This device', step: { step: 'importing' as const },
-    sourceProfileDirectory: 'Default', target: { kind: 'new' as const }, targetError: '', newProfileId: 'profile-new', opening: false, openingError: '', fdaGranted: false });
-  const result = (imported: number) => async () => ({ imported, skipped: 1, skippedDomains: ['a.test'] });
-  it('registers a new profile, named after the browser, only once cookies came over', async () => {
-    const { client } = fakeClient({ browserProfiles: [{ id: 'profile-x', name: 'Helium', kind: 'persistent' }], browserDefaultProfileId: 'default' });
-    expect(await runWizardImport(client, wizard(), { kind: 'new', profileId: 'profile-none' }, result(0), async () => undefined))
-      .toEqual({ kind: 'imported', imported: 0, skipped: 1, skippedDomains: ['a.test'], targetName: 'Helium' });
-    expect((client.local as unknown as { browserProfiles: BrowserProfile[] }).browserProfiles.map(profile => profile.id)).toEqual(['profile-x']);
-    expect(await runWizardImport(client, wizard(), { kind: 'new', profileId: 'profile-new' }, result(3), async () => undefined)).toMatchObject({ kind: 'imported', imported: 3, targetName: 'Helium 2' });
-    expect((client.local as unknown as { browserProfiles: BrowserProfile[] }).browserProfiles.map(profile => profile.name)).toEqual(['Helium', 'Helium 2']);
-  });
-  it('clears the cookies again when the profile cap was reached during the import', async () => {
-    const full = Array.from({ length: 24 }, (_, index) => ({ id: `profile-${index}`, name: `P${index}`, kind: 'persistent' as const }));
-    const { client } = fakeClient({ browserProfiles: full, browserDefaultProfileId: 'default' });
-    const cleared: string[] = [];
-    expect(await runWizardImport(client, wizard(), { kind: 'new', profileId: 'profile-new' }, result(2), async (environment, profile) => { cleared.push(`${environment}/${profile}`); }))
-      .toEqual({ kind: 'blocked', reason: 'profileLimitReached' });
-    expect(cleared).toEqual(['local/profile-new']);
-  });
-  it('refuses a vanished existing target and maps a failed read to its reason', async () => {
-    const { client } = fakeClient({ browserProfiles: [], browserDefaultProfileId: 'default' });
-    expect(await runWizardImport(client, wizard(), { kind: 'existing', profileId: 'profile-gone', name: 'Gone' }, result(1), async () => undefined)).toEqual({ kind: 'blocked', reason: 'readFailed' });
-    expect(await runWizardImport(client, wizard(), { kind: 'existing', profileId: 'default', name: 'Default' }, async () => { throw new Error('Importing cookies from helium failed: browserRunning.'); }, async () => undefined))
-      .toEqual({ kind: 'blocked', reason: 'browserRunning' });
-  });
-  it('names the destination as resolveEnvironmentOptionLabel does for the primary', () => {
-    expect(primaryEnvironmentLabel('Local')).toBe('This device');
-    expect(primaryEnvironmentLabel('')).toBe('This device');
-    expect(primaryEnvironmentLabel('Studio Mac')).toBe('Studio Mac');
-  });
-});
-
 describe("PreviewMoreMenu's Profile group", () => {
   it("clears the tab's own environment and profile only", async () => {
-    const { client, native } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' }, request => request.op === 'browserClearData' ? { cleared: true } : {});
+    const { client } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' });
+    const cleared: Array<{ partition: string; types: string[] }> = [];
+    useBrowserCalls({ clearSiteData: async options => { cleared.push(options); return options; } });
     const state: PanelState = { surfaces: [], active: '', visible: false, userRevision: 0 };
     browserHost(client).store.reconcileServerSessions({ environmentId: 'local', threadId: 'thread-1' }, { sessions: [{ threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Idle' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z', profileId: work.id }], serverEpoch: 'epoch-1', revision: 1 });
     const surface = openBrowserIn(state, 'tab-1', 'local:thread-1');
     expect(browserView(client, surface)).toMatchObject({ profileId: work.id, profileName: 'Work', showProfile: true });
     await browserLocal(client, module, state, 'clear-cookies', 'tab-1', '');
     await browserLocal(client, module, state, 'clear-cache', 'tab-1', '');
-    expect(native.filter(request => request.op === 'browserClearData').map(request => [request.environment, request.profile, request.what])).toEqual([['local', work.id, 'cookies'], ['local', work.id, 'cache']]);
+    useBrowserCalls(null);
+    // The tab's environment's partition for its profile only (browser-frames.ts partitionOf).
+    expect(cleared).toEqual([{ partition: partitionOf('local', work.id), types: ['cookies', 'storage'] }, { partition: partitionOf('local', work.id), types: ['cache'] }]);
+    expect(partitionOf('local', work.id)).toMatch(/^persist:t3-preview-[0-9a-f]{16}$/);
   });
 });
-
-const localState = btoa(JSON.stringify({ profile: { info_cache: { Default: { name: 'You' } } } }));
-/** A fixture module: every candidate is a file, every user-data folder names one profile, nothing is locked. */
-const ioAnswer = (request: Op): Obj => request.call === 'stat' ? { kind: 'File' } : request.call === 'readDirectory' ? { entries: [] }
-  : request.call === 'readFile' ? { id: 'staged', size: atob(localState).length } : request.call === 'readChunk' ? { data: localState }
-    : request.call === 'release' ? {} : request.call === 'query' ? { rows: [] } : { code: 'ENOENT', message: 'missing' };
-describe('the browser listing under a replaced command (clone: docs/agent-pitfalls.md, a superseded send)', () => {
-  it("keeps the cached list when the listing's reads were let go, instead of reading every browser as running", async () => {
-    let lose = false;
-    const { client } = fakeClient({}, request => request.op === 'browserImportContext' ? { allowed: true, home: '/fixture-home', platform: 'darwin' }
-      : request.op === 'browserImportIO' ? ioAnswer(request) : {});
-    const raw = client.raw.bind(client);
-    (client as unknown as { raw: typeof raw }).raw = async (native, request) => {
-      if (lose && (request as Obj).op === 'browserImportIO') throw new ClientError('replaced', 'superseded');
-      return raw(native, request);
-    };
-    await browserProfilesLocal(client, module, storage, 'browser-profiles-sources', '');
-    const listed = (await browserProfilesView(client, module)).sources.map(source => source.id);
-    expect(listed).toContain('chrome');
-    lose = true;
-    await expect(browserProfilesLocal(client, module, storage, 'browser-profiles-sources', '')).rejects.toBeInstanceOf(ClientError);
-    expect((await browserProfilesView(client, module)).sources.map(source => source.id)).toEqual(listed);
-  });
-});
-
 
 describe('Add profile keyboard opening', () => {
-  it('prepares sources once before showing and focusing, and ignores modified or repeated opens', async () => {
+  it('shows and focuses, and ignores modified or repeated opens', async () => {
     const component = contractComponent('browser-profiles.contract', 'BrowserProfilesSetting');
     const kmOpenKey = await contractFn('menu-keys.contract', 'kmOpenKey', ['k']);
     const kmArrow = await contractFn('menu-keys.contract', 'kmArrow', ['k']);
@@ -288,7 +240,7 @@ describe('Add profile keyboard opening', () => {
     const calls: unknown[][] = [];
     const scope = {
       kmTriggerKey, kmTriggerTarget,
-      menuItems: [{ id: 'browser-profiles-blank', label: 'Blank profile' }, { id: 'browser-import-source-safari', label: 'Safari' }],
+      menuItems: [{ id: 'browser-profiles-blank', label: 'Blank profile' }],
       preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']),
       local: (...args: unknown[]) => calls.push(['local', ...args]),
       showPopover: (...args: unknown[]) => calls.push(['showPopover', ...args]), focus: (id: string) => calls.push(['focus', id]),
@@ -298,9 +250,9 @@ describe('Add profile keyboard opening', () => {
       calls.length = 0;
       component.call('triggerKey', component.state(), scope, [key, event]);
       expect(calls).toEqual([
-        ['preventDefault'], ['stopPropagation'], ['local', 'browser-profiles-sources', ''],
+        ['preventDefault'], ['stopPropagation'],
         ['showPopover', 'browser-profiles-add-menu', { source: 'browser-profiles-add' }],
-        ['focus', key === 'ArrowUp' ? 'browser-import-source-safari' : 'browser-profiles-blank'],
+        ['focus', 'browser-profiles-blank'],
       ]);
       calls.length = 0;
       component.call('triggerKey', component.state(), scope, [key, { ...event, repeat: true }]);
@@ -314,7 +266,7 @@ describe('Add profile keyboard opening', () => {
     calls.length = 0;
     component.call('triggerKey', component.state(), { ...scope, menuItems: [] }, ['ArrowUp', event]);
     expect(calls).toEqual([
-      ['preventDefault'], ['stopPropagation'], ['local', 'browser-profiles-sources', ''],
+      ['preventDefault'], ['stopPropagation'],
       ['showPopover', 'browser-profiles-add-menu', { source: 'browser-profiles-add' }],
     ]);
   });

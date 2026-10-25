@@ -1,8 +1,8 @@
 // `preview_press`'s key (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PreviewKeyboard.ts, ported whole with its tests). The reference builds CDP and
-// Electron key packets; the clone's module sends the same key as an `NSEvent` to a page in a window
-// (T3BrowserAutomationInput.swift reads `chord` and `text`), runs the macOS editing shortcuts in the page
-// (`editing`, the reference's `previewAutomationEditingCommandExpression`), and for a page in no window
+// Electron key packets; the clone's executor sends the same key as `@exact/browser-automation` key input
+// (browser-automation-run.ts `keyActions`), runs the macOS editing shortcuts in the page (`editing`, the
+// reference's `previewAutomationEditingCommandExpression`), and for a key the platform input has no value for
 // dispatches DOM key events and their default edit (`dom`; untrusted).
 
 export type PressInput = { key: string; modifiers?: ReadonlyArray<'Alt' | 'Control' | 'Meta' | 'Shift'> };
@@ -165,7 +165,8 @@ export function makePreviewAutomationNativeKeySequence(input: PressInput, option
   };
 }
 
-/** T3BrowserAutomation.swift `clipboardPlaceholder`: the module puts the system clipboard's formats here. */
+/** Where the paste command reads the clipboard's formats; the executor sends a paste as the platform's own key instead,
+ *  so the expression it runs never names the placeholder. */
 export const CLIPBOARD_PLACEHOLDER = '__T3_PREVIEW_CLIPBOARD__';
 
 /** Keep macOS editing shortcuts inside the target page without native focus. The paste command reads the
@@ -281,8 +282,8 @@ export function domKeyExpression(input: PressInput): string {
 }
 
 const CHORD_KEYS = new Set(['Enter', 'Tab', 'Escape', 'Backspace', 'Space', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
-/** What the module needs for one key: T3Keys' chord ("Shift+Meta+z", "Enter"), the typed text, the editing
- *  commands and their expression, and the DOM fallback. */
+/** What the executor needs for one key beside its key input: the chord ("Shift+Meta+z", "Enter"), the typed text, the
+ *  editing commands and their expression, and the DOM fallback. */
 export function pressPlan(input: PressInput): { chord: string; text: string; commands: string[]; editing: string; dom: string } {
   const sequence = makePreviewAutomationKeySequence(input, { isMac: true });
   const definition = resolveKeyDefinition(input);

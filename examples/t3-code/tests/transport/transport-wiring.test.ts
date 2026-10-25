@@ -30,6 +30,8 @@ describe('app.contract', () => {
     // A pull request surface's remembered tab (prTabSaved) is the panel model's, as local as these.
     // The window's last interaction is noted in the module (app.ts), as local as these.
     for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved', 'interactionNoted', 'interactionResumed']) exempt.add(name);
+    // A Browser frame's package calls, which the root names but data code makes (app.contract frameCommand), ask no server.
+    for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);

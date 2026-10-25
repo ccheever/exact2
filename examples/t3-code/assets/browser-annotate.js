@@ -1,18 +1,19 @@
-// The Browser tab's annotation overlay, a classic script the module runs in
-// its own content world (`.defaultClient`, T3BrowserAnnotate.swift): it sees the page's DOM, not its JS, and its
-// message handler cannot be called by the page. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// The Browser tab's annotation overlay, a classic script data code runs in a sandbox world of the tab's frame
+// (browser-annotate.ts, `@exact/browser-automation`'s `callFunction` with a `sandbox`): it sees the page's DOM, not
+// its JS, and the page cannot call it. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PickPreload.ts (startAnnotation and its helpers), AnnotationKeyboard.ts
 // (resolveAnnotationSubmission); T3 Code 74541bab17: PickPreload.ts `unionRects`, AnnotationIds.ts; the stylesheet is AnnotationStyles.generated.ts (Annotation.css compiled by
 // Tailwind CSS v4.3.3, MIT), one rule per line. Not ported: PickPreload's recording cursor and human-input
 // listeners (browser-recording.js has the recording side) and the mouse back/forward buttons. Electron's
 // react-grab `getElementContext` reads React from the page's own world; here this world fills the DOM facts
-// (selector, HTML preview, styles) and marks each picked element `data-t3code-pick`, and the module reads the
+// (selector, HTML preview, styles) and marks each picked element `data-t3code-pick`, and data code reads the
 // component name and source from React's fiber in the page's world before it crops the screenshot.
 //
 // The page installs it once per document as `globalThis.__t3codeAnnotate` ({ start(theme), cancel(),
-// captured(), applyTheme(theme), state() }); it posts `{ type: "picked", annotation, rect, submission }` and
-// `{ type: "cancelled" }` to `t3BrowserAnnotate`. Loaded by `require` (bun tests) it exports its pure helpers and
-// touches no window or document.
+// captured(), applyTheme(theme), state(), next() }). Its outcomes, `{ type: "picked", annotation, rect, submission }`
+// and `{ type: "cancelled" }`, wait in order for `next()`, a promise that resolves with the next one as JSON: data code
+// awaits it with one `evaluate`, since a frame's page posts nothing to the app. Loaded by `require` (bun tests) it
+// exports its pure helpers and touches no window or document.
 (function () {
   "use strict";
 
@@ -38,7 +39,7 @@
     return rect.width >= 3 && rect.height >= 3;
   }
 
-  /** The targets' union grown by `padding` (PickPreload unionRects). The module clips it to the captured viewport;
+  /** The targets' union grown by `padding` (PickPreload unionRects). Data code clips it to the captured viewport;
    *  clipping here would lose the bounds of targets scrolled out of view. */
   function unionRects(rects, padding) {
     if (padding === undefined) padding = 20;
@@ -319,12 +320,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   let activeSession = null;
   let annotationTheme = DEFAULT_THEME;
 
+  // The outcomes `next()` has not taken yet, and the resolver of the one waiting (the promise stays reachable through it).
+  const outbox = [];
+  let waiting = null;
   function post(message) {
-    try {
-      window.webkit.messageHandlers.t3BrowserAnnotate.postMessage(message);
-    } catch (_) {
-      // No handler (the module let go of the page): nothing is waiting.
-    }
+    const text = JSON.stringify(message);
+    if (waiting) {
+      const resolve = waiting;
+      waiting = null;
+      resolve(text);
+    } else outbox.push(text);
   }
 
   function readTheme(theme) {
@@ -498,7 +503,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     }
   }
 
-  /** PickPreload captureElement, the facts this world can read; the module adds the component name, its source
+  /** PickPreload captureElement, the facts this world can read; data code adds the component name, its source
    *  and stack from the page's world (null and empty until then). */
   function captureElement(element) {
     return {
@@ -1310,7 +1315,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
       dragHandle.removeEventListener("pointercancel", onEditorPointerUp);
       if (editorLayoutFrame !== null) window.cancelAnimationFrame(editorLayoutFrame);
       document.documentElement.removeAttribute("data-t3code-annotation-tool");
-      // A pick the module never read (a cancel during capture) leaves no mark on the page.
+      // A pick data code never read (a cancel during capture) leaves no mark on the page.
       for (const target of selected.values()) {
         if (target.element.getAttribute(PICK_ATTRIBUTE) === target.id) target.element.removeAttribute(PICK_ATTRIBUTE);
       }
@@ -1358,7 +1363,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
           for (const change of submittedStyleChanges) {
             if (change.targetId === target.id && element.selector !== null) change.selector = element.selector;
           }
-          // The module reads React's component for this mark in the page's world, then removes it.
+          // Data code reads React's component for this mark in the page's world, then removes it.
           target.element.setAttribute(PICK_ATTRIBUTE, target.id);
           return { id: target.id, element, rect: rectFromDomRect(target.element.getBoundingClientRect()) };
         });
@@ -1387,7 +1392,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
         );
         post({ type: "picked", annotation, rect: screenshotRect, submission });
       } catch (_) {
-        // Last resort: the module is waiting, so hand it an empty pick rather than a stuck "Capturing…".
+        // Last resort: data code is waiting, so hand it an empty pick rather than a stuck "Capturing…".
         teardown(true);
       }
     };
@@ -1460,11 +1465,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   globalThis.__t3codeAnnotate = {
     start(theme) {
       annotationTheme = readTheme(theme);
+      outbox.length = 0;
       startAnnotation();
       return true;
     },
     cancel() {
       if (activeSession) activeSession.teardown(false);
+      post({ type: "cancelled" });
     },
     captured() {
       if (activeSession) activeSession.teardown(false);
@@ -1475,6 +1482,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     },
     state() {
       return activeSession ? JSON.stringify(activeSession.state()) : "null";
+    },
+    next() {
+      if (outbox.length) return Promise.resolve(outbox.shift());
+      return new Promise((resolve) => {
+        waiting = resolve;
+      });
     },
     test: {
       setComment: (text) => (activeSession ? (activeSession.setComment(text), true) : false),

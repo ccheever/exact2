@@ -1,7 +1,7 @@
 // A Browser tab's body (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/preview/PreviewView.tsx, PreviewChromeRow.tsx, PreviewMoreMenu.tsx,
 // PreviewEmptyState.tsx, PreviewUnreachable.tsx; index.css `.preview-loading-progress`). The chrome row
-// over the page, which is the module's `t3-browser` view (T3BrowserView.swift); the empty state for an idle
+// over the page, which is the tab's frame (browser-frames.contract); the empty state for an idle
 // tab; the load-failed page. `view` is browser-surface.ts `browserView`; `local` runs `surface-browser-<op>`.
 // Annotate, Capture and Float preview and the More menu's separate window are browser-capture.contract's.
 // It also draws the page area (browser-stage.contract: the device toolbar, the fitted viewport, the rails, the zoom
@@ -78,7 +78,7 @@ component BrowserBody
       box flex=1 min-height=0 position="relative" overflow="hidden" resize=measured
         // The page stays mounted under the load-failed page, as the reference's slot does (its keys keep working).
         if view.live or view.failed
-          BrowserStage(view=view, pw=pw, ph=ph, urlFocused=urlFocused, local=local)
+          BrowserStage(view=view, pw=pw, ph=ph, local=local)
         if view.empty
           BrowserEmpty(view=view, local=local)
         if view.failed

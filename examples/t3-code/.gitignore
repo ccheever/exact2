@@ -28,6 +28,7 @@
 /src/sidebar/sidebar-icons.contract
 /src/timeline/timeline-icons.contract
 /src/panel/panel-icons.contract
+/src/browser/page-scripts.ts
 /src/providers/provider-icons.contract
 /src/diff/diff-glyphs.contract
 /assets/mermaid/vendor/

@@ -7,7 +7,8 @@
 // when its list is not empty; both empty draw "No preview yet").
 import { describe, expect, it } from 'bun:test';
 import { browserHost, browserLocal, browserView } from '../../src/browser/browser-surface';
-import { navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
+import { browserKey, navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
+import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { browserHistory } from '../../src/browser/browser-history';
 import { discoveredServersEvent } from '../../src/browser/browser-targets';
 import { previewRuntimeTabId, type PreviewSessionSnapshot, type PreviewViewportSetting } from '../../src/browser/browser-state';
@@ -18,6 +19,7 @@ import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
 import { toasts } from '../../src/shell/toast';
 import { appPath } from '../support/app-files';
+import { adoptFrameEvent, frameEntry, frameIdOf, frames, syncFrames } from '../../src/browser/browser-frames';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
 const module = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as Native;
@@ -48,30 +50,36 @@ function setup(options: { viewport?: PreviewViewportSetting; zoom?: number; resi
   const host = browserHost(client);
   host.store.reconcileServerSessions(ref, { sessions: [snap(options.viewport, 'tab-1', options.nav)], serverEpoch: 'epoch-1', revision: 1 });
   const runtimeId = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
-  (client.presentation as Obj).browserTabs = { [runtimeId]: { kind: options.nav?._tag === 'Idle' ? 'Idle' : 'Success', url: 'http://localhost:5173/', title: 'Vite', zoomFactor: options.zoom ?? 1, colorScheme: 'system' } };
+  // The tab's frame, and the record it sent once its page loaded (browser-frames.ts).
+  syncFrames(client, [{ runtimeId, url: options.nav?._tag === 'Idle' ? '' : 'http://localhost:5173/', environment: 'local', profile: 'default', zoom: options.zoom ?? 1, colorScheme: 'system' }]);
+  if (options.nav?._tag !== 'Idle') adoptFrameEvent(client, frameIdOf(runtimeId), 'event=navigatesuccess&url=http%3A%2F%2Flocalhost%3A5173%2F&title=Vite&loading=false', 0);
   const state: PanelState = { surfaces: [], active: '', visible: false, userRevision: 0 };
   const surface = openBrowserIn(state, 'tab-1', 'local:thread-1');
   return { client, calls, native, requests, state, surface, runtimeId };
 }
 const local = (s: ReturnType<typeof setup>, op: string, value = '') => browserLocal(s.client, module, s.state, op, 'tab-1', value);
-const sets = (s: ReturnType<typeof setup>) => s.native.filter(request => request.op === 'browserSet').map(({ zoom, zoomStep, colorScheme }) =>
-  ({ ...(zoom === undefined ? {} : { zoom }), ...(zoomStep === undefined ? {} : { zoomStep }), ...(colorScheme === undefined ? {} : { colorScheme }) }));
+/** The frame's zoom and appearance, which the frame layer draws it at. */
+const frameOf = (s: ReturnType<typeof setup>) => frameEntry(s.client, s.runtimeId)!;
+/** The commands the root's `frameCommand` task runs, in order. */
+const commands = (s: ReturnType<typeof setup>) => frames(s.client).queue.map(({ kind, url, delta, flag }) => ({ kind, url, delta, flag }));
 const resizes = (s: ReturnType<typeof setup>) => s.calls.filter(call => call.method === 'preview.resize').map(call => call.payload.viewport);
 
 describe('PreviewMoreMenu zoom and appearance', () => {
-  it('steps the zoom ladder in the module (from the page\'s own zoom) and resets it', async () => {
+  it('steps the zoom ladder from the frame\'s own zoom and resets it', async () => {
     const s = setup({ zoom: 1.25 });
-    await local(s, 'zoom-in');
-    await local(s, 'zoom-out');
-    await local(s, 'zoom-reset');
-    expect(sets(s)).toEqual([{ zoomStep: 'in' }, { zoomStep: 'out' }, { zoom: 1 }]);
     expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ zoomFactor: 1.25, zoomLabel: '125%' });
+    await local(s, 'zoom-in');
+    expect(frameOf(s).zoom).toBe(1.5);
+    await local(s, 'zoom-out');
+    expect(frameOf(s).zoom).toBe(1.25);
+    await local(s, 'zoom-reset');
+    expect(frameOf(s).zoom).toBe(1);
   });
-  it('sends System, Light or Dark and refuses anything else', async () => {
+  it('sets System, Light or Dark and refuses anything else', async () => {
     const s = setup();
     await local(s, 'color-scheme', 'dark');
     await local(s, 'color-scheme', 'sepia');
-    expect(sets(s)).toEqual([{ colorScheme: 'dark' }]);
+    expect(frameOf(s).colorScheme).toBe('dark');
   });
 });
 
@@ -80,7 +88,7 @@ describe('ZoomIndicator', () => {
     const s = setup({ zoom: 1 });
     expect(browserView(s.client, s.surface, Date.now()).zoomSerial).toBe(0);
     expect(browserView(s.client, s.surface, Date.now()).zoomSerial).toBe(0);
-    ((s.client.presentation as Obj).browserTabs as Obj)[s.runtimeId] = { kind: 'Success', url: 'http://localhost:5173/', zoomFactor: 1.5 };
+    frameOf(s).zoom = 1.5;
     expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ zoomSerial: 1, zoomLabel: '150%' });
   });
 });
@@ -199,7 +207,7 @@ describe('PreviewEmptyState', () => {
   it('lets the stream go once the tab leaves its empty state', async () => {
     const s = setup({ nav: { _tag: 'Idle' } });
     await navigationPrepare(s.client, module, { ...s.state, visible: true });
-    ((s.client.presentation as Obj).browserTabs as Obj)[s.runtimeId] = { kind: 'Success', url: 'http://localhost:5173/', title: 'Vite' };
+    adoptFrameEvent(s.client, frameIdOf(s.runtimeId), 'event=navigatesuccess&url=http%3A%2F%2Flocalhost%3A5173%2F&title=Vite&loading=false', 0);
     await navigationPrepare(s.client, module, { ...s.state, visible: true });
     expect(s.requests.map(request => request.op)).toEqual(['subscribe', 'unsubscribe']);
   });
@@ -229,7 +237,7 @@ describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
     browserHistory(s.client.local).registerThreadProject(ref, 'proj'); // a saved mapping
     await navigationPrepare(s.client, module, s.state);
     await local(s, 'open-url', 'http://localhost:5173/app');
-    expect(s.native.find(request => request.op === 'browserNavigate')).toMatchObject({ url: 'http://192.168.1.25:5173/app' });
+    expect(commands(s)).toEqual([{ kind: 'navigate', url: 'http://192.168.1.25:5173/app', delta: 0, flag: false }]);
     expect(browserHistory(s.client.local).threadRecentHistory(ref, 8).map(entry => entry.url)).toEqual(['http://localhost:5173/app']);
     await local(s, 'remove-recent', 'http://localhost:5173/app');
     expect(browserHistory(s.client.local).threadRecentHistory(ref, 8)).toEqual([]);
@@ -251,6 +259,28 @@ describe('the preview keys and ⇧⌘J', () => {
     ];
     expect(previewKeys(s.client).split(' ').sort()).toEqual(['Meta+-=zoom-out', 'Meta+0=reset-zoom', 'Meta+==zoom-in', 'Meta+Plus=zoom-in', 'Meta+l=focus-url', 'Meta+r=refresh']);
     expect(browserView(s.client, s.surface, Date.now()).keys).toBe(previewKeys(s.client));
+  });
+  it('a View chord over a shown page acts on the page when it holds the focus, else on the window', async () => {
+    const s = setup(), frameId = frameIdOf(s.runtimeId), asked: Obj[] = [];
+    const focus = { type: 'identifier', name: 'previewFocus' };
+    (s.client.config as Obj).keybindings = [{ command: 'preview.zoomIn', shortcut: { key: '=', modKey: true }, whenAst: focus }];
+    let focused = true;
+    useAutomationCalls({ evaluate: async (options: Obj) => { asked.push(options); return { result: focused }; } } as unknown as AutomationCalls);
+    try {
+      await browserKey(s.client, frameId, 'chord=meta+r');
+      expect(asked).toEqual([{ id: frameId, expression: 'document.hasFocus()', sandbox: 't3-preview-automation' }]);
+      await browserKey(s.client, `browser-frame-gone,${frameId}`, 'chord=meta%2B%3D&step=3');
+      expect(frameOf(s).zoom).toBe(1.1);
+      focused = false;
+      await browserKey(s.client, frameId, 'chord=meta+r');
+      await browserKey(s.client, frameId, 'chord=meta%2B%3D&step=3');
+      // ⌘- has no preview binding here: the page is not asked.
+      asked.length = 0;
+      await browserKey(s.client, frameId, 'chord=meta%2B-&step=1');
+      expect(asked).toEqual([]);
+    } finally { useAutomationCalls(null); }
+    expect(commands(s)).toEqual([{ kind: 'reload', url: '', delta: 0, flag: false }, { kind: 'window', url: '', delta: 0, flag: true },
+      { kind: 'window', url: '', delta: 3, flag: false }, { kind: 'window', url: '', delta: 1, flag: false }]);
   });
   it('closes a shown Browser panel, else shows the thread\'s tab without opening another', async () => {
     const s = setup();
