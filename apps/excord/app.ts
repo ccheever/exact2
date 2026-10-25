@@ -391,14 +391,21 @@ const sources: Sources = {
     const list = guildId ? store.memberLists.get(guildId) : undefined;
     if (!list) return [];
     const roles = new Map(((store.guildMap.get(guildId!)?.roles ?? []) as Record<string, any>[]).map(r => [String(r.id), String(r.name ?? '')]));
-    return list.items.flatMap((item, i): Result<'loadMembers'> => {
+    // Keyed by who or which group, never by place: an INSERT at the top would otherwise re-key every row below it.
+    const seen = new Set<string>();
+    return list.items.flatMap((item): Result<'loadMembers'> => {
       if (!item) return [];
       if ('group' in item) {
         const label = item.group.id === 'online' ? 'Online' : item.group.id === 'offline' ? 'Offline' : roles.get(item.group.id) ?? 'Members';
-        return [{ id: `g${i}:${item.group.id}`, user: '', group: true, label, count: item.group.count, avatar: '', color: '', status: '' }];
+        const id = `g:${item.group.id}`;
+        if (seen.has(id)) return [];
+        seen.add(id);
+        return [{ id, user: '', group: true, label, count: item.group.count, avatar: '', color: '', status: '' }];
       }
       const m = item.member, u = S.user(store, m.user?.id) ?? m.user ?? { id: '' };
-      return [{ id: `m${i}:${u.id}`, user: String(u.id), group: false, label: m.nick || u.global_name || u.username || u.id, count: 0,
+      if (seen.has(`m:${u.id}`)) return [];
+      seen.add(`m:${u.id}`);
+      return [{ id: `m:${u.id}`, user: String(u.id), group: false, label: m.nick || u.global_name || u.username || u.id, count: 0,
         avatar: avatarUrl(live.origins.cdn, u), color: dirs.nameColor(channel, m.roles ?? []),
         status: String(m.presence?.status ?? 'offline') }];
     });
