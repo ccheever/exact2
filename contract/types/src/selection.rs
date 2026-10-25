@@ -109,6 +109,9 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         // @ref LLP 1020.002 D7 — the answer to `captureScreenshot`: the file
         // and its size, or why there is none.
         "capture" => Some("FrameCapture"),
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog, by WebDriver
+        // BiDi's `browsingContext.userPromptOpened`.
+        "userpromptopened" => Some("FrameUserPrompt"),
         _ => None,
     }
 }
@@ -146,6 +149,16 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("height".into(), Ty::Number),
             ("error".into(), Ty::String),
             ("message".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1020.002 D9 — the runner's `frame_navigation::other` builds it
+    // in this order: BiDi's `userPromptOpened` fields.
+    shapes.map.insert(
+        "FrameUserPrompt".into(),
+        vec![
+            ("type".into(), Ty::String),
+            ("message".into(), Ty::String),
+            ("defaultValue".into(), Ty::String),
         ],
     );
     // @ref LLP 1020.002 D7 — Geometry's `DOMRect`, by its constructor's fields:

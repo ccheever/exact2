@@ -6,8 +6,9 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
-        "@exact/browser": "workspace:*",
         "@exact/background": "workspace:*",
+        "@exact/browser": "workspace:*",
+        "@exact/browser-automation": "workspace:*",
         "@exact/calendar": "workspace:*",
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
@@ -40,12 +41,16 @@
       "name": "@exact/actions",
       "version": "0.1.0",
     },
+    "packages/background": {
+      "name": "@exact/background",
+      "version": "1.0.0",
+    },
     "packages/browser": {
       "name": "@exact/browser",
       "version": "1.0.0",
     },
-    "packages/background": {
-      "name": "@exact/background",
+    "packages/browser-automation": {
+      "name": "@exact/browser-automation",
       "version": "1.0.0",
     },
     "packages/calendar": {
@@ -142,9 +147,11 @@
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
+    "@exact/background": ["@exact/background@workspace:packages/background"],
+
     "@exact/browser": ["@exact/browser@workspace:packages/browser"],
 
-    "@exact/background": ["@exact/background@workspace:packages/background"],
+    "@exact/browser-automation": ["@exact/browser-automation@workspace:packages/browser-automation"],
 
     "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
 

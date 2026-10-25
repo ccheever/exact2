@@ -360,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 78] = [
+pub const HANDLERS: [&str; 79] = [
     "press",
     "change",
     "input",
@@ -467,6 +467,9 @@ pub const HANDLERS: [&str; 78] = [
     // A frame's `captureScreenshot` answered (LLP 1020.002 D7), with a
     // `FrameCapture`.
     "capture",
+    // An agent-controlled frame's dialog (LLP 1020.002 D9), with a
+    // `FrameUserPrompt`.
+    "userpromptopened",
     "heightrelease",
     "transformgeometry",
     "transformrelease",
