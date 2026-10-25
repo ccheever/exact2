@@ -183,7 +183,8 @@ final class IframeAutomationTests: XCTestCase {
     }
 
     /// A preload script runs at document start in each new document until
-    /// it is removed; the arm's own scripts stay.
+    /// it is removed; the arm's own scripts stay. Adding or removing one is a
+    /// read: the frame stays the person's.
     func testPreloadScriptsRunAtDocumentStart() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen)
@@ -201,6 +202,7 @@ final class IframeAutomationTests: XCTestCase {
         XCTAssertEqual(value(arm, "typeof window.early") as? String, "undefined")
         XCTAssertEqual(value(arm, "window.isolated", sandbox: "t3") as? Int, 1)
         XCTAssertEqual(web.configuration.userContentController.userScripts.count, own + 1)
+        XCTAssertEqual(controller(seen), "person", "a preload script took the frame")
     }
 
     /// Input reaches the page: a click, typed text, a key with a modifier
