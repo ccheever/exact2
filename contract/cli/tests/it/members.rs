@@ -379,3 +379,105 @@ component App
     let flat = root.replace("  members \"./more.contract\"\n", "  state extra = 0\n");
     assert_eq!(split.encode(), contract::compile(&flat).unwrap().encode());
 }
+
+#[test]
+fn a_members_files_own_fn_is_renamed_away_from_the_components_bindings() {
+    // `save(1)` in the listing file is the action; the members file's private
+    // `fn save` must not capture it (review round 3).
+    let app = App::new("capture");
+    app.write(
+        "more.contract",
+        "fn save(x: number): number = x + 100\nmembers App\n  state extra = 0\n",
+    );
+    let root = "\
+component App
+  state n = 0
+  action save(value: number)
+    n = value
+  members \"./more.contract\"
+  view
+    Button(onSave=save(1))
+component Button
+  props
+    onSave: action
+  view
+    button press=onSave aria-label=\"Save\"
+      text \"Save\"
+";
+    contract::compile_path(&app.write("app.contract", root)).unwrap();
+
+    // A shape only the members file declares is not the listing file's to
+    // call, as it would not be had the block been written there.
+    app.write(
+        "more.contract",
+        "shape Item\n  value: number\nmembers App\n  state extra = 0\n",
+    );
+    let root = "\
+component App
+  state Item = 0
+  state item = Item(value=1)
+  members \"./more.contract\"
+  view
+    text item.value.toString()
+";
+    let split = app.refuse(root);
+    let flat = root.replace("  members \"./more.contract\"\n", "  state extra = 0\n");
+    let flat = contract::compile(&flat).unwrap_err();
+    assert_eq!(split.id, flat.id, "{split}");
+}
+
+#[test]
+fn a_method_name_is_decided_where_the_call_is_written() {
+    let app = App::new("method-scope");
+    let root = "\
+use label from \"./more.contract\"
+component App
+  state count = 0
+  members \"./more.contract\"
+  view
+    text label()
+";
+    // A `fn` in a members file is outside the component: the block's action
+    // `trim` neither shadows its method call nor permits its free call.
+    let block = "members App\n  action trim(n: number)\n    count = n\n";
+    app.write(
+        "more.contract",
+        &format!("fn label(): string = \" x \".trim()\n{block}"),
+    );
+    contract::compile_path(&app.write("app.contract", root)).unwrap();
+    app.write(
+        "more.contract",
+        &format!("fn label(): string = trim(\" x \")\n{block}"),
+    );
+    assert_eq!(app.refuse(root).id, "syntax-method-form");
+
+    // Nor does it reach a component the members file declares.
+    let card = "component Card\n  view\n    text \"  hi  \".trim()\n";
+    app.write(
+        "more.contract",
+        &format!("fn label(): string = \"x\"\n{block}{card}"),
+    );
+    contract::compile_path(&app.write("app.contract", root)).unwrap();
+    let card = "component Card\n  view\n    text trim(\"  hi  \")\n";
+    app.write(
+        "more.contract",
+        &format!("fn label(): string = \"x\"\n{block}{card}"),
+    );
+    assert_eq!(app.refuse(root).id, "syntax-method-form");
+}
+
+#[test]
+fn a_deferred_refusal_is_reported_with_the_rest() {
+    let app = App::new("deferred-all");
+    app.write("more.contract", "members App\n  state extra = 0\n");
+    let root = app.write(
+        "app.contract",
+        "component App\n  state count = 0\n  members \"./more.contract\"\n  action bad\n    count = \"bad\"\n  view\n    text trim(\" x \")\n",
+    );
+    let Err(errors) = contract::compile_path_all(&root, false) else {
+        panic!("compiled")
+    };
+    let ids: Vec<&str> = errors.iter().map(|e| e.id.as_str()).collect();
+    assert!(ids.contains(&"syntax-method-form"), "{ids:?}");
+    assert!(ids.contains(&"type-assign"), "{ids:?}");
+}
