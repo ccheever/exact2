@@ -20,6 +20,15 @@ impl<D: DataSource> Host<D> {
         self.set_claims(covers, &[], &[], &[], &[], &[])
     }
 
+    /// The kernel's layout stamp folded to one number (`Kernel::layout_stamp`):
+    /// a measure kept while it stands is the one the kernel would answer.
+    pub fn layout_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.runner.kernel().layout_stamp().hash(&mut h);
+        h.finish()
+    }
+
     /// What `view`'s subtree would measure in `block` (`Kernel::measure_block`):
     /// no layout of the page, no batch; `None` when refused.
     pub fn measure_block(&mut self, view: ViewId, block: HostBlock) -> Option<BlockMeasure> {

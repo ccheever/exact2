@@ -139,6 +139,11 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// The kernel's layout stamp (`Host::layout_stamp`); 0 before a boot.
+    pub fn layout_stamp(&self) -> u64 {
+        self.host.as_ref().map_or(0, |h| h.layout_stamp())
+    }
+
     /// Copy one current immutable region request; stale IDs return an error object.
     pub fn region_request(&mut self, id: u64, known_source: u64) -> u32 {
         let answer = self

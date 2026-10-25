@@ -987,6 +987,11 @@ impl NodeArena {
         self.child_indices[slot as usize]
     }
 
+    /// The latest publication's number across all roots.
+    pub(crate) fn last_pass(&self) -> u64 {
+        self.last_pass
+    }
+
     pub(crate) fn begin_layout_publication(&mut self, root: u32) {
         self.last_pass += 1;
         self.layout_passes[root as usize] = self.last_pass;

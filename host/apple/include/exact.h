@@ -855,6 +855,10 @@ uint32_t exact_host_covers(ExactRuntime rt, size_t len);
  * floats in the output buffer, and 24; 0 when refused. Not a batch:
  * nothing is laid out, published or sent. */
 uint32_t exact_measure_block(ExactRuntime rt, uint32_t view, float width, float height, uint32_t width_policy, uint32_t height_policy);
+/* A number that moves whenever exact_measure_block could answer otherwise
+ * (a commit that changed something, a layout, a reset): a host keeps a
+ * measure while it stands. Not a batch. */
+uint64_t exact_layout_stamp(ExactRuntime rt);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
