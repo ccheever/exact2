@@ -319,7 +319,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     });
     return [...crates].map((c) => packages.get(c)).filter(Boolean);
   };
-  let cleaned = false;
+  let cleaned = false, readerHolds = 0;
   const buildTool = () => {
     tool.ready = false;
     stopGroup(tool.child);
@@ -328,7 +328,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     let err = '';
     child.stderr.on('data', (d) => { err = (err + d).slice(-64000); });
     child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); resumeAfterReader(); } });
-    // EXACT_DEV_READER_HOLD_MS (a test's): the reader's build taken that much later, as a slow one ends.
+    // EXACT_DEV_READER_HOLD_MS (a test's): the loop's first reader build taken that much later, as a slow one ends
+    // (only the first: one built again because a cold build left its inputs newer is not held twice).
+    const hold = readerHolds++ === 0 ? Number(process.env.EXACT_DEV_READER_HOLD_MS) || 0 : 0;
     child.on('exit', (code, signal) => setTimeout(() => {
       if (tool.child !== child) return;
       tool.child = null;
@@ -357,7 +359,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
       if (tool.ready) console.log('design reader ready'); // (until then a live proposal is taken as a rebuild, dev-inline.mjs)
       resumeAfterReader();
-    }, Number(process.env.EXACT_DEV_READER_HOLD_MS) || 0));
+    }, hold));
   };
   // Ready, and built from the compiler's sources as they are (a compiler
   // edit the loop does not watch, under contract/ or kernel/, rebuilds it).
