@@ -18,6 +18,28 @@ test('a member list follows SYNC, INSERT, UPDATE, DELETE and INVALIDATE, and sta
   const revision = s.memberLists.get('10')!.revision;
   applyDispatch(s, 'GUILD_MEMBER_LIST_UPDATE', { guild_id: '10', id: 'b', ops: [{ op: 'SYNC', range: [0, 0], items: [member('6')] }] }, 4);
   expect(ids()).toEqual(['6']);
-  expect(s.memberLists.get('10')!.revision).toBe(1);
-  expect(revision).toBe(3);
+  expect(s.memberLists.get('10')!.revision).toBeGreaterThan(revision);
+});
+
+test('a SYNC replaces its whole range, and a role change or another guild never repeats a revision', () => {
+  const s = createStore();
+  applyDispatch(s, 'READY', { user: { id: '1' }, guilds: [{ id: '10', channels: [], roles: [] }, { id: '11', channels: [] }] }, 0);
+  const member = (id: string) => ({ member: { user: { id }, roles: [] } });
+  const sync = (guild: string, list: string, items: unknown[], seq: number) =>
+    applyDispatch(s, 'GUILD_MEMBER_LIST_UPDATE', { guild_id: guild, id: list, ops: [{ op: 'SYNC', range: [0, 99], items }] }, seq);
+  const ids = () => s.memberLists.get('10')!.items.map(i => i && 'member' in i ? i.member.user.id : '-');
+  sync('10', 'a', [member('2'), member('3'), member('4')], 1);
+  sync('10', 'a', [member('2')], 2);
+  expect(ids()).toEqual(['2', '-', '-']);
+  const first = s.memberLists.get('10')!.revision;
+  sync('11', 'a', [member('5')], 3);
+  expect(s.memberLists.get('11')!.revision).not.toBe(first);
+  applyDispatch(s, 'GUILD_ROLE_UPDATE', { guild_id: '10', role: { id: '7', name: 'Admin', color: 0xff0000 } }, 4);
+  expect(s.memberLists.get('10')!.revision).toBeGreaterThan(s.memberLists.get('11')!.revision);
+  sync('10', 'a', Array.from({ length: 100 }, (_, i) => member(`${100 + i}`)), 5);
+  applyDispatch(s, 'GUILD_MEMBER_LIST_UPDATE', { guild_id: '10', id: 'a', ops: [{ op: 'INVALIDATE', range: [50, 99] },
+    { op: 'INSERT', index: 99, item: member('4') }] }, 6);
+  expect(ids().indexOf('4')).toBe(99);
+  sync('10', 'a', [], 7);
+  expect(ids().filter(id => id !== '-')).toEqual([]);
 });
