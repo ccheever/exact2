@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use ServerButton from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
@@ -33,7 +33,7 @@ routes nav
   home "/"
     channel "/c/:channel"
 
-fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
 // The gateway holds a session, or is opening one, so the heartbeat runs.
 fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
 
@@ -48,6 +48,13 @@ fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.i
 shape Viewport
   width: number
   displayMode: string
+  prefersReducedMotion: bool
+
+// Someone typing: three dots that rise and fall in turn, as Discord draws them.
+keyframes typingDot
+  from opacity=0.35 translate="0px 0px"
+  50% opacity=1 translate="0px -2px"
+  to opacity=0.35 translate="0px 0px"
 
 // The page's visibility, for acknowledging what the reader sees (§2: an ack is a
 // write, sent as the official client sends it).
@@ -207,6 +214,14 @@ component Excord
   derive draft = draftOf(drafts, open)
   // A name being written (`@ada`, `#gen`, `:fer`) and what it could be.
   resource suggestions = suggest(open, draft) as shape Suggestion[] else empty()
+  // The reaction picker's search and what it finds; nothing is asked while it is closed.
+  state picking = false
+  state pickerQuery = ""
+  resource choices = emojiChoices(picking ? open : "", pickerQuery) as shape EmojiChoice[] else empty()
+  // The quick switcher (⌘K): its search and matches, asked only while it shows.
+  state switching = false
+  state switchQuery = ""
+  resource targets = switchTargets(switchQuery, switching) as shape SwitchTarget[] else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
   derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
@@ -322,7 +337,7 @@ component Excord
   // Opening a channel: at its newest (§3.1), at its first unread with the bar
   // (§3.2), or where this session left it (§3.3).
   action openChannel(id: string)
-    let c = channelOf(channels.concat(dms), id)
+    let c = channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
     let p = placeOf(places, id)
     // A split opens one channel over another: the one left keeps its place and draft, and is read
     // as `leaving` reads it (its `viewChannel` is this one's below).
@@ -360,7 +375,8 @@ component Excord
     pageTries = 0
     send joined = viewChannel(id)
     lastChannels = withDraft(lastChannels, c.guild != "" ? c.guild : "@me", id)
-    nav = push(nav, path("channel", id))
+    // Beside the list (a split) one channel replaces another, as a sidebar's selection does.
+    nav = top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
   action pickServer(v: string)
     server = v
     if wide and top(nav).name != "home"
@@ -657,6 +673,39 @@ component Excord
     copyText(`https://discord.com/channels/@me/${open}/${aimedId}`)
   action reactAimed(emoji: string)
     send changed = react(open, aimedId, emoji)
+  action openPicker
+    pickerQuery = ""
+    picking = true
+    showModal("react-picker")
+  action searchPicker(v: string)
+    pickerQuery = v
+  action reactPicked(value: string)
+    picking = false
+    close("react-picker")
+    send changed = react(open, aimedId, value)
+  action pickerClosed
+    picking = false
+  action openSwitcher
+    switchQuery = ""
+    switching = true
+    showModal("switcher")
+  action searchSwitcher(v: string)
+    switchQuery = v
+  action switcherKey(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.isComposing
+      preventDefault()
+      match first(targets)
+        case some(t)
+          switchTo(t.server, t.id)
+        case none
+          switching = switching
+  action switchTo(serverId: string, id: string)
+    switching = false
+    close("switcher")
+    server = serverId
+    openChannel(id)
+  action switcherClosed
+    switching = false
   action toggleReaction(id: string, emoji: string)
     send changed = react(open, id, emoji)
   action retry(key: string)
@@ -764,8 +813,28 @@ component Excord
           column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0 inert=(viewing != "")
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               h1 (dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1
+              button press=openSwitcher aria-label="Find or Start a Conversation" aria-keyshortcuts="Meta+K Control+K" testId="switcher-open"
+                image "symbol:search"
               button popovertarget="account-menu" aria-label="Account" testId="account"
                 image "symbol:person"
+            dialog id="switcher" aria-label="Find or Start a Conversation" close=switcherClosed testId="switcher"
+              column gap=8 padding=12 width="28rem" max-width="100%"
+                input type="search" value=switchQuery input=searchSwitcher key=switcherKey placeholder="Where would you like to go?" aria-label="Where would you like to go?" autofocus=true testId="switcher-search"
+                scroll max-height="20rem"
+                  column
+                    for t in targets key=t.id
+                      button appearance="none" press=switchTo(t.server, t.id) aria-label=`${t.label}, ${t.detail}` testId=`switch-${t.id}` padding="8px 10px" border-radius=8
+                        row gap=10 align-items="center" min-width=0
+                          if t.avatar != ""
+                            image t.avatar width=24 height=24 border-radius=12 object-fit="cover" flex-shrink=0 aria-hidden=true
+                          else
+                            text t.glyph width="1.5rem" text-align="center" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
+                          text t.label font-weight=(t.unread ? 600 : 400) flex="0 1 auto" min-width=0 line-clamp=1
+                          text t.detail font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
+                          if t.mentions > 0
+                            Badge(label=`${t.mentions}`, tint=some("-exact-system-red"))
+                if targets.length == 0
+                  text (switchQuery == "" ? "Type a channel's or a person's name." : "Nothing matches.") font="-exact-footnote" color="-exact-secondary-label" padding="8px 10px"
             column id="account-menu" popover="auto" role="menu" aria-label="Account"
               text (gw.meName != "" ? `Signed in as ${gw.meName}` : "Connecting…") font="-exact-footnote" color="-exact-secondary-label" padding="6px 12px"
               if lockable
@@ -885,6 +954,9 @@ component Excord
                   text "❤️ Heart"
                 button press=reactAimed("😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
                   text "😂 Laugh"
+                button press=openPicker popovertarget="message-menu" popovertargetaction="hide" testId="menu-react"
+                  image "symbol:add"
+                  text "Add Reaction"
                 hr
                 button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
                   image "symbol:copy"
@@ -900,6 +972,19 @@ component Excord
                   button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
                     image "symbol:delete"
                     text "Delete Message"
+              dialog id="react-picker" aria-label="Add Reaction" close=pickerClosed testId="react-picker"
+                column gap=10 padding=12 width="22rem" max-width="100%"
+                  input type="search" value=pickerQuery input=searchPicker placeholder="Find an emoji" aria-label="Find an emoji" autofocus=true testId="picker-search"
+                  scroll height="16rem"
+                    view display="grid" grid-template-columns="repeat(auto-fill, minmax(44px, 1fr))" gap=2
+                      for e in choices key=e.id
+                        button appearance="none" press=reactPicked(e.value) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
+                          if e.avatar != ""
+                            image e.avatar width=28 height=28 margin="auto"
+                          else
+                            text e.glyph font-size=26 text-align="center"
+                  if choices.length == 0
+                    text "No emoji match." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
               dialog id="confirm-delete" role="alertdialog" aria-label="Delete Message"
                 text "Are you sure you want to delete this message?"
                 button press=deleteAimed destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
@@ -913,7 +998,12 @@ component Excord
                   button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
                     text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
               if chan.typing != ""
-                text chan.typing testId="typing" position="absolute" left=16 right=16 bottom=2 font="-exact-caption1" color="-exact-secondary-label" line-clamp=1
+                row position="absolute" left=16 right=16 bottom=2 gap=6 align-items="center"
+                  row gap=3 aria-hidden=true
+                    for d in ["0", "1", "2"] key=d
+                      view width=5 height=5 border-radius=3 background-color="-exact-secondary-label"
+                        animation=(viewport.prefersReducedMotion ? "none" : `typingDot 1.2s ${d == "0" ? 0 : d == "1" ? 160 : 320}ms ease-in-out infinite`)
+                  text chan.typing testId="typing" font="-exact-caption1" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0
               if away and (newCount > 0 or win.hasAfter)
                 button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
                   text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
@@ -936,12 +1026,7 @@ component Excord
                   row gap=8 padding="6px 2px"
                     for f in picked key=f.path
                       view position="relative" flex-shrink=0
-                        if f.type.startsWith("image/")
-                          image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
-                        else
-                          column width="4.5rem" height=72 box-sizing="border-box" border-radius=8 align-items="center" justify-content="center" gap=4 padding=6 background-color="-exact-secondary-background" border="1px solid -exact-separator"
-                            image "symbol:document" width=24 height=24 color="AccentColor"
-                            text f.name font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 max-width="100%"
+                        image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
                         button appearance="none" press=unpick(f.path) aria-label=`Remove ${f.name}` position="absolute" top=4 right=4 width=22 height=22 border-radius=11
                           display="flex" align-items="center" justify-content="center" background-color="-exact-label" testId=`unpick-${f.name}`
                           image "symbol:close" width=10 height=10 color="-exact-background"
@@ -958,8 +1043,9 @@ component Excord
                         if g.detail != ""
                           text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
               row align-items="flex-end" gap=8
-                input type="file" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
-                button press=attach aria-label="Add a file" testId="attach" disabled=(editing != "") margin-bottom=4
+                // Pictures only: uploading other files is out of Excord's scope (llp/0001 §1).
+                input type="file" accept="image/*" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
+                button press=attach aria-label="Add a picture" testId="attach" disabled=(editing != "") margin-bottom=4
                   image "symbol:add"
                 // The field draws no ring of its own: the pill's border shows the focus. One line
                 // sits at Send's middle, whatever height the platform gives Send; Send stays at the
@@ -967,7 +1053,7 @@ component Excord
                 row flex=1 min-width=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
                   focusin=composerFocus(true) focusout=composerFocus(false)
                   textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
-                    placeholder=(chan.guild != "" ? `Message #${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
+                    placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
                     line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
                   button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
                     retainFocus=true aria-label="Send" testId="send" align-self="flex-end"

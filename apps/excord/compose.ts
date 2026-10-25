@@ -113,3 +113,50 @@ export function resolveMentions(store: S.Store, channelId: string, text: string)
     });
   return outsideCode(text, plain);
 }
+
+export type EmojiChoice = Result<'emojiChoices'>[number];
+/** What the reaction picker offers for a search: the server's own emoji, then Unicode ones by their
+ * shortcodes, the name's start before its middle; everything for an empty search. `value` is what a
+ * reaction names: a custom emoji's id, or the character. */
+export function emojiChoices(store: S.Store, cdn: string, channelId: string, query: string): EmojiChoice[] {
+  if (!channelId) return [];
+  const q = query.trim().toLowerCase().replace(/^:|:$/g, '');
+  const guildId = S.channel(store, channelId)?.guild_id ?? '';
+  const out: (EmojiChoice & { order: number })[] = [];
+  for (const e of guildId ? store.emojis.get(guildId) ?? [] : []) {
+    const order = e.available ? q ? rank(e.name, q) : 0 : -1;
+    if (order >= 0) out.push({ id: `e${e.id}`, label: e.name, glyph: '', avatar: `${cdn}/emojis/${e.id}.${e.animated ? 'gif' : 'png'}`, value: e.id, order });
+  }
+  for (const [name, char] of SHORTCODES) {
+    const order = q ? rank(name, q) : 1;
+    if (order >= 0) out.push({ id: `s${name}`, label: name, glyph: char, avatar: '', value: char, order });
+  }
+  return out.sort((a, b) => a.order - b.order).slice(0, 160).map(({ order: _order, ...c }) => c);
+}
+
+export type SwitchTarget = Result<'switchTargets'>[number];
+/** The quick switcher's matches for a search: text channels the reader can see in every server and the
+ * direct messages, by name (its start before its middle), unread ones first among equals; with no search,
+ * what is unread. */
+export function switchTargets(store: S.Store, cdn: string, query: string, record: (id: string) => SwitchTarget['channel']): SwitchTarget[] {
+  const q = query.trim().toLowerCase().replace(/^[#@]/, '');
+  const out: (Omit<SwitchTarget, 'channel'> & { order: number })[] = [];
+  const consider = (c: S.Channel, label: string, detail: string, server: string, avatar: string, glyph: string) => {
+    const unread = S.unread(store, c.id);
+    const order = q ? rank(label, q) : unread.unread ? 0 : -1;
+    if (order < 0) return;
+    out.push({ id: c.id, label, detail, server, avatar, glyph, unread: unread.unread, mentions: unread.mentionCount, order: order * 4 + (unread.mentionCount ? 0 : unread.unread ? 1 : 2) });
+  };
+  for (const g of S.guilds(store)) {
+    for (const c of S.guildChannelList(store, g.id)) {
+      if ([0, 5].includes(c.type ?? 0) && c.name && S.canView(store, c)) consider(c, String(c.name), String(g.name ?? ''), g.id, '', '#');
+    }
+  }
+  for (const c of S.dms(store)) {
+    const recipient = c.type === 1 ? (c.recipients ?? [])[0] as S.User | undefined : undefined;
+    consider(c, record(c.id).name, c.type === 1 ? 'Direct Message' : 'Group', '@me',
+      recipient ? avatarUrl(cdn, S.user(store, recipient.id) ?? recipient) : '', recipient ? '' : '@');
+  }
+  // Only the matches shown are given their records.
+  return out.sort((a, b) => a.order - b.order).slice(0, 20).map(({ order: _order, ...t }) => ({ ...t, channel: record(t.id) }));
+}

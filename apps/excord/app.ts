@@ -7,7 +7,7 @@ import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
 import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
-import { resolveMentions, suggest } from './compose';
+import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 
@@ -135,7 +135,7 @@ function channelRecord(id: string): Channel {
   const recipients: { id: string }[] = c?.recipients ?? [];
   const avatar = c?.type === 1 && recipients[0] ? avatarUrl(live.origins.cdn, S.user(store, recipients[0].id) ?? recipients[0])
     : c?.type === 3 && c.icon ? `${live.origins.cdn}/channel-icons/${id}/${c.icon}.png?size=128` : '';
-  return { id, guild: c?.guild_id ?? '', name, avatar, topic: c?.topic ?? '', version: S.channelVersion(store, id),
+  return { id, guild: c?.guild_id ?? '', name, avatar, direct: c?.type === 1, topic: c?.topic ?? '', version: S.channelVersion(store, id),
     unread: read.unread ? Math.max(1, known.count) : 0, mentions: read.mentionCount,
     firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
     lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),
@@ -277,6 +277,8 @@ const sources: Sources = {
   }),
   viewChannel: ([channel]) => { view(live, channel); return OK; },
   suggest: ([channel, draft]) => suggest(store, live.origins.cdn, channel, draft),
+  emojiChoices: ([channel, query]) => emojiChoices(store, live.origins.cdn, channel, query),
+  switchTargets: ([query, open]) => open ? switchTargets(store, live.origins.cdn, query, channelRecord) : [],
   echoMessage: ([channel, written, replyTo, now, picked]) => {
     const files: Upload[] = (picked ?? []).map(f => ({ path: f.path, name: f.name, type: f.type, size: f.size,
       width: f.width ?? 0, height: f.height ?? 0 }));
@@ -334,7 +336,9 @@ const sources: Sources = {
     const row = S.message(store, channel, id);
     if (!row?.id) throw new Error('Message no longer exists.');
     const existing = (row.reactions ?? []).find((r: any) => (r.emoji.id ?? r.emoji.name) === emoji || r.emoji.name === emoji);
-    const value = existing?.emoji.id ? { id: existing.emoji.id, name: existing.emoji.name } : { id: null, name: emoji };
+    // A custom emoji is named by its id: the reaction's own, or the server's emoji of that id.
+    const custom = existing?.emoji.id ? existing.emoji : /^\d+$/.test(emoji) ? [...store.emojis.values()].flat().find(e => e.id === emoji) : undefined;
+    const value = custom ? { id: custom.id, name: custom.name, ...(custom.animated ? { animated: true } : {}) } : { id: null, name: emoji };
     const path = value.id ? `${value.name}:${value.id}` : value.name;
     const mine = existing?.me === true;
     await call(live, (mine ? rest.removeReaction : rest.addReaction)(context(live), channel, row.id, path));
