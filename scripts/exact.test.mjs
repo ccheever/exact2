@@ -64,7 +64,7 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
 
 const tools = process.platform === 'darwin' && ['clang', 'codesign'].every((tool) => Bun.which(tool));
 
-test.skipIf(!tools)('widget packaging preserves the parent platform in device and simulator extensions', () => inDir(dir => {
+test.skipIf(!tools)('widget packaging preserves parent platform and device capabilities in device and simulator extensions', () => inDir(dir => {
   const library = resolve(dir, 'fixture.dylib');
   writeFileSync(resolve(dir, 'fixture.c'), 'void fixture(void) {}');
   const compiled = spawnSync('clang', ['-dynamiclib', resolve(dir, 'fixture.c'), '-o', library], { encoding: 'utf8' });
@@ -80,7 +80,8 @@ test.skipIf(!tools)('widget packaging preserves the parent platform in device an
     const framework = resolve(bundle, 'Frameworks/ExactCore.framework');
     mkdirSync(framework, { recursive: true });
     const parent = { CFBundleVersion: '8', CFBundleShortVersionString: '1.0.0', MinimumOSVersion: '17.0',
-      UIDeviceFamily: [1, 2], CFBundleSupportedPlatforms: [device ? 'iPhoneOS' : 'iPhoneSimulator'], DTPlatformName: platform, ExactWidgetGeneration: 'fixture' };
+      UIDeviceFamily: [1, 2], CFBundleSupportedPlatforms: [device ? 'iPhoneOS' : 'iPhoneSimulator'], DTPlatformName: platform, ExactWidgetGeneration: 'fixture',
+      ...(device ? { UIRequiredDeviceCapabilities: ['arm64'] } : {}) };
     writeFileSync(resolve(bundle, 'Info.plist'), plistFile(parent));
     writeFileSync(resolve(framework, 'Info.plist'), plistFile({ CFBundleIdentifier: 'dev.exact.fixture.runtime' }));
     let signed = null;
@@ -97,6 +98,7 @@ test.skipIf(!tools)('widget packaging preserves the parent platform in device an
     assert.equal(signed, resolve(bundle, 'PlugIns/ExactWidgets.appex'));
     const info = readPlist(resolve(signed, 'Info.plist'));
     assert.equal(info.DTPlatformName, platform);
+    assert.deepEqual(info.UIRequiredDeviceCapabilities, parent.UIRequiredDeviceCapabilities);
     assert.deepEqual(info.CFBundleSupportedPlatforms, parent.CFBundleSupportedPlatforms);
     assert.equal(info.CFBundleVersion, parent.CFBundleVersion);
   }
