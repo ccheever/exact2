@@ -45,7 +45,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { evictArms, keepRoster, keptRoster, snapshotSources } from './arms.mjs';
 import { HOST_MACOS } from '../../scripts/filesystem.mjs';
-import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes } from './documents.mjs';
+import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes, browserEntitlements } from './documents.mjs';
 import { executableName, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
@@ -335,7 +335,7 @@ export const appClip = (app) => {
  * second Keychain group so items stored then still read and update in place
  * (D3, measured). The grants' signing entitlements (`reach.entitlements`,
  * D2) are each `true`. */
-export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team } = {}) => {
+export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team, distributed = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const prefixed = `${SIMULATOR_PREFIX}.${app.id}`;
   const dict = {
@@ -344,6 +344,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     ...(simulator && !team ? { 'keychain-access-groups': [prefixed, app.id] } : {}),
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
+    ...Object.fromEntries(browserEntitlements(app, distributed).map(key => [key, true])),
   };
   // The clip (`clipParent`, the app's id) is its parent's App Clip: the parent's entitlements, the App Group and
   // Keychain group of the parent's included (how a clip shares data with its app), under the clip's own
@@ -469,7 +470,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   // An App Clip is opened through its associated domains, never a URL scheme (Apple, "Choosing the right
   // functionality for your App Clip"), so the clip registers none: the full app owns the schemes and the dev link.
   if (clip) dict.NSAppClip = { NSAppClipRequestEphemeralUserNotification: false, NSAppClipRequestLocationConfirmation: false };
-  else Object.assign(dict, openingLinks(app, 'ios', development, distributed), shortcutKeys(app, tv ? 'tvos' : 'ios'));
+  else Object.assign(dict, openingLinks({ ...app, widgetTV: tv, widgetHost: id !== app.id }, 'ios', development, distributed), shortcutKeys(app, tv ? 'tvos' : 'ios'));
   Object.assign(dict, updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
@@ -674,7 +675,8 @@ async function main(args, lockHeld = false) {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
     // With entries, the app's profile is one that grants the group (and the extension's exists), refused here,
     // before anything is built, with the edit; the bundle takes both again with the grants' entitlements.
-    prof = widgets ? entryProfiles({ app, udid: ph?.udid }).app : profile(ph?.udid, app.id);
+    const required = browserEntitlements({ ...app, widgetTV: tv }, distribution);
+    prof = widgets ? entryProfiles({ app, udid: ph?.udid, required }).app : profile(ph?.udid, app.id, required);
     return identity(prof.team);
   })() : ios ? '-' : (distribution ? process.env.EXACT_DEVELOPER_ID : null) ?? macIdentity();
   const macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;
@@ -1232,7 +1234,7 @@ async function main(args, lockHeld = false) {
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
-        entitled = entitlements({...app, widgetTV: tv, widgetHost: p === 'ExactHostIOS', id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true });
+        entitled = entitlements({...app, widgetTV: tv, widgetHost: p === 'ExactHostIOS', id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true, distributed: distribution });
         const ent = resolve(linkRoot, `${p}-entitlements.plist`);
         // Written only when it differs: the early build may be reading it.
         if (!existsSync(ent) || readFileSync(ent, 'utf8') !== entitled) writeFileSync(ent, entitled);

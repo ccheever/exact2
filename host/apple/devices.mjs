@@ -652,7 +652,9 @@ export function developmentLaunchEnvironment(args, environment = process.env) {
 export const allows = (p, required = []) => !!p && required.every((name) => p.entitlements.includes(name));
 
 /** What a profile that lacks a grant's entitlement needs, said once. */
-const missing = (bundle, required, why) => new Error(`grant-device-profile: ${required.join(', ')} ${required.length > 1 ? 'are' : 'is'} needed by this app's grants, and ${why} (a team wildcard never allows HealthKit). In the Apple Developer portal, register the App ID ${bundle} with that capability, make a development profile for it that includes this phone, and install it (or name it with EXACT_PROFILE).`);
+const missing = (bundle, required, why) => new Error(required.includes('com.apple.developer.web-browser')
+  ? `browser-device-profile: ${required.join(', ')} required by ${bundle}, and ${why}. Request Apple's managed default-browser approval, enable it for this App ID, then install a profile that grants it (or name it with EXACT_PROFILE).`
+  : `grant-device-profile: ${required.join(', ')} ${required.length > 1 ? 'are' : 'is'} needed by this app's grants, and ${why} (a team wildcard never allows HealthKit). In the Apple Developer portal, register the App ID ${bundle} with that capability, make a development profile for it that includes this phone, and install it (or name it with EXACT_PROFILE).`);
 
 /** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself, under the profile's App ID prefix, which an older team's App IDs keep apart from its team id), unexpired; EXACT_PROFILE names one.
  * With `required` (a grant's signing entitlements), only one that allows them all, which is one for the id itself. */
