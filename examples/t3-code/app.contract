@@ -48,7 +48,8 @@ routes promptLinks
   home "/"
   incoming "/open"
 
-use AppDecision from "./src/shell/app-decisions.contract"
+use AppDecision, ChatLocalResult, ChatSends, CommandArgs from "./src/shell/app-decisions.contract"
+use projectAppChatSends, projectChatLocalSends from "./src/shell/app-decisions.contract"
 use initialComposerIntentState, initialComposerFieldProtocol, initialComposerSelectionState from "./src/shell/app-protocols.contract"
 use initialPromptPreviewState, initialPaletteSessionState, initialProviderWizardState from "./src/shell/app-protocols.contract"
 use initialConfirmationState, initialCitationPlacementState, initialFindPlacementState from "./src/shell/app-protocols.contract"
@@ -1250,7 +1251,7 @@ component T3Code
       send composerFieldChanged = composerFieldObserved(d.field.p0, d.field.p1)
     if d.sendDraftLeft
       send draftLeft = command(d.draftLeave.p0, d.draftLeave.p1, d.draftLeave.p2, d.draftLeave.p3)
-    applyChatSends(d)
+    applyChatSends(projectAppChatSends(d))
     if d.sendHighlightSliced
       send highlightSliced = highlightSlice(d.highlight.p0)
     if d.sendPaletteChanged
@@ -1329,7 +1330,7 @@ component T3Code
     applySharedCompletionEffects(d)
 
   action applySharedCompletionEffects(d: AppDecision)
-    applyLocalChange(d)
+    applyLocalChange(d.sendLocalChanged, d.local)
     if d.sendTimelineReadsRefreshed
       send timelineReadsRefreshed = refreshTimelineReads(d.timeline.p0)
     if d.sendTimelineReadsRefreshedNext
@@ -1350,7 +1351,7 @@ component T3Code
     if d.sendPrHandoffChanged
       send prHandoffChanged = command(d.prHandoff.p0, d.prHandoff.p1, d.prHandoff.p2,
         d.prHandoff.p3)
-    applyLocalChange(d)
+    applyLocalChange(d.sendLocalChanged, d.local)
     if d.hostRelaunch
       relaunch()
     if d.hostFocus
@@ -1375,7 +1376,7 @@ component T3Code
       )
     if d.sendTerminalChanged
       send terminalChanged = command(d.terminal.p0, d.terminal.p1, d.terminal.p2, d.terminal.p3)
-    applyLocalChange(d)
+    applyLocalChange(d.sendLocalChanged, d.local)
     if d.changedKind == "command"
       send changed = command(d.command.p0, d.command.p1, d.command.p2, d.command.p3)
 
@@ -1383,7 +1384,7 @@ component T3Code
     if d.writeHoverState
       hoverState = d.hoverState
 
-  action applyChatSends(d: AppDecision)
+  action applyChatSends(d: ChatSends)
     if d.sendFileCommentChanged
       send fileCommentChanged = command(d.fileComment.p0, d.fileComment.p1, d.fileComment.p2,
         d.fileComment.p3)
@@ -1396,16 +1397,16 @@ component T3Code
       send lineDragChanged = command(d.lineDrag.p0, d.lineDrag.p1, d.lineDrag.p2, d.lineDrag.p3)
     if d.sendPrQuickChanged
       send prQuickChanged = command(d.prQuick.p0, d.prQuick.p1, d.prQuick.p2, d.prQuick.p3)
-  action applyLocalChange(d: AppDecision)
-    if d.sendLocalChanged
-      send localChanged = command(d.local.p0, d.local.p1, d.local.p2, d.local.p3)
-  action applyChat(d: AppDecision)
+  action applyLocalChange(shouldSend: bool, args: CommandArgs)
+    if shouldSend
+      send localChanged = command(args.p0, args.p1, args.p2, args.p3)
+  action applyChat(d: ChatLocalResult)
     if d.writeFoldHold
       foldHold = d.foldHold
     if d.writeRightPanelAt
       rightPanelAt = d.rightPanelAt
-    applyChatSends(d)
-    applyLocalChange(d)
+    applyChatSends(projectChatLocalSends(d))
+    applyLocalChange(d.sendKind == "local", d.args)
   action applyPanelState(d: AppDecision)
     if d.writeCommandPending
       commandPending = d.commandPending
@@ -1422,7 +1423,7 @@ component T3Code
 
   action applyPanel(d: AppDecision)
     applyPanelState(d)
-    applyLocalChange(d)
+    applyLocalChange(d.sendLocalChanged, d.local)
     if d.sendTerminalChanged
       send terminalChanged = command(d.terminal.p0, d.terminal.p1, d.terminal.p2, d.terminal.p3)
     if d.changedKind == "command"

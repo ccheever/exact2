@@ -1,3 +1,4 @@
+use ChatLocalResult, CommandArgs from "./app-decisions.contract"
 use UiDecision, beginUiDecision from "./app-ui-decisions.contract"
 use UiStart from "./app-ui-start.contract"
 use HoverTip from "./hover-layer.contract"
@@ -12,7 +13,7 @@ use stepCoreSearchKey, stepCoreThemeChange from "./app-ui-surfaces-transitions.c
 use stepCoreThemeDialog, stepEditSettingsQuery from "./app-ui-surfaces-transitions.contract"
 use stepPanelUi, stepSettingsCommand, stepSidebarHover from "./app-ui-surfaces-transitions.contract"
 use stepSidebarLocal from "./app-ui-surfaces-transitions.contract"
-use stepChatLocal, stepClearModalError from "./app-ui-composer-edit-transitions.contract"
+use decideChatLocal, stepChatLocal, stepClearModalError from "./app-ui-composer-edit-transitions.contract"
 use stepCloseConnection, stepCloseModal from "./app-ui-composer-edit-transitions.contract"
 use stepComposerBlur, stepComposerChipPress from "./app-ui-composer-edit-transitions.contract"
 use stepComposerDrop, stepComposerFocus from "./app-ui-composer-edit-transitions.contract"
@@ -112,6 +113,28 @@ fn uiChatLocal(
 ): UiDecision = stepChatLocal(
   beginUiDecision(s),
   s,
+  op,
+  id,
+  value
+)
+
+fn uiChatLocalResult(
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): ChatLocalResult = decideChatLocal(
+  ChatLocalResult(
+    writeFoldHold=false,
+    foldHold=false,
+    writeRightPanelAt=false,
+    rightPanelAt="",
+    sendKind="",
+    args=CommandArgs(p0="", p1="", p2="", p3=0)
+  ),
+  s.transcriptViewport,
+  s.composerOwner,
+  s.shell.panel,
   op,
   id,
   value

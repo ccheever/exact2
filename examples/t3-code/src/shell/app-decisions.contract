@@ -861,3 +861,42 @@ fn initialAppDecision(): AppDecision = AppDecision(
   refreshData=false,
   refreshShell=false
 )
+
+shape ChatSends
+  sendFileCommentChanged: bool
+  fileComment: CommandArgs
+  sendFragmentChanged: bool
+  fragment: CommandArgs
+  sendInlineDocumentChanged: bool
+  inlineDocument: CommandArgs
+  sendLineDragChanged: bool
+  lineDrag: CommandArgs
+  sendPrQuickChanged: bool
+  prQuick: CommandArgs
+
+// Wide decisions may carry several sends and distinct inactive arguments.
+fn projectAppChatSends(d: AppDecision): ChatSends = ChatSends(
+  sendFileCommentChanged=d.sendFileCommentChanged,
+  fileComment=d.fileComment,
+  sendFragmentChanged=d.sendFragmentChanged,
+  fragment=d.fragment,
+  sendInlineDocumentChanged=d.sendInlineDocumentChanged,
+  inlineDocument=d.inlineDocument,
+  sendLineDragChanged=d.sendLineDragChanged,
+  lineDrag=d.lineDrag,
+  sendPrQuickChanged=d.sendPrQuickChanged,
+  prQuick=d.prQuick
+)
+
+fn projectChatLocalSends(d: ChatLocalResult): ChatSends = ChatSends(
+  sendFileCommentChanged=d.sendKind == "fileComment",
+  fileComment=d.args,
+  sendFragmentChanged=d.sendKind == "fragment",
+  fragment=d.args,
+  sendInlineDocumentChanged=d.sendKind == "inlineDocument",
+  inlineDocument=d.args,
+  sendLineDragChanged=d.sendKind == "lineDrag",
+  lineDrag=d.args,
+  sendPrQuickChanged=d.sendKind == "prQuick",
+  prQuick=d.args
+)
