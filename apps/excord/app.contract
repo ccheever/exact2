@@ -1146,7 +1146,7 @@ component Excord
             row gap=6 flex-wrap="wrap"
               for r in profile.roles key=r.id
                 row gap=6 align-items="center" padding="3px 8px" border-radius=6 background-color="-exact-quaternary-fill"
-                  view width=10 height=10 border-radius=5 background-color=(r.color != "" ? r.color : "-exact-tertiary-label") aria-hidden=true
+                  view width=10 height=10 border-radius=5 background-color=(r.swatch != "" ? r.swatch : "-exact-tertiary-label") aria-hidden=true
                   text r.name font="-exact-footnote"
           button commandfor="profile" command="close" align-self="stretch" testId="profile-close"
             text "Done"

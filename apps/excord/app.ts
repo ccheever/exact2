@@ -228,7 +228,8 @@ function profileOf(channel: string, userId: string, messageId: string): Result<'
   const roles = ((guild?.roles ?? []) as Record<string, any>[]).filter(r => held.includes(String(r.id)))
     .sort((a, b) => Number(b.position ?? 0) - Number(a.position ?? 0))
     .map(r => { const color = Number(r.colors?.primary_color ?? r.color ?? 0);
-      return { id: String(r.id), name: String(r.name ?? ''), color: color ? legible(color & 0xffffff) : '' }; });
+      return { id: String(r.id), name: String(r.name ?? ''), color: color ? legible(color & 0xffffff) : '',
+        swatch: color ? `#${(color & 0xffffff).toString(16).padStart(6, '0')}` : '' }; });
   return { id: userId, name: u.global_name || u.username || userId, handle: u.username ?? '', avatar: avatarUrl(live.origins.cdn, u),
     bot: u.bot === true, color: roles.find(r => r.color)?.color ?? '', roles };
 }
