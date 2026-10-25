@@ -1,7 +1,7 @@
 // Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6,
 // §9): a partitioned top-level guest, the Navigation API's events with their
-// `FrameNavigation` record, the four frame commands, and a guest's window
-// requests and downloads.
+// `FrameNavigation` record, the four frame commands, a guest's window
+// requests and downloads, and a capture of the guest (D7).
 component Shell
   state address = ""
   state title = ""
@@ -10,6 +10,7 @@ component Shell
   state back = false
   state opened = ""
   state saved = ""
+  state shot = ""
   action moved(e: FrameNavigation)
     address = e.url
     title = e.title
@@ -33,6 +34,12 @@ component Shell
     reload("tab", ignoreCache=true)
   action halt
     stopLoading("tab")
+  action snap
+    captureScreenshot("tab", "app:/tmp/shot.png", clip=DOMRect(x=10, y=20, width=200, height=100))
+  action whole
+    captureScreenshot("tab", "app:/tmp/whole.png")
+  action captured(e: FrameCapture)
+    shot = e.path + " " + e.width.toString() + "x" + e.height.toString() + " " + e.error
   view
     column testId="root"
       row
@@ -40,5 +47,7 @@ component Shell
         button "Go" testId="go" press=go
         button "Reload" testId="reload" press=again
         button "Stop" testId="stop" press=halt
-      iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed newwindow=asked download=downloaded testId="tab" width=400 height=300
+        button "Snap" testId="snap" press=snap
+        button "Whole" testId="whole" press=whole
+      iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed newwindow=asked download=downloaded capture=captured testId="tab" width=400 height=300
       text address testId="address"

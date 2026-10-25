@@ -186,12 +186,20 @@ function refuse(e, error, message, say) {
 }
 
 /** `navigate(id, url)`, `traverseHistory(id, delta)`, `reload(id,
- * ignoreCache)` and `stopLoading(id)` (@ref LLP 1020.002 D3), to the one
+ * ignoreCache)`, `stopLoading(id)` (@ref LLP 1020.002 D3) and
+ * `captureScreenshot(id, path, clip)` (D7, refused), to the one
  * live iframe with that id. A URL takes `src`'s policy (`frameURL`). */
 export function command(name, args, say, live = [...document.querySelectorAll('#exact-root iframe')]) {
   const id = args[0], frames = live.filter(f => f.isConnected && !f.closest('[data-exiting]') && f.id === id);
   if (frames.length !== 1) return say(`${name}: no unique live iframe with id "${id}"`);
   const e = frames[0], g = guest(e), nav = g?.win.navigation;
+  if (name === 'captureScreenshot') {
+    // No web API gives a page a frame's pixels without screen capture (@ref LLP 1020.002 D7): the frame
+    // answers its `capture=` with the refusal, as a native host answers with the file.
+    const message = 'captureScreenshot: a page cannot read a frame\'s pixels';
+    say(message);
+    return void e.dispatchEvent(new CustomEvent('exactcapture', { detail: { path: String(args[1] ?? ''), width: 0, height: 0, error: 'NotSupportedError', message } }));
+  }
   if (name === 'navigate') {
     const url = args[1];
     let href;

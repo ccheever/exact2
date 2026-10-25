@@ -1162,7 +1162,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
-                if ["navigate", "traverseHistory", "reload", "stopLoading"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3)
+                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
                 if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
