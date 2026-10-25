@@ -237,7 +237,7 @@ export function sizedReady(world: World, sessionId: string, gatewayUrl: string, 
   for (;;) {
     const synthetic = frame.d.guilds.slice(world.guilds.length).map((guild: Guild) => guild.id).reverse();
     if (!synthetic.length) break;
-    frame.d.user_settings_proto = settingsProto([...world.guilds.map(guild => ({ ids: [guild.id] })), { ids: synthetic, name: 'Workshops' }]);
+    frame.d.user_settings_proto = settingsProto([...world.guilds.map(guild => ({ ids: [guild.id] })), { ids: synthetic, id: 4242, name: 'Workshops', color: 0x5865f2 }]);
     size = Buffer.byteLength(JSON.stringify(frame));
     if (size <= bytes) break;
     frame.d.guilds.pop();

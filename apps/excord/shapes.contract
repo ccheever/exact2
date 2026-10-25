@@ -290,3 +290,15 @@ shape Profile
   bot: bool
   color: string
   roles: RoleTag[]
+
+// One place on the server rail, in the account's order: a server (`folder`
+// false; `guilds` holds it alone) or a folder of them (its `name` and `color`,
+// "" when unset), with what is unread and mentioned in all it holds.
+shape RailEntry
+  id: string
+  folder: bool
+  name: string
+  color: string
+  guilds: Guild[]
+  unread: bool
+  mentions: number
