@@ -70,3 +70,29 @@ test('a server\'s emoji follow GUILD_EMOJIS_UPDATE, and a READY that nests them 
   expect(resolveMentions(nested, cid, ':ferris:')).toBe('<:ferris:500>');
   expect(S.guilds(nested)[0]).not.toHaveProperty('emojis');
 });
+
+test('a mention resolves only to the one it names', () => {
+  const s = store();
+  S.applyDispatch(s, 'MESSAGE_CREATE', { id: '1002', channel_id: cid, author: { id: '5', username: 'ada.' }, content: 'x',
+    timestamp: '2026-10-22T12:02:00.000Z', attachments: [], embeds: [] }, 2);
+  // A handle that ends in a period is that person; a sentence's period after another is not part of it.
+  expect(resolveMentions(s, cid, 'hi @ada.')).toBe('hi <@5>');
+  expect(resolveMentions(s, cid, 'hi @adam.')).toBe('hi <@3>.');
+  // Markup around a mention is no word.
+  expect(resolveMentions(s, cid, '**@adam** *#help*')).toBe('**<@3>** *<#101>*');
+  // Two text channels of one name, or a voice channel's name, stay text.
+  S.applyDispatch(s, 'CHANNEL_CREATE', { id: '103', guild_id: '10', type: 0, name: 'help' }, 3);
+  expect(resolveMentions(s, cid, '#help #voice')).toBe('#help #voice');
+  // Code of any backtick run is sent as written; an unclosed run is text.
+  expect(resolveMentions(s, cid, '``@adam` `` ``\n@adam\n`` `@adam')).toBe('``@adam` `` ``\n@adam\n`` `<@3>');
+});
+
+test('a prefix match is offered however many substring matches come before it', () => {
+  const s = store();
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: String(900 + i), username: `x${i}zed` }));
+  S.applyDispatch(s, 'READY', { user: me, users: [...many, { id: '999', username: 'zedd' }], guilds: [{ id: '10', name: 'Club',
+    channels: [{ id: cid, type: 0, name: 'general' }] }] }, 0);
+  const listed = suggest(s, cdn, cid, '@zed');
+  expect(listed[0].detail).toBe('zedd');
+  expect(listed).toHaveLength(8);
+});

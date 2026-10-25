@@ -2,6 +2,7 @@
 // Markdown parsed and flattened into blocks of runs, mentions resolved, images in their declared box.
 import { parse, jumbo } from './discord/markdown';
 import { highlight } from './discord/highlight';
+import { outsideCode } from './discord/markup';
 import type { Block as MarkdownBlock, Inline, Mark } from './discord/markdown';
 import { cmpId, msFromSnowflake } from './discord/ids';
 import type { Result } from './app.contract.d.ts';
@@ -169,13 +170,15 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
     state: 'present' }];
 }
 
-/** A message's text as the composer shows it for an edit: a mention of a person, channel or custom
- * emoji the directories know is its name (`@ada`, `#general`, `:ferris:`), as `compose.ts` sends it back. */
+/** A message's text as the composer shows it for an edit: a mention of a person the directories know is
+ * `@handle`, outside code, which `compose.ts` sends back as the same mention. A channel's or custom
+ * emoji's stays as written, since a name may not lead back to the one it named (two channels called
+ * #help; a server's emoji in a DM). */
 function editable(content: string, dirs: Directories): string {
-  return content
-    .replace(/<@!?(\d+)>/g, (whole, id) => { const u = dirs.user(id); return u?.username ? `@${u.username}` : whole; })
-    .replace(/<#(\d+)>/g, (whole, id) => { const name = dirs.channelName(id); return name !== 'unknown-channel' ? `#${name}` : whole; })
-    .replace(/<a?:([a-z0-9_]{2,32}):\d+>/gi, ':$1:');
+  return outsideCode(content, part => part.replace(/<@!?(\d+)>/g, (whole, id) => {
+    const u = dirs.user(id);
+    return u?.username ? `@${u.username}` : whole;
+  }));
 }
 
 const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinned a message.`, 7: who => `${who} joined the server.` };

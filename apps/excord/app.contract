@@ -324,6 +324,15 @@ component Excord
   action openChannel(id: string)
     let c = channelOf(channels.concat(dms), id)
     let p = placeOf(places, id)
+    // A split opens one channel over another: the one left keeps its place and draft, and is read
+    // as `leaving` reads it (its `viewChannel` is this one's below).
+    if top(nav).name == "channel" and open != "" and open != id
+      places = places.filter(q => q.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
+      if editing != ""
+        drafts = withDraft(drafts, open, stash)
+        stash = ""
+      if not away and anchor == "" and chan.unread > 0
+        send acked = markRead(open)
     now = performanceNow()
     open = id
     replyTo = ""
@@ -355,6 +364,7 @@ component Excord
   action pickServer(v: string)
     server = v
     if wide and top(nav).name != "home"
+      leaving()
       nav = go(nav, "/")
   action openResume
     if wide and top(nav).name == "home" and resumeChannel != ""
@@ -391,8 +401,10 @@ component Excord
       editing = ""
       editError = ""
       stash = ""
-    if not away and anchor == "" and chan.unread > 0
+    // What arrived behind a picture was not seen: a Back over the viewer reads nothing.
+    if not away and anchor == "" and chan.unread > 0 and viewing == ""
       send acked = markRead(open)
+    viewing = ""
     send joined = viewChannel("")
 
   // The window: the reader's place decides which run of history it holds.
@@ -524,14 +536,15 @@ component Excord
     if v.trim() != "" and editing == ""
       send typed = sendTyping(open, time.epochAtZero + performanceNow())
   action keyed(k: string, e: KeyboardEvent)
-    if (k == "Enter" or k == "Tab") and not e.shiftKey and suggestions.length > 0
+    // A Return that confirms an input method's candidate is the input method's.
+    if (k == "Enter" or k == "Tab") and not e.shiftKey and not e.isComposing and suggestions.length > 0
       preventDefault()
       match first(suggestions)
         case some(s)
           pick(s.text)
         case none
           aimed = aimed
-    else if k == "Enter" and not e.shiftKey
+    else if k == "Enter" and not e.shiftKey and not e.isComposing
       preventDefault()
       post()
   // A suggestion picked: its name replaces the one being written.
