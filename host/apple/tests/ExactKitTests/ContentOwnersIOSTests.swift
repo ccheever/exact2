@@ -11,36 +11,16 @@ import XCTest
 /// navigation; the document, the session's one viewport (D1), stays in the
 /// session's view at its own size.
 final class ContentOwnersIOSTests: XCTestCase {
-    @available(iOS 27.1, *)
     func testAnArrangementKeepsAuthoredChildrenAndRestoresTheirContainment() throws {
-        let presenter = Presenter()
-        let host = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 900, height: 600))
-        window.rootViewController = host
-        host.view.addSubview(presenter.viewport)
-        presenter.viewport.frame = window.bounds
-        window.makeKeyAndVisible()
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
+        let (presenter, root, controller, window) = try arrangementFixture()
         defer { window.isHidden = true }
-        presenter.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view", "props": ["hatch": "arrangement-test"]],
-            ["op": "create", "id": 2, "kind": "view"],
-            ["op": "create", "id": 3, "kind": "view"],
-            ["op": "create", "id": 4, "kind": "button", "props": ["text": "Same control"]],
-            ["op": "children", "id": 2, "ids": [4]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
-            ["op": "roots", "ids": [1]],
-            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 900, "h": 600],
-        ]))
-        let root = try XCTUnwrap(presenter.views[1])
-        let controller = UIArrangementViewController()
-        controller.updateArrangement(.split.axes(.horizontal))
-        XCTAssertTrue(presenter.arrangements.set(1, controller: controller))
         let first = try XCTUnwrap(presenter.views[2])
         let second = try XCTUnwrap(presenter.views[3], "an initially flat child becomes a native pane")
         let button = try XCTUnwrap(presenter.views[4])
-        host.view.layoutIfNeeded()
+        window.layoutIfNeeded()
         controller.view.layoutIfNeeded()
-        XCTAssertTrue(controller.parent === host)
+        XCTAssertTrue(controller.parent === window.rootViewController)
         XCTAssertTrue(first.isDescendant(of: controller.view))
         XCTAssertTrue(second.superview === controller.viewController(for: .secondary)?.view, "a collapsed pane keeps its authored content")
         XCTAssertTrue(button.superview === first.container, "arranging panes keeps the existing controls")
@@ -48,6 +28,9 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(blocks.count, 2)
         XCTAssertEqual(blocks[2]?.placement?.within, root.id)
         XCTAssertEqual(blocks[3]?.placement?.within, root.id)
+        XCTAssertNil(blocks[2]?.placement?.contentOffset, "a pane is a fixed allocation, not a scrollport")
+        XCTAssertNil(blocks[3]?.placement?.contentOffset)
+        XCTAssertTrue(Presenter.firstVerticalScroller(under: root) === first, "default discovery crosses native containment")
         presenter.placeChildren(root, [2, 3])
         XCTAssertTrue(first.isDescendant(of: controller.view), "a later children batch retains native containment")
         XCTAssertTrue(presenter.arrangements.set(1, controller: nil))
@@ -58,8 +41,59 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(presenter.arrangements.blocks.isEmpty)
     }
 
-    @available(iOS 27.1, *)
+    func testAnArrangementTracksItsAuthoredChildren() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
+        let (p, root, controller, window) = try arrangementFixture()
+        defer { window.isHidden = true }
+        let first = try XCTUnwrap(p.views[2]), removed = try XCTUnwrap(p.views[3])
+        p.placeChildren(root, [3, 2])
+        p.arrangements.sync()
+        XCTAssertEqual(p.arrangements.entries[root.id]?.panes.map(\.id), [3, 2], "pane order follows the authored children")
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [2, 5]],
+            ["op": "destroy", "id": 3],
+        ]))
+        XCTAssertEqual(p.arrangements.entries[root.id]?.panes.map(\.id), [2, 5], "a flat replacement becomes the secondary pane")
+        XCTAssertNil(removed.superview, "a destroyed pane never rejoins the document")
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "create", "id": 7, "kind": "view"],
+            ["op": "children", "id": 6, "ids": [2]],
+            ["op": "children", "id": 1, "ids": [5, 7]],
+            ["op": "roots", "ids": [1, 6]],
+        ]))
+        XCTAssertEqual(p.arrangements.entries[root.id]?.panes.map(\.id), [5, 7])
+        XCTAssertTrue(first.superview === p.views[6]?.container, "retirement leaves a reparented pane with its new owner")
+        XCTAssertTrue(p.arrangements.set(root.id, controller: nil))
+        XCTAssertEqual(root.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 7])
+        XCTAssertNil(controller.parent)
+        XCTAssertTrue(p.arrangements.blocks.isEmpty)
+    }
+
+    func testArrangingVisibleContentKeepsItsFocusedField() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
+        guard let scene = hostedWindowScene() else { throw missing("scene", "focus handoff needs the native responder chain") }
+        let (p, root, controller, window) = try arrangementFixture()
+        defer { window.endEditing(true); window.isHidden = true }
+        window.isHidden = true
+        window.windowScene = scene
+        window.frame = scene.coordinateSpace.bounds
+        window.makeKeyAndVisible()
+        XCTAssertTrue(p.arrangements.set(root.id, controller: nil))
+        let first = try XCTUnwrap(p.views[2])
+        first.frame = CGRect(x: 0, y: 0, width: 400, height: 500)
+        let field = UITextField(frame: CGRect(x: 16, y: 100, width: 200, height: 44))
+        first.container.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        XCTAssertTrue(p.arrangements.set(root.id, controller: controller))
+        XCTAssertTrue(field.isFirstResponder, "a visible pane stays in its window while UIKit adopts it")
+        XCTAssertTrue(p.arrangements.set(root.id, controller: nil))
+        XCTAssertTrue(field.isFirstResponder, "returning to authored containment keeps the same responder")
+    }
+
     func testArrangedPeersScrollUnderTheBarsWithTheirOwnInsets() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
         guard let scene = hostedWindowScene() else { throw missing("scene", "arranged peers use the fold-aware window scene") }
         let size = scene.coordinateSpace.bounds.size
         let session = try fixture("arranged-edges", size, plan: "EXACT_EDGE_EFFECT_PLAN")
@@ -105,6 +139,11 @@ final class ContentOwnersIOSTests: XCTestCase {
         }
         XCTAssertTrue(route.contentScrollView(for: .top) === scrolls[0], "the authored navigationScroll remains the title authority")
         XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .disabled)
+        p.apply(wireBatch([["op": "props", "id": Int(second.id), "set": ["scrollTop": "1000000"]]]))
+        XCTAssertEqual(scrolls[1].contentOffset.y, max(-scrolls[1].adjustedContentInset.top,
+                       scrolls[1].contentSize.height + scrolls[1].adjustedContentInset.bottom - scrolls[1].bounds.height), accuracy: 1,
+                       "an authored scroll reaches the end of a peer that does not own the title")
+        p.apply(wireBatch([["op": "props", "id": Int(second.id), "set": ["scrollTop": "0"]]]))
         let rightRow = try node(session, "second-row-1")
         let rightY = rightRow.convert(rightRow.bounds, to: route.view).minY
         let rightInset = scrolls[1].adjustedContentInset.top
@@ -136,6 +175,24 @@ final class ContentOwnersIOSTests: XCTestCase {
             XCTAssertTrue(scrolls.allSatisfy { $0.contentInsetAdjustmentBehavior == .automatic }, "changing title authority keeps both peer insets")
             XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .disabled, "projection preserves the native header policy")
         }
+        let navigation = try XCTUnwrap(route.navigationController)
+        _ = Agent(session: session).tap(["id": Int(try node(session, "tab-inline").id)])
+        until("the arranged route is retained outside the window") { route.view.window == nil }
+        p.arrangements.sync()
+        p.navigation.prepareRoutes([route], in: navigation)
+        XCTAssertTrue(scrolls.allSatisfy { $0.contentInsetAdjustmentBehavior == .automatic }, "retained peers keep their native inset policy")
+        XCTAssertTrue(route.collapseScroll === first, "a retained route keeps its title authority")
+        _ = Agent(session: session).tap(["id": Int(try node(session, "tab-panes").id)])
+        until("the arranged route returns") { route.view.window != nil && !Agent(session: session).nativeInFlight() }
+        route.node.props.removeValue(forKey: "navigationScroll")
+        p.navigation.prepareRoutes([route], in: navigation)
+        XCTAssertTrue(p.navigation.contentScroller(of: route) === first, "an unnamed route discovers the first authored pane")
+        until("the unnamed route hands its top inset to the pane") { self.window?.layoutIfNeeded(); return route.collapseScroll === first }
+        let reveal = try node(session, "first-row-30")
+        p.reveal(reveal)
+        let revealedTop = scrolls[0].contentOffset.y
+        p.arrangements.sync()
+        XCTAssertEqual(scrolls[0].contentOffset.y, revealedTop, accuracy: 1, "a finished adoption does not undo an element reveal")
         let savedTop = scrolls[1].contentOffset.y + second.scrollTopInset(scrolls[1])
         controller.setViewController(nil, for: .secondary)
         controller.view.layoutIfNeeded()
@@ -190,6 +247,32 @@ final class ContentOwnersIOSTests: XCTestCase {
                 && p.navigation.covers[second.id] == nil
                 && abs(replacement.contentOffset.y + second.scrollTopInset(replacement) - savedTop) < 1
         }
+    }
+
+    @available(iOS 27.1, *)
+    private func arrangementFixture() throws -> (Presenter, NodeView, UIArrangementViewController, UIWindow) {
+        let presenter = Presenter()
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 900, height: 600))
+        window.rootViewController = host
+        host.view.addSubview(presenter.viewport)
+        presenter.viewport.frame = window.bounds
+        window.makeKeyAndVisible()
+        presenter.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["hatch": "arrangement-test"]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["overflow_y": "auto"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "button", "props": ["text": "Same control"]],
+            ["op": "children", "id": 2, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 900, "h": 600],
+        ]))
+        let root = try XCTUnwrap(presenter.views[1])
+        let controller = UIArrangementViewController()
+        controller.updateArrangement(.split.axes(.horizontal))
+        XCTAssertTrue(presenter.arrangements.set(1, controller: controller))
+        return (presenter, root, controller, window)
     }
 
     /// A touch resting on `target` at `point`, as UIKit hands a view one.

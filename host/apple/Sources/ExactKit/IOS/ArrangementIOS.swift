@@ -29,12 +29,6 @@ final class ArrangementHost {
             let placement: UIArrangementViewController.ViewPlacement = holder === holders[0] ? .primary : .secondary
             return controller.state(for: placement)?.isHidden == true || holder.view.superview == nil
         }
-        func retire() {
-            for pane in panes { node.container.addSubview(pane) }
-            controller.willMove(toParent: nil)
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-        }
     }
 
     final class PaneController: UIViewController {
@@ -48,7 +42,6 @@ final class ArrangementHost {
         override func loadView() {
             view = UIView()
             view.clipsToBounds = true
-            view.addSubview(node)
         }
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
@@ -85,12 +78,15 @@ final class ArrangementHost {
     }
 
     func sync() {
+        guard !requests.isEmpty || !entries.isEmpty || !insetScrollers.isEmpty else { return }
         for (id, entry) in entries where requests[id] !== entry.controller || presenter.views[id] !== entry.node || entry.panes.contains(where: { presenter.views[$0.id] !== $0 }) || (children[id] != nil && children[id] != entry.panes.map(\.id)) {
-            entry.retire(); entries[id] = nil; children[id] = nil
+            retire(entry); entries[id] = nil
         }
         for (id, controller) in requests where entries[id] == nil {
             guard let node = presenter.views[id], let owner = ViewPresentation.controllers(for: node).first else { continue }
             let ids = children[id] ?? node.container.subviews.compactMap { ($0 as? NodeView)?.id }
+            guard ids.count == 2 else { continue }
+            for id in ids where presenter.views[id] == nil { presenter.flats.promote(id) }
             let panes = ids.compactMap { presenter.views[$0] }
             guard panes.count == 2 else { continue }
             let entry = Entry(node: node, controller: controller, panes: panes) { [weak self] in self?.layoutChanged() }
@@ -100,9 +96,29 @@ final class ArrangementHost {
             controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             node.container.addSubview(controller.view)
             controller.didMove(toParent: owner)
+            // Keep visible content in its window while changing containment
+            for holder in entry.holders { holder.view.addSubview(holder.node) }
         }
         syncInsets()
         presenter.owners.publish()
+    }
+
+    private func retire(_ entry: Entry) {
+        let ids = children[entry.node.id] ?? entry.panes.map(\.id)
+        let held = entry.holders.filter { $0.node.superview === $0.view }.map(\.node)
+        for pane in held where presenter.views[pane.id] !== pane || !ids.contains(pane.id) { pane.removeFromSuperview() }
+        for id in ids {
+            if let pane = held.first(where: { $0.id == id }), presenter.views[id] === pane { entry.node.container.addSubview(pane) }
+        }
+        entry.controller.willMove(toParent: nil)
+        entry.controller.view.removeFromSuperview()
+        entry.controller.removeFromParent()
+    }
+
+    /// Follow authored pane order across the UIKit containment boundary.
+    func panes(in node: NodeView) -> [NodeView]? {
+        guard let entry = entries[node.id] else { return nil }
+        return entry.holders.filter { !entry.isHidden($0) && presenter.views[$0.node.id] === $0.node }.map(\.node)
     }
 
     private func layoutChanged() {
@@ -112,6 +128,7 @@ final class ArrangementHost {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             layoutPending = false
+            guard !entries.isEmpty || !insetScrollers.isEmpty else { return }
             syncInsets()
             presenter.owners.publish()
             presenter.navigation.coversChanged()
@@ -125,7 +142,7 @@ final class ArrangementHost {
             guard node.isDescendant(of: route), node.transform.isIdentity, node.clipPath == nil,
                   top ? room.minY <= 0.5 : node.bounds.maxY - room.maxY <= 0.5,
                   reachesEdge(node, in: route, top: top) else { return [] }
-            let holders = entry.holders.filter { !entry.isHidden($0) && $0.view.window != nil && !$0.view.isHidden && !$0.node.isHidden && !$0.view.bounds.isEmpty }
+            let holders = entry.holders.filter { !entry.isHidden($0) && !$0.view.isHidden && !$0.node.isHidden && !$0.view.bounds.isEmpty }
             guard !holders.isEmpty, holders.allSatisfy({ holder in
                 let pane = holder.node, frame = pane.convert(pane.bounds, to: holder.view)
                 let allocation = holder.view.convert(holder.view.bounds, to: node)
@@ -214,8 +231,9 @@ final class ArrangementHost {
     /// Forward the enclosing bars where nested UIKit containment omits their safe area.
     private func syncSafeAreas() {
         for entry in entries.values {
-            guard let route = ViewPresentation.controllers(for: entry.node).compactMap({ $0 as? RouteController }).first else { continue }
-            for holder in entry.holders {
+            guard let route = ViewPresentation.controllers(for: entry.node).compactMap({ $0 as? RouteController }).first,
+                  let window = route.view.window else { continue }
+            for holder in entry.holders where holder.view.window === window {
                 let frame = holder.view.convert(holder.view.bounds, to: route.view)
                 let room = route.view.bounds.inset(by: route.view.safeAreaInsets)
                 let expected = UIEdgeInsets(top: max(0, min(frame.height, room.minY - frame.minY)), left: 0,
@@ -236,13 +254,12 @@ final class ArrangementHost {
                 pendingTops[id] = nil
                 continue
             }
-            let y = top - node.scrollTopInset(scroll)
-            if abs(scroll.contentOffset.y - y) > 0.01 { scroll.contentOffset.y = y }
+            let point = PixelGrid.offset(CGPoint(x: scroll.contentOffset.x, y: top - node.scrollTopInset(scroll)), in: scroll)
+            if scroll.contentOffset != point { scroll.contentOffset = point }
             guard let route = ViewPresentation.controllers(for: node).compactMap({ $0 as? RouteController }).first else { continue }
             let frame = scroll.convert(scroll.bounds, to: route.view)
             let expected = max(0, route.view.safeAreaInsets.top - frame.minY)
-            let ownsTop = scrollers(in: route.node, top: true).contains { $0 === node }
-            if (!ownsTop || abs(frame.minY) < 1), abs(scroll.safeAreaInsets.top - expected) < 1 {
+            if abs(scroll.safeAreaInsets.top - expected) < 1 {
                 scroll.contentOffset = PixelGrid.offset(scroll.contentOffset, in: scroll)
                 pendingTops[id] = nil
             }
@@ -264,21 +281,23 @@ final class ArrangementHost {
             for holder in entry.holders {
                 let bounds = entry.isHidden(holder) ? CGRect.zero : holder.view.bounds
                 let rect = bounds.isEmpty ? CGRect.zero : holder.view.convert(bounds, to: entry.node.container)
-                out[holder.node.id] = (.size(bounds.size), BlockPlacement(rect: rect, within: entry.node.id, contentOffset: .zero))
+                out[holder.node.id] = (.size(bounds.size), BlockPlacement(rect: rect, within: entry.node.id, contentOffset: nil))
             }
         }
         return out
     }
 
     func remove(_ id: UInt32) {
-        requests[id] = nil
-        if let entry = entries.removeValue(forKey: id) { entry.retire() }
+        let request = requests.removeValue(forKey: id)
+        let entry = entries.removeValue(forKey: id)
+        if let entry { retire(entry) }
         children[id] = nil
-        syncInsets()
+        guard request != nil || entry != nil else { return }
+        presenter.afterBatch { [weak self] in self?.sync() }
     }
 
     func reset() {
-        for entry in entries.values { entry.retire() }
+        for entry in entries.values { retire(entry) }
         entries = [:]; requests = [:]; children = [:]
         syncInsets()
     }

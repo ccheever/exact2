@@ -36,8 +36,9 @@ On a fold ([HIG](https://developer.apple.com/design/human-interface-guidelines/d
 - **A pane that does not scroll moves** and keeps its width: centred (full width on a
   narrow screen); the trailing segment on a book fold, where the talk moves an alert.
 - **A list and its detail** is a split view (`pattern list-detail`; iOS pushes until
-  LLP 1127). **Two peer panes** are an arrangement: place them by segment (duo-lab's
-  Fold tab).
+  LLP 1127). **Two peer panes** use an element hatch with
+  [`UIArrangementViewController`](../contract-for-agents.md#arrange-existing-content-on-iphone-duo)
+  on iOS 27.1. Keep one authored content tree and a CSS layout on other hosts.
 - A route that is itself the pane on the trailing segment keeps its title with
   `navigationBar=(book ? "none" : "auto")`: on a book fold its first-child `header`
   paints in it as written, with its own Back if pushed; otherwise it is UIKit's bar.

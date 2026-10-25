@@ -2114,10 +2114,18 @@ prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` 
 
 On iOS 27.1, an element hatch can call `element.arrange(using: controller)` with a
 `UIArrangementViewController` configured with `UISplitArrangement`. Exact places the
-marked element’s two authored children in the controller and lays out each in its
-allocated bounds. The content, controls, styles, and bindings stay the same. Keep
-navigation outside the arrangement; use a bounded scroller in each child for
-independent scrolling. Pass `nil` to restore the authored layout.
+marked element's two authored children in the controller and lays out each in its
+allocated bounds. Give the marked element a definite size, such as `height="100%"`
+in a sized route; allocated children do not give an auto-height parent its height.
+The content, controls, styles, and bindings stay the same, including when the child
+order or identities change. Keep navigation outside the arrangement and use a
+bounded scroller in each child for independent scrolling. The first visible
+vertical scroller is the default title and scroll-to-top target; `navigationScroll`
+can name another. Pass `nil` to restore the authored layout.
+
+A `true` result accepts the request; UIKit lays it out when the owning container is
+available. `false` means the element is unavailable, it does not have two valid
+children, or the supplied controller already belongs to another container.
 
 To keep pane content still as the shared navigation bar minimizes, set
 `route.controller.navigationItem.navigationBarMinimization.safeAreaAdjustment = .disabled`
@@ -2126,8 +2134,7 @@ in the route hatch (iOS 27+). UIKit retains the safe area while the bar minimize
 
 Declare the hatch for iOS in `app.json`. On older systems, keep the authored CSS
 layout; a single set of components can stack in a compact layout and sit beside one
-another when expanded. See Apple’s [arrangement guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
-
+another when expanded. See Apple's [arrangement guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
 
 ## Routes and web documents
 

@@ -132,6 +132,7 @@ extension NavigationHost {
                     if peerTop, let scroll = node.scrollView {
                         if c.navigationItem.largeTitleDisplayMode == .always { node.scrollOrigin = max(node.scrollOrigin, scroll.adjustedContentInset.top) }
                         else { node.scrollOrigin = scroll.adjustedContentInset.top }
+                        if node !== c.collapseScroll { node.scrollCollapsed = node.scrollOrigin }
                     }
                     #endif
                     // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).

@@ -52,7 +52,12 @@ extension Presenter {
         while !level.isEmpty, depth < 8 {
             depth += 1
             if let hit = level.first(where: { $0.scrollView != nil && $0.scrollsVertically }) { return hit }
-            level = level.flatMap { $0.container.subviews.compactMap { $0 as? NodeView }.filter { !$0.isHidden } }
+            level = level.flatMap { node -> [NodeView] in
+                #if os(iOS)
+                if #available(iOS 27.1, *), let panes = node.presenter?.arrangements.panes(in: node) { return panes.filter { !$0.isHidden } }
+                #endif
+                return node.container.subviews.compactMap { $0 as? NodeView }.filter { !$0.isHidden }
+            }
         }
         return nil
     }
