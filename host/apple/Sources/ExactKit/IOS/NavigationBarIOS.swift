@@ -1035,7 +1035,8 @@ extension NavigationHost {
         // A route that turns transparent, or back, keeps its scroller: only
         // whether UIKit insets it follows.
         if let sv = physical, c.collapseScroll === target, c.collapseScrollView === sv {
-            sv.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+            let adjustment: UIScrollView.ContentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+            if sv.contentInsetAdjustmentBehavior != adjustment { sv.contentInsetAdjustmentBehavior = adjustment }
         }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
         let old = c.collapseScroll, oldView = c.collapseScrollView
