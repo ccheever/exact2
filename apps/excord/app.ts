@@ -381,6 +381,24 @@ const sources: Sources = {
   suggest: ([channel, draft]) => suggest(store, live.origins.cdn, channel, draft),
   emojiChoices: ([channel, query]) => emojiChoices(store, live.origins.cdn, channel, query),
   userProfile: ([channel, userId, messageId]) => profileOf(channel, userId, messageId),
+  // The member list of the channel's server, as op 37's subscription delivered it (its first 100 rows).
+  loadMembers: ([channel]) => {
+    const guildId = S.channel(store, channel)?.guild_id;
+    const list = guildId ? store.memberLists.get(guildId) : undefined;
+    if (!list) return [];
+    const roles = new Map(((store.guildMap.get(guildId!)?.roles ?? []) as Record<string, any>[]).map(r => [String(r.id), String(r.name ?? '')]));
+    return list.items.flatMap((item, i): Result<'loadMembers'> => {
+      if (!item) return [];
+      if ('group' in item) {
+        const label = item.group.id === 'online' ? 'Online' : item.group.id === 'offline' ? 'Offline' : roles.get(item.group.id) ?? 'Members';
+        return [{ id: `g${i}:${item.group.id}`, user: '', group: true, label, count: item.group.count, avatar: '', color: '', status: '' }];
+      }
+      const m = item.member, u = S.user(store, m.user?.id) ?? m.user ?? { id: '' };
+      return [{ id: `m${i}:${u.id}`, user: String(u.id), group: false, label: m.nick || u.global_name || u.username || u.id, count: 0,
+        avatar: avatarUrl(live.origins.cdn, u), color: dirs.nameColor(channel, m.roles ?? []),
+        status: String(m.presence?.status ?? 'offline') }];
+    });
+  },
   switchTargets: ([query, open]) => open ? switchTargets(store, live.origins.cdn, query, channelRecord) : [],
   echoMessage: ([channel, written, replyTo, now, picked, mention]) => {
     const files: Upload[] = (picked ?? []).map(f => ({ path: f.path, name: f.name, type: f.type, size: f.size,
