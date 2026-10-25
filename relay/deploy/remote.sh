@@ -135,18 +135,22 @@ EOF
   # (stock Ubuntu and Debian images have none). The settings then hold for every connection, checked below as sshd
   # evaluates them for this very one.
   local dbg
-  dbg=$(sshd -ddd -t 2>&1) || die "sshd -t rejects its config: $(printf '%s' "$dbg" | tail -1)"
-  printf '%s\n' "$dbg" | grep -q '^debug' || die "sshd -ddd -t gave no debug output to check for Match blocks; nothing changed past the drop-in"
-  if printf '%s\n' "$dbg" | grep -q "checking syntax for 'Match "; then
-    die "sshd's config has a Match block ($(printf '%s\n' "$dbg" | sed -nE "s/.*checking syntax for '(Match [^']*)'.*/\1/p" | head -3 | tr '\n' ';')): provision allows none, as it can turn password login back on for some connections; remove it, then provision again"
+  dbg=$(sshd -ddd -t 2>&1) || die "sshd -t rejects its config: ${dbg##*$'\n'}"
+  # (string tests, not a pipe: under pipefail a grep that stops early can make printf's SIGPIPE read as no match)
+  [[ $dbg == debug* || $dbg == *$'\n'debug* ]] || die "sshd -ddd -t gave no debug output to check for Match blocks; nothing changed past the drop-in"
+  # OpenSSH logs "checking syntax for '<criteria>'" for each Match it parses (9.x writes 'Match <criteria>', 8.9 the
+  # criteria alone), and for nothing else.
+  if [[ $dbg == *"checking syntax for '"* ]]; then
+    local m=${dbg#*checking syntax for \'}; m=${m%%\'*}
+    die "sshd's config has a Match block ('$m'): provision allows none, as it can turn password login back on for some connections; remove it, then provision again"
   fi
   local who eff
   for who in root "${RELAY_SSH_USER:-root}"; do
     eff=$(sshd -T -C "user=$who,host=${conn[0]},addr=${conn[0]},laddr=${conn[2]},lport=${conn[3]}" 2>/dev/null) || die "sshd -T -C failed for $who from ${conn[0]}"
     for want in 'passwordauthentication no' 'kbdinteractiveauthentication no' 'pubkeyauthentication yes'; do
-      printf '%s\n' "$eff" | grep -qx "$want" || die "sshd's effective config for $who from ${conn[0]} is not '$want' (an earlier setting wins over the drop-in): fix it in /etc/ssh, then provision again"
+      [[ $'\n'$eff$'\n' == *$'\n'"$want"$'\n'* ]] || die "sshd's effective config for $who from ${conn[0]} is not '$want' (an earlier setting wins over the drop-in): fix it in /etc/ssh, then provision again"
     done
-    printf '%s\n' "$eff" | grep -qxE 'permitrootlogin (prohibit-password|without-password|no)' || die "sshd's effective config lets root log in by password: fix it in /etc/ssh, then provision again"
+    [[ $'\n'$eff$'\n' =~ $'\n'permitrootlogin\ (prohibit-password|without-password|no)$'\n' ]] || die "sshd's effective config lets root log in by password: fix it in /etc/ssh, then provision again"
   done
 
   # Firewall: in, only 22 and 443 (TCP, v4 and v6); out, anything (ACME, apt, the DNS provider's API). Never reset or
