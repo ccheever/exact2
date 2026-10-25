@@ -96,8 +96,14 @@ component MessageRow
                   text formatDay(m.at, clock, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
               for b in m.blocks key=b.id
                 BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal)
-              for i in m.media key=i.id
-                MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+              // Two pictures or more tile, as Discord lays them out: two or four in two columns, others in three.
+              if m.media.length > 1
+                view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                  for i in m.media key=i.id
+                    TileView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+              else
+                for i in m.media key=i.id
+                  MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
               for f in m.files key=f.id
                 link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
                   row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
@@ -300,6 +306,24 @@ component MediaView
       else
         button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
           image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`
+
+// A picture in a mosaic: a square of it, cropped to fill.
+component TileView
+  props
+    i: Media
+    mkey: string
+    revealed: string[]
+    reveal: action
+    show: action
+  view
+    view position="relative" aspect-ratio="1 / 1" overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
+      if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
+        image i.src width="100%" height="100%" object-fit="cover" aria-hidden=true
+        button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
+          text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
+      else
+        button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src width="100%" height="100%" object-fit="cover"
 
 component EmbedView
   props

@@ -160,12 +160,14 @@ shape Window
 // position and `firstUnread` the oldest unread message the cache holds ("" when
 // read to the end or not cached); `unread` counts the unread messages the cache
 // holds, at least 1 when Discord says there are some; `typing` names who is typing.
-// `avatar` is a direct message's picture: the other person's, or a group's icon ("" for none).
+// `avatar` is a direct message's picture: the other person's, or a group's icon ("" for none);
+// `direct` marks a direct message with one person.
 shape Channel
   id: string
   guild: string
   name: string
   avatar: string
+  direct: bool
   topic: string
   version: number
   unread: number
@@ -247,3 +249,27 @@ shape Suggestion
   avatar: string
   glyph: string
   text: string
+
+// An emoji the reaction picker offers: a custom one's image (`avatar`) or a
+// Unicode one's `glyph`; `value` is what the reaction names.
+shape EmojiChoice
+  id: string
+  label: string
+  glyph: string
+  avatar: string
+  value: string
+
+// A quick-switcher match: a channel (`glyph` "#") or a direct message (an
+// `avatar`, or `glyph` "@" for a group), the server it is in (`server`, "@me"
+// for a DM) and that server's name or the DM's kind as `detail`; `channel` is
+// its record, which opening it reads as a list's row would.
+shape SwitchTarget
+  id: string
+  channel: Channel
+  label: string
+  detail: string
+  server: string
+  avatar: string
+  glyph: string
+  unread: bool
+  mentions: number
