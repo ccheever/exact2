@@ -457,6 +457,16 @@ extension Agent {
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
+        // Read the owned bar's geometry independently of its accessibility representation
+        let navigation = presenter.navigation
+        let tabs = navigation.adopts(tablist: host) ? navigation.tabController : nil
+        let projectedBar = presenter.segments.bar(of: host.id)
+        if tabs != nil || projectedBar != nil {
+            let shown = tabs?.shownTabBar ?? NavigationHost.shownBar(projectedBar)
+            var observation: [String: Any] = ["visible": shown != nil]
+            if let shown { observation["frame"] = rect(box(shown)) }
+            native["tabBar"] = observation
+        }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
