@@ -355,7 +355,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // `files`), so a change to it has cells that moved.
       if (request.method === 'resolve' && request.token === 'surface.card' && FILES['app.tamber'] !== 'a'.repeat(64)) {
         const card = DIALS.resolve['surface.card'];
-        return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
+        return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, any>) => { const dark = `#${FILES['app.tamber'].slice(0, 6)}ff`; return { ...t, dark, srgb: { ...t.srgb, dark }, value: `light-dark(${t.light}, ${dark})` }; }) } });
       }
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
