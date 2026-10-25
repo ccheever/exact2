@@ -140,3 +140,38 @@ test('what a read again resolves: the tokens each event since the kept read name
   expect(again(keep('e1', 11, described(base), answersOf(base)), 'e1', described(moved), [])).toBeNull();
   expect([...again(keep('e1', 12, described(base), answersOf(base)), 'e1', described(moved), [])].sort()).toEqual(['accent', 'brand', 'edge']);
 });
+
+test('resolveAll: one resolve with tokens; asked again by name when a server answers without answers; never after one that reached no server, nor once overtaken; a timeout by name stops the rest', async () => {
+  const { resolveAll } = await import(`../apps/design-tool/reread.ts?all=${Date.now()}`);
+  const ok = token => ({ error: '', reply: { ok: { token, tuples: [], files: { a: '1' } } } });
+  const sent = [];
+  // A server with `tokens`: one request; a refused name in place.
+  const batch = async (_, body) => { sent.push(body); return { error: '', reply: { ok: { files: { a: '1' }, answers: body.tokens.map(t => t === 'no' ? { error: { message: 'no token `no`' } } : { token: t, tuples: [] }) } } }; };
+  const got = await resolveAll(batch, ['x', 'no', 'y'], {}, 1000, () => true);
+  expect(sent).toEqual([{ method: 'resolve', tokens: ['x', 'no', 'y'] }]);
+  expect(got.map(r => [r.error, r.reply.ok?.token ?? null, r.reply.ok?.files ?? null])).toEqual([['', 'x', { a: '1' }], ['no token `no`', null, null], ['', 'y', { a: '1' }]]);
+  // A server before 1.17 refuses `tokens` (no `token`): each by name, with the file asked.
+  sent.length = 0;
+  const old = async (_, body) => { sent.push(body); return body.tokens ? { error: 'refused', reply: { error: { message: 'missing token' } } } : ok(body.token); };
+  expect((await resolveAll(old, ['x', 'y'], { file: 'p.tamber' }, 1000, () => true)).map(r => r.reply.ok.token)).toEqual(['x', 'y']);
+  expect(sent.map(b => b.token ?? 'batch')).toEqual(['batch', 'x', 'y']);
+  expect(sent.every(b => b.file === 'p.tamber')).toBe(true);
+  // A batch that reached no server: each name's answer, nothing asked again.
+  sent.length = 0;
+  const gone = async (_, body) => { sent.push(body); return { error: 'no server', reply: {} }; };
+  expect((await resolveAll(gone, ['x', 'y'], {}, 1000, () => true)).map(r => r.error)).toEqual(['no server', 'no server']);
+  expect(sent.length).toBe(1);
+  // Overtaken before it starts: nothing sent.
+  sent.length = 0;
+  expect(await resolveAll(gone, ['x'], {}, 1000, () => false)).toEqual([]);
+  expect(sent.length).toBe(0);
+  // By name, a timeout stops the rest: each name not asked answers with it.
+  sent.length = 0;
+  const slow = async (_, body) => { sent.push(body); return body.tokens ? { error: 'refused', reply: { error: { message: 'missing token' } } } : body.token === 'b' ? { error: 'timed out', reply: {} } : ok(body.token); };
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+  const r = await resolveAll(slow, names, {}, 1000, () => true);
+  expect(r.length).toBe(names.length);
+  expect(r[1].error).toBe('timed out');
+  expect(sent.length).toBeLessThan(names.length + 1);
+  expect(r.slice(sent.length - 1).every(x => x.error === 'timed out')).toBe(true);
+});

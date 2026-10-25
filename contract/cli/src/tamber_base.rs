@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 /// The most names one `resolve` answers (`tokens`, *1.17*): the clone's
 /// design has 267, the importer's stress design 3,000.
 const RESOLVE_BATCH: usize = 4096;
+/// And the most bytes its answers take (the clone's 267 take 98 KB).
+const RESOLVE_BYTES: usize = 16 << 20;
 
 /// A cell's value as the shape writes it: a CSS length (`16px`), `full`
 /// (radius.full, the pill), or the terminal's `<n>cell` (`0` for none).
@@ -437,20 +439,29 @@ impl Server {
         }
         let app = self.app_params();
         let (snap, folding, _) = self.design_with(request, &app)?;
-        let answers: Vec<Value> = names
-            .iter()
-            .map(|given| {
-                match Self::token_of(&app, given)
-                    .and_then(|name| self.resolve_in(request, given, &snap, &folding, name))
-                {
-                    Ok(mut answer) => {
-                        answer.as_object_mut().map(|o| o.remove("files"));
-                        answer
-                    }
-                    Err(error) => json!({ "error": error }),
+        // Each answer named as one alone is (`present`, per answer, so one
+        // that can't be shown leaves the others shown); their bytes bounded
+        // as they are made, whatever the names.
+        let mut answers = Vec::with_capacity(names.len());
+        let mut bytes = 0;
+        for given in names {
+            let answer = match Self::token_of(&app, given)
+                .and_then(|name| self.resolve_in(request, given, &snap, &folding, name))
+            {
+                Ok(mut answer) => {
+                    answer.as_object_mut().map(|o| o.remove("files"));
+                    self.present(answer)
                 }
-            })
-            .collect();
+                Err(error) => json!({ "error": self.present(error) }),
+            };
+            bytes += answer.to_string().len();
+            if bytes > RESOLVE_BYTES {
+                return Err(
+                    json!({"message": format!("tamber-resolve-batch: one resolve answers at most {} MiB; ask for fewer tokens at once", RESOLVE_BYTES >> 20), "id": "tamber-resolve-batch"}),
+                );
+            }
+            answers.push(answer);
+        }
         Ok(json!({"files": files_json(&snap), "answers": answers}))
     }
 
