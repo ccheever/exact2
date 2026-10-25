@@ -947,7 +947,8 @@ package final class Presenter {
         let generation = hoverTransition
         defer { if hoverTransition == generation { hoverLooks(nodes) } } // LLP 1121 D8 (HoverMac.swift)
         func eligible(_ node: NodeView) -> Bool {
-            views[node.id] === node && node.isDescendant(of: viewport) && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")
+            views[node.id] === node && (node.isDescendant(of: viewport) || navigation.split.pane(holding: node) != nil)
+                && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")
         }
         let next = nodes.filter(eligible)
         if hoveredInline != inline {

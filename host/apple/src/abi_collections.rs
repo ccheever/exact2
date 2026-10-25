@@ -17,6 +17,9 @@ impl<D: DataSource> Bridge<D> {
     /// card and cell margins: f32 the card's left and right
     /// insets, then the cell's left and right margins; kind 9 clears them.
     /// Kind 12 reports scrollbar gutters in the right and bottom fields.
+    /// Kind 14 shows a split's own placeholder (LLP 1116.006 D2,
+    /// `Runner::show_split_placeholder`) and kind 15 hides it again; their
+    /// four floats are unused.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let mut records = Vec::new();
@@ -36,8 +39,14 @@ impl<D: DataSource> Bridge<D> {
         let out = if !rest.is_empty() {
             self.refusal("covers: truncated record")
         } else {
-            let (mut covers, mut blocks, mut placements, mut margins, mut lists) =
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let (mut covers, mut blocks, mut placements, mut margins, mut lists, mut shows) = (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
             for r in records {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
@@ -82,6 +91,7 @@ impl<D: DataSource> Bridge<D> {
                         }),
                     )),
                     9 => margins.push((view, None)),
+                    14 | 15 => shows.push((view, kind == 14)),
                     10 => lists.push((view, Some([edge(8), edge(12)]))),
                     11 => lists.push((view, None)),
                     1 => {
@@ -101,7 +111,7 @@ impl<D: DataSource> Bridge<D> {
                 }
             }
             self.host.as_mut().map_or_else(not_booted, |h| {
-                h.set_claims(&covers, &blocks, &placements, &margins, &lists)
+                h.set_claims(&covers, &blocks, &placements, &margins, &lists, &shows)
             })
         };
         self.emit(out)
