@@ -130,6 +130,9 @@ fn decode(v: &str) -> String {
 /// its presentation attributes.
 const FIX_STYLE: &str = "write the paint as attributes (`fill=\"currentColor\"`, `fill-rule=\"evenodd\"`) and drop the `style` attribute or the `<style>` block: a template reads neither";
 
+/// The fix for XML a template is not (a namespace, a CDATA section, a DOCTYPE).
+const FIX_PLAIN: &str = "remove it: a template is plain SVG, its elements and attributes unprefixed in the root's default namespace (`xmlns=\"http://www.w3.org/2000/svg\"`), with no CDATA or DOCTYPE";
+
 /// The fix for a presentation value a template doesn't read.
 const FIX_VALUE: &str = "write `fill` as `currentColor`, `none`, `#rgb` or `#rrggbb`, and `fill-rule` as `nonzero` or `evenodd`, exactly";
 
@@ -261,6 +264,20 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
         .into_iter()
         .find(|(start, _)| rest.starts_with(start));
         if let Some((start, end)) = skip {
+            // A CDATA section or a DOCTYPE (whose internal subset's default
+            // attributes a parser would apply) is no template (C2, the last
+            // gaps); no repo template has either.
+            if start == "<![CDATA[" {
+                note(&mut why, || {
+                    ("it has a CDATA section".to_string(), FIX_PLAIN)
+                });
+            } else if start == "<!"
+                && rest
+                    .get(..9)
+                    .is_some_and(|d| d.eq_ignore_ascii_case("<!doctype"))
+            {
+                note(&mut why, || ("it has a DOCTYPE".to_string(), FIX_PLAIN));
+            }
             let close = rest[start.len()..]
                 .find(end)
                 .ok_or("an SVG comment or declaration is not closed")?;
@@ -291,6 +308,33 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             stack.pop();
             continue;
         };
+        // Namespaces (C2, the last gaps): a prefixed element or attribute,
+        // or any namespace declaration but the root's default SVG one, is no
+        // template (`<s:style xmlns:s=…>`, `<g xmlns="…xhtml">`). No repo
+        // template uses another (none writes `xlink`).
+        if name.contains(':') {
+            note(&mut why, || {
+                (format!("its `<{name}>` has a namespace prefix"), FIX_PLAIN)
+            });
+        }
+        for (k, v) in &attrs {
+            let root_svg = stack.is_empty()
+                && name == "svg"
+                && *k == "xmlns"
+                && v == "http://www.w3.org/2000/svg";
+            if (*k == "xmlns" || k.starts_with("xmlns:")) && !root_svg {
+                note(&mut why, || {
+                    (format!("its `<{name}>` declares `{k}=\"{v}\"`"), FIX_PLAIN)
+                });
+            } else if k.contains(':') && !k.starts_with("xmlns:") {
+                note(&mut why, || {
+                    (
+                        format!("its `<{name}>` has `{k}`, a namespaced attribute"),
+                        FIX_PLAIN,
+                    )
+                });
+            }
+        }
         let (inherited_fill, inherited_stroke, inherited_color, inherited_rule, in_defs) = stack
             .last()
             .cloned()
@@ -397,7 +441,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     note(&mut why, || {
                         (
                             "it fills with a gradient or a pattern".to_string(),
-                            "fill every path with one plain colour (`fill=\"black\"`): the host paints it in the text's colour",
+                            "fill every path with `fill=\"currentColor\"`: the host paints it in the text's colour",
                         )
                     });
                 }
@@ -413,7 +457,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     note(&mut why, || {
                         (
                             "it fills in a translucent colour".to_string(),
-                            "fill with an opaque colour (`fill=\"black\"`): the host paints it in the text's colour",
+                            "fill with `fill=\"currentColor\"`: the host paints it in the text's colour, opaque",
                         )
                     });
                 }
@@ -800,7 +844,59 @@ mod tests {
                 r#"<defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M0 0h4v4H0Z"/>"#,
                 "it has a `<style>` block",
             ),
+            // Round 5: namespaces, CDATA (a DOCTYPE below: it precedes the root).
+            (
+                r#"<s:style xmlns:s="http://www.w3.org/2000/svg">path{fill-rule:nonzero}</s:style><path fill-rule="evenodd" d="M0 0h1"/>"#,
+                "its `<s:style>` has a namespace prefix",
+            ),
+            (
+                r#"<g xmlns="http://www.w3.org/1999/xhtml"><path d="M0 0h1"/></g>"#,
+                "its `<g>` declares `xmlns=\"http://www.w3.org/1999/xhtml\"`",
+            ),
+            (
+                r#"<g xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1"/></g>"#,
+                "its `<g>` declares `xmlns=\"http://www.w3.org/2000/svg\"`",
+            ),
+            (
+                r##"<path xlink:href="#a" d="M0 0h1"/>"##,
+                "its `<path>` has `xlink:href`, a namespaced attribute",
+            ),
+            (
+                r#"<![CDATA[x]]><path d="M0 0h1"/>"#,
+                "it has a CDATA section",
+            ),
         ];
+        let doctype = read(r#"<!DOCTYPE svg [<!ATTLIST path fill-rule CDATA "evenodd">]><svg viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#).unwrap();
+        assert!(
+            doctype
+                .not_template
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("it has a DOCTYPE"),
+            "{:?}",
+            doctype.not_template
+        );
+        let plain =
+            read(r#"<!doctype svg><svg viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#).unwrap();
+        assert!(
+            plain
+                .not_template
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("it has a DOCTYPE"),
+            "{:?}",
+            plain.not_template
+        );
+        let xmlns = read(
+            r#"<svg xmlns:x="http://example.com/x" viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            xmlns.not_template.as_deref(),
+            Some("its `<svg>` declares `xmlns:x=\"http://example.com/x\"`")
+        );
+        let root = read(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#).unwrap();
+        assert_eq!(root.not_template, None, "the root's default SVG namespace");
         for (body, reason) in cases {
             let svg = format!(r#"<svg viewBox="0 0 24 24">{body}</svg>"#);
             let read = read(&svg).unwrap();
@@ -809,7 +905,8 @@ mod tests {
             assert!(
                 read.fix
                     .contains("drop the `style` attribute or the `<style>` block")
-                    || read.fix.contains("exactly"),
+                    || read.fix.contains("exactly")
+                    || read.fix.contains("a template is plain SVG"),
                 "{svg}: {}",
                 read.fix
             );
