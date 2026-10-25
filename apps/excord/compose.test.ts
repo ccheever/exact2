@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import * as S from './discord/store';
-import { resolveMentions, suggest } from './compose';
+import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose';
 
 const cdn = 'http://cdn';
 const me = { id: '1', username: 'charlie', global_name: 'Charlie' };
@@ -95,4 +95,29 @@ test('a prefix match is offered however many substring matches come before it', 
   const listed = suggest(s, cdn, cid, '@zed');
   expect(listed[0].detail).toBe('zedd');
   expect(listed).toHaveLength(8);
+});
+
+test('the reaction picker offers the server\'s emoji first, then Unicode ones, by name', () => {
+  const s = store();
+  expect(emojiChoices(s, cdn, '', 'x')).toEqual([]);
+  const all = emojiChoices(s, cdn, cid, '');
+  expect(all.slice(0, 2).map(c => [c.label, c.value])).toEqual([['ferris', '500'], ['party_parrot', '501']]);
+  expect(all.find(c => c.label === 'gone')).toBeUndefined();
+  expect(emojiChoices(s, cdn, cid, ':heart_').map(c => c.glyph)).toEqual(['😍', '❤️‍🔥']);
+  expect(emojiChoices(s, cdn, cid, 'thumbsup')[0]).toMatchObject({ glyph: '👍', value: '👍' });
+  expect(emojiChoices(s, cdn, dm, 'fer').map(c => c.label)).toEqual([]);
+});
+
+test('the quick switcher finds text channels in every server and the DMs, unread first; no search lists the unread', () => {
+  const s = store();
+  const name = (id: string) => ({ name: id === dm ? 'Grace Hopper' : 'group' }) as any;
+  expect(switchTargets(s, cdn, 'he', name).map(t => [t.label, t.detail, t.server, t.glyph])).toEqual([['help', 'Club', '10', '#']]);
+  expect(switchTargets(s, cdn, '#gen', name).map(t => t.id)).toEqual([cid]);
+  expect(switchTargets(s, cdn, 'hop', name)).toMatchObject([{ id: dm, detail: 'Direct Message', server: '@me', avatar: `${cdn}/avatars/4/abc.png?size=128` }]);
+  expect(switchTargets(s, cdn, 'voice', name)).toEqual([]);
+  // #general has history and no read state, so it is unread; a mention puts #help before it.
+  expect(switchTargets(s, cdn, '', name).map(t => t.label)).toEqual(['general']);
+  S.applyDispatch(s, 'MESSAGE_CREATE', { id: '2000', channel_id: '101', author: ada, content: '<@1>', mentions: [me],
+    timestamp: '2026-10-22T12:05:00.000Z', attachments: [], embeds: [] }, 5);
+  expect(switchTargets(s, cdn, '', name).map(t => [t.label, t.mentions])).toEqual([['help', 1], ['general', 0]]);
 });
