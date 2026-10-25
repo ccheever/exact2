@@ -730,12 +730,29 @@ export function withLock(lock, fn) {
       let owner = 0, age = 0;
       try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
       // A swap takes milliseconds: a lock whose owner is gone, or that names none after a second, is left over.
-      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
+      const leftOver = (owner, age) => Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000;
+      if (leftOver(owner, age)) { stealLock(lock, leftOver); continue; }
       if (Date.now() - started > 30000) throw new Error(`${lock}: process ${owner} has held it for 30 s; remove it if that process is not a build`);
       Atomics.wait(nap, 0, 0, 10);
     }
   }
   try { return fn(); } finally { rmSync(lock, { force: true }); }
+}
+/** Remove `lock` if it is still left over, judged again under `<lock>.steal`: two waiters that both saw a dead owner
+ * would otherwise each remove the lock, the second the one the first had just taken in its place. A `.steal` a killed
+ * waiter left (5 s old) is removed. */
+function stealLock(lock, leftOver) {
+  try { writeFileSync(`${lock}.steal`, String(process.pid), { flag: 'wx' }); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    try { if (Date.now() - statSync(`${lock}.steal`).mtimeMs > 5000) rmSync(`${lock}.steal`, { force: true }); } catch {}
+    return;
+  }
+  try {
+    let owner = 0, age = 0;
+    try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { return; }
+    if (leftOver(owner, age)) rmSync(lock, { force: true });
+  } finally { rmSync(`${lock}.steal`, { force: true }); }
 }
 
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
