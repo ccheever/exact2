@@ -303,7 +303,7 @@ test('4. the viewed channel subscribes its guild again after a non-resumable rec
 
 test('5. snapshots have fixed keys and only the viewed channel supplies history versions', async () => {
   const app = await rig.app(), peer = await app.dial();
-  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'retryIn', 'attempt'].sort();
+  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'members', 'retryIn', 'attempt'].sort();
   expect(Object.keys(peer.snapshots.at(-1)!).sort()).toEqual(keys);
   const channel = rig.fixture.world.generalChannelId;
   const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;

@@ -46,6 +46,9 @@ export interface ChannelGroup { category: Channel | null; channels: Channel[] }
 export interface UnreadState { unread: boolean; mentionCount: number; lastReadId: string | null }
 export interface TypingUser { user: User; expiresAtMs: number }
 export interface GuildEmoji { id: string; name: string; animated: boolean; available: boolean }
+/** One row of a member list: a group's header (a hoisted role's id, "online" or "offline") or a member. */
+export type MemberItem = { group: { id: string; count: number } } | { member: DiscordObject };
+export interface MemberList { id: string; items: (MemberItem | undefined)[]; revision: number }
 interface ReadState { lastReadId: string | null; mentionCount: number }
 interface Entry {
   row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
@@ -94,6 +97,9 @@ export interface Store {
   folders: Folder[];
   // Each guild's custom emoji, for the composer's suggestions.
   emojis: Map<string, GuildEmoji[]>;
+  // Each guild's member list as GUILD_MEMBER_LIST_UPDATE builds it for the channel op 37 subscribed: its
+  // list id and its items, groups and members by index (the subscribed range, 0–99).
+  memberLists: Map<string, MemberList>;
   sidebarRevision: number;
   sequence: number;
 }
@@ -103,7 +109,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), sidebarRevision: 0, sequence: 0,
   };
 }
 
@@ -111,7 +117,7 @@ export function createStore(opts: { meId?: string } = {}): Store {
  * answer asked after it can match one asked before. */
 export function forgetAccount(s: Store): void {
   s.meId = null;
-  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles, s.emojis]) map.clear();
+  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles, s.emojis, s.memberLists]) map.clear();
   s.guildOrder = [];
   s.folders = [];
   s.removals++;
@@ -399,6 +405,30 @@ function setEmojis(s: Store, guildId: string, emojis: DiscordObject[]): void {
     animated: e.animated === true, available: e.available !== false })));
 }
 
+// The list's operations, as Discord sends them: SYNC replaces a range, INVALIDATE forgets one, INSERT and
+// DELETE shift what follows, UPDATE replaces one item. A new list id (another channel's permissions)
+// starts the list over. Members met here join the user directory.
+function updateMemberList(s: Store, d: DiscordObject): void {
+  const id = String(d.id ?? '');
+  let list = s.memberLists.get(d.guild_id);
+  if (!list || list.id !== id) { list = { id, items: [], revision: 0 }; s.memberLists.set(d.guild_id, list); }
+  const items = list.items.slice();
+  const take = (item: any): MemberItem | undefined => {
+    if (item?.member) { rememberUser(s, item.member.user); return { member: item.member }; }
+    return item?.group ? { group: { id: String(item.group.id), count: Number(item.group.count ?? 0) } } : undefined;
+  };
+  for (const op of Array.isArray(d.ops) ? d.ops : []) {
+    const [from, to] = Array.isArray(op.range) ? op.range.map(Number) : [0, -1];
+    if (op.op === 'SYNC') (op.items ?? []).forEach((item: any, i: number) => { if (from + i <= to) items[from + i] = take(item); });
+    else if (op.op === 'INVALIDATE') for (let i = from; i <= to && i < items.length; i++) items[i] = undefined;
+    else if (op.op === 'INSERT' && Number.isInteger(op.index)) items.splice(op.index, 0, take(op.item));
+    else if (op.op === 'DELETE' && Number.isInteger(op.index)) items.splice(op.index, 1);
+    else if (op.op === 'UPDATE' && Number.isInteger(op.index)) items[op.index] = take(op.item);
+  }
+  // Its own revision, not the lists': a presence moving in a large server would otherwise redraw them.
+  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision: list.revision + 1 });
+}
+
 function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
   rememberUser(s, member.user);
   const id = member.user_id ?? member.user?.id;
@@ -610,7 +640,7 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
   switch (t) {
     case 'READY':
       for (const id of new Set([...s.channelMap.keys(), ...s.readStates.keys()])) c.channels.add(id);
-      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear(); s.emojis.clear();
+      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear(); s.emojis.clear(); s.memberLists.clear();
       s.guildOrder = [];
       s.folders = [];
       s.removals++;
@@ -646,6 +676,7 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       }
       break;
     case 'GUILD_MEMBER_UPDATE': rememberMember(s, d.guild_id, d, c); break;
+    case 'GUILD_MEMBER_LIST_UPDATE': if (d.guild_id) updateMemberList(s, d); break;
     case 'GUILD_EMOJIS_UPDATE': if (d.guild_id && Array.isArray(d.emojis)) setEmojis(s, d.guild_id, d.emojis); break;
     case 'GUILD_ROLE_CREATE':
     case 'GUILD_ROLE_UPDATE': if (d.role?.id) setRole(s, d.guild_id, d.role, d.role.id, c); break;

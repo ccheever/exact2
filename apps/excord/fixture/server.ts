@@ -480,6 +480,29 @@ export function startFixture(options: FixtureOptions = {}) {
     if (version === resetVersion && !socket.data.closed) loginsDone++;
   }
 
+  // The first 100 rows of a guild's member list: each hoisted role's members, then the rest online, then
+  // those offline (every third member), as GUILD_MEMBER_LIST_UPDATE's SYNC carries them.
+  function memberList(guildId: string) {
+    const guild = world.guilds.find(g => g.id === guildId);
+    const members = guild?.members ?? [];
+    const hoisted = (guild?.roles ?? []).filter(r => r.hoist).sort((a, b) => b.position - a.position);
+    const status = (i: number) => i % 3 === 2 ? 'offline' : i % 4 === 1 ? 'idle' : 'online';
+    const groups: { id: string; members: typeof members }[] = [];
+    const placed = new Set<string>();
+    for (const role of hoisted) {
+      const holders = members.filter((m, i) => status(i) !== 'offline' && !placed.has(m.user.id) && m.roles.includes(role.id));
+      holders.forEach(m => placed.add(m.user.id));
+      if (holders.length) groups.push({ id: role.id, members: holders });
+    }
+    groups.push({ id: 'online', members: members.filter((m, i) => status(i) !== 'offline' && !placed.has(m.user.id)) });
+    groups.push({ id: 'offline', members: members.filter((_, i) => status(i) === 'offline') });
+    const items = groups.filter(g => g.members.length).flatMap(g => [{ group: { id: g.id, count: g.members.length } },
+      ...g.members.map(m => ({ member: { ...m, presence: { user: { id: m.user.id }, status: status(members.indexOf(m)), activities: [] } } }))]).slice(0, 100);
+    return { guild_id: guildId, id: 'everyone', member_count: members.length,
+      online_count: members.filter((_, i) => status(i) !== 'offline').length,
+      groups: groups.map(g => ({ id: g.id, count: g.members.length })), ops: [{ op: 'SYNC', range: [0, 99], items }] };
+  }
+
   async function receive(socket: Socket, raw: string | Buffer) {
     if (socket.data.closed) return;
     let frame: any;
@@ -496,6 +519,10 @@ export function startFixture(options: FixtureOptions = {}) {
           ? Object.keys(frame.d.subscriptions) : [];
       for (const id of guildIds) session.subscribedGuilds.add(id);
       session.subscriptions.push({ op: frame.op, guild_ids: guildIds });
+      // A channel's member list, as Discord answers a subscription that names a range of it.
+      for (const id of guildIds) {
+        if (frame.op === 37 && frame.d.subscriptions[id]?.channels) await Promise.all(deliver(session, 'GUILD_MEMBER_LIST_UPDATE', memberList(id)));
+      }
       return;
     }
     if (frame?.op !== 2 && frame?.op !== 6) return;

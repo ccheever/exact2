@@ -10,10 +10,11 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use ServerButton, FolderButton from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
+use MemberList from "./members.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 
@@ -154,6 +155,8 @@ component Excord
   derive gw = match digested { case some(d) => (d.seq > gateway.seq ? d : gateway), case none => gateway }
   resource guilds = loadGuilds(gw.sidebar) as shape Guild[] else empty()
   resource rail = loadRail(gw.sidebar) as shape RailEntry[] else empty()
+  resource members = loadMembers(open, gw.members) as shape MemberRow[] else empty()
+  derive membersBeside = showMembers and paneWidth >= 900 and chan.guild != ""
   // The rail's open folders, kept across launches.
   state openFolders: string[] = [] persist
   derive dmsShown = server == "@me" or guilds.length == 0
@@ -243,6 +246,9 @@ component Excord
   state profileChannel = ""
   // A channel a link or mention opens once its server's list holds it, and the message to show there.
   state pendingOpen = ""
+  // The member list: shown beside a channel when there is room for it (`paneWidth`), else in a sheet.
+  state showMembers = true persist
+  state paneWidth = 0
   state pendingMessage = ""
   resource profile = userProfile(profileUser != "" ? profileChannel : "", profileUser, profileMessage) as shape Profile else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
@@ -783,6 +789,16 @@ component Excord
       showModal("profile")
   action profileClosed
     profileUser = ""
+  action toggleMembers
+    if paneWidth >= 900
+      showMembers = not showMembers
+    else
+      showModal("members")
+  action paneResized(w: number, h: number)
+    paneWidth = w
+  action memberCard(userId: string, messageId: string)
+    close("members")
+    showProfile(userId, messageId)
   action openSwitcher
     if not locked
       switchQuery = ""
@@ -881,6 +897,7 @@ component Excord
       close("confirm-delete")
       close("confirm-sign-out")
       close("profile")
+      close("members")
       hidePopover("message-menu")
       hidePopover("account-menu")
       hidePopover("fixture-menu")
@@ -1024,6 +1041,9 @@ component Excord
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
+              if chan.guild != ""
+                button press=toggleMembers aria-label="Members" aria-pressed=membersBeside testId="members-toggle"
+                  image "symbol:people"
               if gw.fixture
                 button popovertarget="fixture-menu" aria-label="Fixture traffic" testId="fixture"
                   image "symbol:more"
@@ -1052,132 +1072,141 @@ component Excord
                 text "Fail the next send"
               button press=toggleLive popovertarget="fixture-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=live testId="toggle-live"
                 text "Live traffic"
-            column flex=1 min-height=0 position="relative"
-              // A list of its own for each channel: one opened over another (a split replaces the
-              // route) starts at its newest message rather than at the last one's scroll position.
-              for ch in [open] key=ch
-                list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
-                  scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
-                  reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
-                  flex=1 min-height=0 padding-top=8 padding-bottom=22
-                  for m in rows key=m.key
-                    MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow)
-              column id="message-menu" popover="auto" role="menu"
-                button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
-                  image "symbol:reply"
-                  text "Reply"
-                button press=reactAimed("👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
-                  text "👍 Thumbs Up"
-                button press=reactAimed("❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
-                  text "❤️ Heart"
-                button press=reactAimed("😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
-                  text "😂 Laugh"
-                button press=openPicker popovertarget="message-menu" popovertargetaction="hide" testId="menu-react"
-                  image "symbol:add"
-                  text "Add Reaction"
-                hr
-                button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
-                  image "symbol:copy"
-                  text "Copy Text"
-                button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
-                  image "symbol:link"
-                  text "Copy Message Link"
-                if aimedMine
-                  hr
-                  button press=editAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
-                    image "symbol:pencil"
-                    text "Edit Message"
-                  button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
-                    image "symbol:delete"
-                    text "Delete Message"
-              dialog id="react-picker" aria-label="Add Reaction" close=pickerClosed testId="react-picker"
-                column gap=10 padding=12 width="22rem" max-width="100%"
-                  input type="search" value=pickerQuery input=searchPicker placeholder="Find an emoji" aria-label="Find an emoji" autofocus=true testId="picker-search"
-                  scroll height="16rem"
-                    view display="grid" grid-template-columns="repeat(auto-fill, minmax(44px, 1fr))" gap=2
-                      for e in choices key=e.id
-                        button appearance="none" press=reactPicked(e.value) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
-                          if e.avatar != ""
-                            image e.avatar width=28 height=28 margin="auto"
-                          else
-                            text e.glyph font-size=26 text-align="center"
-                  if choices.length == 0
-                    text "No emoji match." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
-              dialog id="confirm-delete" role="alertdialog" aria-label="Delete Message"
-                text "Are you sure you want to delete this message?"
-                button press=deleteAimed destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
-                  text "Delete"
-                button commandfor="confirm-delete" command="close" testId="delete-cancel"
-                  text "Cancel"
-              if unreadBar and unreadLabel != ""
-                row position="absolute" top=0 left=0 right=0 align-items="center" column-gap=12 padding="0px 16px" flex-wrap="wrap" background-color="AccentColor" testId="unread"
-                  button appearance="none" press=jumpToUnread testId="unread-bar" flex="1 1 12rem" min-width=0 padding="9px 0px"
-                    text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600
-                  button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
-                    text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
-              if chan.typing != ""
-                row position="absolute" left=16 right=16 bottom=2 gap=6 align-items="center"
-                  row gap=3 aria-hidden=true
-                    for d in ["0", "1", "2"] key=d
-                      view width=5 height=5 border-radius=3 background-color="-exact-secondary-label"
-                        animation=(viewport.prefersReducedMotion ? "none" : `typingDot 1.2s ${d == "0" ? 0 : d == "1" ? 160 : 320}ms ease-in-out infinite`)
-                  text chan.typing testId="typing" font="-exact-caption1" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0
-              if away and (newCount > 0 or win.hasAfter)
-                button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
-                  text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
-            column padding="4px 12px 6px"
-              if replyTo != ""
-                row align-items="center" gap=8 padding="4px 4px"
-                  text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
-                  button appearance="none" press=toggleReplyMention aria-pressed=replyMention aria-label=(replyMention ? "Mention on" : "Mention off") testId="reply-mention" padding="2px 6px"
-                    text (replyMention ? "@ ON" : "@ OFF") font="-exact-footnote" font-weight=700 color=(replyMention ? "AccentColor" : "-exact-secondary-label")
-                  button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
-                    image "symbol:close"
-              if editing != ""
-                row align-items="center" gap=8 padding="4px 4px"
-                  text "Editing message" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="editing"
-                  button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
-                    image "symbol:close"
-                if editError != ""
-                  text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
-              // One line of text is as tall as Send beside it, so the text sits at its middle.
-              if picked.length > 0
-                scroll overflow-x="auto" overflow-y="hidden" height=88 flex-shrink=0 margin="0px 0px 6px" testId="picked"
-                  row gap=8 padding="6px 2px"
-                    for f in picked key=f.path
-                      view position="relative" flex-shrink=0
-                        image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
-                        button appearance="none" press=unpick(f.path) aria-label=`Remove ${f.name}` position="absolute" top=4 right=4 width=22 height=22 border-radius=11
-                          display="flex" align-items="center" justify-content="center" background-color="-exact-label" testId=`unpick-${f.name}`
-                          image "symbol:close" width=10 height=10 color="-exact-background"
-              if suggestions.length > 0
-                column margin="0px 0px 6px" padding="4px 0px" border-radius=12 border="1px solid -exact-separator" background-color="-exact-background" testId="suggestions"
-                  for g in suggestions key=g.id
-                    button appearance="none" press=pick(g.text) testId=`suggest-${g.id}` aria-label=g.label
-                      row gap=10 align-items="center" padding="6px 12px" min-width=0
-                        if g.avatar != ""
-                          image g.avatar width=24 height=24 border-radius=(g.glyph == "" and g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
-                        else
-                          text g.glyph width="1.5rem" text-align="center" font="-exact-title3" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
-                        text g.label font-weight=500 flex="0 1 auto" min-width=0 line-clamp=1
-                        if g.detail != ""
-                          text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
-              row align-items="flex-end" gap=8
-                // Pictures only: uploading other files is out of Excord's scope (llp/0001 §1).
-                input type="file" accept="image/*" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
-                button press=attach aria-label="Add a picture" testId="attach" disabled=(editing != "") margin-bottom=4
-                  image "symbol:add"
-                // The field draws no ring of its own: the pill's border shows the focus. One line
-                // sits at Send's middle, whatever height the platform gives Send; Send stays at the
-                // bottom as the field grows.
-                row flex=1 min-width=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
-                  focusin=composerFocus(true) focusout=composerFocus(false)
-                  textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
-                    placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
-                    line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
-                  button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
-                    retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
-                    image "symbol:send"
+            // The transcript and its composer, and beside them the member list when there is room.
+            row flex=1 min-height=0 resize=paneResized
+              column flex=1 min-width=0 min-height=0
+                column flex=1 min-height=0 position="relative"
+                  // A list of its own for each channel: one opened over another (a split replaces the
+                  // route) starts at its newest message rather than at the last one's scroll position.
+                  for ch in [open] key=ch
+                    list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
+                      scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
+                      reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
+                      flex=1 min-height=0 padding-top=8 padding-bottom=22
+                      for m in rows key=m.key
+                        MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow)
+                  column id="message-menu" popover="auto" role="menu"
+                    button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
+                      image "symbol:reply"
+                      text "Reply"
+                    button press=reactAimed("👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
+                      text "👍 Thumbs Up"
+                    button press=reactAimed("❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
+                      text "❤️ Heart"
+                    button press=reactAimed("😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
+                      text "😂 Laugh"
+                    button press=openPicker popovertarget="message-menu" popovertargetaction="hide" testId="menu-react"
+                      image "symbol:add"
+                      text "Add Reaction"
+                    hr
+                    button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
+                      image "symbol:copy"
+                      text "Copy Text"
+                    button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
+                      image "symbol:link"
+                      text "Copy Message Link"
+                    if aimedMine
+                      hr
+                      button press=editAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
+                        image "symbol:pencil"
+                        text "Edit Message"
+                      button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
+                        image "symbol:delete"
+                        text "Delete Message"
+                  dialog id="react-picker" aria-label="Add Reaction" close=pickerClosed testId="react-picker"
+                    column gap=10 padding=12 width="22rem" max-width="100%"
+                      input type="search" value=pickerQuery input=searchPicker placeholder="Find an emoji" aria-label="Find an emoji" autofocus=true testId="picker-search"
+                      scroll height="16rem"
+                        view display="grid" grid-template-columns="repeat(auto-fill, minmax(44px, 1fr))" gap=2
+                          for e in choices key=e.id
+                            button appearance="none" press=reactPicked(e.value) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
+                              if e.avatar != ""
+                                image e.avatar width=28 height=28 margin="auto"
+                              else
+                                text e.glyph font-size=26 text-align="center"
+                      if choices.length == 0
+                        text "No emoji match." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
+                  dialog id="confirm-delete" role="alertdialog" aria-label="Delete Message"
+                    text "Are you sure you want to delete this message?"
+                    button press=deleteAimed destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
+                      text "Delete"
+                    button commandfor="confirm-delete" command="close" testId="delete-cancel"
+                      text "Cancel"
+                  if unreadBar and unreadLabel != ""
+                    row position="absolute" top=0 left=0 right=0 align-items="center" column-gap=12 padding="0px 16px" flex-wrap="wrap" background-color="AccentColor" testId="unread"
+                      button appearance="none" press=jumpToUnread testId="unread-bar" flex="1 1 12rem" min-width=0 padding="9px 0px"
+                        text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600
+                      button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
+                        text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
+                  if chan.typing != ""
+                    row position="absolute" left=16 right=16 bottom=2 gap=6 align-items="center"
+                      row gap=3 aria-hidden=true
+                        for d in ["0", "1", "2"] key=d
+                          view width=5 height=5 border-radius=3 background-color="-exact-secondary-label"
+                            animation=(viewport.prefersReducedMotion ? "none" : `typingDot 1.2s ${d == "0" ? 0 : d == "1" ? 160 : 320}ms ease-in-out infinite`)
+                      text chan.typing testId="typing" font="-exact-caption1" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0
+                  if away and (newCount > 0 or win.hasAfter)
+                    button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
+                      text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
+                column padding="4px 12px 6px"
+                  if replyTo != ""
+                    row align-items="center" gap=8 padding="4px 4px"
+                      text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
+                      button appearance="none" press=toggleReplyMention aria-pressed=replyMention aria-label=(replyMention ? "Mention on" : "Mention off") testId="reply-mention" padding="2px 6px"
+                        text (replyMention ? "@ ON" : "@ OFF") font="-exact-footnote" font-weight=700 color=(replyMention ? "AccentColor" : "-exact-secondary-label")
+                      button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
+                        image "symbol:close"
+                  if editing != ""
+                    row align-items="center" gap=8 padding="4px 4px"
+                      text "Editing message" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="editing"
+                      button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
+                        image "symbol:close"
+                    if editError != ""
+                      text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
+                  // One line of text is as tall as Send beside it, so the text sits at its middle.
+                  if picked.length > 0
+                    scroll overflow-x="auto" overflow-y="hidden" height=88 flex-shrink=0 margin="0px 0px 6px" testId="picked"
+                      row gap=8 padding="6px 2px"
+                        for f in picked key=f.path
+                          view position="relative" flex-shrink=0
+                            image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
+                            button appearance="none" press=unpick(f.path) aria-label=`Remove ${f.name}` position="absolute" top=4 right=4 width=22 height=22 border-radius=11
+                              display="flex" align-items="center" justify-content="center" background-color="-exact-label" testId=`unpick-${f.name}`
+                              image "symbol:close" width=10 height=10 color="-exact-background"
+                  if suggestions.length > 0
+                    column margin="0px 0px 6px" padding="4px 0px" border-radius=12 border="1px solid -exact-separator" background-color="-exact-background" testId="suggestions"
+                      for g in suggestions key=g.id
+                        button appearance="none" press=pick(g.text) testId=`suggest-${g.id}` aria-label=g.label
+                          row gap=10 align-items="center" padding="6px 12px" min-width=0
+                            if g.avatar != ""
+                              image g.avatar width=24 height=24 border-radius=(g.glyph == "" and g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
+                            else
+                              text g.glyph width="1.5rem" text-align="center" font="-exact-title3" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
+                            text g.label font-weight=500 flex="0 1 auto" min-width=0 line-clamp=1
+                            if g.detail != ""
+                              text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
+                  row align-items="flex-end" gap=8
+                    // Pictures only: uploading other files is out of Excord's scope (llp/0001 §1).
+                    input type="file" accept="image/*" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
+                    button press=attach aria-label="Add a picture" testId="attach" disabled=(editing != "") margin-bottom=4
+                      image "symbol:add"
+                    // The field draws no ring of its own: the pill's border shows the focus. One line
+                    // sits at Send's middle, whatever height the platform gives Send; Send stays at the
+                    // bottom as the field grows.
+                    row flex=1 min-width=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                      focusin=composerFocus(true) focusout=composerFocus(false)
+                      textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
+                        placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
+                        line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
+                      button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
+                        retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
+                        image "symbol:send"
+              if membersBeside
+                scroll width="15rem" flex-shrink=0 border-left="1px solid -exact-separator" testId="members"
+                  MemberList(rows=members, open=showProfile)
+      dialog id="members" aria-label="Members" testId="members-sheet"
+        scroll max-height="70vh" width="20rem" max-width="100%"
+          MemberList(rows=members, open=memberCard)
       dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
         column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
           image profile.avatar width=80 height=80 border-radius=40 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true

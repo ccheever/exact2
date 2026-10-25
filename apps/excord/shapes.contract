@@ -219,6 +219,8 @@ shape Gateway
   channel: string
   version: number
   history: number
+  // Moves with the member list of the server on screen (`loadMembers`).
+  members: number
   retryIn: number
   attempt: number
 
@@ -307,3 +309,17 @@ shape RailEntry
   guilds: Guild[]
   unread: bool
   mentions: number
+
+// One row of the member list beside a channel: a group's header (`group`
+// true: a hoisted role's name, "Online" or "Offline", with its count) or a
+// member with their picture, name in their role's colour, and status
+// ("online", "idle", "dnd" or "offline").
+shape MemberRow
+  id: string
+  user: string
+  group: bool
+  label: string
+  count: number
+  avatar: string
+  color: string
+  status: string
