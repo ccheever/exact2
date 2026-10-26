@@ -4,6 +4,20 @@ import {mkdtempSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import { appleComposition, assertCapabilityFrameworks, loadedDylibs } from './link.mjs';
+import { systemFrameworks } from './compose.mjs';
+
+test('package frameworks retain category-only dependencies and weak-link APIs newer than the deployment target', () => {
+  const packages = [
+    { frameworks: { PhotosUI: { ios: '14.0' } } },
+    { frameworks: { FoundationModels: { ios: '26.0', macos: '26.0' } } },
+    { frameworks: { PhotosUI: { ios: '14.0' } } },
+  ];
+  assert.deepEqual(systemFrameworks(packages, 'ios', '17.0'), [
+    '-Xlinker', '-weak_framework', '-Xlinker', 'FoundationModels', '-framework', 'PhotosUI',
+  ]);
+  assert.deepEqual(systemFrameworks(packages, 'ios', '26.0'), ['-framework', 'FoundationModels', '-framework', 'PhotosUI']);
+  assert.deepEqual(systemFrameworks(packages, 'macos', '14.0'), ['-Xlinker', '-weak_framework', '-Xlinker', 'FoundationModels']);
+});
 
 test('production links what the plan uses, the manifest names and the grants open; development all but the photo picker and sign-in sheet, which it links as production would (LLP 1047.001.000 E, F)', () => {
   const graph = { uses: ['markdown', 'picker'] };

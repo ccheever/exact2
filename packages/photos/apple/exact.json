@@ -6,6 +6,11 @@
     "ios",
     "macos"
   ],
+  "frameworks": {
+    "PhotosUI": {
+      "ios": "14.0"
+    }
+  },
   "shapes": {
     "ApplePhotoAsset": {
       "mediaSubtypes": "string[]",

@@ -1150,10 +1150,11 @@ component Excord
       hidePopover("fixture-menu")
     launched = true
   action unlockTap
-    if session.locked
-      send unlocked = unlockSession()
-    else
-      send returned = authenticate(reason="reason.unlock")
+    if not pending(unlocked) and not pending(returned)
+      if session.locked
+        send unlocked = unlockSession()
+      else
+        send returned = authenticate(reason="reason.unlock")
   action afterReturn
     lockedOut = false
   action toggleLock
@@ -1492,5 +1493,5 @@ component Excord
         column position="absolute" inset=0 align-items="center" justify-content="center" gap=16 padding=24 background-color="-exact-background" testId="lock-screen"
           image "symbol:lock" font-size=44 color="-exact-secondary-label"
           text "Excord is locked" font="-exact-title3"
-          button press=unlockTap buttonStyle="filled" testId="unlock"
-            text "Unlock"
+          button press=unlockTap disabled=(pending(unlocked) or pending(returned)) buttonStyle="filled" testId="unlock"
+            text ((pending(unlocked) or pending(returned)) ? "Unlocking…" : "Unlock")

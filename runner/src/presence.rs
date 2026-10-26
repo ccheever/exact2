@@ -107,7 +107,7 @@ pub trait Vault: Send {
     /// Keep or delete the record of `name`.
     fn put_record(&mut self, name: &str, record: Option<&[u8]>) -> Result<(), String>;
     /// The generations of `name`'s locked items, read without asking anyone
-    /// (on Apple an attributes-only query under `interactionNotAllowed`).
+    /// (on Apple indexed candidates, probed without permitting authentication).
     fn generations(&self, name: &str) -> Result<Vec<u64>, String>;
     /// Add a locked item for `name` at `generation`, under `presence`. It
     /// asks no one: adding an item with access control, or encrypting to a

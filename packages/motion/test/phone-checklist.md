@@ -23,8 +23,10 @@ fixture's files, this package by `file:`), then build it for each target:
    `0 0 9.8` (m/s²). Stood upright in portrait: about `0 9.8 0`. If Safari
    reads `0 0 -9.8`, the web implementation's WebKit negation is wrong for
    this version: say which.
-2. **Screen frame.** In landscape, tap **Screen frame**: tilting the
-   screen's right edge down makes x positive.
+2. **Screen frame.** In landscape, tap **Screen frame**. With the screen
+   facing up, lower its right edge and raise its left edge: x becomes
+   negative, as in portrait. Gravity uses the upward acceleration and
+   the screen's x-axis points right ([Accelerometer §6.3–6.4](https://www.w3.org/TR/accelerometer/#gravity-sensor)).
 3. **Gyroscope.** Spin the phone flat, counter-clockwise seen from above:
    `spin`'s z is positive, in rad/s (about 3 for half a turn a second).
 4. **Batch.** `batch` reads about six samples an answer and `dropped` 0;

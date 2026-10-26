@@ -479,9 +479,17 @@ fn an_implementation_raises_a_wake_and_is_told_its_end() {
     }
     by(&mut r, 0.0);
     assert_eq!(woke(&heard), [r#""w1" "completed""#], "{}", logs(&r));
-    // Its budget passes with the request still out: expired.
+    // An idle live session gives a new wake its whole budget.
+    let clock = std::rc::Rc::new(std::cell::Cell::new(60_000.0));
+    let sample = clock.clone();
+    r.set_live_clock(Some(Box::new(move || sample.get())));
     told(&r, "w2");
     r.apply_announced();
+    by(&mut r, 0.0);
+    assert_eq!(state(&r)["wake"]["invocations"][0]["state"], "running");
+    assert_eq!(woke(&heard).len(), 1, "{}", logs(&r));
+    // Its budget passes with the request still out: expired.
+    clock.set(66_000.0);
     by(&mut r, 6_000.0);
     assert_eq!(woke(&heard)[1], r#""w2" "expired""#, "{}", logs(&r));
     // An event no handler hears is still a wake, ended at once.

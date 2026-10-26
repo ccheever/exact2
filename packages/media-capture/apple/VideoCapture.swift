@@ -207,7 +207,13 @@ final class VideoTracks: ExactTrackOwner {
     /// The app went to the background or came back (D6): on iOS the system
     /// interrupts the session and resumes it itself; on macOS nothing changes.
     func foreground(_ shown: Bool) {
-        guard context.agent else { return }
+        guard context.agent else {
+            for t in tracks.values where t.readyState == "live" {
+                guard let capture = t.capture else { continue }
+                say("\(t.id): foreground=\(shown), running=\(capture.session.isRunning), interrupted=\(capture.session.isInterrupted), muted=\(t.muteReason ?? "none")")
+            }
+            return
+        }
         for t in tracks.values where t.readyState == "live" && t.leased {
             t.platformMute = shown ? overlay : "background"
             settle(t)
@@ -303,6 +309,7 @@ final class VideoTracks: ExactTrackOwner {
 
     /// The capture `t` holds was interrupted (`reason`) or resumed (nil).
     func interrupted(_ t: VideoTrack, _ reason: String?) {
+        say("\(t.id): interruption=\(reason ?? "ended")")
         t.platformMute = reason ?? overlay
         settle(t)
     }
@@ -470,6 +477,12 @@ final class VideoCapture: NSObject, ExactVideoSource {
     /// Interruptions as `muteReason` (D3); after any but the background, the session runs again while leased.
     private func listen() {
         let center = NotificationCenter.default
+        for name in [AVCaptureSession.didStartRunningNotification, AVCaptureSession.didStopRunningNotification] {
+            observers.append(center.addObserver(forName: name, object: session, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.log("camera: running=\(self.session.isRunning), interrupted=\(self.session.isInterrupted)")
+            })
+        }
         let tell = { [weak self] (reason: String?) in
             guard let self else { return }
             for get in self.holders.values { if let t = get() { t.tracks?.interrupted(t, reason) } }

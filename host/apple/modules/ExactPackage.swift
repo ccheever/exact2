@@ -282,7 +282,7 @@ public extension ExactPackage {
 public final class ExactWakes {
     private let requestFn: (String, [String: Any]?) -> Void
     public init(_ request: @escaping (String, [String: Any]?) -> Void) { requestFn = request }
-    /// A wake for `key` at `at` or later (ms since the epoch): `refresh`
+    /// A wake for `key` at `at` or later (the session clock, ms): `refresh`
     /// (iOS's 30 s) or `processing` (minutes, while the device is idle),
     /// with a network connection and, if asked, external power. A request
     /// for a key replaces the last.

@@ -149,7 +149,7 @@ public final class ContactsModule: ExactPackage {
 
     /// The store changed: announced, or marked while an announcement's re-asks are in flight.
     private func changedStore() {
-        guard !readers.isEmpty else { return }
+        guard !readers.isEmpty else { context.changed("contacts.contactsStatus"); return }
         if awaiting { dirty = true; return }
         announce()
     }
