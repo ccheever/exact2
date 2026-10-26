@@ -148,7 +148,7 @@ component MessageRow
                         text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
                     else
                       link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
-                        row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-tertiary-fill"
+                        row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
                           image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
                           column flex=1 min-width=0
                             text f.name color="AccentColor" font-weight=500 line-clamp=1
@@ -383,44 +383,46 @@ component EmbedView
     show: action
     follow: action
   view
-    row max-width="26rem" border-radius=6 overflow="hidden" background-color="-exact-tertiary-fill" testId=`embed-${mkey}-${e.id}`
-      view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
-      column flex=1 min-width=0 padding=10 gap=4
-        if e.provider != ""
-          text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
-        if e.author != ""
-          row gap=6 align-items="center" min-width=0
-            if e.authorIcon != ""
-              image e.authorIcon width=20 height=20 border-radius=10 object-fit="cover" flex-shrink=0 aria-hidden=true
-            if e.authorUrl != ""
-              link href=e.authorUrl min-width=0
+    // The border outside, the spine and fill clipped inside its inner corner (CSS clips a child to the padding edge).
+    view max-width="26rem" border-radius=6 border="1px solid -exact-separator" testId=`embed-${mkey}-${e.id}`
+      row border-radius=5 overflow="hidden" background-color="-exact-secondary-background"
+        view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
+        column flex=1 min-width=0 padding=10 gap=4
+          if e.provider != ""
+            text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
+          if e.author != ""
+            row gap=6 align-items="center" min-width=0
+              if e.authorIcon != ""
+                image e.authorIcon width=20 height=20 border-radius=10 object-fit="cover" flex-shrink=0 aria-hidden=true
+              if e.authorUrl != ""
+                link href=e.authorUrl min-width=0
+                  text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+              else
                 text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+          if e.title != ""
+            if e.url != ""
+              link href=e.url
+                text e.title font-weight=600 overflow-wrap="break-word"
             else
-              text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
-        if e.title != ""
-          if e.url != ""
-            link href=e.url
               text e.title font-weight=600 overflow-wrap="break-word"
-          else
-            text e.title font-weight=600 overflow-wrap="break-word"
-        for b in e.description key=b.id
-          BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
-        if e.fields.length > 0
-          row flex-wrap="wrap" column-gap=16 row-gap=8 padding-top=2
-            for f in e.fields key=f.id
-              column gap=2 min-width=0 flex=(f.inline ? "1 1 28%" : "1 1 100%") testId=`field-${mkey}-${f.id}`
-                text f.name font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
-                for b in f.value key=b.id
-                  BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
-        for i in e.image key=i.id
-          MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
-        if e.footer != "" or e.at > 0
-          row gap=6 align-items="center" padding-top=2 min-width=0
-            if e.footerIcon != ""
-              image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
-            text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
-      for t in e.thumbnail key=t.id
-        image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
+          for b in e.description key=b.id
+            BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+          if e.fields.length > 0
+            row flex-wrap="wrap" column-gap=16 row-gap=8 padding-top=2
+              for f in e.fields key=f.id
+                column gap=2 min-width=0 flex=(f.inline ? "1 1 28%" : "1 1 100%") testId=`field-${mkey}-${f.id}`
+                  text f.name font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+                  for b in f.value key=b.id
+                    BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+          for i in e.image key=i.id
+            MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
+          if e.footer != "" or e.at > 0
+            row gap=6 align-items="center" padding-top=2 min-width=0
+              if e.footerIcon != ""
+                image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
+              text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
+        for t in e.thumbnail key=t.id
+          image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
 
 // A poll, as Discord draws it: before the reader votes, its answers to choose and a Vote button; once they
 // have voted, asked to see the results, or the poll has closed, each answer's share as a bar.
@@ -438,7 +440,7 @@ component PollView
   derive tally = ended or p.voted or results
   derive chosen = picks.filter(k => k.startsWith(`${mid}:`)).length
   view
-    column max-width="28rem" padding=16 gap=12 border-radius=8 border="1px solid -exact-separator" background-color="-exact-tertiary-fill" testId=`poll-${mkey}`
+    column max-width="28rem" padding=16 gap=12 border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background" testId=`poll-${mkey}`
       column gap=2
         text p.question font="-exact-headline"
         text (p.multi ? "Select one or more answers" : "Select one answer") font="-exact-footnote" color="-exact-secondary-label"
