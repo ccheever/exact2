@@ -499,7 +499,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let adopted = presenter.navigation.adopts(tablist: list)
             guard adopted != adoptedLists.contains(list.id) else { continue }
             if adopted { adoptedLists.insert(list.id) } else { adoptedLists.remove(list.id) }
-            list.isHidden = adopted
+            list.hiddenByHost = adopted
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) + Array(bars.keys) where !live.contains(id) { restore(owner: id) }
