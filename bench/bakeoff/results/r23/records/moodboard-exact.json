@@ -1,0 +1,26 @@
+{
+  "spec": "moodboard",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.moodboard.be5a542",
+  "assignedId": "dev.bakeoff.moodboard.be5a542",
+  "appName": "Moodboard",
+  "sim": "EEFC0029-1010-45E4-8242-42CF67E16C96",
+  "pin": "986e6cf144",
+  "minutes": 21.09,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 7859537,
+    "fresh": 109831,
+    "input": 7827079,
+    "cached": 7717248,
+    "output": 32458,
+    "cost": null,
+    "calls": 15,
+    "toolCalls": 80
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r23/built/moodboard-exact.app",
+  "notes": true,
+  "finished": "2026-10-26T20:55:42.970Z"
+}

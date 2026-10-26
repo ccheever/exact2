@@ -1,0 +1,26 @@
+{
+  "spec": "watchlist",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.watchlist.ba17786",
+  "assignedId": "dev.bakeoff.watchlist.ba17786",
+  "appName": "Watchlist",
+  "sim": "CEDFB9C9-FF04-4617-B156-94C56B83CA86",
+  "pin": "986e6cf144",
+  "minutes": 23.61,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 6139605,
+    "fresh": 90913,
+    "input": 6101793,
+    "cached": 6010880,
+    "output": 37812,
+    "cost": null,
+    "calls": 14,
+    "toolCalls": 67
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r23/built/watchlist-exact.app",
+  "notes": true,
+  "finished": "2026-10-26T20:46:50.507Z"
+}

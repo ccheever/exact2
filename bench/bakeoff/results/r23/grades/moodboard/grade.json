@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three-column grid of 600 HSL tiles with emoji centred, newest first, filling the width inside 16pt margins; heart badges on liked tiles."},
+      {"n": 2, "status": "pass", "note": "Pull-down menu with All boards plus ten boards and a checkmark; Coast shows 64 tiles; menu is also on the Liked screen."},
+      {"n": 3, "status": "pass", "note": "Push to a large view with board, title and 'Added <date>'; a paging collection view where the next tile follows the finger and peeks in; prev/next chevrons and 'n of 600'."},
+      {"n": 4, "status": "pass", "note": "Full-width Like/Liked button in the large view; the Liked tab shows the same grid (63 after one like) with its own filter."},
+      {"n": 5, "status": "pass", "note": "Select → circle overlays, count in header, Select-all, floating Like/Delete bar; bulk Like becomes Unlike when everything selected is liked; Delete asks to confirm and removed 2 tiles (600→598)."},
+      {"n": 6, "status": "pass", "note": "Bulk likes and the 2 deletions were still there after relaunch."}
+    ],
+    "bugs": [
+      "The delete confirmation pops up as a popover at the top of the screen, with its arrow pointing at the filter button instead of the Delete button the user tapped."
+    ],
+    "tells": [
+      "Heavily themed look (cream background, rust accent, serif detail title, letter-spaced eyebrow text 'A LITTLE DAILY INSPIRATION', decorative layers/heart icon badge): more of a branded marketing feel than a stock iOS app.",
+      "Large view's nav title is a generic 'Inspiration' rather than the tile's name; the '1 of 600' row stays pinned and content scrolls under it with no material at large text.",
+      "Select mode's floating Like/Delete bar is hand-drawn pills rather than a bottom toolbar; at the largest text it covers all but one row of the grid and repeats '1 selected' twice.",
+      "The Select All control is an icon-only checkmark circle in the leading nav slot, which isn't a standard place for it."
+    ],
+    "scroll": "Native-feeling: the large title collapses into an inline bar with blur, flings decelerate smoothly with no blank or popping rows, and scroll position is kept on returning from a tile.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge three-column grid with 2pt gutters (Photos-style), newest first, 600 tiles; heart badges on liked tiles."},
+      {"n": 2, "status": "pass", "note": "System pull-down menu from a blue 'All Boards ⌃⌄' button, ten boards plus All; Coast shows 64 tiles. The chosen filter is kept across relaunch."},
+      {"n": 3, "status": "partial", "note": "Large view shows title, board and date, and swiping left/right does change tile. But it isn't a real pager: mid-swipe only the emoji slides inside a static coloured square and the next tile never peeks in, so it feels like a gesture recogniser rather than paging. Needs a 'Swipe the tile to explore' hint."},
+      {"n": 4, "status": "pass", "note": "Heart button in the nav bar toggles like/unlike; Liked tab shows the same grid (63) with its own filter."},
+      {"n": 5, "status": "pass", "note": "Select → circle checkmarks, 'n selected', Select All, icon-only heart/trash buttons; Delete shows a centred alert with Cancel/Delete and removed 2 tiles (600→598)."},
+      {"n": 6, "status": "pass", "note": "Likes and deletions were still there after relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the floating tab bar covers the prev/next/position row of the large view until you scroll.",
+      "In select mode the bulk Like button stays an outline 'like' heart even when every selected tile is already liked; there is no Unlike state."
+    ],
+    "tells": [
+      "Swipe between tiles doesn't track the finger as a paging scroll view would: the colour square stays put and only the symbol moves.",
+      "The filter/count header is pinned above an inner scrolling grid. Content never scrolls under the nav bar, the title is inline-only (no large title), and at the largest text the pinned header eats about a quarter of the screen.",
+      "The accessibility tree wraps the whole app in an extra ScrollView/'app' container with stray horizontal scroll bars, a sign of a non-native view hierarchy (seen only in tree, not felt).",
+      "A 'Swipe the tile to explore' instruction label, which is unusual on iOS.",
+      "In select mode the Like/Delete buttons are hand-drawn icon-only grey pills rather than a bottom toolbar."
+    ],
+    "scroll": "Flings and deceleration feel normal, with no blank rows, and position is kept on returning from a tile. But the grid scrolls inside a fixed header box rather than under the nav bar, so it lacks the collapsing-title, under-bar-blur feel.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist correctly. A's large view is a true paging browser where neighbouring tiles follow the finger, and its large title collapses natively as the grid scrolls under the bar. A's bulk Like also switches to Unlike sensibly. B is plainer and closer to stock in places (system alert, Photos-like grid), but its tile swipe doesn't track the finger, its header is pinned over an inner scroll view, and its tab bar covers the detail controls at large text."
+}

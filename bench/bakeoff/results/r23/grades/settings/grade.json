@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every section is there in an inset grouped list with a large title. Account has editable Name/Email and a red Sign Out that confirms in an anchored dialog, then shows a 'Not Signed In' state with Sign In. Reading has a stepped slider with A/A icons and a pt readout, a five-font picker, a Compact/Normal/Relaxed segmented control and a preview. Appearance has System/Light/Dark/Sepia. Library has Sort By and two toggles. The Notifications master toggle reveals the reminder time and three toggles, and turning it on brings up the real iOS permission prompt. Storage shows a used-space bar, Books and Cache rows, and Clear Cache with a confirmation that names the size; afterwards Cache reads Zero KB and the button disables. About has the version, Privacy and Terms pages, and Rate Paperback, which shows the system review prompt."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort By push native checkmark lists. Fonts are drawn in their own typeface, and themes have Aa swatches and subtitles. The reminder opens the compact time-wheel popover. At the largest text size Line Spacing turns into a pushed picker."},
+      {"n": 3, "status": "pass", "note": "The preview updated live for Georgia, 29 pt and Relaxed, and takes on the sepia colours."},
+      {"n": 4, "status": "pass", "note": "Name, email, size, font, spacing, theme, sort, all toggles, reminder time and the cleared cache all survived a relaunch."},
+      {"n": 5, "status": "pass", "note": "A centered red Reset All Settings with a confirmation. Every setting went back to its default and the account was kept. The list scrolled back to the top afterwards."}
+    ],
+    "bugs": [
+      "The keyboard accessory bar shows four 'Done' buttons side by side when editing Name or Email (a duplicated toolbar item).",
+      "Tapping another row while the keyboard is up does nothing; you have to tap Done first.",
+      "In Sepia the preview row loses its card background, so the Reading card ends with a square edge and the preview floats on the page colour."
+    ],
+    "tells": [
+      "The four Done buttons over the keyboard.",
+      "The storage bar keeps a system-blue Books segment in the Sepia theme.",
+      "Uses the 'Zero KB' wording from the default formatter."
+    ],
+    "scroll": "Native collection-view scrolling. Slow drags, flings and the rubber band at the top all felt right, with a material nav bar and hairline once scrolled. Scroll position was kept when coming back from pushed pickers.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every section is there in an inset grouped list with a large title. Account has editable fields and a Sign Out alert (Cancel/Sign Out) that switches to a 'Not signed in' / Sign In state. Reading has a slider, a five-font picker, a segmented control and a 'Chapter One' preview card with a summary footer. Appearance has the four themes. Library has Sort By and two toggles. The Notifications master toggle hides and reveals the reminder time plus New Releases, Reading Goals and Deals. Storage has Used, Books and Cache rows and a Clear Cache alert, after which Cache reads Zero KB and the button disables. About has the version, Privacy and Terms pages, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort By push native checkmark lists, and the reminder uses the compact time-picker popover. At the largest text size Line Spacing becomes a menu picker. Font names are not shown in their own typeface."},
+      {"n": 3, "status": "pass", "note": "The preview and its caption ('Georgia, 29 pt, relaxed spacing') update live. Sepia and Dark recolour the preview card."},
+      {"n": 4, "status": "pass", "note": "Name, size, font, spacing, theme, sort, toggles, sub-toggles, reminder time and the cleared cache all survived a relaunch."},
+      {"n": 5, "status": "partial", "note": "Reset confirms in an alert and restores the defaults while keeping the account. Once in two tries, the Line Spacing control afterwards looked dimmed and ignored taps until relaunch."}
+    ],
+    "bugs": [
+      "After confirming Reset All Settings, the Line Spacing segmented control once stayed greyed out and unresponsive until the app was relaunched (seen once in two tries).",
+      "The segmented control's accessibility 'selected' state goes stale: VoiceOver and the element tree report Normal while Relaxed is shown, and the reverse after a reset.",
+      "Rate the App shows a home-made 'Enjoying Paperback?' alert instead of the system review prompt."
+    ],
+    "tells": [
+      "When scrolled, the inline 'Settings' title sits straight on top of list text with only a faint edge blur. It collides visibly with rows ('Deals and Price Drops', the preview text), especially in dark mode.",
+      "Name and email truncate with an ellipsis at the largest text size instead of wrapping or stacking.",
+      "The Sepia theme only tints the preview card while the rest of the screen stays default, unlike Dark, which recolours the whole app.",
+      "The font picker lists names in the system font, with no preview of each typeface.",
+      "Clear Cache is a blue button rather than a destructive red one."
+    ],
+    "scroll": "Native list scrolling. Drags, flings and the rubber band all felt like iOS with no blank or popping rows. The see-through nav bar makes the title collide with content during scrolling, and the scroll position shifts slightly on returning from a picker.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both are well-made native grouped settings screens that meet the spec and keep everything across relaunches. A goes further: real notification permission, the system review prompt, fonts previewed in their own typeface, a storage bar, a full-screen Sepia theme and clean layout at the largest text size. Its main flaw is the cosmetic quadruple Done bar. B has a control that sometimes goes dead after Reset, a title that overlaps content when scrolled, truncated account fields at large text, and a home-made rating alert."
+}

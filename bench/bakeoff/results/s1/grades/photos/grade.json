@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across grid of square centre-cropped thumbnails with thin gaps, oldest first, opens at the newest. Has sticky day headings (Today, Yesterday, weekday, 'Thu, Feb 19'). The last row sits partly under the floating tab bar."},
+      {"n": 2, "status": "pass", "note": "Full screen at the photo's own aspect ratio. Swiping left and right reliably moves between photos in both directions, and swiping down closes the viewer."},
+      {"n": 3, "status": "pass", "note": "The heart toggles in the viewer, and a small white heart marks favourites in the grid."},
+      {"n": 4, "status": "pass", "note": "The Albums tab shows a 2-column grid of the 8 albums with cover, name and count, and the counts update after deletes. An album opens a grid of its photos."},
+      {"n": 5, "status": "pass", "note": "Select mode has circle checkmarks and a bottom bar with Favorite, a count and Delete. Delete asks for confirmation in an alert, and both bulk actions work."},
+      {"n": 6, "status": "pass", "note": "Favourites and deletions survived a relaunch (1,498 photos, album count 186→185)."}
+    ],
+    "bugs": [
+      "Fast flinging the library grid shows rows of blank grey placeholder thumbnails before the images load.",
+      "At the largest text size, the sticky day heading ('Saturday') draws straight over the nav-bar title and subtitle ('Library / 1,498 Photos'), and in select mode over 'Select Items', so both are unreadable.",
+      "The grid's last row ends partly under the floating tab bar (not enough bottom inset)."
+    ],
+    "tells": [
+      "The collapsed nav title plus subtitle ('Library / 1,498 Photos', 'Food / 184 Photos') floats over the thumbnails without a proper scroll-edge backing, and the subtitle is hard to read over the photos, especially in dark mode.",
+      "The viewer and select-mode bottom bars use bare, unglassed icons (blue heart, red trash) instead of iOS 26-style glass toolbar buttons, and there is no Share action.",
+      "Toolbar icons and the 'Select Items' label in the select bar grow huge at the largest text size instead of staying fixed with a large-content viewer; the label wraps onto two lines.",
+      "No long-press context menu on thumbnails: a long press just opens the photo.",
+      "Select mode has no 'Select All'.",
+      "VoiceOver reports thumbnails and the Favorite button as switches.",
+      "The viewer's close control is a back chevron rather than a close button."
+    ],
+    "scroll": "Smooth, with pinned day headings and tap-status-bar-to-top working, but hard flings show whole rows of grey placeholder squares that pop in a moment later. The grid position shifts slightly on returning from the viewer.",
+    "scores": {"features": 8, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across square centre-cropped grid with thin gaps, oldest first, opens at the newest. Has sticky full-date day headings ('Saturday, October 24', Yesterday, Today) and a '1,498 Photos · 81 Favorites' footer above the tab bar."},
+      {"n": 2, "status": "partial", "note": "Full screen at the photo's own aspect ratio. Swiping left goes to the next photo and swiping down closes. Swiping right to go to the previous photo usually closes the viewer back to the grid instead (4 of 5 tries); only a very fast, short flick pages back."},
+      {"n": 3, "status": "pass", "note": "The heart in the viewer toolbar toggles Favorite/Unfavorite, the grid shows a heart, and the footer count updates."},
+      {"n": 4, "status": "pass", "note": "The Albums tab shows 8 albums with cover, name and count, and covers and counts update after deletes. An album opens a grid with its own Select and a count footer."},
+      {"n": 5, "status": "pass", "note": "Select mode has Select All, Cancel, an 'N Photos Selected' title, checkmark badges with a dimmed selection, and toolbar Share/Favorite/Delete. Delete confirms in an action-sheet popover ('Delete 2 Photos')."},
+      {"n": 6, "status": "pass", "note": "Favourites and deletions survived a relaunch."}
+    ],
+    "bugs": [
+      "In the full-screen viewer, swiping right to see the previous photo usually dismisses the viewer to the grid instead of paging back, so you can't browse backwards reliably."
+    ],
+    "tells": [
+      "Album grids have no day headings, unlike the library (minor).",
+      "The library uses an inline title rather than a large title (consistent with Photos, so barely a tell)."
+    ],
+    "scroll": "Feels native: hard flings show thumbnails already loaded with no blank cells, the pinned full-date headings sit under a proper blurred scroll-edge, tapping the status bar scrolls to the top, and the scroll position is kept on returning from the viewer.",
+    "scores": {"features": 8, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "B looks and behaves like a hand-built iOS 26 Photos clone: glass toolbars, context menus, Select All, an action-sheet delete confirmation, a proper scroll-edge effect, no blank cells while flinging, and clean layout at the largest text size. Its one real flaw is that swiping right in the viewer usually closes it instead of going back a photo. A gets every requirement working, including paging both ways, but shows grey placeholders on flings, has headings overlapping the nav title at large text, and has hand-drawn-looking toolbars, so overall it is the less finished app."
+}

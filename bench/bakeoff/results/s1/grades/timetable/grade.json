@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "The whole day (05:19 onward) is in time order, grouped into '16:00–16:59' sections whose headings stay pinned. Each row has the time, a coloured letter badge, the destination, the platform, and 'Delayed N min' or a red 'Cancelled'."},
+      {"n": 2, "status": "pass", "note": "The station name with an up/down chevron sits at the top and opens a Stations sheet with a checkmark on the current station and a native bottom search field. Typing 'park' filters to Elm Park and Glen Park; picking one reloads the board."},
+      {"n": 3, "status": "pass", "note": "It opens at the next departure (Harbor 16:29, Glen Park 16:22/16:31), also at the largest text size. The Now button returns there after flinging away."},
+      {"n": 4, "status": "pass", "note": "A filter button in the nav bar opens a native menu (All, Red, Blue, Green, Yellow, Orange) with a checkmark. The summary updates to 'Red line · 28 departures'."},
+      {"n": 5, "status": "pass", "note": "The time and destination of past departures turn grey. The badge and star stay at full strength, so the dimming is partial but readable."},
+      {"n": 6, "status": "pass", "note": "The star toggles and the departure appears in the Saved tab with its station. The saved departures and the chosen station (Glen Park) survived a relaunch."}
+    ],
+    "bugs": [
+      "The pinned hour heading is translucent: rows scrolling under it show through as ghosted text and badges, which is very noticeable at the largest text size.",
+      "In the station sheet, the main list's rows show faintly through the bottom search field area ('Mi… Platfo…')."
+    ],
+    "tells": [
+      "The star is exposed as a Switch with no switch styling, and toggling it gives no haptic.",
+      "Saved has no swipe-to-delete; you can only unstar.",
+      "No large title. The nav title is the inline 'Timetable', and at the largest text size it truncates to 'Timeta…' while the station moves into a nav-bar capsule.",
+      "The badges are single letters only, with no line name in the row."
+    ],
+    "scroll": "A collection view filling the screen behind a floating tab bar. Slow drags, flings and returning to the top felt like a normal iPhone list with no jumps or blank rows. Only the translucent pinned header looks off.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "The whole day is grouped by hour under pinned '16:00 —— 7 departures' headings. Rows show the time, a coloured badge, the destination, 'Red line · Platform N', and an amber 'Delayed' with a clock icon or 'Cancelled'."},
+      {"n": 2, "status": "pass", "note": "A big 'Departing from' card opens a 'Choose station' sheet with train icons, a checkmark and a bottom search field. Searching 'park' leaves 2 stations, and choosing one works."},
+      {"n": 3, "status": "partial", "note": "The Now button works and highlights the departure as NEXT. Opening is unreliable: on Harbor it opened correctly, but on Glen Park it opened past the next departure (16:31 and 16:45 hidden, showing 16:55) on every relaunch. At the largest text size it opened at 08:00."},
+      {"n": 4, "status": "pass", "note": "A horizontal row of chips (All lines, Red, Blue, Green…) filters the list, and the count updates to 28 departures."},
+      {"n": 5, "status": "pass", "note": "Past rows grey out the time and destination, and the badge fades too."},
+      {"n": 6, "status": "pass", "note": "Starring works, a count badge appears on the Saved tab, and Saved supports swipe to 'Unsave'. Both the saved departure and the station survived relaunching."}
+    ],
+    "bugs": [
+      "Opening the board scrolls to the wrong place: past the next departure for Glen Park, and to 08:00 at the largest text size.",
+      "The empty-state footer says '1 saved departures'.",
+      "Saved marks a saved departure as 'NEXT', which means nothing in a list of saved trips."
+    ],
+    "tells": [
+      "The large 'Departures' title, date, station card, filter chips and count header never scroll away or collapse. They take about 375pt, leaving room for only about 3.5 rows, so it doesn't behave like a large-title list.",
+      "There are two titles at once: an inline 'Timetable' in the nav bar above the large 'Departures' or 'Saved' heading.",
+      "The list stops above the tab bar instead of scrolling under it.",
+      "The filter chips are custom pills rather than a native control, and at the largest text size only 'All lines' and 'Red' fit.",
+      "It has a custom background tint and card styling that feel more like a web or design-system look than stock iOS.",
+      "The red count badge on the Saved tab is unusual for a bookmarks list."
+    ],
+    "scroll": "Scrolling inside the table is smooth and the pinned headers behave. But the list lives in a small fixed window under a header that never collapses, and a mid-screen swipe that lands on the header does nothing.",
+    "scores": {"features": 8, "platform": 6, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both cover every requirement, but A reliably opens at the next departure and gives the list the whole screen with native menu and sheet controls. B looks more designed and has nice touches like swipe to unsave and a NEXT marker, but its fixed header leaves room for only about 3.5 rows. It also opens at the wrong place, past the next departure on some stations and at 08:00 at large text."
+}

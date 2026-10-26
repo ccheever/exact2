@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen: Today (21) and All (135) with SF Symbol icons, then My Lists with open counts. Counts update after completing, adding or deleting."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed  7 ⌄' header that collapses and expands with a chevron. Checkbox completes (blue filled check) and the count updates."},
+      {"n": 3, "status": "pass", "note": "+ opens a native form sheet: Title (autofocused), Notes, Due Date toggle with a compact date picker, Priority menu (None/Low/Medium/High), List picker. Add stays disabled with an inline hint until there is a title. Tapping a task opens the same sheet; title, due date and priority edits saved."},
+      {"n": 4, "status": "pass", "note": "Overdue: red '! Overdue · Sat, Oct 17'. High priority: red '!!!' before the title; low is a grey '!'."},
+      {"n": 5, "status": "pass", "note": "Every row always shows a drag grip, and dragging it reorders (kept after relaunch). Trailing swipe shows Delete and deletes the task."},
+      {"n": 6, "status": "pass", "note": "+ on Lists makes a new list (with a native 'No Tasks' empty state). The ⋯ menu has Rename List (sheet) and Delete List (alert naming the list and its task count). All worked."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the edited title/priority/due date, the added task, the deleted task, the reorder and the counts were all kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Every list on the main screen shows an orange line.3.horizontal drag-handle glyph as its icon, so lists have no real icon or colour; it reads like a leftover reorder handle.",
+      "Task rows always show reorder grips instead of hiding them behind edit mode, which is unusual for iOS.",
+      "Row separators are inconsistent: missing under some rows (e.g. under 'Write the library books / Today', and between note-bearing rows in All), and there is a separator above the first row.",
+      "At the largest text size the open counts on the Lists screen stay tiny under each name instead of scaling, and each task row's drag grip drops onto its own line below the text, wasting a lot of space.",
+      "The back button is a bare chevron with no 'Lists' title."
+    ],
+    "scroll": "The All list (about 12 pages) scrolled smoothly under a slow drag and a fling, flung back to the top cleanly and rubber-banded at the top, with no blank or popping rows. The large title collapses into the inline title with the system blur.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Reminders-style inset-grouped screen: coloured circular icons for Today (21), All (135) and each list, with open counts. Lists are sorted alphabetically."},
+      {"n": 2, "status": "pass", "note": "Open tasks in a grouped card, then a 'Completed (7) ⌄' header that collapses and expands. Completed rows are struck through with blue checks. The checkbox completes and reopens, and the count updates. A reopened task goes to the end of the open list."},
+      {"n": 3, "status": "pass", "note": "A floating 'New Task' button opens a sheet with Title, Notes, a Due Date toggle that reveals an inline calendar (like Reminders), Priority (None/Low/High) and List; Add is disabled until there is a title. Tapping a task edits it, and title, due date and priority saved. The title field is not autofocused."},
+      {"n": 4, "status": "pass", "note": "Overdue: bold red '! Sat, Oct 17 · Overdue'. High priority: red '!!!' plus a red checkbox ring, as in Reminders."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows a red trash Delete action that deletes. Reorder works through ⋯ > 'Select Tasks to Reorder' (edit mode with system grips, then Done). There is no long-press drag outside edit mode."},
+      {"n": 6, "status": "partial", "note": "'Add List', the main-screen Edit button and the ⋯ menu's 'Rename List…' / 'Delete List' are all present, but I could not exercise them: the simulator was taken over by another run and B was uninstalled mid-test."},
+      {"n": 7, "status": "partial", "note": "Not verified. B was uninstalled from the simulator by another run before the relaunch check could be done."}
+    ],
+    "bugs": [],
+    "tells": [
+      "In the task sheet the row labels do not line up: 'Priority' starts at x=57 while 'Due Date' and 'List' start at about x=76.",
+      "The swipe action shows a trash icon in a red pill with a grey 'Delete' caption beneath it rather than the standard label style.",
+      "The floating 'New Task' toolbar button's text switches between black and blue tint from one screen state to the next, and it covers the last row and the Completed header text.",
+      "The Priority picker has only None/Low/High (no Medium).",
+      "Dark mode and the largest text size were not checked (simulator taken over)."
+    ],
+    "scroll": "The Garden list (3 pages) scrolled and flung smoothly with the grouped card intact and the large title collapsing normally. All and dark/largest-text passes were not done because the app was removed mid-test.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps are well-made SwiftUI/UIKit-style apps, and B looks more like Reminders (coloured list icons, red priority rings, inline calendar, reorder in a proper edit mode). But A was verified end to end, including list create/rename/delete, persistence, dark mode and the largest text size, with only cosmetic tells. B's list management and persistence could not be confirmed because the shared simulator was taken over by another run, so A is the safer pick. On visible design alone the two are close to a tie."
+}

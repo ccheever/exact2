@@ -1,0 +1,41 @@
+22:30:21 build: 3 pairs on e70dd6f13c
+22:30:21 build feed-exact on 486FD498-0E3E-4B64-8E4B-152BD8265EE7
+22:30:21 build feed-swiftui on EF198926-1958-489D-A7A4-9196E454DD3A
+22:30:21 build photos-exact on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+22:30:21 build photos-uikit on 498D6D1F-C21C-4B31-90F4-5D857216E256
+22:30:21 build timetable-exact on EEFC0029-1010-45E4-8242-42CF67E16C96
+22:30:21 build timetable-uikit on CEDFB9C9-FF04-4617-B156-94C56B83CA86
+22:40:05 built photos-uikit: 9.71 min, 1.59 Mtok, exit 0, app kept
+22:44:04 built feed-swiftui: 13.7 min, 3.39 Mtok, exit 0, app kept
+22:45:54 built feed-exact: 14.58 min, 7.35 Mtok, exit 0, app kept
+22:46:31 built timetable-uikit: 16.14 min, 3.11 Mtok, exit 0, app kept
+22:56:46 built photos-exact: 25.43 min, 9.65 Mtok, exit 0, app kept
+22:59:57 built timetable-exact: 28.6 min, 11.53 Mtok, exit 0, app kept
+23:01:33 feel feed-exact: exit 1 (load 17)
+23:07:57 feel feed-exact: exit 1 (load 17)
+23:07:57 feel feed-swiftui: exit 1 (load 17)
+23:07:58 feel photos-exact: exit 1 (load 17)
+23:07:58 feel photos-uikit: exit 1 (load 17)
+23:07:59 feel timetable-exact: exit 1 (load 17)
+23:08:00 feel feed-swiftui: exit 1 (load 17)
+23:08:00 feel photos-exact: exit 1 (load 16)
+23:08:01 feel photos-uikit: exit 1 (load 16)
+23:08:02 feel timetable-exact: exit 1 (load 16)
+23:08:02 feel timetable-uikit: exit 1 (load 16)
+23:08:03 grade feed on 82D8930B-3C17-48B9-8264-4B173F6DF361
+23:08:03 grade photos on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+23:08:22 feel timetable-uikit: exit 1 (load 16)
+23:08:22 feel done
+23:09:35 feel feed-exact: exit 0 (load 14)
+23:10:18 feel feed-swiftui: exit 0 (load 16)
+23:12:44 feel photos-exact: exit 0 (load 18)
+23:14:27 feel photos-uikit: exit 0 (load 17)
+23:15:13 feel timetable-exact: exit 0 (load 14)
+23:16:03 feel timetable-uikit: exit 0 (load 12)
+23:16:03 feel done
+23:21:00 graded photos: uikit (12.92 min)
+23:21:00 grade timetable on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+23:23:35 graded feed: swiftui (15.51 min)
+23:29:11 graded timetable: exact (8.15 min)
+23:29:11 all done
+23:48:24 report done

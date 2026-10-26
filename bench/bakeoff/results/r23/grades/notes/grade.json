@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first, with a Pinned section on top. Each row shows title, short date (time for today, weekday for this week) and a one-line preview. Long titles wrap to two lines."},
+      {"n": 2, "status": "partial", "note": "Filters title and body as you type and keeps the Pinned/Notes sections. But the bottom search field stays behind the keyboard, so you cannot see what you are typing or reach the clear button."},
+      {"n": 3, "status": "pass", "note": "Title field and body view, no Save button. The edit saved, the date became today, and the note moved to the top of its section; it survived relaunch."},
+      {"n": 4, "status": "pass", "note": "The compose button opens a blank note with the title focused. Backing out of an empty note leaves the count at 90; a note with text is kept (91)."},
+      {"n": 5, "status": "pass", "note": "Swipe left gives Delete; long press gives a context menu with Pin/Unpin and Delete. Both worked and persisted. There is no leading swipe for pin, and a full swipe does not delete."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' subtitle under the large title; it updates on create and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, deletes and unpins all survived relaunch."}
+    ],
+    "bugs": [
+      "While searching, the bottom search field does not rise above the keyboard; it stays hidden behind it, so the query and clear button cannot be seen while typing.",
+      "Dragging right across a row opens the note, as if the swipe were a tap.",
+      "In the editor, tapping into the body scrolls the content so the title slides under the floating back/pin buttons."
+    ],
+    "tells": [
+      "No leading swipe action for pin, and a full left swipe only reveals Delete instead of deleting.",
+      "The Delete swipe button is narrow (63 pt) compared with the system one.",
+      "The editor title is a single-line text field that truncates long titles ('Meeting notes with the de…') instead of wrapping as Notes does.",
+      "At the largest text size the editor body breaks 'recommendatio / ns' in the middle of a word, with no hyphen.",
+      "The bottom-toolbar search field and the '90 Notes' subtitle stay small at the largest text size.",
+      "There is no Done button to dismiss the keyboard while editing.",
+      "The '90 Notes' subtitle under the large title is tiny (about 11 pt) and crowded against the title."
+    ],
+    "scroll": "Smooth through 90 rows on slow drags and flings, with no blank or popping rows; the large title collapses inline properly, and the scroll position is kept after returning from a note.",
+    "scores": {"features": 7, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Native-looking inset-grouped list with Pinned and Notes sections, newest first. Each row shows title, short date (time for today, weekday for this week) and a one-line preview; long titles truncate."},
+      {"n": 2, "status": "pass", "note": "Search field under the large title moves into the nav bar while active and filters title and body live. The toolbar count changes to '18 Found'."},
+      {"n": 3, "status": "partial", "note": "Edits save without a button, the date becomes today, the note moves to the top, and it persisted. But the editor layout is broken: the date label fills most of the screen and pushes the title and body to the bottom. In dark mode they were entirely off-screen until scrolled."},
+      {"n": 4, "status": "pass", "note": "Compose button in the bottom toolbar; title focused, and Return moves to the body. An empty note is discarded (stayed 90); a note with text is kept (91). The new-note title also starts low, and the body sits under the keyboard."},
+      {"n": 5, "status": "pass", "note": "System swipe actions: trailing Delete, and a leading swipe that toggles pin (a full swipe unpinned a note). A long-press menu also has Unpin Note and Delete. Both persisted."},
+      {"n": 6, "status": "pass", "note": "'91 Notes' in the bottom toolbar, as in Apple Notes; it becomes 'N Found' while searching."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes and pin changes survived relaunch."}
+    ],
+    "bugs": [
+      "In the note editor, the date label takes up hundreds of points, so a short note's title and body sit at the bottom of the screen or below it. Opening a note shows a mostly blank page and you must scroll to reach the text; on a new note the body field is under the keyboard. It only lays out correctly when the text is long enough to fill the screen (e.g. at the largest text size).",
+      "Tapping the body area of a just-opened note, where the body is clipped at the bottom edge, did not focus it."
+    ],
+    "tells": [
+      "The editor's huge empty space with the date floating mid-screen looks nothing like a system notes editor.",
+      "The toolbar count text stays small at the largest text size (minor, and it matches the system)."
+    ],
+    "scroll": "Smooth and native: slow drags, flings and fling-back to the top are clean, with no blank rows, the large title collapses with the search field, and the scroll position is kept after returning from a note.",
+    "scores": {"features": 7, "platform": 7, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "B's list, search and swipe actions are more native than A's, but its note editor, the core screen of a notes app, is badly laid out: every short note opens to a blank page with the text pushed to the bottom or off-screen. A has its own clear flaws (the search field hidden under the keyboard, no leading swipe, a mid-word break at large text), but editing notes in A works and looks right, so it is narrowly the one I'd rather use."
+}

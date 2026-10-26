@@ -1,0 +1,56 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 420 episodes newest first; each row shows show artwork + show name, title, date · minutes, and a Played/Unplayed dot. Section header shows the count."},
+      {"n": 2, "status": "pass", "note": "'All episodes' / 'Unplayed · N' segmented chips filter the list; the count updates live and played rows drop out at once."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists the 12 shows with artwork, episode count and unplayed count (counts track changes); tapping one pushes that show's episodes with its own filter."},
+      {"n": 4, "status": "pass", "note": "Detail shows big artwork, title, date, length and summary. Play episode marks it played, turns into Pause, shows 'Playing now' and a mini-player bar above the tab bar."},
+      {"n": 5, "status": "pass", "note": "Row ⋯ opens a native menu with Mark as played/unplayed and Add to Up Next; a full leading swipe marks played and a trailing swipe adds to Up Next."},
+      {"n": 6, "status": "pass", "note": "Add from the menu, swipe or detail. Up Next has a native Edit mode with drag handles to reorder and red minus → 'Remove from Up Next'. The tab shows a badge with the count."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state and the Up Next contents and order were kept. The filter goes back to All."}
+    ],
+    "bugs": [
+      "At the largest text size the search field on Episodes and Shows is an empty grey pill: placeholder and magnifier are not drawn.",
+      "At the largest text size the hero header ('Stay curious.') collapses to just its subtitle line, and the 'Unplayed · 292' chip wraps to two lines with the dot leading the second line."
+    ],
+    "tells": [
+      "No large titles anywhere. Every tab uses a small inline title, followed by a marketing-style serif hero block ('Stay curious.', 'Meet the shows.', 'One good listen after another.') that pushes content down.",
+      "Bespoke warm cream/terracotta theme with letter-spaced monospaced kickers (THE LONG FIELD, ABOUT THIS EPISODE). It reads as a branded design rather than a system look.",
+      "The filter is a pair of hand-made pill chips rather than a segmented control or a switch.",
+      "Rows in Up Next edit mode are dimmed/greyed, which a UITableView/List in edit mode does not do.",
+      "The mini-player is a full-width bar stacked above the floating tab bar, not the iOS 26+ tab-bar bottom accessory.",
+      "Wide gap between the played/unplayed dot and its label."
+    ],
+    "scroll": "Smooth native collection-view scrolling over 420 rows, with no blank or popping rows. The sticky 'LATEST EPISODES' header blurs content under it, and pull-past-top bounces normally.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All episodes newest first in an inset grouped list; each row shows show, bold title, date · minutes and a Played/Unplayed text line."},
+      {"n": 2, "status": "pass", "note": "An 'Unplayed only' switch filters the list, with a '420 episodes · N unplayed' footer. The switch state survives relaunch."},
+      {"n": 3, "status": "pass", "note": "Shows tab is a large-title list of the 12 shows with 'N episodes · N unplayed'; tapping one pushes its episodes with its own Unplayed switch."},
+      {"n": 4, "status": "pass", "note": "Detail card shows show, title, date · min, status, summary, and a blue Play button that marks played and becomes 'Playing — Pause' with a 'Now playing' line."},
+      {"n": 5, "status": "pass", "note": "Each row has a circle/check button that toggles played in place."},
+      {"n": 6, "status": "partial", "note": "Rows have a + button (it becomes a grey check once queued and cannot be undone from the list). Up Next supports swipe-to-Delete. Reordering is only through hand-made Up / Down / Remove buttons in Edit mode, with no drag handles."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state and the Up Next contents and order were kept."}
+    ],
+    "bugs": [
+      "A horizontal swipe on an episode row is treated as a tap and opens the episode. There are no swipe actions on episode lists.",
+      "Once added, the list's + turns into a disabled-looking grey check that cannot remove the episode from Up Next."
+    ],
+    "tells": [
+      "Up Next reorder uses rows of 'Up' / 'Down' / 'Remove' pill buttons instead of the system drag-to-reorder handles and delete controls.",
+      "Every row carries two stacked trailing buttons (circle + plus) in place of swipe actions or a context menu.",
+      "At the largest text size the detail title is laid out word by word, with wide gaps and very loose line spacing ('A  history  of / beekeeping'), unlike a single UILabel.",
+      "At the largest text size the search placeholder and the large titles barely scale, and the Unplayed switch stays small while its label wraps.",
+      "Every show uses the same blue microphone glyph, and the episode detail uses a generic grey waveform where artwork would be. Content is undifferentiated.",
+      "The Up Next row chevrons are heavy black instead of tertiary grey.",
+      "The Up Next tab has no badge.",
+      "Default system blue throughout with no tint identity. It looks generic and template-like."
+    ],
+    "scroll": "Scrolling is smooth with no blank rows or jumps, the large title collapses to inline correctly, and scroll position is kept when switching tabs. However, sideways swipes on rows open the episode instead of revealing actions.",
+    "scores": {"features": 7, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet the spec, but A does it with native iOS mechanics: context menus, leading and trailing swipe actions, a real Edit mode with drag-to-reorder, a tab badge and a mini-player. Its designed theme is polished in light and dark. B is plainer and closer to system styling with large titles, but it relies on hand-made Up/Down buttons, has no swipe actions on episode rows (a swipe opens the episode), and shows word-by-word text layout at large sizes. A's main costs are its missing large titles, the marketing hero blocks, and a blank search field at the largest text size."
+}

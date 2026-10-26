@@ -1,0 +1,26 @@
+{
+  "spec": "inbox",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.inbox.b0d7e78",
+  "assignedId": "dev.bakeoff.inbox.b0d7e78",
+  "appName": "Inbox",
+  "sim": "486FD498-0E3E-4B64-8E4B-152BD8265EE7",
+  "pin": "986e6cf144",
+  "minutes": 21.5,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 7881993,
+    "fresh": 103819,
+    "input": 7849483,
+    "cached": 7745664,
+    "output": 32510,
+    "cost": null,
+    "calls": 12,
+    "toolCalls": 70
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r23/built/inbox-exact.app",
+  "notes": true,
+  "finished": "2026-10-26T21:00:23.221Z"
+}
