@@ -17,6 +17,7 @@ use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
 use MemberList, ProfileCard from "./members.contract"
+use PickerFrames, DeleteConfirm from "./picker.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
@@ -268,6 +269,7 @@ component Excord
   // aimed message, or (`pickingForDraft`) puts the emoji in the composer where the caret is.
   state picking = false
   state pickingForDraft = false
+  state pickerPopover = false
   // The composer's selection, as its last `selectionchange` left it (-1 before any): where a picked emoji goes.
   state caretFrom = -1
   state caretTo = -1
@@ -314,12 +316,13 @@ component Excord
   // A dropped connection resumes once its backoff has passed.
   task redial when gw.state == "backoff"
     every(1000, redialNow)
-  // A gateway answer the host refused (a turn over its budget) ends the stream with no close the data
-  // module hears, and the resource keeps its last state: asked again, it connects again (the identify
-  // budget bounds how often). Not while `digest` is applying a large READY: connecting again drops the
-  // rest of it, and a resumed session would never bring those servers back.
+  // A gateway answer the host refused (a turn over its budget) ends the stream with no close the module
+  // hears; asked again, the resource connects again (the identify budget bounds how often). Not while
+  // `digest` applies a large READY: connecting drops the rest, and a resume would not bring it back.
   task regateway when failed(gateway) and session.ready and session.signedIn and gw.queued == 0 and not pending(digested)
     every(10000, redialNow)
+  task pickerLost when picking and pickerPopover and viewport.pointer == "coarse"
+    after(1, pickerClosed)
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
@@ -434,6 +437,7 @@ component Excord
   // Opening a channel: at its newest (§3.1), at its first unread with the bar
   // (§3.2), or where this session left it (§3.3).
   action openChannel(id: string)
+    closePicker()
     let c = channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
     let p = placeOf(places, id)
     // A split opens one channel over another: the one left keeps its place and draft, and is read
@@ -751,7 +755,9 @@ component Excord
       case none
         editLookup = editLookup
   action channelKey(k: string, e: KeyboardEvent)
-    if k == "Escape" and not e.isComposing and reading and not session.locked and not lockedOut
+    if k == "Escape" and picking and pickerPopover and not e.isComposing
+      closePicker()
+    else if k == "Escape" and not e.isComposing and reading and not session.locked and not lockedOut
       preventDefault()
       if not e.repeat
         if editLookup or editLookupError != ""
@@ -955,6 +961,7 @@ component Excord
     pickerQuery = ""
     pickingForDraft = false
     picking = true
+    pickerPopover = false
     showModal("react-picker")
   action caretMoved(e: InputEvent)
     caretFrom = e.selectionStart
@@ -963,12 +970,13 @@ component Excord
     pickerQuery = ""
     pickingForDraft = true
     picking = true
-    showModal("react-picker")
+    pickerPopover = viewport.pointer != "coarse"
+    if viewport.pointer == "coarse"
+      showModal("react-picker")
   action searchPicker(v: string)
     pickerQuery = v
   action emojiPicked(value: string, text: string)
-    picking = false
-    close("react-picker")
+    closePicker()
     if pickingForDraft
       let from = caretFrom < 0 ? draft.length : min(caretFrom, draft.length)
       setRangeText("composer", text, from, max(from, min(caretTo, draft.length)), "end")
@@ -977,6 +985,18 @@ component Excord
       send changed = react(open, aimedId, value)
   action pickerClosed
     picking = false
+  // A popover's close can arrive after a sheet has opened in its place (AppKit's, after a menu).
+  action pickerToggled(e: ToggleEvent)
+    if e.newState == "open"
+      focus("picker-search")
+    else if pickerPopover
+      picking = false
+  action closePicker
+    picking = false
+    if pickerPopover
+      hidePopover("draft-picker")
+    else
+      close("react-picker")
   // What a mention or a Discord link in a message opens (a run's `ref`, shapes.contract): a person's
   // card, a channel, or a message in its channel, highlighted. Another server's channel opens once that
   // server's list holds it (`opening`), so it opens with its unread state, as from the list.
@@ -1143,9 +1163,8 @@ component Excord
       lockedOut = true
       // A dialog shows above everything, the lock included: the lock closes them.
       switching = false
-      picking = false
       close("switcher")
-      close("react-picker")
+      closePicker()
       close("confirm-delete")
       close("confirm-sign-out")
       close("profile")
@@ -1346,25 +1365,8 @@ component Excord
                       button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
                         image "symbol:delete"
                         text "Delete Message"
-                  dialog id="react-picker" aria-label=(pickingForDraft ? "Emoji" : "Add Reaction") close=pickerClosed testId="react-picker"
-                    column gap=10 padding=12 width="22rem" max-width="100%"
-                      input type="search" value=pickerQuery input=searchPicker placeholder="Find an emoji" aria-label="Find an emoji" autofocus=true testId="picker-search"
-                      scroll height="16rem"
-                        view display="grid" grid-template-columns="repeat(auto-fill, minmax(44px, 1fr))" gap=2
-                          for e in choices key=e.id
-                            button appearance="none" press=emojiPicked(e.value, e.text) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
-                              if e.avatar != ""
-                                image e.avatar width=28 height=28 margin="auto"
-                              else
-                                text e.glyph font-size=26 text-align="center"
-                      if choices.length == 0
-                        text "No emoji match." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
-                  dialog id="confirm-delete" role="alertdialog" aria-label="Delete Message"
-                    text "Are you sure you want to delete this message?"
-                    button press=deleteAimed destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
-                      text "Delete"
-                    button commandfor="confirm-delete" command="close" testId="delete-cancel"
-                      text "Cancel"
+                  PickerFrames(picking=picking, forDraft=pickingForDraft, popover=pickerPopover, touch=(viewport.pointer == "coarse"), query=pickerQuery, choices=choices, search=searchPicker, pick=emojiPicked, closed=pickerClosed, toggled=pickerToggled)
+                  DeleteConfirm(confirm=deleteAimed)
                   if chan.typing != ""
                     row position="absolute" left=16 right=16 bottom=2 gap=6 align-items="center"
                       row gap=3 aria-hidden=true
@@ -1443,7 +1445,7 @@ component Excord
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
                         line-height="1.4em" padding="8px 0px" border="none" outline="none" background-color="transparent"
                       // Discord's emoji button: dim until the pointer is over it.
-                      button appearance="none" press=openDraftPicker aria-label="Emoji" testId="composer-emoji" padding="4px 6px" align-self="flex-end" margin-bottom=5 opacity=0.6
+                      button appearance="none" press=openDraftPicker popovertarget=(viewport.pointer == "coarse" ? "" : "draft-picker") aria-label="Emoji" testId="composer-emoji" padding="4px 6px" align-self="flex-end" margin-bottom=5 opacity=0.6
                         :hover
                           opacity = 1
                         text "🙂" font-size=20 line-height="24px"
