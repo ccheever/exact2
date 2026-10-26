@@ -28,6 +28,7 @@ export interface Directories {
   message(channel: string, id: string): Stored | undefined;
   deleted(channel: string, id: string): boolean;
   emoji(id: string, animated: boolean): string;
+  sticker(id: string, extension: string): string;
   /** The user's picture: their avatar, else Discord's default one for them. */
   avatar(user: User): string;
   /** The name colour, `#rrggbb`, of the highest of a channel's guild roles that has one; "" for none. */
@@ -183,7 +184,8 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
   const author: User = dirs.user(ref.author?.id) ?? ref.author ?? { id: '' };
   return [{ id, author: displayName(author),
     avatar: dirs.avatar(author), color: dirs.nameColor(m.channel_id, ref.member?.roles ?? []),
-    preview: plain(flatten(parse(String(ref.content ?? '')), context(dirs))).replace(/\s+/g, ' ').trim().slice(0, 100),
+    preview: (plain(flatten(parse(String(ref.content ?? '')), context(dirs))) || stickersOf(ref).map(stickerName).join(', '))
+      .replace(/\s+/g, ' ').trim().slice(0, 100),
     state: 'present' }];
 }
 
@@ -198,18 +200,32 @@ function editable(content: string, dirs: Directories): string {
   }));
 }
 
+// A sticker's picture as Discord serves it, by its format: PNG and APNG as `.png`, GIF as `.gif`; a
+// Lottie one (3) has none. Discord draws a sticker at 160 by 160.
+const STICKER_EXTENSION: Record<number, string> = { 1: 'png', 2: 'png', 4: 'gif' };
+const stickersOf = (m: Stored): Record<string, any>[] => Array.isArray(m.sticker_items) ? m.sticker_items : [];
+const stickerName = (s: Record<string, any>): string => String(s.name ?? '') || 'Sticker';
 const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinned a message.`, 7: who => `${who} joined the server.` };
 
 export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Directories): Row {
-  const ctx = context(dirs), content = String(m.content ?? ''), parsed = parse(content), isJumbo = jumbo(parsed);
+  const stickers = stickersOf(m), lottie = stickers.filter(s => !STICKER_EXTENSION[s.format_type]);
+  // A Lottie sticker's name follows the text in the message's own size, so its emoji are not jumbo.
+  const ctx = context(dirs), content = String(m.content ?? ''), parsed = parse(content), isJumbo = jumbo(parsed) && !lottie.length;
   // A jumbo message's custom emoji are images in its paragraph, in order with its Unicode ones.
   const blocks = flatten(parsed, ctx);
-  const text = plain(blocks);
+  // The message as words: its text, then its stickers' names (a sticker alone reads as its name).
+  const text = [plain(blocks), stickers.map(stickerName).join(', ')].filter(Boolean).join('\n');
   const edited = m.edited_timestamp != null;
   if (edited) {
     if (blocks[blocks.length - 1]?.kind !== 'paragraph') blocks.push(block(ctx, 'paragraph', false));
     const last = blocks[blocks.length - 1];
     last.runs.push(run(`${last.id}.r${last.runs.length}`, 'edited', ' (edited)', [], ''));
+  }
+  // A Lottie sticker is an animation nothing here plays: its name stands in for it, as words, never markup.
+  for (const s of lottie) {
+    const b = block(ctx, 'paragraph', false);
+    b.runs.push(run(`${b.id}.r0`, 'text', stickerName(s), ['italic'], ''));
+    blocks.push(b);
   }
   const me = dirs.me(), authorId = String(m.author?.id ?? '');
   const mentionsMe = ctx.mentionsMe || (authorId !== me && (m.mention_everyone === true
@@ -236,6 +252,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     system, plain: system || text, source: editable(content, dirs), isNew: false, blocks,
     media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
       media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
+    stickers: stickers.filter(s => STICKER_EXTENSION[s.format_type]).map(s =>
+      ({ id: String(s.id), src: dirs.sticker(String(s.id), STICKER_EXTENSION[s.format_type]), name: String(s.name ?? '') })),
     files: (m.attachments ?? []).filter((a: Record<string, any>) => !isImage(a)).map((a: Record<string, any>) =>
       ({ id: String(a.id), name: String(a.filename ?? 'file'), size: byteSize(Number(a.size ?? 0)), url: String(a.url ?? ''),
         spoiler: String(a.filename ?? '').startsWith('SPOILER_') })),

@@ -129,6 +129,8 @@ component MessageRow
                       column flex=1 min-width=0
                         text f.name color="AccentColor" font-weight=500 line-clamp=1
                         text f.size font="-exact-caption1" color="-exact-secondary-label"
+              for s in m.stickers key=s.id
+                image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
               for e in m.embeds key=e.id
                 EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show, follow=follow)
               if m.reactions.length > 0

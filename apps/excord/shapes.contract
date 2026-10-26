@@ -56,6 +56,12 @@ shape Media
   alt: string
   spoiler: bool
 
+// A sticker a message carries, drawn at 160 points with no frame, as Discord draws one.
+shape Sticker
+  id: string
+  src: string
+  name: string
+
 // A file attached to a message that is not a picture: its name, its size as
 // shown ("3.1 MB") and where it downloads from; a spoiler's waits to be revealed.
 shape FileRef
@@ -130,6 +136,7 @@ shape Message
   blocks: Block[]
   media: Media[]
   files: FileRef[]
+  stickers: Sticker[]
   embeds: Embed[]
   reactions: Reaction[]
   reply: ReplyRef[]

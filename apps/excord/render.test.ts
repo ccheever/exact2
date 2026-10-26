@@ -43,6 +43,7 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
     message: (channel, id) => (S.message(store, channel, id) as Stored | null) ?? undefined,
     deleted: (channel, id) => S.deleted(store, channel, id),
     emoji: (id, animated) => `${cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
+    sticker: (id, extension) => `${cdn}/stickers/${id}.${extension}`,
     avatar: u => avatarUrl(cdn, u),
     nameColor: (channel, roles) => {
       const r = (S.guilds(store)[0]?.roles ?? []).find((x: { id: string }) => roles.includes(x.id));
@@ -71,7 +72,7 @@ test('store rows supply the transcript identity, author, clock and declared fiel
     isNew: false, media: [], embeds: [], reactions: [], reply: [] });
   expect(second).toMatchObject({ author: 'buildbot', color: '#e67e22', bot: true, mine: false,
     at: NOW + 1000, prevAt: NOW, grouped: false });
-  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'system']);
+  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'stickers', 'system']);
   expect(f.render(f.row(m.id))).toBe(first);
   // A role's new colour redraws its holders' rows.
   S.applyDispatch(f.store, 'GUILD_ROLE_UPDATE', { guild_id: gid, role: { id: role, name: 'Maintainers', color: 0x112233,
@@ -375,4 +376,37 @@ test('empty windows return empty boundaries and no rendered rows', () => {
   expect(windowOf({ rows: [], hasBefore: false, hasAfter: false }, cid, '', '',
     { count: 0, more: false, at: 0 }, f.render)).toEqual({ channel: cid, anchor: '', rows: [],
     hasBefore: false, hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
+});
+
+test('a sticker is a picture of its own, and a Lottie one its name', () => {
+  const still = message(0, { content: '', sticker_items: [{ id: '601', name: 'Wave', format_type: 1 }] } as Partial<Message>);
+  const gif = message(1000, { content: 'look', sticker_items: [{ id: '603', name: 'Spin', format_type: 4 }] } as Partial<Message>);
+  const lottie = message(2000, { content: '', sticker_items: [{ id: '602', name: 'Party *Parrot*', format_type: 3 }] } as Partial<Message>);
+  const [a, b, c] = fixture([still, gif, lottie]).view().rows;
+  expect(a.stickers).toEqual([{ id: '601', src: `${cdn}/stickers/601.png`, name: 'Wave' }]);
+  expect(a.media).toEqual([]);
+  expect(b.stickers[0].src).toBe(`${cdn}/stickers/603.gif`);
+  expect(b.plain).toBe('look\nSpin');
+  expect(c.stickers).toEqual([]);
+  expect(c.plain).toBe('Party *Parrot*');
+  expect(a.plain).toBe('Wave');
+});
+
+test('a Lottie sticker\'s name is words, never markup, and a reply to a sticker previews its name', () => {
+  const lottie = message(0, { content: '', sticker_items: [{ id: '604', name: '@everyone [wave](https://example.com)', format_type: 3 }] } as Partial<Message>);
+  const still = message(1000, { content: '', sticker_items: [{ id: '601', name: 'Wave', format_type: 1 }] } as Partial<Message>);
+  const reply = message(2000, { content: 'nice', type: 19, message_reference: reference(still.id) } as Partial<Message>);
+  const [l, , r] = fixture([lottie, still, reply]).view().rows;
+  expect(l.mentionsMe).toBe(false);
+  expect(l.blocks.flatMap(b => b.runs).map(x => [x.kind, x.text, x.italic, x.href])).toEqual([['text', '@everyone [wave](https://example.com)', true, '']]);
+  expect(r.reply[0].preview).toBe('Wave');
+});
+
+test('a Lottie name follows an edited message\'s marker, is never jumbo, and plain names every sticker', () => {
+  const both = message(0, { content: '👋', edited_timestamp: new Date(NOW).toISOString(),
+    sticker_items: [{ id: '601', name: 'Wave', format_type: 1 }, { id: '602', name: 'Party', format_type: 3 }] } as Partial<Message>);
+  const [row] = fixture([both]).view().rows;
+  expect(row.jumbo).toBe(false);
+  expect(row.blocks.map(b => b.runs.map(r => r.kind))).toEqual([['text', 'edited'], ['text']]);
+  expect(row.plain).toBe('👋\nWave, Party');
 });
