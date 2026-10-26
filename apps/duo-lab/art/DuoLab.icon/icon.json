@@ -1,0 +1,12 @@
+{
+  "fill": { "solid": "srgb:0.08235,0.34118,0.87451,1.00000" },
+  "groups": [
+    {
+      "layers": [
+        { "image-name": "left.svg", "name": "Left Panel" },
+        { "image-name": "right.svg", "name": "Right Panel" }
+      ]
+    }
+  ],
+  "supported-platforms": { "squares": "shared" }
+}
