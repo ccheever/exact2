@@ -843,10 +843,12 @@ impl Collection {
         update: bool,
         fill: CollectionFill,
     ) -> Result<(), InstanceError> {
-        self.realize_window_with_row(u, frames, update, fill, None)
+        self.realize_window_with_row(u, frames, update, fill, None, false)
     }
 
-    /// A requested row is owed even when its measured height or port is zero.
+    /// A requested row is owed even when its measured height or port is
+    /// zero. `retire_leaving`: every row past the window retires, whatever
+    /// the limit (the pins changed).
     fn realize_window_with_row(
         &mut self,
         u: &mut Update<'_>,
@@ -854,6 +856,7 @@ impl Collection {
         update: bool,
         fill: CollectionFill,
         required: Option<usize>,
+        retire_leaving: bool,
     ) -> Result<(), InstanceError> {
         let limit = fill.limit.filter(|_| !update);
         let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
@@ -1019,7 +1022,9 @@ impl Collection {
             // A rescue (no limit past what shows) only builds; slices retire,
             // but a row two viewports past what shows always goes: travel
             // faster than slices retire must not keep every row it passed.
-            let cap = if limit == 0 {
+            let cap = if retire_leaving {
+                usize::MAX
+            } else if limit == 0 {
                 0
             } else {
                 (2 * limit as usize).max(4)
@@ -1317,27 +1322,24 @@ impl Collection {
             .geometry
             .as_ref()
             .is_none_or(|g| g.cross != feedback.cross);
-        // A new port size, width or pin retires every row that left and
-        // builds the whole window: only travel is sliced. A list's first
-        // report retires nothing, so a slice there builds what shows and
-        // leaves its lead pending (a tap's response frame, LLP 1072 §5).
+        // A new port size or width retires every row that left and builds
+        // the whole window: only travel is sliced. A list's first report
+        // retires nothing, so a slice there builds what shows and leaves its
+        // lead pending (a tap's response frame, LLP 1072 §5).
         if self.geometry.as_ref().is_some_and(|g| {
-            (
-                g.port_cross,
-                g.port_main,
-                g.cross,
-                g.focus_view,
-                g.interaction_view,
-            ) != (
-                feedback.port_cross,
-                feedback.port_main,
-                feedback.cross,
-                feedback.focus_view,
-                feedback.interaction_view,
-            )
+            (g.port_cross, g.port_main, g.cross)
+                != (feedback.port_cross, feedback.port_main, feedback.cross)
         }) {
             fill.limit = None;
         }
+        // A new pin retires every row that left too, but keeps the report's
+        // limit: a pinned row is already mounted, so it builds nothing, and
+        // a finger landing on a moving list or lifting off one would
+        // otherwise build the whole led window in one main-thread report
+        // (25 rows, 25 ms, at a 6,000 pt/s fling's release).
+        let pins_changed = self.geometry.as_ref().is_some_and(|g| {
+            (g.focus_view, g.interaction_view) != (feedback.focus_view, feedback.interaction_view)
+        });
         // An enclosing list is moving (LLP 1070 F2): build what this list
         // owes and nothing else, first report and resize included.
         if fill.ancestor_moving {
@@ -1402,7 +1404,7 @@ impl Collection {
         self.check_preview_height(u)?;
         self.restore(anchor)?;
         self.settle_into_view(u, feedback.offset);
-        self.realize_window(u, frames, false, fill)?;
+        self.realize_window_with_row(u, frames, false, fill, None, pins_changed)?;
         self.reveal_shown(u);
         self.settle_start(extent);
         let mut now = self.snapshot();

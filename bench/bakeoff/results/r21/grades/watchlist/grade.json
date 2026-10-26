@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % since open; green up / red down. Uses an ASCII hyphen rather than a true minus sign."},
+      {"n": 2, "status": "pass", "note": "Prices change every second in place; rows keep updating and re-sorting live under Change sort, including mid-scroll."},
+      {"n": 3, "status": "partial", "note": "Native pull-down menu sorts by Symbol/Price/Change and works; search by symbol or name filters correctly with a good empty state. But while typing, the bottom search field stays hidden behind the keyboard, and the search text is kept across relaunch, so the app can open to an empty '0 tickers' list."},
+      {"n": 4, "status": "pass", "note": "Star toggles membership; segmented All/My List works; empty My List has a 'Build Your List' state with a Browse button."},
+      {"n": 5, "status": "pass", "note": "Detail shows big price, % change, open, volume and a live line chart with low/high labels; nav-bar star; swipe-back works."},
+      {"n": 6, "status": "pass", "note": "My List and the Change sort both survive relaunch."}
+    ],
+    "bugs": [
+      "Search field does not rise above the keyboard: while typing it sits hidden at the bottom behind the keyboard, so the query and its Clear button can't be seen or tapped (tapping where Clear should be types a space).",
+      "Search text persists across relaunch: after quitting with a query entered, the app reopens to '0 tickers · No Matching Tickers'.",
+      "A horizontal drag across a row opens the ticker's detail screen as if it were a tap."
+    ],
+    "tells": [
+      "Rows show up to accessibility as 'Link' elements, with extra nested scroll views: web-like structure.",
+      "No swipe actions on rows (e.g. swipe to add/remove from My List).",
+      "Big empty gap above the large title, and a hairline under the large title even before scrolling.",
+      "Search bar does not move up with the keyboard, unlike the system bottom search bar.",
+      "Hyphen-minus used for negative changes instead of a true minus sign.",
+      "At largest text the star sits on its own line above the row text, making each row very tall."
+    ],
+    "scroll": "Smooth, native-feeling collection view with standard row heights; the large title collapses into an inline title, rows flow under the bars, and flings, pulling past the top, live updates while scrolling and scroll-position retention all behaved correctly.",
+    "scores": {"features": 7, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers with symbol, name, price and % change in green/red tinted capsules, true minus sign; full-sentence VoiceOver labels on rows."},
+      {"n": 2, "status": "pass", "note": "Prices update in place every second, including while scrolling; a 'Market pulse' card counts advancing/declining stocks live."},
+      {"n": 3, "status": "pass", "note": "Native sort menu with icons and subtitles (Symbol A–Z, Price/Change high to low); search filters by symbol or name, the field rises above the keyboard with a close button, and there is an empty-results state."},
+      {"n": 4, "status": "pass", "note": "Star toggles with a filled tinted star; All/My List segmented control works; good empty My List state."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, $ and % change, open, volume, and a live area chart with gridlines, L/H and time labels; star in the nav bar; swipe-back works."},
+      {"n": 6, "status": "pass", "note": "My List and the Change sort both survive relaunch; search is not kept."}
+    ],
+    "bugs": [
+      "Dark mode: the All/My List segmented control shows no selected-segment thumb, so you can't tell which segment is active.",
+      "Quick downward swipes on the main list often didn't scroll it back up; slower drags worked."
+    ],
+    "tells": [
+      "The large title never collapses: the title, segmented control and section header stay pinned, and the list scrolls inside a clipped region under them, so less than half the screen is list.",
+      "The list is hard-clipped above the bottom search bar instead of flowing under it.",
+      "Very tall rows (~89pt) with a lot of padding; only about 5 tickers fit on screen.",
+      "Custom tinted background, a dark 'Market Pulse' card and white card sections make it look styled or web-like rather than system-grouped.",
+      "No swipe actions on rows.",
+      "The empty search results state uses a star icon.",
+      "At largest text the row star icon doesn't scale and stays tiny."
+    ],
+    "scroll": "Scrolling is smooth with no blank or popping rows, and position is kept when returning from a detail screen, but the list scrolls in a small clipped window beneath a pinned header block, quick downward flicks were sometimes ignored, and the tall rows mean lots of flinging.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "B meets every requirement cleanly: its search field rises above the keyboard, its detail screen is richer, and its sort menu and accessibility are more polished. A has a broken search (the field is hidden behind the keyboard and the query persists across relaunch) and drags that open rows. A's list behaves more like a standard iPhone list with a collapsing title, while B's non-collapsing header, tall rows and invisible dark-mode segment selection count against it, but B is the one I'd rather use and ship."
+}

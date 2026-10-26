@@ -1,0 +1,11 @@
+{
+  "spec": "settings",
+  "key": {
+    "A": "exact",
+    "B": "swiftui"
+  },
+  "exit": 0,
+  "minutes": 13.29,
+  "shots": 61,
+  "graded": true
+}

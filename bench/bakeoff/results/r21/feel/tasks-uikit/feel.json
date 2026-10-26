@@ -1,0 +1,79 @@
+{
+ "app": "dev.bakeoff.tasks.0f96bd",
+ "verdict": "no-scrollable-list",
+ "scan": {
+  "k": "scan",
+  "safeTop": 62,
+  "views": [
+   {
+    "id": 1,
+    "cls": "UITableView",
+    "cs": [
+     402,
+     516.6666673024495
+    ],
+    "reach": true,
+    "frame": [
+     0,
+     0,
+     402,
+     874
+    ],
+    "scrollsToTop": true,
+    "bouncesV": true,
+    "shown": true,
+    "off": [
+     0,
+     -168
+    ],
+    "depth": 6,
+    "inset": [
+     168,
+     0,
+     86,
+     0
+    ],
+    "bounces": true,
+    "delays": true,
+    "paging": false,
+    "decel": 0.998,
+    "enabled": true
+   },
+   {
+    "id": 2,
+    "cls": "UITableViewWrapperView",
+    "cs": [
+     362,
+     874
+    ],
+    "reach": true,
+    "frame": [
+     20,
+     168,
+     362,
+     874
+    ],
+    "scrollsToTop": false,
+    "bouncesV": false,
+    "shown": true,
+    "off": [
+     0,
+     0
+    ],
+    "depth": 7,
+    "inset": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "bounces": true,
+    "delays": true,
+    "paging": false,
+    "decel": 0.998,
+    "enabled": false
+   }
+  ],
+  "t": 1407760.1018757087
+ }
+}

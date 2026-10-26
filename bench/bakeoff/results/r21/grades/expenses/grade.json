@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day; each header reads 'Oct 25, 2026 · $222.02'. The totals update after add, edit and delete."},
+      {"n": 2, "status": "pass", "note": "A summary card at the top shows October 2026 at $5,269.70 and updates live."},
+      {"n": 3, "status": "pass", "note": "Native grouped form with a decimal pad, a menu picker of the 7 categories, and a compact date picker that defaults to today. Save is disabled, with a footer reason, when the merchant is empty or the amount is <= 0 (e.g. -5)."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an 'Edit Expense' sheet prefilled; merchant and date edits move the row to Oct 20. Swipe left shows Delete and removes the row."},
+      {"n": 5, "status": "pass", "note": "The Categories tab lists all 7, largest first, with '% of total · N expenses'. Tapping one pushes a per-category list grouped by day."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. The add, edit and delete all survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Rows are oddly tall (about 109–128 pt for a two- or three-line row), with lots of empty vertical padding; they don't have standard list row metrics.",
+      "The nav bar turns into a hard-edged opaque white bar on scroll, with content smeared above it under the status bar, rather than the soft scroll-edge effect.",
+      "Category row chevrons are bold black instead of the tertiary-gray disclosure indicator.",
+      "At the largest text size the category chevron drops onto its own line beneath the row content.",
+      "The swipe-to-delete row turns a flat gray with a rounded right edge while revealed.",
+      "Cancelling a filled-in New Expense form discards it silently, with no confirmation.",
+      "Amounts are secondary gray, so the most important number on each row is de-emphasised. The app is otherwise plain stock styling with no category icons."
+    ],
+    "scroll": "Smooth on slow drags and hard flings, with no blank or popping rows. The large title collapses and returns correctly. Scroll position is kept across tab switches (shifted by about 30 pt).",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day, with relative headers ('Yesterday · Sun, Oct 25') and the day total right-aligned; totals update correctly. At the largest text size the day total is clipped (see bugs)."},
+      {"n": 2, "status": "pass", "note": "A green summary card shows the month total plus the expense count and a per-day average."},
+      {"n": 3, "status": "pass", "note": "Custom card form with a big amount field on a decimal pad, a pushed category list (7, with icons) and a date that defaults to today. Saving an empty, 0 or -5 amount shows the inline error 'Enter a positive amount with up to two decimal places.'"},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an 'Edit expense' sheet; merchant and date edits work. Swipe left reveals Delete and removes the row. Cancelling a dirty form asks 'Discard changes?'."},
+      {"n": 5, "status": "pass", "note": "Categories shows a stacked share bar plus rows, largest first, each with amount, '% of total · N expenses' and a progress bar. Tapping one pushes a filtered day-grouped list with its own summary."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. The add, edit and delete all survived a relaunch."}
+    ],
+    "bugs": [
+      "At the largest Dynamic Type size, the day section header has a fixed height. The wrapped date pushes the day's total under the next card, so it is cut off and unreadable."
+    ],
+    "tells": [
+      "Heavily themed: a cream background, dark-green type and a custom green summary card. It reads as a branded design rather than stock iOS.",
+      "No large title on either tab; it uses an inline title with an in-content 'Recent activity' / 'Spending breakdown' heading instead.",
+      "The Add form is a custom card layout with labels above the fields, not a grouped Form/List.",
+      "While a row is swiped open, its card background and separator misalign: the row slides out of the rounded card, leaving a gray strip."
+    ],
+    "scroll": "Smooth on slow drags and fast flings, with no blank rows or stutter, down to the oldest day (Jul 29) and back. Scroll position is kept exactly across tab switches and push/pop.",
+    "scores": {"features": 10, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and persist correctly. B goes further: a discard confirmation, inline validation, category icons, share bars and a richer category drill-down, and its tight row metrics feel more finished. A is closer to stock SwiftUI, but its bloated row heights and bold chevrons look unrefined. B's only real defect is the clipped day total at the largest text size, which weighs less than A's everyday layout awkwardness."
+}

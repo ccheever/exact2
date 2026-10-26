@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in an inset grouped list with a large title. Account has editable Name/Email fields and a red Sign Out that shows an alert before signing out (the 'Sign In' row then signs straight back in, with no form). Reading has a slider with small/large A, a font row that pushes to a list of 5 fonts, a 3-segment spacing control and a preview card. Appearance has 4 checkmark rows. Library has a Sort Order push picker and two switches. The Notifications master switch reveals a compact time picker and 3 switches. Storage shows Used/Cache and a Clear Cache alert, after which the cache reads Zero KB and the button is disabled. About has the version, Privacy and Terms pushed text screens, and Rate Paperback, which opens an external store page (blank in the simulator)."},
+      {"n": 2, "status": "pass", "note": "Font and Sort Order push a checkmark list with a back button, like iOS Settings. The reminder time uses the system compact DatePicker popover with wheels."},
+      {"n": 3, "status": "pass", "note": "The preview changes font, size and line spacing live as you drag the slider or tap a segment or font. The Sepia/Dark theme tints the preview card."},
+      {"n": 4, "status": "pass", "note": "After relaunch, the name, size 28, Avenir Next, Relaxed, Sepia, Author, notifications on, the 9:00 PM reminder and the cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "The Reset All Settings row at the bottom shows an alert with a red Reset button. Reset restores the defaults (17 pt, Georgia, Normal, System, Recently Read, notifications off) and keeps the account, and this survives relaunch."}
+    ],
+    "bugs": [
+      "Sepia only tints the preview card; the rest of the screen stays in standard light colours (Dark does apply to the whole app), so Sepia is weaker than the other themes.",
+      "After Sign Out, 'Sign In' signs straight back in without asking for anything.",
+      "Accessibility tree goes stale after cells are reused: the 'Reading Goals' and 'Clear Cache' cells expose leftover '1.6 GB'/'312 MB' text, and the segmented control reports the old segment as selected after a change. VoiceOver would read wrong values."
+    ],
+    "tells": [
+      "Section headers are drawn as their own grouped 'cells' in the accessibility tree rather than as real list section headers. Visually they match.",
+      "At the largest text size the email truncates to 'alex.morgan…' in the value column rather than wrapping (acceptable).",
+      "Rate the App leaves the app for an external store URL instead of showing the in-app SKStoreReview prompt."
+    ],
+    "scroll": "Native list scrolling: a smooth slow drag, flings decelerate naturally, it rubber-bands past the top, and the large title collapses into an inline title over a blurred bar. No blank or popping rows, and position is kept on return from pushed screens and when changing theme.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present, plus extras: an account header card with a gradient initials avatar, and editable Name/Email. Sign Out shows a system confirmation popover; after signing out, a 'Not Signed In' card appears and Sign In opens a sheet form with Cancel/Sign In (disabled until filled). Reading has a slider, a 5-font push list (New York, SF, Georgia, Palatino, Iowan) and a segmented control, with the preview inside the Reading card. Appearance rows have Aa swatches and a checkmark. Library has Sort By (5 options) and two switches. The Notifications master switch reveals a time picker, 3 switches and a live footer ('every day at 10:00 PM'). Storage has a usage bar with a legend, Downloaded Books, Cache, and a Clear Cache confirmation. About has the version, Privacy/Terms pushed screens and Rate the App, which shows the system review prompt."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists. The reminder time uses the system compact DatePicker popover. Confirmations use iOS 26-style popover action sheets."},
+      {"n": 3, "status": "pass", "note": "The preview updates live for font, size and spacing, and its accessibility label describes the current settings."},
+      {"n": 4, "status": "pass", "note": "After relaunch, 30 pt, Georgia, Relaxed, Dark theme, Author, notifications on, 10:00 PM and the cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "The centred red Reset All Settings button at the bottom shows a confirmation, then restores the defaults (18 pt, New York, Normal, System, Recently Read, notifications off) and keeps the account, and this survives relaunch."}
+    ],
+    "bugs": [
+      "Switching the theme to or from Sepia throws the list back to the top: you lose your place while scrolled down in Appearance. Switching between System and Dark keeps the position.",
+      "At the largest text size the email in the account header breaks mid-word ('alex.morgan@e' / 'xample.com')."
+    ],
+    "tells": [
+      "The email break inside a word at the largest text size, described above.",
+      "The storage legend dots stay tiny at large text sizes while the legend text grows a lot.",
+      "The back button on pushed screens is just a chevron with no 'Settings' title. This is allowed on iOS 26+ but differs from the system Settings app."
+    ],
+    "scroll": "Native list feel: a smooth drag, natural fling deceleration, rubber-banding at the top and the large title collapsing. The one flaw is the jump to the top when Sepia is chosen or left.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both are native-looking SwiftUI-style grouped lists that meet every requirement and persist and reset correctly. B goes further: Sepia themes the whole app, there is a real sign-in sheet, a storage usage bar, theme swatches, a live reminder footer and the system review prompt. Its flaws (Sepia jumping the list to the top, the email breaking mid-word at the largest size) are visible but minor, so B comes out narrowly ahead of A, whose Sepia only tints the preview and whose Sign In is a no-op."
+}

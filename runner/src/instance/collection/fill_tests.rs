@@ -595,3 +595,51 @@ fn aggregate_preview_matches_binary_sums_and_both_padding_orders() {
         }
     }
 }
+
+#[test]
+fn a_pin_that_changes_while_moving_keeps_the_reports_limit() {
+    let mut h = Harness::new(1_000, false, false);
+    let rows = |h: &Harness| {
+        h.snapshot()
+            .rows
+            .iter()
+            .map(|r| r.index)
+            .collect::<Vec<_>>()
+    };
+    h.send(h.feedback(3200.0));
+    let moving = CollectionFill {
+        velocity: 6_000.0,
+        limit: Some(0),
+        ..Default::default()
+    };
+    // A finger lands on a row of a list in flight, then lifts: each report
+    // changes the interaction pin, and each builds only what it owes.
+    let pinned = h
+        .snapshot()
+        .rows
+        .iter()
+        .find(|r| r.index == 105)
+        .unwrap()
+        .root;
+    let mut down = h.feedback(3360.0);
+    down.interaction_view = Some(pinned);
+    h.send_filled(down, moving);
+    let held = rows(&h);
+    assert!((105..115).all(|i| held.contains(&i)), "{held:?}");
+    assert!(h.snapshot().pending, "the lead waits for a slice");
+    let mut lift = h.feedback(3680.0);
+    lift.interaction_view = None;
+    h.send_filled(lift, moving);
+    let now = rows(&h);
+    assert!(
+        (115..125).all(|i| now.contains(&i)),
+        "the visible rows are owed: {now:?}"
+    );
+    assert!(
+        now.iter().all(|&i| i < 125 || held.contains(&i)),
+        "no lead is built past what shows: {now:?}"
+    );
+    assert!(h.snapshot().pending);
+    // A new pin still retires every row that left the window.
+    assert!(now.iter().all(|&i| i >= 105), "{now:?}");
+}

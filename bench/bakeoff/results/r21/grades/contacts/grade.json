@@ -1,0 +1,57 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every contact is listed, sorted by last name, in lettered sections that stick to the top while scrolling. The section index (★, A–Z) jumps to the right letter, e.g. tapping M lands on the Martins."},
+      {"n": 2, "status": "partial", "note": "Filters as you type by company ('vant'), phone ('320-2405') and name, the section index shrinks to the matching letters, there is a 'No Contacts Found' empty state, and clearing restores the full list. But the search field sits in the bottom toolbar and stays hidden behind the keyboard while you type, so you can't see your query."},
+      {"n": 3, "status": "pass", "note": "The details screen shows name, company, and phone/email/birthday in an inset grouped card. Phone and email are blue and tappable."},
+      {"n": 4, "status": "pass", "note": "'Add to/Remove from Favorites' row on the details screen. Favorites appear in a Favorites section at the top of the list, with a star on each row."},
+      {"n": 5, "status": "pass", "note": "Native-looking New Contact form sheet. Done stays disabled until a first or last name is entered, with an 'Enter a first or last name to save.' hint. Edit pre-fills the fields and saves. A newly typed phone number is not formatted."},
+      {"n": 6, "status": "pass", "note": "Swipe left on a row shows a system-red Delete that deletes immediately. Delete Contact on the details screen asks for confirmation in an alert first."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the new favorite, the deletions and the edits were all still there."}
+    ],
+    "bugs": [
+      "The search field in the bottom toolbar is not lifted above the keyboard; it stays at y≈808 under the keyboard, so the text being typed and the clear button can't be seen while searching.",
+      "At the largest text size the email address on the details screen breaks inside the word ('felix.adeyemi@e' / 'xample.com')."
+    ],
+    "tells": [
+      "List rows are exposed to accessibility as 'Link' elements, and the screen has stray horizontal scroll bars: web-like structure under a native-looking skin.",
+      "Row separators run edge to edge on the leading side instead of starting at the text inset.",
+      "Disclosure chevrons are heavy and black instead of the light tertiary-grey system chevron.",
+      "After a swipe, the swiped row keeps a grey rounded highlight pill behind its content, which UITableView/List does not do.",
+      "The single-row Favorite and Delete sections are full capsules rather than the inset-grouped corner radius.",
+      "At the largest text size, favorite rows wrap the name under the star with a large gap, and names hyphenate across lines (excused)."
+    ],
+    "scroll": "Scrolls smoothly with sticky grey section headers, no blank or popping rows. The large title collapses into the inline title and comes back when pulled to the top, and scroll position is kept when returning from a contact. Flings travelled about as far as B's.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every contact is listed with initials avatars, sorted by last name in lettered sections with sticky headers. The section index (★, A–Z) jumps to the right letter, e.g. tapping M lands on the Martins."},
+      {"n": 2, "status": "pass", "note": "The search field is always visible above the list and filters by name, company and phone as you type. It has an × clear button, an empty state with its own 'Clear search' button, and clearing restores the full list."},
+      {"n": 3, "status": "pass", "note": "The details screen shows avatar, name, company, Call and Email buttons, then phone, email and birthday rows with icons. Phone and email are tinted and tappable."},
+      {"n": 4, "status": "pass", "note": "'Add to/Remove from favorites' button on the details screen. Favorites appear at the top of the list as a horizontally scrolling row of cards with a count ('Favorites 32'), not as list rows; it still works as a section."},
+      {"n": 5, "status": "pass", "note": "Form sheet with labelled fields. Save stays disabled until a first or last name is entered, with a 'A first or last name is required.' hint. Edit pre-fills the fields. Cancel asks 'Discard changes?'."},
+      {"n": 6, "status": "pass", "note": "Swiping left on a row shows a Delete button; both that and 'Delete contact' on the details screen ask for confirmation, and the contact is removed."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the new favorite and the deletions were still there."}
+    ],
+    "bugs": [
+      "While the keyboard was up in the add/edit form, dragging the form did not scroll it (offset stayed at 0), so fields under the keyboard could only be reached through Return/next or by tapping a field already in view. The phone pad has no Return key."
+    ],
+    "tells": [
+      "A fully custom branded look: serif 'Contacts' title, a 'PERSONAL DIRECTORY' eyebrow, the tagline 'A little closer to your people.', a beige background and a rust accent. Nothing about it reads as stock iOS.",
+      "The header (title, + button, search field) is fixed and never collapses: no large title that turns into the inline title on scroll, and it uses about a third of the screen at large text.",
+      "Custom search text field instead of a system search bar or .searchable.",
+      "Big custom filled circular + button instead of a toolbar item.",
+      "Favorites are a horizontal card carousel. At the largest text size the cards truncate ('Personal…') and the next card is clipped.",
+      "The swipe-to-delete button is rust-coloured instead of system red.",
+      "Contacts with no company show the made-up subtitle 'Personal contact' in the favorites cards.",
+      "Sticky section headers draw a white band that doesn't match the beige list background.",
+      "At the largest text size the search glyph, avatars and 'PERSONAL DIRECTORY' eyebrow don't scale while the text does.",
+      "Long emails and the date wrap across several lines at the largest text size (hyphenated, so excused)."
+    ],
+    "scroll": "Scrolls smoothly with no blank or popping rows, and scroll position is kept when returning from a contact. The scrolling area is only the part below the fixed header, and the sticky letter headers show a white band over the beige list; flings travelled about as far as A's.",
+    "scores": {"features": 9, "platform": 4, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement and keep changes across relaunch. A looks and behaves like a stock iOS 27 Contacts list: large title that collapses, Liquid Glass bottom search, system swipe-to-delete, inset grouped form. B replaces almost every system element with a branded custom design and fixed header, although it is polished and has nice touches (Call/Email buttons, delete and discard confirmations). A's search field hidden behind the keyboard and its web-like accessibility structure keep it from a clear win, but it is much closer to a hand-built iPhone app."
+}

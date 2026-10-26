@@ -336,6 +336,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   round 30's grader named it. Fix: rows under a screen's own content are a
   `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
   inset-grouped for a list that is the whole screen.
+- **A live list hitches once a tick when its data module rebuilds every row.** Cause: an
+  `every(1000, step)` that refreshes a resource answering all 260 tickers, each with
+  `toLocaleString` prices (Hermes makes a new `Intl.NumberFormat` per call) and a
+  60-point chart string. The clock's advance waits for that answer on the main thread:
+  45–60 ms each second, several dropped frames mid-fling. Fix: format with one
+  `Intl.NumberFormat` made at module load, keep what only a detail screen shows (its
+  chart) out of the per-tick answer, and limit each tick's work to the rows that
+  moved. (Round r21 watchlist, measured with the scroll-feel probe, 2026-10-26.)
 
 ## Native presentation and navigation (iOS)
 

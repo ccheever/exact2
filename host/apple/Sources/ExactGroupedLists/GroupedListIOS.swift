@@ -215,6 +215,7 @@ final class GroupedListHost: GroupedLists {
 
     /// Before a batch: every carried row back where the presenter put it.
     func prepare() { for list in lists.values { list.restore() } }
+    func prepare(placing ids: Set<UInt32>) { for list in lists.values where list.places(ids) { list.restore() } }
 
     /// After a batch. `changed` is the touched views and their ancestors; a
     /// list outside it keeps its model and only carries its rows again.

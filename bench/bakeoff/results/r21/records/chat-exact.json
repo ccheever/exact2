@@ -1,0 +1,26 @@
+{
+  "spec": "chat",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.chat.07c073",
+  "assignedId": "dev.bakeoff.chat.07c073",
+  "appName": "Chat",
+  "sim": "498D6D1F-C21C-4B31-90F4-5D857216E256",
+  "pin": "f0eeade6b1",
+  "minutes": 15.76,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 8187936,
+    "fresh": 120811,
+    "input": 8148996,
+    "cached": 8028185,
+    "output": 38940,
+    "cost": 3.3501730000000016,
+    "calls": 161,
+    "toolCalls": 96
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r21/built/chat-exact.app",
+  "notes": true,
+  "finished": "2026-10-26T10:26:41.828Z"
+}

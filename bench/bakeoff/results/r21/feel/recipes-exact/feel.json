@@ -1,0 +1,226 @@
+{
+ "app": "dev.bakeoff.recipes.x40be31",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 848,
+  "motionS": 14.13,
+  "fps": 60,
+  "hitchRatio": 0,
+  "longestFrameMs": 16.7,
+  "hitches": 0,
+  "hitchAt": [],
+  "mainMs": 2.24,
+  "mainP95Ms": 5.39,
+  "verdict": {
+   "hitch": "ok",
+   "stall": "ok",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 1.001,
+  "lagFrames": 0,
+  "maxErrorPt": 4.4,
+  "slopPt": 10,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "ok",
+   "lag": "ok",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 748,
+   "tauMs": 504,
+   "ratePerMs": 0.99802,
+   "r2": 0.9956,
+   "contentV": 1289,
+   "handoff": 0.86,
+   "frames": 90,
+   "jumps": 0,
+   "travelPt": 616,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.8,
+   "contentSizeChanges": 3
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 2180,
+   "tauMs": 503,
+   "ratePerMs": 0.99801,
+   "r2": 0.9986,
+   "contentV": 4113,
+   "handoff": 1.03,
+   "frames": 126,
+   "jumps": 0,
+   "travelPt": 2005,
+   "contentSizeChanges": 33
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 5665,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9983,
+   "contentV": 3395,
+   "handoff": 0.57,
+   "frames": 118,
+   "jumps": 0,
+   "travelPt": 1631,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 5.8,
+   "contentSizeChanges": 26
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -4490,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9996,
+   "contentV": -3981,
+   "handoff": 0.5,
+   "frames": 82,
+   "jumps": 0,
+   "travelPt": 1812,
+   "contentSizeChanges": 0
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -4490,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9996,
+   "contentV": -4061,
+   "handoff": 0.51,
+   "frames": 82,
+   "jumps": 0,
+   "travelPt": 1812,
+   "contentSizeChanges": 0
+  },
+  {
+   "name": "fling-up-3",
+   "asked": 8000,
+   "fingerV": -4423,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9999,
+   "contentV": -4082,
+   "handoff": 0.51,
+   "frames": 30,
+   "jumps": 0,
+   "travelPt": 1240,
+   "contentSizeChanges": 0
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 2258,
+   "tauMs": 506,
+   "ratePerMs": 0.99803,
+   "r2": 0.9975,
+   "contentV": 3193,
+   "handoff": 1.06,
+   "frames": 117,
+   "jumps": 0,
+   "travelPt": 1547,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.8,
+   "contentSizeChanges": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 2180,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9999,
+   "contentV": 4227,
+   "handoff": 1.06,
+   "frames": 23,
+   "jumps": 0,
+   "travelPt": 1077,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 4.3,
+   "contentSizeChanges": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 504,
+  "handoff": 1.03,
+  "jumps": 0,
+  "contentSizeChanges": 62,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 5.8,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-up-3",
+  "overshootPt": 48,
+  "entryV": -1260,
+  "settleS": 0.7,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 110.7,
+  "fingerPt": 229.7,
+  "ratio": 0.48,
+  "settleS": 0.54,
+  "bounces": true,
+  "verdict": {
+   "ratio": "ok",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1681,
+  "reached": true,
+  "startS": 0.13,
+  "durationS": 0.37,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 1840,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 114,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 3.6,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "list": {
+  "cls": "ExactGroupedLists.GroupedCollectionView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 9833.999999999995
+ }
+}

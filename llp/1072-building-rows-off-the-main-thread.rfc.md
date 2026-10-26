@@ -374,8 +374,9 @@ The main-thread cost of one mount, averaged over 132 long turns:
 | Swift apply (flat leaves 2.1, SVG scene and animations 1.2, pool 0.6, …) | 5.9 | stage 4, if profiled |
 
 These are means over turns that mostly hold one row. A fill asks for
-`max(1, fits, needed)` rows. A change in pins or geometry lifts the limit,
-and a data change realizes the whole window. So neither "one fill" nor
+`max(1, fits, needed)` rows. A change in geometry lifts the limit, and a
+data change realizes the whole window; a change in pins keeps the limit and
+retires every row that left. So neither "one fill" nor
 "8.9 ms" is a bound. §11 replaces both with measured distributions.
 
 The live clock is off in the fling, in both apps. With `BENCH_LIVE=1`,

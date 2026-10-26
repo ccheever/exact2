@@ -1,0 +1,41 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped History list, newest first. Each row shows name, date, exercise count and volume on the right (e.g. Legs, Sun Oct 25, 4 exercises, 6,767.5 lb). An in-progress workout gets its own card at the top."},
+      {"n": 2, "status": "pass", "note": "Detail screen shows a summary card (exercises, sets, volume), then one card per exercise listing its sets (25 lb × 13). Exercise headers push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Workout tab: name field, Add Exercise sheet (bottom search bar plus a muscle filter menu; picks one exercise per trip), per-exercise Add Set sheet with number-pad fields, prefilled from the previous set. Tapping a set edits it; swipe-to-delete works. Finish stays disabled until there is a name and a set, then adds the workout to History. No confirmation on finish."},
+      {"n": 4, "status": "pass", "note": "Exercises tab lists all exercises grouped by muscle with section headers and a search field in the navigation bar."},
+      {"n": 5, "status": "pass", "note": "Shows muscle and equipment, the best set (heaviest, with workout and date; updated with the new 100 lb set), and the list of workouts it appears in, which push to their details."},
+      {"n": 6, "status": "pass", "note": "The in-progress workout (name, exercise, edited and deleted sets) survived relaunch. The finished workout stayed in History after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Pushed screens (workout detail, exercise detail) have an opaque white navigation bar with a hairline and a grey gap below it. iOS 26/27 uses a transparent bar with a scroll-edge effect, and A's own root screens do too.",
+      "The New Set / Edit Set sheet header is custom-drawn: plain blue 'Cancel' text, a regular-weight title, a grey capsule 'Save', and no grabber. It doesn't match the system glass toolbar buttons on the Add Exercise sheet.",
+      "Accessibility exposes rows as 'Link' elements inside nested scroll views, which suggests a web-style view hierarchy (not visible to the eye).",
+      "The exercise picker returns after each pick, so adding several exercises means reopening the sheet each time (no multi-select).",
+      "Finish has no confirmation, and there is no visible discard affordance apart from the overflow menu."
+    ],
+    "scroll": "History scrolls smoothly with normal momentum and rubber-banding; no blank or popping rows. Scroll position is kept after pushing a detail and coming back.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "History is grouped by month (October 2026 header), newest first. Rows show a bold name with the date on the right, and below it SF-symbol-labelled exercise count and volume. A 'Workout in Progress, Resume' card appears at the top while one is active."},
+      {"n": 2, "status": "pass", "note": "Detail has a large title and a summary card (date, exercises, sets, total volume), then one card per exercise with sets (13 reps × 25 lb) and a per-exercise volume footer. A '…' menu offers Delete Workout."},
+      {"n": 3, "status": "pass", "note": "The + button opens the workout: name field (defaults to 'Morning Workout'), multi-select Add Exercises sheet with search field and muscle chip filter. Add Set sheet has text fields plus steppers, a Next/Done keyboard toolbar, inline validation ('Reps must be a whole number of at least 1') and a 'Last time' hint. Tap a set to edit it (with Delete Set); swipe-to-delete works. Finish confirms and removes exercises that have no sets. Minimize returns to History with a Resume card."},
+      {"n": 4, "status": "pass", "note": "Exercises tab is grouped by muscle, each row showing equipment and how many workouts use it. A search field appears on pull-down."},
+      {"n": 5, "status": "pass", "note": "Shows muscle and equipment, a Best Set card with trophy (90 lb × 8 reps, Legs · Aug 9), and Workouts (3) with each workout's sets, including the newly finished one."},
+      {"n": 6, "status": "pass", "note": "Relaunch reopened straight into the in-progress workout with its sets intact. The finished workout stayed in History after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "After the Add Set sheet closes, focus jumps back to the workout-name field and the keyboard reappears.",
+      "While the picker's search is active, the Add (n) button is hidden until search is closed (standard iOS 26 search toolbar behaviour, but slightly awkward)."
+    ],
+    "scroll": "History and library scroll smoothly with proper momentum, rubber-band over-pull and sticky large-title collapse. Scroll position is kept on returning from a detail.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and look native in light, dark and large text. B goes further: multi-select exercise picking, steppers with validation, prefill and 'last time' hints, a finish confirmation, minimize/resume, and month-grouped history. A has a hand-drawn set-sheet header and opaque iOS-18-style navigation bars on pushed screens, which give it away; B's screens are consistent system chrome throughout."
+}

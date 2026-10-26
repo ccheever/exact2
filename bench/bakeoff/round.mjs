@@ -100,7 +100,7 @@ function report() {
   mkdirSync(dest, { recursive: true });
   for (const d of ['records', 'feel', 'grades']) {
     if (!existsSync(resolve(ROUND, d))) continue;
-    cpSync(resolve(ROUND, d), resolve(dest, d), { recursive: true, filter: (p) => !/\/(shots|log\.jsonl|prompt\.md)$/.test(p) && !p.endsWith('.png') && !p.endsWith('.mov') });
+    cpSync(resolve(ROUND, d), resolve(dest, d), { recursive: true, filter: (p) => !/\/(shots|log\.jsonl|prompt\.md|trace\.jsonl)$/.test(p) && !p.endsWith('.png') && !p.endsWith('.mov') });
   }
   for (const f of ['summary.md', 'pin.txt', 'round.log']) if (existsSync(resolve(ROUND, f))) cpSync(resolve(ROUND, f), resolve(dest, f));
   // The builders' notes on what was hard: the experience half of the loop.

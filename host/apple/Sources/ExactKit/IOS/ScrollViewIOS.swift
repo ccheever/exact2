@@ -37,7 +37,10 @@ package class ScrollView: UIScrollView {
         set { super.accessibilityElements = newValue }
     }
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let hit = super.hitTest(point, with: event) else { return nil }
+        // UIView's own checks, without its walk of the subviews: the walk
+        // below visits each of them, and walking twice at every nested
+        // scroller made a touch on a list walk its rows four times.
+        guard !isHidden, isUserInteractionEnabled, alpha >= 0.01, self.point(inside: point, with: event) else { return nil }
         if let child = NodeView.hitChildren(in: self, at: point, with: event) { return child }
         // A paragraph's scroller with nothing to scroll is its node, as on the
         // web, where a click on it bubbles to the button around it: a
@@ -45,8 +48,8 @@ package class ScrollView: UIScrollView {
         // beside every `overflow-x: hidden` (`overflow-y` computes to `auto`),
         // so a truncating title is one. A scroller holding nodes (a page) keeps
         // its blank ground: its bounce, and the tap there that ends editing.
-        if hit === self, !hasRange, !subviews.contains(where: { $0 is NodeView }), let owner = superview as? NodeView { return owner }
-        return hit
+        if !hasRange, !subviews.contains(where: { $0 is NodeView }), let owner = superview as? NodeView { return owner }
+        return self
     }
 
     /// Whether its content reaches past its port on an axis it scrolls, or a

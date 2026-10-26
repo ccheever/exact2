@@ -262,7 +262,14 @@ impl Collection {
                 });
             }
         }
-        self.realize_window_with_row(u, frames, false, CollectionFill::default(), Some(position))?;
+        self.realize_window_with_row(
+            u,
+            frames,
+            false,
+            CollectionFill::default(),
+            Some(position),
+            false,
+        )?;
         advance(&mut self.revision)?;
         Ok(())
     }

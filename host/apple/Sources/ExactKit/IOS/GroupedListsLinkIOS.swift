@@ -10,6 +10,9 @@ import UIKit
 package protocol GroupedLists: AnyObject {
     /// Before a batch: every carried row back where the presenter put it.
     func prepare()
+    /// Before a batch that places `ids` (`Presenter.placing`): the rows of
+    /// each list where one is a carried row or its authored parent go back.
+    func prepare(placing ids: Set<UInt32>)
     /// After a batch; `changed` is the touched views and their ancestors.
     func sync(changed: Set<UInt32>?)
     /// Whether some list holds a custom row's views in its cells.

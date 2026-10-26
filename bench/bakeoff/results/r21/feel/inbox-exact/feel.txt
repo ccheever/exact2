@@ -1,0 +1,18 @@
+dev.bakeoff.inbox.cdd432: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 14.08 s of motion
+  bad   hitch ratio (ms/s)                     17.4
+  bad   longest frame (ms)                     107.1
+  ok    main thread p95 (ms/frame)             8.1
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       501
+  ok    momentum hand-off (content/asked)      1.04
+  tell  flings that drop a frame at the lift   1/4
+  bad   offset jumps while decelerating        8
+  ok    edge bounce settle (s)                 0.68
+  ok    rubber band (overscroll/finger)        0.63
+  ok    rubber band settle (s)                 0.52
+  ok    status-bar scroll to top (s)           0.5
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  12 ok, 1 tell, 3 bad

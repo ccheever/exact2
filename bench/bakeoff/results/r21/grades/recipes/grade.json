@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 160 recipes in a plain list. Each row has a bold title and a subtitle with category, a clock icon with the time, and a yellow star with the rating. Large title has a '160 recipes' subtitle."},
+      {"n": 2, "status": "pass", "note": "Horizontal chips for All plus all nine categories, and a search field. Search matches titles and ingredients; rows matched by ingredient show 'Contains lemon'. Desserts + 'lemon' gave 9 results, the same as B. Empty search shows a clear 'No Results for \"zzzq\"' screen."},
+      {"n": 3, "status": "pass", "note": "Sort menu with a checkmark: Name A to Z, Time quickest first, Rating highest first. All three orders are correct, and the sort choice survives a relaunch."},
+      {"n": 4, "status": "pass", "note": "Detail screen shows category and a large title, then cards for time, servings and rating, a servings stepper, an ingredients list with bold quantities, and steps numbered in orange circles. Scaling is correct (6→9: 4 honey→6, 3 tsp→4½ tsp; at 1: ⅔, ⅓, 0.2 g). The minus button is disabled at 1, and a note says 'Amounts scaled from the original 6 servings'."},
+      {"n": 5, "status": "pass", "note": "Heart button in the nav bar adds and removes a favorite. The Favorites tab lists saved recipes (newest first) with a count, an Edit button and a swipe-to-Remove action. The empty state ('No Favorites Yet', explanation, 'Browse Recipes' button) is helpful and the button opens the Recipes tab."},
+      {"n": 6, "status": "pass", "note": "Both favorites were still there after relaunching."}
+    ],
+    "bugs": [
+      "The Favorites empty state ('No Favorites Yet', its explanation and the Browse Recipes button) is invisible to accessibility, so VoiceOver can't read or activate it.",
+      "The accessibility tree has stray elements: the servings stepper row is labelled 'Step 4. …', the row chevrons are exposed as disabled 'chevron' buttons, and off-screen row texts are listed at a fixed position. A VoiceOver user would hear wrong labels."
+    ],
+    "tells": [
+      "The category filter is a row of hand-built capsule chips instead of a system Picker or Menu. The look is common in apps, but the chips are custom.",
+      "The servings row is a pill-shaped capsule whose corner radius doesn't match the stat cards and grouped sections around it.",
+      "The list subtitle has uneven gaps around the '·' separators (double spaces around the clock and star icons)."
+    ],
+    "scroll": "The 160-row list scrolls, flings and rubber-bands like a native table with no blank or late rows. The search field stays pinned while the chips scroll away, the title collapses into an inline 'Recipes / 160 recipes' with a soft edge blur, and scroll position is kept after opening a recipe and going back.",
+    "scores": {"features": 10, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 160 recipes in an inset-grouped list. Each row has a title and a subtitle with category, time and rating (grey star). A header row reads 'All Categories · 160 recipes · by Name'."},
+      {"n": 2, "status": "pass", "note": "A filter button in the nav bar opens a system menu with All Categories plus all nine categories. Search covers titles and ingredients and combines with the filter (Desserts + 'lemon' gave 9, the same as A), but nothing in a row shows why an ingredient match appeared. Empty search shows 'No Recipes Found' with a Show All Recipes button."},
+      {"n": 3, "status": "pass", "note": "System sort menu: Name, Time, Rating, with the current choice checked and shown in the header. All three orders are correct, and the sort survives a relaunch."},
+      {"n": 4, "status": "partial", "note": "Has time, rating, a servings row with a stepper, the ingredients and the steps. Scaling is correct (fractions such as 5⅓, ⅔, 0.2 g; minus is disabled at 1) with a note 'Scaled from 6 servings to 8 servings'. However, the steps are laid out like settings rows: the number on the left, and the step text in grey and pushed to the right edge. That is hard to read and doesn't look like numbered steps."},
+      {"n": 5, "status": "pass", "note": "Heart in the nav bar toggles the favorite. The Favorites tab lists saved recipes with a swipe-to-Delete action and a footer explaining it. The empty state ('No Favorites Yet', a hint, a Browse Recipes button) is helpful and accessible."},
+      {"n": 6, "status": "pass", "note": "Favorites were still there after relaunching."}
+    ],
+    "bugs": [
+      "The detail screen shows the steps as grey, right-aligned values next to the number, like a settings row, rather than as readable numbered instructions.",
+      "Rows in the Favorites list have no accessibility labels (empty cells in the tree), unlike rows on the main list."
+    ],
+    "tells": [
+      "The step list uses label/value rows: the instruction text is grey and right-aligned, which no hand-built recipe app would do.",
+      "The recipe title appears twice on the detail screen, in the inline nav title and again in a card just below it.",
+      "Favorites rows look different from the main list: shorter (52 pt vs 68 pt), with bold black chevrons instead of light grey ones.",
+      "The swipe action says 'Delete', which reads as destroying the recipe rather than un-favoriting it.",
+      "The empty-state title is regular weight rather than the bold ContentUnavailableView style, so it looks hand-assembled.",
+      "The summary header grows into a three-line grey block at the largest text size and pushes the list down."
+    ],
+    "scroll": "Smooth native scrolling with no blank or popping rows. Flings and rubber-banding feel right, the search field collapses into the nav bar, and position is kept after opening a recipe and going back.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and scroll well, and B's native filter and sort menus are a strong point. A's detail screen (stat cards, bold quantities, numbered step badges, scaling note) and its 'Contains …' search hints feel finished and consistent. B shows its steps as grey right-aligned label/value rows, repeats the title on the detail screen, and styles Favorites rows differently from the main list. A's main weaknesses are hand-built category chips and an empty state VoiceOver can't read."
+}

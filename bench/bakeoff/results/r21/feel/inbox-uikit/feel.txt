@@ -1,0 +1,18 @@
+dev.bakeoff.inbox.218842: UITableView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 14.82 s of motion
+  ok    hitch ratio (ms/s)                     1.1
+  ok    longest frame (ms)                     33.3
+  ok    main thread p95 (ms/frame)             3.17
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       506
+  ok    momentum hand-off (content/asked)      1.01
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.72
+  ok    rubber band (overscroll/finger)        0.63
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.97
+  ok    tap while decelerating: travel (pt)    0
+  bad   blank samples (share)                  0.216
+  15 ok, 0 tell, 1 bad

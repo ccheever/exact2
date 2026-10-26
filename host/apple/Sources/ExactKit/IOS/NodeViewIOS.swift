@@ -640,6 +640,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             o.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(o)
             overlay = o
+            Self.canvasOverlays.add(o)
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" { if presenter.fieldsWaiting.contains(id) { fieldWaits = true } else { makeField() } }
@@ -708,9 +709,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
     package var grid: GridPlace?
 
+    /// Every canvas's overlay alive. With none, no node is under a canvas
+    /// or placed by one, and the walks up the tree that ask (each visible
+    /// paragraph every scrolled frame, each node a hit test visits) are
+    /// skipped. A weak table may count an overlay just freed: it only
+    /// keeps the walk.
+    static let canvasOverlays = NSHashTable<PlainView>.weakObjects()
+
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
     package var canvasAbove: NodeView? {
+        guard Self.canvasOverlays.count > 0 else { return nil }
         var v: UIView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
@@ -827,6 +836,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
     var placedAncestor: NodeView? {
+        guard Self.canvasOverlays.count > 0 else { return nil }
         var v: UIView? = self
         while let n = v {
             if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
