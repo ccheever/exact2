@@ -47,6 +47,9 @@
     "@exact/tracking-consent": "workspace:*",
     "@exact/health": "workspace:*",
     "@exact/pedometer": "workspace:*",
-    "@exact/altimeter": "workspace:*"
+    "@exact/altimeter": "workspace:*",
+    "@exact/barcode-detection": "workspace:*",
+    "@exact/text-detection": "workspace:*",
+    "@exact/translation": "workspace:*"
   }
 }
