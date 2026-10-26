@@ -7,7 +7,9 @@
 // two routes in one batch. Titled starts with a bar. Bump changes a text no
 // tab shows, Rename the Titled tab's own: a tab's face is read again only
 // after the second (NavigationTabsIOSTests). Detail in Plain, from Titled,
-// selects Plain and pushes onto its held stack in one update.
+// selects Plain and pushes onto its held stack in one update. Rail adds a
+// narrow header while a sheet presents, so the deferred sync projects it
+// without moving the tab container or leaving provisional scroll range.
 routes nav
   tab plain "/"
     detail "/detail"
@@ -17,6 +19,7 @@ routes nav
 
 component HeldTab
   state titled = false
+  state rail = false
   state draft = ""
   state bumps = 0
   state renamed = false
@@ -36,6 +39,8 @@ component HeldTab
     nav = go(nav, url)
   action title
     titled = not titled
+  action showRail
+    rail = true
   action write(text: string)
     draft = text
   action bump
@@ -49,7 +54,14 @@ component HeldTab
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
-                if e.name == "titled" or e.name == "detail" or e.name == "more" or (e.name == "plain" and titled)
+                if e.name == "plain" and rail
+                  header testId="held-header-rail" position="absolute" top=104 right=0 width=48
+                    text "" role="heading" aria-level=2
+                    button press=bump aria-label="Share"
+                      image "symbol:share"
+                    button press=bump aria-label="More options"
+                      image "symbol:filter"
+                else if e.name == "titled" or e.name == "detail" or e.name == "more" or (e.name == "plain" and titled)
                   header display="flex" align-items="center" padding="8px 16px"
                     if e.name == "detail" or e.name == "more"
                       button id="back" press=back testId=`back-${e.name}` aria-label="Back"
@@ -66,6 +78,8 @@ component HeldTab
                       text "Sheet"
                     button press=title testId="title"
                       text "Title"
+                    button press=showRail testId="rail"
+                      text "Rail"
                     button press=bump testId="bump"
                       text "Bump"
                     button press=rename testId="rename"
