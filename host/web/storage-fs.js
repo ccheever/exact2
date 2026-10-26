@@ -380,6 +380,15 @@ export function createFileSystem(appId, grants, timers = ownTimers) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
+  // `copyFile` from a document the person chose (documents-glue.js
+  // `copyFile`): `to` is admitted before `open` gives the document's File,
+  // which becomes the file's contents, as a picked file's does (LLP 1069.002 D5).
+  fs.copyIn = async (to, open) => {
+    to = authorize(grants, 'fs.write', to);
+    requireBelowRoot(to);
+    const file = await open();
+    return mutate([to], () => store.putBlob(to, file));
+  };
   // `compressImage(from, to, {maxDimension, maxBytes, type, rotate, flip, crop})`
   // (LLP 1069.002 A1, LLP 1133.019 D15): both grants are checked and the
   // options too before anything is read; the codec runs outside the mutation

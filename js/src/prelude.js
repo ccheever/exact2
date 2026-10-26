@@ -891,9 +891,9 @@
     }
     var refused;
     // A file operation names its path: a document the person chose
-    // (`doc:/`) needs no app storage (LLP 1069.010 D1).
+    // (`doc:/`) needs no app storage (LLP 1069.010 D1); a copy into an app file does.
     var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
-    try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
+    try { refused = host(5, method === "copyFile" && path && /^app:\//.test(args[1]) ? args[1] : path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     // A drive with no scratch store is said once, at its first refused read or write, for the driver's note (LLP 1102 §3.17); a read finds an empty store, as on a fresh install (storage-environment.js `emptyRead`, word for word).
     if (refused === "agent" && !toldAgent) { toldAgent = true; journal("storage refused (agent): " + REFUSED.agent); }
