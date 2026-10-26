@@ -18,14 +18,16 @@ const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 
 const END_SLACK = 1;
 // A port in the padding before the first row is at the rows' start, unless the target is there too (start.rs).
 const atTarget = (a, c, offset, sent) => { if (c >= 0) offset = Math.max(0, offset); const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
-const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
+const travelLead = (port, v) => Math.min(Math.abs(v) * LEAD_SECONDS, port * 2);
+const lead = (port, v) => { const extra = travelLead(port, v); return v > 0 ? [port, port + extra] : [port + extra, port]; };
 // `reach-margin` (reach.rs `Margin`, @ref LLP 1145 D4): px or % of the port, before and after an edge; default one port.
 const reachMargin = text => {
   const parts = (text ?? "100%").trim().split(/\s+/).map(p => { const m = /^(.*?)(px|%)$/i.exec(p), n = m && m[1] !== "" ? Number(m[1]) : NaN; return isFinite(n) && n >= 0 ? [n, m[2] === "%"] : null; });
   if (parts.length > 2 || parts.includes(null)) throw new Refusal("reach margin must be one or two nonnegative px or % lengths");
   return [parts[0], parts.at(-1)];
 };
-const reachLead = (margin, port) => margin.map(([n, percent]) => percent ? port * n / 100 : n);
+// The edge band (reach.rs `Margin::band`): the margin, plus the window's travel lead toward the side it travels.
+const reachBand = (margin, port, v) => { const band = margin.map(([n, percent]) => percent ? port * n / 100 : n); if (v) band[v > 0 ? 1 : 0] += travelLead(port, v); return band; };
 const same = Object.is;
 // A row remeasured within this of the height it already has keeps that
 // height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
@@ -242,7 +244,7 @@ class Collection {
     this.port = sizes.length ? Math.min(...sizes) : null;
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
-      zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
+      zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], edgeFired: [null, null], pending: false, parent: null,
       kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0 });
     this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
   }
@@ -652,7 +654,7 @@ class Collection {
     now.scrollSequence = previous.scrollSequence;
     const changed = paddingChanged || JSON.stringify(previous) !== JSON.stringify(now);
     if (changed) this.revision++;
-    return [changed, this.edge()];
+    return [changed, this.edge(fill.velocity ?? 0)];
   }
   /** inset.rs `report_anchor`: on the old range, where the port is as far down as a grown padding
    * before the rows moved them (none before a first report), or on the new one when only that follows the end;
@@ -683,7 +685,7 @@ class Collection {
     for (const [a2, b] of w.segments) for (let p = a2; p < b; p++) if (this.mounted[k++]?.position !== p) return undefined;
     if (k !== this.mounted.length) return undefined;
     this.geometry = { ...f, measurements: [] };
-    return this.edge();
+    return this.edge(fill.velocity ?? 0);
   }
   // ------------------------------------------------ scrollIntoView (into_view.rs)
   /** A key's row identity here, or why it is refused (LLP 1070.000 §2.2);
@@ -769,20 +771,24 @@ class Collection {
     this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
     t.reports++;
   }
-  edge() {
+  disarm(i) { this.edgeArmed[i] = false; this.edgeFired[i] = this.index.order[i ? this.index.len - 1 : 0] ?? null; }
+  edge(velocity) {
     const reached = [false, false], g = this.geometry;
     if (g && this.index.len) {
-      // Reached within the reach margin; re-armed only once the mounted window (one port each side) is measured (reach.rs).
-      const w = this.index.window(g.offset, g.port_main), within = this.index.window(g.offset, g.port_main, reachLead(this.reach, g.port_main));
-      const n = this.index.len - 1;
-      reached[0] = within.segments.some(r => 0 >= r[0] && 0 < r[1]);
-      reached[1] = within.segments.some(r => n >= r[0] && n < r[1]);
-      if (!(this.edgeArmed[0] && this.edgeArmed[1]) && this.index.rangeMeasured(...w.overscan)) for (const i of [0, 1]) this.edgeArmed[i] ||= !reached[i];
+      // Reached within the edge band; re-armed outside it, or outside the band at rest once the edge's row is
+      // another than the one it fired at, and only once the window at rest (one port each side) is measured (reach.rs).
+      const w = this.index.window(g.offset, g.port_main), n = this.index.len - 1;
+      const within = band => { const s = this.index.window(g.offset, g.port_main, band).segments; return [0, n].map(e => s.some(r => e >= r[0] && e < r[1])); };
+      [reached[0], reached[1]] = within(reachBand(this.reach, g.port_main, velocity));
+      if (!(this.edgeArmed[0] && this.edgeArmed[1]) && this.index.rangeMeasured(...w.overscan)) {
+        const rest = within(reachBand(this.reach, g.port_main, 0));
+        for (const i of [0, 1]) this.edgeArmed[i] ||= !reached[i] || (this.edgeFired[i] !== this.index.order[i ? n : 0] && !rest[i]);
+      }
     }
     const ready = [0, 1].map(i => reached[i] && this.edgeArmed[i] && !!this.edges[i]);
     const i = ready.indexOf(true);
     if (i < 0) return null;
-    this.edgeArmed[i] = false;
+    this.disarm(i);
     return { first: i, endAfterNoop: ready[0] && ready[1] };
   }
 }
@@ -921,7 +927,7 @@ function edges(c, edge) {
   }
   for (const [position, i] of [[0, edge.first], [1, 1]]) {
     if (position === 1 && (!endAfterNoop || !c.edgeArmed[1])) break;
-    if (position === 1) c.edgeArmed[1] = false;
+    if (position === 1) c.disarm(1);
     if (i === 1 && Deferred.some(d => d[0] === c)) { c.edgeArmed[1] = true; break; }
     const before = rev(), since = ticket();
     const ok = c.edges[i]();

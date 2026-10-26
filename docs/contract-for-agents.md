@@ -1290,7 +1290,10 @@ backgrounds share the existing drawn-gradient limitation for
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
-`for`, and one flow root per row. A vertical list needs `height`, `max-height`
+`for`, and one flow root per row. Its `reachstart` and `reachend` fire when the
+first or last row comes within `reach-margin` of the port (one port by default),
+and further ahead while a fling travels toward it; page from them rather than from
+`scroll` (`docs/reference.md`, "Intersection visibility"). A vertical list needs `height`, `max-height`
 or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640px")`).
 A percentage bounds it only against a definite containing-block height (a plain
 `column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a

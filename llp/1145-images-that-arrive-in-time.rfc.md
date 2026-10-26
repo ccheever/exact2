@@ -104,6 +104,13 @@ fetch earlier. It does not stop a fling that outruns the loaded rows from stalli
 at their edge: that would need the list to keep an estimated extent past them, a
 change of its own.
 
+The margin is the band at rest. While a report travels toward an end, the band on
+that side grows by the lead the window takes for the travel (Charlie, 2026-10-26;
+LLP 1027.004 D3, LLP 1010 §6.5), so the page is asked for as the window loads ahead.
+The two add rather than take the larger: a margin below one port then still means
+less than the default, in a fling as at rest, and the band does not jump to a port
+at the first pixel of travel.
+
 ## 3. Not proposed
 
 - **`srcset` and `sizes`**: a schema addition with a native story; its own decision.
