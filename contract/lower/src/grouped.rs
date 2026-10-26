@@ -1251,11 +1251,13 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                     m("font-weight", "accessory-weight", at),
                     n("flex-shrink", 0.0, at),
                     // A checkmark's ink is the platform's: the tint in
-                    // UIKit's cell, the label's in the Mac's form.
+                    // UIKit's cell, the label's in the Mac's form. A
+                    // symbol is drawn in its `color` (LLP 1081 stage 2),
+                    // which a custom row's chevron or checkmark shows.
                     if check {
-                        m("-exact-tint-color", "checkmark-tint", at)
+                        m("color", "checkmark-tint", at)
                     } else {
-                        s("-exact-tint-color", TERTIARY, at)
+                        s("color", TERTIARY, at)
                     },
                 ],
             )

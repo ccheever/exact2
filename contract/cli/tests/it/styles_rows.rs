@@ -376,7 +376,7 @@ component A
         ("unsaid", TextColor, implied, "the sheet's"),
         ("off", TextColor, implied, "the sheet's disabled grey"),
         ("icon", TintColor, implied, "the sheet's accent on a symbol"),
-        ("check", TintColor, implied, "and on a checkmark"),
+        ("check", TextColor, implied, "its ink on a checkmark"),
         ("tinted", TintColor, written, "the same accent, written"),
     ] {
         assert_eq!(row(&r, id, style), expected, "{id} {style:?}: {why}");
