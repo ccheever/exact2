@@ -581,7 +581,7 @@ export function checkTypes(dir, {capture = false, builder = resolve(ROOT, 'host/
   if (!existsSync(resolve(dir, 'app.ts')) || !existsSync(resolve(dir, 'app.json'))) return {status: 0, report: ''};
   const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   try {
-    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/check-supervise.mjs'), builder, basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/check-supervise.mjs'), String(process.pid), builder, basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
     return {status: r.status ?? 1, report: `${r.stdout ?? ''}${r.stderr ?? ''}`};
   } finally { rmSync(out, { recursive: true, force: true }); }
 }

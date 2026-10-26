@@ -50,17 +50,17 @@ test('the bound only shortens, and only under the test switch', () => {
 
 test('a builder that spins past the bound is stopped, its group (a tsc under it) with it, and the check fails saying so', async () => {
   const dir = scratch(), began = Date.now();
-  const r = spawnSync(process.execPath, [SUPERVISE, spinner(dir), 'app', '--check'], { encoding: 'utf8', env: timed, timeout: 60_000 });
+  const r = spawnSync(process.execPath, [SUPERVISE, String(process.pid), spinner(dir), 'app', '--check'], { encoding: 'utf8', env: timed, timeout: 60_000 });
   expect(r.status).toBe(1);
   expect(Date.now() - began).toBeLessThan(15_000);
   expect(r.stderr).toContain("error: app: app.ts's type check did not finish in 1.5 s, so it was stopped");
   expect(await left(await pidsOf(dir))).toEqual([]);
 }, 60_000);
 
-test('the check told to stop mid-way (SIGTERM, SIGINT) takes its group with it', async () => {
-  for (const signal of ['SIGTERM', 'SIGINT']) {
+test('the check told to stop mid-way (SIGTERM, SIGINT, SIGHUP), or killed outright (SIGKILL), takes its group with it', async () => {
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGKILL']) {
     const dir = scratch();
-    const supervisor = spawn(process.execPath, [SUPERVISE, spinner(dir), 'app', '--check'], { stdio: 'ignore' });
+    const supervisor = spawn(process.execPath, [SUPERVISE, String(process.pid), spinner(dir), 'app', '--check'], { stdio: 'ignore' });
     const pids = await pidsOf(dir);
     supervisor.kill(signal);
     expect(await left([supervisor.pid, ...pids]), signal).toEqual([]);
@@ -70,7 +70,7 @@ test('the check told to stop mid-way (SIGTERM, SIGINT) takes its group with it',
 test('its caller killed past any handler (SIGKILL) leaves nothing running: the supervisor sees its parent go', async () => {
   const dir = scratch(), caller = join(dir, 'caller.mjs');
   writeFileSync(caller, `import { spawnSync } from 'node:child_process';
-spawnSync(process.execPath, [${JSON.stringify(SUPERVISE)}, ${JSON.stringify(spinner(dir))}, 'app', '--check'], { stdio: 'ignore' });
+spawnSync(process.execPath, [${JSON.stringify(SUPERVISE)}, String(process.pid), ${JSON.stringify(spinner(dir))}, 'app', '--check'], { stdio: 'ignore' });
 `);
   const outer = spawn(process.execPath, [caller], { stdio: 'ignore' });
   const pids = await pidsOf(dir);
@@ -78,10 +78,29 @@ spawnSync(process.execPath, [${JSON.stringify(SUPERVISE)}, ${JSON.stringify(spin
   expect(await left(pids)).toEqual([]);
 }, 60_000);
 
+test("its caller's whole process group killed (SIGKILL: the supervisor with it) leaves nothing: the builder's group kills itself", async () => {
+  const dir = scratch(), caller = join(dir, 'caller.mjs');
+  writeFileSync(caller, `import { spawnSync } from 'node:child_process';
+spawnSync(process.execPath, [${JSON.stringify(SUPERVISE)}, String(process.pid), ${JSON.stringify(spinner(dir))}, 'app', '--check'], { stdio: 'ignore' });
+`);
+  // (The caller leads a group of its own, which the supervisor joins, as a shell's job does.)
+  const outer = spawn(process.execPath, [caller], { stdio: 'ignore', detached: true });
+  const pids = await pidsOf(dir);
+  process.kill(-outer.pid, 'SIGKILL');
+  expect(await left(pids)).toEqual([]);
+}, 60_000);
+
+test('a supervisor whose caller is already gone (not the pid it was given) starts nothing', () => {
+  const dir = scratch();
+  const r = spawnSync(process.execPath, [SUPERVISE, '1', spinner(dir), 'app', '--check'], { encoding: 'utf8', timeout: 30_000 });
+  expect(r.status).toBe(1);
+  expect(existsSync(join(dir, 'pids'))).toBe(false);
+});
+
 test('a builder that finishes is passed through: its exit status and its output, whole', () => {
   const dir = scratch(), builder = join(dir, 'done.mjs'), big = 'x'.repeat(200_000);
   writeFileSync(builder, `process.stdout.write(${JSON.stringify(big)}); process.stderr.write('said\\n'); process.exit(3);`);
-  const r = spawnSync(process.execPath, [SUPERVISE, builder, 'app', '--check'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  const r = spawnSync(process.execPath, [SUPERVISE, String(process.pid), builder, 'app', '--check'], { encoding: 'utf8', maxBuffer: 1 << 26 });
   expect(r.status).toBe(3);
   expect(r.stdout).toBe(big);
   expect(r.stderr).toBe('said\n');
@@ -91,7 +110,7 @@ test('a tsc that never returns is stopped at the bound (js/bake/src/typescript.m
   const dir = scratch(), stage = join(dir, 'stage'), libraries = join(dir, 'lib'), tsc = join(dir, 'tsc');
   mkdirSync(stage); mkdirSync(libraries);
   writeFileSync(join(stage, '__exact_tsconfig.json'), '{}');
-  writeFileSync(tsc, '#!/usr/bin/env bun\nsetInterval(() => {}, 1000);\n');
+  writeFileSync(tsc, `#!/usr/bin/env bun\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'tsc.pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
   chmodSync(tsc, 0o755);
   const was = { timing: process.env.EXACT_TEST_TIMING, bound: process.env.EXACT_CHECK_BOUND_MS };
   process.env.EXACT_TEST_TIMING = '1'; process.env.EXACT_CHECK_BOUND_MS = '1500';
@@ -100,6 +119,8 @@ test('a tsc that never returns is stopped at the bound (js/bake/src/typescript.m
     const began = Date.now();
     await expect(check(stage, tsc, libraries)).rejects.toThrow('the TypeScript check did not finish in 1.5 s (tsc stopped)');
     expect(Date.now() - began).toBeLessThan(15_000);
+    // (And the stand-in itself is gone.)
+    expect(await left([Number(readFileSync(join(dir, 'tsc.pid'), 'utf8'))])).toEqual([]);
   } finally {
     for (const [k, v] of [['EXACT_TEST_TIMING', was.timing], ['EXACT_CHECK_BOUND_MS', was.bound]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
