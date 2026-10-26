@@ -399,8 +399,21 @@ fn a_worst_case_write_is_checked_within_the_budget() {
     let vocab = contract_lower::tamber_vocab();
     let parse = |t: &str| exact_tamber::parse(t).unwrap();
     let before = design("8px");
+    // This thread's CPU time, not the wall clock: a loaded machine (the
+    // suite's other tests and servers, another agent's builds) takes the
+    // core away mid-run, which is no work the check did (x2-perf4's run at
+    // load 28 read 15.7 ms of wall clock).
+    let cpu = || {
+        let mut t = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: a valid timespec for the call to fill.
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+        std::time::Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+    };
     let run = |base: &str| {
-        let began = std::time::Instant::now();
+        let began = cpu();
         let after = parse(&design(base));
         let folded = exact_tamber::check_design(after.clone(), &vocab).unwrap();
         let broken = contract_lower::rows::check(
@@ -412,10 +425,9 @@ fn a_worst_case_write_is_checked_within_the_budget() {
             &[],
             &[],
         );
-        (broken.len(), began.elapsed())
+        (broken.len(), cpu() - began)
     };
-    // The best of ten (a run takes a few ms): the suite runs beside other
-    // tests, each with its server, on the machine.
+    // The best of ten (a run takes a few ms of CPU).
     let best = |base: &str, want: usize| {
         (0..10)
             .map(|_| {
