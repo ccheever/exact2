@@ -1,6 +1,6 @@
 // @ref LLP 1126 D2/D8 — one runtime framework, one generated widget bundle.
 import { resolve } from 'node:path';
-import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync } from 'node:fs';
+import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync, statSync } from 'node:fs';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { plistFile, wrapFramework, frameworkLayout, frameworkInstallName } from './assets.mjs';
@@ -150,7 +150,7 @@ const tree = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isD
 export function prepareWidgetCore({ app, directory, swiftBuildRoot, swiftArgs, swiftc, triple, device, platform = 'ios' }) {
   const scratch = resolve(swiftBuildRoot, 'core');
   const args = swiftArgs.map(a => a === swiftBuildRoot ? scratch : a);
-  const key = createHash('sha256').update(JSON.stringify([app.id, args, swiftc, triple, 'versioned-mac-framework']));
+  const key = createHash('sha256').update(JSON.stringify([app.id, args, swiftc, triple, 'versioned-framework-module-bundles']));
   for (const file of [resolve(pkg, 'Package.swift'), resolve(pkg, 'include/exact.h'), ...['ExactCore', 'ExactSnapshot', 'CExact'].flatMap(name => tree(resolve(pkg, 'Sources', name)))].sort()) key.update(file).update(readFileSync(file));
   const base = resolve(directory, key.digest('hex').slice(0, 20));
   return { base, scratch, args, triple, device, platform, framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
@@ -185,7 +185,23 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, 
     copyFileSync(dylib, temporary);
     runApple('xcrun', ['install_name_tool', '-id', frameworkInstallName('ExactCore', platform === 'macos' ? 'MacOSX' : 'iPhoneOS'), temporary]);
     renameSync(temporary, layout.binary);
-    for (const name of ['ExactCore', 'ExactSnapshot']) cpSync(resolve(bin, `${name}.swiftmodule`), resolve(layout.modules, `${name}.swiftmodule`), { recursive: true, preserveTimestamps: true });
+    let moduleTriple;
+    for (const name of ['ExactCore', 'ExactSnapshot']) {
+      const moduleName = `${name}.swiftmodule`;
+      const modified = path => Math.max(...(statSync(path).isDirectory() ? tree(path).filter(file => file.endsWith('.swiftmodule')) : [path]).map(file => statSync(file).mtimeMs));
+      const source = [resolve(bin, moduleName), resolve(bin, 'Modules', moduleName)].filter(existsSync).sort((a, b) => modified(b) - modified(a))[0] ?? resolve(bin, moduleName);
+      const destination = resolve(layout.modules, moduleName);
+      rmSync(destination, { recursive: true, force: true });
+      if (statSync(source).isDirectory()) cpSync(source, destination, { recursive: true, preserveTimestamps: true });
+      else {
+        moduleTriple ??= JSON.parse(runApple('xcrun', ['swiftc', '-print-target-info', '-target', prepared.triple]).stdout).target.moduleTriple;
+        mkdirSync(destination, { recursive: true });
+        for (const suffix of ['swiftmodule', 'swiftdoc', 'abi.json', 'swiftsourceinfo']) {
+          const file = source.replace(/swiftmodule$/, suffix);
+          if (existsSync(file)) cpSync(file, resolve(destination, `${moduleTriple}.${suffix}`), { preserveTimestamps: true });
+        }
+      }
+    }
     writeFileSync(layout.info, plistFile({ CFBundleIdentifier: `${app.id}.runtime`, CFBundleName: 'ExactCore', CFBundleExecutable: 'ExactCore', CFBundlePackageType: 'FMWK', CFBundleVersion: '1', CFBundleShortVersionString: '0.1.0', CFBundleSupportedPlatforms: [platform === 'macos' ? 'MacOSX' : platform === 'watchos' ? 'WatchSimulator' : device ? 'iPhoneOS' : 'iPhoneSimulator'], ...(platform === 'macos' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: platform === 'watchos' ? '10.0' : app.manifest.host?.ios?.minimumOS ?? '17.0' }) }));
     if (!existsSync(resolve(xcframework, 'Info.plist'))) runApple('xcrun', ['xcodebuild', '-create-xcframework', '-allow-internal-distribution', '-framework', framework, '-output', xcframework]);
     else {
