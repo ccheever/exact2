@@ -110,7 +110,10 @@ export async function probeTool(origin, tries = 1) {
   try {
     const { token } = await got.json();
     // (Held while its design server starts: a dev loop's first compiler build.)
-    const hello = await (await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) })).json();
+    const said = await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) });
+    // (An HTTP error status is an answer, whatever its body does after: no design server here, as for the token.)
+    if (!said.ok) return { answer: { app: null } };
+    const hello = await said.json();
     return { answer: { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null } };
   } catch (e) { return why(e); } // (refused or reset now: it stopped between the two, a loop restarting)
 }
