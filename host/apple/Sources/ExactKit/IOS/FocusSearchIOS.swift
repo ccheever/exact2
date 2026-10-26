@@ -80,6 +80,12 @@ final class Viewport: ScrollView {
         let y = contentSize.height + inset.top + inset.bottom > bounds.height + 0.5
         if showsHorizontalScrollIndicator != x { showsHorizontalScrollIndicator = x }
         if showsVerticalScrollIndicator != y { showsVerticalScrollIndicator = y }
+        // A route's page draws the bar's edge effect over a list in it
+        // (`RouteController.followTopEdge`): iOS's soft one, as over a
+        // list that is the controller's own, where `automatic` drew the
+        // hard band and its line.
+        guard #available(iOS 26.0, tvOS 26.0, *), let route = documentNode, route.style["scroll_edge_effect"] == nil else { return }
+        if topEdgeEffect.style != .soft { topEdgeEffect.style = .soft }
     }
     package override var contentSize: CGSize { didSet { if contentSize != oldValue { setNeedsLayout() } } }
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.

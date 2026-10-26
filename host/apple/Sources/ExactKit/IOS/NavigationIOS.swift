@@ -295,6 +295,30 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     override func setContentScrollView(_ scrollView: UIScrollView?, for edge: NSDirectionalRectEdge) {
         super.setContentScrollView(scrollView, for: edge)
         (parent as? HeldStack)?.setContentScrollView(scrollView, for: edge)
+        if edge == .top { followTopEdge(scrollView) }
+    }
+
+    private var topEdgeWatch: NSKeyValueObservation?
+    /// iOS 26 draws the bar's edge effect on the outermost scroll view under
+    /// it, which for a route whose scroller (a list) lies in its page is the
+    /// page's viewport, not that scroller (measured on iOS 27: UIKit alone
+    /// does the same with a table view in a scroll view). So the viewport's
+    /// top effect shows only while that scroller is scrolled from its top,
+    /// as UIKit's does over a list that is the controller's own: no effect
+    /// over a list at rest.
+    private func followTopEdge(_ scrollView: UIScrollView?) {
+        topEdgeWatch = nil
+        guard #available(iOS 26.0, tvOS 26.0, *), let page = contentViewport else { return }
+        guard let scrollView, scrollView !== page, node.style["scroll_edge_effect"] == nil else {
+            if page.topEdgeEffect.isHidden, node.style["scroll_edge_effect"]?.string != "none" { page.topEdgeEffect.isHidden = false }
+            return
+        }
+        let follow = { [weak page] (sv: UIScrollView) in
+            let rest = sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top
+            if let page, page.topEdgeEffect.isHidden != rest { page.topEdgeEffect.isHidden = rest }
+        }
+        follow(scrollView)
+        topEdgeWatch = scrollView.observe(\.contentOffset) { sv, _ in follow(sv) }
     }
 }
 
