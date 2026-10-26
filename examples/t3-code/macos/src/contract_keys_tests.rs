@@ -341,7 +341,7 @@ fn the_keybinding_recorder_captures_a_chord_and_escape_restores() {
         .unwrap();
     assert_eq!(
         runner.slot("keybindingKey"),
-        Some(&Value::str("mod+shift+ㅠ"))
+        Some(&Value::str("mod+shift+b"))
     );
     assert_eq!(
         runner.slot("keybindingRecording"),
