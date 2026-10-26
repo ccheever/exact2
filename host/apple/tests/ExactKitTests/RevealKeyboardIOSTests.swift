@@ -548,6 +548,47 @@ final class RevealKeyboardIOSTests: XCTestCase {
     }
 
 
+    func testKeyboardRevealLeavesAnInteractiveDragAlone() throws {
+        guard let scene = hostedWindowScene() else { throw missing("scene", "keyboard reveal needs a mounted native editor") }
+        let (session, window) = session("keyboard-drag-reveal", widget: "resizes-visual", scroller: true)
+        defer { window.endEditing(true); window.isHidden = true; session.destroy() }
+        let p = session.presenter, node = try XCTUnwrap(p.views[3]), owner = try XCTUnwrap(p.views[2])
+        window.isHidden = true
+        window.windowScene = scene
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        let scroll = KeyboardDragScroll(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentSize = CGSize(width: 400, height: 2000)
+        scroll.keyboardDismissMode = .interactive
+        p.viewport.addSubview(scroll)
+        scroll.addSubview(node)
+        owner.scroll = scroll
+        let field = UITextField(frame: node.bounds)
+        node.addSubview(field)
+        window.makeKeyAndVisible()
+        XCTAssertTrue(field.becomeFirstResponder())
+        setKeyboard(p, top: 460)
+        for (tracking, dragging) in [(true, false), (false, true)] {
+            scroll.simulatedTracking = tracking
+            scroll.simulatedDragging = dragging
+            scroll.contentOffset = .zero
+            p.revealEditorAsTheKeysMove()
+            p.revealSettledEditor()
+            XCTAssertEqual(scroll.contentOffset, .zero, "tracking \(tracking), dragging \(dragging): the finger owns the offset")
+        }
+        scroll.simulatedTracking = false
+        scroll.simulatedDragging = false
+        p.revealEditorAsTheKeysMove()
+        XCTAssertGreaterThan(scroll.contentOffset.y, 0, "automatic reveal resumes after the drag")
+        scroll.contentOffset = .zero
+        scroll.simulatedTracking = true
+        scroll.keyboardDismissMode = .onDrag
+        p.revealEditorAsTheKeysMove()
+        XCTAssertGreaterThan(scroll.contentOffset.y, 0, "a scroller that dismisses the keyboard on drag does not stop the reveal")
+    }
+
     func testAHostedNativeEditorIsRevealedWhenTheKeyboardMoves() throws {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "UIKit's responder search needs the native editor in an app scene") }
         let (session, window) = session("native-editor-reveal", widget: "resizes-visual", scroller: true)
@@ -671,6 +712,13 @@ private final class KeyboardGuideFixture {
         imp_removeBlock(actionReplacement)
         input.removeFromSuperview()
     }
+}
+
+private final class KeyboardDragScroll: ScrollView {
+    var simulatedTracking = false
+    var simulatedDragging = false
+    override var isTracking: Bool { simulatedTracking }
+    override var isDragging: Bool { simulatedDragging }
 }
 
 #endif
