@@ -35,6 +35,8 @@ const edit = args => Object.fromEntries(['rotate','flip','crop'].filter(k=>args[
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
   const services = new Map(), key = storageKey(appId); let disposed = false;
+  // What the app keeps across launches is read back before a request reaches it (LLP 1069.010.000 D4).
+  const kept = globalThis.exact.documents.keeping(appId, admitted);
   // Each database's requests take turns. The worker opens a database under
   // its file's exclusive lock, in one queue per page: a second open waiting
   // for the lock there holds back the first's queries and close, and both
@@ -58,6 +60,12 @@ export function createStorageRequests(appId, admitted) {
         const request=JSON.parse(payload), {op,args}=request;
         scope ??= admitted;
         const invalid=grantError(scope);if(invalid)throw new Error(invalid);
+        // `fs.recentDocuments` and `fs.forgetDocument` (LLP 1069.010.000 D5): the page's kept handles.
+        if (op==='fs.recentDocuments'||op==='fs.forgetDocument') {
+          await kept;
+          const value=op==='fs.recentDocuments'?await globalThis.exact.documents.recent(scope):await globalThis.exact.documents.forget(args?.path,scope);
+          return encoder.encode(JSON.stringify(value??null));
+        }
         // Two app files, never a document (LLP 1069.002 A1.1): refused before the document branch.
         if ((op==='fs.compressImage'||op==='fs.transformImage') && ![args?.path,args?.destination].every(p=>typeof p==='string'&&p.startsWith('app:/'))) throw new Error(op.slice(3)+': needs app:/ paths');
         // A document the person chose is not app storage (LLP 1069.010 D1).
