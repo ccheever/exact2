@@ -215,7 +215,7 @@ final class GroupedListHost: GroupedLists {
 
     /// Before a batch: every carried row back where the presenter put it.
     func prepare() { for list in lists.values { list.restore() } }
-    func prepare(placing ids: Set<UInt32>) { for list in lists.values where list.places(ids) { list.restore() } }
+    func prepare(touching ids: Set<UInt32>) { for list in lists.values { if list.touches(ids) { list.restore() } else { list.restoreUnshown() } } }
 
     /// After a batch. `changed` is the touched views and their ancestors; a
     /// list outside it keeps its model and only carries its rows again.
@@ -484,10 +484,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var switches: [UInt32: UISwitch] = [:]
     #endif
     /// Custom rows: where the presenter put each, to give it back.
-    private(set) var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect, inert: Bool)] = [:]
+    var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect, inert: Bool)] = [:]
     /// The order they were carried in: given back last first, each index
     /// is where it was before the ones carried after it left.
-    private var carriedOrder: [UInt32] = []
+    var carriedOrder: [UInt32] = []
     /// The row whose switch's action is running.
     private var flipping: UInt32?
     /// A custom row's height changed since the list was last laid out.

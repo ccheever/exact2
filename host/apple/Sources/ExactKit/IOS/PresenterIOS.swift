@@ -750,7 +750,7 @@ package final class Presenter {
         if !applying { flats.begin(batch) }
         pool.begin(batch)
         swipeActions.prepare()
-        if let ids = placing(batch) { groupedLists?.prepare(placing: ids) } else { groupedLists?.prepare() }
+        if let ids = touching(batch) { groupedLists?.prepare(touching: ids) } else { groupedLists?.prepare() }
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
@@ -1092,16 +1092,14 @@ package final class Presenter {
         if parent === navigation.container { navigation.placeOwner() }
     }
 
-    /// The views a batch places in their parents: a box it moves or sizes,
-    /// a parent whose children it sets, a view it destroys. Nil when it
-    /// moves the tree at large (new roots, a flight, an exit).
-    private func placing(_ batch: Batch) -> Set<UInt32>? {
+    /// The views a batch's ops name; nil when it moves the tree at large
+    /// (new roots, a flight, an exit).
+    private func touching(_ batch: Batch) -> Set<UInt32>? {
         var ids = Set<UInt32>()
         for op in batch.ops {
             switch op.op {
             case .roots, .flight, .land, .exit: return nil
-            case .children, .frame, .content, .fieldContent, .destroy: ids.insert(op.id)
-            default: break
+            default: ids.insert(op.id)
             }
         }
         return ids
@@ -1133,7 +1131,7 @@ package final class Presenter {
             groupedLists?.prepare()
             requestProjectionSync()
         } else if groupedLists?.carriesRows == true {
-            groupedLists?.prepare(placing: [op.id])
+            groupedLists?.prepare(touching: [op.id])
         }
         let id = op.id
         guard let v = views[id] else { return }

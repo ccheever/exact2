@@ -4,19 +4,39 @@ import ExactKit
 import UIKit
 
 extension GroupedListView {
-    /// Whether placing `ids` moves a carried row: its own box, or the
-    /// children of the node it was carried from. A batch that only changes
-    /// what rows show (a live price) leaves them in their cells: carried
-    /// home and back, each shown row's subtree took UIKit's move and trait
-    /// passes twice a batch, and its changed text was painted while hidden.
-    func places(_ ids: Set<UInt32>) -> Bool {
+    /// Whether a batch touching `ids` touches a carried row or a node it
+    /// was carried from (its section, the list, any authored ancestor):
+    /// those go home for it, as the batch reads them there. A batch that
+    /// changes only what is inside rows (a live price) leaves them in
+    /// their cells: carried home and back, each shown row's subtree took
+    /// UIKit's move and trait passes twice a batch, and its changed text
+    /// was painted while hidden.
+    func touches(_ ids: Set<UInt32>) -> Bool {
         guard !ids.isEmpty else { return false }
         return carried.contains { id, place in
             if ids.contains(id) { return true }
             var at: UIView? = place.parent
-            while let view = at, !(view is NodeView) { at = view.superview }
-            return (at as? NodeView).map { ids.contains($0.id) } ?? true
+            while let view = at {
+                if let node = view as? NodeView, ids.contains(node.id) { return true }
+                at = view.superview
+            }
+            return false
         }
+    }
+
+    /// The carried rows whose cells no longer show go home, as every row
+    /// did before a batch; the shown ones stay in their cells.
+    func restoreUnshown() {
+        let shown = Set(collection.visibleCells.map { ObjectIdentifier($0.contentView) })
+        for id in carriedOrder.reversed() {
+            guard let place = carried[id] else { continue }
+            guard let row = host.presenter.views[id] else { carried[id] = nil; continue }
+            if let cell = row.superview, shown.contains(ObjectIdentifier(cell)) { continue }
+            if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
+            row.frame = place.frame
+            carried[id] = nil
+        }
+        carriedOrder.removeAll { carried[$0] == nil }
     }
 }
 #endif

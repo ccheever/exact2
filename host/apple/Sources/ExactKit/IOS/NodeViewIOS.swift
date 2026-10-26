@@ -271,6 +271,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set {
             let oldValue = placementHidden
             if newValue || extras != nil { more.placementHidden = newValue }
+            if newValue { Self.placedViews.add(self) }
             if placementHidden && !oldValue { more.hiddenBeforePlacement = hiddenByHost }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = extras?.hiddenBeforePlacement ?? false }
@@ -709,12 +710,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
     package var grid: GridPlace?
 
-    /// Every canvas's overlay alive. With none, no node is under a canvas
-    /// or placed by one, and the walks up the tree that ask (each visible
+    /// Every canvas's overlay alive, and every node a surface placed. With
+    /// none, no node is under a canvas (`canvasAbove`) or placed
+    /// (`placedAncestor`), and the walks up the tree that ask (each visible
     /// paragraph every scrolled frame, each node a hit test visits) are
-    /// skipped. A weak table may count an overlay just freed: it only
-    /// keeps the walk.
+    /// skipped. A weak table may count one just freed: it only keeps the walk.
     static let canvasOverlays = NSHashTable<PlainView>.weakObjects()
+    static let placedViews = NSHashTable<NodeView>.weakObjects()
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -836,7 +838,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
     var placedAncestor: NodeView? {
-        guard Self.canvasOverlays.count > 0 else { return nil }
+        guard Self.placedViews.count > 0 else { return nil }
         var v: UIView? = self
         while let n = v {
             if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
