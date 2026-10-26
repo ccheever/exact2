@@ -380,7 +380,12 @@ public final class Agent {
             Agent.reply(session.hatchPerf())
         // `perf frames` is this host's (LLP 1079 D4); `perf <target>` is the runner's, below.
         case "perf" where req["frames"] as? Bool == true:
-            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])
+            // `hold`/`release` (LLP 1144 D1) keep a segment open across a fling, then let it go.
+            if let hold = req["hold"] as? Bool, session.clock == nil {
+                session.sampler?.held = hold
+                if hold, let id = req["track"] as? Int { session.sampler?.tracked = scrollProbe(id) }
+            }
+            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true])
         default:
             // The library's operations take the request without the
             // carrier's routing field.
@@ -737,6 +742,18 @@ public final class Agent {
 
     private func clockStep(_ req: [String: Any]) -> [String: Any] {
         session.natives.hatchClock.beginCommand()
+        // The end of an input under platform timing before any `clock`: its
+        // `then`s land at the wall's now and the clock stays the wall's, so
+        // the frame sampler keeps the display's cadence (LLP 1144 D1). Only
+        // an explicit `clock` takes it over.
+        if req["land"] as? Bool == true, session.clock == nil, !ExactEnv.agentFreezes {
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            let now = session.now()
+            session.apply(session.runtime.tick(now: now))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": now] }
+            return completingInput(["clock": now, "wall": true])
+        }
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
         // the runner's clock stood behind it. The clock is taken over at the
