@@ -395,8 +395,10 @@ test "relaunching during an edit preserves the unsent message draft (§3.12)"
   type "composer" "unsaved edit"
   reload
   clock +500 real
-  tap "channel-general"
   clock settle
+  // The relaunch reopens the channel its address names, with its draft and without the edit.
+  expect state chan.name == "general"
+  expect tree has "transcript"
   expect state editing == ""
   expect tree missing "editing"
   expect text "composer" == "Keep this unsent message"
@@ -415,11 +417,52 @@ test "relaunching during an edit does not turn it into a new message draft"
   type "composer" "unsaved edit"
   reload
   clock +500 real
-  tap "channel-general"
   clock settle
+  // The relaunch reopens the channel its address names, with its draft and without the edit.
+  expect state chan.name == "general"
+  expect tree has "transcript"
   expect state editing == ""
   expect tree missing "editing"
   expect text "composer" == ""
+
+test "a user action before the launch's restore lands wins: Back to the list cancels it"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  type "composer" "kept for later"
+  reload
+  // Back at once, before the gateway's READY lists the channel: the restore is dropped, not applied late.
+  back
+  clock +500 real
+  clock settle
+  expect state open == ""
+  expect state reading == false
+  // And the next launch starts at the list too.
+  reload
+  clock +500 real
+  clock settle
+  expect state open == ""
+  tap "channel-general"
+  clock settle
+  expect text "composer" == "kept for later"
+
+test "the launch's restore runs once: Back to the list stays, through a list refresh"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  reload
+  clock +500 real
+  clock settle
+  expect state chan.name == "general"
+  // A message arrives (the list's unread state refreshes) after Back: the list stays.
+  tap "fixture"
+  tap "inject-message"
+  back
+  clock settle
+  clock +3000
+  clock settle
+  expect state reading == false
+  expect tree has "channel-general"
 
 test "one author within seven minutes is one group; a day change draws its date (§3.15)"
   clock +500 real

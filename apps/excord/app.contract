@@ -350,6 +350,7 @@ component Excord
     after(1, openResume)
   task signedOutHome when signedOutNow and top(nav).name != "home"
     after(1, toSignIn)
+  members "./routing.contract"
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
     after(1, digestNow)
   task traffic when live and open != ""
@@ -545,6 +546,7 @@ component Excord
     leaving()
     nav = go(nav, url)
   action back
+    restore = restore == "?" ? "!" : restore
     leaving()
     nav = back(nav)
   action leaving
