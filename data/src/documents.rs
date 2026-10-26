@@ -262,7 +262,7 @@ pub(crate) fn app_of(owner: u64) -> Option<Arc<str>> {
 }
 
 /// What a relaunch leaves of `app`: nothing in this process.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn relaunch(app: &str) {
     kept::drop_store(app);
     let mut t = table();

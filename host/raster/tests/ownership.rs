@@ -1057,7 +1057,7 @@ fn a_wake_while_the_worker_looked_ends_its_wait_at_once() {
     session.wake();
     let started = std::time::Instant::now();
     assert!(gate
-        .wait_work_since(since, std::time::Duration::from_secs(10))
+        .wait_work_since(since, Some(std::time::Duration::from_secs(10)))
         .is_none());
     let waited = started.elapsed();
     assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");

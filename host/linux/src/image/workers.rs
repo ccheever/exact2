@@ -11,7 +11,11 @@ use std::io::{Cursor, Read, Seek, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+#[cfg(test)]
 use std::time::Duration;
+
+#[path = "workers/remote.rs"]
+mod remote;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Prepared {
@@ -26,10 +30,20 @@ pub(super) struct SourceOwner {
     name: String,
     assets: Weak<Assets>,
     prepared: Mutex<Prepared>,
+    remote: Mutex<Option<remote::File>>,
+    cancel: ibex2::stdlib::abort::AbortController,
+}
+impl Drop for SourceOwner {
+    fn drop(&mut self) {
+        self.cancel.abort();
+    }
 }
 impl SourceOwner {
     /// The file it reads, when it is one (not an update's bytes).
     pub(super) fn file(&self) -> Option<std::path::PathBuf> {
+        if let Some(file) = self.remote.lock().unwrap().as_ref() {
+            return Some(file.path.clone());
+        }
         match self.assets.upgrade()?.image_input(&self.name)? {
             ImageInput::Path(path) => Some(path),
             ImageInput::Bytes(_) => None,
@@ -109,7 +123,7 @@ impl Backend {
         generation
     }
     pub fn source(
-        &self,
+        self: &Arc<Self>,
         generation: u64,
         name: &str,
         assets: &Arc<Assets>,
@@ -145,7 +159,13 @@ impl Backend {
                 generation,
                 name: name.to_owned(),
                 assets: Arc::downgrade(assets),
-                prepared: Mutex::new(Prepared::Queued),
+                prepared: Mutex::new(if crate::fetch::is_url(name) {
+                    Prepared::Reading
+                } else {
+                    Prepared::Queued
+                }),
+                remote: Mutex::new(None),
+                cancel: Default::default(),
             });
             state.next_source = next;
             state.sources.insert(source.id, Arc::downgrade(&source));
@@ -156,9 +176,16 @@ impl Backend {
         };
         drop(state);
         drop(owners);
-        // A header to read: a worker reads it now, not at its backstop timeout.
+        // Header work is outside the decode gate; announce it after insertion.
         if queued {
-            self.session.wake();
+            if crate::fetch::is_url(name) {
+                let source = result.as_ref().unwrap();
+                if let Err(reason) = remote::enqueue(source, self) {
+                    *source.prepared.lock().unwrap() = Prepared::Failed(reason);
+                }
+            } else {
+                self.session.wake();
+            }
         }
         result
     }
@@ -400,10 +427,16 @@ trait Input: Read + Seek + Send {}
 impl<T: Read + Seek + Send> Input for T {}
 fn open(source: &SourceOwner) -> Result<(Box<dyn Input>, u64), Refusal> {
     let assets = source.assets.upgrade().ok_or(Refusal::Stale)?;
-    match assets
-        .image_input(&source.name)
-        .ok_or(Refusal::DecodeFailed)?
-    {
+    let remote = source
+        .remote
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|f| f.path.clone());
+    let input = remote
+        .map(ImageInput::Path)
+        .or_else(|| assets.image_input(&source.name));
+    match input.ok_or(Refusal::DecodeFailed)? {
         ImageInput::Bytes(bytes) => {
             let len = bytes.len() as u64;
             if len > exact_raster::MAX_ENCODED_BYTES {
@@ -442,8 +475,7 @@ impl Workers {
         })
     }
     /// Start the process's two decoders, once: at the first picture source
-    /// or request, so an app that shows no picture carries no decoder (each
-    /// otherwise woke five times a second on its backstop).
+    /// or request, so an app that shows no picture carries no decoder.
     fn start(self: &Arc<Self>) {
         static STARTED: std::sync::Once = std::sync::Once::new();
         STARTED.call_once(|| {
@@ -485,6 +517,8 @@ impl Workers {
     // A single production scheduling turn. The callback is a deterministic test
     // seam for work arriving after the empty metadata scan and before waiting.
     fn turn(&self, metadata_turn: &mut bool, before_wait: impl FnOnce()) {
+        // Include work announced during either scan in the eventual wait.
+        let observed = self.gate.wake_sequence();
         // One metadata turn between decode turns, even under continuous
         // known-source pressure. A busy metadata queue also cannot starve decode.
         if !*metadata_turn {
@@ -511,12 +545,9 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        // Requests, cancels, freed budget and sources to read all wake a
-        // worker, which takes the next turn at once (a header to read is no
-        // decode: waiting on for one held every first picture to the
-        // timeout); the timeout is only a backstop, so it is long enough not
-        // to be a poll.
-        if let Some(permit) = self.gate.wait_work(Duration::from_millis(200)) {
+        // Requests, cancellation, freed budget and source metadata all notify
+        // this gate. An idle decoder needs no periodic wake.
+        if let Some(permit) = self.gate.wait_work_since(observed, None) {
             *metadata_turn = true;
             self.complete(permit);
         }

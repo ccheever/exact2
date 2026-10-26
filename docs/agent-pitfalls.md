@@ -13,6 +13,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **An unknown-size image stays blank after disclosure.** On Windows, an auto-height
+  wrapper around a percentage-width image can leave the image at zero height before
+  decoding. The lazy loader then sees no visible area to load. Give the image a fallback
+  ratio, such as `aspect-ratio="auto 16 / 9"`: it reserves space until the image's
+  natural ratio arrives. (Excord image spoilers, 2026-10-24.)
+
 - **`link "Title" href="/item"` is refused as zero-sized.** Only a `button`'s
   positional title becomes a text child; a `link` needs explicit children. Write:
 

@@ -487,7 +487,7 @@ impl<D: DataSource> Presenter<D> {
         self.focus_refusal(id).is_none()
             && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
-            && boxed.contains(&id)
+            && (boxed.contains(&id) || self.inline_box(id).is_some())
     }
 
     /// Tab's default action, HTML's sequential focus navigation (LLP 1088
@@ -497,9 +497,18 @@ impl<D: DataSource> Presenter<D> {
     /// (Shift: the last). A `key` handler's `preventDefault()` keeps Tab.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
         let boxed = self.shown_boxes();
+        self.move_focus_in(backward, now_ms, &boxed)
+    }
+
+    pub(super) fn move_focus_in(
+        &mut self,
+        backward: bool,
+        now_ms: f64,
+        boxed: &BTreeSet<ViewId>,
+    ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
         for (at, id) in self.host.preorder().into_iter().enumerate() {
-            if self.tabbable(id, &boxed) {
+            if self.tabbable(id, boxed) {
                 let index = self
                     .host
                     .kernel()
@@ -604,6 +613,8 @@ impl<D: DataSource> Presenter<D> {
                 }
             } else if let Some(d) = remote::Direction::of(name).filter(|_| self.remote()) {
                 self.move_focus_toward(d, now_ms);
+            } else {
+                self.desktop_scroll_key(name);
             }
             return;
         };
@@ -676,6 +687,9 @@ impl<D: DataSource> Presenter<D> {
         if self.radio_key(id, name, now_ms) {
             return;
         }
+        if self.desktop_scroll_key(name) {
+            return;
+        }
         // The field's own keys: the caret and selection, editing the text it
         // shows (typed text kept against its bound value; LLP 1069.001 D4).
         self.field_key(id, name, now_ms);
@@ -685,7 +699,7 @@ impl<D: DataSource> Presenter<D> {
     /// on blur or Enter (LLP 1069.001 D4). `None` when nothing was
     /// dispatched; else the dispatch's error, if any.
     pub(crate) fn commit_text(&mut self, id: ViewId, now_ms: f64) -> Option<Option<String>> {
-        if self.edited != Some(id) {
+        if self.edited != Some(id) || self.ime_owns(id) {
             return None;
         }
         self.edited = None;
@@ -729,6 +743,9 @@ impl<D: DataSource> Presenter<D> {
     /// What a field shows and commits: its typed text while its bound
     /// value is the one it had then (`keep_typed`), else that value.
     pub(crate) fn field_text(&self, id: ViewId) -> String {
+        if let Some(value) = self.ime_value(id) {
+            return value.to_owned();
+        }
         let Some(node) = self.host.kernel().node(id) else {
             return String::new();
         };

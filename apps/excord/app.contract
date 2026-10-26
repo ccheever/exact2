@@ -10,10 +10,13 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
+
+shape MediaPreferences
+  prefersContrast: string
 
 shape Time
   epochAtZero: number
@@ -58,23 +61,41 @@ component Excord
   state settling = false
   state topKey = ""
   state topOffset = 0
+  state historyStart = false
   state places: Place[] = []
   state drafts: string[] = [] persist
   // The server whose channels the list shows, "@me" for the direct messages.
   state server = "" persist
+  state directoryFor = ""
   state tokenDraft = ""
   state replyTo = ""
   state replyName = ""
   state editing = ""
+  state editText = ""
+  state editRevision = 0
+  state editLookup = false
+  state editLookupError = ""
+  state editPageAsked = ""
+  state editRequest = 0
+  state editPageRequest = 0
   state editError = ""
+  state deleteError = ""
   state stash = ""
+  state stashReplyTo = ""
+  state stashReplyName = ""
   state savingChannel = ""
   state savingId = ""
+  state savingRevision = 0
+  state savingText = ""
   state savingStash = ""
+  state savingReplyTo = ""
+  state savingReplyName = ""
   state unreadBar = false
   state unreadLabel = ""
+  state composerFocused = false
   state ackTries = 0
   state pageTries = 0
+  state pageAsked = ""
   state baseArrived = 0
   state followed = 0
   state highlight = ""
@@ -103,6 +124,7 @@ component Excord
   state launchAsked = false
   state launched = false
   state lockedOut = false
+  resource mediaPreferences = exactViewport() as shape MediaPreferences
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
   // The gateway opens once the kept credentials are read, which only `session` reads, so
@@ -121,6 +143,10 @@ component Excord
   resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
   derive channels = categories.map(g => g.channels).flat()
   resource dms = loadDms(gw.sidebar) as shape Channel[] else empty()
+  // Keep the directory visible through refreshes and reconnects. A new account waits
+  // for its complete READY (large accounts arrive in slices) and the lists it starts.
+  derive directoryLoaded = gw.me != "" and directoryFor == gw.me
+  derive directoryFailed = failed(guilds) or failed(categories) or failed(dms)
   // The snapshot carries the versions of the channel on screen; until it names the
   // one just opened, the lists' version stands in, which moves with its changes too.
   derive chanVersion = gw.channel == open ? gw.version : gw.sidebar
@@ -133,10 +159,13 @@ component Excord
   derive askAnchor = slow ? lagAnchor : anchor
   derive askVersion = slow ? lagVersion : histVersion
   resource win = loadWindow(open, askAnchor, askVersion, since) as shape Window else empty()
+  resource editTarget = loadEditTarget(editLookup ? open : "", editLookup ? histVersion : 0, editLookup ? editRequest : 0) as shape EditTarget else empty()
+  mutation editPaged as shape Ack refreshes editTarget then afterEditPage
   // A send shows at once (`echoed`, the local row), then posts (`sent`).
   mutation echoed as shape Sent queue refreshes win, chan then postEchoed
   mutation sent as shape Ack queue refreshes win, chan, categories
   mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds
+  mutation deleted as shape Ack queue refreshes win, chan, categories, dms, guilds then afterDelete
   mutation edited as shape Ack refreshes win then afterEdit
   // An ack changes the read state, not the history the window shows.
   mutation acked as shape Ack queue refreshes chan, categories, dms, guilds then afterAck
@@ -168,14 +197,18 @@ component Excord
   // landed). A window's pin asks for the same rows, so pinning it keeps it current.
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
   derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
+  derive pageKey = `${win.channel}/${win.need}/${win.cursor}`
+  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and pageTries >= 3
+  derive historyLoading = pending(win) or win.channel != open or win.need != ""
   // The transcript is on screen, not the channel list.
   derive reading = top(nav).name == "channel"
-  derive draft = draftOf(drafts, open)
+  derive draft = editing == "" ? draftOf(drafts, open) : editText
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
   derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
   derive signedOutNow = gw.state == "signed-out" and (not gw.fixture or droppedLock)
   derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
+  derive deleteFailure = match deleted { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive clock = time.epochAtZero + now
   derive newCount = max(0, chan.arrived - baseArrived)
   // The lock is offered where the device can keep the token locked (on the web it cannot).
@@ -185,6 +218,8 @@ component Excord
 
   task tick mount
     every(60000, step)
+  task directory when directoryFor != gw.me and (gw.me == "" or (gw.queued == 0 and not pending(guilds) and not pending(categories) and not pending(dms) and not directoryFailed))
+    after(1, directoryLanded)
   // The heartbeat is the gateway session's (`discord/gateway.ts`); this asks it each
   // second whether one is due, which is also the data module's clock.
   task heartbeat when connected(gw.state)
@@ -208,7 +243,7 @@ component Excord
     after(2500, clearHighlight)
   // A jump, a restored place or a return to the present lands once the window
   // holding it has.
-  task land when target != "" and current key=target
+  task land when target != "" and current and not pending(win) key=target
     after(1, landJump)
   // A message arriving while the reader is within a row of the end is followed
   // (§3.7); the list follows by itself only from the end exactly.
@@ -222,14 +257,16 @@ component Excord
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
   // The page the window lacks; a failed one is asked again, at most three times.
-  task fetchPage when win.channel == open and not signedOutNow and win.need != "" and pageTries < 3 and not pending(paged) key=`${win.channel}/${win.need}/${win.cursor}/${pageTries}`
+  task fetchPage when win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
     after(1, pageNow)
   // The bar says what was unread when the channel opened: its label is held from
   // the first window that answers it, as arrivals and sends move the count on.
-  task unreadLands when unreadBar and unreadLabel == "" and win.channel == open
+  task unreadLands when unreadBar and unreadLabel == "" and current
     after(1, holdUnread)
   task pumping when slow
     every(150, pumpNow)
+  task findEdit when editLookup and reading and not session.locked and not lockedOut and not pending(editTarget) and not pending(editPaged) and not pending(paged) and editTarget.channel == open key=`${editTarget.id}/${editTarget.need}/${editTarget.cursor}`
+    after(1, resolveEdit)
   // A launch that begins locked asks for the check once, right after the first
   // data answer; a cancel leaves the lock screen and its Unlock button.
   task unlockAtLaunch when session.locked and not launchAsked
@@ -241,6 +278,8 @@ component Excord
 
   action step
     now = performanceNow()
+  action directoryLanded
+    directoryFor = gw.me
   action beatNow
     send beat = heartbeat(time.epochAtZero + performanceNow())
   action redialNow
@@ -267,13 +306,24 @@ component Excord
       case none
         ackTries = 0
   action pageNow
+    if pageAsked != pageKey
+      pageTries = 0
+    pageAsked = pageKey
     send paged = loadPage(win.channel, win.need, win.cursor)
   action afterPage
     match paged
       case some(r)
         pageTries = r.ok ? 0 : pageTries + 1
+        // A collection at offset zero shows prepended rows. A transcript keeps
+        // the message being read, including when a slow page lands at that edge.
+        if r.ok and reading and pageAsked.startsWith(`${open}/before/`) and historyStart and target == "" and topKey != ""
+          target = topKey
+          targetBlock = "offset"
+          restoreOffset = topOffset
       case none
         pageTries = 0
+  action retryHistory
+    pageTries = 0
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
@@ -287,10 +337,17 @@ component Excord
     now = performanceNow()
     open = id
     replyTo = ""
+    replyName = ""
     editing = ""
+    editText = ""
+    stash = ""
+    stashReplyTo = ""
+    stashReplyName = ""
+    cancelEditLookup()
     editError = ""
     highlight = ""
     away = false
+    historyStart = false
     // A New divider only for what was unread on opening: what arrives while the
     // reader watches is not new to them.
     since = c.unread > 0 ? c.lastRead : ""
@@ -327,6 +384,7 @@ component Excord
     toSignIn()
     send signedOut = signOut()
   action toSignIn
+    cancelEditLookup()
     nav = go(nav, "/")
     open = ""
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
@@ -338,12 +396,16 @@ component Excord
     leaving()
     nav = back(nav)
   action leaving
+    cancelEditLookup()
     places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
     if editing != ""
       drafts = withDraft(drafts, open, stash)
       editing = ""
+      editText = ""
       editError = ""
       stash = ""
+      stashReplyTo = ""
+      stashReplyName = ""
     if not away and anchor == "" and chan.unread > 0
       send acked = markRead(open)
     send joined = viewChannel("")
@@ -386,6 +448,7 @@ component Excord
         if at > keys.length - 15 and win.hasAfter
           anchor = win.lastId
     endGap = gap < 1 ? 0 : round(gap)
+    historyStart = e.scrollTop <= 0.5
     topKey = k
     topOffset = e.firstVisibleOffset
   // A send's return to the end settles at a scrollend that finds the list there;
@@ -473,20 +536,86 @@ component Excord
   // The composer. A send returns a reader in history to the live tail, at its end
   // (§3.9). An edit keeps its text until the server takes it.
   action edit(v: string)
-    drafts = withDraft(drafts, open, v)
+    cancelEditLookup()
+    // Closing during an edit must leave the persisted new-message draft intact.
+    if editing == ""
+      drafts = withDraft(drafts, open, v)
+    else
+      editText = v
     if v.trim() != "" and editing == ""
       send typed = sendTyping(open, time.epochAtZero + performanceNow())
   action keyed(k: string, e: KeyboardEvent)
     if k == "Enter" and not e.shiftKey
       preventDefault()
       post()
+    else
+      if k == "ArrowUp" and draft == "" and editing == "" and replyTo == "" and not e.shiftKey and not e.ctrlKey and not e.altKey and not e.metaKey
+        preventDefault()
+        if not e.repeat and not editLookup
+          editRequest = editRequest + 1
+          editLookupError = ""
+          editPageAsked = ""
+          editLookup = true
+  action cancelEditLookup
+    editLookup = false
+    editLookupError = ""
+  action cancelFindEdit
+    cancelEditLookup()
+    focus("composer")
+  action resolveEdit
+    if draft != "" or editing != "" or replyTo != ""
+      cancelEditLookup()
+    else
+      if editTarget.id != ""
+        beginEdit(editTarget.id, editTarget.content)
+      else
+        if editTarget.need != ""
+          let request = `${editTarget.need}/${editTarget.cursor}`
+          if request == editPageAsked
+            editLookup = false
+            editLookupError = "History did not advance. Press Up to try again."
+          else
+            editPageAsked = request
+            editPageRequest = editRequest
+            send editPaged = loadPage(open, editTarget.need, editTarget.cursor)
+        else
+          cancelEditLookup()
+  action afterEditPage
+    match editPaged
+      case some(r)
+        if not r.ok and editLookup and editPageRequest == editRequest
+          editLookup = false
+          editLookupError = r.error
+      case none
+        editLookup = editLookup
+  action channelKey(k: string, e: KeyboardEvent)
+    if k == "Escape" and reading and not session.locked and not lockedOut
+      preventDefault()
+      if not e.repeat
+        if editLookup or editLookupError != ""
+          cancelEditLookup()
+        else
+          if editing != ""
+            cancelEdit()
+          else
+            if replyTo != ""
+              cancelReply()
+            else
+              dismissUnread()
+              toPresent()
+        focus("composer")
   action post
     if draft.trim() != ""
       if editing != ""
-        savingChannel = open
-        savingId = editing
-        savingStash = stash
-        send edited = editMessage(open, editing, draft.trim())
+        if not pending(edited)
+          savingChannel = open
+          savingId = editing
+          savingRevision = editRevision
+          savingText = draft
+          savingStash = stash
+          savingReplyTo = stashReplyTo
+          savingReplyName = stashReplyName
+          send edited = editMessage(open, editing, draft.trim())
       else
         send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow())
         replyTo = ""
@@ -504,24 +633,58 @@ component Excord
           send sent = postMessage(r.channel, r.key)
       case none
         aimed = aimed
-  // An edit's reply settles the edit it answers, in its own channel: one the
-  // reader has since left or cancelled is not reopened or overwritten.
+  // A save belongs to one edit session, even if the same message is reopened.
+  // Text typed while that save is pending remains editable after it succeeds.
   action afterEdit
-    if open == savingChannel and editing == savingId
+    if open == savingChannel and editing == savingId and editRevision == savingRevision
       if editFailure == ""
-        editing = ""
         editError = ""
-        drafts = withDraft(drafts, savingChannel, savingStash)
-        stash = ""
+        if draft == savingText
+          editing = ""
+          editText = ""
+          drafts = withDraft(drafts, savingChannel, savingStash)
+          replyTo = savingReplyTo
+          replyName = savingReplyName
+          stash = ""
+          stashReplyTo = ""
+          stashReplyName = ""
       else
         editError = editFailure
   action cancelReply
     replyTo = ""
+    replyName = ""
+    focus("composer")
   action cancelEdit
     editing = ""
+    editText = ""
     editError = ""
     drafts = withDraft(drafts, open, stash)
+    replyTo = stashReplyTo
+    replyName = stashReplyName
     stash = ""
+    stashReplyTo = ""
+    stashReplyName = ""
+    focus("composer")
+  action beginEdit(id: string, text: string)
+    cancelEditLookup()
+    if editing == ""
+      stash = draft
+      stashReplyTo = replyTo
+      stashReplyName = replyName
+    replyTo = ""
+    replyName = ""
+    editing = id
+    editRevision = editRevision + 1
+    editError = ""
+    editText = text
+    focus("composer")
+  action beginReply(id: string, author: string)
+    cancelEditLookup()
+    if editing != ""
+      cancelEdit()
+    replyTo = id
+    replyName = author
+    focus("composer")
 
   // A message's own controls. `aimedText` is the message's Markdown as sent.
   action reveal(key: string)
@@ -533,24 +696,23 @@ component Excord
     aimedMine = mine
     aimedText = text
   action replyAimed
-    replyTo = aimedId
-    replyName = aimedAuthor
-    focus("composer")
+    beginReply(aimedId, aimedAuthor)
   action editAimed
-    if editing == ""
-      stash = draft
-    editing = aimedId
-    editError = ""
-    drafts = withDraft(drafts, open, aimedText)
-    focus("composer")
+    beginEdit(aimedId, aimedText)
   action askDelete
+    deleteError = ""
     showModal("confirm-delete")
   action deleteAimed
-    send changed = deleteMessage(open, aimed)
+    send deleted = deleteMessage(open, aimed)
+  action afterDelete
+    if deleteFailure != ""
+      deleteError = deleteFailure
+      showModal("delete-failed")
   action copyAimed
     copyText(aimedText)
   action copyLink
-    copyText(`https://discord.com/channels/@me/${open}/${aimedId}`)
+    let serverId = chan.guild == "" ? "@me" : chan.guild
+    copyText(`https://discord.com/channels/${serverId}/${open}/${aimedId}`)
   action reactAimed(emoji: string)
     send changed = react(open, aimedId, emoji)
   action toggleReaction(id: string, emoji: string)
@@ -558,17 +720,15 @@ component Excord
   action retry(key: string)
     send echoed = retrySend(open, key)
   action discard(key: string)
-    send changed = deleteMessage(open, key)
+    send deleted = deleteMessage(open, key)
   action swipe(key: string, dx: number, dy: number)
     swipeKey = key
     swipeX = min(80, max(0, swipeX - dx))
     dragging = true
   action swipeEnd(id: string, author: string, vx: number, vy: number)
     if swipeX >= 56
-      replyTo = id
-      replyName = author
+      beginReply(id, author)
       haptic("impact-light")
-      focus("composer")
     swipeX = 0
     dragging = false
 
@@ -583,6 +743,10 @@ component Excord
     lagVersion = histVersion
   action holdUnread
     unreadLabel = unreadText
+  action focusComposer
+    composerFocused = true
+  action blurComposer
+    composerFocused = false
   action pumpNow
     lagAnchor = anchor
     lagVersion = histVersion
@@ -611,7 +775,7 @@ component Excord
     send unlocked = signInAgain()
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave interactive-widget="resizes-content" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=channelKey interactive-widget="resizes-content" width="100%" height="100%"
       for e in stack(nav) key=e.id
         if e.name == "home" and signedOutNow
           column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0
@@ -641,8 +805,8 @@ component Excord
         else if e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              h1 (dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1
-              button popovertarget="server-menu" aria-label="Servers" testId="server"
+              h1 (not directoryLoaded ? "Excord" : dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1 testId="directory-title"
+              button popovertarget="server-menu" aria-label="Servers" disabled=(not directoryLoaded) testId="server"
                 image "symbol:menu"
               button popovertarget="account-menu" aria-label="Account" testId="account"
                 image "symbol:person"
@@ -655,7 +819,9 @@ component Excord
                 button press=pickServer(g.id) popovertarget="server-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(not dmsShown and g.id == guild.id) testId=`server-${g.id}`
                   text (g.mentions > 0 ? `${g.name} (${g.mentions})` : g.name)
             column id="account-menu" popover="auto" role="menu" aria-label="Account"
-              text (gw.meName != "" ? `Signed in as ${gw.meName}` : "Connecting…") font="-exact-footnote" color="-exact-secondary-label" padding="6px 12px"
+              button commandfor="account-details" command="show-modal" testId="account-details"
+                image "symbol:person"
+                text "Account Details"
               if lockable
                 hr
                 button press=toggleLock popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=session.lockOn testId="lock-switch"
@@ -665,6 +831,10 @@ component Excord
                 button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"
                   image "symbol:sign-out"
                   text "Sign Out"
+            dialog id="account-details" role="alertdialog" aria-label="Account"
+              text (gw.meName == "" ? "Connecting…" : gw.fixture ? `Sample account: ${gw.meName}` : `Signed in as ${gw.meName}`) testId="account-identity"
+              button commandfor="account-details" command="close" testId="account-close"
+                text "Close"
             dialog id="confirm-sign-out" role="alertdialog" aria-label="Sign Out?"
               text "Excord forgets your token on this device."
               button press=signOutNow destructive=true commandfor="confirm-sign-out" command="close" testId="sign-out-confirm"
@@ -675,7 +845,16 @@ component Excord
               if gw.state == "stopped"
                 section
                   text `Not connected: ${gw.detail}` color="-exact-system-red" testId="stopped"
-              if dmsShown
+              if not directoryLoaded
+                if directoryFailed
+                  section
+                    text "Couldn’t load your channels." color="-exact-system-red" testId="directory-error"
+                else if gw.state != "stopped"
+                  section
+                    row gap=12 align-items="center" padding=24
+                      progress aria-label="Loading channels"
+                      text (gw.state == "backoff" ? "Reconnecting…" : "Connecting…") color="-exact-secondary-label" testId="directory-loading"
+              else if dmsShown
                 section
                   for c in dms key=c.id
                     button press=openChannel(c.id) testId=`dm-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
@@ -711,6 +890,8 @@ component Excord
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
             header display="flex" align-items="center" gap=8 padding="8px 16px"
+              button id="back" press=back aria-label="Back" testId="back"
+                image "symbol:back"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
               if gw.fixture
                 button popovertarget="fixture-menu" aria-label="Fixture traffic" testId="fixture"
@@ -740,13 +921,36 @@ component Excord
                 text "Fail the next send"
               button press=toggleLive popovertarget="fixture-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=live testId="toggle-live"
                 text "Live traffic"
+            if historyFailed and rows.length > 0
+              row align-items="center" gap=12 padding="8px 16px" flex-wrap="wrap" background-color="-exact-secondary-background"
+                text "Couldn’t load more messages." testId="history-error" flex=1 min-width=0
+                button press=retryHistory testId="retry-history"
+                  text "Retry"
+            if unreadBar and unreadLabel != ""
+              row align-items="center" column-gap=12 padding="0px 16px" flex-shrink=0 background-color="AccentColor" testId="unread"
+                button appearance="none" press=jumpToUnread testId="unread-bar" aria-label=unreadLabel flex=1 min-width=0 padding="9px 0px"
+                  text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600 line-clamp=1 text-align="left" flex=1 min-width=0
+                button appearance="none" press=dismissUnread testId="mark-read" flex-shrink=0 padding="9px 0px"
+                  text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
             column flex=1 min-height=0 position="relative"
               list id="transcript" testId="transcript" appearance="none" virtualized=true estimated-item-height=72
                 scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth"
                 reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                 flex=1 min-height=0 padding-top=8 padding-bottom=22
                 for m in rows key=m.key
-                  MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd)
+                  MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd)
+              if rows.length == 0
+                column position="absolute" inset=0 align-items="center" justify-content="center" gap=12 padding=24
+                  if historyFailed
+                    text "Couldn’t load messages." testId="history-error" text-align="center"
+                    button press=retryHistory testId="retry-history"
+                      text "Retry"
+                  else
+                    if historyLoading
+                      progress aria-label="Loading messages"
+                      text "Loading messages…" testId="history-loading" color="-exact-secondary-label"
+                    else
+                      text "No messages yet." testId="history-empty" color="-exact-secondary-label"
               column id="message-menu" popover="auto" role="menu"
                 button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
                   text "Reply"
@@ -778,37 +982,44 @@ component Excord
                   text "Delete"
                 button commandfor="confirm-delete" command="close" testId="delete-cancel"
                   text "Cancel"
-              if unreadBar and unreadLabel != ""
-                row position="absolute" top=0 left=0 right=0 align-items="center" column-gap=12 padding="0px 16px" flex-wrap="wrap" background-color="AccentColor" testId="unread"
-                  button appearance="none" press=jumpToUnread testId="unread-bar" flex="1 1 12rem" min-width=0 padding="9px 0px"
-                    text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600
-                  button appearance="none" press=dismissUnread testId="mark-read" padding="9px 0px"
-                    text "Mark As Read" color="AccentColorText" font="-exact-footnote" font-weight=600
               if chan.typing != ""
                 text chan.typing testId="typing" position="absolute" left=16 right=16 bottom=2 font="-exact-caption1" color="-exact-secondary-label" line-clamp=1
               if away and (newCount > 0 or win.hasAfter)
                 button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
                   text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
-            column padding="4px 12px 6px"
+            column padding="4px 12px 6px" max-height="50vh" flex-shrink=0 min-height=0
+              if editLookup
+                row align-items="center" gap=8 padding="4px 4px" flex-shrink=0
+                  text "Finding your last message…" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="finding-edit"
+                  button press=cancelFindEdit aria-label="Cancel finding message" testId="cancel-find-edit"
+                    image "symbol:close"
+              if editLookupError != ""
+                text editLookupError font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" flex-shrink=0 testId="find-edit-error"
               if replyTo != ""
-                row align-items="center" gap=8 padding="4px 4px"
+                row align-items="center" gap=8 padding="4px 4px" flex-shrink=0
                   text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
                   button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
                     image "symbol:close"
               if editing != ""
-                row align-items="center" gap=8 padding="4px 4px"
-                  text "Editing message" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="editing"
+                row align-items="center" gap=8 padding="4px 4px" flex-shrink=0 testId="editing"
+                  if editError != "" and not (pending(edited) and editRevision == savingRevision)
+                    text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" flex=1 min-width=0 testId="edit-error"
+                  else
+                    text (pending(edited) and editRevision == savingRevision ? "Saving message…" : "Editing message") font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
                   button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
                     image "symbol:close"
-                if editError != ""
-                  text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
-              row align-items="flex-end" padding="4px 4px 4px 12px" border-radius=20 border="1px solid -exact-separator"
-                textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
-                  placeholder=`Message #${chan.name}` aria-label="Message" testId="composer" flex=1 min-width=0
-                  border="none" background-color="transparent"
-                button press=post disabled=(draft.trim() == "") buttonStyle="filled"
-                  retainFocus=true aria-label="Send" testId="send"
+              row align-items="flex-end" min-height=0 padding="4px 4px 4px 12px" border-radius=20 border="1px solid -exact-separator" border-color=(composerFocused ? "AccentColor" : "-exact-separator")
+                column flex=1 min-width=0 min-height=0 max-height="40vh" align-self="stretch"
+                  textarea id="composer" value=draft input=edit key=keyed focus=focusComposer blur=blurComposer rows=1 field-sizing="content" max-height="9rem" min-height=0
+                    placeholder=`Message ${chan.guild != "" ? "#" : ""}${chan.name}` aria-label="Message" testId="composer" min-width=0
+                    border="none" outline="none" background-color="transparent"
+                button press=post disabled=(draft.trim() == "" or (editing != "" and pending(edited))) buttonStyle="filled"
+                  retainFocus=true aria-label=(editing == "" ? "Send" : "Save edit") testId="send"
                   image "symbol:send"
+      dialog id="delete-failed" role="alertdialog" aria-label="Couldn’t Delete Message"
+        text deleteError testId="delete-error"
+        button commandfor="delete-failed" command="close" testId="delete-error-ok"
+          text "OK"
       // Nothing of the account shows while the launch is locked or a return
       // has covered it.
       if session.locked or lockedOut

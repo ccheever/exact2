@@ -306,7 +306,7 @@ fn spread_radius(r: f32, spread: f32) -> f32 {
 }
 
 /// Φ(z), from erfc by Abramowitz & Stegun 7.1.26 (absolute error < 1.5e-7).
-fn normal_cdf(z: f32) -> f32 {
+pub(super) fn normal_cdf(z: f32) -> f32 {
     let t = z.abs() / std::f32::consts::SQRT_2;
     let k = 1.0 / (1.0 + 0.327_591_1 * t);
     let poly = k

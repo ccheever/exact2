@@ -17,6 +17,7 @@ fn decoration(r: Run): string = r.underline and r.strike ? "underline line-throu
 component MessageRow
   props
     m: Message
+    contrast: bool
     clock: number
     offset: number
     isNew: bool
@@ -59,7 +60,7 @@ component MessageRow
           // A jump's target: Discord's yellow wash, fading once the reader has seen it.
           view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
           if leads
-            text m.initials width="2.5rem" height="2.5rem" border-radius="1.25rem" background-color=tintOf(m.tint) color="-exact-label" color-scheme="light" font-weight=600 text-align="center" line-height="2.5rem" flex-shrink=0 aria-hidden=true
+            text m.initials width="2.5rem" height="2.5rem" border-radius="1.25rem" background-color=(contrast ? "AccentColor" : tintOf(m.tint)) color=(contrast ? "AccentColorText" : "-exact-label") color-scheme="light" font-weight=600 text-align="center" line-height="2.5rem" flex-shrink=0 aria-hidden=true
           else
             view width="2.5rem" flex-shrink=0
           column flex=1 min-width=0 gap=4
@@ -81,7 +82,7 @@ component MessageRow
                       text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
             if leads
               row gap=6 align-items="baseline" flex-wrap="wrap"
-                text m.author font-weight=600 testId=`author-${m.id}`
+                text m.author font-weight=600 min-width=0 max-width="100%" overflow-wrap="break-word" testId=`author-${m.id}`
                 if m.bot
                   Badge(label="APP", tint=some("AccentColor"))
                 text formatDay(m.at, clock, offset, "day-time") font="-exact-caption1" color="-exact-secondary-label"
@@ -104,7 +105,7 @@ component MessageRow
                         text x.emoji
                       text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
             if m.state == "failed"
-              row gap=12 align-items="center" testId=`failed-${m.id}`
+              row gap=12 align-items="center" flex-wrap="wrap" testId=`failed-${m.id}`
                 text "Not sent." font="-exact-footnote" color="-exact-system-red"
                 button press=retry(m.key) testId=`retry-${m.id}`
                   text "Retry"
@@ -137,82 +138,65 @@ component BlockView
             row flex=1 min-width=0 padding-left=(b.level * 16)
               text b.marker width="1.5rem" flex-shrink=0 color="-exact-secondary-label"
               text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
           else
             if b.kind == "heading"
               text flex=1 min-width=0 role="heading" aria-level=(b.level + 2) overflow-wrap="break-word" white-space="pre-wrap" padding-top=4
-                HeadingRuns(runs=b.runs, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
+                Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
             else
               if b.kind == "subtext"
                 text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                  SmallRuns(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                    Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
               else
                 if jumbo
                   text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
                     JumboRuns(runs=b.runs)
                 else
                   text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                    Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal)
+                    Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal)
 
-// A paragraph's runs at body size. A run's style does not cascade from its
-// paragraph, so each says its own.
+// Inline runs keep their behavior at every block's type size. A run's style
+// does not cascade from its paragraph, so each says its own.
 component Runs
   props
     runs: Run[]
+    kind: string
+    level: number
     mkey: string
     revealed: string[]
     reveal: action
+  derive face = kind == "heading" ? (level == 1 ? "-exact-title2" : level == 2 ? "-exact-title3" : "-exact-headline") : kind == "subtext" ? "-exact-footnote" : "-exact-body"
+  derive weight = kind == "heading" ? 700 : 400
+  derive ink = kind == "subtext" ? "-exact-secondary-label" : "-exact-label"
   view
     for r in runs key=r.id
-      if r.kind == "time"
-        TimeRun(r=r)
+      if r.spoiler != "" and not revealed.includes(`${mkey}:${r.spoiler}`)
+        text r.text font=face font-weight=(r.bold ? 700 : weight) font-style=(r.italic ? "italic" : "normal")
+          background-color="-exact-system-gray" color="-exact-system-gray" border-radius=3
+          aria-label="Spoiler" press=reveal(`${mkey}:${r.spoiler}`) testId=`spoiler-${mkey}-${r.spoiler}`
       else
-        if r.spoiler != "" and not revealed.includes(`${mkey}:${r.spoiler}`)
-          text r.text background-color="-exact-system-gray" color="-exact-system-gray" border-radius=3 press=reveal(`${mkey}:${r.spoiler}`) testId=`spoiler-${mkey}-${r.spoiler}`
+        if r.kind == "time"
+          TimeRun(r=r, face=face, weight=weight, ink=ink)
         else
           if r.kind == "code"
-            text r.text font-family="ui-monospace" font-size="0.875em" background-color="-exact-tertiary-fill" border-radius=4
+            if kind == "heading" or kind == "subtext"
+              text r.text font=face font-family="ui-monospace" font-weight=weight color=ink background-color="-exact-tertiary-fill" border-radius=4
+            else
+              text r.text font-family="ui-monospace" font-size="0.875em" background-color="-exact-tertiary-fill" border-radius=4
           else
             if r.kind == "link"
-              text r.text href=r.href font-weight=(r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal")
+              text r.text href=r.href font=face font-weight=(weight == 700 ? 700 : r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
             else
               if r.kind == "user" or r.kind == "role" or r.kind == "channel" or r.kind == "everyone"
-                text r.text font-weight=500 color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4
+                text r.text font=face font-weight=(weight == 700 ? 700 : 500) color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4
               else
                 if r.kind == "edited"
                   text r.text font="-exact-caption2" color="-exact-tertiary-label"
                 else
                   if r.kind == "emoji"
-                    text r.text color="-exact-secondary-label"
+                    text r.text font=face font-weight=weight color="-exact-secondary-label"
                   else
-                    text r.text font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-
-component HeadingRuns
-  props
-    runs: Run[]
-    level: number
-    mkey: string
-    revealed: string[]
-    reveal: action
-  view
-    for r in runs key=r.id
-      if level == 1
-        text r.text font="-exact-title2" font-weight=700 font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-      else
-        if level == 2
-          text r.text font="-exact-title3" font-weight=700 font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-        else
-          text r.text font="-exact-headline" font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-
-component SmallRuns
-  props
-    runs: Run[]
-    mkey: string
-    revealed: string[]
-    reveal: action
-  view
-    for r in runs key=r.id
-      text r.text font="-exact-footnote" color="-exact-secondary-label" font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
+                    text r.text font=face color=ink font-weight=(r.bold ? 700 : weight) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
 
 component JumboRuns
   props
@@ -224,41 +208,44 @@ component JumboRuns
 component TimeRun
   props
     r: Run
+    face: string
+    weight: number
+    ink: string
   view
     if r.format == "relative"
-      time datetime=r.at format="relative" background-color="-exact-tertiary-fill" border-radius=4
+      time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="relative" background-color="-exact-tertiary-fill" border-radius=4
     else
       if r.format == "time-short"
-        time datetime=r.at format="time-short" background-color="-exact-tertiary-fill" border-radius=4
+        time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="time-short" background-color="-exact-tertiary-fill" border-radius=4
       else
         if r.format == "time-medium"
-          time datetime=r.at format="time-medium" background-color="-exact-tertiary-fill" border-radius=4
+          time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="time-medium" background-color="-exact-tertiary-fill" border-radius=4
         else
           if r.format == "date-short"
-            time datetime=r.at format="date-short" background-color="-exact-tertiary-fill" border-radius=4
+            time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-short" background-color="-exact-tertiary-fill" border-radius=4
           else
             if r.format == "date-long"
-              time datetime=r.at format="date-long" background-color="-exact-tertiary-fill" border-radius=4
+              time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-long" background-color="-exact-tertiary-fill" border-radius=4
             else
-              time datetime=r.at format="date-full" background-color="-exact-tertiary-fill" border-radius=4
+              time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-full" background-color="-exact-tertiary-fill" border-radius=4
 
-// An image reserves the box Discord declared before it decodes (§3.1); one
-// with no declared size takes the width and decodes to its own height.
+// Spoilers load only after disclosure. Without dimensions, their cover reserves
+// a provisional box; the revealed image takes its natural aspect ratio.
 component MediaView
   props
     i: Media
     mkey: string
     revealed: string[]
     reveal: action
+  derive sized = i.width > 0 and i.height > 0
+  derive covered = i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
   view
-    if i.width > 0 and i.height > 0
-      view position="relative" width=i.fitWidth max-width="100%" aspect-ratio=`${i.width} / ${i.height}` border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
-        image i.src width="100%" height="100%" object-fit="cover" aria-label=i.alt
-        if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
-          button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
-            text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
-    else
-      image i.src width="100%" max-width=320 border-radius=8 aria-label=i.alt testId=`media-${mkey}-${i.id}`
+    view position="relative" width=(sized ? i.fitWidth : 320) max-width="100%" aspect-ratio=(sized ? `${i.width} / ${i.height}` : covered ? "16 / 9" : "auto") border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
+      if covered
+        button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-system-gray" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
+          text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
+      else
+        image i.src width="100%" height=(sized ? "100%" : "auto") aspect-ratio=(sized ? "auto" : "auto 16 / 9") object-fit="cover" aria-label=i.alt testId=`media-image-${mkey}-${i.id}`
 
 component EmbedView
   props
@@ -271,15 +258,15 @@ component EmbedView
       view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
       column flex=1 min-width=0 padding=10 gap=4
         if e.provider != ""
-          text e.provider font="-exact-caption1" color="-exact-secondary-label"
+          text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
         if e.author != ""
-          text e.author font="-exact-footnote" font-weight=600
+          text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
         if e.title != ""
           if e.url != ""
             link href=e.url
-              text e.title font-weight=600
+              text e.title font-weight=600 overflow-wrap="break-word"
           else
-            text e.title font-weight=600
+            text e.title font-weight=600 overflow-wrap="break-word"
         for b in e.description key=b.id
           BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal)
         for i in e.image key=i.id

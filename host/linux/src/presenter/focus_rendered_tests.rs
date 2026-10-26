@@ -56,6 +56,69 @@ fn attached() -> Presenter<NoData> {
 }
 
 #[test]
+fn desktop_activation_restores_selection_and_drops_held_modifiers() {
+    let source = r#"component App
+  view
+    column
+      textarea value="one 🦀 two" testId="editor"
+      input value="other" testId="other"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        NoData,
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let editor = named(&p, "editor");
+    let other = named(&p, "other");
+    p.set_focus(Some(editor), 0.);
+    let selection = exact_runner::FieldSelection {
+        start: 4,
+        end: 6,
+        direction: exact_runner::SelectionDirection::Backward,
+    };
+    p.mark_field(editor, "one 🦀 two", selection, false);
+    p.hardware_key("ControlLeft", "Control", true, false);
+    p.hardware_key("ShiftLeft", "Shift", true, false);
+    p.set_window_active(false);
+    p.set_window_active(false);
+    assert_eq!(p.focus(), None);
+    assert!(!p.modifiers().ctrl && !p.modifiers().shift);
+    p.set_window_active(true);
+    assert_eq!(p.focus(), Some(editor));
+    assert_eq!(p.field_selection(editor), selection);
+    p.field_key(editor, "x", 10.);
+    assert_eq!(p.field_text(editor), "one x two");
+
+    p.set_window_active(false);
+    p.set_focus(Some(other), 20.);
+    p.set_window_active(true);
+    assert_eq!(p.focus(), Some(other), "an explicit focus change wins");
+
+    p.set_window_active(false);
+    p.host.apply_test_ops(&[exact_kernel::Op::SetProp {
+        id: other,
+        prop: PropId::Disabled,
+        value: exact_kernel::PropValue::Bool(true),
+    }]);
+    p.set_window_active(true);
+    assert_eq!(p.focus(), None, "a disabled field must not regain focus");
+    p.set_focus(Some(editor), 30.);
+    p.set_window_active(false);
+    p.replaced();
+    p.set_window_active(true);
+    assert_eq!(
+        p.focus(),
+        None,
+        "a replacement runtime has no old focus bookmark"
+    );
+}
+
+#[test]
 fn a_node_shown_by_the_same_commit_takes_focus_before_its_picture() {
     let mut p = attached();
     p.tap(named(&p, "reveal")).unwrap();
@@ -196,6 +259,59 @@ fn inert_focus_is_checked_after_alert_synchronization() {
         assert_eq!(p.focus_command(&[Value::str("yes")]), None, "{name}");
         assert_ne!(p.focus(), Some(target), "{name}");
     }
+}
+
+#[test]
+fn an_opened_or_replaced_alert_focuses_its_action_before_display_acknowledgement() {
+    if !neutral_process() {
+        return;
+    }
+    let source = r#"component App
+  view
+    column
+      input testId="field" value="unsent draft"
+      dialog id="first" testId="first" role="alertdialog"
+        text "First notice."
+        button commandfor="first" command="close" testId="first-ok"
+          text "OK"
+      dialog id="next" testId="next" role="alertdialog"
+        text "Next notice."
+        button commandfor="next" command="close" testId="next-ok"
+          text "OK"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        NoData,
+        (400., 500.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert_eq!(error, None);
+    let frame = p.display_frame().unwrap();
+    assert!(p.display_complete(&frame));
+    let field = named(&p, "field");
+    assert_eq!(p.set_focus(Some(field), 0.), None);
+    for (name, action) in [("first", "first-ok"), ("next", "next-ok")] {
+        let root = named(&p, name);
+        let key = p.host.kernel().node(root).unwrap().key;
+        assert!(p.alert_present(Some(key), name, None, 1.));
+        assert_eq!(p.focus(), Some(named(&p, action)), "{name}");
+        let frame = p.display_frame().unwrap();
+        assert!(p.display_complete(&frame));
+        assert_eq!(p.focus(), Some(named(&p, action)), "{name}");
+    }
+    p.key_down("Enter", 2.);
+    p.run_commands(|| NoData);
+    assert!(p.alert_root().is_none());
+    assert_eq!(p.focus(), Some(field));
+    let root = named(&p, "first");
+    let key = p.host.kernel().node(root).unwrap().key;
+    assert!(p.alert_present(Some(key), "first", None, 3.));
+    p.key_down("Escape", 4.);
+    assert!(p.alert_root().is_none());
+    assert_eq!(p.focus(), Some(field));
 }
 
 fn neutral_process() -> bool {

@@ -207,6 +207,14 @@ shape Ack
   ok: bool
   error: string
 
+// An explicit edit lookup names one missing page, or the newest own message.
+shape EditTarget
+  channel: string
+  id: string
+  content: string
+  need: string
+  cursor: string
+
 // A local send's reply: its row's key, which the post that follows names.
 shape Sent
   ok: bool

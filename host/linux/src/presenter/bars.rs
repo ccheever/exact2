@@ -149,7 +149,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn bar_font_scale(&self) -> f32 {
-        let scale = self.device().map_or(1.0, |d| d.font_scale);
+        let scale = self.text_scale;
         if scale.is_finite() && scale > 0.0 {
             scale
         } else {

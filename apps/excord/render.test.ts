@@ -164,7 +164,7 @@ test('image reservations use wire dimensions, MIME types and SPOILER_ filenames'
     attachment(2, 'small.png', { width: 64, height: 64 }), attachment(3, 'unknown.png'),
     attachment(4, 'image', { width: 100, height: 200 }),
     attachment(5, 'fallback.PNG', { content_type: 'application/octet-stream', width: 640, height: 1280 }),
-    attachment(6, 'notes.txt', { content_type: 'text/plain' })];
+    attachment(6, 'notes.txt', { content_type: 'text/plain' }), attachment(7, 'SPOILER_unknown.png')];
   const row = fixture([message(0, { attachments })]).view().rows[0];
   expect(row.media).toEqual([
     { id: attachments[0].id, src: `${cdn}/media/1`, alt: 'SPOILER_large.png', spoiler: true,
@@ -177,6 +177,8 @@ test('image reservations use wire dimensions, MIME types and SPOILER_ filenames'
       width: 100, height: 200, fitWidth: 100, fitHeight: 200 },
     { id: attachments[4].id, src: `${cdn}/media/5`, alt: 'fallback.PNG', spoiler: false,
       width: 640, height: 1280, fitWidth: 160, fitHeight: 320 },
+    { id: attachments[6].id, src: `${cdn}/media/7`, alt: 'SPOILER_unknown.png', spoiler: true,
+      width: 0, height: 0, fitWidth: 0, fitHeight: 0 },
   ]);
 });
 

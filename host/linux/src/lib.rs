@@ -49,6 +49,8 @@ mod build_channel;
 #[cfg(any(target_os = "android", test))]
 pub mod canvas;
 mod canvas2d;
+#[cfg(windows)]
+pub mod com;
 pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
