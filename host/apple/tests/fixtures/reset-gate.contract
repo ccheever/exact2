@@ -23,7 +23,7 @@ component ResetGate
       text `Ticks ${ticks}` testId="ticks"
       text `Saved ${saved}` testId="saved"
       input value=draft input=edit change=save aria-label="Draft" testId="field" width="12rem"
-      input type="checkbox" switch checked=on change=flip aria-label="On" testId="switch"
+      input type="checkbox" switch checked=on change=flip aria-label="On" testId="switch" align-self="flex-start"
       list virtualized=true id="reset-gate-list" flex=1 min-height=0
         for n in rows key=n
           column testId=`row-${n}` height=44 padding=8
