@@ -70,7 +70,8 @@ pub use module_rust::module_rust;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{
-    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+    code_beside, design_path, with_contract_texts, with_design_text, GraphBase, Package, Source,
+    SourceGraph,
 };
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
@@ -415,6 +416,12 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    source_graph_base(path).map_or_else(|refused| refused, |base| base.tail())
+}
+
+/// [`source_graph`]'s Contract half ([`sources::GraphBase`]), which reads no design file, or its refusal (the root
+/// unreadable) as the whole graph: the design server's walk keeps it across a design-only edit.
+pub fn source_graph_base(path: &Path) -> Result<GraphBase, SourceGraph> {
     // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
@@ -432,15 +439,15 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     };
     let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
-        Err(e) => return refused(format!("{}: {e}", path.display())),
+        Err(e) => return Err(refused(format!("{}: {e}", path.display()))),
     };
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     match source_root.canonicalize() {
-        Ok(app_root) => sources::graph(path, &src, &app_root),
-        Err(e) => refused(format!("{}: {e}", source_root.display())),
+        Ok(app_root) => Ok(sources::graph_base(path, &src, &app_root)),
+        Err(e) => Err(refused(format!("{}: {e}", source_root.display()))),
     }
 }
 
