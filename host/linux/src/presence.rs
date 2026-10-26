@@ -3,9 +3,10 @@
 //! A node with a `-exact-layout-transition` has its laid-out box in its parent
 //! (`Kernel::layout_box`) observed as `Property::Layout` after every layout;
 //! the engine's transition rules apply. What it shows against the laid-out
-//! box is an offset and scale the painter applies outermost, from the box's
-//! top-left corner (`Presented::layout`), so a moving parent carries its
-//! children and nothing is laid out per frame. A node that gains the row is
+//! box is an offset, which the painter applies outermost, and a size
+//! difference, which only its surface and the clip on its children take, from
+//! the box's top-left corner (`Presented::layout`), so a moving parent carries
+//! its children and nothing is laid out per frame. A node that gains the row is
 //! seeded with the box it had before the commit's layout, so its first move
 //! after gaining it animates.
 //!

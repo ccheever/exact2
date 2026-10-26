@@ -366,12 +366,12 @@ fn shared_layout_observation_seeds_snaps_hides_and_retires() {
     layout.observe_all(&k, &mut engine, false);
     assert_eq!(
         layout_presented(&engine, node, engine.value(node, Property::Layout).unwrap()),
-        [0.0, -50.0, 1.0, 0.1]
+        [0.0, -50.0, 0.0, -90.0]
     );
     engine.advance(0.5).unwrap();
     assert_eq!(
         layout_presented(&engine, node, engine.value(node, Property::Layout).unwrap()),
-        [0.0, -25.0, 1.0, 0.55]
+        [0.0, -25.0, 0.0, -45.0]
     );
     k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
     assert_eq!(
@@ -402,6 +402,62 @@ fn shared_layout_observation_seeds_snaps_hides_and_retires() {
         .unwrap();
     assert_eq!(layout.seed(&k, &receipt, &mut engine), vec![key]);
     assert_eq!(engine.target(node, Property::Layout), None);
+}
+
+/// A box closing to zero size presents the size it closes from: a ratio of
+/// the laid-out size could not (GitHub #940).
+#[test]
+fn a_box_closing_to_zero_presents_the_size_it_closes_from() {
+    use exact_kernel::motion::{layout_presented, LayoutMotion};
+    use exact_kernel::{Offer, StyleValue};
+
+    let rows = |id, rows: &[(StyleId, &str)]| {
+        let mut s = StyleProps::default();
+        for (row, value) in rows {
+            s.set_dynamic(*row, &StyleValue::Text((*value).into()))
+                .unwrap();
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(s),
+        }
+    };
+    let mut k = kernel();
+    let receipt = k
+        .apply(
+            0,
+            2,
+            &[rows(
+                4,
+                &[
+                    (StyleId::Height, "100px"),
+                    (StyleId::LayoutTransition, "1s linear"),
+                ],
+            )],
+        )
+        .unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    let key = k.node(4).unwrap().key;
+    let node = motion_node(key);
+    let mut engine = Engine::new();
+    let mut layout = LayoutMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.adopt(&k, [key]);
+    layout.observe_all(&k, &mut engine, false);
+    let receipt = k
+        .apply(0, 3, &[rows(4, &[(StyleId::Height, "0px")])])
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.seed(&k, &receipt, &mut engine);
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    layout.observe_all(&k, &mut engine, false);
+    let presented =
+        |e: &Engine| layout_presented(e, node, e.value(node, Property::Layout).unwrap());
+    assert_eq!(presented(&engine), [0.0, 0.0, 0.0, 100.0]);
+    engine.advance(0.5).unwrap();
+    assert_eq!(presented(&engine), [0.0, 0.0, 0.0, 50.0]);
+    engine.advance(1.1).unwrap();
+    assert_eq!(presented(&engine), [0.0; 4]);
 }
 
 /// A box a list moved for no author (rows built or measured before it, LLP
@@ -463,7 +519,7 @@ fn an_unauthored_move_snaps_an_idle_box_and_retargets_a_moving_one() {
     assert_eq!(engine.value(node, Property::Layout), k.layout_box(key));
     assert_eq!(
         layout_presented(&engine, node, engine.value(node, Property::Layout).unwrap()),
-        [0.0, 0.0, 1.0, 1.0],
+        [0.0; 4],
         "nothing moves on screen"
     );
     // An authored move starts its transition; an unauthored one during it

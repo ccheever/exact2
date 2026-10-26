@@ -100,7 +100,7 @@ final class TopLayerBlockMacTests: XCTestCase {
             while Date() < end {
                 f.settle()
                 XCTAssertEqual(pop.layoutOffset, .zero, "no move across the block's boundary")
-                XCTAssertEqual(pop.layoutScale, CGPoint(x: 1, y: 1))
+                XCTAssertEqual(pop.layoutResize, .zero)
             }
         }
         XCTAssertNil(p.blocks.used[pop.id], "the host gave it none")

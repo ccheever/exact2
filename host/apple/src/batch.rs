@@ -792,8 +792,8 @@ impl Batch {
     }
 
     /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
-    /// — a layout transition's offset and scale of the laid-out box (LLP
-    /// 1063).
+    /// — a layout transition's offset from the laid-out box and its size's
+    /// difference from it (LLP 1063).
     pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
