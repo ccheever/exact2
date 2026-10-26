@@ -1076,6 +1076,24 @@ fn wakelock_says_its_two_words_and_where_it_holds() {
     }
 }
 
+#[test]
+fn orientationlock_says_its_words_and_which_lock_holds() {
+    let out = vocab(&["orientationlock"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    for want in [
+        "prop",
+        "\"landscape-secondary\"",
+        "\"current\"",
+        "\"none\"",
+        "topmost sheet",
+        "manifest's `orientation`",
+        "state.orientationlock",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
 /// LLP 1116.021 D1: a recipe's name answers with the whole recipe, in its
 /// place among the other names, so a screen's lookups are one call; a recipe
 /// two names reach prints once, and a pattern's name says what it has and

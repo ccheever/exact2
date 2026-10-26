@@ -33,6 +33,7 @@ import { packagePictures } from "./pictures.js";
 import { appGrantSet, coversPath } from "./admission.js";
 import { samples, groupOf } from "./samples.js";
 import { wakes, REFUSED } from "./wakes.js";
+import { reach } from "./reach.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -42,8 +43,17 @@ import { wakes, REFUSED } from "./wakes.js";
 // name; a wake's budget].
 export function modules(rows, bound = {}, views = {}, events = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
-  for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
-  const sampled = samples();
+  // A permission declared for other targets is no permission here (`targets`, LLP 1133.026 D19 item 2).
+  const onWeb = p => !Array.isArray(p?.targets) || p.targets.includes("web");
+  const here = sub => {
+    if (!sub || typeof sub !== "object") return sub;
+    const out = { ...sub };
+    if (out.permission && !onWeb(out.permission)) delete out.permission;
+    if (Array.isArray(out.permissionList)) out.permissionList = out.permissionList.filter(onWeb);
+    return out;
+  };
+  for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub: here(sub), type, request, options, live });
+  const sampled = samples(t => now() - clock.now + t);
   // The origin of the commit running now (LLP 1133.002 D12): the device's while an emitted event's handler runs, and,
   // since data code and an answer's commit cannot say which request they follow, while any request such a handler
   // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.
@@ -92,7 +102,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const partial = row.sub.partial || (row.sub.implementation && d && typeof d === "object");
     return partial && p && !errorCode(p) ? overlay(structuredClone(d ?? {}), p) : p;
   };
-  const valueOf = row => row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
+  const valueOf = row => row.sub.index === "entries" ? rc.value(row) : row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
   // The permission a call asks: its declared one, or, where the interface declares several and the name's grants
   // are a line per argument (`permissionBy`), the one of the arguments it was given that settles the call now: a
@@ -121,6 +131,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (p) return p;
     if (send && row.sub.ceremony) return ceremonies.decide(row, args);
     if (send && row.sub.records) return { now: null }; // a signal the substitute records (LLP 1133.011 §9)
+    if (send && row.sub.shortcuts === "pin") return { now: rc.pin(row, args) };
     if (!send) return { now: valueOf(row) ?? { error: "NotSupportedError" } };
     // A send that answers another source's value, raising it when it matches `raise.when` (D10).
     const answers = sibling(row, row.sub.answers);
@@ -426,6 +437,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // which its `cancel(request)` is given, and under the agent the sheet's answer or else the preferred value.
   const viaImplementation = (row, args, reader, how = {}) => implementation(row)?.then(async impl => {
     const name = row.key.slice(row.key.indexOf(".") + 1);
+    // An extension with no web implementation reads its declared default, as the runner answers a target with none
+    // (LLP 1133.028 D17); its sends refuse.
+    if (impl === null && !row.send) return valueOf(row) ?? { error: "NotSupportedError" };
     if (!impl?.[name]) return { error: "NotSupportedError" };
     // A call not the app's that would ask is refused while the platform's state is `prompt` (LLP 1133.002 D12).
     const p = row.sub.permission;
@@ -457,8 +471,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   });
   // ---- a send that answers nothing, and its declared substitute (LLP 1133.004 D5, §7)
   const lists = new Map(), setValues = new Map(), effects = [];
+  const rc = reach({ say, announce: keys => reask(keys), preferred: key => preferred.get(key) });
   const listOf = row => [...byKey.values()].filter(r => extensionOf(r) === extensionOf(row) && r.sub.list).map(r => r.sub.list.state);
   const applyEffect = (row, args) => {
+    const reached = rc.effect(row, args, [...byKey.values()]);
+    if (reached !== undefined) return reached;
     const name = row.key.split(".")[1], sub = row.sub;
     if (sub.list) {
       // A registration's kind keys it beside its key (LLP 1133.017 §10).
@@ -483,6 +500,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       setValues.set(`${extensionOf(row)}/${sub.set.state}`, value);
       say(`${name}: ${sub.set.state} ${JSON.stringify(value)}`);
     }
+    return null;
   };
   /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
   const effect = (row, args, from = originNow()) => {
@@ -507,14 +525,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (from !== "app") { say(`${row.key}: refused, person-required (${from} origin)`); return Promise.resolve({ error: p.denied }); }
       return new Promise(resolve => { const h = { ticket: nextTicket(), row, args, resolve }; effects.push(h); say(`device permission ${h.ticket} held (agent)`); });
     }
-    applyEffect(row, args);
-    return Promise.resolve(null);
+    return Promise.resolve(applyEffect(row, args));
   };
   const settleEffects = (name, state) => {
     for (const h of effects.filter(h => h.row.sub.permission?.name === name)) {
       if (state === "prompt") continue;
       effects.splice(effects.indexOf(h), 1);
-      if (state === "granted") { applyEffect(h.row, h.args); h.resolve(null); }
+      if (state === "granted") h.resolve(applyEffect(h.row, h.args));
       else { say(`${h.row.key.split(".")[1]}: refused: ${h.row.sub.permission.denied}`); h.resolve({ error: h.row.sub.permission.denied }); }
     }
   };
@@ -812,6 +829,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       // What a loaded implementation discloses of its own (`state()`: a language model's sessions, LLP 1133.016 §9).
       for (const [extension, e] of Object.entries(out)) {
         Object.assign(e, sampled.state(extension));
+        rc.state([...byKey.values()].filter(r => extensionOf(r) === extension), e);
         const own = ready.get(extension)?.state?.();
         if (own) e.implementation = own;
       }

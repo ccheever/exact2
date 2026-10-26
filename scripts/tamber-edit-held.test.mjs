@@ -119,9 +119,12 @@ test('every refusal: no proposal, an index, a when, a value, items without the e
   await post({ method: 'drop', client: 'agent', proposal: id });
 }, 60_000);
 
+/** A Tailwind theme of 3,000 colours, `--color-<stem>-t<i>`, all `value`. */
+const bigTheme = (stem, value) => `@theme {\n${Array.from({ length: 3000 }, (_, i) => `  --color-${stem}-t${i}: ${value};`).join('\n')}\n}\n`;
+
 test('a 3,000-op held import has one value edited with no ops sent', async () => {
-  const ops = Array.from({ length: 3000 }, (_, i) => ({ op: 'add-token', name: `big.t${i}`, value: '#0c0c0c' }));
-  const held = await post({ method: 'propose', hold: true, client: 'agent:figma', ops, review: { importer: 'dtcg', tokens: 3000 } });
+  // Planned and held by the server (a client may send at most 1024 operations, tamber-ops-size).
+  const held = await post({ method: 'import', kind: 'tailwind', client: 'agent:figma', source: bigTheme('big', '#0c0c0c') });
   expect(held.status).toBe(200);
   const request = { method: 'edit-held', client: 'design-tool:Ada', proposal: held.ok.proposal, index: 1234, value: '#0d0d0d' };
   expect(JSON.stringify(request).length).toBeLessThan(200);
@@ -136,8 +139,7 @@ test('a 3,000-op held import has one value edited with no ops sent', async () =>
 test('an edit racing an accept: the edit holds it while it plans, so the accept finds none; a plan that fails leaves it held as it was', async () => {
   const stream = await subscribe();
   // A big proposal, so its edit's plan takes a while: the accept, the drop and a second edit come while it plans.
-  const ops = Array.from({ length: 3000 }, (_, i) => ({ op: 'add-token', name: `race.t${i}`, value: '#060606' }));
-  const id = (await post({ method: 'propose', hold: true, client: 'agent', ops })).ok.proposal;
+  const id = (await post({ method: 'import', kind: 'tailwind', client: 'agent', source: bigTheme('race', '#060606') })).ok.proposal;
   const editing = post({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#070707' });
   await Bun.sleep(30);
   const [accepted, dropped, second] = await Promise.all([post({ method: 'accept', client: 'person', proposal: id }), post({ method: 'drop', client: 'agent', proposal: id }), post({ method: 'edit-held', client: 'person', proposal: id, index: 1, value: '#080808' })]);
@@ -145,7 +147,7 @@ test('an edit racing an accept: the edit holds it while it plans, so the accept 
   const edit = await editing;
   expect(edit.status).toBe(200);
   // The survivor: the edit, held; nothing written.
-  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('race.t0');
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('race-t0');
   const list = await heldList();
   expect(list.map(p => p.proposal)).toEqual(expect.arrayContaining([edit.ok.proposal]));
   expect(list.map(p => p.proposal)).not.toContain(id);

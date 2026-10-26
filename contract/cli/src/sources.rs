@@ -8,7 +8,9 @@ mod members;
 pub(crate) use members::standalone_members;
 pub(crate) mod packages;
 mod refused;
+mod tail;
 mod uses;
+pub use tail::GraphBase;
 
 pub(crate) use refused::Refused;
 
@@ -483,7 +485,9 @@ pub struct SourceGraph {
     pub owners: Vec<Package>,
 }
 
-pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
+/// [`graph`]'s Contract half: every source loaded and scoped, which reads no design file (the design server's walk keeps
+/// it across a design-only edit and re-runs [`GraphBase::tail`] alone: the third hands-on pass's latency).
+pub(crate) fn graph_base(path: &Path, src: &str, app_root: &Path) -> GraphBase {
     let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut loader = Loader {
         app_root,
@@ -514,22 +518,17 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     for unit in &mut loader.units {
         let _ = contract_lower::params::rewrite(&mut unit.file);
     }
-    // A package design's components' too (stage 12 B1 round 3): an icon
-    // param's SVG is read by the build as the app's own are.
-    let package_designs: Vec<_> = packages::read(&loader.sources, false)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(d, _)| d)
-        .collect();
-    let params: Vec<_> = loader
+    // The Contract components' params (D15), before scoping: the tail adds its package designs' (and so reads none here).
+    let contract_params: Vec<_> = loader
         .units
         .iter()
         .flat_map(|u| contract_lower::params::tokens(&u.file))
-        .chain(
-            package_designs
-                .iter()
-                .flat_map(|d| contract_lower::params::design_tokens(d).0),
-        )
+        .collect();
+    // And their identities before scoping, as the compile load reads them for its motion tokens.
+    let loaded_identities: Vec<String> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::identities(&u.file))
         .collect();
     let errors = match loaded {
         Err(all) => all,
@@ -540,7 +539,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .into_iter()
         .chain(errors.into_iter().map(|e| loader.sources.resolve(e)))
         .collect();
-    let mut sources: Vec<Source> = loader
+    let base: Vec<Source> = loader
         .sources
         .paths
         .iter()
@@ -550,129 +549,21 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             origin: origin.clone(),
         })
         .collect();
-    // The app's design is a source too: a capture copies it, a watcher
-    // watches it (LLP 1121 D2).
-    let design = design_path(&root_key);
-    // An icon token's SVG too, which the build reads (LLP 1121 D10).
-    let text = match design
-        .as_ref()
-        .and_then(|d| std::fs::read_to_string(d).ok())
-    {
-        Some(text) => Some(text),
-        // Its packages' designs alone fold too: their icons' SVGs are read (round 1, Astra 5).
-        None => {
-            (!params.is_empty() || !package_designs.is_empty()).then(|| "tamber app\n".to_string())
-        }
-    };
-    // With its packages' tokens, which an app token may name (D11); a
-    // package's SVG under its root, a source of the package (stage 13).
-    let icons: Vec<(PathBuf, Option<Origin>, Option<Origin>)> = text
-        .and_then(|text| exact_tamber::parse(&text).ok())
-        .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
-        .and_then(|mut d| {
-            let identities: Vec<String> = loader
-                .units
-                .iter()
-                .flat_map(|u| contract_lower::params::identities(&u.file))
-                .collect();
-            contract_lower::params::add_to(&mut d, &params, &identities);
-            exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
-        })
-        .map(|folding| {
-            let app = root_key.parent().unwrap_or(Path::new("."));
-            let home = |i| contract_lower::icons::Home::of(i, Some(app), &package_designs, &params);
-            // A package's file, by its root (a Contract component's
-            // package may ship no design).
-            let all = packages::packages(&loader.sources).0;
-            // One vendored in the app and reached by a relative `use` is no resolved
-            // package, but the named package its identity names (round 3, R3-3).
-            let origin = |i| {
-                let (name, root) = contract_lower::icons::written_in(i, &package_designs, &params)?;
-                let root = root.map(Path::new)?;
-                let found = all.iter().find(|p| p.root == root).map(packages::origin);
-                Some(found.unwrap_or_else(|| packages::named(name, root)))
-            };
-            folding
-                .icons
-                .iter()
-                .filter_map(|i| {
-                    let home = home(i);
-                    let path = home.svg(i.svg.as_ref()?)?;
-                    // A package's link out of its `assets/` is refused by the build: its bytes are
-                    // no source, but the link is looked at, so mending it rebuilds (round 1, Astra 4).
-                    let owner = origin(i);
-                    let origin =
-                        (!home.leaves(&path)).then(|| owner.clone().unwrap_or(Origin::App));
-                    Some((path, origin, owner))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    // One not there yet is looked for, as a hidden import is, so making it
-    // rebuilds.
-    // Each package an SVG is read from owns it there or not (narrow re-check,
-    // Astra RE-1): its manifest an input, its directory watched.
-    let mut owners: Vec<Package> = Vec::new();
-    for (_, _, owner) in &icons {
-        if let Some(Origin::Package {
-            name,
-            version,
-            root,
-            manifest,
-        }) = owner
-        {
-            if !owners.iter().any(|p| p.root == *root) {
-                owners.push(Package {
-                    name: name.clone(),
-                    version: version.clone(),
-                    root: root.clone(),
-                    manifest: manifest.clone(),
-                });
-            }
-        }
-    }
-    let (icons, missing): (Vec<_>, Vec<_>) = icons
-        .into_iter()
-        .partition(|(p, o, _)| o.is_some() && p.is_file());
-    let missing = missing.into_iter().map(|(p, ..)| p);
-    sources.extend(design.map(|path| Source {
-        path,
-        origin: Origin::App,
-    }));
-    // Each linked package's design too (D11); one not there yet is looked
-    // for, so adding it rebuilds.
-    let (designs, unmade) = packages::sources(&loader.sources);
-    sources.extend(designs);
-    // The files that say which components are the library's (LLP 1139 D0).
-    let library = library::read(&loader.sources, app_root).read;
-    let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
-    sources.extend(icons.into_iter().filter_map(|(path, origin, _)| {
-        Some(Source {
-            path,
-            origin: origin?,
-        })
-    }));
-    // A named package's manifest an icon's SVG is owned by (one vendored in
-    // the app) is read for its name: an input (round 3, R3-3).
-    let manifests: Vec<PathBuf> = owners.iter().map(|p| p.manifest.clone()).collect();
-    let mut consulted: Vec<PathBuf> = loader
-        .sources
-        .consulted
-        .into_iter()
-        .chain(missing)
-        .chain(library)
+    // The components' identities, read after scoping as the icons' fold always read them (a lone unit scoped is gone).
+    let identities: Vec<String> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::identities(&u.file))
         .collect();
-    for m in manifests {
-        if !consulted.contains(&m) {
-            consulted.push(m);
-        }
-    }
-    SourceGraph {
-        sources,
-        packages: loader.sources.packages,
-        consulted,
+    GraphBase {
+        root_key,
+        sources: loader.sources,
+        base,
+        params: contract_params,
+        loaded_identities,
+        identities,
         errors,
-        owners,
+        app_root: app_root.to_path_buf(),
     }
 }
 

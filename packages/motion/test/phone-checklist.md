@@ -79,6 +79,17 @@ tilt from there. Within 2° of it the stick reads zero (D6's dead zone);
     it. Rotate the phone to landscape and back, where the app allows it:
     tilting the screen's right edge down still walks right.
 12. **Smoothness.** The dot moves smoothly between readings, not in steps.
+13. **The screen keeps its orientation while tilt is on** (LLP 1133.029
+    §9.1 drive 9). With tilt on and the game running, steer hard to one
+    side and lay the phone nearly flat: the screen does not turn, however
+    far the phone is tilted. Turn tilt off: note whether the screen turns
+    to the way the phone is held within a second or only when the phone is
+    next turned (the iOS 27 simulator does the second). Turn tilt on while holding the phone
+    in landscape, then stand it upright: it stays landscape. On an iPad on
+    iPadOS 26 or later, the same in full screen; in Slide Over or a
+    resized window the system lifts the lock and the screen turns, which
+    is iPadOS's own behaviour. On an Android tablet (600 dp or wider) the
+    lock holds as on the phone.
 
 Beacons on the web has no tilt yet: the web's wasm host, which games run
 on, has no extension modules (QUEUE.md).

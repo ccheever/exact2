@@ -62,6 +62,43 @@ const subscribe = async (token, client) => {
   return { status: res.status, ended };
 };
 
+test("the local token's body may be 16 MiB (a CLI import's sources); a paired client's is 1 MiB, refused before it is read; a remote importer-marked hold gets no exemption from the ops cap", async () => {
+  // About 10 MiB of DTCG: 2,500 colours, each with a long description.
+  const note = 'n'.repeat(4000);
+  const tokens = Object.fromEntries(Array.from({ length: 2600 }, (_, k) => [`c${k}`, { $type: 'color', $value: `#${(k + 0x300000).toString(16).slice(-6)}`, $description: note }]));
+  const source = JSON.stringify(tokens);
+  expect(source.length).toBeGreaterThan(10 << 20);
+  const local = await post({ method: 'import', kind: 'dtcg', client: 'big-local', name: 'tokens.json', source });
+  expect(local.status, JSON.stringify(local).slice(0, 300)).toBe(200);
+  expect(local.ok.ops.length).toBeGreaterThan(2000);
+  await post({ method: 'drop', client: 'big-local', proposal: local.ok.proposal });
+  // Past 1 MiB the local token reaches only an import (Astra's round 2).
+  const review = { importer: 'dtcg', tokens: 1, offers: [], note: 'n'.repeat(2 << 20) };
+  const big = await post({ method: 'propose', hold: true, client: 'big-local', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }], review });
+  expect(big.status).toBe(413);
+  const p = await paired('write', 'far');
+  const remote = await post({ method: 'import', kind: 'dtcg', client: 'far', name: 'tokens.json', source }, p.token);
+  expect(remote.status).toBe(413);
+  // An importer-marked hold from a paired client: capped as any.
+  const ops = Array.from({ length: 1025 }, (_, k) => ({ op: 'add-token', name: `r.c${k}`, value: '#000000' }));
+  const held = await post({ method: 'propose', hold: true, client: 'far', ops, review: { importer: 'dtcg', tokens: 1025, offers: [] } }, p.token);
+  expect([held.status, held.error?.id]).toEqual([400, 'tamber-ops-size']);
+  await post({ method: 'revoke', client: p.client });
+}, 300_000);
+
+test("a paired client's request past 1024 operations is refused (tamber-ops-size), whatever held proposal it names", async () => {
+  const css = `@theme {\n${Array.from({ length: 1500 }, (_, k) => `  --color-r${k}: #${(k + 0x200000).toString(16).slice(-6)};`).join('\n')}\n}\n`;
+  const imported = await post({ method: 'import', kind: 'tailwind', client: 'owner', source: css });
+  expect(imported.status, JSON.stringify(imported).slice(0, 300)).toBe(200);
+  const held = imported.ok;
+  const p = await paired('propose', 'tablet');
+  const ops = held.ops.map(o => o.op);
+  const theirs = await post({ method: 'propose', hold: true, client: 'tablet', review: { ...held.review, from: held.proposal }, ops }, p.token);
+  expect([theirs.status, theirs.error?.id]).toEqual([400, 'tamber-ops-size']);
+  await post({ method: 'drop', client: 'owner', proposal: held.proposal });
+  await post({ method: 'revoke', client: p.client });
+}, 120_000);
+
 test('a paired client works at its scope, as the client its token names; local methods are the local token\'s alone', async () => {
   const p = await paired('propose', 'laptop');
   expect(p).toMatchObject({ client: 'remote:laptop#1', scope: 'propose' });

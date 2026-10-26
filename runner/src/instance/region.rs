@@ -114,6 +114,20 @@ impl RegionInst {
                         region: self.region,
                     });
                 };
+                // A virtualized list's rows are the collection's, never here:
+                // every row of this `for` is built (LLP 1144 D4).
+                if items.len() >= crate::perf::LONG_LIST
+                    && !u.ids.work.sites.is_empty()
+                    && u.ids.work.long_lists.insert(self.region.0)
+                {
+                    let site = row
+                        .parent
+                        .map_or_else(|| "an arm's root".into(), |p| format!("site {}", p.0));
+                    u.notes.push(format!(
+                        "long-list: a `for` under {site} repeats {} rows and builds every one; `list virtualized=true` builds the rows that show (`perf` names the site's source)",
+                        items.len()
+                    ));
+                }
                 let arm = row.arms.iter().next();
                 let mut slots_needed = None;
                 // An index key gives each position its identity, regardless

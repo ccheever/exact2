@@ -193,31 +193,47 @@ fn open_for<'a>(
     scope: Option<&str>,
     path: &str,
 ) -> Result<(ibex2::grant::GrantSet, &'a AppDirectories), Outcome> {
+    open_as("exactBodyFrom", roots, grants, scope, path)
+}
+
+/// [`open_for`], its refusals named by the option `what` (`exactBodyTo`'s too).
+pub(super) fn open_as<'a>(
+    what: &str,
+    roots: Roots<'a>,
+    grants: &str,
+    scope: Option<&str>,
+    path: &str,
+) -> Result<(ibex2::grant::GrantSet, &'a AppDirectories), Outcome> {
     let Some(directories) = roots else {
         return Err(Outcome::Failed {
             kind: FailureKind::Unsupported,
-            message: format!("exactBodyFrom {path}: this host has no app files (no storage here)"),
+            message: format!("{what} {path}: this host has no app files (no storage here)"),
         });
     };
     let admitted = exact_data::storage::scope(grants, scope)
-        .map_err(|e| refused(format!("exactBodyFrom {path}: {e}")))?;
+        .map_err(|e| refused(format!("{what} {path}: {e}")))?;
     let grants = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(admitted))
         .map_err(|e| refused(format!("the app's grants did not parse: {e}")))?;
     let directories = directories.as_ref().map_err(|e| {
         refused(format!(
-            "exactBodyFrom {path}: the app's files would not open: {e}"
+            "{what} {path}: the app's files would not open: {e}"
         ))
     })?;
     Ok((grants, directories))
 }
 
 fn named(path: &str, e: ibex2::boundary::HostError) -> Outcome {
+    named_as("exactBodyFrom", path, e)
+}
+
+/// A filesystem refusal of `path`, named by the option `what`.
+pub(super) fn named_as(what: &str, path: &str, e: ibex2::boundary::HostError) -> Outcome {
     match e {
         // As `readFile`'s denial reads (js/src/prelude.js `deniedPath`).
         ibex2::boundary::HostError::Denied { capability } => refused(format!(
-            "exactBodyFrom {path}: denied: {capability} {path}: no grant covers it; grant `{capability} {path}`"
+            "{what} {path}: denied: {capability} {path}: no grant covers it; grant `{capability} {path}`"
         )),
-        e => refused(format!("exactBodyFrom {path}: {e}")),
+        e => refused(format!("{what} {path}: {e}")),
     }
 }
 

@@ -70,6 +70,7 @@ pub mod image;
 pub mod input;
 mod media_session;
 pub mod navigation;
+pub mod package;
 pub mod paint;
 pub mod picker;
 mod placement;
@@ -96,7 +97,7 @@ pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
     wake::install(waker);
 }
 
-pub use app::{run, run_with_hatches};
+pub use app::{run, run_composed, run_with_hatches, Composed};
 pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;

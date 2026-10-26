@@ -240,6 +240,25 @@ fn atomic(dir: &File, target: &str, data: &[u8]) -> io::Result<()> {
     result
 }
 
+/// Copy `source`'s bytes over the regular file `leaf` in `parent`, made if absent.
+fn copy(mut source: File, parent: &File, leaf: &str) -> Result<FsResult, HostError> {
+    let mut target = open_at(
+        parent,
+        leaf,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_NONBLOCK,
+    )
+    .map_err(error)?;
+    use std::os::unix::fs::MetadataExt;
+    let a = source.metadata().map_err(error)?;
+    let b = target.metadata().map_err(error)?;
+    if !a.is_file() || !b.is_file() || (a.dev(), a.ino()) == (b.dev(), b.ino()) {
+        return Err(error("copy requires distinct regular files"));
+    }
+    target.set_len(0).map_err(error)?;
+    io::copy(&mut source, &mut target).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
 impl AppDirectories {
     pub fn new(
         data: impl AsRef<Path>,
@@ -390,6 +409,27 @@ impl AppDirectories {
         crate::stdlib::fs::read_bounded_file(self.open_file(grants, path)?, cap, canceled)
             .map_err(error)
     }
+    /// `copyFile` into the app file `destination` from a file `source` opens
+    /// outside the app's directories, a chosen document's: `destination` is
+    /// admitted under `fs.write` before `source` runs, and `source`'s guard
+    /// lives until the copy is done.
+    pub(crate) fn copy_in<G>(
+        &self,
+        grants: &GrantSet,
+        destination: &str,
+        source: impl FnOnce() -> Result<(File, G), HostError>,
+    ) -> Result<FsResult, HostError> {
+        self.parse(destination)?;
+        crate::boundary::admit(
+            grants,
+            &Operation::FsWrite {
+                path: destination.into(),
+            },
+        )?;
+        let (parent, leaf) = self.open_parent(destination)?;
+        let (file, _guard) = source()?;
+        copy(file, &parent, &leaf)
+    }
     pub(crate) fn run(
         &self,
         grants: &GrantSet,
@@ -469,23 +509,9 @@ impl AppDirectories {
                 Ok(FsResult::Done)
             }
             FsOp::CopyFile => {
-                let mut source = self.open(path)?;
+                let source = self.open(path)?;
                 let (parent, leaf) = self.open_parent(destination.unwrap())?;
-                let mut target = open_at(
-                    &parent,
-                    &leaf,
-                    libc::O_WRONLY | libc::O_CREAT | libc::O_NONBLOCK,
-                )
-                .map_err(error)?;
-                use std::os::unix::fs::MetadataExt;
-                let a = source.metadata().map_err(error)?;
-                let b = target.metadata().map_err(error)?;
-                if !a.is_file() || !b.is_file() || (a.dev(), a.ino()) == (b.dev(), b.ino()) {
-                    return Err(error("copy requires distinct regular files"));
-                }
-                target.set_len(0).map_err(error)?;
-                io::copy(&mut source, &mut target).map_err(error)?;
-                Ok(FsResult::Done)
+                copy(source, &parent, &leaf)
             }
             _ => {
                 let (parent, leaf) = self.open_parent(path)?;
@@ -584,12 +610,7 @@ fn document_metadata(parent: &File, leaf: Option<&str>) -> io::Result<libc::stat
     Ok(info)
 }
 
-pub(crate) fn document(
-    root: &File,
-    path: &str,
-    op: FsOp,
-    data: Option<&[u8]>,
-) -> io::Result<FsResult> {
+fn document_parts(path: &str) -> io::Result<Vec<&str>> {
     let parts: Vec<_> = if path.is_empty() {
         Vec::new()
     } else {
@@ -601,41 +622,64 @@ pub(crate) fn document(
     {
         return Err(io::Error::other("invalid document path"));
     }
-    let mut parents = vec![root.try_clone()?];
-    if op == FsOp::Mkdir {
-        for part in parts {
-            mkdir_mode(parents.last().unwrap(), part, 0o777)?;
-            parents.push(directory(parents.last().unwrap(), part)?);
-        }
-        return Ok(FsResult::Done);
-    }
+    Ok(parts)
+}
+/// The directory holding the last of `parts`, and that last name.
+fn document_parent<'a>(root: &File, parts: &[&'a str]) -> io::Result<(File, Option<&'a str>)> {
     let (leaf, ancestors) = parts
         .split_last()
         .map_or((None, &[][..]), |(leaf, parents)| (Some(*leaf), parents));
+    let mut parent = root.try_clone()?;
     for part in ancestors {
-        parents.push(directory(parents.last().unwrap(), part)?);
+        parent = directory(&parent, part)?;
     }
-    let parent = parents.last().unwrap();
-    let open = || match leaf {
-        Some(leaf) => open_at(parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK),
-        None => parent.try_clone(),
+    Ok((parent, leaf))
+}
+fn regular(file: &File) -> io::Result<()> {
+    let meta = file.metadata()?;
+    if meta.is_dir() {
+        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    }
+    if !meta.is_file() {
+        return Err(io::Error::other("document must be a regular file"));
+    }
+    Ok(())
+}
+/// A chosen document's regular file at `path` beneath `root`, opened for
+/// reading as `readFile` opens it.
+pub(crate) fn document_file(root: &File, path: &str) -> io::Result<File> {
+    let parts = document_parts(path)?;
+    let (parent, leaf) = document_parent(root, &parts)?;
+    let file = match leaf {
+        Some(leaf) => open_at(&parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK)?,
+        None => parent,
     };
-    let regular = |file: &File| -> io::Result<()> {
-        let meta = file.metadata()?;
-        if meta.is_dir() {
-            return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    regular(&file)?;
+    Ok(file)
+}
+
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    if op == FsOp::ReadFile {
+        let file = document_file(root, path)?;
+        return Ok(FsResult::Bytes(crate::stdlib::fs::read_result(file)?));
+    }
+    let parts = document_parts(path)?;
+    if op == FsOp::Mkdir {
+        let mut parent = root.try_clone()?;
+        for part in parts {
+            mkdir_mode(&parent, part, 0o777)?;
+            parent = directory(&parent, part)?;
         }
-        if !meta.is_file() {
-            return Err(io::Error::other("document must be a regular file"));
-        }
-        Ok(())
-    };
+        return Ok(FsResult::Done);
+    }
+    let (parent, leaf) = document_parent(root, &parts)?;
+    let parent = &parent;
     match op {
-        FsOp::ReadFile => {
-            let file = open()?;
-            regular(&file)?;
-            Ok(FsResult::Bytes(crate::stdlib::fs::read_result(file)?))
-        }
         FsOp::ReadDir => {
             let dir = match leaf {
                 Some(leaf) => directory(parent, leaf)?,
@@ -725,6 +769,78 @@ pub fn resolve_sqlite(
             },
         )?;
         Ok(real)
+    }
+}
+
+/// An app file written in pieces beside its target and put in its place
+/// whole (Exact local patch 19): the staging file is removed unless
+/// [`Staged::publish`] renames it over the target.
+pub struct Staged {
+    parent: File,
+    leaf: String,
+    /// The staging file's name; empty once published.
+    temp: String,
+    file: Option<File>,
+}
+impl AppDirectories {
+    /// Admit `fs.write` on `path` and create its staging file in the pinned
+    /// parent, `.exact-<32 hex>.partial`. A missing parent, or a target that
+    /// is not a regular file, is refused before anything is written.
+    pub fn stage(&self, grants: &GrantSet, path: &str) -> Result<Staged, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.open_parent(path)?;
+        match open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK) {
+            Ok(file) if !file.metadata().map_err(error)?.is_file() => {
+                return Err(error("write needs a regular file"))
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(error(e)),
+            _ => {}
+        }
+        let mut bytes = [0; 16];
+        getrandom::getrandom(&mut bytes).map_err(error)?;
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let temp = format!(".exact-{hex}.partial");
+        let file = open_at(
+            &parent,
+            &temp,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        )
+        .map_err(error)?;
+        Ok(Staged {
+            parent,
+            leaf,
+            temp,
+            file: Some(file),
+        })
+    }
+}
+impl Staged {
+    pub fn write_all(&mut self, bytes: &[u8]) -> Result<(), HostError> {
+        match self.file.as_mut() {
+            Some(file) => file.write_all(bytes).map_err(error),
+            None => Err(error("staged file already published")),
+        }
+    }
+    /// Sync the staging file and rename it over the target.
+    pub fn publish(mut self) -> Result<(), HostError> {
+        let file = self
+            .file
+            .take()
+            .ok_or_else(|| error("staged file already published"))?;
+        file.sync_all().map_err(error)?;
+        drop(file);
+        rename(&self.parent, &self.temp, &self.parent, &self.leaf).map_err(error)?;
+        self.temp.clear();
+        Ok(())
+    }
+}
+impl Drop for Staged {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        if !self.temp.is_empty() {
+            let _ = unlink(&self.parent, &self.temp, false);
+        }
     }
 }
 
@@ -1001,6 +1117,32 @@ mod tests {
         )
         .unwrap();
         assert_eq!(std::fs::read(f.path.join("data/a")).unwrap(), b"keep");
+    }
+    #[test]
+    fn a_staged_file_replaces_its_target_whole_or_leaves_it() {
+        let f = Fixture::new();
+        let grants = GrantSet::parse("fs.write app:/cache").unwrap();
+        std::fs::write(f.path.join("cache/a"), b"old").unwrap();
+        let names = || std::fs::read_dir(f.path.join("cache")).unwrap().count();
+        let mut staged = f.dirs.stage(&grants, "app:/cache/a").unwrap();
+        staged.write_all(b"ne").unwrap();
+        staged.write_all(b"w").unwrap();
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"old");
+        assert_eq!(names(), 2);
+        staged.publish().unwrap();
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"new");
+        assert_eq!(names(), 1);
+        let mut dropped = f.dirs.stage(&grants, "app:/cache/a").unwrap();
+        dropped.write_all(b"partial").unwrap();
+        drop(dropped);
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"new");
+        assert_eq!(names(), 1);
+        // Refused before anything is made: no grant, no parent, a folder.
+        assert!(f.dirs.stage(&grants, "app:/data/a").is_err());
+        assert!(f.dirs.stage(&grants, "app:/cache/none/a").is_err());
+        std::fs::create_dir(f.path.join("cache/d")).unwrap();
+        assert!(f.dirs.stage(&grants, "app:/cache/d").is_err());
+        assert_eq!(names(), 2);
     }
     #[test]
     fn atomic_replace_is_complete_under_concurrency_and_cleans_up_failure() {

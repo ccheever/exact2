@@ -702,6 +702,8 @@ pub struct Component {
     pub tasks: Vec<Task>,
     /// `sequence` declarations (LLP 1125 D2), the root's only.
     pub sequences: Vec<crate::sequence::Sequence>,
+    /// `tool` lines (LLP 1111 D2), the root's only.
+    pub tools: Vec<crate::tool::Tool>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
     /// The `params` section and the component's identity (LLP 1121 D15).

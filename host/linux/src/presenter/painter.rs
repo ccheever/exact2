@@ -337,6 +337,7 @@ mod tests {
                 module: Ok(None),
                 updates: None,
                 hatches: None,
+                packages: Vec::new(),
                 clock_started: None,
             };
             let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(

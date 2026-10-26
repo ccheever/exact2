@@ -341,6 +341,32 @@ pub const DEVICES: &[Device] = &[
         purpose: false,
         ..ROW
     },
+    // App Attest and Play Integrity (LLP 1133.028 D6): nothing is shown or
+    // asked. The entitlement's value, `development` or `production`, is the
+    // build's to choose (`host/apple/build.mjs`); a Mac takes it only with a
+    // profile (D17), so no macOS key.
+    Device {
+        name: "attestation",
+        purpose: false,
+        ios_entitlements: &["com.apple.developer.devicecheck.appattest-environment"],
+        ..ROW
+    },
+    // The stores' age signal (D10): the platform's sheet says what it asks,
+    // and neither platform has a usage string. Not on tvOS.
+    Device {
+        name: "age-range",
+        purpose: false,
+        ios_entitlements: &["com.apple.developer.declared-age-range"],
+        tvos: false,
+        ..ROW
+    },
+    // App Tracking Transparency (D13): iOS and tvOS alone; Apple lists the
+    // key for no Mac.
+    Device {
+        name: "tracking",
+        ios: &["NSUserTrackingUsageDescription"],
+        ..ROW
+    },
 ];
 
 /// One `device.<name> <key>` line.
@@ -507,6 +533,22 @@ mod tests {
         assert!(quiet.iter().all(|g| g.purpose.is_empty()));
         let errors = device_grants("device.background-fetch purpose.x").unwrap_err();
         assert!(errors[0].contains("names no purpose"), "{errors:?}");
+        // LLP 1133.028 D6, D10, D13: attestation and the age range ask
+        // nothing; tracking names the alert's purpose.
+        let rows =
+            device_grants("device.attestation\ndevice.age-range\ndevice.tracking purpose.ads")
+                .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|g| (g.device.name, g.purpose))
+                .collect::<Vec<_>>(),
+            [
+                ("attestation", ""),
+                ("age-range", ""),
+                ("tracking", "purpose.ads")
+            ]
+        );
+        assert!(!rows[1].device.tvos && rows[0].device.tvos && rows[2].device.tvos);
     }
 
     #[test]

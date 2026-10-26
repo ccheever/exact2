@@ -53,9 +53,14 @@ final class FrameSampler: NSObject {
         /// A late frame's main-thread host phases inside its interval, and
         /// what none of them took (LLP 1142 D1, `HostPhases.window`).
         var phases: [String: Any]?
+        /// The tracked scroller's offset as the last turn committed it, and
+        /// its phase: `t` tracking, `d` decelerating, `b` past its range,
+        /// `-` at rest (LLP 1144 D1).
+        var scroll: (Double, String)?
         var json: [String: Any] {
             var o: [String: Any] = ["t": t, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
+            if let scroll { o["scroll"] = [scroll.0, scroll.1] }
             if let hatches { o.merge(hatches) { a, _ in a } }
             if let phases {
                 o["phases"] = phases["phases"]; o["unattributed"] = phases["unattributed"]
@@ -69,6 +74,22 @@ final class FrameSampler: NSObject {
     private var link: CADisplayLink?
     private var last: CFTimeInterval?
     private var active = -Double.infinity
+    /// `perf frames hold` (LLP 1144 D1): the segment stays open with no batch,
+    /// so a list built up front is sampled as it glides; released by `perf
+    /// frames release`, or by anything that stops sampling.
+    var held = false {
+        didSet {
+            if held { activity() } else { tracked = nil }
+            #if os(macOS)
+            // A held fling on the Mac is a person's, on the trackpad: AppKit scrolls it.
+            if !ExactEnv.agentFreezes { ChainingScrollView.appliesAtOnce = !held }
+            #endif
+        }
+    }
+    /// The scroller a held fling watches (`perf frames hold` with a target):
+    /// its offset and phase, read where each turn ends, after its commit.
+    var tracked: (() -> (Double, String)?)?
+    private var committed: (Double, String)?
     private var period: Double?
     private var records: [Record] = [], late: [Record] = []
     private var dropped = 0, presented = 0, lateCount = 0, missed = 0, segments = 0
@@ -187,6 +208,7 @@ final class FrameSampler: NSObject {
 
     /// A turn that began before the frame's target and ended after it.
     func turnEnded(at now: CFTimeInterval) {
+        if let tracked { committed = tracked() }
         defer { turnBegan = nil }
         guard let target, let began = turnBegan, began < target, now > target else { return }
         overrun = max(overrun, (now - target) * 1000)
@@ -194,8 +216,10 @@ final class FrameSampler: NSObject {
 
     @objc func tick(_ link: CADisplayLink) {
         observe(now: link.timestamp, target: link.targetTimestamp, at: CACurrentMediaTime())
+        // Which images show without their pixels this frame (LLP 1145 D2).
+        session?.rasters.sampleBlank()
         // The session's own frame source running is activity too.
-        if session?.frames.link != nil { active = CACurrentMediaTime() }
+        if session?.frames.link != nil || held { active = CACurrentMediaTime() }
         if CACurrentMediaTime() - active > Self.quiet { stop() }
     }
 
@@ -220,6 +244,7 @@ final class FrameSampler: NSObject {
         let seq = pending.first.flatMap { first in pending.last.map { (first, $0) } }
         var record = Record(t: r2((now - ExactEnv.t0) * 1000), interval: r2(interval), missed: missedHere, seq: seq, batches: pending.batches, apply: r2(pending.apply))
         record.overrun = r2(overrun)
+        if tracked != nil, let c = committed { record.scroll = (r2(c.0), c.1) }
         overrun = 0
         pending = (nil, nil, 0, 0)
         records.append(record)

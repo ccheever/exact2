@@ -67,7 +67,14 @@ pub struct Work {
     /// Dispatches and the ones that committed a change, by plan site and
     /// event name (LLP 1142 D6).
     pub handlers: BTreeMap<(u32, &'static str), Handler>,
+    /// The `for` regions already said to build a long list whole (LLP 1144
+    /// D4): each once a session.
+    pub long_lists: std::collections::BTreeSet<u32>,
 }
+
+/// Rows a `for` repeats outside a virtualized list from which a development
+/// build says the list is built whole (LLP 1144 D4).
+pub const LONG_LIST: usize = 200;
 
 /// The most alert lines kept for a host that has not taken them.
 pub const ALERTS: usize = 64;

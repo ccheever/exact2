@@ -1,0 +1,29 @@
+# The orientation fixture on Linux: one executable with the runner, the kernel, the
+# data crate, the baked plan (written by build.rs, never committed), and the
+# host's painter.
+[package]
+name = "orientation-fixture-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Orientation Fixture on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "orientation-fixture-linux"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+orientation-fixture-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+
+[build-dependencies]
+orientation-fixture-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+

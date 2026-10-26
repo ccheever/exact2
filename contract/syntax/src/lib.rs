@@ -40,6 +40,7 @@ mod share;
 mod spans;
 pub mod state;
 mod tap;
+pub mod tool;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};

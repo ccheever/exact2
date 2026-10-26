@@ -1,0 +1,54 @@
+{
+  "kind": "interface",
+  "name": "@exact/quick-actions",
+  "version": "1.0.0",
+  "agent": {
+    "pinSupported": "bool"
+  },
+  "shapes": {
+    "ShortcutItem": {
+      "name": "string",
+      "short_name": "option<string>",
+      "description": "option<string>",
+      "url": "string",
+      "icons": "option<ShortcutIcon[]>",
+      "apple": "option<AppleShortcutItem>",
+      "android": "option<AndroidShortcutItem>"
+    },
+    "ShortcutIcon": {
+      "src": "string",
+      "sizes": "option<string>",
+      "type": "option<string>"
+    },
+    "AppleShortcutItem": {
+      "symbol": "option<string>"
+    },
+    "AndroidShortcutItem": {
+      "rank": "option<number>"
+    },
+    "PinShortcutResult": {
+      "state": "enum<requested|unsupported>"
+    }
+  },
+  "names": [
+    {
+      "send": "setAppShortcuts",
+      "options": { "shortcuts": "ShortcutItem[]" },
+      "answers": null,
+      "substitute": { "shortcuts": "set", "unsupported": ["web", "linux", "tvos"] }
+    },
+    {
+      "send": "clearAppShortcuts",
+      "options": {},
+      "answers": null,
+      "substitute": { "shortcuts": "clear", "unsupported": ["web", "linux", "tvos"] }
+    },
+    {
+      "send": "requestPinShortcut",
+      "origin": "app",
+      "options": { "shortcut": "ShortcutItem" },
+      "answers": "PinShortcutResult",
+      "substitute": { "shortcuts": "pin", "unsupported": ["web", "linux", "windows", "ios", "macos", "tvos"] }
+    }
+  ]
+}

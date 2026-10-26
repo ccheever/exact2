@@ -57,10 +57,21 @@ fn judged_on(base: &str, folding: Folding, members: &[&[Op]], vocab: &Vocab) -> 
 /// halving recurses, as deep as the members halve.
 fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
     let mut members: Vec<(usize, &[Op])> = members.to_vec();
+    let mut round = 0;
     loop {
+        // Each round after the first a check of the whole design again,
+        // charged to the re-import's budget (theme2's ruling on the batch's
+        // time; the first is the judging any batch does): past it, nothing
+        // more is judged, and the re-import is refused in the budget's
+        // words, applying nothing (`reimport_against`).
         if members.is_empty() {
             return;
         }
+        let spent = round > 0 && crate::budget::spend(at.text.len() as u64).is_err();
+        if spent || crate::budget::spent().is_some() {
+            return;
+        }
+        round += 1;
         let ops: Vec<Op> = members
             .iter()
             .flat_map(|(_, m)| m.iter().cloned())
@@ -93,6 +104,10 @@ fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
                 return;
             }
             Ok(_) => {
+                // Halving is rounds too.
+                if crate::budget::spend(at.text.len() as u64).is_err() {
+                    return;
+                }
                 let half = members.len() / 2;
                 take(at, &members[..half], vocab);
                 take(at, &members[half..], vocab);
@@ -200,10 +215,13 @@ pub(crate) struct Taken<'a> {
 /// reported with its own reason, and each other is asked (`again`) what the
 /// folding makes of its lines, until a round adds no pin, refuses nothing
 /// and clears no token's lines (`settle`).
-/// A token that may be a dial's change (D14) is judged on its own, as its
-/// literal lines are only a fallback for when the dial cannot take it, which
-/// is known after (`export_dials::dials`): beside the others they would stand
-/// for an edit the proposal may not make (its dial unused, say).
+/// A token that may be a dial's change (D14) is not judged here: its literal
+/// lines are only a fallback for when the dial cannot take it, which is known
+/// after (`export_dials::dials`), and beside the others they would stand for
+/// an edit the proposal may not make (its dial unused, say). Their indices
+/// are returned, for [`settle_alone`] to judge one on its own if its dial
+/// falls back (theme2's ruling on the counts' round 2: the dial decided
+/// first, so N tokens a dial takes are no N checks of the design).
 pub(crate) fn rounds(
     names: &[String],
     planned: &mut [Planned],
@@ -211,7 +229,7 @@ pub(crate) fn rounds(
     current: &str,
     vocab: &Vocab,
     mut again: impl FnMut(&String, Taken) -> Planned,
-) {
+) -> Vec<usize> {
     let pending = |p: &Planned| match p {
         Planned::Kind(_, ops) => !ops.is_empty(),
         Planned::Colour { ops, why: None, .. } => !ops.is_empty(),
@@ -220,17 +238,45 @@ pub(crate) fn rounds(
     let (mut together, mut alone) = (Vec::new(), Vec::new());
     for (i, p) in planned.iter().enumerate() {
         match p {
-            Planned::Colour { dial: Some(_), .. } if pending(p) => alone.push(vec![i]),
+            Planned::Colour { dial: Some(_), .. } if pending(p) => alone.push(i),
             p if pending(p) => together.push(i),
             _ => {}
         }
     }
     let lines: Vec<&str> = current.split('\n').collect();
-    for set in std::iter::once(together).chain(alone) {
-        settle(
-            &set, names, planned, cur, current, &lines, vocab, &mut again,
-        );
+    settle(
+        &together, names, planned, cur, current, &lines, vocab, &mut again,
+    );
+    alone
+}
+
+/// One token [`rounds`] left alone, judged on its own now that its dial falls
+/// back: one check of the design, charged to the re-import's budget (theme2's
+/// condition (3)); past it nothing is judged and the re-import is refused.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn settle_alone(
+    i: usize,
+    names: &[String],
+    planned: &mut [Planned],
+    cur: &Folding,
+    current: &str,
+    vocab: &Vocab,
+    mut again: impl FnMut(&String, Taken) -> Planned,
+) {
+    if crate::budget::spend(current.len() as u64).is_err() {
+        return;
     }
+    let lines: Vec<&str> = current.split('\n').collect();
+    settle(
+        &[i],
+        names,
+        planned,
+        cur,
+        current,
+        &lines,
+        vocab,
+        &mut again,
+    );
 }
 
 /// [`rounds`] for the tokens `set` (in that order).
@@ -252,6 +298,10 @@ fn settle(
     // or a token of another kind that has its values already), so the rounds
     // end; settled only on a round that moves nothing, never by a count.
     loop {
+        // Past the re-import's budget nothing more is settled (it is refused).
+        if crate::budget::spent().is_some() {
+            return;
+        }
         // Every member's lines are the proposal's, and every member is asked
         // what this round's folding makes of them: one settled in a round
         // before is asked again, as a pin added or a token dropped since may
@@ -275,6 +325,10 @@ fn settle(
             })
             .collect();
         let at = judged_on(current, cur.clone(), &ops, vocab);
+        // (past the budget, no member is asked again: Astra's round 2)
+        if crate::budget::spent().is_some() {
+            return;
+        }
         // Whether this round changed the proposal (then the next one asks
         // again; one that changes nothing settles every member).
         let mut moved = false;
@@ -508,5 +562,100 @@ mod tests {
             .join()
             .unwrap();
         assert_eq!(refused, n);
+    }
+
+    /// A chain past the re-import's budget stops being judged, and the
+    /// budget says so (theme2's ruling: a named refusal, nothing applied).
+    #[test]
+    fn a_chain_past_the_budget_stops_and_the_budget_says_so() {
+        let (base, members) = chain(5_000);
+        let began = std::time::Instant::now();
+        let spent = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+                let _ = refused(&base, &members);
+                crate::budget::spent()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(spent.is_some_and(|w| w.contains("expands past")));
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(60),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    /// 17,000 edits with a few refused on their own lines take two rounds,
+    /// well within the budget.
+    #[test]
+    fn many_edits_with_a_few_refusals_pass_within_the_budget() {
+        let n = 17_000;
+        let mut base = String::from("tamber t\n\ntheme\n");
+        for k in 0..n {
+            base += &format!("  t{k} = #111111\n");
+        }
+        let members: Vec<Vec<Op>> = (0..n)
+            .map(|k| match k % 6_000 {
+                0 => vec![Op::SetToken {
+                    name: format!("t{k}"),
+                    when: vec![("nope".into(), "x".into())],
+                    value: "#222222".into(),
+                    at: None,
+                    comment: None,
+                }],
+                _ => vec![set(&format!("t{k}"), "#222222")],
+            })
+            .collect();
+        let began = std::time::Instant::now();
+        let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+        let (refused, text) = refused(&base, &members);
+        assert!(crate::budget::spent().is_none());
+        assert_eq!(refused.len(), 3);
+        assert_eq!(text.matches("#222222").count(), n - 3);
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(60),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    /// Below the budget, the answers are the unbounded loop's.
+    #[test]
+    fn below_the_budget_the_answers_are_the_unbounded_loops() {
+        for n in [2, 5, 13, 40] {
+            let (base, members) = chain(n);
+            let free = refused(&base, &members);
+            let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+            assert_eq!(refused(&base, &members), free, "{n}");
+            assert!(crate::budget::spent().is_none());
+        }
+    }
+
+    /// A chain of `n` members, each exposed only when the one after it is
+    /// refused (the last refused on its own line).
+    fn chain(n: usize) -> (String, Vec<Vec<Op>>) {
+        let mut base = String::from("tamber t\n\ntheme\n");
+        for k in 0..n {
+            base += &format!("  t{k} = 4px\n");
+        }
+        let mut members: Vec<Vec<Op>> = (0..n - 1)
+            .map(|k| {
+                vec![set(
+                    &format!("t{k}"),
+                    &format!("light-dark(t{}, #000000)", k + 1),
+                )]
+            })
+            .collect();
+        members.push(vec![Op::SetToken {
+            name: format!("t{}", n - 1),
+            when: vec![("nope".into(), "x".into())],
+            value: "#ffffff".into(),
+            at: None,
+            comment: None,
+        }]);
+        (base, members)
     }
 }

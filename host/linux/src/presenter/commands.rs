@@ -15,6 +15,7 @@ impl<D: DataSource> Presenter<D> {
         // Every loop runs this each turn, and a reader's shell is served
         // before its first: whether a shell keeps the screen on is known.
         self.wakelock_unavailable();
+        self.orientation_unavailable();
         self.modules_in();
         self.run_queued_commands();
         if self.pending_update {

@@ -19,6 +19,8 @@ mod edit_menu;
 mod ime;
 #[cfg(windows)]
 mod keyboard;
+#[cfg(windows)]
+mod orientation;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod pad_poll;
 #[cfg(windows)]
@@ -65,13 +67,26 @@ pub fn run<D: exact_runner::DataSource + Default + 'static>(
     plan: &[u8],
     compat: &str,
 ) -> i32 {
+    run_composed::<D>(name, window, plan, compat, Default::default())
+}
+
+/// [`run`] with what the app's build composed: its hatches and its
+/// packages' Windows implementations (`exact_linux::package`, LLP 1133.022
+/// D10 item 5), whose calls run on the window's thread.
+pub fn run_composed<D: exact_runner::DataSource + Default + 'static>(
+    name: &str,
+    window: Window,
+    plan: &[u8],
+    compat: &str,
+    composed: exact_linux::Composed,
+) -> i32 {
     #[cfg(windows)]
     {
-        window::run::<D>(name, window, plan, compat, None)
+        window::run::<D>(name, window, plan, compat, composed)
     }
     #[cfg(not(windows))]
     {
-        let _ = (name, window, plan, compat);
+        let _ = (name, window, plan, compat, composed);
         refuse()
     }
 }
@@ -92,16 +107,11 @@ pub fn run_with_hatches<
     compat: &str,
     words: &'static [&'static str],
 ) -> i32 {
-    #[cfg(windows)]
-    {
-        let hatches = exact_linux::hatches::install::<H>(words);
-        window::run::<D>(name, window, plan, compat, Some(hatches))
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (name, window, plan, compat, words);
-        refuse()
-    }
+    let composed = exact_linux::Composed {
+        hatches: Some(exact_linux::hatches::install::<H>(words)),
+        ..Default::default()
+    };
+    run_composed::<D>(name, window, plan, compat, composed)
 }
 
 #[cfg(not(windows))]

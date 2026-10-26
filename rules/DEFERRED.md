@@ -837,7 +837,8 @@ reading. Nothing that isn't HTML is added by it.
   Swift. Take: the photo editor's Android port moves to later. Still out,
   each until a consumer asks (LLP 1133.008 §12): video recording, a camera
   track in `video srcObject=` and frames to code, two cameras at once on
-  iOS, barcode and document scanning, constraint dictionaries, zoom on the
+  iOS, document scanning (narrowed from "barcode and document scanning" by
+  LLP 1133.027's record below), constraint dictionaries, zoom on the
   web, `input capture` and the system camera UI, and the Windows, Linux,
   tvOS, visionOS and watchOS cells.
 - **Expanded (Charlie, 2026-10-23, "Expand, no take", on LLP 1133.009 §15
@@ -975,6 +976,21 @@ reading. Nothing that isn't HTML is added by it.
   restoration and HealthKit delivery, each its own module over this seam;
   Background Fetch's `icons` and `updateUI`; and continued processing's
   GPU resource.
+- **Expanded (Charlie, 2026-10-26, "Accept r5, services first
+  (Recommended)", waived; LLP 1133.033 §13 question 9):** a foreground
+  service the host keeps on Android, claimed by a package for a capture
+  the person started (`microphone`) and for a call (`phoneCall`), declared
+  by the lines `device.microphone-background` and `device.calls`, which
+  also derive iOS's `audio` mode; `@exact/calls`, the system's call screen
+  through CallKit and Core-Telecom and Media Session's call actions on the
+  web. Consumer: the recorder's background takes; Harmony's test call,
+  which stays out of App Store builds until a real call transport exists
+  (question 4). Unblocks a take that goes on while the person uses another
+  app or locks the phone, and a call in the system's call screen, without
+  app Swift or Kotlin. Take: none named; the ruling is its own waiver.
+  Still refused (LLP 1133.033 §11): foreground services for an app's own
+  work, ringing an app that is not running (PushKit, FCM), a call's media
+  transport, and the rest of §11's list.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.018 §15 question 9):** contacts and calendars (`@exact/contacts`,
   `@exact/calendar`) on the web, iOS, macOS and Android. Choosing contacts
@@ -1108,6 +1124,32 @@ reading. Nothing that isn't HTML is added by it.
   sound as tier 1, buttons that run app code, an author-drawn countdown,
   alarms set or resumed by tools and wakes, the Windows cell until the
   desktop builder, and the web, macOS, Linux and tvOS cells.
+- **Expanded (Charlie, 2026-10-25, "Waive both (Recommended)", on LLP
+  1133.027 §13 question 9):** barcodes and QR codes read in a still image
+  and live in a camera track a viewfinder shows (`getSupportedFormats`,
+  `detectBarcodes`, `detectedBarcodes` from `@exact/barcode-detection`),
+  the text in a still image (`textDetectorAvailability`, `detectText` from
+  `@exact/text-detection`), and translation and language identification
+  on the device (`createTranslator`, `translate`, `createLanguageDetector`,
+  `detectLanguage` and the rest from `@exact/translation`), by the Shape
+  Detection API's and the Translator and Language Detector APIs' names, on
+  the web, iOS, macOS, Android and tvOS where LLP 1133.027 D18 gives a
+  cell. A still is a path the app may read; a live scan is a non-consuming
+  output on the camera's capture that takes no lease; a create is the
+  app's foreground act, and a download the person's. With the seam
+  additions of LLP 1133.027 D17. Consumers: Shelf's Scan Barcode and Add
+  Quote from Photo, and Excord's Translate. Unblocks adding a book by its
+  ISBN, quoting a printed page and reading a message in another language
+  without app Swift. Take: none; waived by that ruling, which also narrows
+  the camera record's "barcode and document scanning" to document
+  scanning. Still out, each until a consumer asks (LLP 1133.027 §11): text
+  recognition on camera frames and a wasm OCR on the web; the system's
+  scanner UI (DataScanner, Google's code scanner); document scanning; Live
+  Text interaction and Apple's translation overlay; Apple's translation
+  strategy; streaming translation, `measureInputUsage`, the Summarizer and
+  Rewriter; Android text in scripts other than Latin; Android's platform
+  `TranslationManager` and `TextClassifier`; barcode generation and
+  Vision's other requests; and the Windows and Linux cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images

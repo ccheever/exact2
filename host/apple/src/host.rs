@@ -257,8 +257,8 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
-    /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
-    wakelock_told: Option<bool>,
+    /// The wake lock and the orientation lock as a batch last said them (`Host::wakelock_moved`, `Host::orientation_moved`).
+    holds_told: (Option<bool>, Option<String>),
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
 }
@@ -577,7 +577,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
-            wakelock_told: None,
+            holds_told: (None, None),
             closed: Default::default(),
         };
         let mut batch = Batch::new();

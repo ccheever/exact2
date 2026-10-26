@@ -775,10 +775,11 @@ impl Server {
         let app = self.app_params();
         crate::tamber_packages::packaged(&app, &mut out, paths);
         if paths {
+            // The walk's graph, read this request: no walk of its own.
             let at = self.dir.join("app.contract");
-            let graph = contract::source_graph(&at);
-            out["watch"] = crate::tamber_packages::watched(&at, &graph);
-            crate::tamber_packages::assets(&app, &mut out, &graph);
+            let walk = self.walk();
+            out["watch"] = crate::tamber_packages::watched(&at, &walk.graph);
+            crate::tamber_packages::assets(&app, &mut out, &walk.graph);
         }
         Ok(out)
     }
@@ -869,7 +870,7 @@ impl Server {
         if app.tokens.is_empty() {
             return v;
         }
-        let text = contract_lower::params::shown(&v.to_string(), &app.tokens);
+        let text = app.shown(&v.to_string());
         serde_json::from_str(&text).unwrap_or(v)
     }
 
@@ -881,7 +882,9 @@ impl Server {
             .find(|(f, _, _)| *f == file)
             .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
             .1;
-        let folding = exact_tamber::check(text, &self.vocab).map_err(|all| refused(&file, all))?;
+        let folding = exact_tamber::parse(text)
+            .and_then(|d| exact_tamber::check_design_cached(d, &self.vocab))
+            .map_err(|all| refused(&file, all))?;
         Ok((snap, folding))
     }
 

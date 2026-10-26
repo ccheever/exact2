@@ -15,12 +15,15 @@
 //! expression or a role included, and a changed one is proposed as a
 //! `set-token` for its tuple.
 
+mod refs;
 use crate::export_batch::{Planned, Taken};
 use crate::export_dials::{alike, last_by_name, read_css, Lasts};
 use crate::import::{counted, dtcg::colour, Import, Unmapped};
 use crate::syntax::Token;
 use crate::{fallback, Diagnostic, Folded, Folding, Half, Host, Op, Vocab};
 use exact_color::{Parsed, Space, Wide};
+pub(crate) use refs::ByContext;
+use refs::{context_map, header, tokens_by_context};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
@@ -433,82 +436,6 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
     Ok(serde_json::to_string_pretty(&doc).expect("JSON") + "\n")
 }
 
-/// The export's header, when `doc` carries it.
-fn header(doc: &Value) -> Option<&Value> {
-    let h = &doc["sets"]["exact"]["sources"][0]["$extensions"]["exact"];
-    (h["export"] == MARK).then_some(h)
-}
-
-/// A context's tuple and side, read from its name (`axis=value, …, dark`),
-/// for an export a tool stripped of its `$extensions`.
-fn named(context: &str) -> Option<(Modes, bool)> {
-    let mut parts: Vec<&str> = context.split(", ").collect();
-    let dark = match parts.pop()? {
-        "light" => false,
-        "dark" => true,
-        _ => return None,
-    };
-    let modes = parts
-        .iter()
-        .map(|p| {
-            p.split_once('=')
-                .map(|(a, v)| (a.to_string(), v.to_string()))
-        })
-        .collect::<Option<Modes>>()?;
-    Some((modes, dark))
-}
-
-/// Each context of an export, its tuple and side: from the header, or from
-/// the names of the `mode` modifier's contexts when a tool dropped it.
-fn context_map(doc: &Value) -> Option<Vec<(String, Modes, bool)>> {
-    let contexts = doc
-        .get("modifiers")?
-        .get("mode")?
-        .get("contexts")?
-        .as_object()?;
-    if let Some(h) = header(doc) {
-        let all: Vec<(String, Modes, bool)> = h["contexts"]
-            .as_object()?
-            .iter()
-            .map(|(name, c)| {
-                // In the design's axis order, as the header lists the axes.
-                let order = |a: &str| {
-                    h["axes"]
-                        .as_array()
-                        .and_then(|all| all.iter().position(|x| x["name"] == a))
-                };
-                let mut modes: Modes = c["modes"]
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .map(|(a, v)| (a.clone(), v.as_str().unwrap_or_default().to_string()))
-                    .collect();
-                modes.sort_by_key(|(a, _)| order(a));
-                (name.clone(), modes, c["scheme"] == "dark")
-            })
-            .collect();
-        return all
-            .iter()
-            .all(|(n, ..)| contexts.contains_key(n))
-            .then_some(all);
-    }
-    // Without the header, the export's shape: a set `exact` and the one
-    // modifier `mode`, in that order, its contexts named for their tuples.
-    let refs: Vec<&str> = doc
-        .get("resolutionOrder")?
-        .as_array()?
-        .iter()
-        .filter_map(|r| r["$ref"].as_str())
-        .collect();
-    if refs != ["#/sets/exact", "#/modifiers/mode"] || doc["modifiers"].as_object()?.len() != 1 {
-        return None;
-    }
-    contexts
-        .keys()
-        .map(|name| named(name).map(|(m, d)| (name.clone(), m, d)))
-        .collect()
-}
-
 /// Whether `text` is a Tamber DTCG export, which [`reimport`] reads: one
 /// with its header, or a tool's copy with the export's shape.
 pub fn is_own(text: &str) -> bool {
@@ -519,83 +446,6 @@ pub fn is_own(text: &str) -> bool {
 pub fn digest(text: &str) -> Option<String> {
     let doc: Value = serde_json::from_str(text).ok()?;
     header(&doc)?["digest"].as_str().map(str::to_string)
-}
-
-/// A token tree's tokens: each name (a group's `$root` the group's) and its
-/// token object.
-fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
-    let Some(obj) = tree.as_object() else { return };
-    if obj.contains_key("$value") {
-        out.push((prefix.to_string(), tree.clone()));
-        return;
-    }
-    for (k, v) in obj {
-        let name = match (k.as_str(), prefix) {
-            ("$root", _) => prefix.to_string(),
-            (k, _) if k.starts_with('$') => continue,
-            (k, "") => k.to_string(),
-            (k, p) => format!("{p}.{k}"),
-        };
-        flatten(v, &name, out);
-    }
-}
-
-/// A context source's tokens, in order: a token tree, or a reference to a
-/// set or a tree in the same document (`#/sets/…`), resolved as the
-/// Resolver Module says. A reference elsewhere, a cycle, or a document
-/// whose references multiply past one import's work is refused, charged
-/// before each tree is copied.
-fn source_tokens(
-    doc: &Value,
-    src: &Value,
-    depth: usize,
-    out: &mut Vec<(String, Value)>,
-) -> Result<(), String> {
-    if depth > 16 {
-        return Err("references nest too deep".into());
-    }
-    crate::budget::spend(1)?;
-    let Some(r) = src.get("$ref").and_then(Value::as_str) else {
-        crate::budget::copy(src)?;
-        flatten(src, "", out);
-        return Ok(());
-    };
-    let target = r
-        .strip_prefix('#')
-        .and_then(|p| doc.pointer(p))
-        .ok_or_else(|| format!("`{r}` names nothing in this document"))?;
-    match target.get("sources").and_then(Value::as_array) {
-        Some(srcs) => {
-            for s in srcs {
-                source_tokens(doc, s, depth + 1, out)?;
-            }
-        }
-        None => {
-            crate::budget::copy(target)?;
-            flatten(target, "", out);
-        }
-    }
-    Ok(())
-}
-
-/// Each context's tokens by name, from a document's `mode` modifier, a
-/// later source after an earlier.
-pub(crate) type ByContext = std::collections::BTreeMap<String, Vec<(String, Value)>>;
-
-fn tokens_by_context(doc: &Value) -> Result<ByContext, String> {
-    let mut out = ByContext::new();
-    for (context, srcs) in doc["modifiers"]["mode"]["contexts"]
-        .as_object()
-        .into_iter()
-        .flatten()
-    {
-        let mut all = Vec::new();
-        for src in srcs.as_array().into_iter().flatten() {
-            source_tokens(doc, src, 0, &mut all).map_err(|e| format!("`{context}`: {e}"))?;
-        }
-        out.insert(context.clone(), all);
-    }
-    Ok(out)
 }
 
 /// A colour object as Tamber writes it: its `hex` where that, and its alpha
@@ -724,8 +574,25 @@ pub fn reimport_against(
     current: &str,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
-    let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+    let planned = reimport_within(incoming, explicit, kept, current, vocab)?;
+    // A search that stopped at the budget (the narrowest `when`'s) widened
+    // nothing in silence: the re-import is refused in the budget's words.
+    match crate::budget::spent() {
+        Some(why) => Err(vec![Diagnostic::new("tamber-export-import", why, 1, 1)]),
+        None => Ok(planned),
+    }
+}
+
+/// [`reimport_against`] within its budget.
+fn reimport_within(
+    incoming: &str,
+    explicit: Option<&str>,
+    kept: &[String],
+    current: &str,
+    vocab: &Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
+    let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let doc: Value = crate::import::dtcg_doc(incoming, &refuse)?;
     let cur = crate::check(current, vocab)?;
     let fresh = dtcg(&cur, vocab)?;
@@ -868,8 +735,7 @@ pub fn reimport_against(
     let mut accepted: Vec<(String, Vec<Op>)> = Vec::new();
     // Tokens whose every changed context is on a line that is one colour dial
     // alone, moved to one literal: the dial's change (D14; stage 10b).
-    let mut dialed: Vec<(crate::export_dials::Candidate, crate::export_dials::Literal)> =
-        Vec::new();
+    let mut dialed: Vec<crate::export_dials::Candidate> = Vec::new();
     // Each token's plan, or what the whole proposal's folding (`taken`)
     // makes of its lines (option B, `export_batch`).
     let plan = |name: &String, taken: Option<Taken>| -> Planned {
@@ -1232,7 +1098,16 @@ pub fn reimport_against(
             'size: for size in 0..=axes.len() {
                 for pick in crate::selectors::subsets(axes.len(), size) {
                     tried += 1;
-                    if tried > crate::selectors::SELECTORS {
+                    // Each candidate charged to the re-import's budget for
+                    // the tuples and `when` lines it is held against (the
+                    // checker's work in token counts). Past the 4096
+                    // candidates, the line naming every axis (the
+                    // selector's rule); past the budget, the same, and the
+                    // re-import is then refused in the budget's words.
+                    let cost = tuples.len() * (1 + decl.whens.len() + token_ops.len());
+                    if tried > crate::selectors::SELECTORS
+                        || crate::budget::spend(cost as u64).is_err()
+                    {
                         break 'size;
                     }
                     let conds: Modes = pick.iter().map(|&k| axes[k].clone()).collect();
@@ -1352,27 +1227,104 @@ pub fn reimport_against(
     // folding (its pins added for the next), a refused set halved to the
     // tokens the design refuses (`export_batch`).
     let mut planned: Vec<Planned> = names.iter().map(|n| plan(n, None)).collect();
-    crate::export_batch::rounds(&names, &mut planned, &cur, current, vocab, |name, taken| {
-        plan(name, Some(taken))
-    });
-    for (name, p) in names.iter().zip(planned) {
+    let alone =
+        crate::export_batch::rounds(&names, &mut planned, &cur, current, vocab, |name, taken| {
+            plan(name, Some(taken))
+        });
+    let alone: std::collections::HashSet<usize> = alone.into_iter().collect();
+    // Each candidate's place: its index, and where its own report would go
+    // among the others (a report that leaves it out of its dial's change, as
+    // it was said before the dial was decided first).
+    // (by the candidate's token, as the design spells it, which `dials` asks
+    // by: an export's name can differ, a role override's, Astra's check)
+    let mut place: HashMap<String, (usize, usize, String)> = HashMap::new();
+    for (i, (name, p)) in names.iter().zip(&planned).enumerate() {
         match p {
-            Planned::Report(block, why) => report(&mut unmapped, name, &block, why),
+            Planned::Colour { dial: Some(c), .. } if alone.contains(&i) => {
+                place.insert(c.token().to_string(), (i, unmapped.len(), name.clone()));
+                dialed.push(c.clone());
+            }
+            Planned::Report(block, why) => report(&mut unmapped, name, block, why.clone()),
             Planned::Unchanged => accepted.push((name.clone(), Vec::new())),
-            Planned::Kind(_, ops) => accepted.push((name.clone(), ops)),
+            Planned::Kind(_, ops) => accepted.push((name.clone(), ops.clone())),
             Planned::Colour { ops, why, dial, .. } => match (dial, why) {
-                (Some(c), why) => dialed.push((c, why.map_or(Ok(ops), Err))),
-                (None, Some((block, w))) => report(&mut unmapped, name, &block, w),
-                (None, None) => accepted.push((name.clone(), ops)),
+                (Some(c), why) => {
+                    // (a candidate a round settled: its literal known)
+                    place.insert(c.token().to_string(), (i, unmapped.len(), name.clone()));
+                    let _ = (ops, why);
+                    dialed.push(c.clone());
+                }
+                (None, Some((block, w))) => report(&mut unmapped, name, block, w.clone()),
+                (None, None) => accepted.push((name.clone(), ops.clone())),
             },
             Planned::Cleared | Planned::Done | Planned::Pins(_) => {
                 unreachable!("a round's answer is folded into its plan")
             }
         }
     }
+    // Past the budget, nothing more is planned: refused in its words.
+    if let Some(why) = crate::budget::spent() {
+        return Err(refuse(why));
+    }
     // A changed value whose line is one dial alone is that dial's change
-    // (D14; stage 10b), first in the transaction.
-    let dialed = crate::export_dials::dials(&cur, current, dialed, vocab);
+    // (D14; stage 10b), first in the transaction: decided on the candidates'
+    // values alone, each candidate's literal settled (one check, charged)
+    // only if its dial falls back (theme2's ruling on the counts' round 2).
+    let mut literal = |token: &str| {
+        use crate::export_dials::Fallback;
+        let i = place[token].0;
+        if alone.contains(&i) && crate::budget::spent().is_none() {
+            crate::export_batch::settle_alone(
+                i,
+                &names,
+                &mut planned,
+                &cur,
+                current,
+                vocab,
+                |name, taken| plan(name, Some(taken)),
+            );
+        }
+        match &planned[i] {
+            Planned::Colour { ops, why: None, .. } | Planned::Kind(_, ops) => {
+                Fallback::Literal(Ok(ops.clone()))
+            }
+            Planned::Colour {
+                why: Some(bw),
+                dial: Some(_),
+                ..
+            } => Fallback::Literal(Err(bw.clone())),
+            Planned::Colour {
+                why: Some((b, w)),
+                dial: None,
+                ..
+            }
+            | Planned::Report(b, w) => Fallback::Report(b.clone(), w.clone()),
+            Planned::Unchanged => Fallback::Literal(Ok(Vec::new())),
+            Planned::Cleared | Planned::Done | Planned::Pins(_) => {
+                unreachable!("a round's answer is folded into its plan")
+            }
+        }
+    };
+    let dialed = crate::export_dials::dials(&cur, current, dialed, &mut literal, vocab);
+    if let Some(why) = crate::budget::spent() {
+        return Err(refuse(why));
+    }
+    // A candidate whose dial fell back and whose literal lines can't be made:
+    // reported as its own, where it was said before (in the tokens' order).
+    let mut own: Vec<(usize, Unmapped)> = dialed
+        .reported
+        .iter()
+        .map(|(token, block, why)| {
+            let (_, at, name) = &place[token.as_str()];
+            let mut one = Vec::new();
+            report(&mut one, name, block, why.clone());
+            (*at, one.pop().expect("one"))
+        })
+        .collect();
+    own.sort_by_key(|(at, _)| *at);
+    for (k, (at, u)) in own.into_iter().enumerate() {
+        unmapped.insert(at + k, u);
+    }
     for (name, block, why) in &dialed.refused {
         report(&mut unmapped, name, block, why.clone());
     }
@@ -1391,6 +1343,10 @@ pub fn reimport_against(
         .collect();
     let judged = crate::edit::stepped_all(current, &ops, vocab)
         .and_then(|base| crate::export_batch::judged(&base, &members, vocab));
+    // Past the budget, nothing more is planned (the marks' checks).
+    if let Some(why) = crate::budget::spent() {
+        return Err(refuse(why));
+    }
     let mut refused = match &judged {
         Ok(j) => j
             .refused
