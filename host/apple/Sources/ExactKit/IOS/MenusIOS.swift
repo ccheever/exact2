@@ -127,7 +127,7 @@ final class MenuHost {
     func sync() {
         // Paint ordinary menus for the agent; confirmations use UIKit with either input carrier (LLP 1021 D4).
         guard let presenter else { return }
-        let surface = presenter.modals.coordinateView ?? presenter.viewport
+        let surface = presenter.modals.coordinateView ?? presenter.documentHost
         if touchObserver?.view !== surface {
             if let observer = touchObserver { observer.view?.removeGestureRecognizer(observer) }
             let observer = PopoverTouch(host: self)

@@ -136,8 +136,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
-        if let p = presenter, p.navigation.pinsPrimaryViewport {
-            // Apply frame-guide movement before sampling placements and popover anchors
+        if let p = presenter, p.documentFixed {
+            // Only a script scrolls a fixed document: its mount takes the
+            // offset, and the native container keeps its place on screen.
+            p.placeDocumentMount()
             if !p.applying { p.navigation.fitOwner() }
             p.owners.publish()
         }

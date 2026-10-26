@@ -32,7 +32,7 @@ final class PopoverLayer: UIView {
     func mount(in presenter: Presenter) {
         mounting = true
         defer { mounting = false }
-        var host: UIView = presenter.modals.coordinateView ?? presenter.viewport
+        var host: UIView = presenter.modals.coordinateView ?? presenter.documentHost
         sheet = nil
         // A sheet hosts it only while its dialog still holds the popover: a move out of it leaves the sheet.
         let holding = popover.map { presenter.menus.sheets.controllers(holding: $0) } ?? []

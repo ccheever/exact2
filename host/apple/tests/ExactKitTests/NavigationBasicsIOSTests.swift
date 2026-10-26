@@ -132,7 +132,9 @@ final class NavigationBasicsIOSTests: XCTestCase {
         try tapNode(session, "home-open-edit")
         _ = agent.clock(["settle": true])
         XCTAssertEqual(p.viewport.contentOffset, .zero, "shrinking the page restores its rest offset")
-        XCTAssertTrue(p.root.isDescendant(of: p.viewport), "the document retains one scrolling parent")
+        // UIKit places a container's bars only where no scroll view holds it (DocumentMountIOS.swift).
+        XCTAssertTrue(p.documentFixed && !p.viewport.isScrollEnabled, "the native container's document is in its mount")
+        XCTAssertFalse(sequence(first: owner, next: { $0.superview }).contains { $0 is UIScrollView }, "no scroll view holds the container")
     }
 
     func testVisualKeyboardInsetsRevealALowNativeRouteFieldWithoutAnInnerScroller() throws {
@@ -168,7 +170,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(routeScroll["sy"] as? Double, Agent.r2(content.contentOffset.y))
         let clips = try XCTUnwrap(observation["clip"] as? [[String: Any]])
         XCTAssertTrue(clips.contains { $0["id"] as? Int == Int(route.node.id) && $0["kind"] as? String == "viewport" })
-        XCTAssertTrue(FocusSearch.items(p.viewport, in: p.viewport.bounds).contains { ($0 as? UIView) === field.field },
+        XCTAssertTrue(FocusSearch.items(p.documentMount, in: p.documentMount.bounds).contains { ($0 as? UIView) === field.field },
                       "the session's focus search includes native fields inside the route")
         XCTAssertEqual(owner.convert(owner.bounds, to: window), ownerFrame, "the content reveal leaves UIKit's container in place")
         let applied = session.appliedBatches
@@ -176,12 +178,12 @@ final class NavigationBasicsIOSTests: XCTestCase {
         content.contentOffset = offset
         until("the native scroll publishes its placement") { p.owners.told[route.node.id]?.placement?.contentOffset == offset }
         XCTAssertEqual(session.appliedBatches, applied, "a placement-only scroll skips the presentation pass")
-        p.navigation.clearOwnerAllocation()
+        p.hostDocument(fixed: false)
         XCTAssertEqual(p.viewport.contentInset.bottom, p.keyboardInset, "an unpinned document owns keyboard accommodation again")
         var room = p.viewport.contentInset
         room.bottom += 40
         p.viewport.contentInset = room
-        p.navigation.clearOwnerAllocation()
+        p.hostDocument(fixed: false)
         XCTAssertEqual(p.viewport.contentInset, room, "unchanged ownership preserves room another inset writer added")
         p.navigation.fitOwner()
         XCTAssertEqual(p.viewport.contentInset.bottom, 40, "repinning removes only the keyboard's contribution")
@@ -296,14 +298,15 @@ final class NavigationBasicsIOSTests: XCTestCase {
         session.landFill()
         until("the fill lands and the target is revealed") { !session.fillInFlight && p.elementScrolls.names.isEmpty && content.contentOffset.y > 0 }
         XCTAssertTrue(content.bounds.contains(target.convert(target.bounds, to: content)), "the reveal uses the target's new frame")
+        // The page does not enclose a native container's routes, so a route's drag has no outer scroller to chain to.
         for behavior in ["auto", "contain", "none", "auto"] {
             document.style["overscroll_behavior_y"] = .string(behavior)
             content.contentOffset.y = -content.adjustedContentInset.top
             p.viewport.contentOffset.y = 100
-            XCTAssertEqual(content.handsOff(CGPoint(x: 0, y: 400)), behavior == "auto", "\(behavior) controls route chaining")
+            XCTAssertFalse(content.handsOff(CGPoint(x: 0, y: 400)), "\(behavior): the route keeps its drag")
             XCTAssertEqual(content.bounces, behavior != "none", "\(behavior) controls the native affordance")
             Agent.scroll(from: opener, dx: 0, dy: -20)
-            XCTAssertEqual(p.viewport.contentOffset.y, behavior == "auto" ? 80 : 100, accuracy: 0.5, "the agent observes \(behavior) too")
+            XCTAssertEqual(p.viewport.contentOffset.y, 100, accuracy: 0.5, "the agent's drag does not reach the page under \(behavior)")
         }
     }
 

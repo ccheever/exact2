@@ -76,6 +76,7 @@ public final class ExactView: UIView {
         backgroundColor = launchScreenColor ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
+        addSubview(session.presenter.documentMount)
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.canvas = color; self?.paintUnderKeys(); self?.onCanvasColor?(color) }
@@ -160,6 +161,7 @@ public final class ExactView: UIView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         fit()
+        session.presenter.placeDocumentMount()
     }
 
     #if os(iOS)

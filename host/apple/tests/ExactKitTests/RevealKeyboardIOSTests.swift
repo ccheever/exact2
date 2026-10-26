@@ -524,7 +524,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
         for policy in ["resizes-content", "overlays-content"] {
             p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
             setKeyboard(p, top: 574)
-            p.navigation.clearOwnerAllocation()
+            p.hostDocument(fixed: false)
             XCTAssertEqual(p.viewport.contentInset.bottom, 0, "\(policy) adds no scroll range when native ownership ends")
             p.navigation.fitOwner()
             XCTAssertEqual(p.viewport.contentInset.bottom, 0, "\(policy) adds no scroll range when ownership returns")
