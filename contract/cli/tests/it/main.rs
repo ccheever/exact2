@@ -240,6 +240,7 @@ mod typography;
 mod r#use;
 mod viewport;
 mod visible_fields;
+mod vision_translation;
 mod visual;
 mod vocab;
 mod vscode_grammar;
