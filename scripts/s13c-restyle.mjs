@@ -42,7 +42,19 @@ export const COMPONENTS = {
   ComposeFrame: { source: '@exact/actions/compose-frame.contract', root: id => `compose-bar-${id}`, ids: ['cf-base', 'sample-cf-drafts', 'sample-cf-reply', 'cf-gallery', 'cf-camera', 'cf-gif', 'sample-cf-near', 'sample-cf-over'] },
   BarItem: { source: '@exact/actions/bar-item.contract', root: id => id, ids: ['bi-base', 'sample-bi-selected', 'sample-bi-badge', 'sample-bi-dot', 'sample-bi-avatar'] },
   HeaderButton: { source: '@exact/actions/header-button.contract', root: id => id, ids: ['hb-base', 'hb-small', 'hb-lead'] },
+  // Exported in stage 15 B (LLP 1121): no id prop, so each instance is the
+  // box library-gate holds it in, and a read's path starts at that box.
+  Avatar: { source: '@exact/cards/common.contract', root: id => id, ids: ['av-base', 'sample-av-src'] },
+  VerifiedBadge: { source: '@exact/cards/common.contract', root: id => id, ids: ['vb-base', 'sample-vb-verifier'] },
 };
+
+/** library-gate's instances that draw nothing: VerifiedBadge's "" (no
+ * badge), its box empty on every host. */
+export const EMPTY = ['sample-vb-none'];
+
+/** The tokens stage 15 B's exported Avatar and VerifiedBadge draw with:
+ * stage 12's, read on their own library-gate cells. */
+export const EXPORTED_TOKENS = ['cards.avatar', 'cards.avatar-corner', 'cards.hairline', 'cards.avatar-ground', 'cards.avatar-default', 'cards.avatar-ring', 'cards.badge-size', 'cards.badge', 'cards.badge-mark'];
 
 /** The cases' batches (theme2 10:28): each component's tokens by prefix,
  * and the components its params come from. */
@@ -52,6 +64,11 @@ export const BATCHES = [
   { name: 'ComposeFrame', prefix: /^actions\.compose-/, components: ['ComposeFrame'] },
   { name: 'BarItem', prefix: /^actions\.bar-/, components: ['BarItem'] },
   { name: 'HeaderButton', prefix: /^actions\.header-/, components: ['HeaderButton'] },
+  // Stage 15 B's exports (LLP 1121): every token Avatar and VerifiedBadge
+  // draw with, stage 12's, by name (the sizes and the badge's ink and mark
+  // as library-gate passes them, a consumer's token names), so setting one
+  // by its full name is shown to restyle the exported use.
+  { name: 'Avatar and VerifiedBadge', names: EXPORTED_TOKENS, components: ['Avatar', 'VerifiedBadge'] },
 ];
 
 /** A token whose value is an expression of others: read, never set; its
@@ -74,6 +91,19 @@ export const DERIVED = {
  * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
  * `color` keeps its read. */
 export const READS = {
+  // Stage 15 B's exports, from the box library-gate holds each in: Avatar's
+  // column (0), its picture or figure (0/0, the figure's circles and path
+  // 0/0/n) and its ring (0/1); VerifiedBadge's column (0) and its two
+  // stacked symbols, the ground in ink (0/0) and the check in mark (0/1).
+  'cards.avatar': ['0 height,width av-base,sample-av-src', '0/0 height,width av-base,sample-av-src'],
+  'cards.avatar-corner': ['0 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right av-base,sample-av-src', '0/1 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right av-base,sample-av-src'],
+  'cards.avatar-default': ['0/0/0 fill av-base'],
+  'cards.avatar-ground': ['0 background_color av-base,sample-av-src'],
+  'cards.avatar-ring': ['0/1 border_color_bottom,border_color_left,border_color_right,border_color_top av-base,sample-av-src'],
+  'cards.badge': ['0/0 text_color vb-base,sample-vb-verifier'],
+  'cards.badge-mark': ['0/0/1 fill av-base', '0/0/2 fill av-base', '0/1 text_color vb-base,sample-vb-verifier'],
+  'cards.badge-size': ['0 height,width vb-base,sample-vb-verifier', '0/0 height,width vb-base,sample-vb-verifier', '0/1 height,width vb-base,sample-vb-verifier'],
+  'cards.hairline': ['0/1 border_width_bottom,border_width_left,border_width_right,border_width_top av-base,sample-av-src'],
   'BarItem.badgeFill': ['2 background_color sample-bi-badge,sample-bi-dot'],
   'BarItem.badgeInk': ['2 text_color sample-bi-badge'],
   'BarItem.tint': ['0/0/0 fill bi-base,sample-bi-selected,sample-bi-badge,sample-bi-dot'],
@@ -202,12 +232,15 @@ export function readsOf(key) {
   const component = key.includes('.') && /^[A-Z]/.test(key) ? key.split('.')[0] : null;
   return (READS[key] ?? []).map(entry => {
     const [path, rows, ids] = entry.split(' ');
-    const owner = component ?? componentOfPath(key);
+    // A token two components read (cards.badge-mark: Avatar's figure and
+    // VerifiedBadge's check) is owned per read, by its instances.
+    const held = ids === '*' ? undefined : Object.keys(COMPONENTS).find(n => COMPONENTS[n].ids.includes(ids.split(',')[0]));
+    const owner = component ?? held ?? componentOfPath(key);
     return { component: owner, path, rows: rows.split(','), ids: ids === '*' ? COMPONENTS[owner].ids : ids.split(',') };
   });
 }
 const componentOfPath = token => {
-  const batch = BATCHES.find(b => b.prefix.test(token));
+  const batch = BATCHES.find(b => b.names?.includes(token)) ?? BATCHES.find(b => b.prefix?.test(token));
   if (!batch) throw new Error(`${token}: in no batch`);
   return batch.components.length === 1 ? batch.components[0] : token === 'lists.switch-on' ? 'SwitchRow' : 'ListRow';
 };
@@ -226,7 +259,11 @@ export function packageParams(root = ROOT) {
     const [, pkg, file] = /^@exact\/([\w-]+)\/(.+)$/.exec(c.source);
     const text = readFileSync(join(root, 'packages', pkg, file), 'utf8');
     const body = text.slice(text.indexOf(`component ${component}`));
-    const params = body.slice(body.indexOf('params'), body.search(/\n  (props|slot|parts|view)\b/));
+    // Its own block only (common.contract holds two), and no params block, none.
+    const next = body.slice(1).search(/\ncomponent /);
+    const own = next < 0 ? body : body.slice(0, next + 1);
+    if (!/^  params\s*$/m.test(own)) return [];
+    const params = own.slice(own.search(/^  params\s*$/m), own.search(/\n  (props|slot|parts|view)\b/));
     // Every param, whatever its default: a token's name, or a literal.
     return [...params.matchAll(/^\s{4}([\w-]+):\s*([\w-]+)\s*=\s*(?:"([^"]*)"|(\S+))/gm)].map(m => ({ full: `${c.source}#${component}.${m[1]}`, key: `${component}.${m[1]}`, kind: m[2], token: /^[a-z][\w-]*(?:\.[\w-]+)+$/.test(m[3] ?? '') ? m[3] : null }));
   });
@@ -246,18 +283,19 @@ export function valueFor(kind, k) {
   return `#${ch(40, 32)}${ch(72, 40)}${ch(104, 48)}`;
 }
 
-/** The ten cases: each batch's tokens (the derived ones read, not set) and
+/** The eleven cases (stage 13 C's ten and stage 15 B's exports' one): each batch's tokens (the derived ones read, not set) and
  * its components' params, each name its own value. */
 export function cases(root = ROOT) {
   const tokens = newTokens(root), params = packageParams(root);
   return BATCHES.flatMap(b => {
-    const mine = tokens.filter(t => b.prefix.test(t.name) && !DERIVED[t.name]);
+    const mine = b.names ? b.names.map(n => packageTokens(root).find(t => t.name === n)) : tokens.filter(t => b.prefix.test(t.name) && !DERIVED[t.name]);
     const counts = {};
     const set = mine.map(t => ({ name: t.name, kind: t.kind, value: valueFor(t.kind, (counts[t.kind] = (counts[t.kind] ?? -1) + 1)) }));
     const owned = params.filter(p => b.components.includes(p.key.split('.')[0]));
     return [
-      { name: `${b.name} tokens`, batch: b.name, param: false, set, derived: Object.keys(DERIVED).filter(d => b.prefix.test(d)) },
-      { name: `${b.name} params`, batch: b.name, param: true, set: owned.map((p, k) => ({ name: p.full, key: p.key, token: p.token, kind: p.kind, value: valueFor(p.kind, k + 7) })), derived: [] },
+      { name: `${b.name} tokens`, batch: b.name, param: false, set, derived: b.prefix ? Object.keys(DERIVED).filter(d => b.prefix.test(d)) : [] },
+      // A batch whose components have no params (the exports) has no params case.
+      ...(owned.length ? [{ name: `${b.name} params`, batch: b.name, param: true, set: owned.map((p, k) => ({ name: p.full, key: p.key, token: p.token, kind: p.kind, value: valueFor(p.kind, k + 7) })), derived: [] }] : []),
     ];
   });
 }

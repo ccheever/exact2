@@ -514,6 +514,14 @@ Owners as they free up (the lead's order).
    fixed sample props, `testId`s on part nodes, and in each slot a marker content switchable between two glyphs;
    normal app retention applies to it; and the clone's copies replaced, on a signed-out copy of the clone with no
    account writes.
+   **The exports (as of LLP 1121 stage 15 B, 2026-10-26):** `@exact/cards` exports PostCard, AtCard, ProfileHeader
+   (with its ProfileAlert shape), **Avatar** `(src, size)` and **VerifiedBadge** `(badge, size, ink, mark)`;
+   `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem and HeaderButton; `@exact/lists` ListRow and
+   SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
+   unchanged and no defaults: a consumer passes `size`, and VerifiedBadge's `ink` and `mark`, as token or role names
+   (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or its own), not literal colours, as
+   PostCard does, so an app's design restyles them by the tokens' full names. `apps/library-gate` holds each in a
+   box named for its cell (neither has an `id` prop), VerifiedBadge's `""` an empty box.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A

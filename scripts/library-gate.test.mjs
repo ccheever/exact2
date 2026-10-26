@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
 import { SLOTTED } from './stage12-gate.mjs';
-import { COMPONENTS, DERIVED, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
+import { COMPONENTS, DERIVED, EMPTY, EXPORTED_TOKENS, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'apps/library-gate/app.contract');
@@ -43,7 +43,7 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'BarItem', 'ComposeFrame', 'HeaderButton', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'Avatar', 'BarItem', 'ComposeFrame', 'HeaderButton', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow', 'VerifiedBadge']);
   // The gate's slot-rendered line reads every component with a slot (one at
   // its view's root, as ComposeFrame's, is in no part).
   const slotted = slottedIn(['actions', 'cards', 'lists']).filter(n => names.includes(n));
@@ -53,6 +53,8 @@ test('every exported component, once per variant value, every cell rendered, eve
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
   expect(conditional(app)).toEqual([]);
   const placed = placements(app, names);
+  // Every placement has an id: its own prop, or the box that holds only it.
+  expect(placed.filter(p => !p.id).map(p => p.name)).toEqual([]);
   for (const c of library) {
     const mine = placed.filter(p => p.name === c.name);
     const cells = mine.filter(p => !p.id.startsWith('sample-'));
@@ -82,7 +84,7 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 10 components, 25 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 12 components, 27 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
   const placed = placements(gallery, library.map(c => c.name));
@@ -110,13 +112,20 @@ test('the cells rule, and the parse refuses what could hide a cell', () => {
   const marked = '      Card(id="a")\n        box testId="marker-a" press=toggle width=24 height=24\n          text glyph\n';
   const unmarked = '      Card(id="a")\n        // box testId="marker-a" press=toggle width=24 height=24\n        text glyph\n';
   expect([markedSlot(placements(marked, ['Card'])[0]), markedSlot(placements(unmarked, ['Card'])[0])]).toEqual([true, false]);
+  // A component with no id prop takes the id of the box holding only it:
+  // the box two spaces out, named and nothing else, with no sibling after.
+  const held = '      box testId="av-a"\n        Pic(src="")\n      box testId="av-b" width=4\n        Pic(src="")\n      box testId="av-c"\n        Pic(src="")\n        Pic(src="x")\n';
+  expect(placements(held, ['Pic']).map(p => p.id)).toEqual(['av-a', undefined, undefined, undefined]);
+  expect(placements('      Card(id="a")\n', ['Card'])[0].id).toBe('a');
 });
 
 // The gate's restyle cases (theme2 09:49 (c), 10:28 (5)): every token and
 // param stage 13 C added, by the packages' sources, is in a case and read
-// somewhere, so a new one with no case or no read fails here.
-test("the restyle cases name every stage 13 C token and param, each one read", () => {
+// somewhere, so a new one with no case or no read fails here; and every
+// token stage 15 B's exported Avatar and VerifiedBadge draw with.
+test("the restyle cases name every stage 13 C token and param and every exported use's token, each one read", () => {
   const tokens = newTokens(), params = packageParams(), all = restyleCases();
+  const app = readFileSync(APP, 'utf8');
   const named = new Set(all.flatMap(c => c.set.map(s => (c.param ? s.key : s.name))));
   const derived = new Set(all.flatMap(c => c.derived));
   expect(tokens.map(t => t.name).filter(n => !named.has(n) && !derived.has(n))).toEqual([]);
@@ -129,9 +138,22 @@ test("the restyle cases name every stage 13 C token and param, each one read", (
   const read = n => readsOf(n).length > 0 || params.some(p => PARAM_TOKENS[p.key] === n && readsOf(p.key).length > 0)
     || Object.entries(DERIVED).some(([d, x]) => x.from.includes(n) && readsOf(d).length > 0);
   expect([...named, ...derived].filter(n => !read(n))).toEqual([]);
-  // No read of a name that isn't stage 13 C's.
-  expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k))).toEqual([]);
+  // No read of a name that isn't stage 13 C's or the exports'.
+  expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k) && !EXPORTED_TOKENS.includes(k))).toEqual([]);
+  // The exports' tokens are every token their sources name (a token one of
+  // them comes to draw with fails here until the case sets it and a read
+  // reads it), each set in the exports' case and read on their cells.
+  const common = readFileSync(join(ROOT, 'packages/cards/common.contract'), 'utf8');
+  const exportsBody = common.slice(common.indexOf('component Avatar'));
+  const own = [...new Set([...exportsBody.matchAll(/"(cards\.[\w-]+)"/g)].map(m => m[1]))].filter(n => !/^cards\.(verified|verifier)(-check)?$/.test(n));
+  const passed = [...new Set([...app.matchAll(/^\s+(?:Avatar|VerifiedBadge)\((.*)\)\s*$/gm)].flatMap(([, a]) => [...a.matchAll(/(?:size|ink|mark)="(cards\.[\w-]+)"/g)].map(m => m[1])))];
+  expect([...new Set([...own, ...passed])].sort()).toEqual([...EXPORTED_TOKENS].sort());
+  const exportsCase = all.find(c => c.name === 'Avatar and VerifiedBadge tokens');
+  expect(exportsCase.set.map(s => s.name).sort()).toEqual([...EXPORTED_TOKENS].sort());
+  for (const n of EXPORTED_TOKENS) expect([n, readsOf(n).every(r => ['Avatar', 'VerifiedBadge'].includes(r.component))]).toEqual([n, true]);
+  // The "" badge's cell is library-gate's.
+  expect(EMPTY.every(id => placements(app, ['VerifiedBadge']).some(p => p.id === id && option(p.values.badge) === ''))).toBe(true);
   // The cases' components and instances are library-gate's.
-  const app = readFileSync(APP, 'utf8');
-  for (const [name, c] of Object.entries(COMPONENTS)) expect([name, placements(app, [name]).map(p => p.id).sort()]).toEqual([name, [...c.ids].sort()]);
+  // (The empty cell has nothing to read, so it is held apart, in EMPTY.)
+  for (const [name, c] of Object.entries(COMPONENTS)) expect([name, placements(app, [name]).map(p => p.id).filter(id => !EMPTY.includes(id)).sort()]).toEqual([name, [...c.ids].sort()]);
 });

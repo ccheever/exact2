@@ -24,7 +24,7 @@ import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from '
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
-import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, readsOf } from './s13c-restyle.mjs';
+import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 /** The consumer's own targets among the required hosts (LLP 1139 §5): the
@@ -966,6 +966,13 @@ export function readExact(host, exact, plans, app, drive = (plan, ids) => driveP
   const out = [];
   let tree;
   try { tree = drive(plans.base, []).tree; } catch (e) { return [{ host, ok: false, why: whyOf(e) }]; }
+  // With the exports' case, VerifiedBadge's "" cell: its box, and nothing in it.
+  if (exact.some(c => c.batch === 'Avatar and VerifiedBadge')) {
+    for (const inst of EMPTY) {
+      const box = locate(tree, inst, '.'), n = box?.children?.length ?? 0;
+      out.push({ host, empty: true, inst, ok: !!box && n === 0, why: box ? `${n} node${n === 1 ? '' : 's'} in it` : 'not in the tree' });
+    }
+  }
   const reads = exact.map(c => ({ c, reads: caseReads(c).flatMap(r => r.ids.map(inst => ({ ...r, inst, root: COMPONENTS[r.component].root(inst) }))) }));
   for (const { reads: list } of reads) for (const r of list) r.id = locate(tree, r.root, r.path)?.id ?? null;
   const ids = list => [...new Set(list.map(r => r.id).filter(id => id != null))];
@@ -1053,7 +1060,7 @@ export function exactEvidence(exact, rows) {
   const keys = [...new Set(exact.flatMap(c => caseReads(c).map(r => r.key)))];
   const n = x => (typeof x === 'number' ? Math.round(x * 100) / 100 : JSON.stringify(x));
   return [
-    `stage 13 C's cases, every read kind 1 (exact: the row's computed value on its node, layout <id>), checked against its own token's or param's value; ${keys.length} tokens and params read:`,
+    `stage 13 C's cases and stage 15 B's exports' case, every read kind 1 (exact: the row's computed value on its node, layout <id>), checked against its own token's or param's value; ${keys.length} tokens and params read:`,
     ...keys.map(k => `  ${k}: ${readsOf(k).map(r => `${r.path} ${r.rows.join(',')} (${r.ids.length})`).join('; ')}`),
     ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}`))].flatMap(key => {
       const group = rows.filter(r => `${r.host}\u0000${r.case}` === key), failed = group.filter(r => !r.ok), [first] = group;
@@ -1061,7 +1068,8 @@ export function exactEvidence(exact, rows) {
         ...failed.slice(0, 40).map(r => `      ${r.key} ${r.inst} ${r.path} ${r.row}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)}: ${r.why}`),
         ...(failed.length > 40 ? [`      … and ${failed.length - 40} more`] : [])];
     }),
-    ...rows.filter(r => !r.case).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
+    ...rows.filter(r => r.empty).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.inst}: VerifiedBadge "" draws nothing, its box empty${r.ok ? '' : ` (${r.why})`}`),
+    ...rows.filter(r => !r.case && !r.empty).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
   ];
 }
 

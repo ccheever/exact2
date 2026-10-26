@@ -21,7 +21,9 @@ export function uncommented(line) {
 }
 
 /** Every placement of `names` in `app`'s view, comments set aside, each with
- * its args, its id, and the lines it holds. */
+ * its args, its id, and the lines it holds. A component with no `id` prop
+ * (Avatar, VerifiedBadge) is a cell as the only child of a box named for it,
+ * `box testId="<id>"` and nothing else on the line: that is its id. */
 export function placements(app, names) {
   const lines = app.split('\n').map(uncommented);
   const out = [];
@@ -35,9 +37,24 @@ export function placements(app, names) {
     const body = [];
     for (let j = i + 1; j < lines.length && (lines[j].trim() === '' || lines[j].length - lines[j].trimStart().length > indent.length); j++) body.push(lines[j]);
     const values = Object.fromEntries([...args.matchAll(/(?:^|, )(\w+)=("[^"]*"|[^,]+)/g)].map(([, k, v]) => [k, v.trim()]));
-    out.push({ name, values, id: option(values.id), body, indent: indent.length });
+    out.push({ name, values, id: option(values.id) ?? holder(lines, i, indent.length), body, indent: indent.length });
   });
   return out;
+}
+
+/** The id of the box holding only the placement at line `i` (indent
+ * `depth`): the line above, two spaces out, `box testId="<id>"` alone, and
+ * the next line after the placement's own no deeper than that box. */
+function holder(lines, i, depth) {
+  const at = l => l.length - l.trimStart().length;
+  let up = i - 1;
+  while (up >= 0 && lines[up].trim() === '') up--;
+  const m = up >= 0 && at(lines[up]) === depth - 2 && /^\s+box testId="([^"]+)"\s*$/.exec(lines[up]);
+  if (!m) return undefined;
+  let down = i + 1;
+  while (down < lines.length && (lines[down].trim() === '' || at(lines[down]) > depth)) down++;
+  if (down < lines.length && at(lines[down]) >= depth) return undefined;
+  return m[1];
 }
 
 /** Whether placement `p`'s slot holds its marker: a fixed-size pressable box

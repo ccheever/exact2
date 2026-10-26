@@ -11,7 +11,7 @@
 // gate can see the slot render both.
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
-use PostCard, AtCard, ProfileHeader, ProfileAlert from "@exact/cards"
+use PostCard, AtCard, ProfileHeader, ProfileAlert, Avatar, VerifiedBadge from "@exact/cards"
 use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton from "@exact/actions"
 use ListRow, SwitchRow from "@exact/lists"
 
@@ -100,6 +100,25 @@ component App
         ProfileHeader(id="sample-ph-avatar", bannerSrc="", avatarSrc="symbol:person", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
           box testId="marker-sample-ph-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
+        // A person's picture and badge as an app places them (LLP 1121 stage
+        // 15 B). Neither has an id prop, so each cell is the box that holds
+        // it, named for it. Neither has a variant the compiler marks (D5), so
+        // each has one cell: the avatar without a picture (the default
+        // figure) and the "verified" badge; then the avatar with a picture,
+        // the "verifier" badge and "" (no badge: an empty box) as samples.
+        // Sizes and the badge's ink and mark by token name, as a consumer
+        // passes them.
+        row testId="gate-people" gap=8 align-items="flex-start"
+          box testId="av-base"
+            Avatar(src="", size="cards.avatar")
+          box testId="sample-av-src"
+            Avatar(src="symbol:person", size="cards.avatar")
+          box testId="vb-base"
+            VerifiedBadge(badge="verified", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
+          box testId="sample-vb-verifier"
+            VerifiedBadge(badge="verifier", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
+          box testId="sample-vb-none"
+            VerifiedBadge(badge="", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
         // The composer's frame: each variant value, one at a time, then the
         // ring near and over its limit (with a post to add) as samples.
         ComposeFrame(id="cf-base", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)

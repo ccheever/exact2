@@ -24,6 +24,7 @@ mod build_warnings;
 mod button_migration;
 mod calls;
 mod camera;
+mod cards_exports;
 mod checkpoint;
 mod child_state_lifetime;
 mod clipboard;

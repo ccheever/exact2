@@ -1016,6 +1016,13 @@ fn args(
                     {
                         literal(NEUTRAL_IMAGE)
                     }
+                    // A string written as a style row's value: a colour or a
+                    // length of that row's kind, not its name.
+                    Some(TypeExpr::Named(t, _))
+                        if t == "string" && inert::style_sample(c, file, &p.name).is_some() =>
+                    {
+                        literal(inert::style_sample(c, file, &p.name).unwrap_or_default())
+                    }
                     Some(ty) => placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
                         .map_err(|why| format!("{} ({why})", p.name))?,
                     None => return Err(format!("{} (no type written)", p.name)),

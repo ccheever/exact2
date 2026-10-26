@@ -2,7 +2,10 @@
 // Bluesky clone's own pieces): a post card's shell, an Attie card and a
 // profile's header. Their look is their params and the package's tokens
 // (cards.tamber); an app restyles them by setting either by full name, never
-// by editing this file.
+// by editing this file. Avatar and VerifiedBadge, the pieces those draw a
+// person with, are exported too (LLP 1121 stage 15 B): an app passes their
+// size, and VerifiedBadge's ink and mark, as token or role names
+// ("cards.badge", "cards.badge-mark", or its own), no literal colours.
 // The shell takes plain props and one slot: the app keeps its data, its
 // moderation and embeds, and places its own content (and its action row)
 // in the slot (theme2's 06:46 ruling).
@@ -10,3 +13,4 @@
 use PostCard from "./post-card.contract"
 use AtCard from "./at-card.contract"
 use ProfileHeader, ProfileAlert from "./profile-header.contract"
+use Avatar, VerifiedBadge from "./common.contract"
