@@ -13,7 +13,7 @@ phone (LLP 1133.020). No account is needed beyond a development team.
    host/apple/build.mjs --ios --device trackingfixture-apple --run`. "Status:
    notDetermined (prompt)", "Identifier: zeros".
 2. "Ask About Tracking": the fixture's own screen with one "Continue" and no
-   way to close it (D11). Continue: the system's alert, with the purpose
+   way to close it (LLP 1133.002 D11). Continue: the system's alert, with the purpose
    string from `strings/en.json`.
 3. "Allow": "Answered: authorized", "Status: authorized (granted)",
    "Identifier: set".

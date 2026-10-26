@@ -448,7 +448,8 @@ Each of these has no consumer, is refused, or is already covered:
   but Apple-only and heavy.
 - **IAP and store review.** They belong to #8.
 - **Print, mail and SMS composers.** `openURL` with `mailto:` is enough, and
-  `sms:` is one allowlist entry.
+  `sms:` is one allowlist entry. **Reversed (Charlie, 2026-10-26; LLP
+  1133.024):** `@exact/compose` and `@exact/print`.
 - **Screen capture blocking, app integrity, age range, tracking
   transparency, brightness, battery, cellular, speech, Live Photo.**
 - **Lottie and Rive (✕).**
@@ -456,6 +457,8 @@ Each of these has no consumer, is refused, or is already covered:
 - **Expo Go-style launcher (✕, LLP 1030.003).**
 - **TV.**
 - **An in-app browser.** `openURL` plus #7 covers the cases that matter.
+  **Reversed (Charlie, 2026-10-26; LLP 1133.024 §19 question 5):**
+  `openBrowser` from `@exact/in-app-browser`.
 
 ## 6. The platform question: Android
 

@@ -5,6 +5,7 @@
   "dependencies": {
     "@exact/age-range": "file:../../packages/age-range",
     "@exact/local-auth": "file:../../packages/local-auth",
+    "@exact/translation": "file:../../packages/translation",
     "fflate": "0.8.3"
   }
 }

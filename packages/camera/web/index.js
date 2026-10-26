@@ -17,6 +17,8 @@
 //   picture, mirrored for a `user` camera, and `takePhoto` writes the
 //   picture's bytes unchanged (§9). The picture is the package's test card,
 //   or the app asset `prefer extension camera.picture={"path":"…"}` names.
+//   The track's frame is that picture, unmirrored, for an observer such as a
+//   barcode scan to read (LLP 1133.027 D17 item 2).
 
 const MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic' };
 
@@ -83,7 +85,7 @@ export function implementation({ changed, agent, log, tracks, files }) {
   const say = line => log?.(`camera: ${line}`);
   /** Each viewfinder by its node's id: what the runner said of it and what it consumes. */
   const views = new Map();
-  let picture = null, pictureURL = null, taken = 0;
+  let picture = null, pictureURL = null, pictureBitmap = null, taken = 0;
   const viewOf = id => {
     if (!views.has(id)) views.set(id, { el: null, src: null, changes: 0, reports: 0, shown: false, madeBy: 'app', sub: null });
     return views.get(id);
@@ -101,6 +103,15 @@ export function implementation({ changed, agent, log, tracks, files }) {
     return pictureURL;
   }
 
+  /** The agent's picture decoded, once per picture. */
+  function agentBitmap() {
+    return pictureBitmap ??= agentPicture().then(url => fetch(url)).then(r => r.blob()).then(b => createImageBitmap(b))
+      .catch(e => { say(`the agent's picture did not decode: ${e.message}`); return null; });
+  }
+  /** Track `id`'s frame is the picture drawn, unmirrored, as a sensor's is (LLP 1133.027 D17 item 2): set when the
+   *  picture is named, so the next analysed frame is the new one however long its decode takes. */
+  const framed = id => tracks.lookup(id)?.owner?.picture?.(id, agentBitmap());
+
   /** Viewfinder `id` consumes its track while it is made, displayed and bound to a video track (D3). */
   function reconcile(id) {
     const v = viewOf(id), entry = tracks.lookup(v.src);
@@ -114,8 +125,10 @@ export function implementation({ changed, agent, log, tracks, files }) {
     const show = source => {
       if (v.sub !== sub || !v.el) return;
       const mirrored = facingOf(sub.track) === 'user';
-      if (agent) agentPicture().then(url => v.sub === sub && sub.live && v.el?.show(null, url, mirrored));
-      else v.el.show(source, null, mirrored);
+      if (agent) {
+        framed(sub.track);
+        agentPicture().then(url => v.sub === sub && sub.live && v.el?.show(null, url, mirrored));
+      } else v.el.show(source, null, mirrored);
     };
     let source = null;
     const consumer = {
@@ -216,8 +229,8 @@ export function implementation({ changed, agent, log, tracks, files }) {
       const named = values?.picture?.path;
       const next = typeof named === 'string' && named ? named : null;
       if (next === picture) return;
-      picture = next; pictureURL = null;
-      for (const [id, v] of views) if (v.sub?.live) { v.sub.leave(); v.sub = null; reconcile(id); }
+      picture = next; pictureURL = null; pictureBitmap = null;
+      for (const [id, v] of views) if (v.sub?.live) { framed(v.sub.track); v.sub.leave(); v.sub = null; reconcile(id); }
     },
   };
 }

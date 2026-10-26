@@ -94,6 +94,7 @@ public final class ExactPackageContext {
     private let nowFn: () -> Double
     private let pictureFn: (UInt32, String) -> Void
     private let orientationFn: () -> Double
+    private let viewFn: () -> ExactPackagePlatformView?
     private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
     private let emitFn: (String, [Any]) -> Void
     private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
@@ -109,6 +110,7 @@ public final class ExactPackageContext {
                 audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
                 picture: @escaping (UInt32, String) -> Void = { _, _ in },
                 surfaces: ExactSurfaces = ExactSurfaces { _ in nil }, orientation: @escaping () -> Double = { 0 },
+                view: @escaping () -> ExactPackagePlatformView? = { nil },
                 invoke: @escaping (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void = { _, _, _, reply in reply(["error": "NotSupportedError"]) },
                 emit: @escaping (String, [Any]) -> Void = { _, _ in },
                 activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] },
@@ -118,7 +120,7 @@ public final class ExactPackageContext {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
-        self.surfaces = surfaces; orientationFn = orientation; invokeFn = invoke
+        self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke
         emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
     }
 
@@ -167,6 +169,20 @@ public final class ExactPackageContext {
     /// orientation on iOS, 0 on the Mac. `orientation(_:)` is told each change.
     public var orientation: Double { orientationFn() }
 
+    /// The session's own root view (LLP 1133.027 D17 item 3), which a
+    /// package's hosted views go under: in the sample host, its pane. Nil
+    /// while the session's view is in no window. Main thread.
+    public var view: ExactPackagePlatformView? {
+        guard let view = viewFn(), view.window != nil else { return nil }
+        return view
+    }
+
+    /// Where the session presents (LLP 1133.027 D17 item 3): its window, key
+    /// or not, since a sheet for a window behind another belongs in that
+    /// window; nil while the session's view is in no window. A package
+    /// presents in its own session rather than the key window's.
+    public var presentation: ExactPresentation? { view.flatMap(ExactPresentation.init) }
+
     /// The file an admitted `app:/` path names (LLP 1133.009 D10 item 4):
     /// the session's own directories, a scratch tree under the agent.
     /// Admission has checked the path against the calling source's grants.
@@ -178,6 +194,28 @@ public final class ExactPackageContext {
     public func log(_ line: String) { logFn(line) }
     /// The session's clock, ms: the agent's under the agent.
     public func now() -> Double { nowFn() }
+}
+
+/// The session's window (`ExactPackageContext.presentation`).
+public struct ExactPresentation {
+    #if os(macOS)
+    /// The session's window. Session windows have no content view controller.
+    public let window: NSWindow
+    init?(_ view: NSView) {
+        guard let window = view.window else { return nil }
+        self.window = window
+    }
+    #else
+    /// The session's window and its scene.
+    public let window: UIWindow
+    public let scene: UIWindowScene
+    /// The window's root view controller, which a child view controller is added to.
+    public let rootViewController: UIViewController
+    init?(_ view: UIView) {
+        guard let window = view.window, let scene = window.windowScene, let root = window.rootViewController else { return nil }
+        self.window = window; self.scene = scene; rootViewController = root
+    }
+    #endif
 }
 
 /// A package's implementation class: what the adapter calls. Only `init`,
@@ -431,6 +469,10 @@ public final class ExactTrackEntry {
     /// A video track's running capture, while its lease is held (LLP
     /// 1133.008 D3, D8 item 3); nil otherwise and under the agent.
     public var video: (() -> ExactVideoSource?)?
+    /// Under the agent, where no capture exists: the picture a viewfinder of
+    /// the track draws, upright and unmirrored, which an observer analyses as
+    /// each frame (LLP 1133.027 D17 item 2). The camera package sets it.
+    public var picture: CGImage?
     public init(id: String, kind: String, tracks: [String] = [], owner: ExactTrackOwner? = nil) {
         self.id = id; self.kind = kind; self.tracks = tracks; self.owner = owner
     }
@@ -442,6 +484,15 @@ public protocol ExactTrackOwner: AnyObject {
     /// `consumer` joins track `id`; `start` is an explicit start, which
     /// reopens an idle track; `origin` is `app`, `tool` or `wake`.
     func subscribe(_ id: String, _ consumer: ExactTrackConsumer, start: Bool, origin: String) throws -> ExactSubscription
+    /// `observer` joins track `id` as an output that is not a consumer (LLP
+    /// 1133.027 D17 item 1): told what a consumer is told, attaching its
+    /// outputs through the same `configure`, but it never takes, holds or
+    /// reopens the lease and never counts as a consumer.
+    func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription
+}
+
+public extension ExactTrackOwner {
+    func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription { throw ExactTrackError("NotSupportedError") }
 }
 
 /// A consumer of a track: a recorder, a level, a hatch's tap. Main thread.
@@ -509,6 +560,11 @@ public final class ExactTracks {
     public func subscribe(_ id: String, _ consumer: ExactTrackConsumer, start: Bool, origin: String = "app") throws -> ExactSubscription {
         guard let entry = entries[id], let owner = entry.owner else { throw ExactTrackError("NotFoundError") }
         return try owner.subscribe(id, consumer, start: start, origin: origin)
+    }
+    /// `observer` watches track `id`, through its owner, taking no lease.
+    public func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription {
+        guard let entry = entries[id], let owner = entry.owner else { throw ExactTrackError("NotFoundError") }
+        return try owner.observe(id, observer)
     }
 }
 

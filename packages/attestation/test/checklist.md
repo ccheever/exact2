@@ -43,14 +43,18 @@ phone (LLP 1133.020).
 ## iOS Simulator
 
 8. `--bind attestation` on a simulator build: "Attestation: unavailable"
-   (`isSupported` is false there), and no button. Record the reading.
+   (`isSupported` is false there), and no button. Recorded on an iOS 27
+   simulator on 2026-10-26: unavailable, and `attest` refuses
+   `NotSupportedError`.
 
 ## Mac (macOS 27 or newer)
 
-9. A development build without a profile signs no App Attest entitlement and
-   reads unavailable (the build says so). With a profile carrying App Attest:
-   steps 2 to 4. Record whether the Mac needs a capability beyond the profile
-   (D17).
+9. A development build without a profile signs no App Attest entitlement,
+   and on macOS 27 it still reads available and attests a key: recorded on
+   2026-10-26, with an `appattest` (production) `aaguid` and the bare bundle
+   id as the app id, since an ad hoc signature has no team. With a profile
+   carrying App Attest: steps 2 to 4. Record the `aaguid` and whether the Mac
+   needs a capability beyond the profile (D17).
 
 ## Android phone (Android 10 or newer, with Play services)
 

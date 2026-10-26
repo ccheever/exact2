@@ -32,6 +32,31 @@ scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
 keeps the navigation root requirement. Take: no second delivery mechanism is
 added.
 
+**Expanded (Charlie, 2026-10-26, #1003):** an iOS app can ask to be the default
+browser. `host.ios.webBrowser: true` emits Apple's managed
+`com.apple.developer.web-browser` entitlement, registers the `http` and `https`
+`protocol_handlers` the platform requires, and fails the build, naming the
+profile, when the signing profile does not grant the entitlement. Apple
+approves each app. Nathan Schroeder implements it, with T3 Code's browser as
+the consumer. Take: none offered; waived by Charlie. Still out: http and https
+handlers for any app that does not opt in.
+
+**Expanded (Charlie, 2026-10-26, #1002; LLP 1133.028 §10):** Apple builds write
+a privacy manifest (`PrivacyInfo.xcprivacy`) into each bundle that links a
+required-reason API (the app, a widget extension, `ExactCore.framework` and
+the other Exact frameworks). It is generated from an audited table of the
+APIs Exact itself calls; a call with no approved reason is removed rather
+than given one. Nathan Schroeder implements it (#1004). Take: none offered;
+waived by Charlie. Still out: an app's own declarations, until an app with
+native code of its own asks.
+
+**Expanded (Charlie, 2026-10-26, Excord):** a virtualized `list` takes
+`reach-margin`, a nonnegative `px` or `%` distance along the scroll axis, one
+viewport by default, saying how far ahead of an end `reachstart` and
+`reachend` fire. With it, the default edge band follows the collection's own
+lead, as LLP 1027.004 D3 has it, so a fling that the window preloads for also
+fires the edge event. Take: none offered; waived by Charlie.
+
 **Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
 capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
 `focusin`/`focusout` admit bubbling subtree focus observation for the clipped
@@ -174,9 +199,22 @@ held to Chrome. The reader app's diary is the consumer: pagination and a
 two-page spread from one flow. Unblocks book pagination without a polled
 height or a duplicated chapter. Take: LLP 1043.000 stage 5
 (`shape-outside: <image>`, the dancer's traced silhouette) moves behind
-LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
-`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
-and grid boxes (LLP 1093 §5).
+LLP 1093 stage 2. Still out: `column-span`, regions, `@page` (page size,
+margins and page-margin boxes), `box-decoration-break: clone`, and slicing
+decorated, fixed-height, flex-row and grid boxes (LLP 1093 §5); printing an
+element is LLP 1133.024.
+
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+1133.024 §19 question 6):** printing one element through the platform's
+print UI (`print` from `@exact/print`): a print layout of the element at
+the page's width and the kernel's cut over pages of the platform's paper,
+with `break-*`'s `page` and `avoid-page` values, which do nothing on
+screen. Consumer: Fieldnotes' Print note. Unblocks printing and Save as
+PDF of a view made for paper without app Swift or Kotlin. Take: none
+named; the ruling is its own waiver. Still out (LLP 1133.024 §18):
+`@page`, a PDF export without the print UI, slicing a monolithic box
+across pages, a multi-column box continued across pages, and repeated
+fixed boxes.
 
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
@@ -1445,6 +1483,13 @@ tenth operation.
 LLP 1079 D7):** `perf` is the tenth operation and takes none away: a subtree's work
 by plan site, and a host's presented frames. A new measurement is a form of `perf`,
 never an eleventh operation.
+
+**Ruled (Charlie, 2026-10-26, Excord's socket handshake):** `clock until state
+<path> == <literal> within <ms>` is a form of `clock`, in the agent and in
+authored tests. Virtual time stays frozen while it waits on the wall clock for
+at most `<ms>`, and a miss names the last value it saw. It is for state that a
+stream reaches after its first message, which settlement does not wait for
+(LLP 1016.000 D5).
 
 **An eleventh operation replaces one of the ten, same PR.** A new input is a form of
 `tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered
