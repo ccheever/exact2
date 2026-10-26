@@ -696,3 +696,15 @@ and derives its listener port from the parsed URL. Existing backend URLs with pa
 accepted; credentials, queries and fragments are refused. Tests compare the validator with
 `appServer`’s accepted `:80`, `:080`, `:443` and path-bearing URLs, alongside the real overlapping
 server regression. All three final integration cases passed; no port-80 listener was exercised.
+
+The full second Grok review confirmed the native observation, presented geometry, layout
+counts and source-map column fixes. Its cleanup finding matches the one resolved above.
+Two smaller findings are also fixed: resource declarations now share the node source-map
+span validator, and the icon-reader audit excludes generated `dist.previous` and `dist.stage-*`
+siblings (including `web-dist` variants). The final driver suite passed 63 tests, including
+malformed resource spans. These follow-ups add no runtime semantics or qualification claims.
+
+The final icon-reader audit passed both cases with a temporary generated `dist.stage-*` tree
+present; that tree was removed afterward. Its selected Cargo target required 1m49s of
+compilation, then 0.53s of tests. Final formatting and staged caps passed. The broad gate
+failure and timing overrun above remain landing blockers; the branch has not been merged.

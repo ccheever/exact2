@@ -26,6 +26,10 @@ export function scaledScreenshot(r, scale, host) {
   return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
 }
 
+const sourceLocation = value => value && typeof value.file === 'string' && value.file.length > 0
+  && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
+  && value.end_col >= value.col && typeof value.component === 'string';
+
 /** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
  * The locator discovers candidates; the node's same-reply digest decides whether
  * one is compatible. Identical plans can have different formatting/ranges, so
@@ -53,9 +57,6 @@ export function sourceMapReader(locator) {
     } finally { await reader.cancel(); }
     return Buffer.concat(parts, length);
   }
-  const location = value => value && typeof value.file === 'string' && value.file.length > 0
-    && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
-    && value.end_col >= value.col && typeof value.component === 'string';
   const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
   return {
     /** The map read for a plan digest, if any (LLP 1142 D2: `trace --out` writes it). */
@@ -102,7 +103,7 @@ export function sourceMapReader(locator) {
       for (const style of Object.values(node.style ?? {})) { delete style.origin; delete style.state; delete style.at; }
       const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
       const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
-      if (!entry || !location(entry) || !Array.isArray(entry.chain) || !entry.chain.every(location)
+      if (!entry || !sourceLocation(entry) || !Array.isArray(entry.chain) || !entry.chain.every(sourceLocation)
         || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
           // A base origin, absent where only a state part writes the row; each part's own (theme2's 03:18).
           && (b.origin === undefined || origin(b.origin)) && (b.states === undefined || Array.isArray(b.states) && b.states.every(p => p && typeof p.state === 'string' && origin(p.origin))))) {
@@ -145,9 +146,7 @@ export function identifyResources(reply, maps) {
   const digest = reply.planDigest, map = maps?.get(digest);
   for (const [name, row] of Object.entries(reply.resourceStatus ?? {})) {
     const at = map?.resources?.[name];
-    const valid = at && typeof at.file === 'string' && at.file.length > 0
-      && Number.isSafeInteger(at.line) && at.line > 0
-      && Number.isSafeInteger(at.col) && at.col > 0;
+    const valid = sourceLocation(at);
     row.declaration = valid
       ? {status:'compatible', digest, file:at.file, line:at.line, col:at.col, end_col:at.end_col, component:at.component}
       : {status:'unavailable', reason:map ? 'no resource declaration in this map' : 'no compatible development source map'};

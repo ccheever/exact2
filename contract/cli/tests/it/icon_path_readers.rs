@@ -143,8 +143,17 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
         if path.is_dir() {
             if !matches!(
                 name.as_str(),
-                "target" | "node_modules" | "dist" | "dist.gen" | "web-dist"
+                "target"
+                    | "node_modules"
+                    | "dist"
+                    | "dist.gen"
+                    | "dist.previous"
+                    | "web-dist"
+                    | "web-dist.gen"
+                    | "web-dist.previous"
             ) && !name.starts_with('.')
+                && !name.starts_with("dist.stage-")
+                && !name.starts_with("web-dist.stage-")
             {
                 files(&path, out);
             }
