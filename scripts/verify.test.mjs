@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -590,6 +590,27 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.equal(appServer(dir, {PORT:'5123', EXACT_BACKEND_ORIGIN:'http://127.0.0.1:5124'}).port, 5124);
   assert.equal(appServer(dir, {EXACT_BACKEND_ORIGIN:'https://discord.com'}).url, null);
   assert.throws(() => appServer(dir, {PORT:'0'}), /fixture port must be an integer/);
+});
+
+test('recorded server addresses preserve accepted default ports and paths, refusing credentials and queries', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-address-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ server: { database: false } }));
+    writeFileSync(resolve(dir, 'server.ts'), 'Bun.serve({});\n');
+    for (const [url, port] of [
+      ['http://127.0.0.1:80', 80], ['http://127.0.0.1:080', 80], ['https://localhost:443', 443],
+      ['https://[::1]:0443/api', 443], ['http://localhost:80/health', 80], ['http://127.0.0.1:8080/api/v1/', 8080],
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), `export const API = ${JSON.stringify(url)};\n`);
+      const accepted = appServer(dir, {});
+      assert.equal(accepted.url, url.replace(/\/$/, ''));
+      assert.equal(accepted.port, port);
+      assert.deepEqual(recordedServerAddress(accepted.url), { url: accepted.url, port });
+    }
+    for (const url of [null, {}, 'file:///tmp/server', 'ftp://localhost:80', 'http://user:pw@localhost:80',
+      'http://@localhost:80', 'http://localhost:80/?', 'http://localhost:80/?q=x', 'http://localhost:80/#',
+      'http://localhost:80/#x', 'http://:80', 'http://localhost:65536']) assert.equal(recordedServerAddress(url), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('fixture drives isolate checkouts, refuse foreign servers and clean overlapping ports', async () => {

@@ -144,6 +144,15 @@ export function heldLine(server) {
   return `${server.url} already answers${pid ? ` (pid ${pid}${command ? `: ${command}` : ''})` : ''}, and the tests would ${server.database ? "write into that server's database" : 'change that server\'s state'}: stop it (${pid ? `kill ${pid}` : 'Ctrl-C where it runs'}) and run this again, which starts ${server.entry} itself${server.database ? ' on an empty one' : ''}`;
 }
 
+/** Keep the URL appServer accepted, including its path and explicit default port, for exact record comparisons. */
+export function recordedServerAddress(value) {
+  if (typeof value !== 'string') return null;
+  let url; try { url = new URL(value); } catch { return null; }
+  const authority = /^[a-z]+:\/\/([^/]*)/i.exec(value)?.[1];
+  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || !authority || authority.includes('@') || value.includes('?') || value.includes('#')) return null;
+  return { url: value, port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)) };
+}
+
 /** A managed server needs this directory's launch record and the recorded process still listening. */
 function ownsServer(dir, server, expectedPid, child = null) {
   const listeners = process.platform === 'win32'
@@ -258,10 +267,8 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
       // Overlapping drives may choose different ports; each record names the listener to validate.
       let recordedServer = null;
       try {
-        const origin = JSON.parse(readIn(lease, file))?.origin, url = new URL(origin);
-        if (url.origin === origin && ['http:', 'https:'].includes(url.protocol)) {
-          recordedServer = { ...server, url: origin, port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)) };
-        }
+        const address = recordedServerAddress(JSON.parse(readIn(lease, file))?.origin);
+        if (address) recordedServer = { ...server, ...address };
       } catch { /* An unknown record grants no authority to stop a process. */ }
       const ours = spawned?.pid === pid && spawned.exitCode == null || recordedServer && ownsServer(dir, recordedServer, pid);
       if (!ours && alive(pid)) return [];
