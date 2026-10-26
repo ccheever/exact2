@@ -1,21 +1,16 @@
+# The photo editor on the web (LLP 1067.000): one wasm with the runner, the
+# kernel and the baked plan; its TypeScript runs in the page's realm, and its
+# page module (modules/web/index.js) is `<photo-editor>`.
 [package]
 name = "photo-editor-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The photo editor on the web: one wasm with the runner, the kernel, and the baked plan"
 publish = false
 build = "build.rs"
 
 [lib]
-name = "photo_editor_web"
 crate-type = ["cdylib", "rlib"]
-test = false
-bench = false
-
-[[bin]]
-name = "photo-editor-dev"
-path = "src/bin/photo-editor-dev.rs"
 test = false
 bench = false
 
@@ -23,9 +18,7 @@ bench = false
 exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
 exact-web-capabilities = { path = "../../../host/web-capabilities" }
-photo-editor-data = { path = "../data" }
+exact-js-web = { path = "../../../js/web" }
 
 [build-dependencies]
-contract = { path = "../../../contract/cli" }
-exact-bake = { path = "../../../bake" }
-photo-editor-data = { path = "../data" }
+exact-js-bake = { path = "../../../js/bake" }

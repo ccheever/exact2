@@ -8,6 +8,12 @@ fn main() {
         return;
     }
     contract::rerun_if_changed(std::path::Path::new("../app.contract"));
+    // The watch entry's file is its own plan's source; app.contract does not use it.
+    if let Ok(Some(watch)) =
+        contract::Manifest::read(std::path::Path::new("..")).and_then(|m| m.watch())
+    {
+        contract::rerun_if_changed(&std::path::Path::new("..").join(watch.source));
+    }
     println!("cargo:rerun-if-changed=build.rs");
     let plan = match contract::compile_path(std::path::Path::new("../app.contract")) {
         Ok(p) => p,

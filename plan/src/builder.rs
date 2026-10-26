@@ -398,7 +398,7 @@ impl PlanBuilder {
             name: self.str(name),
             sf: self.str(sf),
             view_box: self.str(view_box),
-            path: self.str(path),
+            path: crate::IconPathId(self.str(path).0),
             svg: self.str(svg),
         };
         self.plan.icons.push(row);
@@ -651,6 +651,28 @@ impl PlanBuilder {
             substitute: self.str(substitute),
         };
         self.plan.modules.push(row);
+    }
+
+    /// A native module's event the root hears (LLP 1133.004 D6): `action`
+    /// runs with its arguments.
+    pub fn module_event(
+        &mut self,
+        extension: &str,
+        declared: &str,
+        action: ActionsId,
+        raised: &str,
+        hold: u32,
+        budget: u32,
+    ) {
+        let row = ModuleEventsRow {
+            extension: self.str(extension),
+            declared: self.str(declared),
+            action,
+            raised: self.str(raised),
+            hold,
+            budget,
+        };
+        self.plan.module_events.push(row);
     }
 
     /// A run of argument expressions.

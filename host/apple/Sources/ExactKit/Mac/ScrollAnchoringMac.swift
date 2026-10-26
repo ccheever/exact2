@@ -31,6 +31,8 @@ extension NodeView {
         let maximum = max(0, doc.bounds.height - sv.contentView.bounds.height)
         var y: CGFloat
         if props["scrollFollowEnd"] == "true", followedScroll?.end ?? true {
+            // Past the end, the rubber band settles there itself (`CollectionHost.leavesRubberBand`).
+            if sv.contentView.bounds.minY > maximum + 0.5 { return }
             y = maximum
         } else {
             let top = followedScroll?.top ?? beforeLayoutScroll?.y ?? sv.contentView.bounds.minY

@@ -1,0 +1,65 @@
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.012 §10): every name of
+// @exact/speech-synthesis, sent and read as an app would, each answer shown
+// by testId for the suites.
+use speak, cancelSpeech, pauseSpeech, resumeSpeech, speechSynthesisState, speechUtterance, speechSynthesisVoices, SpeechUtteranceInfo, SpeechSynthesisState, SpeechUtterance, SpeechSynthesisVoices from "@exact/speech-synthesis"
+
+component Fixture
+  state firstId = ""
+  state lastId = ""
+  resource voices = speechSynthesisVoices() as shape SpeechSynthesisVoices else empty()
+  resource voice = speechSynthesisState(interval=50) as shape SpeechSynthesisState else empty()
+  resource first = speechUtterance(utterance=firstId, interval=50) as shape SpeechUtterance else empty()
+  resource last = speechUtterance(utterance=lastId, interval=50) as shape SpeechUtterance else empty()
+  mutation spokenFirst as shape SpeechUtteranceInfo then keepFirst
+  mutation spokenLast as shape SpeechUtteranceInfo then keepLast
+  mutation held as shape SpeechSynthesisState
+  derive defaults = voices.voices.filter(v => v.default).length
+  action say
+    send spokenFirst = speak(text="one two three four five six seven eight", lang="en-US")
+  action sayTwo
+    send spokenFirst = speak(text="one two three four five six seven eight", lang="en-US", audioSessionType="playback")
+  action keepFirst
+    match spokenFirst
+      case some(u)
+        firstId = u.id
+        send spokenLast = speak(text="nine ten", lang="en-US")
+      case none
+        firstId = ""
+  action keepLast
+    match spokenLast
+      case some(u)
+        lastId = u.id
+      case none
+        lastId = ""
+  action sayEmpty
+    send spokenFirst = speak(text="", lang="en-US")
+  action sayBadVoice
+    send spokenFirst = speak(text="one", voice="no such voice")
+  action pause
+    send held = pauseSpeech()
+  action resume
+    send held = resumeSpeech()
+  action cancel
+    send held = cancelSpeech()
+  view
+    column gap=8 padding=16
+      text `${voices.voices.length} ${defaults}` testId="voices"
+      text `${voice.available} ${voice.speaking} ${voice.pending} ${voice.paused} ${voice.charIndex} ${voice.charLength} ${voice.name == "" ? "-" : voice.name} ${voice.queue.length} ${voice.audioSessionType}` testId="state"
+      text (match voice.utterance { case some(u) => u, case none => "-" }) testId="speaking"
+      text `${first.state} ${match first.outcome { case some(o) => o, case none => "-" }} ${match first.error { case some(e) => e, case none => "-" }}` testId="first"
+      text `${last.state} ${match last.outcome { case some(o) => o, case none => "-" }} ${match last.error { case some(e) => e, case none => "-" }}` testId="last"
+      text `${firstId} ${lastId}` testId="ids"
+      button press=say testId="say"
+        text "Say"
+      button press=sayTwo testId="say-playback"
+        text "Say (playback)"
+      button press=sayEmpty testId="say-empty"
+        text "Say nothing"
+      button press=sayBadVoice testId="say-bad-voice"
+        text "Say with no such voice"
+      button press=pause testId="pause"
+        text "Pause"
+      button press=resume testId="resume"
+        text "Resume"
+      button press=cancel testId="cancel"
+        text "Cancel"

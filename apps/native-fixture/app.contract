@@ -256,6 +256,8 @@ component NativeFixture
   action openFocusedPlain
     focusPlain = true
     nav = push(nav, "/plain")
+  action openAnotherEditor
+    nav = push(nav, "/plain?editor")
   action openPlain
     nav = push(nav, "/plain")
   action openNote
@@ -358,6 +360,10 @@ component NativeFixture
   state secondPage = ""
   action showSecondPage(page: string)
     secondPage = page
+  // Detail opened from Second, as a warm deep link opens a feature in a tab
+  // already built: one update selects Home and pushes onto its stack.
+  action openDetail
+    nav = open(nav, "/detail")
   // The tablist hidden over the root, as Signal's chat-list multi-select
   // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
   state tabsAtTop = false
@@ -763,6 +769,8 @@ component NativeFixture
                 if e.name == "plain" and focusPlain
                   input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
                   input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
+                  button press=openAnotherEditor testId="plain-push" height=44
+                    text "Push another editor"
                 if e.name == "note" and focusNote
                   textarea testId="note-text" aria-label="Note" autofocus=true margin=12 height=120
                 if e.name == "photo"
@@ -785,6 +793,8 @@ component NativeFixture
                       column testId="tall-second" height=1600 background-color="#eef2ff"
                       button press=showSecondPage("taller") testId="second-taller" padding=6 background-color="#e5e7eb"
                         text "Taller"
+                      button press=openDetail testId="open-detail" padding=6 background-color="#e5e7eb"
+                        text "Detail in Home"
                 if e.name == "second" and secondPage == "taller"
                   scroll id="list-second" testId="list-second-taller" flex=1 min-height=0
                     column padding=12 gap=8

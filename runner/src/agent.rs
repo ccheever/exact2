@@ -273,6 +273,14 @@ pub fn answer<D: DataSource>(
         s.push('}');
         return Some((s, None));
     }
+    if op == "frameRequest" {
+        let reply = runner.hold_frame_request(request);
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
+    // A module's listed entry: `tap @ref`, or a relaunch's launch flag (LLP 1133.004 §7).
+    if let Some(reply) = runner.listed_op(&op, request) {
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
     if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
         return None;
     }
@@ -748,10 +756,14 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         runner.page(),
         runner.viewport().fold,
     );
-    let (files, pictures) = (page.can_share_files, page.can_share_pictures);
+    let (files, pictures, partition) = (
+        page.can_share_files,
+        page.can_share_pictures,
+        page.iframe_partition,
+    );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"iframePartition\":{partition},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -846,6 +858,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
+    crate::perf::failures(runner, &mut s);
     s.push(',');
     pending::state(runner, &mut s);
     s.push(',');
@@ -887,15 +900,14 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
-    // Notifications posted under the agent, where none reaches the system.
-    s.push_str(",\"notifications\":[");
-    for (i, n) in runner.notifications().iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        n.summary(&mut s);
+    crate::notify::state(runner, &mut s);
+    // What a module's declared substitute keeps (LLP 1133.004 §7).
+    runner.declared_state_json(&mut s);
+    // The wake running, else the last (LLP 1133.017 §10).
+    if let Some(wake) = runner.wake_state() {
+        s.push_str(",\"wake\":");
+        s.push_str(&wake.to_string());
     }
-    s.push(']');
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
     transport::state(runner, request, &mut s);

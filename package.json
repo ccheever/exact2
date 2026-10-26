@@ -19,14 +19,25 @@
   "dependencies": {
     "@exact/scale-fixture-cards": "workspace:*",
     "@exact/actions": "workspace:*",
+    "@exact/browser": "workspace:*",
+    "@exact/browser-automation": "workspace:*",
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
+    "@exact/language-model": "workspace:*",
     "@exact/local-auth": "workspace:*",
     "@exact/camera": "workspace:*",
+    "@exact/photos": "workspace:*",
     "@exact/media-capture": "workspace:*",
+    "@exact/motion": "workspace:*",
     "@exact/recording": "workspace:*",
+    "@exact/speech-recognition": "workspace:*",
+    "@exact/speech-synthesis": "workspace:*",
     "@exact/scale-fixture-notes": "workspace:*",
-    "@exact/reading": "workspace:*"
+    "@exact/reading": "workspace:*",
+    "@exact/passkeys": "workspace:*",
+    "@exact/contacts": "workspace:*",
+    "@exact/calendar": "workspace:*",
+    "@exact/background": "workspace:*"
   }
 }

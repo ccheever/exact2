@@ -1,5 +1,6 @@
 //! How to draw a source string: paragraphs, spans, and what to hide.
 
+use crate::atoms::{self, Atom, Atoms};
 use crate::block::{self, Block, BlockKind, MarkerKind, B};
 use crate::inline::{self, Construct, Mark};
 use crate::offsets::Offsets;
@@ -96,8 +97,11 @@ pub struct Styled {
     pub replaced: Vec<Replaced>,
     /// Every footnote label, in the order its first reference appears.
     pub footnotes: Vec<Footnote>,
-    /// Every bracketed link and image, in source order.
+    /// Every bracketed link and image that is not an atom, in source order.
     pub links: Vec<LinkSyntax>,
+    /// The inline atoms (LLP 1045.000 D1), sorted, never overlapping. No
+    /// hidden range lies inside one, and an atom link is not in `links`.
+    pub atoms: Vec<Atom>,
 }
 
 /// A bracketed link's or image's own syntax, whether hidden or revealed.
@@ -131,6 +135,8 @@ pub(crate) struct Analysis {
     pub constructs: Vec<Construct>,
     /// (label, reference ranges, definition block range)
     pub footnotes: Vec<(String, Vec<B>, Option<B>)>,
+    /// The inline atoms, sorted (LLP 1045.000 D1).
+    pub atoms: Vec<atoms::Found>,
 }
 
 fn touches(reveal: &Option<B>, construct: &B) -> bool {
@@ -196,6 +202,12 @@ fn flatten(marks: &[Mark], hidden: &[B], spans: &mut Vec<(B, u8, String)>) {
 }
 
 pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
+    analyze_with(source, reveal, &Atoms::default())
+}
+
+/// The analysis with `atoms` recognized: inside an atom no marker is hidden,
+/// revealed or replaced, so the atom is one run a host draws as its pill.
+pub(crate) fn analyze_with(source: &str, reveal: Option<B>, atoms: &Atoms) -> Analysis {
     let blocks = block::scan(source);
     let mut analysis = Analysis {
         blocks: Vec::new(),
@@ -204,6 +216,7 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
         replaced: Vec::new(),
         constructs: Vec::new(),
         footnotes: Vec::new(),
+        atoms: Vec::new(),
     };
     // Footnotes number by first reference in document order, whatever their
     // labels say, and never by what the selection reveals. A definition with
@@ -257,7 +270,8 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
             .map_or_else(|| "?".to_string(), |at| (at + 1).to_string())
     };
 
-    for block in &blocks {
+    let mut figures = Vec::new();
+    for (n, block) in blocks.iter().enumerate() {
         let mut out = inline::Out::default();
         let revealed = touches(&reveal, &block.group);
         let first_hidden = analysis.hidden.len();
@@ -303,6 +317,29 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
                 }
             }
             _ => inline::scan(source, &block.content, &mut out),
+        }
+        if !atoms.is_empty() {
+            let found = atoms::recognize(source, &block.content, &out, atoms);
+            if !found.is_empty() {
+                // A lone image or link that is an atom is a pill in a line of
+                // text, not a figure.
+                if matches!(
+                    block.kind,
+                    BlockKind::Embed | BlockKind::Image | BlockKind::Video
+                ) {
+                    figures.push(n);
+                }
+                let inside = |r: &B| {
+                    found
+                        .iter()
+                        .any(|f| f.range.start <= r.start && r.end <= f.range.end)
+                };
+                out.hidden.retain(|(m, _)| !inside(m));
+                out.footnotes.retain(|(r, _)| !inside(r));
+                out.marks
+                    .retain(|m| m.flags & MARKER == 0 || !inside(&m.range));
+                analysis.atoms.extend(found);
+            }
         }
         for (marker, _) in out.hidden.drain(..) {
             if marker.is_empty() {
@@ -350,6 +387,10 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
     analysis.hidden = merged;
     analysis.replaced.sort_by_key(|r| r.0.start);
     analysis.footnotes = footnotes;
+    let mut blocks = blocks;
+    for n in figures {
+        blocks[n].kind = BlockKind::Body;
+    }
     analysis.blocks = blocks;
     analysis
 }
@@ -358,13 +399,25 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
 /// touching a paragraph reveals all its markers, as [`MARKER`](crate::MARKER) spans. `None`
 /// is reading: every marker hidden.
 pub fn style(source: &str, reveal: Option<Range>) -> Styled {
+    style_with(source, reveal, &Atoms::default())
+}
+
+/// How to draw `source` with `atoms` recognized (LLP 1045.000 D1).
+pub fn style_with(source: &str, reveal: Option<Range>, atoms: &Atoms) -> Styled {
     let offsets = Offsets::new(source);
-    let analysis = analyze(source, reveal.map(|r| offsets.range8(r)));
+    let analysis = analyze_with(source, reveal.map(|r| offsets.range8(r)), atoms);
+    let in_atom = |r: &B| {
+        analysis
+            .atoms
+            .iter()
+            .any(|a| a.range.start <= r.start && r.end <= a.range.end)
+    };
     // A link's label is scanned before the link, so an image in it comes first.
     let mut links: Vec<LinkSyntax> = analysis
         .constructs
         .iter()
         .filter(|c| c.kind & (LINK | IMAGE) != 0 && source[c.inner.end..].starts_with("]("))
+        .filter(|c| !in_atom(&c.outer))
         .map(|c| LinkSyntax {
             open: offsets.range16(&(c.outer.start..c.inner.start)),
             close: offsets.range16(&(c.inner.end..c.outer.end)),
@@ -426,5 +479,24 @@ pub fn style(source: &str, reveal: Option<Range>) -> Styled {
             })
             .collect(),
         links,
+        atoms: analysis
+            .atoms
+            .iter()
+            .map(|a| {
+                let text = &source[a.range.clone()];
+                Atom {
+                    range: offsets.range16(&a.range),
+                    kind: a.kind,
+                    source: text.to_string(),
+                    href: a.href.clone(),
+                    label: atoms
+                        .face(text)
+                        .map(|f| f.label.as_str())
+                        .filter(|l| !l.is_empty())
+                        .unwrap_or(&a.default)
+                        .to_string(),
+                }
+            })
+            .collect(),
     }
 }

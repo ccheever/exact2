@@ -280,12 +280,30 @@ mod tests {
         assert_eq!(card.resolve(false), crate::style::Color(0xf9f9_f9ff));
         assert_eq!(card.resolve(true), crate::style::Color(0x2727_27ff));
         assert!(matches!(card, crate::ColorValue::Platform(_)));
-        // The web's first look is iOS's whole: the surfaces too, which stay
-        // the sheet's pairs there. As roles the ground would be a device's
-        // palette on Android, which reads this column, under cards that
-        // stayed iOS's.
+        // The first web look keeps iOS's metrics except title-heading
+        // emphasis, which native text styles supply themselves.
         for m in METRICS {
-            assert_eq!(m.web, m.ios, "{}", m.name);
+            let emphasis = match m.name {
+                "heading-title-weight" => Some(700.0),
+                "heading-small-title-weight" => Some(600.0),
+                _ => None,
+            };
+            if let Some(weight) = emphasis {
+                assert_eq!(
+                    [m.ios, m.macos, m.material],
+                    [Text("unset"); 3],
+                    "{}",
+                    m.name
+                );
+                assert_eq!(
+                    [m.web, m.neutral, m.terminal],
+                    [Number(weight); 3],
+                    "{}",
+                    m.name
+                );
+            } else {
+                assert_eq!(m.web, m.ios, "{}", m.name);
+            }
         }
         // The neutral look's grouped list is that one on the neutral
         // grounds, with a surface's corners (LLP 1115.000 D4 part B): what

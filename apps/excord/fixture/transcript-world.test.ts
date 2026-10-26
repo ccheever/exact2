@@ -18,7 +18,8 @@ test('transcript world is deterministic, generates under one second and has one 
   expect(hash(world)).toBe(hash(createTranscriptWorld(origin)));
   expect(world.me).toMatchObject({ username: 'charlie', global_name: 'Charlie' });
   expect(world.users).toEqual(members.map((member, i) => ({ id: snowflakeFromMs(Date.UTC(2024, 0, 1), i),
-    username: member.username, global_name: member.global_name, avatar: null, discriminator: '0', bot: member.bot })));
+    username: member.username, global_name: member.global_name, discriminator: '0',
+    avatar: i % 4 === 3 ? null : expect.stringMatching(/^a[0-9a-f]+$/), bot: member.bot })));
   expect(world.guilds).toHaveLength(1);
   expect(world.guilds[0].name).toBe('Exact Club');
   expect(world.guilds[0].roles.map(role => role.name)).toEqual(['@everyone', 'Maintainers', 'Cyclists']);
@@ -64,7 +65,7 @@ test('all channel histories preserve the generator, unread positions, replies, m
       expect(message.id).toBe(snowflakeFromMs(original.timestamp, i + 1));
       if (i) expect(compareIds(history[i - 1].id, message.id)).toBeLessThan(0);
       expect(message).toMatchObject({ author: world.users[members.findIndex(user => user.id === original.author.id)],
-        content: rewrite(original.content), timestamp: new Date(original.timestamp).toISOString(),
+        content: original.forwarded ? '' : rewrite(original.content), timestamp: new Date(original.timestamp).toISOString(),
         edited_timestamp: original.edited_timestamp === null ? null : new Date(original.edited_timestamp).toISOString(),
         type: original.type, pinned: false, tts: false, flags: 0 });
       expect(message.mentions).toEqual(world.users.filter(user => message.content.includes(`<@${user.id}>`)));
@@ -88,7 +89,8 @@ test('all channel histories preserve the generator, unread positions, replies, m
           expect(message.referenced_message).not.toHaveProperty('referenced_message');
           expect(message.referenced_message).not.toBe(target);
         }
-      } else expect(message.message_reference).toBeUndefined();
+      } else if (original.forwarded) expect(message.message_reference).toMatchObject({ type: 1, channel_id: channel.id });
+      else expect(message.message_reference).toBeUndefined();
       expect(message.attachments).toHaveLength(original.attachments.length);
       for (const [a, attachment] of message.attachments.entries()) {
         attachments++;

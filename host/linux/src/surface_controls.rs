@@ -693,6 +693,8 @@ impl<D: DataSource> Presenter<D> {
                 && !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
                     || self.desktop_scroll_focus(id)
+                    || self.alert_message_overflows(id)
+                    || self.focus == Some(id) && self.alert_message(id)
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).

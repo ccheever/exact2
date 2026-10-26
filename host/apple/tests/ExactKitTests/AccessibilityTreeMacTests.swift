@@ -563,6 +563,44 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual([sound["role"] as? String, (sound["states"] as? [String: Any])?["checked"] as? Bool], ["switch", true] as [AnyHashable?])
     }
 
+    func testFormStateWritesFollowPropsAndInheritedAvailability() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityHint": "Help", "accessibilityRequired": "true"]],
+            ["op": "create", "id": 21, "kind": "view", "props": ["accessibilityDisabled": "true"]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["title": "Tip"]],
+            ["op": "children", "id": 1, "ids": [20, 21, 22]],
+        ]))
+        let titled = try XCTUnwrap(p.views[22])
+        XCTAssertTrue(titled.isAccessibilityEnabled(), "a new NSView's default must be explicitly enabled")
+        XCTAssertEqual(titled.toolTip, "Tip")
+        XCTAssertNil(titled.accessibilityHelp(), "a tooltip must not replace the authored accessibility description")
+        p.apply(wireBatch([["op": "props", "id": 22, "set": ["title": "New tip"]]]))
+        XCTAssertNil(titled.accessibilityHelp())
+        let node = try XCTUnwrap(p.views[20])
+        XCTAssertEqual(node.accessibilityHelp(), "Help")
+        XCTAssertTrue(node.isAccessibilityRequired())
+        XCTAssertTrue(node.isAccessibilityEnabled())
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["testId": "described"]]]))
+        XCTAssertEqual(node.accessibilityHelp(), "Help", "unrelated props keep the form states")
+        XCTAssertTrue(node.isAccessibilityRequired())
+        p.apply(wireBatch([
+            ["op": "children", "id": 1, "ids": [21]],
+            ["op": "children", "id": 21, "ids": [20]],
+        ]))
+        XCTAssertFalse(node.isAccessibilityEnabled(), "aria-disabled is inherited after reparenting")
+        p.apply(wireBatch([
+            ["op": "props", "id": 21, "clear": ["accessibilityDisabled"]],
+            ["op": "props", "id": 20, "clear": ["accessibilityHint", "accessibilityRequired"]],
+        ]))
+        XCTAssertTrue(node.isAccessibilityEnabled())
+        XCTAssertNil(node.accessibilityHelp())
+        XCTAssertFalse(node.isAccessibilityRequired())
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityHint": "Again", "accessibilityRequired": "true"]]]))
+        XCTAssertEqual(node.accessibilityHelp(), "Again")
+        XCTAssertTrue(node.isAccessibilityRequired())
+    }
+
     /// Onboarding F22, spreadsheet F20: a field's `aria-describedby` text is
     /// its AXHelp (and follows that text), `aria-required` its AXRequired,
     /// `aria-invalid` WebKit's AXInvalid; a menu button's `aria-haspopup` is

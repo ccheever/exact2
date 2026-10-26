@@ -260,9 +260,9 @@ final class HoverFollowsLayoutMacTests: XCTestCase {
         XCTAssertEqual(log, [])
     }
 
-    /// A fling moves the page every tick; the hit-test is the frame's, one,
-    /// at where the content ended up.
-    func testAScrollFlingIsHitTestedOnceAFrame() {
+    /// A fling moves the page every tick; the hit-test waits for it to rest
+    /// (`Presenter.scrollRestInterval`), one a scroll, at where the content ended up.
+    func testAScrollFlingIsHitTestedOnceItRests() {
         let p = rows()
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 900.0]]))
         let at = restOnB(p)
@@ -270,13 +270,14 @@ final class HoverFollowsLayoutMacTests: XCTestCase {
         p.onHover = { id, over in log.append("\(id) \(over)") }
         p.hoverUnderPointer() // the last batch's frame
         XCTAssertFalse(p.followPending)
-        p.viewport.contentView.scroll(to: NSPoint(x: 0, y: 20))
-        let link = p.followLink
-        XCTAssertTrue(p.followPending, "the scroll moved the content under the pointer")
-        for y in [30.0, 45.0, 60.0] {
+        for y in [20.0, 30.0, 45.0, 60.0] {
             p.viewport.contentView.scroll(to: NSPoint(x: 0, y: y))
-            XCTAssertTrue(p.followLink === link && p.followPending, "one link and one hit-test a frame, however many ticks")
+            XCTAssertFalse(p.followPending, "no hit-test while the scroll moves")
+            XCTAssertNotNil(p.scrollRestFollow, "one waits for the scroll to rest")
         }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: Presenter.scrollRestInterval + 0.1))
+        XCTAssertNil(p.scrollRestFollow)
+        XCTAssertTrue(p.followPending, "the scroll rested: the hit-test waits for the next frame")
         XCTAssertEqual(log, [], "nothing until the frame")
         p.hoverUnderPointer()
         XCTAssertEqual(log, ["3 false", "4 true"], "the row the fling brought under the pointer")

@@ -113,10 +113,10 @@ public enum DevMenu {
     /// Whether a build has the Develop menu and its chords (LLP 1115.000
     /// D7.8): a development build does, a release build does not, as a
     /// shipped Mac app has no such menu. A release build is one baked with
-    /// production trust (its `compat.json`, which an app with no updater does
-    /// not record) or stamped `release` or `archive` by `build.mjs`
-    /// (`ExactBuildKind`: production trust, or `--distribution`, what
-    /// `exact release` signs). An unstamped host (a test's) is a
+    /// production trust (`ExactEnv.productionBake`) or stamped `release` or
+    /// `archive` by `build.mjs` (`ExactBuildKind`: `--release`,
+    /// `--distribution`, what `exact release` signs, or `--archive`; each
+    /// bakes production trust). An unstamped host (a test's) is a
     /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
     /// for either (`ExactEnv.devMenu`).
     static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {
@@ -452,6 +452,15 @@ public enum DevMenu {
             let size = session.presenter.viewportSize
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")
             lines.append("boot: \(String(format: "%.1f", session.bootMs)) ms")
+            // A resource whose answers are refused keeps showing its last value (LLP 1142 D4).
+            if let state = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any],
+               let failed = state["failed"] as? [String: String] {
+                let counts = state["failures"] as? [String: [String: Any]] ?? [:]
+                for (name, why) in failed.sorted(by: { $0.key < $1.key }) {
+                    let n = (counts[name]?["count"] as? NSNumber).map { ", \($0) times" } ?? ""
+                    lines.append("failing: \(name)\(n): \(why)")
+                }
+            }
         }
         return lines.joined(separator: "\n")
     }

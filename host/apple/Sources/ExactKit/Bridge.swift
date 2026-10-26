@@ -54,7 +54,7 @@ extension Runtime {
         on { read(exact_dispatch(rt, view, 42, write(selection.payload(value)), now)) }
     }
     /// The wall clock owns time, or the agent's clock does (the timers RFC, D1).
-    func liveClock(_ yes: Bool) { on { () -> Void in _ = exact_set_live_clock(rt, yes ? { ExactEnv.wall() } : nil) } }
+    func liveClock(_ yes: Bool) { setLiveClock(yes ? { ExactEnv.wall() } : nil) }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {

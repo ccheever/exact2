@@ -41,6 +41,23 @@ pub(crate) struct UseFix {
 }
 
 impl Loader<'_> {
+    /// The module name for data code alone (`"contract": false`, LLP
+    /// 1133.011 D12) that a `use` would bring, if one of `found` is.
+    pub(super) fn data_only(
+        &self,
+        unique: &[HashMap<(Kind, String), String>],
+        found: &[(Kind, String)],
+    ) -> Option<&contract_syntax::ModuleDecl> {
+        let brought = |u: usize, m: &contract_syntax::ModuleDecl| {
+            let to = unique[u].get(&(Kind::Call, m.name.clone()));
+            to.is_some_and(|to| found.iter().any(|(k, f)| *k == Kind::Call && f == to))
+        };
+        (self.units.iter().enumerate())
+            .flat_map(|(u, unit)| unit.file.modules.iter().map(move |m| (u, m)))
+            .find(|&(u, m)| m.data_only && brought(u, m))
+            .map(|(_, m)| m)
+    }
+
     /// The fix for unit `index`, whose references `misses` name declarations
     /// of other files, in the order written.
     pub(super) fn use_fix(&self, index: usize, misses: Vec<(Missing, Elsewhere)>) -> UseFix {
@@ -255,7 +272,8 @@ impl Loader<'_> {
         None
     }
 
-    /// Whether unit `from` uses unit `to`, through any chain of uses.
+    /// Whether unit `from` loads unit `to`, through any chain of `use` and
+    /// `members` lines.
     fn reaches(&self, from: usize, to: usize) -> bool {
         let mut seen = vec![false; self.units.len()];
         let mut stack = vec![from];
@@ -264,7 +282,7 @@ impl Loader<'_> {
                 return true;
             }
             if !std::mem::replace(&mut seen[u], true) {
-                stack.extend(self.units[u].targets.iter().copied());
+                stack.extend(self.units[u].loads());
                 // And the edges the other fixes would add.
                 stack.extend(
                     self.proposed
@@ -548,14 +566,14 @@ impl Loader<'_> {
         beside
     }
 
-    /// The units the root reaches through the `use` lines written and the
+    /// The units the root reaches through the `use` and `members` lines written and the
     /// ones the fixes write (`brings`, never an edge a fix refused, such as
     /// a cycle's); the first `reached` units are the root's own program.
     fn reached_with_fixes(&self, reached: usize) -> HashSet<usize> {
         let mut seen: HashSet<usize> = (0..reached).collect();
         let mut todo: Vec<usize> = seen.iter().copied().collect();
         while let Some(at) = todo.pop() {
-            let written = self.units[at].targets.iter().copied();
+            let written = self.units[at].loads();
             let fixes = self.fixes.iter().filter(|f| f.unit == at);
             let added = fixes.flat_map(|f| f.brings.iter().copied());
             for next in written.chain(added).collect::<Vec<_>>() {

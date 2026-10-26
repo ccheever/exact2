@@ -132,12 +132,15 @@ impl<D: DataSource> Runner<D> {
                 self.journal_refused();
                 self.log_store_writes(c.store.writes);
                 self.transport_stood();
+                self.samples_stood();
             }
             Err(e) if self.poisoned && !was_poisoned => {
+                self.samples_refused();
                 self.store.restore(c.store);
                 self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
             }
             Err(e) => {
+                self.samples_refused();
                 self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
@@ -262,6 +265,7 @@ impl<D: DataSource> Runner<D> {
         for m in std::mem::take(&mut self.landed) {
             if stood && self.plan.mutations[m].then.is_some() {
                 self.then_due[m] = self.armed_at();
+                self.note_then(m);
             }
         }
     }
@@ -542,6 +546,20 @@ impl<D: DataSource> Runner<D> {
                 self.force_refresh(r);
             }
         }
+        // What this commit replaces in flight leaves `pending` before the
+        // settlement, whose flags follow the tickets: a derive or gate reads
+        // it as no longer pending, as above. The checkpoint puts it back.
+        let replacing: Vec<usize> = (assigned.iter().chain(&landed_now).chain(&replaced))
+            .chain(&failed_now)
+            .copied()
+            .filter(|m| !self.plan.mutations[*m].queue)
+            .collect();
+        let mut let_go = Vec::new();
+        for m in replacing {
+            if let Some(pos) = (self.pending.iter()).position(|p| p.target == Target::Mutation(m)) {
+                let_go.push((self.pending.remove(pos).ticket, m));
+            }
+        }
         // A refusal from here is put back by the checkpoint (run_action);
         // row slots live in the tree, so they are undone here. The gate
         // step joins this path (LLP 1092 D8): before `enqueue` and
@@ -567,6 +585,13 @@ impl<D: DataSource> Runner<D> {
                 };
             }
             return Err(e);
+        }
+        for (ticket, m) in let_go {
+            self.forgot = true;
+            self.log(super::lines::forgot(
+                ticket,
+                &self.target_name(Target::Mutation(m)),
+            ));
         }
         for (rows, slot, _) in &row_undo {
             self.row_writes.record(frames, rows, *slot);
@@ -604,6 +629,10 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // A module's sends that answer nothing (LLP 1133.004 D5): the
+        // runner's, run once the commit stands.
+        let effects = self.take_module_effects(first_command);
+        self.refuse_in_wake(first_command);
         // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
@@ -657,6 +686,7 @@ impl<D: DataSource> Runner<D> {
                 self.log(line);
             }
             self.apply_sounds(first_command);
+            self.run_module_effects(effects);
         }
         result
     }
@@ -723,6 +753,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn forget_ticket(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
+            self.wake_let_go(t, self.call_origin());
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
@@ -780,6 +811,7 @@ impl<D: DataSource> Runner<D> {
         }
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
+            self.wake_let_go(t, self.origin_for(Some(target)));
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
@@ -789,6 +821,7 @@ impl<D: DataSource> Runner<D> {
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
+        self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
         self.pending.push(PendingReq {
             refusal: None,
@@ -946,6 +979,7 @@ impl<D: DataSource> Runner<D> {
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
         );
+        out.extend(self.tool_tickets());
         out
     }
 
@@ -958,6 +992,7 @@ impl<D: DataSource> Runner<D> {
     /// 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
+            || !self.tool_tickets().is_empty()
             || self
                 .pending
                 .iter()
@@ -1021,6 +1056,7 @@ impl<D: DataSource> Runner<D> {
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
         );
+        out.extend(self.tool_tickets());
         out
     }
 
@@ -1052,7 +1088,9 @@ impl<D: DataSource> Runner<D> {
     /// commit and lets go of the work for any it holds that isn't (LLP 1016
     /// D5): a superseded or forgotten reply would only be dropped here.
     pub fn holds(&self, ticket: u64) -> bool {
-        self.is_background(ticket) || self.pending.iter().any(|p| p.ticket == ticket)
+        self.is_background(ticket)
+            || self.is_tool(ticket)
+            || self.pending.iter().any(|p| p.ticket == ticket)
     }
 
     /// The host brought back the outcome of request `ticket`: the source
@@ -1093,6 +1131,11 @@ impl<D: DataSource> Runner<D> {
             self.background_landed(outcome);
             return Ok(None);
         }
+        if self.is_tool(ticket) {
+            // A handler's request (LLP 1133.016 D9): its turn resumes, no commit.
+            self.tool_landed(ticket, outcome);
+            return Ok(None);
+        }
         let mut summary = outcome.summary();
         if let Some(ms) = elapsed_ms {
             exact_num::push_text!(&mut summary, "; wall {} ms", ms);
@@ -1105,6 +1148,7 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         };
         let handles = self.landed_handles(ticket);
+        self.landed_send(ticket);
         if let (Some(_), Outcome::Message(m)) = (self.pending[pos].stream, &outcome) {
             // A long poll's reply that is no event (LLP 1016.000 D8): it holds.
             if self.pending[pos].long_poll && m.event == crate::LONG_POLL_REPLY {
@@ -1126,7 +1170,8 @@ impl<D: DataSource> Runner<D> {
         let origin = self.ticket_origin(ticket);
         let result = self.as_origin(origin, |r| r.fulfill_inner(p, outcome));
         self.conclude(checkpoint, &result, was_poisoned);
-        self.arm_then(result.is_ok());
+        // Its `then` runs under the same origin.
+        self.as_origin(origin, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let (Some(handles), Err(_)) = (handles, &result) {
@@ -1222,7 +1267,7 @@ impl<D: DataSource> Runner<D> {
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
         } else if self.plan.module_named(&p.source).is_some() {
-            self.module_parse(ty, &p.source, outcome)
+            self.module_parse(p.target, ty, &p.source, outcome)
         } else {
             let parsed =
                 self.data

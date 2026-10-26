@@ -150,6 +150,19 @@ static ACTIONS: LazyLock<StyleProps> = LazyLock::new(|| {
     s
 });
 impl NodeArena {
+    pub(crate) fn alert_title_style(&self, slot: u32) -> StyleProps {
+        let mut title = self.computed_style(slot, StyleMask::INHERITED);
+        title.font_size = metrics::length_in(
+            metric::ALERT_TITLE,
+            metrics::Column::Neutral,
+            title.font_size,
+            self.root_font_size(),
+        )
+        .unwrap();
+        title.font_weight = self.emboldened(slot, 600, title.font_family);
+        title
+    }
+
     pub(crate) fn has_alert_prefix(&self, slot: u32) -> bool {
         self.alert_prefixes.contains(slot)
     }

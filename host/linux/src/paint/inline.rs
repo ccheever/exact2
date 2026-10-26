@@ -59,8 +59,17 @@ pub(crate) fn text_palette(
         });
     } else {
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+            let Some(child) = kernel.node(child) else {
+                continue;
+            };
+            if child.node_type == NodeType::Text {
                 text_palette(kernel, &child, dark, reveal, out);
+            } else if child.inline_box().is_some() {
+                // An image's run (LLP 1011.002): a box, no glyphs.
+                out.push(RunPaint {
+                    color: [0, 0, 0, 0],
+                    source: child.id,
+                });
             }
         }
     }
@@ -131,7 +140,13 @@ fn collect_backgrounds(
     } else {
         let mut emitted = false;
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+            let Some(child) = kernel.node(child) else {
+                continue;
+            };
+            if child.inline_box().is_some() {
+                out.push(None); // an image's run paints its own box
+            }
+            if child.node_type == NodeType::Text {
                 // A hidden box contributes no background; a visible ancestor
                 // still covers its characters.
                 let own = super::paints(kernel, child.id, reveal)

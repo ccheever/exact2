@@ -8,7 +8,7 @@ import { MalformedOperation } from './agent-keys.mjs';
 /** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference', 'color-gamut': 'srgb', 'dynamic-range': 'standard' };
 export const PREFERENCES = { 'display-mode': ['standalone', 'browser', 'fullscreen', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'], 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'], 'color-gamut': ['srgb', 'p3', 'rec2020'], 'dynamic-range': ['standard', 'high'], pointer: ['coarse', 'fine', 'none'], hover: ['none', 'hover'] }; // `prefer`'s CSS media features and values (the display's two: LLP 1100 D9; the primary input's two, `exactViewport().pointer` and `.hover`: LLP 1132 D10)
-export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-share-files': ['true', 'false'], 'can-share-pictures': ['true', 'false'], 'can-open-files': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'bold-text': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'], 'gpu-tier': ['low', 'mid', 'high'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts; `bold-text`: Apple's Bold Text, which the kernel weights the system font by, LLP 1115.000 D12.3, refused by name elsewhere; `display-scale`: what a hairline is one device pixel of, LLP 1115.000 D10.3; `gpu-tier`: `exactViewport().gpuTier`, `high` from launch, and the rung a world's renderer is made at, LLP 1139.003 D2)
+export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-share-files': ['true', 'false'], 'can-share-pictures': ['true', 'false'], 'can-open-files': ['true', 'false'], 'iframe-partition': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'bold-text': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'], 'gpu-tier': ['low', 'mid', 'high'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts; `bold-text`: Apple's Bold Text, which the kernel weights the system font by, LLP 1115.000 D12.3, refused by name elsewhere; `display-scale`: what a hairline is one device pixel of, LLP 1115.000 D10.3; `gpu-tier`: `exactViewport().gpuTier`, `high` from launch, and the rung a world's renderer is made at, LLP 1139.003 D2; `iframe-partition`: `exactPage().iframePartition`, LLP 1020.002 D1)
 export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
 export const MIDI_FACTS = { 'midi.state': ['prompt', 'granted', 'denied', 'unavailable'], 'midi.inputs': ['<name,…>'], 'midi.outputs': ['<name,…>'] }; // `prefer`'s midi group (LLP 1125 §4): what a request finds under the agent — its state (granted unless named) and the ports, by name; a port named no longer is disconnected
 export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group (LLP 1121 D5, D13): the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
@@ -70,6 +70,26 @@ export function displayFeatures(width, height, cols, rows, gap) {
  * The fold group (LLP 1078 D7): Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
  * and CSS's `env(viewport-segment-*)` all change — the parity oracle; a browser whose CDP lacks them gets the glue's substitute (the facts and
  * `layout.env`, not CSS). `emulated` is the carrier's media list, replaced in place. */
+/** In the page, before the media changes: for each feature asked, every query of its values whose truth changes when
+ * it becomes `value` (a range feature, color-gamut or dynamic-range, matches each value up to its own, in
+ * PREFERENCES's order), a promise of its `change` event, bounded at 5 s (a value the browser can't emulate); all of
+ * them under `token` in `globalThis.__exactMediaHeard`, which preferWeb awaits and drops. */
+export function mediaHeard(features, preferences, token) {
+  const ranges = new Set(['color-gamut', 'dynamic-range']);
+  const waits = [];
+  for (const [name, value] of Object.entries(features)) {
+    const values = preferences[name] ?? [value], at = values.indexOf(value);
+    for (const [i, v] of values.entries()) {
+      const q = matchMedia(`(${name}: ${v})`), will = ranges.has(name) ? at >= 0 && i <= at : v === value;
+      if (q.matches === will) continue;
+      waits.push(new Promise(ok => { const done = () => { clearTimeout(t); q.removeEventListener('change', done); ok(); }, t = setTimeout(done, 5000); q.addEventListener('change', done); }));
+    }
+  }
+  const heard = (globalThis.__exactMediaHeard ??= {});
+  heard[token] = Promise.all(waits).then(() => true);
+  return true;
+}
+
 export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, call, evaluate, frame, ask, scale = 0 }) {
   if (media['display-mode'] != null) throw new Error(`Chrome prefer cannot emulate display-mode ${media['display-mode']}: use the browser's fullscreen controls`);
   // LLP 1115.000 D10.3: a browser's scale is fixed when it launches (`EXACT_SCALE=2 bun scripts/agent.mjs web …`: Chrome's own device scale factor). CDP's emulated one moves `devicePixelRatio` and the resolution queries but not the device pixel a border snaps to (Chrome 154: a 0.5px border stays 1px under it), so it is not offered as the scale.
@@ -83,7 +103,17 @@ export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, c
       throw new Error(`Chrome prefer cannot emulate ${pointer != null ? `pointer ${pointer}` : ''}${pointer != null && hover != null ? ' with ' : ''}${hover != null ? `hover ${hover}` : ''}: its touch emulation pairs pointer coarse with hover none and pointer fine with hover hover`);
     await call('Emulation.setTouchEmulationEnabled', { enabled: touch, ...(touch ? { maxTouchPoints: 5 } : {}) }); await frame();
   }
-  if (Object.keys(rest).length) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, rest)).map(([name, value]) => ({ name, value })) }); await frame(); }
+  if (Object.keys(rest).length) {
+    // Each query this flips, true to false too, is heard in the page (its `change`, which reaches the app's own
+    // listeners first) before the next step reads the app: two frames alone, cut at 250 ms, could pass first on a
+    // loaded machine (an authored test's launch `prefer`s read back as the machine's). `mediaHeard`, above.
+    const token = `${Date.now()}-${Math.random()}`;
+    await evaluate(`(${mediaHeard})(${JSON.stringify(rest)}, ${JSON.stringify(PREFERENCES)}, ${JSON.stringify(token)})`);
+    await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, rest)).map(([name, value]) => ({ name, value })) });
+    // (A document the page moved to meanwhile has no wait: said, not passed over.)
+    if (await evaluate(`(async (t) => { const h = globalThis.__exactMediaHeard?.[t]; if (!h) return 'gone'; await h; delete globalThis.__exactMediaHeard[t]; return true; })(${JSON.stringify(token)})`) === 'gone') throw new Error('prefer: the page changed documents while its media changed: prefer again');
+    await frame();
+  }
   let foldRequest = null;
   if (Object.keys(fold).length) {
     const v = await evaluate('({ w: innerWidth, h: innerHeight })'), grid = fold.cols != null || fold.rows != null || fold.gap != null;

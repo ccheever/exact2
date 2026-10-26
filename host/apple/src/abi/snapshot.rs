@@ -26,11 +26,7 @@ impl<D: DataSource> Bridge<D> {
         // Snapshot admission has no controls. Stage 2 must install field/button
         // chrome, measurement revisions and control_text::prepare with intents.
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format),
-            ),
+            Some(f) => Box::new(CallbackMeasurer::of(f, &hooks)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         let launch = self.launch_facts.clone();

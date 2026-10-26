@@ -678,7 +678,7 @@ function listen(entry) {
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
     if (event.exactFlowCapture) return;
-    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return; // an input method's key, as input-glue.js's
     cancelRemoved(); entry.resampleHeld();
     const owner = controlKeys.get(event.code) ?? (down ? controls.values().next().value : null);
     if (!owner) return;
@@ -694,7 +694,7 @@ function listen(entry) {
   window.addEventListener("keyup", pressedUp, true);
   on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
-    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || editable(target)) return;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.code === "Tab" || editable(target)) return;
     // The focused game's own canvas owns Ctrl/Meta chords (RTS control groups).
     // An editor or ordinary HUD control keeps its browser shortcuts.
     if (event.metaKey || event.ctrlKey) {
@@ -825,6 +825,12 @@ const api = {
     queued.push(JSON.stringify({ t: "message", text, at }));
     deliverPosts(name);
     return null;
+  },
+  // The agent's substitute's sensor samples (LLP 1133.013 D6), a frame's at a
+  // time, on the path posts take: `[{surface, event}]`, each event input JSON.
+  sensors(events) {
+    for (const { surface, event } of events) { const queued = posts.get(surface) ?? posts.set(surface, []).get(surface); if (queued.length < 1024) queued.push(event); } // a world's queue holds 1,024
+    for (const name of new Set(events.map(e => e.surface))) deliverPosts(name);
   },
   // The driver's `post` (LLP 1139.004 D1): a canvas's surface name, the page's
   // one world's, and whether posts to a name still wait for its canvas.

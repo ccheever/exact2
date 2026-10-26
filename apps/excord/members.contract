@@ -1,0 +1,24 @@
+// The member list beside a channel, as Discord's desktop app shows it: each
+// group under its name and count, each member's picture with their status, and
+// their name in their role's colour; one offline is dimmed. A member opens their card.
+
+use MemberRow from "./shapes.contract"
+
+fn statusColor(status: string): string = status == "online" ? "-exact-system-green" : status == "idle" ? "-exact-system-yellow" : status == "dnd" ? "-exact-system-red" : "-exact-system-gray"
+
+component MemberList
+  props
+    rows: MemberRow[]
+    open: action
+  view
+    column padding="8px 8px 16px"
+      for r in rows key=r.id
+        if r.group
+          text `${r.label} — ${r.count}` font="-exact-caption1" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" padding="16px 8px 4px" role="heading" aria-level=3
+        else
+          button appearance="none" press=open(r.user, "") testId=`member-${r.user}` aria-label=`${r.label}, ${r.status}` padding="5px 8px" border-radius=6 text-align="start" opacity=(r.status == "offline" ? 0.5 : 1)
+            row gap=10 align-items="center" min-width=0
+              view position="relative" width=32 height=32 flex-shrink=0
+                image r.avatar width=32 height=32 border-radius=16 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
+                view position="absolute" right=-2 bottom=-2 width=14 height=14 box-sizing="border-box" border-radius=7 border="2px solid -exact-background" background-color=statusColor(r.status) aria-hidden=true
+              text r.label color=(r.color != "" ? r.color : "-exact-label") font-weight=500 flex=1 min-width=0 line-clamp=1

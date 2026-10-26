@@ -123,6 +123,7 @@ export interface Message {
   nonce?: string | number;
   message_reference?: { message_id: string; channel_id: string; guild_id?: string };
   referenced_message?: Message | null;
+  member?: { roles: string[] };
 }
 
 export interface World {

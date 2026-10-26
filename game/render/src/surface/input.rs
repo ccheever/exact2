@@ -96,5 +96,36 @@ pub(super) fn engine_event(event: &InputEvent) -> exact_game::InputEvent {
             at_ms: *at_ms,
             player: 0,
         },
+        InputEvent::Sensor {
+            sensor,
+            values,
+            dropped,
+            at_ms,
+        } => E::Sensor {
+            sensor: sensor_kind(*sensor),
+            values: *values,
+            dropped: *dropped,
+            at_ms: *at_ms,
+            player: 0,
+        },
+        InputEvent::SensorEnded { sensor, at_ms } => E::SensorEnded {
+            sensor: sensor_kind(*sensor),
+            at_ms: *at_ms,
+            player: 0,
+        },
+    }
+}
+
+fn sensor_kind(kind: exact_gpu::SensorKind) -> exact_game::SensorKind {
+    use exact_game::SensorKind as E;
+    use exact_gpu::SensorKind as K;
+    match kind {
+        K::Accelerometer => E::Accelerometer,
+        K::LinearAcceleration => E::LinearAcceleration,
+        K::Gravity => E::Gravity,
+        K::Gyroscope => E::Gyroscope,
+        K::Magnetometer => E::Magnetometer,
+        K::AbsoluteOrientation => E::AbsoluteOrientation,
+        K::RelativeOrientation => E::RelativeOrientation,
     }
 }

@@ -312,6 +312,23 @@ test('a real tap whose down reached the window after its lift says so', async ()
   expect((await tap(1.3, { dx: 0, dy: 0, press: 0, over: 0, hold: 0 })).downAfterLift).toBeUndefined();
 });
 
+test('a real touch refuses a changed display mapping even when scene coordinates agree', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], fixed: [30, 20], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  for (const [key, value] of [['fixed', [230, 20]], ['fixedAxes', [[0, 1], [-1, 0]]], ['display', [951, 669]]]) {
+    let aims = 0, injected = 0;
+    await expect(realTap({ id: 7,
+      ask: async req => req.aim ? { aim: aims++ ? { ...aim, [key]: value } : aim } : { log: [began, { ...began, seq: 6, phase: 'ended', t: 2 }], truncated: false },
+      touches: { async ask(req) {
+        if (req.op === 'foreground') { return { state: 'runningForeground' }; }
+        injected++;
+        return { injected: {} };
+      } },
+    })).rejects.toThrow('the screen rotated or moved since aim');
+    expect(injected).toBe(0);
+  }
+});
+
 // On the Duo a real touch waits out SpringBoard's fold cloak (cloak.mjs) before its first aim, and a touch still lost
 // says how long it waited.
 test('a real tap waits out the fold cloak before it aims', async () => {

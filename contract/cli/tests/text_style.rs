@@ -33,6 +33,18 @@ const SOURCE: &str = r#"component App
         text testId="child" "Child"
       text testId="h5" role="heading" aria-level=5 "Five"
       text testId="h1" role="heading" aria-level=1 "One"
+      text testId="h2" role="heading" aria-level=2 "Two"
+      text testId="h3" role="heading" aria-level=3 "Three"
+      column font-weight=900
+        text testId="h-inherited" role="heading" aria-level=1 "Inherited"
+      text testId="h-authored" role="heading" aria-level=1 font-size=19 font-weight=500 "Authored"
+      text testId="h-bound" role="heading" aria-level=(big ? 3 : 1) "Bound"
+      text testId="h-font" role="heading" aria-level=2 font="-exact-headline" "Authored font"
+      text testId="h-font-bound" role="heading" aria-level=1 font=(big ? none : "-exact-headline") "Bound font"
+      text testId="h-font-authored" role="heading" aria-level=1 font=(big ? "-exact-subheadline" : "-exact-headline") font-weight=500 "Bound authored weight"
+      text testId="h-level-authored" role="heading" aria-level=(big ? 3 : 1) font-size=19 font-weight=500 "Bound authored size and weight"
+      text testId="h-level-font" role="heading" aria-level=(big ? 3 : 1) font="-exact-headline" "Bound level with font"
+      text testId="h-font-shadow" role="heading" aria-level=(big ? 3 : 1) font=(match some("-exact-headline") { case some(big) => none, case none => "-exact-headline" }) "Shadowed font"
       column testId="barehead" font-size="-exact-headline"
         text testId="small" font-size=12 "Small"
       text testId="cleared" font-size="-exact-headline" font-weight="inherit" "Cleared"
@@ -237,5 +249,80 @@ fn a_text_style_gives_its_weight_and_leading_by_its_precedence_and_column() {
         "body's 13/16 on the Mac: {}",
         leading(&r, "shorthand")
     );
+    for column in [
+        Column::Ios,
+        Column::Mac,
+        Column::Material,
+        Column::Web,
+        Column::Neutral,
+        Column::Terminal,
+    ] {
+        set_column(column);
+        let mut r = boot();
+        let native = matches!(column, Column::Ios | Column::Mac | Column::Material);
+        let title = if native { 400.0 } else { 700.0 };
+        let third = if native { 400.0 } else { 600.0 };
+        for id in ["h1", "h2", "h-inherited", "h-bound", "h-font-shadow"] {
+            assert_eq!(weight(&r, id), title, "{column:?} {id}");
+        }
+        assert_eq!(weight(&r, "h3"), third, "{column:?} title3");
+        assert_eq!(
+            weight(&r, "h-authored"),
+            500.0,
+            "{column:?} authored weight wins"
+        );
+        assert_eq!(
+            row(&r, "h-authored", StyleId::FontSize),
+            RowValue::Number(19.0)
+        );
+        let headline = if column == Column::Mac { 700.0 } else { 600.0 };
+        assert_eq!(weight(&r, "h5"), headline);
+        for id in ["h-font-authored", "h-level-authored"] {
+            assert_eq!(
+                weight(&r, id),
+                500.0,
+                "{column:?} authored weight initially"
+            );
+        }
+        assert_eq!(
+            weight(&r, "h-font"),
+            headline,
+            "{column:?} authored font wins"
+        );
+        assert_eq!(
+            weight(&r, "h-font-bound"),
+            headline,
+            "{column:?} bound font wins"
+        );
+        let flip = view(&r, "flip");
+        r.dispatch(flip, exact_runner::Event::Press).unwrap();
+        assert_eq!(weight(&r, "h-bound"), third, "{column:?} changed level");
+        for id in ["h-font-authored", "h-level-authored"] {
+            assert_eq!(
+                weight(&r, id),
+                500.0,
+                "{column:?} a changed default does not replace authored weight"
+            );
+        }
+        assert_eq!(
+            row(&r, "h-level-authored", StyleId::FontSize),
+            RowValue::Number(19.0)
+        );
+        assert_eq!(
+            row(&r, "h-level-font", StyleId::FontSize),
+            row(&r, "alone", StyleId::FontSize)
+        );
+        assert_eq!(weight(&r, "h-level-font"), headline);
+        assert_eq!(
+            weight(&r, "h-font-shadow"),
+            third,
+            "{column:?} font bindings do not capture the level"
+        );
+        assert_eq!(
+            weight(&r, "h-font-bound"),
+            title,
+            "{column:?} removing a font restores the heading weight"
+        );
+    }
     set_column(Column::Web);
 }

@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/browser-automation@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "BrowserAutomation.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "BrowserAutomationModule"
+}

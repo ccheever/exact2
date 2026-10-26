@@ -45,6 +45,9 @@ let gallery = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] != "prod
     && (testing || ProcessInfo.processInfo.environment["EXACT_WIDGET_GALLERY"] == "1")
 let gallerySettings: [SwiftSetting] = gallery ? [.define("EXACT_WIDGET_GALLERY")] : []
 
+// Some tests call Caltrain's data functions, which only its archive answers.
+let caltrainSettings: [SwiftSetting] = libName == "caltrain_apple" ? [.define("EXACT_LINKS_CALTRAIN")] : []
+
 let widgetCore = ProcessInfo.processInfo.environment["EXACT_WIDGET_CORE"] == "1"
 let sharedCore = ProcessInfo.processInfo.environment["EXACT_CORE_FRAMEWORK"]
 let core: [Target] = [
@@ -53,7 +56,7 @@ let core: [Target] = [
         name: "ExactCore",
         dependencies: ["CExact"],
         path: "Sources/ExactCore",
-        swiftSettings: [.unsafeFlags(["-application-extension"])],
+        swiftSettings: [.unsafeFlags(["-application-extension"])] + devTools,
         linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedFramework("ImageIO")]
     ),
     // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless
@@ -96,7 +99,7 @@ let tests: [Target] = [
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
     .testTarget(name: "ExactKitTests", dependencies: ["ExactWidgetTimeline", "ExactCore", "ExactSnapshot", "ExactKit", "ExactUpdates", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
-                resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools + gallerySettings),
+                resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools + gallerySettings + caltrainSettings),
 ]
 
 let package = Package(

@@ -64,12 +64,10 @@ pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     .map_err(BakeError)
 }
 
-/// What `build` writes to OUT_DIR, written by a process outside Cargo
-/// (`exact-js-bake --cargo`, with OUT_DIR and TARGET set). Each file is
-/// rewritten only when its bytes change, so the ones Rust compiles keep their
-/// times across a bake that changed only the plan or the module's code. The
-/// `cargo:rerun-if` lines go to stdout: the inputs whose change calls for
-/// another bake.
+/// What `build` writes to OUT_DIR, written by a process outside Cargo (`exact-js-bake --cargo`,
+/// with OUT_DIR and TARGET set). Each file is rewritten only when its bytes change, so the ones
+/// Rust compiles keep their times across a bake that changed only the plan or the module's code.
+/// The `cargo:rerun-if` lines go to stdout: the inputs whose change calls for another bake.
 pub fn bake_outside(app: &Path, platform: &str) -> Result<(), BakeError> {
     build_sources(app, platform, None, None, true).map_err(BakeError)
 }
@@ -1184,16 +1182,18 @@ fn bake_in(
         )?;
     }
     write_changed(&stage.join(DECLARATIONS), declarations.as_bytes())?;
-    // And beside app.ts, so an editor type-checks the module against the plan
-    // it will run with. Never captured as a source, never committed; written
-    // only when it changes, so a watcher sees one event per contract change.
+    // And beside app.ts, so an editor type-checks the module against its plan: never captured or
+    // committed, written only when it changes, so a watcher sees one event per contract change.
     if development {
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
-    // An overlay shows writes over the resources they change.
+    // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
     if exports(&app_ts, "overlay") {
         entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
+    }
+    if exports(&app_ts, "tools") {
+        entry.push_str("export const tools = app.tools;\n");
     }
     if draws {
         entry.push_str(CANVAS_ENTRY);

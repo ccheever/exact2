@@ -1,0 +1,12 @@
+{
+  "name": "@exact/photos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The person's photo library, read by reference and added to (LLP 1133.019).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

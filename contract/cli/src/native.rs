@@ -158,7 +158,106 @@ pub fn android_entry(
     };
     std::fs::write(out_dir.join("hatches.rs"), text).map_err(|e| e.to_string())?;
     let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
-    std::fs::write(out_dir.join("uses.txt"), uses.join("\n")).map_err(|e| e.to_string())
+    std::fs::write(out_dir.join("uses.txt"), uses.join("\n")).map_err(|e| e.to_string())?;
+    // The grant ceiling of the compatibility id the build script wrote
+    // beside it, when it wrote one.
+    let compat = std::fs::read_to_string(out_dir.join("compat.json")).ok();
+    let ceiling = compat
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .and_then(|c| c["inputs"]["grantCeiling"].as_str().map(str::to_owned));
+    let text = app_text(app_root);
+    let used = |name: &str| names(&text, name);
+    let permissions = android_write_permissions(plan, ceiling.as_deref(), used);
+    std::fs::write(out_dir.join("permissions.txt"), permissions.join("\n"))
+        .map_err(|e| e.to_string())
+}
+
+/// The Android permissions the plan's module names derive beside what
+/// their grant lines do (LLP 1133.018 D11): a name that writes the person's
+/// store (`"writes": true`) and that the app `uses` derives each of its
+/// lines' `android_writes` where `grants` grants that line (every line, with
+/// no `grants`). So an app that only reads its calendar declares no
+/// `WRITE_CALENDAR`. The plan holds every name of a module the app uses, so
+/// which the app calls is read from its source, as the Apple build finds the
+/// strings keys an option names (LLP 1133.002 D10).
+pub fn android_write_permissions(
+    plan: &exact_plan::Plan,
+    grants: Option<&str>,
+    uses: impl Fn(&str) -> bool,
+) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for row in plan.modules.iter() {
+        let sub: serde_json::Value =
+            serde_json::from_str(plan.str(row.substitute)).unwrap_or_default();
+        if sub["writes"] != true || !uses(plan.str(row.declared)) {
+            continue;
+        }
+        let lines = match &sub["nameGrants"] {
+            serde_json::Value::Array(own) => own.clone(),
+            _ => sub["grants"].as_array().cloned().unwrap_or_default(),
+        };
+        for name in lines
+            .iter()
+            .filter_map(|l| l.as_str()?.strip_prefix("device."))
+        {
+            if grants.is_some_and(|g| !exact_runner::device::granted(g, name)) {
+                continue;
+            }
+            let row = exact_runner::device::DEVICES
+                .iter()
+                .find(|d| d.name == name);
+            out.extend(row.map_or(&[][..], |d| d.android_writes));
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The app's source that can call a module name: its `.contract` and
+/// TypeScript files, and its data crate's Rust, where the generated binding
+/// names it in snake case.
+fn app_text(app_root: &Path) -> String {
+    fn walk(dir: &Path, out: &mut String) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !(name.starts_with('.') || name == "node_modules" || name == "target") {
+                    walk(&path, out);
+                }
+            } else if [".contract", ".ts", ".rs"]
+                .iter()
+                .any(|e| name.ends_with(e))
+            {
+                out.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+                out.push('\n');
+            }
+        }
+    }
+    let mut out = String::new();
+    walk(app_root, &mut out);
+    out
+}
+
+/// Whether `text` names module name `name` as a word, as written or as the
+/// binding's snake-case function.
+fn names(text: &str, name: &str) -> bool {
+    let snake: String = name
+        .chars()
+        .flat_map(|c| match c.is_ascii_uppercase() {
+            true => vec!['_', c.to_ascii_lowercase()],
+            false => vec![c],
+        })
+        .collect();
+    let word = |w: &str| {
+        text.match_indices(w).any(|(at, _)| {
+            let ident = |c: char| c.is_alphanumeric() || c == '_';
+            !text[..at].ends_with(ident) && !text[at + w.len()..].starts_with(ident)
+        })
+    };
+    word(name) || word(&snake)
 }
 
 /// A painting host's hatches for an app's own crate (LLP 1075.003.000.001

@@ -1,0 +1,13 @@
+# C2 Apple (909be5f71b..a51df0293f), round 3, Grok (xhigh)
+
+I'll review the full Apple range against `909be5f71b` without changing anything, starting with the review criteria, the approved plan, and the earlier round records.The earlier rounds covered the draw sites. I'll now check malformed-marker behavior, the reader guard, and whether the tests can pass with the feature broken.**RIGHT.** No findings.
+
+An even-odd icon is filled even-odd at every Apple draw of its path, a nonzero icon stays byte-identical, and a malformed marker draws nothing.
+
+**Malformed markers.** `Icon::parse` / `Icon::of_row` return `None` for an unknown rule, an empty marker, or a second colon (`kernel/src/replaced.rs:186`). `commands` then returns `None` (`host/apple/src/icon_path.rs:20`), so `props_for` and `push_json` send no `symbolPath` and no `symbolFillRule` (`paragraph.rs:618`, `icon_path.rs:57`). Swift has an empty `symbolName` and no path, logs the unknown-symbol refusal, and installs no glyph (`NodeViewIOS.swift:545`, `NodeSymbolMac.swift:29`). The same source is never parsed again on the Swift side. The build only writes `evenodd:` in front of a non-empty template path (`contract/lower/src/icons.rs:382`), which is the case this range draws.
+
+**Guard.** `icon_name` compares `Icon::of_row(...)` to `Icon::parse` (`host/apple/src/icon_path.rs:84`). The `.path` read sits inside that call, which is the scan's allowed span (`contract/cli/tests/it/icon_path_readers.rs:144`). The old `icon_name` exception is gone from `ALLOWED`. No other Apple reader splits an `icon|` form or a row path.
+
+**Compat.** A nonzero face fragment is the old `symbolPath` + `symbolViewBox` string (`icon_path.rs:229`), and `symbolFillRule` is inserted only when `even_odd` is set (`icon_path.rs:65`, `paragraph.rs:622`). A binary at `909be5f71b` still has `filter(|p| p.filled && !p.even_odd)`, so an even-odd plan produces no path and a blank icon. The bake id `iconFillRules: ["evenodd"]` is what keeps that plan off a binary that does not read the marker.
+
+**Tests.** Ignoring the rule fails the hole checks: `IconPathTests.swift:154` and `:176` (band and hole, including a fractional origin and a rule clear/set through `apply`), `FaceSymbolTests.swift:63` and `:140` (token image, and the mounted toolbar band and hole), `IconShapeMacTests.swift:258` (six origins at 1× and 2× against an even-odd reference; a nonzero presenter must report `"outside"`), and `SnapshotDriverTests.swift:626` (widget band and hole at three origins). The Rust asserts fail if the prop is omitted or if `icon_name` misses the even-odd row.

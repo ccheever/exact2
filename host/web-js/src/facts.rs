@@ -102,9 +102,10 @@ pub fn extensions(plan: &Plan) -> Vec<String> {
 /// members spelled out, so a preferred value outside them is refused; then a
 /// loader of each extension's web implementation (`ext-<name>.js`, which
 /// the build writes beside the app, LLP 1133.002 D15); then each package
-/// view, by its tag, `[extension, displayed, binding props]` (views.js).
+/// view, by its tag, `[extension, displayed, binding props]` (views.js);
+/// then the events the root hears.
 fn modules(plan: &Plan, body: &mut String) -> String {
-    if plan.modules.is_empty() && plan.views.is_empty() {
+    if plan.modules.is_empty() && plan.views.is_empty() && plan.module_events.is_empty() {
         return String::new();
     }
     let rows: Vec<String> = plan
@@ -150,12 +151,40 @@ fn modules(plan: &Plan, body: &mut String) -> String {
             )
         })
         .collect();
+    // Each event the root hears (LLP 1133.004 D6): its action, taken when
+    // the event is heard (the actions are declared after this call), how it
+    // is raised, its hold, its parameters' types, its name and a wake's
+    // budget (LLP 1133.017 D5).
+    let events: Vec<String> = (plan.module_events.iter())
+        .map(|e| {
+            let action = plan.action(e.action);
+            let params: Vec<String> = (action.params.iter())
+                .map(|p| surface_type_json(plan, plan.param(p).ty))
+                .collect();
+            format!(
+                "{}:[()=>a_{},{},{},[{}],{},{}]",
+                serde_json::to_string(&format!(
+                    "{}.{}",
+                    plan.str(e.extension),
+                    plan.str(e.declared)
+                ))
+                .unwrap(),
+                e.action.0,
+                serde_json::to_string(plan.str(e.raised)).unwrap(),
+                e.hold,
+                params.join(","),
+                serde_json::to_string(plan.str(action.name)).unwrap(),
+                e.budget
+            )
+        })
+        .collect();
     let _ = write!(
         body,
-        "$modules({{{}}},{{{}}},{{{}}});",
+        "$modules({{{}}},{{{}}},{{{}}},{{{}}});",
         rows.join(","),
         loaders.join(","),
-        views.join(",")
+        views.join(","),
+        events.join(",")
     );
     "import{modules as $modules}from\"./modules.js\";".into()
 }

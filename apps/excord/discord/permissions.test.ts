@@ -91,3 +91,14 @@ test('a deleted role grants nothing', () => {
   applyDispatch(s, 'GUILD_ROLE_DELETE', { guild_id: GUILD, role_id: MODS }, 1);
   expect(canView(s, channel(s, '100')!)).toBe(false);
 });
+
+test("a channel's new overwrites and a guild's new owner are read again", () => {
+  const s = createStore();
+  applyDispatch(s, 'READY', { user: me, guilds: [{ id: GUILD, owner_id: '99', roles: [{ id: GUILD, permissions: VIEW }],
+    channels: [{ id: '100', type: 0, permission_overwrites: [] }] }], merged_members: [[{ user_id: me.id, roles: [] }]] }, 0);
+  expect(canView(s, channel(s, '100')!)).toBe(true);
+  applyDispatch(s, 'CHANNEL_UPDATE', { id: '100', guild_id: GUILD, type: 0, permission_overwrites: [{ id: GUILD, type: 0, allow: '0', deny: VIEW }] }, 1);
+  expect(canView(s, channel(s, '100')!)).toBe(false);
+  applyDispatch(s, 'GUILD_UPDATE', { id: GUILD, owner_id: me.id }, 2);
+  expect(canView(s, channel(s, '100')!)).toBe(true);
+});

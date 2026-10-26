@@ -11,7 +11,7 @@ const sources: Sources = {
     try {
       return { text: geolocationStatusSync({}).state };
     } catch (e) {
-      return { text: `error ${(e as { code?: string }).code}` };
+      return { text: `error ${(e as { name?: string }).name}` };
     }
   },
   spot: async ([watching]) => {
@@ -20,7 +20,7 @@ const sources: Sources = {
       const p = await watchPosition({});
       return { text: `${p.coords.latitude},${p.coords.longitude}` };
     } catch (e) {
-      return { text: `error ${(e as { code?: string }).code}` };
+      return { text: `error ${(e as { name?: string }).name}` };
     }
   },
 };

@@ -17,7 +17,9 @@ test('a param edit\'s proposal shows docked below its row, not over it, once; ty
   writeFileSync(join(app, 'app.contract'), STUB_APP);
   const tool = await proxied(app);
   try {
-    const field = 'dial-app.contract#Card.fill-field', wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    // Each step's proposal lands (`clock data` waits on its request), its ready task runs a commit later (`clock +1`),
+    // and the focus it moves settles: the clock's own, where 4 s of real time stood.
+    const field = 'dial-app.contract#Card.fill-field', wait = ['clock data', 'clock +1', 'clock data', 'clock settle', 'clock data'];
     const replies = await drive(tool.url, `design-tool-dock-${process.pid}`, [
       'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data',
       // A typed draft: its proposal comes, the field keeps the focus (the next key is the field's).

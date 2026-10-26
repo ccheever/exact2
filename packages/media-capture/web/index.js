@@ -124,7 +124,8 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       t.consumers.add(consumer);
       const origin = how.origin ?? 'app';
       // The first consumer leases; after use only a start does, and never a tool's or a wake's (D6, D9).
-      const leases = origin === 'app' && t.enabled && (!t.used || how.start);
+      // While a recognizer holds the microphone exclusively, a track stays idle (LLP 1133.012 D8).
+      const leases = origin === 'app' && t.enabled && (!t.used || how.start) && !tracks.held?.('audio');
       if (t.active) {
         if (t.source || agent) consumer.live?.(t.source);
         if (t.muted) consumer.muted?.(t.muteReason);
@@ -136,6 +137,8 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
         if (!t.consumers.size && t.active) deactivate(t);
       };
     },
+    /** Whether `id`'s capture runs: an exclusive hold is refused while one does (LLP 1133.012 D12 item 4). */
+    leased: id => own.get(id)?.active === true,
   };
 
   function settingsOf(source) {
@@ -168,6 +171,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
 
   async function openAudio(args, inStream) {
       if (!agent && !media?.getUserMedia) return { error: 'NotSupportedError' };
+      if (tracks.held?.('audio')) return { error: 'NotReadableError' };
       let source = null;
       if (!agent) {
         try { source = (await media.getUserMedia({ audio: constraints(args) })).getAudioTracks()[0]; }

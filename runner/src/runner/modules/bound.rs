@@ -161,6 +161,25 @@ impl<D: DataSource> Runner<D> {
         };
         if origin != super::CallOrigin::App {
             body["origin"] = json!(origin.word());
+            // A call not the app's that would ask (LLP 1133.002 D12): the
+            // host reads the status first and refuses it while `prompt`,
+            // since only the implementation knows the platform's state.
+            let sub = self.substitute(row);
+            if self.asks(row, row.send)
+                && sub["admission"] != "none"
+                && sub["permission"]["status"].is_string()
+            {
+                body["admit"] = json!({
+                    "status": sub["permission"]["status"],
+                    "field": sub["permission"]["field"],
+                    "denied": sub["permission"]["denied"],
+                });
+            }
+        }
+        // A send's number, which `cancel` names if it is let go (LLP 1133.016 D15 item 2).
+        if row.send {
+            self.extensions.requests += 1;
+            body["request"] = json!(self.extensions.requests);
         }
         if row.live && !row.send {
             self.note_poll(row);
@@ -176,7 +195,54 @@ impl<D: DataSource> Runner<D> {
             }
             self.extensions.live.insert(key);
         }
+        // A sampled source's reader carries its cursor (LLP 1133.013 D5),
+        // outside the group its arguments make.
+        if let Some(after) = self.cursor(row) {
+            body["args"]["after"] = json!(after);
+        }
         body.to_string().into_bytes()
+    }
+
+    /// Request `ticket` went out with `body`: a send to an implementation
+    /// is kept by its number until its reply lands.
+    pub(in crate::runner) fn note_send(&mut self, ticket: u64, body: &[u8]) {
+        let Ok(v) = serde_json::from_slice::<Json>(body) else {
+            return;
+        };
+        if let (Some(extension), Some(send), Some(n)) = (
+            v["extension"].as_str(),
+            v["send"].as_str(),
+            v["request"].as_u64(),
+        ) {
+            (self.extensions.sent).insert(ticket, (format!("{extension}.{send}"), n));
+        }
+    }
+
+    /// Request `ticket`'s reply landed: its send is no longer cancelled.
+    pub(in crate::runner) fn landed_send(&mut self, ticket: u64) {
+        self.extensions.sent.remove(&ticket);
+    }
+
+    /// Each send let go before its reply landed (superseded, its commit
+    /// refused): its implementation is told `{"extension", "cancel": n}`,
+    /// so the work no one reads stops (LLP 1133.016 D15 item 2).
+    pub(in crate::runner) fn cancel_let_go(&mut self) {
+        let gone: Vec<u64> = (self.extensions.sent.keys())
+            .filter(|t| !self.pending.iter().any(|p| p.ticket == **t))
+            .copied()
+            .collect();
+        let handler = self.native_slot().handler();
+        for ticket in gone {
+            let Some((key, n)) = self.extensions.sent.remove(&ticket) else {
+                continue;
+            };
+            self.log(format!("cancel {key} request {n}: its call was let go"));
+            let extension = key.split_once('.').map_or(key.as_str(), |(e, _)| e);
+            if let Some(handler) = &handler {
+                let body = json!({ "extension": extension, "cancel": n });
+                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+            }
+        }
     }
 
     /// The preferred values the agent set for `extension`'s names, for its
@@ -191,7 +257,21 @@ impl<D: DataSource> Runner<D> {
         let values: serde_json::Map<String, Json> = (self.extensions.preferred.iter())
             .filter_map(|(k, v)| Some((k.strip_prefix(&prefix)?.to_owned(), v.clone())))
             .collect();
-        let body = json!({ "extension": extension, "preferred": values });
+        // And the state of each permission it declares, which its answers
+        // follow (LLP 1133.019 §10: under `limited`, only the selection).
+        let permissions: serde_json::Map<String, Json> = (self.plan.modules.iter())
+            .filter(|m| self.plan.str(m.extension) == extension)
+            .flat_map(|m| {
+                let list = self.substitute(m)["permissionList"].clone();
+                list.as_array().cloned().unwrap_or_default()
+            })
+            .filter_map(|p| {
+                let name = p["name"].as_str()?.to_owned();
+                Some((name.clone(), json!(self.permission_state(&name))))
+            })
+            .collect();
+        let body =
+            json!({ "extension": extension, "preferred": values, "permissions": permissions });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));
     }
 

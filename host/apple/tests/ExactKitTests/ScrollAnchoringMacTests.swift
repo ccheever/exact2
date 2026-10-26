@@ -74,6 +74,18 @@ final class ScrollAnchoringMacTests: XCTestCase {
         XCTAssertEqual(clip.bounds.minY, 500, "the end, followed")
     }
 
+    /// Past an edge, a correction that asks for no more than that edge is left
+    /// to AppKit's rubber band, which settles there (a chat's end jittered as
+    /// each batch clamped the bounce); one that moves the content is written.
+    func testAPullPastAnEdgeIsLeftToTheRubberBand() {
+        XCTAssertTrue(CollectionHost.leavesRubberBand(at: 470, wanted: 448, maximum: 448), "a follower's end")
+        XCTAssertTrue(CollectionHost.leavesRubberBand(at: 470, wanted: 470, maximum: 448), "an anchor that did not move")
+        XCTAssertTrue(CollectionHost.leavesRubberBand(at: -30, wanted: 0, maximum: 448))
+        XCTAssertFalse(CollectionHost.leavesRubberBand(at: 470, wanted: 300, maximum: 448), "rows above moved the reader")
+        XCTAssertFalse(CollectionHost.leavesRubberBand(at: 448, wanted: 448, maximum: 448), "at rest at the end")
+        XCTAssertFalse(CollectionHost.leavesRubberBand(at: 200, wanted: 260, maximum: 448))
+    }
+
     /// A view leaving with an exit animation is not the presenter's any more
     /// and is never the anchor.
     func testALeavingViewIsNoCandidate() {

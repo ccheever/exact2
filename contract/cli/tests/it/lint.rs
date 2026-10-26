@@ -25,6 +25,56 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
 
+/// A state part on an element (LLP 1121 D8, `:hover` then its rows) is linted
+/// as lowering folds it: a row its state takes passes, checked as the row it
+/// lowers to (`:active`'s colour as the press's, which inherits nothing); a
+/// row it takes none of, or a name that is no row, is refused (Excord's
+/// emoji button, f8b012ef1e).
+#[test]
+fn an_elements_state_part_is_linted_as_lowering_folds_it() {
+    let src = |state: &str, row: &str| {
+        format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button appearance=\"none\" press=go aria-label=\"Go\" opacity=0.6\n      :{state}\n        {row}\n      text \"a\"\n")
+    };
+    let lint = |state: &str, row: &str| {
+        contract_lower::lint(&contract_syntax::parse(&src(state, row)).unwrap())
+            .iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+    };
+    for (state, row) in [
+        ("hover", "opacity=1"),
+        ("hover", "opacity = 1"),
+        ("active", "opacity=0.5"),
+        ("active", "color=\"#000000\""),
+    ] {
+        assert!(
+            lint(state, row).is_empty(),
+            "{state} {row}: {:?}",
+            lint(state, row)
+        );
+        contract::compile(&src(state, row)).unwrap_or_else(|e| panic!("{state} {row}: {e}"));
+    }
+    // A prop put in before the fold: a row that reads one is the fold's to judge, not the lint's (Astra's re-check).
+    let param = "component App\n  view\n    Dim(level=0.8)\ncomponent Dim\n  props\n    level: number\n  view\n    column opacity=0.6\n      :hover\n        opacity=level\n      text \"a\"\n";
+    let found = contract_lower::lint(&contract_syntax::parse(param).unwrap());
+    assert!(found.is_empty(), "{found:?}");
+    contract::compile(param).unwrap_or_else(|e| panic!("{e}"));
+    for (state, row, id) in [
+        ("hover", "opacty=1", "lower-state-row"),
+        ("hover", "width=10", "lower-state-row"),
+        ("hover", "color=\"#000000\"", "lower-state-row"),
+        ("active", "-exact-press-opacity-to=0.5", "lower-state-row"),
+        ("active", "color=\"inherit\"", "lower-attr-value"),
+    ] {
+        let found = lint(state, row);
+        assert_eq!(found.first().copied(), Some(id), "{state} {row}: {found:?}");
+        assert!(
+            contract::compile(&src(state, row)).is_err(),
+            "{state} {row} compiles"
+        );
+    }
+}
+
 /// What a React Native port writes first is refused with what to write
 /// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
 #[test]
@@ -555,6 +605,22 @@ fn the_style_hint_suggests_only_what_compiles() {
             "font-size: 14px; font-weight: 600; line-height: 1.4",
             "font-size=\"14px\" font-weight=600 line-height=1.4",
         ),
+        // String shorthands keep quotes even when their CSS value is a number.
+        ("border: 0", "border=\"0\""),
+        ("border-top: 0", "border-top=\"0\""),
+        ("border-right: 0", "border-right=\"0\""),
+        ("border-bottom: 0", "border-bottom=\"0\""),
+        ("border-left: 0", "border-left=\"0\""),
+        ("columns: 2", "columns=\"2\""),
+        ("columns: 1", "columns=\"1\""),
+        ("columns: 65535", "columns=\"65535\""),
+        ("columns: 02", "columns=\"02\""),
+        ("columns: 12px", "columns=\"12px\""),
+        ("column-rule: 0", "column-rule=\"0\""),
+        (
+            "column-count: 2; column-rule-width: 0; padding: 8",
+            "column-count=2 column-rule-width=0 padding=8",
+        ),
         // A custom property is not an attribute; the others are.
         ("--gap: 8px; padding: 8px", "padding=\"8px\""),
         // A plain number is unquoted, as the lexer wants it.
@@ -612,6 +678,71 @@ fn the_style_hint_suggests_only_what_compiles() {
             message.contains("a look nodes share is a `style Name` block"),
             "{style}: {message}"
         );
+    }
+}
+
+#[test]
+fn the_style_hint_keeps_importance_for_properties_with_shared_rows() {
+    for (a, b) in [
+        ("border-color: red", "border-bottom-color: blue"),
+        ("border-width: 2px", "border-top: 1px solid red"),
+        ("border-top: 1px solid red", "border-color: blue"),
+        ("animation: pulse 1s", "animation-duration: 2s"),
+        ("animation-duration: 1s", "animation-duration: 2s"),
+    ] {
+        for (first, last) in [(a, b), (b, a)] {
+            let style = format!("{first} !important; {last}");
+            let src = format!("component A\n  view\n    text \"a\" style={style:?}\n");
+            let e = contract::compile(&src).unwrap_err();
+            assert_eq!(e.id, "lower-unknown-attr");
+            assert!(!e.message.contains("write "), "{style}: {e}");
+            assert!(e
+                .message
+                .contains("a look nodes share is a `style Name` block"));
+        }
+    }
+    // Distinct animation longhands compose into parts of one row without competing.
+    let app = |attrs: &str| {
+        format!("keyframes pulse\n  to opacity=0\ncomponent A\n  view\n    text \"a\" {attrs}\n")
+    };
+    let longhands: Vec<_> = exact_motion::animation::LONGHANDS
+        .into_iter()
+        .zip([
+            "pulse", "1s", "linear", "0s", "infinite", "reverse", "both", "paused",
+        ])
+        .collect();
+    for (i, a) in longhands.iter().enumerate() {
+        for b in &longhands[i + 1..] {
+            for ((first, x), (last, y)) in [(a, b), (b, a)] {
+                for importance in ["", " !important"] {
+                    let style = format!("{first}: {x}{importance}; {last}: {y}");
+                    let e = contract::compile(&app(&format!("style={style:?}"))).unwrap_err();
+                    let attrs = format!("{first}=\"{x}\" {last}=\"{y}\"");
+                    assert!(
+                        e.message
+                            .contains(&format!("write the declarations as attributes, `{attrs}`")),
+                        "{style}: {e}"
+                    );
+                    contract::compile(&app(&attrs)).unwrap_or_else(|e| panic!("{attrs}: {e}"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_style_hint_does_not_turn_invalid_column_counts_into_widths() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    for value in ["2.0", "2.5", "2.", "0.5", "0", "65536"] {
+        let style = format!("columns: {value}");
+        let e = contract::compile(&app(&format!("style={style:?}"))).unwrap_err();
+        let attrs = format!("columns={value}");
+        assert!(
+            e.message
+                .contains(&format!("write the declarations as attributes, `{attrs}`")),
+            "{style}: {e}"
+        );
+        contract::compile(&app(&attrs)).expect_err("invalid counts must remain refused");
     }
 }
 

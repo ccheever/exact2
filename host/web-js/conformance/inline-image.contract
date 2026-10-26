@@ -1,0 +1,22 @@
+// LLP 1011.002: an image in a paragraph's text, between its words: its box
+// takes its place in the line, the line grows to hold it, and
+// `vertical-align` places it against the baseline.
+component App
+  state big = false
+  action grow
+    big = not big
+  view
+    column testId="root" padding=8 gap=8 width=240
+      button testId="grow" press=grow "Grow"
+      text testId="baseline"
+        text "A "
+        image "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGN44ODwHxkzoAsAAEE1EvnzbXFzAAAAAElFTkSuQmCC" width=(big ? 40 : 16) height=(big ? 20 : 8) aria-label="a bar" testId="baseline-image"
+        text " on the baseline, in a paragraph long enough to wrap."
+      text testId="middle" font-size=20
+        text "Middle "
+        image "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGN44ODwHxkzoAsAAEE1EvnzbXFzAAAAAElFTkSuQmCC" width="1.375em" height="1.375em" object-fit="contain" vertical-align="middle" aria-label=":bar:" testId="middle-image"
+        text " aligned"
+      text testId="lowered"
+        text "Lowered "
+        image "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGN44ODwHxkzoAsAAEE1EvnzbXFzAAAAAElFTkSuQmCC" width=12 height=12 vertical-align="-0.25em" testId="lowered-image"
+        text " a quarter em"

@@ -2125,3 +2125,30 @@ also failed before the patch and holds the vendor's per-item override; no
 Contract attribute is added. The remaining fixture records the absolute-child
 follow-up in `QUEUE.md`: automatic insets still give x=0 instead of Chrome's
 x=40. Floats remain disabled in Exact.
+
+## Patch 67: a scroll container's end padding extends its children's margin boxes
+
+Flex, block and grid layout added a scroll container's end padding (inline-end
+and bottom) to its whole scrollable overflow rectangle, which includes the
+overflow of descendants. [CSS Overflow 3 §2.2](https://www.w3.org/TR/css-overflow-3/#scrollable)
+adds it to the margin boxes of the container's in-flow children (and grid and
+flex items) only; descendant overflow counts as it is. A child's margin box
+is taken where it sits before any relative offset. So a full-bleed hairline in
+a padded list (`margin: 0 -10px` inside 10px of side padding) reaches the
+padding edge and leaves nothing to scroll, where Exact made the list scroll
+10px sideways; a last child's bottom margin now comes before the bottom
+padding; and a descendant overflowing its parent gets no padding after it.
+`common::scrollable_overflow` holds the rule (`margin_box_contribution`,
+`with_end_padding`). A container with no children keeps a rectangle of its
+padding alone, as before.
+
+Chrome 155.0.8059.86, measured on 2026-10-24: a 200 × 100 scroller with 10px
+padding (padding box 220 × 120) holding a hairline bled to its padding edge
+has `scrollWidth` 220 (Exact 230 before the patch); a 150px child with a 20px
+bottom margin gives `scrollHeight` 190 (170); a 50px child holding a 200px
+grandchild gives 210 (220); a 300px child with a 15px right margin gives
+`scrollWidth` 335 (320); a 200px child moved 30px by `left` gives 240 (250).
+
+**Held by** `browser_scroll_padding::end_padding_extends_children_not_descendants`:
+17 cases across block, flex row and column, grid, RTL and relative offsets,
+all of which failed before the patch.

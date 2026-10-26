@@ -1,6 +1,6 @@
 //! System Back, in order (LLP 1115.001 D6; LLP 1115 D5, "Back is always
 //! there"): the route's part of it, which is the rule the iOS host follows
-//! (`NavigationRules.back`), over the same runner.
+//! (`NavigationBack.way`), over the same runner.
 //!
 //! From the navigation root's selected route, Back goes to the first of:
 //!

@@ -32,6 +32,7 @@ mod logic;
 mod manifest;
 mod map;
 mod midi;
+mod module_events;
 mod module_rust;
 mod modules;
 pub mod native;
@@ -39,6 +40,7 @@ mod package_views;
 pub mod picker;
 mod resolve;
 mod retained;
+mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
 mod rust;
 mod sources;
@@ -54,6 +56,7 @@ pub mod tamber_params;
 pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
+pub mod watch;
 pub use contract_lower::vocab::collection_edge_refusal;
 pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
@@ -254,8 +257,10 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
 from_pass!(contract_lower::LowerError, "lower");
 /// A source text's components' `param.` names as their tokens (LLP 1121
 /// D15), as the loader writes them for a file; a text with no path is
-/// `app.contract`, as an app's root is.
+/// `app.contract`, as an app's root is. A text with no path has no members
+/// files either, so one that names any is refused.
 pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    sources::standalone_members(file)?;
     for c in &mut file.components {
         c.params
             .identity
@@ -609,6 +614,37 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
             .collect::<Vec<_>>()
     })?;
     compile_path_checked(path, &src, false, true, contract_lower::Profile::Terminal)
+        .map(|(plan, _)| plan)
+}
+
+/// Compile an app's watch entry (LLP 1126.002 D4): its own file, whose first
+/// component is the root, refused by the watch's admission (D9) and then
+/// compiled as a whole live plan with the main plan's checks, as a terminal
+/// entry is its own file (LLP 1101 D2).
+pub fn compile_watch(app: &Path, entry: &manifest::WatchEntry) -> Result<Plan, Vec<CompileError>> {
+    let path = app.join(&entry.source);
+    let src = read_source(&path).map_err(|e| vec![e])?;
+    let (file, sources) = sources::load(&path, &src, &app_root(&path)?)?;
+    watch::check(&file).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
+    if file.components.first().map(|c| c.name.as_str()) != Some(entry.component.as_str()) {
+        return Err(vec![CompileError {
+            pass: "watch",
+            id: "watch-component".to_owned(),
+            message: format!(
+                "app.json's watch.component is `{}`, which is not the first component of {}; make it the first, or name the first",
+                entry.component, entry.source
+            ),
+            span: Span::default(),
+            file: Some(path.clone().into_boxed_path()),
+            related: Box::default(),
+        }]);
+    }
+    // The app's own plan's profile: the watch runs the same runner and kernel.
+    compile_path_checked(&path, &src, false, true, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
 }
 

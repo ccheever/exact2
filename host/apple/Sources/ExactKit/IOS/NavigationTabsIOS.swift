@@ -501,11 +501,38 @@ extension NavigationHost {
         if list.convert(list.bounds, to: view) != measuredTablist { reportCovers() }
     }
 
+    /// A bar visible in its window, including every ancestor's visibility.
+    static func shownBar(_ bar: UIView?) -> UIView? {
+        guard let bar, let window = bar.window else { return nil }
+        var at: UIView? = bar
+        while let view = at {
+            if view.isHidden || view.alpha < 0.01 { return nil }
+            at = view.superview
+        }
+        let frame = bar.convert(bar.bounds, to: window)
+        return frame.width > 1 && frame.height > 1 && frame.intersects(window.bounds) ? bar : nil
+    }
+
     /// Whether a tab container takes this tablist's place.
     func adopts(tablist: NodeView) -> Bool {
         adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome &&
             !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
     }
+}
+
+extension UITabBarController {
+    /// The bar the controller projects, including iPadOS's floating list of tab items.
+    var projectedTabBar: UIView? {
+        if #available(iOS 18.0, tvOS 18.0, *), isTabBarHidden { return nil }
+        #if os(iOS)
+        return tabBar.window != nil ? tabBar : floatingTabList
+        #else
+        return tabBar
+        #endif
+    }
+
+    /// The projected bar, when it is visibly on screen.
+    var shownTabBar: UIView? { NavigationHost.shownBar(projectedTabBar) }
 }
 
 #if os(iOS)

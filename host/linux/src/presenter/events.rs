@@ -484,6 +484,8 @@ impl<D: DataSource> Presenter<D> {
                 key: name.to_owned(),
                 code: code.to_owned(),
                 repeat: repeat && kind == EventKind::Key,
+                // No input method composes text here (LLP 1005).
+                is_composing: false,
                 held: self.modifiers(),
             };
             let event = if phase == EventKind::Keycapture {

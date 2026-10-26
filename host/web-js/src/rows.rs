@@ -505,7 +505,9 @@ impl Em<'_> {
                 let (say, view) = (self.uses.rt("say"), self.uses.rt("viewId"));
                 one("--exact-layout-transition", Some(style::layout_transition_map(&values, &format!("{view}({e})"), &say)))
             }
-            _ => style::style_writes(b.id, timeline)
+            // A side is the author's when they wrote it or the other of its
+            // pair (css.rs `unsaid_side`): only a side the sheet alone sets mirrors.
+            _ => style::style_writes(b.id, timeline, b.written || style::other_side(id).and_then(binding).is_some_and(|o| o.written))
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
                 .map(|w| {
@@ -937,6 +939,11 @@ pub(super) fn attributes(
             "poster" if element == "video" && value.starts_with("app:/") => {
                 attrs.push(("data-app-poster".into(), value.clone()));
             }
+            // A package's scheme (LLP 1133.019 D11 item 1): pictures.js
+            // asks its implementation; the browser never fetches it.
+            "src" if element == "img" && package_scheme(value) => {
+                attrs.push(("data-exact-picture".into(), value.clone()));
+            }
             "src" if element == "img" && value.starts_with("symbol:") => {
                 attrs.push((
                     name.clone(),
@@ -997,6 +1004,23 @@ pub(super) fn attributes(
     (attrs, content, css)
 }
 
+/// Whether `src` begins with a scheme a package may serve: a lowercase word
+/// that is neither a web scheme nor a host's own (LLP 1133.019 D11 item 1;
+/// the bake's `HOST_SCHEMES`).
+fn package_scheme(src: &str) -> bool {
+    let Some((scheme, _)) = src.split_once(':') else {
+        return false;
+    };
+    scheme.starts_with(|c: char| c.is_ascii_lowercase())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && ![
+            "http", "https", "data", "blob", "app", "doc", "symbol", "asset", "file", "about",
+        ]
+        .contains(&scheme)
+}
+
 /// A frame's literal `data:` source (refused alone, shown in an opaque
 /// sandbox) with no literal `sandbox`: a bound one decides it, so it is no
 /// attribute (the frame shows about:blank) and rt.js `P` writes it
@@ -1023,7 +1047,6 @@ pub(crate) fn pressed_transition_map() -> String {
                     crate::style::TRANSITION_ENTRIES.as_str()
                 )
 }
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1048,7 +1071,23 @@ mod tests {
             .map(|(name, _)| name.as_str())
             .filter(|name| name.starts_with("data-"))
             .collect();
-        for name in ["data-app-poster", "data-color-space", "data-color-type"] {
+        let mut picture = exact_kernel::SortedMap::default();
+        picture.insert("src".into(), "swatch:red".into());
+        let picture_attrs = super::attributes("img", &picture).0;
+        assert!(
+            !picture_attrs.iter().any(|(name, _)| name == "src"),
+            "a package's scheme is never fetched"
+        );
+        let names: std::collections::BTreeSet<_> = names
+            .into_iter()
+            .chain(picture_attrs.iter().map(|(n, _)| n.as_str()))
+            .collect();
+        for name in [
+            "data-app-poster",
+            "data-color-space",
+            "data-color-type",
+            "data-exact-picture",
+        ] {
             assert!(names.contains(name), "writer did not emit {name}");
         }
         let mut unreserved = Vec::new();
@@ -1335,7 +1374,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let page = dir.join("col.html");
         let cursor_writes =
-            crate::style::style_writes(exact_kernel::StyleId::Cursor as u16, false).unwrap();
+            crate::style::style_writes(exact_kernel::StyleId::Cursor as u16, false, true).unwrap();
         let cursor_map = cursor_writes[0].map.unwrap();
         let html = format!(
             r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}button{{cursor:default}}</style><div id="flow">column</div><div style="cursor:grab"><button id="cursor">Cursor</button></div><pre id="out"></pre><script>

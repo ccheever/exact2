@@ -79,6 +79,9 @@ package struct Run: Hashable {
     /// `LineInsets`): where its paragraph's lines start, so a metric.
     package var indent: CGFloat = 0
     package var hang = false
+    /// An image in the paragraph's text (LLP 1011.002): the box this run's
+    /// U+FFFC reserves. A metric.
+    package var box: InlineBox?
 
     package static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
@@ -89,7 +92,7 @@ package struct Run: Hashable {
               lhs.strikeColor == rhs.strikeColor, lhs.href == rhs.href,
               lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
               lhs.backgroundRadii == rhs.backgroundRadii, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
-              lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
+              lhs.indent == rhs.indent, lhs.hang == rhs.hang, lhs.box == rhs.box else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -126,6 +129,7 @@ package struct Run: Hashable {
         hasher.combine(stroke)
         hasher.combine(indent)
         hasher.combine(hang)
+        hasher.combine(box)
     }
     package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
         self.text = text
@@ -762,28 +766,31 @@ package final class TextEngine {
                                                       size, nil) as PlatformFont
             }
             let base = candidate(face)
-            var seen = Set<String>(), cascade: [CTFontDescriptor] = []
+            // The other families fall back in stack order; a one-family stack
+            // is its face alone.
+            var seen: Set<String> = [face.family], cascade: [CTFontDescriptor] = []
             for member in faces where seen.insert(member.family).inserted {
                 let group = faces.filter { $0.family == member.family }
                 cascade.append(CTFontCopyFontDescriptor(candidate(TextEngine.matched(group, weight: weight, italic: italic, stretch: stretch)) as CTFont))
             }
+            guard !cascade.isEmpty else { fonts[key] = base; return base }
             let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: cascade] as CFDictionary)
             let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
             fonts[key] = f
             return f
         }
-        let w: PlatformFont.Weight
-        switch weight {
-        case ..<200: w = .ultraLight
-        case 200..<300: w = .thin
-        case 300..<400: w = .light
-        case 400..<500: w = .regular
-        case 500..<600: w = .medium
-        case 600..<700: w = .semibold
-        case 700..<800: w = .bold
-        case 800..<900: w = .heavy
-        default: w = .black
-        }
+        // Each hundred's named instance is kept under its own key, so a
+        // weight between two (a transition's frame) makes one font.
+        var f = weight % 100 == 0 && (100...900).contains(weight)
+            ? namedSystemFace(size: size, weight: TextEngine.namedWeight(weight), family: family, italic: italic)
+            : TextEngine.cssWeight(weight, size: size) { self.font(size: size, weight: $0, family: family, italic: italic) }
+        f = TextEngine.cssAxes(f, stretch: stretch, variations: variations, size: size)
+        fonts[key] = f
+        return f
+    }
+
+    /// A platform generic at a named weight, as UIKit (AppKit) makes it.
+    private func namedSystemFace(size: CGFloat, weight w: PlatformFont.Weight, family: Int, italic: Bool) -> PlatformFont {
         var f = (family == 5 || family == 6)
             ? PlatformFont.monospacedSystemFont(ofSize: size, weight: w)
             : PlatformFont.systemFont(ofSize: size, weight: w)
@@ -796,35 +803,21 @@ package final class TextEngine {
             if let d = f.fontDescriptor.withDesign(design), let designed = NSFont(descriptor: d, size: size) { f = designed }
             #endif
         }
-        // A declared stack returned above with one of its real descriptors.
+        // A declared stack is drawn from its real descriptors (`font` above).
         // This trait resolver is only for a platform generic, never a shear
         // applied to custom bytes (LLP 1019 §5).
         if italic {
             #if canImport(UIKit)
-            if let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) { f = UIFont(descriptor: d, size: size) }
+            // Its bold trait kept: semibold and heavier would be regular italic.
+            if let d = f.fontDescriptor.withSymbolicTraits(f.fontDescriptor.symbolicTraits.union(.traitItalic)) { f = UIFont(descriptor: d, size: size) }
             #else
             // AppKit's font manager is main's (LLP 1072 §8.1): a variant first
-            // met while the owner thread measures is resolved there, once.
+            // met while the owner thread measures is resolved there.
             let upright = f
             f = Owner.shared.callMain { NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask) }
             #endif
         }
-        f = TextEngine.cssWeight(f, weight: weight, size: size)
-        f = TextEngine.cssAxes(f, stretch: stretch, variations: variations, size: size)
-        fonts[key] = f
         return f
-    }
-
-    /// CSS `font-weight` on a variable system face is its `wght` axis at
-    /// that number, as Chrome and WebKit set it: UIKit's semibold is `wght`
-    /// 590 and its medium 510, so `600` text measured 0.2% narrower than
-    /// Chrome's ("Heavy list" at 17 px: 77.67 against 77.87).
-    package static func cssWeight(_ font: PlatformFont, weight: Int, size: CGFloat) -> PlatformFont {
-        let tag = 0x77676874 as NSNumber // 'wght'
-        guard let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let current = axes[tag],
-              current.intValue != weight else { return font }
-        let d = CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: [tag: weight as NSNumber]] as CFDictionary)
-        return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
     /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
@@ -836,10 +829,11 @@ package final class TextEngine {
         // appending an attributed string for every run.
         let s = NSMutableAttributedString(string: spec.runs.map(\.text).joined())
         var offset = 0
-        for r in spec.runs {
+        for (index, r) in spec.runs.enumerated() {
             var a: [NSAttributedString.Key: Any] = [.font: font(r)]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             presentation?.attributes(r, color: spec.color, attributes: &a)
+            if let box = r.box { TextEngine.boxAttributes(box, font: font(r) as CTFont, index: index, into: &a) }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
@@ -1151,7 +1145,10 @@ package final class TextEngine {
                     if offset >= range.location + range.length { break }
                     let authored = spec.runs[index]
                     matched = true
-                    if authored.lineHeight != nil {
+                    if let b = authored.box {
+                        // An image's box, wherever its line breaks (LLP 1011.002).
+                        box.include(b.lineBox(font(authored) as CTFont))
+                    } else if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         box.include(authoredExtents(authored))
@@ -1407,11 +1404,17 @@ package final class TextEngine {
         func run(_ run: ExactTextRun) -> Run {
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run))
         }
-        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { r in
+            var made = run(r)
+            // An image's box draws no ink of its own (LLP 1011.002).
+            if let box = InlineBox(r) { made.box = box; made.hidden = true }
+            return made
+        }
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {
-            if let expanded = presentation?.markdown(self, source: source) { runs = expanded }
+            let utf8 = { (p: UnsafePointer<UInt8>?, n: Int) in p.map { String(decoding: UnsafeBufferPointer(start: $0, count: n), as: UTF8.self) } ?? "" }
+            if let expanded = presentation?.markdown(self, source: source, atoms: utf8(request.atoms, request.atoms_len), faces: utf8(request.faces, request.faces_len)) { runs = expanded }
             else if requiresMarkdownExpansion { refusedMarkdown = request.view; runs = [] }
         }
         // Metric-only keys match the geometry used by the colored presenter.

@@ -37,6 +37,17 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
+    // @ref LLP 1020.002 D3 — a frame's `reload(id, ignoreCache=)`: the id,
+    // then the flag (`none` for a plain reload). Bare `reload()` stays empty.
+    if name == "reload" && !args.is_empty() {
+        return vec![args.first(), named("ignoreCache")];
+    }
+    // @ref LLP 1020.002 D7 — the id, the `app:/` path, then the clip (`none`
+    // for the whole viewport).
+    if name == "captureScreenshot" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("clip")];
+    }
     if matches!(name, "showPopover" | "togglePopover") {
         return vec![args.first(), named("source")];
     }

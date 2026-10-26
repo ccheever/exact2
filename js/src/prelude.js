@@ -845,9 +845,9 @@
   var ERRNO = windowsStorage
     ? { 2: "ENOENT", 3: "ENOENT", 32: "EBUSY", 33: "EBUSY", 80: "EEXIST", 145: "ENOTEMPTY", 170: "EBUSY", 183: "EEXIST", 267: "ENOTDIR" }
     : { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
-  // `fs.compressImage`'s own failures (LLP 1069.002 A1.4), named in the
-  // message natively; the web sets the code itself.
-  var IMAGE_CODE = /^(?:filesystem: )?compressImage: (unsupported|undecodable|too-large|unfit|timeout): /;
+  // The image calls' own failures (LLP 1069.002 A1.4, LLP 1133.019 D17),
+  // named in the message natively; the web sets the code itself.
+  var IMAGE_CODE = /^(?:filesystem: )?(?:compress|transform)Image: (unsupported|undecodable|too-large|unfit|timeout|outside): /;
   function storageCode(message) {
     if (/^denied: /.test(message)) return "denied";
     var image = IMAGE_CODE.exec(message);
@@ -1015,23 +1015,25 @@
     host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
   };
   files.recentDocuments = function () { return kept(""); }; files.forgetDocument = function (path) { return kept("forget " + path); }; function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { return Promise.reject(storageError(String(e && e.message || e))); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
-  // `fs.compressImage(from, to, {maxDimension, maxBytes, type})` (LLP 1069.002 A1, A1.11): its options are
-  // checked here, before anything is queued, and travel to the host as two numbers and the media type;
-  // natively the reply is `width\theight\tsize`, on the web the record.
-  var MAX_IMAGE_DIMENSION = 8192, MAX_IMAGE_BYTES = 67108864;
-  files.compressImage = function (from, to, options) {
-    var api = "storage.fs.compressImage()";
+  // `fs.compressImage(from, to, {maxDimension, maxBytes, type, rotate, flip, crop})` (LLP 1069.002 A1,
+  // A1.11; LLP 1133.019 D15) and `fs.transformImage(from, to, options)` (D14): their options are checked
+  // before anything is queued and travel as binary.js `imageOptions` words them; natively the reply is
+  // `width\theight\tsize`, a transform's then its path and the codec's report, and on the web the record.
+  function imageCall(method, from, to, options, record) {
+    var tail;
     try {
-      if (typeof from !== "string" || typeof to !== "string") throw new TypeError(api + ": from and to must be app:/ paths");
-      if (!options || typeof options !== "object") throw new TypeError(api + ": options must be {maxDimension, maxBytes}");
-      var dimension = options.maxDimension, bytes = options.maxBytes, type = options.type === undefined ? "image/jpeg" : options.type;
-      if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION);
-      if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
-      if (type !== "image/jpeg" && type !== "image/png") throw new TypeError(api + ": type must be \"image/jpeg\" or \"image/png\"");
+      if (typeof from !== "string" || typeof to !== "string") throw new TypeError("storage.fs." + method + "(): from and to must be app:/ paths");
+      tail = binary.imageOptions("storage.fs." + method + "()", options, method === "transformImage");
     } catch (e) { return Promise.reject(e); }
-    return storageCall(nativeStorage && nativeStorage.fs, "compressImage", [from, to, dimension, bytes, type], function (value) {
-      var parts = typeof value === "string" ? value.split("\t") : [value.width, value.height, value.size];
-      return { path: to, type: type, size: +parts[2], width: +parts[0], height: +parts[1] };
+    return storageCall(nativeStorage && nativeStorage.fs, method, [from, to].concat(tail), function (value) {
+      return typeof value === "string" ? record(value.split("\t"), tail) : value;
+    });
+  }
+  files.compressImage = function (from, to, options) { return imageCall("compressImage", from, to, options, function (parts, tail) { return { path: to, type: tail[2], size: +parts[2], width: +parts[0], height: +parts[1] }; }); };
+  files.transformImage = function (from, to, options) {
+    return imageCall("transformImage", from, to, options, function (parts) {
+      var report = JSON.parse(parts.slice(4).join("\t"));
+      return { path: parts[3], type: report.type, size: +parts[2], width: +parts[0], height: +parts[1], colorSpace: report.colorSpace, hdr: report.hdr, metadata: report.metadata };
     });
   };
   var storage = Object.freeze({ fs:Object.freeze(files), sqlite:Object.freeze({
@@ -1217,13 +1219,13 @@
     try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
     catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
   };
-  // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
-  // (a value given at once too: see its end) — then it drains microtasks and asks
-  // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
-  // fetch the answer is waiting on (0: its storage; 0 and `waiting`: another
-  // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
-  // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an
-  // answer still waiting on nothing of its own.
+  // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id (a value given at once too: see its end) — then
+  // it drains microtasks and asks `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the fetch the answer is
+  // waiting on (0: its storage; 0 and `waiting`: another answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
+  // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an answer still waiting on nothing of its own.
+  // A handler a module calls back (LLP 1133.016 D9): the `tools` export's, its value as JSON text.
+  function tool(name, args) { var f = global.exact.tools && global.exact.tools[name], text = function (v) { return JSON.stringify(v === undefined ? null : v); }, e, r;
+    if (typeof f !== "function") { e = new Error("the data module's `tools` has no `" + name + "`"); e.kind = "UnknownSource"; throw e; } r = f(args, store, storage); return r && typeof r.then === "function" ? r.then(text) : text(r); }
   global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
@@ -1260,7 +1262,7 @@
         },
       });
       call.sync = true;
-      try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
+      try { result = mutation === "tool" ? tool(source.slice(5), JSON.parse(JSON.parse(argsJson)[0])) : global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
       finally { call.sync = false; }
       // Staged socket operations go out with no fetch, a stream answer's included (D7); a source that answers with a promise is
       // an answer in flight from its call on, and what it staged is that turn's (the amendment of 2026-10-18).
@@ -1455,8 +1457,8 @@
   // may still write, so its queue waits for it, as before. Whether it was.
   var IMAGE_ABANDONED = /^compressImage: timeout: the storage wait ran out/;
   function failAbandonedImage(message) {
-    if (!head || head.method !== "compressImage" || !IMAGE_ABANDONED.test(message)) return false;
-    landed(head, false, storageError(message));
+    if (!head || (head.method !== "compressImage" && head.method !== "transformImage") || !IMAGE_ABANDONED.test(message)) return false;
+    landed(head, false, storageError(message.replace(/^compressImage/, head.method)));
     return true;
   }
   // The background's operation in flight, so failed: its rejection runs.

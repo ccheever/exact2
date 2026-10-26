@@ -5,7 +5,7 @@
 // swap that fails leaves the build as it was.
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -58,6 +58,22 @@ test('by two renames (no exchange) the swap still lands whole', async () => {
   expect(got.final).toBe(race ? '<p>400' : '<p>100');
   if (race) console.log(`two renames: ${got.ok} reads, ${got.miss} found no build, ${got.err} lost a file`);
 }, 120_000);
+
+test('a first build creates missing parent directories before taking the lock', async () => {
+  const { replaceBuild } = await import(SERVE);
+  const dir = mkdtempSync(join(tmpdir(), 'exact-replace-build-'));
+  const stage = join(dir, 'stage'), dist = join(dir, 'missing', 'parent', 'dist');
+  try {
+    mkdirSync(join(stage, 'assets'), { recursive: true });
+    writeFileSync(join(stage, 'index.html'), '<p>new');
+    writeFileSync(join(stage, 'assets', 'app.css'), 'p { color: red; }');
+    replaceBuild(stage, dist);
+    expect(readFileSync(join(dist, 'index.html'), 'utf8')).toBe('<p>new');
+    expect(readFileSync(join(dist, 'assets', 'app.css'), 'utf8')).toBe('p { color: red; }');
+    expect(existsSync(stage)).toBe(false);
+    expect(existsSync(`${dist}.lock`)).toBe(false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('a swap that fails leaves the build as it was', async () => {
   const { replaceBuild } = await import(SERVE);

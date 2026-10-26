@@ -4,6 +4,7 @@ import AppKit
 #else
 import UIKit
 #endif
+import ExactCore
 
 struct FieldInput {
     var inputType: String
@@ -12,7 +13,8 @@ struct FieldInput {
     var isComposing = false
 
     func payload(_ value: String, _ selection: FieldSelection) -> String {
-        "\(inputType),\(cancelable ? 1 : 0),\(isComposing ? 1 : 0),\(data?.utf8.count ?? -1),\(data ?? "")\(selection.payload(value))"
+        FieldWire.input(type: inputType, data: data, cancelable: cancelable, composing: isComposing,
+                        value: value, start: selection.start, end: selection.end, direction: selection.direction)
     }
 }
 

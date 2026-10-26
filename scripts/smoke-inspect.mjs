@@ -53,8 +53,8 @@ export async function formControlsSmoke({ host, open, check }) {
 // its manifest. The named-host ATS opt-in is verified on a built bundle.
 // A bundled page (`local.html`) loads a loopback `http:` stylesheet, as
 // Chrome does from a secure page, and the host logs one that fails (#135).
-// A bundled PDF (`local.pdf`) is shown by its type, WebKit's PDF view, not
-// as its bytes in an HTML document (#115).
+// A bundled PDF (`local.pdf`) is shown by its type, not as its bytes in an
+// HTML document (#115): on Apple in PDFKit's view (LLP 1020.002 D10).
 export async function httpFrameSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-http-frames-'));
   const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
@@ -92,9 +92,10 @@ export async function httpFrameSmoke({ host, open, check }) {
     const guest = (tree, id) => byTestId(tree, id)?.guest?.find(n => n.id === 'result')?.text;
     // Before #115 the PDF's bytes were the text of an HTML body, which has
     // no element to outline; WebKit's PDF document has its annotation layer
-    // (a refused load's error page outlines too, so the layer is named).
+    // (a refused load's error page outlines too, so the layer is named), and
+    // an Apple host's PDF view says so with its pages (LLP 1020.002 D10).
     const pdf = (tree) => byTestId(tree, 'local-pdf');
-    const pdfShown = (tree) => pdf(tree)?.loading === false && !!pdf(tree).guest?.some(n => n.id === 'annotationContainer');
+    const pdfShown = (tree) => pdf(tree)?.loading === false && (pdf(tree).pdf === true || !!pdf(tree).guest?.some(n => n.id === 'annotationContainer'));
     let tree, state;
     for (let i = 0; i < 100; i++) {
       tree = await s.tree(); state = await s.state();

@@ -232,9 +232,11 @@ impl RegionTextRequest {
             .map(|(text, style)| TextRun {
                 text: (&**text).into(),
                 style: *style,
+                inline: None,
             })
             .collect();
         f(&TextMeasureRequest {
+            atoms: Default::default(),
             exclusions: &[],
             runs: &runs,
             paragraph: self.0.source.paragraph,

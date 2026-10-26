@@ -50,7 +50,7 @@ mod readback;
 mod release;
 #[cfg(any(target_os = "android", test))]
 mod ring_order;
-pub use input::{InputEvent, PointerKind, PointerPhase};
+pub use input::{InputEvent, PointerKind, PointerPhase, SensorKind};
 pub mod json;
 pub mod shaders;
 mod target;

@@ -329,7 +329,8 @@ fn caltrain_activities_bake_with_state_schemas_and_unchanged_app_plan() {
         .unwrap()
         .encode();
     let all = compile_entries(&app, &manifest).unwrap();
-    assert_eq!(all.len(), 3);
+    // A widget, two activities and the watch entry (LLP 1126.002 D4).
+    assert_eq!(all.len(), 4);
     for a in manifest.live_activities().unwrap() {
         let plan = &all[&a.kind].plan;
         assert_eq!(plan.activity_slots.len(), 8);
@@ -473,4 +474,13 @@ fn shared_number_spellings_cover_format_boundaries_and_double_extremes() {
                 >= overhead + serde_json::to_vec(&value).unwrap().len()
         );
     }
+}
+
+#[test]
+fn a_source_text_activity_names_no_members_file() {
+    // A text has no path to read members from (LLP 1091.002).
+    let src =
+        source("text title").replace("  inject\n", "  members \"./more.contract\"\n  inject\n");
+    let errors = compile_activity(&src, &activity()).unwrap_err();
+    assert_eq!(errors[0].id, "contract-use-unresolved", "{errors:?}");
 }

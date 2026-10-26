@@ -227,6 +227,23 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// A package picture's admission (`exact_picture`), on this target.
+    pub fn picture(&mut self, len: usize) -> u32 {
+        let source = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let target = if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "ios"
+        };
+        let out = (self.host.as_mut())
+            .and_then(|h| h.runner_mut().admit_picture(&source, target))
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        self.emit(out)
+    }
+
     /// The agent's `prefer extension` in the input buffer (`Host::extension`).
     pub fn extension(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
@@ -236,6 +253,19 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.extension(&text));
+        self.emit(out)
+    }
+
+    /// A module event the platform reported, in the input buffer
+    /// (`Host::module_event`, LLP 1133.004 D6).
+    pub fn module_event(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.module_event(&text));
         self.emit(out)
     }
 }

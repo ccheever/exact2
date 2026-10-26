@@ -1,0 +1,20 @@
+// A local PDF in a frame and a capture of it through the runner, driven by
+// IframeCaptureSessionTests (LLP 1020.002 D7, D10).
+component App
+  state shown = false
+  state shot = ""
+  action show
+    shown = true
+  action snap
+    captureScreenshot("doc", "app:/tmp/pdf-shot.png", clip=DOMRect(x=0, y=0, width=200, height=100))
+  action captured(e: FrameCapture)
+    shot = `${e.path} ${e.width}x${e.height} ${e.error}`
+  view
+    column
+      if shown
+        iframe id="doc" src="app:/tmp/b6.pdf#page=2" capture=captured width=300 height=240 testId="doc"
+      button press=show testId="show"
+        text "Show"
+      button press=snap testId="snap"
+        text "Snap"
+      text shot testId="shot"

@@ -2,11 +2,11 @@
 use super::*;
 use std::path::PathBuf;
 
-fn boot(source: &str) -> Presenter<()> {
+pub(super) fn boot(source: &str) -> Presenter<()> {
     boot_at(source, 1.)
 }
 
-fn boot_at(source: &str, scale: f32) -> Presenter<()> {
+pub(super) fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
         &crate::test_plan(source),
         (),
@@ -17,12 +17,13 @@ fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    pin_fonts(&mut p);
-    p.frame();
+    fixture_fonts(&mut p);
     p
 }
 
-fn pin_fonts(p: &mut Presenter<()>) {
+/// The fixture fonts (DejaVu Sans) measured and painted from here on, the presenter laid out and painted again: a
+/// boot's, and a reload's after it, since a reload takes the new plan's own text engine (the host's fonts).
+pub(super) fn fixture_fonts(p: &mut Presenter<()>) {
     *p.text.borrow_mut() = TextEngine::from_font_files(
         &[std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -37,20 +38,21 @@ fn pin_fonts(p: &mut Presenter<()>) {
     *p.host.runner_mut().kernel_mut() = kernel;
     p.resize(400., 600.);
     p.replaced();
+    p.frame();
 }
 
-fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
+pub(super) fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
     let k = p.host.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
-fn tap(p: &mut Presenter<()>, test_id: &str) {
+pub(super) fn tap(p: &mut Presenter<()>, test_id: &str) {
     let id = view(p, test_id);
     p.tap(id).unwrap();
     p.run_commands(|| ());
 }
 
-fn slot(p: &Presenter<()>, name: &str) -> serde_json::Value {
+pub(super) fn slot(p: &Presenter<()>, name: &str) -> serde_json::Value {
     let state: serde_json::Value =
         serde_json::from_str(&p.host.agent("{\"op\":\"state\"}")).unwrap();
     state["slots"][name].clone()
@@ -322,7 +324,7 @@ fn a_field_not_painted_is_unavailable_and_a_reload_reads_only_its_own() {
         p.ranges.range_frame(id, 0, 1).unavailable,
         "the old paint is not read"
     );
-    pin_fonts(&mut p);
+    fixture_fonts(&mut p);
     p.frame();
     let after = measure(&mut p, 1)[0].unwrap();
     assert_eq!(after[1], first[1] + 50., "the new paint is");

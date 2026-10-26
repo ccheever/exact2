@@ -1,0 +1,36 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/speech-synthesis@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidVoice": {
+      "quality": "number",
+      "latency": "number",
+      "requiresNetworkConnection": "bool",
+      "features": "string[]"
+    }
+  },
+  "options": {
+    "speak": {
+      "engine": "string"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "textToSpeech"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.speechsynthesis.SpeechSynthesisModule",
+  "queries": [
+    "android.intent.action.TTS_SERVICE"
+  ]
+}

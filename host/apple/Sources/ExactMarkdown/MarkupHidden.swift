@@ -23,12 +23,26 @@ extension MarkupEditor: NSTextContentStorageDelegate {
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
         guard let storage = textContentStorage.textStorage, storage.hidesSource(in: range) else { return nil }
         let shown = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
-        var runs: [NSRange] = []
-        shown.enumerateAttribute(.markupHidden, in: NSRange(location: 0, length: shown.length)) { value, run, _ in
-            if value != nil { runs.append(run) }
+        let all = NSRange(location: 0, length: shown.length)
+        // Hidden runs, and each atom's first code unit (LLP 1045.000 §4): a
+        // U+FFFC carrying a new attachment whose picture is the pill.
+        var runs: [(NSRange, MarkupAtom?)] = []
+        shown.enumerateAttribute(.markupHidden, in: all) { value, run, _ in
+            if value != nil { runs.append((run, nil)) }
         }
-        for run in runs.reversed() {
-            shown.replaceCharacters(in: run, with: String(repeating: "\u{2060}", count: run.length))
+        shown.enumerateAttribute(.markupAtom, in: all) { value, run, _ in
+            if let atom = value as? MarkupAtom { runs.append((run, atom)) }
+        }
+        for (run, atom) in runs.sorted(by: { $0.0.location > $1.0.location }) {
+            var attributes = shown.attributes(at: run.location, effectiveRange: nil)
+            attributes[.markupAtom] = nil
+            let piece = NSMutableAttributedString(string: String(repeating: "\u{2060}", count: run.length), attributes: attributes)
+            // An atom whose source began in an earlier paragraph has none here.
+            if let atom, storage.atomRange(at: range.location + run.location)?.location == range.location + run.location {
+                piece.replaceCharacters(in: NSRange(location: 0, length: 1), with: "\u{FFFC}")
+                piece.addAttribute(.attachment, value: AtomAttachment(atom), range: NSRange(location: 0, length: 1))
+            }
+            shown.replaceCharacters(in: run, with: piece)
         }
         return NSTextParagraph(attributedString: shown)
     }
@@ -59,6 +73,12 @@ extension MarkupEditor {
     /// grapheme, as the web editor's caret does around `display: none`.
     func place(_ new: NSRange, from old: NSRange?, in s: NSAttributedString) -> NSRange {
         if let old, old == new { return new }
+        // An atom first (LLP 1045.000 D5): a caret inside one goes to its
+        // end, where those offsets draw; a range's ends go to its outer edges.
+        let new = Self.outward(new, in: s)
+        if new.length == 0, let atom = s.atomRange(at: new.location), new.location > atom.location {
+            return NSRange(location: NSMaxRange(atom), length: 0)
+        }
         if new.length == 0 {
             let p = new.location, o = old.flatMap { $0.length == 0 ? $0.location : nil }
             guard let run = Self.hidden(at: p, in: s) else { return new }
@@ -93,7 +113,31 @@ extension MarkupEditor {
         return nil
     }
 
+    /// `range` with each end inside an atom moved to that atom's outer
+    /// edge, so an edit or a copy takes an atom whole or not at all.
+    static func outward(_ range: NSRange, in s: NSAttributedString) -> NSRange {
+        guard range.length > 0 else { return range }
+        var start = range.location, end = NSMaxRange(range)
+        if let atom = s.atomRange(at: start), start > atom.location { start = atom.location }
+        if let atom = s.atomRange(at: end), end > atom.location { end = NSMaxRange(atom) }
+        return NSRange(location: start, length: end - start)
+    }
+
     func rewrite(_ range: NSRange, with text: String, caret: Int?, in s: NSAttributedString) -> MarkupRewrite? {
+        // A native edit that would take part of an atom takes all of it:
+        // Backspace at its end, Delete at its start, a word or line deletion
+        // across it (LLP 1045.000 D5). Text typed inside one lands after it.
+        if range.length == 0, let atom = s.atomRange(at: range.location), range.location > atom.location {
+            let at = NSMaxRange(atom)
+            return MarkupRewrite(edits: [(NSRange(location: at, length: 0), text)], caret: at + text.utf16.count)
+        }
+        let wide = Self.outward(range, in: s)
+        if let hidden = rewriteHidden(wide, with: text, caret: caret, in: s) { return hidden }
+        guard wide != range else { return nil }
+        return MarkupRewrite(edits: [(wide, text)], caret: wide.location + text.utf16.count)
+    }
+
+    private func rewriteHidden(_ range: NSRange, with text: String, caret: Int?, in s: NSAttributedString) -> MarkupRewrite? {
         // Select All owns the whole source, its destinations too.
         if range.location == 0, range.length == s.length { return nil }
         if range.length == 0 {
@@ -149,6 +193,7 @@ extension MarkupEditor {
 
     func copyRange(_ range: NSRange, in s: NSAttributedString) -> NSRange {
         guard range.length > 0 else { return range }
+        let range = Self.outward(range, in: s)
         var a = range.location, b = NSMaxRange(range)
         if let run = Self.hidden(at: a, in: s), NSMaxRange(run) == a { a = run.location }
         if let run = Self.hidden(at: b, in: s), run.location == b {

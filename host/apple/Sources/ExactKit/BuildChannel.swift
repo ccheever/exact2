@@ -46,14 +46,14 @@ struct BuildPin: Equatable {
 /// The channel's state: the process's (one app, D11), as the agent's
 /// preferences are.
 enum BuildChannel {
-    /// A production build (`compat.json`'s `inputs.trust`) neither registers
+    /// A production build (`ExactEnv.productionBake`) neither registers
     /// nor takes a pin, whatever its environment.
     static let enabled = !ExactEnv.productionBake
     /// The frame kinds dispatched before any generation handling.
     static let commands: Set<String> = ["pin", "inspect", "outline", "hold"]
     /// What this build speaks: inspect where it is compiled in.
     #if EXACT_INSPECT && !os(tvOS)
-    static let capabilities = ["pin", "inspect", "hold"]
+    static let capabilities = ["pin", "inspect", "copies", "hold"]
     #else
     static let capabilities = ["pin"]
     #endif

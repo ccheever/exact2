@@ -187,6 +187,11 @@ extension MenuHost {
         guard view.window?.isVisible == true else { return false }
         let native = NativePopover(host: self, node: pop, home: entry.frame)
         entry.native = native
+        // AppKit's popover gives its own block and takes it back on its
+        // finish: a region told before is told again if it is painted again,
+        // and one not yet told is not told over AppKit's.
+        entry.block = nil
+        presenter.regionsUntold.removeValue(forKey: pop.id)
         native.popover.behavior = entry.value == "manual" ? .applicationDefined : .transient
         native.popover.animates = !ExactEnv.agentFreezes
         native.content.pointerTracking = { [weak presenter] in presenter?.trackPointer($0) }

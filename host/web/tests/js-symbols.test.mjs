@@ -184,10 +184,9 @@ test('symbol axes follow the current projected title and root font without anoth
 
 // LLP 1121 stage 9 B (D10): under a bound `color` the JS target decides after
 // each commit whether a symbol draws in its colour (style.rs `symbol_marks`,
-// symbols.js `inked`). A conditional colour that goes (`none`) gives the
-// symbol back to the decision past it, the accent here or a written colour
-// further up; one that comes back takes it again; an unwritten one is no
-// author's.
+// symbols.js `inked`). Since LLP 1081 stage 2 (317ddfea6a) every page symbol
+// draws in its `color`, as the Apple hosts do, written or not: a conditional
+// colour that goes leaves the colour past it, one that comes back takes it again.
 test('a symbol under a bound colour follows whether it has a value', async () => {
   const root = resolve(import.meta.dir, '../../..');
   const img = (id, ink) => `<img id="${id}" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24" data-symbol-ink="${ink}" style="width:16px;height:16px">`;
@@ -224,14 +223,18 @@ test('a symbol under a bound colour follows whether it has a value', async () =>
     page.on('pageerror', error => errors.push(String(error)));
     await page.goto(server.url.href);
     await page.waitForFunction(() => globalThis.ready);
+    // Each symbol's ink: its own `color` (named so), else the colour it shows.
     const ink = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => done(Object.fromEntries(['alone', 'over', 'unwritten']
-      .map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]))))));
-    const red = 'rgb(255, 0, 0)', green = 'rgb(0, 128, 0)', accent = 'rgb(102, 82, 197)';
-    expect(await ink()).toEqual({ alone: red, over: red, unwritten: accent });
+      .map(id => { const s = getComputedStyle(document.getElementById(id)); return [id, [s.backgroundColor === s.color ? 'colour' : s.backgroundColor, s.color]]; }))))));
+    const red = 'rgb(255, 0, 0)', green = 'rgb(0, 128, 0)';
+    expect(await ink()).toEqual({ alone: ['colour', red], over: ['colour', red], unwritten: ['colour', red] });
     await page.locator('#off').click();
-    expect(await ink()).toEqual({ alone: accent, over: green, unwritten: accent });
+    const off = await ink();
+    expect(off.over).toEqual(['colour', green]);
+    expect([off.alone[0], off.unwritten[0]]).toEqual(['colour', 'colour']);
+    expect(off.alone[1]).not.toBe(red);
     await page.locator('#on').click();
-    expect(await ink()).toEqual({ alone: red, over: red, unwritten: accent });
+    expect(await ink()).toEqual({ alone: ['colour', red], over: ['colour', red], unwritten: ['colour', red] });
     expect(errors).toEqual([]);
   } finally {
     try { await browser?.close(); } finally { server.stop(true); }
@@ -281,9 +284,10 @@ test('a symbol on a button follows its title across a colour scheme change', asy
 }, 30000);
 
 // The same with the app's modes on (modes.js): a mode boundary (`data-x-b`) under a
-// token colour writes it again as its implied row, no author's, so a symbol under it
-// is the accent, and so is one under a boundary whose own bound colour clears (the
-// implied row stands there, as the runner installs it). A bound colour on a boundary
+// token colour writes it again as its implied row, no author's, and a symbol under it
+// draws in that colour (LLP 1081 stage 2), as does one under a boundary whose own bound
+// colour clears (the implied row stands there, as the runner installs it). The parent's
+// own colour differs from the mode's row, so inheritance alone would show blue. A bound colour on a boundary
 // (`Sx`) otherwise keeps its binding's provenance (`$ink`, rows.rs), not what the
 // boundary leaves inline: with no token above, a clear is said; `none` gives the
 // decision past it back; a value is said; a refused value is a clear.
@@ -291,7 +295,7 @@ test('a symbol under a mode boundary follows its implied row and its binding', a
   const root = resolve(import.meta.dir, '../../..');
   const img = (id, attr) => `<img id="${id}" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24" ${attr} style="width:16px;height:16px">`;
   const content = `<div style="--exact-accent:rgb(102, 82, 197)">
-    <div class="c1" style="color:rgb(0, 128, 0)">${img('beside', 'data-symbol-color')}
+    <div class="c1" style="color:rgb(0, 0, 255)">${img('beside', 'data-symbol-color')}
       <div id="pin" data-x-b="0" data-exact-ink="b">${img('under', 'data-symbol-ink="11"')}</div>
       <div id="bound" data-x-b="0" data-exact-ink="1b">${img('cleared', 'data-symbol-ink="11"')}</div></div>
     <div id="bare" data-x-b="0" data-exact-ink="1b">${img('alone', 'data-symbol-ink="10"')}</div></div>
@@ -331,22 +335,28 @@ test('a symbol under a mode boundary follows its implied row and its binding', a
     // Each symbol's ink, and the colour it would take (its own `color`).
     const ink = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => done(Object.fromEntries(['beside', 'under', 'cleared', 'alone']
       .map(id => { const s = getComputedStyle(document.getElementById(id)); return [id, s.backgroundColor === s.color ? 'colour' : s.backgroundColor]; })))))));
-    const accent = 'rgb(102, 82, 197)';
-    expect(await ink()).toEqual({ beside: 'colour', under: accent, cleared: accent, alone: 'colour' });
+    // Every symbol draws in its `color` since LLP 1081 stage 2 (317ddfea6a): what the binding and the implied
+    // row decide is that colour, read below.
+    const all = { beside: 'colour', under: 'colour', cleared: 'colour', alone: 'colour' };
+    const colour = id => page.evaluate(id => getComputedStyle(document.getElementById(id)).color, id);
+    const green = 'rgb(0, 128, 0)';
+    expect(await ink()).toEqual(all);
+    expect([await colour('beside'), await colour('under'), await colour('cleared')]).toEqual(['rgb(0, 0, 255)', green, green]);
     await page.locator('#none').click();
-    expect(await ink()).toEqual({ beside: 'colour', under: accent, cleared: accent, alone: accent });
+    expect(await ink()).toEqual(all);
+    expect(await colour('cleared')).toBe(green);
     await page.locator('#red').click();
-    expect(await ink()).toEqual({ beside: 'colour', under: accent, cleared: 'colour', alone: 'colour' });
-    expect(await page.evaluate(() => getComputedStyle(document.getElementById('cleared')).color)).toBe('rgb(255, 0, 0)');
+    expect(await ink()).toEqual(all);
+    expect(await colour('cleared')).toBe('rgb(255, 0, 0)');
     // A value the row refuses is unset as a clear is: the implied row stands.
     await page.locator('#bad').click();
-    expect((await ink()).cleared).toBe(accent);
+    expect(await colour('cleared')).toBe(green);
     // One clear or refusal after another keeps the implied row; a value is said
     // (the kernel's, modes_tests.rs `a_symbol_under_a_mode_boundary_…`).
-    for (const [v, want] of [['inherit', accent], ['unset', accent], ['currentcolor', accent], ['nope', accent], ['nada', accent], ['rgb(255, 0, 0)', 'colour'], ['inherit', accent]]) {
+    for (const [v, want] of [['inherit', green], ['unset', green], ['currentcolor', green], ['nope', green], ['nada', green], ['rgb(255, 0, 0)', 'rgb(255, 0, 0)'], ['inherit', green]]) {
       await page.evaluate(v => { document.getElementById('paint').dataset.v = v; }, v);
       await page.locator('#paint').click();
-      expect([v, (await ink()).cleared]).toEqual([v, want]);
+      expect([v, (await ink()).cleared, await colour('cleared')]).toEqual([v, 'colour', want]);
     }
     expect(errors).toEqual([]);
   } finally {

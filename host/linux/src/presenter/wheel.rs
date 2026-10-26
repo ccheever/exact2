@@ -135,8 +135,8 @@ impl<D: DataSource> Presenter<D> {
         let mut at = self.hit(x, y);
         // Only a node the display has no bounds for needs the collections'.
         let mut collection_limits = None;
-        let kernel = self.host.kernel();
         while let Some(id) = at {
+            let kernel = self.host.kernel();
             let Some(node) = kernel.node(id) else { break };
             let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
                 let limits =
@@ -149,78 +149,29 @@ impl<D: DataSource> Presenter<D> {
                 )
             });
             let (ox, oy) = bounds.axes;
-            if matches!(ox, Overflow::Scroll | Overflow::Auto)
-                || matches!(oy, Overflow::Scroll | Overflow::Auto)
-            {
-                let max = bounds.max;
-                let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
-                let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
-                    scrolls
-                        && d != 0.0
-                        && max > 0.0
-                        && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
-                };
-                let take_x = takes(
-                    matches!(ox, Overflow::Scroll | Overflow::Auto),
-                    dx,
-                    off.0,
-                    max.0,
-                );
-                let (input_y, input_max) = self
-                    .anchor_input_position(id, off.1)
-                    .unwrap_or((off.1, max.1));
-                let take_y = takes(
-                    matches!(oy, Overflow::Scroll | Overflow::Auto),
-                    dy,
-                    input_y,
-                    input_max,
-                );
-                if take_x || take_y {
-                    let nx = if take_x {
-                        (off.0 + dx).clamp(0.0, max.0)
-                    } else {
-                        off.0
-                    };
-                    let ny = if take_y {
-                        (off.1 + dy).clamp(0.0, max.1)
-                    } else {
-                        off.1
-                    };
-                    let moved = self.anchor_input(id, off, if take_y { dy } else { 0. }, (nx, ny));
-                    self.scroll.insert(id, (nx, ny));
-                    if (nx, ny) != off || moved.is_some_and(|dy| dy != 0.) {
-                        self.scroll_end_input(id, off, Completion::Instant);
-                    }
-                    self.last_wheel = Some(id);
-                    self.dirty = true;
-                    self.collection_scrolled_or_deferred(id);
-                    if let Some(error) = self.refresh_transform_geometry() {
-                        self.host.log(error);
-                    }
-                    return;
-                }
-                // At its edge (or with no travel) along every component the
-                // tick has: a contained axis ends the chain here.
-                let contained = |b: exact_kernel::OverscrollBehavior| {
-                    b != exact_kernel::OverscrollBehavior::Auto
-                };
-                if (dx != 0.0 && contained(node.style.overscroll_behavior_x))
-                    || (dy != 0.0 && contained(node.style.overscroll_behavior_y))
-                {
-                    return;
-                }
-            }
-            // An SVG element (what a hit on a shape names, LLP 1055.000 D8)
-            // has no display box: it scrolls with its `svg`'s ancestors.
-            if self.alert_root() == Some(id) {
-                return;
-            }
-            at = self.display.parent(kernel, id).or_else(|| {
+            let scrolls = matches!(ox, Overflow::Scroll | Overflow::Auto)
+                || matches!(oy, Overflow::Scroll | Overflow::Auto);
+            let contained =
+                |b: exact_kernel::OverscrollBehavior| b != exact_kernel::OverscrollBehavior::Auto;
+            let stops = scrolls
+                && ((dx != 0.0 && contained(node.style.overscroll_behavior_x))
+                    || (dy != 0.0 && contained(node.style.overscroll_behavior_y)));
+            // An SVG element has no display box: its ancestors scroll it.
+            let parent = self.display.parent(kernel, id).or_else(|| {
                 node.node_type
                     .is_svg_element()
                     .then_some(node.parent)
                     .flatten()
             });
+            if self.scroll_container_by(id, bounds, dx, dy) {
+                self.last_wheel = Some(id);
+                return;
+            }
+            // At every requested edge, containment or the modal ends the chain.
+            if stops || self.alert_root() == Some(id) {
+                return;
+            }
+            at = parent;
         }
         if self.alert.is_some() {
             return;
@@ -240,6 +191,54 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(error);
             }
         }
+    }
+
+    /// Apply one input to a container. False means neither axis can move.
+    pub(super) fn scroll_container_by(
+        &mut self,
+        id: ViewId,
+        bounds: crate::paint::ScrollBounds,
+        dx: f32,
+        dy: f32,
+    ) -> bool {
+        let (ox, oy) = bounds.axes;
+        let max = bounds.max;
+        let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+        let takes = |axis: Overflow, d: f32, off: f32, max: f32| {
+            matches!(axis, Overflow::Scroll | Overflow::Auto)
+                && d != 0.0
+                && max > 0.0
+                && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
+        };
+        let take_x = takes(ox, dx, off.0, max.0);
+        let (input_y, input_max) = self
+            .anchor_input_position(id, off.1)
+            .unwrap_or((off.1, max.1));
+        let take_y = takes(oy, dy, input_y, input_max);
+        if !take_x && !take_y {
+            return false;
+        }
+        let nx = if take_x {
+            (off.0 + dx).clamp(0.0, max.0)
+        } else {
+            off.0
+        };
+        let ny = if take_y {
+            (off.1 + dy).clamp(0.0, max.1)
+        } else {
+            off.1
+        };
+        let moved = self.anchor_input(id, off, if take_y { dy } else { 0. }, (nx, ny));
+        self.scroll.insert(id, (nx, ny));
+        if (nx, ny) != off || moved.is_some_and(|dy| dy != 0.) {
+            self.scroll_end_input(id, off, Completion::Instant);
+        }
+        self.dirty = true;
+        self.collection_scrolled_or_deferred(id, off);
+        if let Some(error) = self.refresh_transform_geometry() {
+            self.host.log(error);
+        }
+        true
     }
 }
 

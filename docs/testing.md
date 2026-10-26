@@ -127,6 +127,17 @@ The ordinary `back()` invokes the platform's handler;
 it does not establish touch delivery. XCTest can wait a minute for the app and another
 minute for SpringBoard to idle before tapping, so the native call has a 150-second bound.
 
+`ModalStackIOSTests` also drives UIKit's animated `popToViewController` to
+check multi-entry Back in primary and presented stacks. It asserts the retained
+controllers and the router's chosen visit, including return to the sheet root
+without changing the background stack. It also checks that header search commits
+and blurs once before dispatch, newer app navigation wins during a pop (including
+navigation from blur), and an unmapped destination restores the declared stack.
+A test sends UIKit's registered search-cancellation action and checks the live query and native bar state.
+The runner tests distinguish visits with the same URL and reject stale or
+cross-tab jumps. These tests use UIKit's public stack API; they do not establish
+activation of its Back-history menu.
+
 With `EXACT_SIM` naming an iPhone Duo, rebuild Duo Lab and the host fixture, then run
 `bun scripts/smoke.mjs duo --only navigation,navigation-gestures,host-navigation`.
 These legs cover native Back taps, completed and cancelled edge and content swipes,
@@ -134,6 +145,13 @@ and Back in independent embedded sessions. The gesture checks observe UIKit's he
 interactive transition and check content clearance within the moving route. After
 release they assert the route, draft, focus and scroll position. UIKit owns the
 [content swipe recognizer](https://developer.apple.com/documentation/uikit/uinavigationcontroller/interactivecontentpopgesturerecognizer).
+
+`--only secondary-navigation` checks an unfolded Duo's centered UIKit sheet
+with its own navigation stack over a background stack that also has Back.
+It covers native Back taps, completed and cancelled edge and content swipes,
+the secondary editor's focus and draft, destination scroll restoration, and
+horizontal clearance during the gesture. The sheet's root refuses a native
+Back tap rather than targeting the stack behind it.
 
 ## Browsers
 

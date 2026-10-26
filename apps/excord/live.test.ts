@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import type { Answer, Args, Result, Source, Storage, Store, StreamEvent, StreamSocket } from './app.contract.d.ts';
 import * as S from './discord/store.ts';
+import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
 import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, signIn, signOut } from './live.ts';
@@ -71,7 +72,7 @@ function serverForTest() {
   const counts = new Map<string, number>();
   const pending = new Set<Promise<unknown>>();
   const releases: (() => void)[] = [];
-  const holds = new Map<string, { entered: (request: Request) => void; wait: Promise<void> }>();
+  const holds = new Map<string, { entered: (request: Request) => void; wait: Promise<void>; reply: boolean }>();
   const track = (work: Promise<unknown>) => {
     pending.add(work);
     void work.then(() => pending.delete(work), () => pending.delete(work));
@@ -94,6 +95,8 @@ function serverForTest() {
     const held = holds.get(url.pathname);
     if (held) {
       holds.delete(url.pathname);
+      // A held reply: the server has acted on the request, and only its answer waits.
+      const answered = held.reply ? await handle(request, {}) : undefined;
       held.entered(request);
       const aborted = Promise.withResolvers<never>();
       const abort = () => aborted.reject(request.signal.reason);
@@ -103,6 +106,7 @@ function serverForTest() {
         await Promise.race([held.wait, aborted.promise]);
         request.signal.throwIfAborted();
       } finally { request.signal.removeEventListener('abort', abort); }
+      if (answered) return answered;
     }
     return handle(request, {});
   }
@@ -193,9 +197,9 @@ function serverForTest() {
     };
   };
   return { fixture, peers, requests, counts, request, state, control, drain, app,
-    hold(path: string) {
+    hold(path: string, reply = false) {
       const entered = Promise.withResolvers<Request>(), released = Promise.withResolvers<void>();
-      holds.set(path, { entered: entered.resolve, wait: released.promise });
+      holds.set(path, { entered: entered.resolve, wait: released.promise, reply });
       releases.push(released.resolve);
       return { entered: entered.promise, release: released.resolve };
     },
@@ -302,7 +306,7 @@ test('4. the viewed channel subscribes its guild again after a non-resumable rec
 
 test('5. snapshots have fixed keys and only the viewed channel supplies history versions', async () => {
   const app = await rig.app(), peer = await app.dial();
-  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'retryIn', 'attempt'].sort();
+  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'members', 'retryIn', 'attempt'].sort();
   expect(Object.keys(peer.snapshots.at(-1)!).sort()).toEqual(keys);
   const channel = rig.fixture.world.generalChannelId;
   const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
@@ -338,6 +342,28 @@ test('6. a newer page ask is refused without aborting the page already in flight
   expect(await first).toEqual({ ok: true, error: '' });
   expect(ids((await app.window(channel)).rows)).toEqual(ids(rig.fixture.world.messages[channel].slice(-49)));
   expect(rig.counts.get(path)).toBe(1);
+});
+
+test('6b. a vote whose reply comes after the gateway has moved on leaves the gateway\'s account', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, asked = rig.fixture.world.messages[channel].at(-1)! as { id: string; poll?: unknown };
+  asked.poll = { question: { text: 'Lunch?' }, answers: [{ answer_id: 1, poll_media: { text: 'Tacos' } }, { answer_id: 2, poll_media: { text: 'Ramen' } }],
+    expiry: null, allow_multiselect: false, results: { is_finalized: false, answer_counts: [] } };
+  await app.ask('viewChannel', [channel]); await rig.drain();
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const held = rig.hold(`/api/v9/channels/${channel}/polls/${asked.id}/answers/@me`, true);
+  const voted = app.ask('vote', [channel, asked.id, ['2']]);
+  await held.entered;
+  // This vote's own event arrives, then another device takes it back, before the reply.
+  await rig.control('vote', { channel_id: channel, message_id: asked.id, user_id: rig.fixture.world.me.id, answer_id: 2, add: false });
+  await rig.drain();
+  await app.ask('digest', [EPOCH + 100]);
+  held.release();
+  expect(await voted).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  await app.ask('digest', [EPOCH + 200]);
+  const row = (await app.window(channel)).rows.find(r => r.id === asked.id)!;
+  expect(row.poll[0]).toMatchObject({ voted: false, answers: [{ count: 0, me: false }, { count: 0, me: false }] });
 });
 
 test('7. a fresh READY hides stale rows until each page confirms them', async () => {
@@ -402,9 +428,10 @@ test('9. deleting an uncached original advances history and redraws its cached r
   const original = reply.message_reference.message_id;
   expect(S.message(live.store, channel, original)).toBeNull();
   const render = createRenderer({ me: () => live.store.meId!, user: id => S.user(live.store, id),
-    channelName: id => S.channel(live.store, id)?.name ?? '', roleName: id => id,
+    channelName: id => S.channel(live.store, id)?.name ?? '', channelGuild: () => '', canOpen: () => false, roleName: id => id,
     message: (channel, id) => (S.message(live.store, channel, id) as Stored | null) ?? undefined,
     deleted: (channel, id) => S.deleted(live.store, channel, id), emoji: id => `${fixture.origin}/emojis/${id}.png`,
+    avatar: () => '', nameColor: () => '', roles: () => undefined,
   });
   const window = () => {
     const slice = S.latestWindow(live.store, channel, 200);
@@ -472,6 +499,38 @@ test('13. a READY too large for one turn waits for digest, which applies it a pa
   // Once the queue is empty the stream's frames are applied as they come again.
   await app.ask('heartbeat', [EPOCH + INTERVAL]); await rig.drain();
   expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready', queued: 0 });
+});
+
+test('14. the rail puts the folder\'s servers under it, in the account\'s order, with what they hold unread', async () => {
+  await rig.control('ready-size', { bytes: 300000 });
+  const app = await rig.app(), peer = await app.dial();
+  const sidebar = peer.snapshots.at(-1)!.sidebar;
+  const rail = await app.ask('loadRail', [sidebar]);
+  const guilds = await app.ask('loadGuilds', [sidebar]);
+  const folder = rail.find((r: any) => r.folder)!;
+  expect(folder).toMatchObject({ id: 'folder-4242', name: 'Workshops', color: '#5865f2' });
+  expect(folder.guilds.length).toBeGreaterThan(1);
+  // Every server shows once: alone, or in its folder.
+  expect(rail.flatMap((r: any) => r.guilds.map((g: any) => g.id)).sort()).toEqual(guilds.map((g: any) => g.id).sort());
+  expect(folder.mentions).toBe(folder.guilds.reduce((n: number, g: any) => n + g.mentions, 0));
+  expect(peer.snapshots.at(-1)).toMatchObject({ state: 'ready' });
+});
+
+test('15. a jump to a message no page holds asks once, then shows the channel\'s end', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, path = historyPath(channel);
+  // Past the channel's newest message, as a link to one deleted or never sent can be.
+  const past = snowflakeFromMs(Date.UTC(2030, 0, 1));
+  const asked = await app.window(channel, past);
+  expect({ need: asked.need, cursor: asked.cursor }).toEqual({ need: 'around', cursor: past });
+  expect(await app.ask('loadPage', [channel, 'around', past])).toEqual({ ok: true, error: '' });
+  const settled = await app.window(channel, past);
+  expect(settled.need).not.toBe('around');
+  expect(settled.anchor).toBe(past);
+  const before = rig.counts.get(path) ?? 0;
+  expect(before).toBe(1);
+  if (settled.need) await app.ask('loadPage', [channel, settled.need, settled.cursor]);
+  expect((await app.window(channel, past)).rows.length).toBeGreaterThan(0);
 });
 
 // A scheduler whose yields wait until the test lets them go, so a frame can arrive between two turns of

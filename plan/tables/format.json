@@ -331,6 +331,36 @@
       ]
     },
     {
+      "name": "module_events",
+      "_comment": "LLP 1133.004 D6: a native module's event the app's root hears, and the action it runs with the event's arguments, as many as the action takes. `raised` is `activation` (a person's act on the platform's UI, which only the host raises), `emit` (the device's) or `wake` (LLP 1133.017 D5: the host's alone, at the platform's call, each an invocation of a wake); `hold` bounds the deliveries held before the session can hear them; `budget` is a wake event's milliseconds from the wake's first delivery to its deadline, 0 for any other.",
+      "fields": [
+        {
+          "name": "extension",
+          "codec": "str"
+        },
+        {
+          "name": "declared",
+          "codec": "str"
+        },
+        {
+          "name": "action",
+          "codec": "idx:actions"
+        },
+        {
+          "name": "raised",
+          "codec": "str"
+        },
+        {
+          "name": "hold",
+          "codec": "u32"
+        },
+        {
+          "name": "budget",
+          "codec": "u32"
+        }
+      ]
+    },
+    {
       "name": "source_params",
       "fields": [
         {
@@ -1031,7 +1061,15 @@
       "beforeinput",
       "midimessage",
       "dragenter",
-      "dragleave"
+      "dragleave",
+      "currententrychange",
+      "navigatesuccess",
+      "navigateerror",
+      "atompress",
+      "newwindow",
+      "download",
+      "capture",
+      "userpromptopened"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",

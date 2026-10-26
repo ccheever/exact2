@@ -1,0 +1,20 @@
+# @exact/contacts' and @exact/calendar's fixture (LLP 1133.018 stage 3): the
+# app's data source, which holds its grants; the stores are read from the
+# Contract.
+[package]
+name = "contacts-calendar-fixture-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "@exact/contacts' and @exact/calendar's fixture: its grants"
+publish = false
+
+[lib]
+name = "contacts_calendar_fixture_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

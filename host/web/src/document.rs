@@ -613,9 +613,12 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
-        if let Some(raw) = props.get("data-decoration-styles") {
-            let css = crate::css::decoration_styles(raw, &self.fonts);
-            props.insert("data-decoration-styles".into(), css);
+        // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+        for name in ["data-decoration-styles", "data-atom-styles"] {
+            if let Some(raw) = props.get(name) {
+                let css = crate::css::decoration_styles(raw, &self.fonts);
+                props.insert(name.into(), css);
+            }
         }
         super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
@@ -1030,6 +1033,9 @@ impl<S: Source> Walk<'_, '_, S> {
             }
             let element = if link { "a" } else { "span" };
             let mut attrs = Vec::new();
+            if let Some(kind) = &piece.atom {
+                attrs.push(("data-exact-atom".to_owned(), Some(kind.clone())));
+            }
             if !style.is_empty() {
                 attrs.push(("style".to_owned(), Some(style)));
             }
@@ -1157,6 +1163,9 @@ struct Piece {
     href: String,
     /// A list item's indent, CSS px; "0" outside a list.
     indent: String,
+    /// An inline atom's kind: its label is drawn as text, marked
+    /// `data-exact-atom` for the page to draw again (LLP 1045.000 D6).
+    atom: Option<String>,
 }
 
 /// Read the host's own `markupPieces` back (`[[text, scale, weight, flags,
@@ -1186,6 +1195,22 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
         } else {
             "0".to_owned()
         };
+        // An inline atom's detail (LLP 1045.000 D6): its kind and source,
+        // marked so the page draws its pill when it adopts this one.
+        let mut atom = None;
+        if p.peek() == Some(b',') {
+            p.next();
+            p.expect(b'[')?;
+            let mut fields = Vec::new();
+            for n in 0..8 {
+                if n > 0 {
+                    p.expect(b',')?;
+                }
+                fields.push(if n < 6 { p.string()? } else { p.number()? });
+            }
+            p.expect(b']')?;
+            atom = Some(fields[0].clone());
+        }
         p.expect(b']')?;
         pieces.push(Piece {
             text,
@@ -1194,6 +1219,7 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
             flags,
             href,
             indent,
+            atom,
         });
         match p.next() {
             Some(b',') => continue,

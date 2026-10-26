@@ -1,5 +1,5 @@
-// The design tool's canvas on a real dev loop: the frame, builds and pins (T2), and inspect from the tool (T2b)
-// (split from design-tool.test.mjs, so a lane runs them beside the others).
+// The design tool's canvas on a real dev loop: the frame, builds and pins (T2) (split from design-tool.test.mjs, so a
+// lane runs it beside the others; inspect from the tool, T2b, is design-tool-inspect.test.mjs).
 import { expect, onTestFinished, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,11 +7,15 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { spawnOwned } from './test-children.mjs';
-import { checkoutPort, takePort } from './port-lock.mjs';
-import { ROOT, TOOL_DIST, TOOL_ORIGIN, drive, lines, stop, toolTurns } from './design-tool-harness.mjs';
-import { suiteBrowser } from './agent-launch.mjs';
+import { HEARTBEAT_RACE, ROOT, SLOW, TOOL_DIST, TOOL_ORIGIN, drive, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
 toolTurns();
+
+// T2's server clocks (tamber-timing.mjs's test knobs; the real ones in the slow lane, EXACT_SLOW_TESTS=1): the long
+// poll's wait, a POST client's presence, a GET long poll's (the lease a closed tool's pin is held for), the sweep. As
+// the real ones are, chosen so the lease's window below (from a GET long poll's lease, less a wait and a sweep) lies
+// past a POST client's lease and a sweep: a pin handed back on the POST lease fails it.
+const CLOCKS = SLOW ? { POLL: 25_000, PRESENT: 35_000, LONG_PRESENT: 90_000, SWEEP: 5_000 } : { POLL: 3_000, PRESENT: 4_000, LONG_PRESENT: 12_000, SWEEP: 1_000 };
 
 /** A build that holds no stream, as Linux's does, on the dev loop at
  * `base`: it registers as `id`, polls its commands, and reports each pin's
@@ -54,7 +58,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed(CLOCKS), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool, other, driving = true, saidPlan = null;
   try {
     const base = `http://127.0.0.1:${port}`;
@@ -62,29 +66,34 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
     // Its page built (a build that failed frames an error page, which never registers as the frame's build).
     expect(devSaid.seen.filter(l => l.includes('does not build'))).toEqual([]);
-    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, env: timed(CLOCKS), stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
     // A build's report reaches the tool on its long poll.
-    const wait = ['clock +4000 real', 'clock data'];
-    // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open.
+    const wait = ['clock +4000 real', 'clock data'], registered = signals('canvas');
+    onTestFinished(registered.drop);
+    // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open; its
+    // registration is the drive's signal to go on.
     saidPlan = (async () => {
       while (driving) {
         const listed = await fetch(`${TOOL_ORIGIN}/__tamber/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
         const page = listed?.ok?.builds?.find(b => b.host === 'web-js' && b.planDigest);
-        if (page) return page.planDigest;
+        if (page) { registered.fire(1); return page.planDigest; }
         await Bun.sleep(300);
       }
       return null;
     })();
     const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout',
-      // The framed page's first registration, on a loaded machine (another run beside this one) later than a pin's.
-      'clock +18000 real', 'clock data', 'state',
+      // The framed page's first registration, on a loaded machine (another run beside this one) later than a pin's:
+      // once the server lists it, the tool's next read has it (`clock +1` runs the follow task that asks it, as it
+      // opens the stream, whose first ask is answered at once), or, the stream open already, its push (`clock held`:
+      // the next reply, the push or, landed already, a heartbeat).
+      registered.pause(18000, 1), 'clock +1', 'clock data', 'clock +1', 'clock data', 'clock held changes 10s', 'state',
       // Dark and Black pinned on the other build only.
       'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
-      // Open past one presence lease (35 s; a real-clock step is at least
-      // its time): its polls keep the pin.
-      'clock +36000 real', 'clock data', 'state',
+      // Open past one presence lease (35 s, the slow lane's; a real-clock
+      // step is at least its time): its polls keep the pin.
+      `clock +${CLOCKS.PRESENT + 1000} real`, 'clock data', 'state',
     ]);
     const closed = Date.now();
     const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
@@ -113,7 +122,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     // The frame's build and the other, each with the facts it reports.
     const builds = states[0].resources.changes.builds;
     const frame = builds.find(b => b.host === 'web-js');
-    expect(frame).toMatchObject({ pin: '', caughtUp: true });
+    expect(frame, HEARTBEAT_RACE).toMatchObject({ pin: '', caughtUp: true });
     // It said the plan it runs: dist's app.plan, whose map the loop keeps.
     driving = false;
     const plan = createHash('sha256').update(readFileSync(join(dist, 'app.plan'))).digest('hex');
@@ -133,17 +142,18 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     // The tool closed (its page gone, no unload request): the pin holds a
     // while (its last long poll by cursor counts 90 s, LLP 1122 D4), then
     // the server hands it back.
-    const until = Date.now() + 120_000;
+    const until = Date.now() + CLOCKS.LONG_PRESENT + 30_000;
     while (other.frames.at(-1)?.pin && Date.now() < until) await new Promise(ok => setTimeout(ok, 500));
     expect(other.frames.at(-1)).toMatchObject({ pin: null });
     const held = other.frames.at(-1).at - closed;
     // The lease, 90 s after a long poll by cursor's last answer (at most a 25 s wait before the close), so past the
-    // POST form's 35 s; and the server's sweep (5 s), with a little room.
-    expect(held).toBeGreaterThan(60_000);
-    expect(held).toBeLessThan(100_000);
+    // POST form's 35 s; and the server's sweep (5 s), with a little room: 60 s to 100 s at the real clocks.
+    expect(CLOCKS.LONG_PRESENT - CLOCKS.POLL - CLOCKS.SWEEP).toBeGreaterThan(CLOCKS.PRESENT + CLOCKS.SWEEP);
+    expect(held).toBeGreaterThan(CLOCKS.LONG_PRESENT - CLOCKS.POLL - CLOCKS.SWEEP);
+    expect(held).toBeLessThan(CLOCKS.LONG_PRESENT + 2 * CLOCKS.SWEEP);
     // While the tool was open, more than a lease went by with no hand-back.
     const pinnedAt = other.frames.find(f => f.pin).at;
-    expect(closed - pinnedAt).toBeGreaterThan(36_000);
+    expect(closed - pinnedAt).toBeGreaterThan(CLOCKS.PRESENT + 1000);
     expect(other.frames.filter(f => !f.pin && f.at > pinnedAt && f.at < closed)).toEqual([]);
   } finally {
     // The poll beside the drive ends before the tool goes.
@@ -153,76 +163,6 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     if (tool) await stop(tool);
     await stop(dev);
     rmSync(app, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
-  }
-}, 900_000);
-test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
-  // This checkout's apps/theme-fixture (the wasm loop builds the app's crate, so no copy will do), in turn with another
-  // run here: its design server takes the app's .exact/tamber.lock, which refuses a second writer.
-  const giveFixture = await takePort(1000 + checkoutPort(resolve(ROOT, 'apps/theme-fixture')), { label: `T2b on ${ROOT}/apps/theme-fixture` });
-  onTestFinished(giveFixture);
-  const listener = (await import('node:http')).createServer();
-  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
-  const port = listener.address().port;
-  await new Promise(ok => listener.close(ok));
-  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  // Site isolation on, as desktop Chrome has it: the pinned headless shell (the default browser without CHROME) runs a
-  // cross-site frame in its parent's process unless told, so the check below could never pass there.
-  const browser = await suiteBrowser('chromium', { args: ['--site-per-process'] });
-  let tool;
-  try {
-    const base = `http://127.0.0.1:${port}`;
-    const devSaid = lines(dev);
-    await devSaid.until(l => l.includes('plan ready'), 600_000);
-    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
-    const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
-    await page.goto(url);
-    await page.locator('[data-testid="name"]').fill('Ada');
-    await page.locator('[data-testid="save-name"]').click();
-    await page.locator('[data-testid^="build-web-"]').first().waitFor({ timeout: 60_000 });
-    await page.locator('[data-testid="inspect-toggle"]').click();
-    await page.locator('[data-testid="inspect-result"]').waitFor();
-    expect(await page.locator('[data-testid="inspect-result"]').innerText()).toMatch(/^Inspecting on 1 build\(s\)/);
-    // The frame shows the banner; a click on Swap pins there (through the
-    // page's cover, at its place) selects it.
-    const frame = page.frames().find(f => f.url().startsWith(base.replace('127.0.0.1', 'localhost')));
-    await frame.locator('#exact-inspect').waitFor();
-    // Another site than the tool's: the browser runs it out of the tool's
-    // process (an iframe target of its own, with site isolation on, above).
-    // Its target's URL can trail the frame's first navigation, so it is asked
-    // again for a while; a frame in the tool's own process never shows as one.
-    const cdp = await page.context().newCDPSession(page), here = base.replace('127.0.0.1', 'localhost');
-    let isolated = false;
-    for (const end = Date.now() + 10_000; Date.now() < end; await Bun.sleep(200)) {
-      if ((await cdp.send('Target.getTargets')).targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(here))) { isolated = true; break; }
-    }
-    expect(isolated).toBe(true);
-    const at = await frame.locator('[data-testid="swap"]').boundingBox();
-    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
-    const line = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.contract'), 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;
-    await page.locator('[data-testid="selection-source"]').waitFor({ timeout: 60_000 });
-    expect(await page.locator('[data-testid="selection-source"]').innerText()).toBe(`app.contract:${line} · App`);
-    // Its colour is inherited: a link to the page's token, not its edit;
-    // opened, the grid's cell for it, in the column the copy shows.
-    expect(await page.locator('[data-testid="selrow-link-color"]').innerText()).toBe('Open text.primary');
-    expect(await page.locator('[data-testid="selrow-edit-color"]').count()).toBe(0);
-    // The page is light (headless Chrome's default) in Black: the light
-    // column, its default branch.
-    expect(await page.locator('[data-testid="selection-build"]').innerText()).toMatch(/ · Light$/);
-    await page.locator('[data-testid="selrow-link-color"]').click();
-    await page.waitForFunction(() => /source site\(s\)/.test(document.querySelector('[data-testid="impact-count"]')?.innerText ?? ''), null, { timeout: 60_000 });
-    expect(await page.locator('[data-testid="impact-count"]').innerText()).toMatch(/^text\.primary: read at [1-9]\d* source site\(s\), statically/);
-    await page.locator('[data-testid="branch-label"]').waitFor();
-    expect(await page.locator('[data-testid="branch-label"]').innerText()).toBe('text.primary · default (Light)');
-    // Stop: the frame leaves inspect mode.
-    await page.locator('[data-testid="inspect-toggle"]').click();
-    await frame.locator('#exact-inspect').waitFor({ state: 'detached' });
-  } finally {
-    await browser.close();
-    if (tool) await stop(tool);
-    await stop(dev);
     rmSync(dist, { recursive: true, force: true });
   }
 }, 900_000);

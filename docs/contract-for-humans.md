@@ -1080,6 +1080,8 @@ on `system-ui` San Francisco's widths on Apple. Any other axis is set by tag,
 as CSS sets it: `font-variation-settings="'GRAD' 150, 'wdth' 60"`. A tag
 it names wins over `font-weight` and `font-stretch` for that axis; prefer those
 two where they say it. Text fields and Canvas 2D's `font` take the width too.
+A file's `opsz` axis follows the font size; `font-optical-sizing="none"` keeps
+the face's own.
 
 ## Input, events, and commands
 
@@ -1115,8 +1117,8 @@ hears the target as the event leaves it, an `InputEvent`: its `value` (a
 checkbox's own), `checked`, and a text field's `selectionStart`, `selectionEnd`
 and `selectionDirection` ([form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)).
 `hover` carries a boolean; `key` (keydown) and `keyup` carry a key name, and to an action that
-takes one more parameter its `KeyboardEvent` (the modifiers, the physical key `code` and
-whether it is an auto-`repeat`). Captured arguments precede
+takes one more parameter its `KeyboardEvent` (the modifiers, the physical key `code`,
+whether it is an auto-`repeat`, and `isComposing`, whether an input method was composing). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 

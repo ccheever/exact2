@@ -4,8 +4,8 @@
 // value and source as `describe` gives them; the app's override of a base
 // name as its own line; a package's tokens under their package; Set for
 // this app writes the app's line (set-token), Back to the base removes it,
-// and Back's undo gives the file's bytes back. Its stub-server tests are in
-// apps/design-tool/app.test.contract.
+// and Back's undo gives the file's bytes back. Its stub-server tests are
+// apps/design-tool/*.test.contract.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

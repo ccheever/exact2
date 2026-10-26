@@ -3,6 +3,8 @@ import Foundation
 import CoreText
 
 extension InlineText {
+    /// What it reads as: its text, or an image's `aria-label` (LLP 1011.002 D4).
+    var spoken: String { lightRun.box == nil ? text : boxShown ? props["accessibilityLabel"] ?? "" : "" }
     /// Whether a colour here is the view's tint (LLP 1095 D8).
     var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`
@@ -30,7 +32,7 @@ extension InlineText {
                       lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                       numeric: Int(number("font_variant_numeric")),
                       stretch: CGFloat(Float(number("font_stretch", 100))),
-                      variations: FontAxis.of(style["font_variation_settings"]),
+                      variations: FontAxis.of(style),
                       color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
@@ -200,6 +202,7 @@ extension NodeView {
         return url
     }
     func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
+        if pressReaderAtom(url) { return true }
         guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
         if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true

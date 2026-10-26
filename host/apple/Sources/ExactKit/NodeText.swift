@@ -146,8 +146,9 @@ extension NodeView {
             // Every piece is in the node's ink, or a share of it: one kind.
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
+            let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true)
             runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
-                                                  boldText: text?.boldTextSteps(base.family) == true) ?? [textRun(source)]
+                                                  boldText: text?.boldTextSteps(base.family) == true, atoms: atoms) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)

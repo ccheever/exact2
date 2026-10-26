@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 
 mod focus;
+pub(super) mod frame_navigation;
 mod keyboard;
 pub use keyboard::KeyboardEvent;
 
@@ -229,6 +230,8 @@ pub enum Event {
         link: String,
         /// Space-separated unavailable command names.
         unavailable: String,
+        /// The selected atom's source, or empty (LLP 1045.000 D3).
+        atom: String,
     },
     /// The pointer came over the view (`true`) or left it (`false`) —
     /// `pointerenter`/`pointerleave`, not a bubbling `mouseover`.
@@ -294,6 +297,8 @@ pub enum Event {
     /// That drag left the view's box or was cancelled (DOM's `dragleave`,
     /// likewise); a drop sends none, as the DOM's does.
     Dragleave(super::DropEvent),
+    /// A press on an inline atom (LLP 1045.000 D7).
+    Atompress(super::AtomEvent),
     /// A double click, or the platform’s double tap.
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
@@ -355,6 +360,13 @@ pub enum Event {
     },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
+    /// What an iframe's guest shows (@ref LLP 1020.002 D2): its
+    /// `navigate`, `currententrychange`, `navigatesuccess` or
+    /// `navigateerror`, with the `FrameNavigation` record.
+    FrameNavigation(EventKind, Box<frame_navigation::FrameNavigation>),
+    /// An iframe guest's `newwindow` or `download` (@ref LLP 1020.002 D5),
+    /// with its `FrameNewWindow` or `FrameDownload` record.
+    FrameRecord(EventKind, Box<Value>),
     /// An authored sheet handle released: logical height and signed pixels/second.
     HeightRelease {
         /// Finite logical pixels in [0, f32::MAX].
@@ -576,6 +588,9 @@ impl Event {
             Event::Wheel(w) => Some(w.value()),
             Event::MidiMessage(m) => Some(m.value()),
             Event::Drop(d) | Event::Dragenter(d) | Event::Dragleave(d) => Some(d.value()),
+            Event::FrameNavigation(_, n) => Some(n.value()),
+            Event::FrameRecord(_, v) => Some((**v).clone()),
+            Event::Atompress(a) => Some(a.value()),
             Event::Resize(r) => Some(r.value()),
             Event::Intersect {
                 is_intersecting,
@@ -1072,59 +1087,59 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn dispatch_event(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
-        let mut what = super::lines::event(
-            match &event {
-                Event::ReorderDrop { .. } => "reorderdrop",
-                Event::Press | Event::PressWith(_) => "press",
-                Event::Input(_) => "input",
-                Event::Change(_) => "change",
-                Event::Cancel => "cancel",
-                Event::Close => "close",
-                Event::Toggle { .. } => "toggle",
-                Event::Scrollend => "scrollend",
-                Event::Select { .. } | Event::FieldSelect(..) => "select",
-                Event::Hover(true) => "hover in",
-                Event::Hover(false) => "hover out",
-                Event::Focus => "focus",
-                Event::Blur => "blur",
-                Event::Focusin { .. } => "focusin",
-                Event::Focusout { .. } => "focusout",
-                Event::Key(..) => "key",
-                Event::Keycapture(..) => "keycapture",
-                Event::Keyup(..) => "keyup",
-                Event::Submit => "submit",
-                Event::Load => "load",
-                Event::Message(_) => "message",
-                Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
-                Event::Beforeunload => "beforeunload",
-                Event::MidiMessage(_) => "midimessage",
-                Event::Wheel(_) => "wheel",
-                Event::Drop(_) => "drop",
-                Event::Dragenter(_) => "dragenter",
-                Event::Dragleave(_) => "dragleave",
-                Event::Dblclick => "dblclick",
-                Event::Pointerdown(_) => "pointerdown",
-                Event::Pointerup(_) => "pointerup",
-                Event::Pointermove(_) => "pointermove",
-                Event::Swiperight => "swiperight",
-                Event::Refresh => "refresh",
-                Event::Scroll(_) => "scroll",
-                Event::Resize(_) => "resize",
-                Event::Intersect { .. } => "intersect",
-                Event::Pan(_, _) => "pan",
-                Event::PanRelease(_, _) => "panrelease",
-                Event::Media(kind, _) | Event::Clipboard(kind, ..) => kind.name(),
-                Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => {
-                    "selectionchange"
-                }
-                Event::BeforeInput(..) => "beforeinput",
-                Event::Navigate(_) => "navigate",
-                Event::HeightRelease { .. } => "heightrelease",
-                Event::TransformGeometry { .. } => "transformgeometry",
-                Event::TransformRelease { .. } => "transformrelease",
-            },
-            view,
-        );
+        let name = match &event {
+            Event::ReorderDrop { .. } => "reorderdrop",
+            Event::Press | Event::PressWith(_) => "press",
+            Event::Input(_) => "input",
+            Event::Change(_) => "change",
+            Event::Cancel => "cancel",
+            Event::Close => "close",
+            Event::Toggle { .. } => "toggle",
+            Event::Scrollend => "scrollend",
+            Event::Select { .. } | Event::FieldSelect(..) => "select",
+            Event::Hover(true) => "hover in",
+            Event::Hover(false) => "hover out",
+            Event::Focus => "focus",
+            Event::Blur => "blur",
+            Event::Focusin { .. } => "focusin",
+            Event::Focusout { .. } => "focusout",
+            Event::Key(..) => "key",
+            Event::Keycapture(..) => "keycapture",
+            Event::Keyup(..) => "keyup",
+            Event::Submit => "submit",
+            Event::Load => "load",
+            Event::Message(_) => "message",
+            Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
+            Event::Beforeunload => "beforeunload",
+            Event::MidiMessage(_) => "midimessage",
+            Event::Wheel(_) => "wheel",
+            Event::Drop(_) => "drop",
+            Event::Dragenter(_) => "dragenter",
+            Event::Dragleave(_) => "dragleave",
+            Event::FrameNavigation(kind, _) | Event::FrameRecord(kind, _) => {
+                frame_navigation::name(*kind)
+            }
+            Event::Atompress(_) => "atompress",
+            Event::Dblclick => "dblclick",
+            Event::Pointerdown(_) => "pointerdown",
+            Event::Pointerup(_) => "pointerup",
+            Event::Pointermove(_) => "pointermove",
+            Event::Swiperight => "swiperight",
+            Event::Refresh => "refresh",
+            Event::Scroll(_) => "scroll",
+            Event::Resize(_) => "resize",
+            Event::Intersect { .. } => "intersect",
+            Event::Pan(_, _) => "pan",
+            Event::PanRelease(_, _) => "panrelease",
+            Event::Media(kind, _) | Event::Clipboard(kind, ..) => kind.name(),
+            Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => "selectionchange",
+            Event::BeforeInput(..) => "beforeinput",
+            Event::Navigate(_) => "navigate",
+            Event::HeightRelease { .. } => "heightrelease",
+            Event::TransformGeometry { .. } => "transformgeometry",
+            Event::TransformRelease { .. } => "transformrelease",
+        };
+        let mut what = super::lines::event(name, view);
         let was_poisoned = self.poisoned;
         let outer = self.input_source.replace(view);
         let blur = matches!(event, Event::Blur);
@@ -1148,6 +1163,10 @@ impl<D: DataSource> Runner<D> {
         }
         self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
+        let changed = result.as_ref().is_ok_and(|r| {
+            !(r.created.is_empty() && r.destroyed.is_empty() && r.touched.is_empty())
+        });
+        self.count_dispatch(view, name, changed);
         result
     }
 
@@ -1245,6 +1264,7 @@ impl<D: DataSource> Runner<D> {
                 mixed,
                 link,
                 unavailable,
+                atom,
             } => (
                 EventKind::Select,
                 Some(Value::record(vec![
@@ -1252,6 +1272,7 @@ impl<D: DataSource> Runner<D> {
                     Value::Bool(*mixed),
                     Value::str(link),
                     Value::str(unavailable),
+                    Value::str(atom),
                 ])),
                 "select",
             ),
@@ -1279,6 +1300,10 @@ impl<D: DataSource> Runner<D> {
             Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dragenter(_) => (EventKind::Dragenter, None, "dragenter"),
             Event::Dragleave(_) => (EventKind::Dragleave, None, "dragleave"),
+            Event::FrameNavigation(kind, _) | Event::FrameRecord(kind, _) => {
+                (*kind, None, frame_navigation::name(*kind))
+            }
+            Event::Atompress(_) => (EventKind::Atompress, None, "atompress"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),

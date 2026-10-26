@@ -1338,3 +1338,6 @@ fn a_part_or_role_change_lays_out_as_a_rebuild_does() {
     k.apply(0, 9, &[actions(vec![5])]).unwrap();
     assert_eq!(same(&mut k, "the button back"), grouped);
 }
+
+#[path = "neutral_alert/keyboard.rs"]
+mod keyboard;

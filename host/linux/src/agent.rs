@@ -11,6 +11,7 @@
 
 pub(crate) mod contact;
 mod held;
+mod sensors;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -768,6 +769,8 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("can-share-files", v @ ("true" | "false")) => page.can_share_files = v == "true",
             ("can-share-pictures", v @ ("true" | "false")) => page.can_share_pictures = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
+            // @ref LLP 1020.002 D1 — false here, where no iframe loads.
+            ("iframe-partition", v @ ("true" | "false")) => page.iframe_partition = v == "true",
             ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
             // @ref LLP 1139.003 D2 — the fact, and the modules' tier: their
             // renderers are made again at the new rung.
@@ -847,6 +850,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "can-share-files": page.can_share_files,
         "can-share-pictures": page.can_share_pictures,
         "can-open-files": page.can_open_files,
+        "iframe-partition": page.iframe_partition,
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
         "display-scale": p.host().runner().display_scale(),
@@ -1152,7 +1156,7 @@ fn clock_within<D: DataSource>(
     }
     let (mut rounds, mut hatch_drains) = (0, 0);
     loop {
-        let (landed, e) = clock_hatched(p, to, deadline);
+        let (landed, e) = sensors::clock_framed(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);

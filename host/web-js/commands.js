@@ -58,8 +58,15 @@ export const commands = (say, agentMode = () => false) => ({
   // axes loads; any other refuses it, as the runner does.
   setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),
   // The page's own reload: every web page has one, where a native host
-  // needs its dev menu's.
-  reload: () => location.reload(),
+  // needs its dev menu's. `reload(id, ignoreCache)` is a frame's.
+  reload: (...args) => args.length && args[0] != null ? frame(say, "reload", args) : location.reload(),
+  // A frame's navigation commands (LLP 1020.002 D3): frame-navigation.js's,
+  // the subset a page has over its frame.
+  navigate: (...args) => frame(say, "navigate", args),
+  traverseHistory: (...args) => frame(say, "traverseHistory", args),
+  stopLoading: (...args) => frame(say, "stopLoading", args),
+  // A picture of a frame's guest (LLP 1020.002 D7): refused on the web, answered on its `capture=`.
+  captureScreenshot: (...args) => frame(say, "captureScreenshot", args),
   relaunch: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.
@@ -80,6 +87,10 @@ export const commands = (say, agentMode = () => false) => ({
   fastSeek: (id, seconds) => media(say, id, "fastSeek", seconds),
   load: id => media(say, id, "load"),
 });
+function frame(say, name, args) {
+  import("./frame-navigation.js").then(m => m.command(name, args, say));
+}
+
 function media(say, id, name, seconds) {
   const e = liveById(id);
   if (!e?.$media) return say(`${name} "${id}" refused: ${e ? "not a video or audio" : "no live node with that id"}`);

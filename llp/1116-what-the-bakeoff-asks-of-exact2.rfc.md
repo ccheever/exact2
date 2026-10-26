@@ -85,7 +85,7 @@ This RFC decides what to change before round 2. In order of expected effect:
 | D4 | Every CLI verb answers `--help` with its flags, ports and an example | tokens |
 | D5 | `state … persist`: a remembered setting in one line | tokens, time, quality (9/24 specs) |
 | D6 | Remove two silent iOS fallbacks; a warning channel in `contract build` for the drops that remain | tokens, quality |
-| D7 | Headings take the emphasized weight of their text style | quality, both hosts |
+| D7 | Native headings keep their text style; web headings retain emphasis | quality, both hosts |
 | D8 | Small gaps: `formatNumber` styles, a randomness recipe, `performanceNow()` wording and its persistence warning, determinate `progress`, `symbol:sf/` in the refusal, a favicon | quality |
 
 The bake-off's own process changes are listed in §10.
@@ -480,13 +480,15 @@ Then the warning channel:
   and a React Native author means as points. No app in the repository writes a multiplier above
   2. The repair is `"28px"`.
 
-**D7. Headings take the emphasized weight of their text style.** `heading_style`
-(`contract/lower/src/headings.rs`) writes weight 700 for `title1` and `title2`, 600 for `title3`
-(Apple's emphasized Title 3 is Semibold; Charlie, 2026-10-19), and keeps 600 for `headline`.
+**D7. Headings use the host's text styles.** `heading_style`
+(`contract/lower/src/headings.rs`) keeps native text-style weights. The web,
+neutral and terminal looks retain emphasis: 700 for `title1` and `title2`,
+600 for `title3`.
+An authored `font` or weight wins. This follows the user's 2026-10-24 instruction
+to keep host-styled headings native while retaining good web defaults.
 
 - On iOS, a navigation bar's large title is UIKit's and does not read this row.
-- Content headings get the weight apps actually use: Apple's emphasized text styles (bold
-  Titles 1 and 2, semibold Title 3).
+- Native content headings keep each text style's weight and leading.
 - On the web, a bold heading is the web's own default.
 - A written `font-weight` still wins.
 
@@ -569,5 +571,5 @@ the result.
 | D4 | `scripts/help.mjs`. Every verb answers `--help`/`-h` (20–40 ms, starts nothing). The scripts refuse unknown flags, naming theirs. A test checks each verb's flag list against what its script parses. | — |
 | D5 | `state … persist`: compiler, plan flag, runner (restored at slot creation, kept after each commit that stands). Stores: web `localStorage`; Apple `UserDefaults` (the kv store under the agent); Linux a kv scope. The Lean semantics gains `Oracle.stored`, the proofs build, and difftest has stored variants. `docs/recipes/persisted-setting.md`. | The key is `exact.state.<name>`, which no grant reaches. A prerendered page shows the declared value until its module boots (QUEUE). |
 | D6 | The warning channel (`"severity": "warning"` in `contract build --json`; never fails). Warnings: `lower-header-unplaced`, `lower-single-tab`, `type-performance-now-persisted` (sends and persisted states). System Back without `navigationBack`, fixed in the compiler: the first `navigationKey` root takes the empty Back name. Segments keep the native control on a label mismatch. | Over the 24 round-1 apps the warnings fire exactly where the graders found the bugs, and they are silent on this repository's apps. |
-| D7 | Headings: 700 for title1–title3; headline stays 600. | — |
+| D7 | Native text styles; web title emphasis; authored overrides win. | — |
 | D8 | `formatNumber(n, "decimal" \| "percent" \| "currency", "<code>")` across roster, types, runner, JS target and Lean: 0 differences from `Intl` in 1.87M + 265k cases. A determinate `progress value= max=` on the web, iOS, macOS, Linux and the terminal, with `aria-valuenow/min/max`. The `Math.random` and unknown-symbol refusals name their repairs. A favicon. | Currency codes are a fixed list of 24 ISO literals. The `<progress>` box is Chrome's fixed 10em × 1em on every host (recorded), and the host's bar is drawn in it. |

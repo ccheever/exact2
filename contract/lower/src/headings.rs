@@ -3,28 +3,11 @@
 use exact_kernel::StyleId;
 use exact_plan::BindingsRow;
 
-/// LLP 1115.000 D12.2's one switch (final, Charlie 2026-10-19): a heading
-/// whose style is a title, regular on every platform, keeps an emphasized
-/// weight as an implied row (bold for levels 1 and 2, semibold for 3, as
-/// Apple's emphasized title styles are); `false` gives every heading its
-/// style's own weight, platform-strict.
-pub(crate) const HEADING_BOLD: bool = true;
-
 impl crate::Lowerer<'_> {
-    /// @ref LLP 1115 D3 — a heading is the platform's text style for its
-    /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
-    /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
-    /// style's size for the root font size and its emphasized weight (LLP
-    /// 1116 D7): for a title, whose own weight is regular, Apple's emphasized
-    /// one ([`HEADING_BOLD`]): bold for `title1` and `title2`, semibold for
-    /// `title3`;
-    /// `headline`'s own, per platform (semibold on iOS, bold on the Mac), and
-    /// the style's leading, which the kernel gives as for a `font` shorthand
-    /// (LLP 1115.000 D12.2). A level chosen
-    /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
-    /// styles; any other computed level is 2's. Pushed before the author's
-    /// rows, so a written `font-size` or `font-weight` wins; an inherited one
-    /// is unsaid and does not.
+    /// @ref LLP 1115 D3 — a heading takes its level's platform text style.
+    /// iOS, macOS and Material keep its weight and leading. The web, neutral and
+    /// terminal looks add title emphasis through metrics. Authored rows win.
+    /// Literal level choices select their styles; other expressions use 2.
     pub(crate) fn heading_style(
         &mut self,
         tag: &str,
@@ -47,16 +30,12 @@ impl crate::Lowerer<'_> {
                 n if n >= 4.0 => "headline",
                 _ => "title2",
             };
-            let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
-            let weight = exact_kernel::style::relative::text_style_weight(
-                id.expect("a schema text style"),
-                exact_kernel::style::metrics::Column::Ios,
-            );
-            // A title, whose own weight is regular, takes its emphasized
-            // weight (`HEADING_BOLD`): Apple's emphasized Title 3 is
-            // semibold, Titles 1 and 2 bold; any other style its own.
-            let emphasized = if name == "title3" { 600 } else { 700 };
-            (name, (HEADING_BOLD && weight == 400).then_some(emphasized))
+            let weight = match name {
+                "title1" | "title2" => Some("-exact-heading-title-weight"),
+                "title3" => Some("-exact-heading-small-title-weight"),
+                _ => None,
+            };
+            (name, weight)
         };
         // The level's literal leaves, each mapped; `None` when one is computed.
         fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
@@ -92,11 +71,39 @@ impl crate::Lowerer<'_> {
             Expr::Str(format!("-exact-{}", style(n).0), span)
         })
         .expect("literal leaves");
-        let weight = leaves(level, &|n| match style(n).1 {
-            Some(w) => Expr::Number(f64::from(w), span),
+        let mut weight = leaves(level, &|n| match style(n).1 {
+            Some(w) => Expr::Str(w.into(), span),
             None => Expr::None(span),
         })
         .expect("literal leaves");
+        // Keep the absence test separate from the heading level: a font's
+        // match or let binding must not capture names in that level.
+        fn font_absent(font: &Expr) -> Expr {
+            let mut out = font.clone();
+            match &mut out {
+                Expr::None(_) => return Expr::Bool(true, font.span()),
+                Expr::Ternary(_, yes, no, _)
+                | Expr::Match {
+                    some: yes,
+                    none: no,
+                    ..
+                } => {
+                    **yes = font_absent(yes);
+                    **no = font_absent(no);
+                }
+                Expr::Let { body, .. } => **body = font_absent(body),
+                _ => return Expr::Bool(false, font.span()),
+            }
+            out
+        }
+        if let Some(font) = attrs.iter().rev().find(|a| a.name == "font") {
+            weight = Expr::Ternary(
+                Box::new(font_absent(&font.value)),
+                Box::new(weight),
+                Box::new(Expr::None(span)),
+                span,
+            );
+        }
         let expr = self.expr_code(&size, scope, locals)?;
         bindings.push(crate::style_row(StyleId::FontSize, expr, crate::IMPLIED));
         // The style is the heading's as a `font` shorthand names one: its

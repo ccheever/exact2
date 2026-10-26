@@ -73,6 +73,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
         "drop" | "dragenter" | "dragleave" => Some("DragEvent"),
+        "atompress" => Some("AtomEvent"),
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "toggle" => Some("ToggleEvent"),
@@ -94,11 +95,98 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "seekbackward" | "seekforward" | "seekto" | "previoustrack" | "nexttrack" | "stop" => {
             Some("MediaSessionActionDetails")
         }
+        // @ref LLP 1020.002 D2 — what an iframe's guest shows, seen from
+        // outside; `framenavigate` is an iframe's `navigate`
+        // (`contract_syntax::typed_event`).
+        "framenavigate" | "currententrychange" | "navigatesuccess" | "navigateerror" => {
+            Some("FrameNavigation")
+        }
+        // @ref LLP 1020.002 D5 — a guest's request for a window, by Chrome's
+        // `<webview>` event and Electron's disposition names; and a download
+        // it started, by Electron's `DownloadItem` states.
+        "newwindow" => Some("FrameNewWindow"),
+        "download" => Some("FrameDownload"),
+        // @ref LLP 1020.002 D7 — the answer to `captureScreenshot`: the file
+        // and its size, or why there is none.
+        "capture" => Some("FrameCapture"),
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog, by WebDriver
+        // BiDi's `browsingContext.userPromptOpened`.
+        "userpromptopened" => Some("FrameUserPrompt"),
         _ => None,
     }
 }
 
 pub(super) fn declare(shapes: &mut Shapes) {
+    // @ref LLP 1020.002 D2 — the Navigation API's names for what an iframe's
+    // guest shows; the runner's `FrameNavigation::value` is in this order.
+    shapes.map.insert(
+        "FrameNavigation".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("destination".into(), Ty::String),
+            ("navigationId".into(), Ty::Number),
+            ("navigationType".into(), Ty::String),
+            ("title".into(), Ty::String),
+            ("icons".into(), Ty::List(Box::new(Ty::String))),
+            ("canGoBack".into(), Ty::Bool),
+            ("canGoForward".into(), Ty::Bool),
+            ("loading".into(), Ty::Bool),
+            ("partitioned".into(), Ty::Bool),
+            ("controller".into(), Ty::String),
+            ("error".into(), Ty::String),
+            ("message".into(), Ty::String),
+            ("recovering".into(), Ty::Bool),
+        ],
+    );
+    // @ref LLP 1020.002 D7 — the runner's `frame_navigation::other` builds it
+    // in this order: the `app:/` path the command named, the PNG's size in
+    // pixels, and on failure a DOMException name and the platform's words.
+    shapes.map.insert(
+        "FrameCapture".into(),
+        vec![
+            ("path".into(), Ty::String),
+            ("width".into(), Ty::Number),
+            ("height".into(), Ty::Number),
+            ("error".into(), Ty::String),
+            ("message".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1020.002 D9 — the runner's `frame_navigation::other` builds it
+    // in this order: BiDi's `userPromptOpened` fields.
+    shapes.map.insert(
+        "FrameUserPrompt".into(),
+        vec![
+            ("type".into(), Ty::String),
+            ("message".into(), Ty::String),
+            ("defaultValue".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1020.002 D7 — Geometry's `DOMRect`, by its constructor's fields:
+    // what `getBoundingClientRect()` gives, and a capture's `clip=`.
+    shapes.map.insert(
+        "DOMRect".into(),
+        ["x", "y", "width", "height"]
+            .map(|f| (f.into(), Ty::Number))
+            .to_vec(),
+    );
+    // @ref LLP 1020.002 D5 — the runner's `frame_navigation::new_window` and
+    // `download` build these in this order.
+    shapes.map.insert(
+        "FrameNewWindow".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("disposition".into(), Ty::String),
+        ],
+    );
+    shapes.map.insert(
+        "FrameDownload".into(),
+        vec![
+            ("url".into(), Ty::String),
+            ("suggestedFilename".into(), Ty::String),
+            ("state".into(), Ty::String),
+            ("path".into(), Ty::String),
+        ],
+    );
     // `exact_runner::midi`'s order (LLP 1125 D8): the input's `id`, the
     // message's bytes, when it arrived in runner time, and the transport's
     // beat then (−1 while stopped).
@@ -139,6 +227,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("mixed".into(), Ty::Bool),
             ("link".into(), Ty::String),
             ("unavailable".into(), Ty::String),
+            // The selected atom's source when the selection is exactly one
+            // atom, else "" (LLP 1045.000 D3).
+            ("atom".into(), Ty::String),
         ],
     );
     // What a `key` or `keyup` handler's action hears after the key when it
@@ -147,7 +238,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // kanban F27), then the physical key (`code`: `KeyB`, `Digit1`,
     // `MetaLeft`, whatever the layout types there; "" where the host cannot
     // tell) and whether a keydown is the platform's auto-repeat (`repeat`;
-    // #140).
+    // #140), then whether it came while an input method composed text
+    // (`isComposing`, false where the host hands handlers no composing key).
     shapes.map.insert(
         "KeyboardEvent".into(),
         vec![
@@ -158,6 +250,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("metaKey".into(), Ty::Bool),
             ("code".into(), Ty::String),
             ("repeat".into(), Ty::Bool),
+            ("isComposing".into(), Ty::Bool),
         ],
     );
     // What `input` and `change` hand an action that takes one more

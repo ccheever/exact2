@@ -103,6 +103,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "agents-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
 name = "agents-apple"
 version = "0.1.0"
 dependencies = [
@@ -451,6 +463,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 name = "calendar-data"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-data",
  "exact-data-host",
  "exact-plan",
@@ -829,6 +842,24 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "contacts-calendar-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contacts-calendar-fixture-data",
+ "contract",
+ "exact-bake",
+ "exact-linux",
+]
+
+[[package]]
+name = "contacts-calendar-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
 
 [[package]]
 name = "contract"
@@ -4148,42 +4179,49 @@ dependencies = [
 name = "photo-editor-apple"
 version = "0.1.0"
 dependencies = [
- "contract",
  "exact-apple",
- "exact-bake",
+ "exact-js",
+ "exact-js-bake",
  "exact-logic",
- "photo-editor-data",
-]
-
-[[package]]
-name = "photo-editor-data"
-version = "0.1.0"
-dependencies = [
- "exact-plan",
- "exact-runner",
 ]
 
 [[package]]
 name = "photo-editor-linux"
 version = "0.1.0"
 dependencies = [
- "contract",
- "exact-bake",
+ "exact-js",
+ "exact-js-bake",
  "exact-linux",
  "exact-logic",
- "photo-editor-data",
 ]
 
 [[package]]
 name = "photo-editor-web"
 version = "0.1.0"
 dependencies = [
- "contract",
- "exact-bake",
+ "exact-js-bake",
+ "exact-js-web",
  "exact-logic",
  "exact-web",
  "exact-web-capabilities",
- "photo-editor-data",
+]
+
+[[package]]
+name = "photos-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "photos-fixture-data",
+]
+
+[[package]]
+name = "photos-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
 ]
 
 [[package]]
@@ -4735,6 +4773,26 @@ checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "select-walk-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "select-walk-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "select-walk-fixture-data",
 ]
 
 [[package]]

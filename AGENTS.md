@@ -172,8 +172,10 @@ section binds (`rules/RULES.md`, "Agents").
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
   out.png"` — the ten operations of LLP 1012 and LLP 1079 (`perf`: a subtree's work by
   plan site, `perf <target> during "<op>" …` for the difference a drive made, and
-  `perf frames`, `perf frames live <ms>` for a game's frame pacing; a development build's ⌥⇧T, Save Trace or `SIGUSR1` writes a trace
-  that `bun scripts/agent.mjs trace <file>` reads, `trace --phone` a phone's), the same on every host, with the clock
+  `perf frames`, `perf frames live <ms>` for a game's frame pacing; a development build writes a trace on ⌥⌘T
+  (macOS), ⌥⇧T (web), the dev menu's Save Trace (iOS) or `SIGUSR1` (macOS, the iOS simulator, Linux), which `bun
+  scripts/agent.mjs trace <file>` reads, `trace --pid <pid>` asks a running app for, and `trace --phone` copies off a
+  phone; `--plan <dir>` joins another build's source map), the same on every host, with the clock
   in your hands (`clock settle` instead of waiting; `"screenshot out.png over 600 every
   50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
   build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs
@@ -213,6 +215,12 @@ section binds (`rules/RULES.md`, "Agents").
   Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
+- An app under `apps/` keeps a diary, as an app `exact new` made does (`docs/diary.md`,
+  "What to keep": the header, then Rough, Lean in, Needed and Checkpoints). Write it as
+  you work, at `apps/<app>/diary/<YYYY-MM-DD>-<topic>.md`, and commit it with the
+  change: it is how the team sees where building on Exact was rough, including what you
+  fixed in exact2 to get past it. The app's name may appear; secrets and personal data
+  may not. Nothing is sent: the repository is the record.
 - Each worktree builds into its own `target/`: never symlink or share another
   checkout's (the scripts refuse); a private `CARGO_TARGET_DIR` outside every
   checkout is fine. What a development Apple build takes from the machine

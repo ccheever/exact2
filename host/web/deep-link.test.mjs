@@ -154,8 +154,12 @@ ChildProcess.prototype.spawn = function(options) {
   return result;
 };
 `;
-// Fixture compilation is preparation; every wait on a running loop is bounded to 30 seconds.
-for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`, () => {
+// Fixture compilation is preparation; every wait on a running loop is bounded (30 s; the wasm loop's
+// stream waits 2 min). The wasm loop's case is in the slow lane (EXACT_SLOW_TESTS=1): its new app's
+// first start builds the module producer and the app's wasm crates cold (the warm-up below), and its
+// `r` rebuilds the wasm, which on a loaded machine runs past any cap the default lane can afford.
+const SLOW = process.env.EXACT_SLOW_TESTS === '1';
+for (const wasm of [false, true]) describe.skipIf(wasm && !SLOW)(`${wasm ? 'wasm' : 'JS'} dev routes`, () => {
   let dir, app, dist, source, env, preload;
   const root = resolve(import.meta.dir, '../..');
   beforeAll(async () => {
@@ -183,8 +187,26 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
       child.once('exit', code => code === 0 ? ok() : no(new Error(`fixture preparation failed: ${said}`)));
     });
     await prepare(process.execPath, ['host/web/build.mjs', app, '--render', 'none', ...(wasm ? ['--wasm'] : [])]);
-    if (wasm) await prepare('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake']);
-  }, 600_000);
+    if (wasm) {
+      await prepare('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake']);
+      // A loop's first start builds the module producer and the app's wasm crates into the app's own target
+      // (dev.mjs `toolingEnv`), minutes for a new app on a loaded machine: preparation too, so start it once
+      // here, past the 30-second waits, until it listens.
+      const listener = createServer();
+      await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+      const port = listener.address().port;
+      await new Promise(ok => listener.close(ok));
+      const warm = spawnOwned(process.execPath, ['--preload', preload, 'host/web/dev.mjs', '--app', app, '--port', String(port), '--wasm'],
+        {cwd: root, env, stdio: ['pipe', 'pipe', 'pipe']});
+      await new Promise((ok, no) => {
+        let said = '';
+        const hear = data => { said = (said + data).slice(-12000); if (said.includes(`http://127.0.0.1:${port}/`)) ok(); };
+        warm.stdout.on('data', hear); warm.stderr.on('data', hear);
+        warm.once('exit', code => no(new Error(`the warm-up loop exited ${code}: ${said}`)));
+      });
+      await warm.stop(30_000);
+    }
+  }, 900_000);
   afterAll(async () => { await stopAll(); if (dir) rmSync(dir, {recursive: true, force: true}); });
 
   test('serves admitted routes after an edit and reports a failed rebuild', async () => {
@@ -211,16 +233,21 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
         const hear = data => { said = (said + data).slice(-12000); if (said.includes(url + '/')) finish(); };
         dev.stdout.on('data', hear); dev.stderr.on('data', hear); dev.once('exit', exited);
       });
-      // Each wait on the stream gets its own 30-second bound; a loaded box
-      // takes longer than that for the whole sequence of rebuilds.
-      const bound = () => { clearTimeout(streamTimer); streamTimer = setTimeout(() => controller.abort(new Error('dev build notification did not arrive')), 30_000); };
+      // Each wait on the stream gets its own bound; a loaded box takes longer than that for the whole
+      // sequence of rebuilds. The wasm loop's waits include a wasm rebuild (about 16 s by hand at load ~20):
+      // 2 minutes each, in the slow lane where it runs.
+      const wait = wasm ? 120_000 : 30_000;
+      const bound = () => { clearTimeout(streamTimer); streamTimer = setTimeout(() => controller.abort(new Error('dev build notification did not arrive')), wait); };
+      // An abort ends the fetch, but a line iterator over its body does not end with it: race the two.
+      const aborted = new Promise((_, no) => controller.signal.addEventListener('abort', () => no(controller.signal.reason), {once: true}));
+      aborted.catch(() => {});
       bound();
       const response = await fetch(url + (wasm ? '/__dev' : '/__dev/page'), {signal: controller.signal});
       const lines = createInterface({input: Readable.fromWeb(response.body)})[Symbol.asyncIterator]();
       const nextBuild = async predicate => {
         bound();
         for (;;) {
-          const {value: line, done} = await lines.next();
+          const {value: line, done} = await Promise.race([lines.next(), aborted]);
           if (done) throw new Error('dev event stream closed');
           if (!line.startsWith('data: ')) continue;
           const frame = JSON.parse(line.slice(6));
@@ -229,7 +256,7 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
         }
       };
       const sequence = frame => wasm ? frame.seq : frame.reload;
-      const status = async (path, accept = 'text/html') => (await fetch(url + path, {headers: {accept}})).status;
+      const status = async (path, accept = 'text/html') => (await fetch(url + path, {headers: {accept}, signal: AbortSignal.timeout(30_000)})).status;
       let initial;
       if (wasm) {
         const hello = await nextBuild(frame => frame.hello);
@@ -270,7 +297,7 @@ for (const wasm of [false, true]) describe(`${wasm ? 'wasm' : 'JS'} dev routes`,
       clearTimeout(streamTimer); controller.abort();
       await dev.stop(30_000);
     }
-  }, 300_000);
+  }, wasm ? 900_000 : 300_000); // (the slow lane's cap for the wasm loop's rebuilds, above)
 });
 
 test('HTTP route caches read each plan asynchronously once and refresh after edits', async () => {

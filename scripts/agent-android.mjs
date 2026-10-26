@@ -329,7 +329,7 @@ function buildApk(app, env, profile, writeLocks = false) {
  * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
  * (`kept` copies the verification back). null, said why, when the app names libraries but not their lock. */
 function mavenGraph(app, writeLocks) {
-  const maven = app.manifest.game ? [] : [...new Set(androidImplementations(app.dir).flatMap((b) => b.maven ?? []))].sort();
+  const maven = [...new Set(androidImplementations(app.dir).flatMap((b) => b.maven ?? []))].sort();
   const placed = resolve(READER, 'gradle/verification-metadata.xml');
   const none = { args: [], kept() {}, done() {} };
   if (!maven.length) return none;
@@ -349,12 +349,15 @@ function mavenGraph(app, writeLocks) {
 
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
  * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
- * permissions the app's grant lines derive (the bake's `reach.android`), as Gradle properties. */
+ * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, as Gradle
+ * properties. */
 function extensionArgs(app, out) {
-  const bound = app.manifest.game ? [] : androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
+  const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
   let permissions = [];
   try { permissions = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach?.android ?? []; } catch { /* no bake output: none */ }
+  // And what the module names the app calls derive beside their lines (`android_entry`'s `permissions.txt`, LLP 1133.018 D11).
+  try { permissions = [...new Set([...permissions, ...readFileSync(resolve(out, 'permissions.txt'), 'utf8').split('\n').filter(Boolean)])].sort(); } catch { /* none */ }
   if (bound.length) {
     mkdirSync(resolve(generated, 'exact/app'), { recursive: true });
     writeFileSync(resolve(generated, 'exact/app/ExactExtensions.kt'), ['// Written by scripts/agent-android.mjs (LLP 1133.001 D5); never edited.', 'package exact.app', '',

@@ -1,0 +1,32 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/contacts@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidContactsStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {
+    "selectContacts": {
+      "matchAllDataFields": "bool",
+      "selectionLimit": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "pickIntent"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.contacts.ContactsModule"
+}
