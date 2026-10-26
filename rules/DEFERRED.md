@@ -976,6 +976,21 @@ reading. Nothing that isn't HTML is added by it.
   restoration and HealthKit delivery, each its own module over this seam;
   Background Fetch's `icons` and `updateUI`; and continued processing's
   GPU resource.
+- **Expanded (Charlie, 2026-10-26, "Accept r5, services first
+  (Recommended)", waived; LLP 1133.033 §13 question 9):** a foreground
+  service the host keeps on Android, claimed by a package for a capture
+  the person started (`microphone`) and for a call (`phoneCall`), declared
+  by the lines `device.microphone-background` and `device.calls`, which
+  also derive iOS's `audio` mode; `@exact/calls`, the system's call screen
+  through CallKit and Core-Telecom and Media Session's call actions on the
+  web. Consumer: the recorder's background takes; Harmony's test call,
+  which stays out of App Store builds until a real call transport exists
+  (question 4). Unblocks a take that goes on while the person uses another
+  app or locks the phone, and a call in the system's call screen, without
+  app Swift or Kotlin. Take: none named; the ruling is its own waiver.
+  Still refused (LLP 1133.033 §11): foreground services for an app's own
+  work, ringing an app that is not running (PushKit, FCM), a call's media
+  transport, and the rest of §11's list.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.018 §15 question 9):** contacts and calendars (`@exact/contacts`,
   `@exact/calendar`) on the web, iOS, macOS and Android. Choosing contacts
