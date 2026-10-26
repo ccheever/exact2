@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/quick-actions@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "QuickActions.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "QuickActionsModule"
+}

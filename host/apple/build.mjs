@@ -60,6 +60,7 @@ import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory,
 import { keptModules } from './modules.mjs';
 import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
+import { buildIntents, shortcutKeys } from './intents.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes };
@@ -469,7 +470,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   // An App Clip is opened through its associated domains, never a URL scheme (Apple, "Choosing the right
   // functionality for your App Clip"), so the clip registers none: the full app owns the schemes and the dev link.
   if (clip) dict.NSAppClip = { NSAppClipRequestEphemeralUserNotification: false, NSAppClipRequestLocationConfirmation: false };
-  else Object.assign(dict, openingLinks(app, 'ios', development, distributed));
+  else Object.assign(dict, openingLinks(app, 'ios', development, distributed), shortcutKeys(app, tv ? 'tvos' : 'ios'));
   Object.assign(dict, updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
@@ -573,7 +574,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
   ...updateActivation(app),
-  ...openingLinks(app, 'macos', development, distributed),
+  ...openingLinks(app, 'macos', development, distributed), ...shortcutKeys(app, 'macos'),
   ...(app.manifest.host?.macos?.oneTimeCodeAutofill === 'marked' ? { NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true } : {}),
 });
 const updateActivation = (app) => ({ ...(app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}),
@@ -841,7 +842,7 @@ async function main(args, lockHeld = false) {
     const bin = readFileSync(binAnswer, 'utf8');
     let was = null;
     try { was = JSON.parse(readFileSync(resolve(bin, `${sole}.linked`), 'utf8')); } catch { return null; }
-    if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || typeof was.link !== 'string' || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
+    if (was.intents || was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || typeof was.link !== 'string' || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
     if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
     if (was.plan && !existsSync(resolve(expected.scratch, 'plan/app.hbc'))) return null;
     let claim;
@@ -1018,6 +1019,7 @@ async function main(args, lockHeld = false) {
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
+  const intents = tv ? null : buildIntents({ app, compat: bakedCompat, directory: resolve(linkRoot, 'intents'), sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), platform: ios ? 'ios' : 'macos', deployment: ios ? targets.ios : targets.macos, swiftc, runApple });
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the
   // executable is in this build's private stage before the claim is let go.
@@ -1227,7 +1229,7 @@ async function main(args, lockHeld = false) {
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
     // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
     for (const p of products) {
-      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(shared ? null : linkedPlan?.dir)];
+      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(intents ? ['-Xlinker', intents.object] : []), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(shared ? null : linkedPlan?.dir)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
@@ -1240,7 +1242,7 @@ async function main(args, lockHeld = false) {
       // swift build does not see the Rust archive (or that plist, or a linked plan) change, so the executable is
       // dropped to be linked again: 0.4 s, and it was every build's. A development build drops only one linked from
       // other bytes, which `<product>.linked` beside it says: the archive's hash, whose it is, the plist, the plan's.
-      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, link: appleLink, entitled, shared: shared?.xcframework ?? null, plan: linkedPlan?.digest ?? null });
+      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, link: appleLink, entitled, shared: shared?.xcframework ?? null, plan: linkedPlan?.digest ?? null, intents: intents?.digest ?? null });
       const same = cargoProfile === HOST_DEV && archive && existsSync(resolve(swiftBinDir, p)) && existsSync(linked) && readFileSync(linked, 'utf8') === from;
       if (!same) for (const stale of [p, `${p}.linked`]) rmSync(resolve(swiftBinDir, stale), { force: true });
       // The early build was this one's when nothing it linked from has changed.
@@ -1336,7 +1338,7 @@ async function main(args, lockHeld = false) {
 
   const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements, appClip};
   if (!ios) {
-    const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
+    const bundlePath = assembleMac({intents, shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
@@ -1348,7 +1350,7 @@ async function main(args, lockHeld = false) {
     return;
   }
 
-  const bundles = assembleIOS({shared, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv ? alarmActivity(packages) : null}, bundleTools);
+  const bundles = assembleIOS({intents, shared, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv ? alarmActivity(packages) : null}, bundleTools);
   publishProducts();
   release();
   if (ipa) {

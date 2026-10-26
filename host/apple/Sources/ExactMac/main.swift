@@ -596,6 +596,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }
         exact.installWakes()
+        exact.installReach()
+    }
+    /// The Dock menu: the manifest's shortcuts, then the app's (LLP 1133.023 D3).
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { ExactShortcuts.dockMenu() }
+    /// A Spotlight result of the app's index opened (LLP 1133.023 D4).
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        guard let location = ExactContentIndex.location(of: userActivity) else { return false }
+        (frontWindow() ?? openWindow()).front()
+        ExactContentIndex.open(location)
+        return true
     }
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac

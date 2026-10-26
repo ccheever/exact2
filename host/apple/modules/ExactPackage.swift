@@ -103,6 +103,10 @@ public final class ExactPackageContext {
     public let wakes: ExactWakes
     /// The host's transfer carrier (LLP 1133.017 D8, D10).
     public let transfers: ExactTransfers
+    /// The host's list of the app icon's shortcuts (LLP 1133.023 D15 item 2).
+    public let shortcuts = ExactShortcutStore()
+    /// The host's content index mirror (LLP 1133.023 D4, D15 item 2).
+    public let contentIndex = ExactContentIndexStore()
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
@@ -329,6 +333,36 @@ public final class ExactWakes {
     }
     /// No wake for `key`.
     public func cancel(key: String) { requestFn(key, nil) }
+}
+
+/// The app's own shortcuts on its icon's menu, after the manifest's (LLP
+/// 1133.023 D3), which the host keeps and shows: iOS's quick actions, the
+/// Mac's Dock menu. It survives a launch with no package loaded.
+public final class ExactShortcutStore {
+    /// The list replaced by `items`, each as the interface's `ShortcutItem`.
+    public func set(_ items: [[String: Any]]) {
+        NotificationCenter.default.post(name: Notification.Name("exact.shortcuts.set"), object: ["items": items] as NSDictionary)
+    }
+}
+
+/// The content index's mirror, which the host keeps in the app's container
+/// and tells Spotlight the difference of (LLP 1133.023 D4). Each entry is the
+/// interface's `ContentDescription`. A change answers nil, or the web's
+/// name for its refusal (`QuotaExceededError`, `TypeError`).
+public final class ExactContentIndexStore {
+    private func post(_ name: String, _ body: [String: Any]) -> NSMutableDictionary {
+        let body = NSMutableDictionary(dictionary: body)
+        NotificationCenter.default.post(name: Notification.Name("exact.contentIndex." + name), object: body)
+        return body
+    }
+    /// The entries of `kind` replaced by `entries`, in their order.
+    public func set(kind: String?, entries: [[String: Any]]) -> String? {
+        post("set", ["kind": kind as Any, "entries": entries])["error"] as? String
+    }
+    public func add(_ entry: [String: Any]) -> String? { post("add", ["entry": entry])["error"] as? String }
+    public func delete(id: String) { _ = post("delete", ["id": id]) }
+    /// Every entry, in the order the app set them.
+    public var entries: [[String: Any]] { post("entries", [:])["entries"] as? [[String: Any]] ?? [] }
 }
 
 /// The host's background `URLSession`s and their durable records (LLP
