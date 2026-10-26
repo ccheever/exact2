@@ -13,7 +13,7 @@ import { watch } from "./seam.js";
 
 const Sites = [];
 let Since = null;
-const at = site => Sites[site] ??= { created: 0, retired: 0, evaluated: 0, unchanged: 0, authored: 0 };
+const at = site => Sites[site] ??= { created: 0, retired: 0, evaluated: 0, unchanged: 0, authored: 0, rowConstructed: 0, rowRetired: 0 };
 
 /** A binding's expression, counted. One expression can feed several
  * writes (a shorthand's longhands, a paint fact): each effect that runs it
