@@ -1,6 +1,7 @@
 # Widget vocabulary lacks a circular gauge and SVG drawing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The gauge is built: `SnapshotProgressView` (host/apple/Sources/ExactSnapshot/SnapshotLeaves.swift) draws a `progress` as SwiftUI's `Gauge` with `.accessoryCircularCapacity` in the accessoryCircular family and wherever the author rounds it into a circle. SVG in widgets has no blocked consumer; QUEUE.md records its shape for when one comes (LLP 1126 D4's picture leaf, from the scene host/apple/src/svg.rs flattens).
 **Systems:** widgets (contract snapshot compiler, ExactSnapshot), kernel schema snapshot admits
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report
