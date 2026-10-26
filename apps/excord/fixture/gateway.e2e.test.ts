@@ -116,23 +116,34 @@ test('frames split across WebSocket messages are reassembled', async () => {
 });
 
 test('plan §6 sizes: a 3 MiB READY, one wire frame over 1 MiB, and a login burst over 1 MiB', async () => {
-  await control(fixture.origin, 'ready-size', { bytes: 3 * 1024 * 1024 });
-  await control(fixture.origin, 'login-burst', { bytes: 1024 * 1024 + 4096 });
-  const d = start();
-  let state = await untilFixture(fixture.origin, s => s.logins_done === 1, 'the login burst sent');
-  const login = state.frames.filter((f: any) => f.op === 0);
-  const readyFrame = login.find((f: any) => f.t === 'READY');
-  expect(readyFrame.inflated_bytes).toBeGreaterThanOrEqual(3 * 1024 * 1024);
-  await d.until(() => d.dispatches().length >= login.length, 'the whole login burst', 20_000);
-  const loginWire = login.reduce((n: number, f: any) => n + f.wire_bytes, 0);
-  console.log(`login burst: ${login.length} frames, ${loginWire} wire bytes; READY ${readyFrame.inflated_bytes} inflated, ${readyFrame.wire_bytes} on the wire`);
-  expect(loginWire).toBeGreaterThan(1024 * 1024);
-  const before = d.dispatches().length;
-  const { wire_bytes } = await control(fixture.origin, 'oversize-frame', { bytes: 1024 * 1024 + 4096 });
-  expect(wire_bytes[0]).toBeGreaterThan(1024 * 1024);
-  await d.until(c => c.filter(x => x.kind === 'dispatch').length > before, 'the oversize frame', 20_000);
-  expect(d.dispatches().at(-1)!.t).toBe('GUILD_CREATE');
-  expect(d.state.phase).toBe('ready');
+  // A fixture of its own at Discord's heartbeat (41.25 s), so no heartbeat falls due while the client inflates
+  // megabytes: under load an inflate can hold the loop past the file's 150 ms beat, and the missed ack (a
+  // zombie, correctly closed) read as a size failure. A frame refused or a socket closed for its size still
+  // leaves the client out of `ready`, and the burst and the oversize frame must still arrive.
+  const big = startFixture({ port: 0, subscribeAll: true });
+  try {
+    await control(big.origin, 'ready-size', { bytes: 3 * 1024 * 1024 });
+    await control(big.origin, 'login-burst', { bytes: 1024 * 1024 + 4096 });
+    const d = start({ gatewayUrl: big.gatewayUrl });
+    let state = await untilFixture(big.origin, s => s.logins_done === 1, 'the login burst sent');
+    const login = state.frames.filter((f: any) => f.op === 0);
+    const readyFrame = login.find((f: any) => f.t === 'READY');
+    expect(readyFrame.inflated_bytes).toBeGreaterThanOrEqual(3 * 1024 * 1024);
+    await d.until(() => d.dispatches().length >= login.length, 'the whole login burst', 20_000);
+    const loginWire = login.reduce((n: number, f: any) => n + f.wire_bytes, 0);
+    console.log(`login burst: ${login.length} frames, ${loginWire} wire bytes; READY ${readyFrame.inflated_bytes} inflated, ${readyFrame.wire_bytes} on the wire`);
+    expect(loginWire).toBeGreaterThan(1024 * 1024);
+    const before = d.dispatches().length;
+    const { wire_bytes } = await control(big.origin, 'oversize-frame', { bytes: 1024 * 1024 + 4096 });
+    expect(wire_bytes[0]).toBeGreaterThan(1024 * 1024);
+    await d.until(c => c.filter(x => x.kind === 'dispatch').length > before, 'the oversize frame', 20_000);
+    expect(d.dispatches().at(-1)!.t).toBe('GUILD_CREATE');
+    expect(d.state.phase).toBe('ready');
+  } finally {
+    current?.close();
+    current = null;
+    await big.close();
+  }
 });
 
 test('server heartbeat requests are answered and never mistaken for a dead connection', async () => {
