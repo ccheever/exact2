@@ -1043,6 +1043,25 @@ reading. Nothing that isn't HTML is added by it.
   modules, until LLP 1133.002 D12's delegation; a closed range of steps on
   Android, and motion activity; ambient light; and the Windows, visionOS,
   watchOS and Linux cells.
+- **Expanded (Charlie, 2026-10-26, "Converged: build (Recommended)", on LLP
+  1133.029 §13 question 4):** an orientation lock held while an element
+  is displayed: `orientationlock=` on any element, with the Screen
+  Orientation API's `OrientationLockType` words and the shared word
+  `current`. A lock's types narrow the manifest's `orientation` and never
+  widen it; the topmost sheet that holds wins, then the nearest holder,
+  and unrelated holders intersect. It applies on iOS and iPadOS, Android,
+  the web (both targets, in fullscreen) and Windows; macOS, tvOS, Linux
+  and the terminal are a visible absence. Consumer: Beacons' tilt to move.
+  Unblocks a screen that keeps its orientation while it is shown, with no
+  app Swift and no lock left behind when the screen goes. Take: none
+  named; the ruling is its own waiver. Still out, each until a consumer
+  asks (LLP 1133.029 §12): the screen's brightness; detecting screenshots
+  and recording, and keeping content out of captures; reading the
+  screen's orientation in Contract or data code; a lock inside a `dialog`
+  or popover; widening past the manifest at runtime by a type; Android's
+  `user*` and `fullSensor` forms, Apple's
+  `preferredInterfaceOrientationForPresentation`, and dotted platform
+  words on an attribute.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
