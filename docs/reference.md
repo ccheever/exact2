@@ -831,6 +831,26 @@ none set, `formatLocale` is the locale),
 normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
 `TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
 
+### Inspect work and native presentation
+
+`perf <target> during "<operation>"`
+reports the work that operation caused in the named subtree. Development measurements
+include virtual-row construction, rebinding and retirement; Apple also counts kernel
+layout API calls and native host work. Read the reported scope and measurement start:
+process-wide native counts can include other sessions, and a reset makes a delta unavailable.
+Missing coverage is not a zero.
+
+On Apple, `"perf frames live 500"` observes display-link callbacks for 500 ms without
+advancing or changing the current clock. Its reply identifies scheduling, substitutions
+and dropped records. A normal Mac event loop is available through
+`const session = await open({host: 'macos', env: {EXACT_AGENT: 'live'}, storage: 'my-scratch-store'})` in a
+driver script importing `open` from `scripts/agent.mjs`; call
+`await session.perf(null, {live: 500})` and close the session afterward.
+This carrier still substitutes storage and secret presence. `--timing platform` alone
+keeps agent execution substitutions. Neither establishes production-equivalent performance,
+and callback timing does not prove compositor presentation. `layout` distinguishes target
+and presented geometry; an unavailable presentation remains explicit.
+
 ## Generate TypeScript data-source types
 
 The compiler can derive the logic interface from a Contract's source signatures:
@@ -850,6 +870,12 @@ property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields)
 so the refusal is at run time, the same on the web as on a device:
 ``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```,
 which the agent's `state` shows under `failed` while the resource keeps its last value.
+
+Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
+Generated declarations are build artifacts, not files to commit. A development
+build writes them beside `app.ts` for an editor: the web build and the native
+development bake both do.
+
 Development builds also expose `resourceStatus`: opaque request and displayed-answer
 generations, the last successful generation, pending status, and `displayed`
 (`fallback`, `current`, `retained`). `argumentsEqual` compares full arguments using
@@ -857,15 +883,13 @@ the runtime's equality; `null` means the answer's full arguments are unknown or
 the value is a fallback. `resourcesMeasuredFrom` names the observation's start on
 the runner clock. Identifiers are local to this runtime and observation, and
 unobserved seed requests have null generations. They never govern retention or
-authorization. `placeholder` identifies a declared stand-in; `keptSeed` is the
+authorization. The driver joins each resource declaration to its file and location
+using that reply’s plan digest; a missing or incompatible map is reported as unavailable.
+`placeholder` identifies a declared stand-in; `keptSeed` is the
 runner's boot admission mark, consumed at activation. The JS target reports
 `keptSeedSupported: false`: its rendered-document checkpoint is separate from a
 persisted boot answer. `failures` counts refused answers since observation began, with
 `first` and `last` on that clock. A success clears `failed`, preserving the count.
-Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
-Generated declarations are build artifacts, not files to commit. A development
-build writes them beside `app.ts` for an editor: the web build and the native
-development bake both do.
 
 ### What a data module can use
 
