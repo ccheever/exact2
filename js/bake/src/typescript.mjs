@@ -18,14 +18,32 @@ function httpOrigin(value, label) {
   return url.origin;
 }
 
-/** Explicit build input, ahead of an ignored app-local development selection. */
+/** Explicit backend, saved development selection, then the checkout's declared fixture default. */
 export function backendOriginSelection(app, env=process.env) {
   const file=resolve(app,'.exact/backend-origin');
   const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
-  if (value===null) return null;
+  if (value===null) return fixtureBackendSelection(app,env);
   return { origin: httpOrigin(value,'EXACT_BACKEND_ORIGIN'), source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
 }
 export const backendOrigin = (app, env=process.env) => backendOriginSelection(app, env)?.origin ?? null;
+
+/** A declared fixture gets a stable development port from its app directory, shared by builds and drives. */
+export function fixtureBackendSelection(app, env=process.env) {
+  if (!developmentTrust(env)) return null;
+  let manifest, code;
+  try { manifest=JSON.parse(readFileSync(resolve(app,'app.json'),'utf8')); code=readFileSync(resolve(app,'app.ts'),'utf8'); } catch { return null; }
+  const argv=manifest.commands?.server;
+  if (!Array.isArray(argv) || !/(^|\/)bun$/.test(argv[0])) return null;
+  const entry=argv.findIndex((a,i)=>i>0 && !a.startsWith('-'));
+  if (entry<0 || !/(^|[/\\])fixtures?[/\\]/.test(argv[entry])) return null;
+  const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1];
+  if (!literal || !loopback(literal)) return null;
+  const args=argv.slice(entry+1), at=args.indexOf('--port'), given=at<0 ? env.PORT : args[at+1];
+  const port=given===undefined ? 4790+parseInt(createHash('sha256').update(realpathSync(app)).digest('hex').slice(0,8),16)%1000 : Number(given);
+  if (!Number.isInteger(port) || port<1 || port>65535) throw new Error(`${at<0 ? 'PORT' : 'commands.server --port'}: a fixture port must be an integer from 1 to 65535`);
+  const origin=new URL(literal); origin.port=String(port);
+  return { origin:httpOrigin(origin.href,'fixture origin'), source:given===undefined ? 'checkout fixture port' : at<0 ? 'PORT' : 'commands.server --port' };
+}
 
 /** Explain when an app-local selection takes precedence over the authored origin. */
 export function backendOriginWarning(code, selection, parse) {
@@ -45,7 +63,7 @@ const socketOrigin = (origin) => origin.replace(/^http/, 'ws');
 // in this form goes through the constant evaluator or the plain form's grant
 // URL rewrite. The entry is the selected origin's own; in a development build
 // only, an origin at a private-network address with no entry takes the entry
-// of the same server at loopback (same scheme and port), its fetch and socket
+// of the server at loopback, its fetch and socket
 // lines moved to that address: a phone reaching the fixture on this Mac's LAN.
 // A production build refuses it as any missing entry.
 function keyedGrants(node, origin, at, development) {
@@ -72,7 +90,9 @@ function keyedGrants(node, origin, at, development) {
   }
   const wanted=new URL(origin).origin;
   if (entries.has(wanted)) return entries.get(wanted);
-  const local=development && privateNetwork(wanted) ? [...entries.keys()].filter(key=>sameServer(key,wanted)) : [];
+  const candidates=development && (privateNetwork(wanted) || loopback(wanted)) ? [...entries.keys()].filter(key=>sameServer(key,wanted)) : [];
+  const local=candidates.filter(key=>new URL(key).port===new URL(wanted).port);
+  if (!local.length) local.push(...candidates);
   if (local.length>1) refuse(node,`origin ${JSON.stringify(wanted)} is the server of more than one loopback key: ${local.map(k=>JSON.stringify(k)).join(', ')}`);
   if (!local.length) refuse(node,`no entry for origin ${JSON.stringify(wanted)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
   return movedLines(entries.get(local[0]),local[0],wanted);
@@ -97,10 +117,11 @@ export function privateNetwork(origin) {
   return (bits & 0xfe00)===0xfc00 || (bits & 0xffc0)===0xfe80;
 }
 
-/** Whether key `key` is a loopback origin of the server `origin` names: its scheme and port. */
+const loopback = origin => ['127.0.0.1','localhost','[::1]'].includes(new URL(origin).hostname);
+/** A loopback grant key with the selected origin's scheme; a development fixture may move ports. */
 function sameServer(key, origin) {
   const [k,o]=[new URL(key),new URL(origin)];
-  return ['127.0.0.1','localhost','[::1]'].includes(k.hostname) && k.protocol===o.protocol && k.port===o.port;
+  return loopback(key) && k.protocol===o.protocol;
 }
 
 /** A loopback entry's lines for the same server at `to`: each `net.fetch` and `net.websocket` line at the

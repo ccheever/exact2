@@ -564,6 +564,7 @@ fn build_sources(
         println!("cargo:rerun-if-changed={}", file.display());
     }
     println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    println!("cargo:rerun-if-env-changed=PORT");
     // An absent file Cargo watches is a missing input, which reran this bake
     // on every build. The builder says whether the selection exists
     // (EXACT_BACKEND_SELECTION, as EXACT_ASSET_ROOTS names the asset roots

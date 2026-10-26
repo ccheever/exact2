@@ -956,7 +956,7 @@ const contentDigest = path => { try { return createHash('sha1').update(readFileS
 /** Content digests of every input of a web build, recorded in its marker. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null};
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null};
 }
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
@@ -972,8 +972,9 @@ export function webChanges(dist, app) {
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', since);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
   // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
-  for (const path of Object.keys(built.inputs ?? {})) if (path !== 'EXACT_BACKEND_ORIGIN' && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
+  for (const path of Object.keys(built.inputs ?? {})) if (!['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
+  if ((built.inputs?.PORT ?? null) !== (process.env.PORT ?? null)) appChanges.push('PORT');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -1206,5 +1207,16 @@ export async function launchEntries(s, flags) {
   for (const entry of flags.launchEntries ?? []) {
     const r = await s.op({ op: 'launchEntry', ...entry });
     if (r?.error) throw new Error(r.error);
+  }
+}
+
+if (import.meta.main) {
+  const helperArgs = process.argv.slice(2);
+  if (helperArgs.includes('--fixture-port')) {
+    const at = helperArgs.indexOf('--app');
+    const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+    const selected = backendOriginSelection(resolveApp(at < 0 ? undefined : helperArgs[at + 1]).dir);
+    if (!selected) throw new Error('this app has no selected fixture origin; pass --app <name>');
+    console.log(new URL(selected.origin).port || (selected.origin.startsWith('https:') ? '443' : '80'));
   }
 }
