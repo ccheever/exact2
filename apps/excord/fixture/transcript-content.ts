@@ -13,6 +13,7 @@ export interface Message {
   edited_timestamp: number | null; attachments: Attachment[]; embeds: Embed[];
   reactions: { emoji: { id: string | null; name: string }; count: number; me: boolean }[];
   message_reference?: { message_id: string }; nonce?: string; type: number;
+  sticker_items?: { id: string; name: string; format_type: number }[];
   state: 'sent' | 'pending' | 'failed'; revision: number;
 }
 
@@ -193,6 +194,11 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     if (i % 29 === 0) msg.reactions.push({ emoji: { id: '501', name: 'ferris' }, count: 1 + i % 12, me: false });
     if (i % 863 === 1) { msg.type = 7; msg.content = ''; msg.message_reference = undefined; }
     messages.push(msg);
+  }
+  // #random ends with a sticker (Discord draws a PNG one as a picture) after one that is a Lottie animation.
+  if (channel === 'random' && messages.length > 1) {
+    messages[messages.length - 2].sticker_items = [{ id: '602', name: 'Party Parrot', format_type: 3 }];
+    messages[messages.length - 1].sticker_items = [{ id: '601', name: 'Wave', format_type: 1 }];
   }
   return { messages, lastRead: messages[spec.count - spec.unread - 1]?.id ?? '', deleted };
 }

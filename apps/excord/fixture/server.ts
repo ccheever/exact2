@@ -1022,10 +1022,12 @@ export function startFixture(options: FixtureOptions = {}) {
       const failingSend = request.method === 'POST' && /^\/api\/v9\/channels\/([^/]+)\/messages$/.exec(url.pathname);
       const retry = isRest && !(failingSend && failNext.has(failingSend[1]))
         ? limitRequest(request.method, url.pathname, headers) : undefined;
-      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/'))) {
+      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/') || url.pathname.startsWith('/stickers/'))) {
         const media = /^\/media\/([a-z]+)\.png$/.exec(url.pathname);
         const emoji = /^\/emojis\/(50[0-8])\.png$/.exec(url.pathname);
-        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : undefined);
+        // The world's one sticker (601) is drawn with an emoji's picture.
+        const sticker = /^\/stickers\/601\.png$/.test(url.pathname);
+        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : sticker ? emojiNames[1] : undefined);
         if (!name || !/^[a-z]+$/.test(name)) return json({ message: 'Unknown asset', code: 0 }, 404);
         const file = Bun.file(`${import.meta.dir}/../assets/${media ? 'media' : 'emoji'}/${name}.png`);
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);

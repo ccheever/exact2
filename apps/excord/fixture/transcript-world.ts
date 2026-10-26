@@ -92,6 +92,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
           content_type: 'image/png', ...(width === undefined ? {} : { width }), ...(height === undefined ? {} : { height }) };
       });
       converted.embeds = message.embeds.map(embed => transcriptEmbed(embed, assetOrigin));
+      if (message.sticker_items) (converted as Record<string, unknown>).sticker_items = message.sticker_items;
       converted.reactions = message.reactions.map(reaction => ({ ...reaction, emoji: { ...reaction.emoji },
         count_details: { burst: 0, normal: reaction.count }, burst_count: 0, me_burst: false, burst_colors: [] }));
       if (message.message_reference) converted.message_reference = {

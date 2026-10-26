@@ -75,6 +75,9 @@ const dirs: Directories = {
   message: (channel, id) => (S.message(store, channel, id) as Stored | null) ?? undefined,
   deleted: (channel, id) => S.deleted(store, channel, id),
   emoji: (id, animated) => `${live.origins.cdn}/emojis/${id}.${animated ? 'gif' : 'png'}`,
+  // Discord serves a GIF sticker only from its media host (https://docs.discord.com/developers/reference#image-formatting).
+  sticker: (id, extension) => `${extension === 'gif' && live.origins.cdn === 'https://cdn.discordapp.com'
+    ? 'https://media.discordapp.net' : live.origins.cdn}/stickers/${id}.${extension}`,
   avatar: u => avatarUrl(live.origins.cdn, u),
   roles: channel => store.guildMap.get(S.channel(store, channel)?.guild_id ?? '')?.roles,
   nameColor: (channel, roles) => {
