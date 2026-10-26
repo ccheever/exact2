@@ -62,6 +62,7 @@ pub mod held;
 pub mod instance;
 pub mod lists;
 pub mod notify;
+pub mod orientation;
 pub mod page;
 pub mod perf;
 pub mod presence;

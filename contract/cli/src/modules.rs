@@ -615,6 +615,7 @@ const RESERVED_STATES: &[&str] = &[
     "midi",
     "extensions",
     "wakelock",
+    "orientationlock",
     "head",
     "focus",
     "language",

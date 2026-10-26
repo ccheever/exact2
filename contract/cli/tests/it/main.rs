@@ -120,6 +120,7 @@ mod navigation_detent;
 mod navigation_split;
 mod negative_margin;
 mod notify;
+mod orientationlock;
 mod overlay;
 mod package_designs;
 mod package_icons;

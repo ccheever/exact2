@@ -36,6 +36,7 @@ mod module_events;
 mod module_rust;
 mod modules;
 pub mod native;
+mod orientationlock;
 mod package_views;
 pub mod picker;
 mod resolve;
@@ -307,7 +308,9 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
             params(&mut file)?;
-            picker::check(&file, None).map_err(first)?;
+            picker::check(&file, None)
+                .and(orientationlock::check(&file, None))
+                .map_err(first)?;
             compile_file_warned(
                 &file,
                 None,
@@ -329,7 +332,9 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     contract_syntax::resolve_clock_timelines(&mut file)?;
     params(&mut file)?;
     terminal::check(&file).map_err(first)?;
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
         .map(|(plan, _)| plan)
         .map_err(first)
@@ -897,11 +902,13 @@ fn compile_loaded(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    picker::check(&file, Some(&app_root)).map_err(|all| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    })?;
+    picker::check(&file, Some(&app_root))
+        .and(orientationlock::check(&file, Some(&app_root)))
+        .map_err(|all| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        })?;
     // Surface findings join the compile's own refusals; neither hides the other.
     let surface: Vec<CompileError> = match surfaces.then(|| surface::arguments(&app_root)) {
         Some(declared) => match declared.map_err(|e| vec![e])? {
@@ -991,7 +998,9 @@ pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, asset_root, None, false, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(first)

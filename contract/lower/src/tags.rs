@@ -594,6 +594,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
         // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
         "wakelock" => AttrTarget::Prop(p("wakelock")),
+        // @ref LLP 1133.029 D1 — the Screen Orientation API's lock types, on any element.
+        "orientationlock" => AttrTarget::Prop(p("orientationlock")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p("navigationBar")),
@@ -916,6 +918,13 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
             "wakelock"
         }
+        // The web's call, Android's activity attribute, UIKit's (LLP 1133.029 D1).
+        "screenOrientation"
+        | "screen-orientation"
+        | "lockOrientation"
+        | "orientation"
+        | "requestedOrientation"
+        | "supportedInterfaceOrientations" => "orientationlock",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",

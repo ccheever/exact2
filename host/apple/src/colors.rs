@@ -87,7 +87,7 @@ impl<D: DataSource> Host<D> {
     /// platform's lock while any session's batch last said `true`. A new host
     /// (a boot, a committed plan) says it at its first batch.
     pub(super) fn wakelock_moved(&mut self) -> Option<bool> {
-        let held = !exact_runner::wakelock::holders(self.runner.kernel()).is_empty();
+        let held = !exact_runner::wakelock::holders(&self.runner).is_empty();
         if self.wakelock_told == Some(held) {
             return None;
         }

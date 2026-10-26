@@ -18,6 +18,7 @@
 //! each command keeps what it did there. On Android the shell is the Canvas
 //! host's reader (`host/android/README.md` has the words as it reads them).
 use super::*;
+use exact_runner::orientation::Session;
 use exact_runner::share::Share;
 
 mod packages;
@@ -75,6 +76,11 @@ pub enum Request {
     /// on the store's completion path, never by this request's id, so the
     /// value never passes the requests' journal.
     Presence(String),
+    /// The session's orientation lock (LLP 1133.029 D6), told when it
+    /// changes: none (the manifest's orientation), or the types' set with
+    /// whether a holder says `natural` or `current`, and each counted
+    /// holder's view and word for a conflict line the shell writes.
+    Orientation(Session),
 }
 
 /// What a picker is opened with, each value as HTML writes it and empty
@@ -113,6 +119,7 @@ impl Request {
             Request::Hatch(_) => 10,
             Request::Module(_) => 11,
             Request::Presence(_) => 12,
+            Request::Orientation(_) => 13,
         }
     }
 }
@@ -208,6 +215,11 @@ pub(super) struct State {
     wakelock: Option<bool>,
     wakelock_epoch: Option<u64>,
     wakelock_said: bool,
+    /// The orientation lock the shell was last told and the kernel epoch it
+    /// was read at; whether a host with no shell journaled it.
+    orientation: Option<Session>,
+    orientation_epoch: Option<u64>,
+    orientation_said: bool,
     /// Module calls the runner handed the native slot, from any thread,
     /// until a turn queues them (`modules_in`).
     inbox: Inbox,
@@ -258,6 +270,21 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
         }
         Request::Back(goes) | Request::KeepScreenOn(goes) => out.push(i32::from(*goes)),
         Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
+        // 0 for none; else 1, the types' bits (portrait-primary 1,
+        // portrait-secondary 2, landscape-primary 4, landscape-secondary 8),
+        // `natural`, `current`, the count of holders, then each one's view
+        // and word.
+        Request::Orientation(session) => match session.lock() {
+            None => out.push(0),
+            Some(lock) => {
+                out.extend([1, i32::from(lock.types), i32::from(lock.natural)]);
+                out.extend([i32::from(lock.current), lock.by.len() as i32]);
+                for (view, word) in &lock.by {
+                    out.push(*view as i32);
+                    string(out, word);
+                }
+            }
+        },
         Request::Surface(surface) => surface.encode(out),
         Request::Hatch(words) => out.extend(words),
         // The node, then the kind and the four values.
@@ -283,6 +310,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn serve_requests(&mut self) {
         self.requests.shell = true;
         (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
+        (self.requests.orientation, self.requests.orientation_epoch) = (None, None);
         // The shell's extensions answer the module calls the runner hands
         // the native slot, once their names are bound (`bind_extensions`).
         self.handle_modules();
@@ -437,6 +465,9 @@ impl<D: DataSource> Presenter<D> {
         if let Some(held) = self.wakelock_moved() {
             self.queue(Request::KeepScreenOn(held));
         }
+        if let Some(session) = self.orientation_moved() {
+            self.queue(Request::Orientation(session));
+        }
         // A package view's displayed state, by the same rule, now the bars'
         // covers are set (LLP 1133.008 D8 item 2).
         self.host.runner_mut().report_views();
@@ -450,7 +481,7 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         self.requests.wakelock_epoch = Some(epoch);
-        let held = !exact_runner::wakelock::holders(self.host.kernel()).is_empty();
+        let held = !exact_runner::wakelock::holders(self.host.runner()).is_empty();
         // Untold is off, as a new reader's view is (`keepScreenOn` false).
         (self.requests.wakelock.unwrap_or(false) != held).then(|| {
             self.requests.wakelock = Some(held);
@@ -472,11 +503,62 @@ impl<D: DataSource> Presenter<D> {
             .log("wakelock: unavailable: this host keeps no display awake");
     }
 
-    /// Another host took over (`Presenter::replaced`): its kernel may have
-    /// the epoch the wake lock was last read at, so it is read again; what
-    /// the shell was told stands.
-    pub(super) fn wakelock_replaced(&mut self) {
+    /// The session's orientation lock (`exact_runner::orientation`, read
+    /// again only after a commit), when it is not what the shell was last
+    /// told; untold is none, as a new reader's activity has the manifest's.
+    /// Reading it journals a conflict or a lock in a top-layer box.
+    fn orientation_moved(&mut self) -> Option<Session> {
+        let epoch = self.host.kernel().epoch();
+        if self.requests.orientation_epoch == Some(epoch) {
+            return None;
+        }
+        self.requests.orientation_epoch = Some(epoch);
+        let session = self.host.runner_mut().orientation_session();
+        let told = self.requests.orientation.as_ref().unwrap_or(&Session::None);
+        (*told != session).then(|| {
+            self.requests.orientation = Some(session.clone());
+            session
+        })
+    }
+
+    /// A host with no shell (desktop Linux, a headless run) has no screen
+    /// orientation to lock (LLP 1133.029 D12): the first time a lock is
+    /// held, the journal says so, and `state.orientationlock.applied` reads
+    /// "unavailable". The Windows host applies the lock itself
+    /// ([`Presenter::orientation_lock`]).
+    pub(super) fn orientation_unavailable(&mut self) {
+        if self.requests.shell || cfg!(windows) {
+            return;
+        }
+        let held = self.orientation_moved().is_some_and(|s| s.lock().is_some());
+        if held && !self.requests.orientation_said {
+            self.requests.orientation_said = true;
+            self.host
+                .log("orientationlock: this host has no screen orientation");
+        }
+    }
+
+    /// The session's orientation lock when it changed since the last call,
+    /// for a host that applies it itself (Windows, LLP 1133.029 D8).
+    pub fn orientation_lock(&mut self) -> Option<Session> {
+        self.orientation_moved()
+    }
+
+    /// What the host applied (LLP 1133.029 §8), JSON, and whether its
+    /// resolution found a conflict: `state.orientationlock.applied`.
+    pub fn orientation_applied(&mut self, applied: String, conflict: bool) {
+        self.host
+            .runner_mut()
+            .set_orientation_applied(applied, conflict);
+    }
+
+    /// Another host took over (`Presenter::replaced`), or the top layer
+    /// opened or closed: the kernel may have the epoch the holds while
+    /// displayed were last read at, so they are read again; what the shell
+    /// was told stands.
+    pub(super) fn holds_changed(&mut self) {
         self.requests.wakelock_epoch = None;
+        self.requests.orientation_epoch = None;
     }
 
     /// Whether Back has somewhere to go may have changed with no commit (a
