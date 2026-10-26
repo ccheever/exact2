@@ -394,6 +394,13 @@ test "a held proposal's title names what it edits, then what reads it, a param b
   clock +1
   clock data
   expect text "held-title-p9" == "agent:d4 proposes cards.avatar-default (and 2 that read it: cards.banner, ProfileHeader.banner)"
+  // A rename edits both its names; a param's add names its component.
+  request POST "/__stub/hold" {"proposal": "p10", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "app.tamber", "token": "surface.panel"}, {"file": "app.tamber", "token": "ink.on-card"}], "ops": [{"index": 0, "op": {"op": "rename-token", "from": "surface.card", "to": "surface.panel"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p11", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "@app/app.contract#Card.fill"}], "ops": [{"index": 0, "op": {"op": "add-param", "component": "Card", "name": "fill", "value": "surface.card"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p10" == "agent:d4 proposes surface.card, surface.panel (and 1 that read them: ink.on-card)"
+  expect text "held-title-p11" == "agent:d4 proposes Card.fill"
   request POST "/__stub/restart" {} as ada
 
 test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"

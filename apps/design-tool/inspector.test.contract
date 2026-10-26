@@ -1136,10 +1136,12 @@ test "the inspector folds the rows nothing sets behind one control, opened per s
   // Its edit begun, the padding row is in play: another view selected (the same style row on it), the rest fold
   // again and it stays.
   tap "selrow-row-padding"
-  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "tint_color", "value": "currentcolor", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a package's style (Glyph): read-only here"}}, {"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
   clock +1
   clock data
   expect tree has "selrow-padding"
+  // (The same value written in a package, which has a place: shown, never folded as lowering's own.)
+  expect tree has "selrow--exact-tint-color"
   expect tree missing "selrow-stroke-linecap"
   expect text "selrow-initial" == "2 more rows nothing sets (initial values)"
   // A round trip folds again: shown on one view, another selected, then the first again.

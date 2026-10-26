@@ -506,6 +506,8 @@ export function ht(e) {
   page().then(m => {
     // The switch is read here, once the page has started and says what it is.
     if (!h.isLive || off()) return;
+    // (No page module at all: nothing is called, nor counted live, and it is said once.)
+    if (!m) { if (!said.has(word)) { said.add(word); say(`element ${word}: no page module (modules/web/) on this page; its nodes are shown and never called`); } return; }
     module = m;
     publish();
     counted(word).live++;

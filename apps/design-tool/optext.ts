@@ -27,9 +27,15 @@ export const shortName = (name: string): string => name.includes('#') ? name.sli
 
 /** A held proposal's title (stage 15 D4 batch 1 #4): the tokens and params its operations edit, then the ones it
  * changes only because they read those, counted and named; everything it changes when no operation names one. */
-export function heldTitle(ops: any[], changed: string[]): string {
-  const edited = [...new Set(ops.map(o => o?.op === 'rename-token' ? o.from : o?.name).filter((n): n is string => typeof n === 'string'))];
-  if (!edited.length) return changed.map(shortName).join(', ');
-  const others = changed.filter(t => !edited.includes(t) && !edited.includes(shortName(t))).map(shortName);
-  return `${edited.map(shortName).join(', ')}${others.length ? ` (and ${others.length} that read ${edited.length === 1 ? 'it' : 'them'}: ${others.join(', ')})` : ''}`;
+export function heldTitle(ops: any[], changed: { file: string; token: string }[]): string {
+  // What each operation names, by its file where it says one: a rename both its names, a param's add or removal its
+  // component's, a param by its short name (one spelled either way is one).
+  const named = (o: any): string[] => o?.op === 'rename-token' ? [o.from, o.to] : (o?.op === 'add-param' || o?.op === 'remove-param') && o.component ? [`${o.component}.${o.name}`] : [o?.name];
+  const edited = ops.flatMap(o => named(o).filter((n): n is string => typeof n === 'string').map(n => ({ name: shortName(n), file: typeof o?.file === 'string' ? o.file : null })));
+  const words = [...new Set(edited.map(e => e.name))];
+  const all = [...new Set(changed.map(c => shortName(c.token)))];
+  if (!words.length) return all.join(', ');
+  // Each it changes that no operation edits there (a reader in one file of a token edited in another among them).
+  const others = [...new Set(changed.filter(c => !edited.some(e => e.name === shortName(c.token) && (e.file === null || e.file === c.file))).map(c => shortName(c.token)))];
+  return `${words.join(', ')}${others.length ? ` (and ${others.length} that read ${words.length === 1 ? 'it' : 'them'}: ${others.join(', ')})` : ''}`;
 }

@@ -31,7 +31,10 @@ const CSS: Record<string, string> = {
 // The rows lowering writes itself with no source place, at their own defaults (stage 15 D4 batch 1 #5): a symbol's
 // tint as `currentcolor` (contract/lower symbols/ink.rs). Folded with the rows nothing sets, never named as editable.
 const LOWERED: Record<string, string> = { tint_color: 'currentcolor' };
-const lowered = (r: any) => !r.editable?.rung && r.origin === 'own' && typeof r.value === 'string' && LOWERED[String(r.name)] === r.value.trim().toLowerCase();
+// (Only a row with no source place: the join's own words for one, scripts/tamber-inspect.mjs `editableOf`; an authored
+// row of the same value, a package's read-only one among them, has a place and another reason.)
+const UNPLACED = "a value the map gives no place for: the source's to edit";
+const lowered = (r: any) => !r.editable?.rung && r.editable?.reason === UNPLACED && typeof r.value === 'string' && LOWERED[String(r.name)] === r.value.trim().toLowerCase();
 
 /** A row's author-facing name, as its source spells it: a border side's
  * longhand puts the side first (`border-top-left-radius`). */
