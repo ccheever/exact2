@@ -12,6 +12,12 @@ import { iosAssets, entitlements, infoPlist, macInfoPlist, documentTypes, import
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
+test('the Apple build rejects --phone before selecting a simulator or resolving an app', () => {
+  const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--ios', '--phone', 'other-lane', 'no-such-app'], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--phone needs --device; for a simulator use --sim/);
+});
+
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
@@ -120,16 +126,17 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
       host: { ios: { launchImage: { src: 'icon.png', width: 40 } } } } };
     const keys = iosAssets(app, bundle, true, { catalog: true });
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
-    assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
-    assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
+    const { UIColorName: colour, UIImageName: image } = keys.UILaunchScreen;
+    assert.match(colour, /^ExactLaunch-[0-9a-f]{8}$/);
+    assert.match(image, /^ExactLaunchImage-[0-9a-f]{8}$/, 'the picture the launch screen centres on its colour');
     assert.equal(keys.ExactLaunchImageSource, 'icon.png', 'an image of the picture decodes from the catalog');
     assert.equal(keys.ExactLaunchImageSHA256, launchImageInventory(app).sha256, 'only for the bytes the catalog was made from');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
     assert.ok(assets.some(asset => asset.Name === 'AppIcon'), 'Assets.car must retain AppIcon');
-    assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
-    const launch = assets.filter(asset => asset.Name === 'ExactLaunchImage');
+    assert.equal(assets.filter(asset => asset.Name === colour).length, 2);
+    const launch = assets.filter(asset => asset.Name === image);
     assert.ok(launch.length >= 1, 'Assets.car holds the launch image');
     assert.ok(launch.every(asset => asset.PixelWidth === 40 * asset.Scale), `40 points wide at each scale: ${JSON.stringify(launch)}`);
     // The launch image is a binary input: packaging draws the bytes the bake
@@ -137,7 +144,14 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     const baked = launchImageInventory(app);
     assert.equal(baked.sha256.length, 64);
     const again = resolve(dir, 'Again.app'); mkdirSync(again);
-    assert.equal(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen.UIImageName, 'ExactLaunchImage');
+    assert.deepEqual(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen, keys.UILaunchScreen, 'the same content, the same names');
+    // iOS draws the launch screen it kept for unchanged `UILaunchScreen` keys (the euxy port's white launch):
+    // another colour or picture is another name.
+    const darker = { ...app, manifest: { ...app.manifest, background_color: '#08080a' } };
+    assert.equal(iosAssets(darker, again, true).UILaunchScreen.UIImageName, image);
+    assert.notEqual(iosAssets(darker, again, true).UILaunchScreen.UIColorName, colour);
+    const wider = { ...app, manifest: { ...app.manifest, host: { ios: { launchImage: { src: 'icon.png', width: 41 } } } } };
+    assert.notEqual(iosAssets(wider, again, true).UILaunchScreen.UIImageName, image);
     assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: null }), /launch image changed after the bake/);
     writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
     assert.notEqual(launchImageInventory(app).sha256, baked.sha256);
@@ -324,6 +338,48 @@ test('simulator signing gives each app and embedded host a distinct Keychain ide
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
 });
 
+test('an App Clip is its parent\'s app under a second identity: NSAppClip, the parent identifier and appclips: domains (LLP 1126 D12)', async () => {
+  const { appClip, entitlements, infoPlist } = await import('../host/apple/build.mjs');
+  const flat = (s) => s.replace(/\s+/g, '');
+  const base = { id: 'com.exact.test', displayName: 'Test', manifest: { host: { ios: { associatedDomains: ['applinks:exact.test', 'webcredentials:exact.test'], urlSchemes: ['exacttest'] } } } };
+  assert.equal(appClip(base), null);
+  const app = { ...base, manifest: { host: { ios: { ...base.manifest.host.ios, appClip: {} } } } };
+  assert.deepEqual(appClip(app), { id: 'com.exact.test.Clip', name: 'Test', executable: 'Test' });
+  assert.deepEqual(appClip({ ...app, manifest: { host: { ios: { appClip: { id: 'com.exact.clip', name: 'Test: Clip' } } } } }), { id: 'com.exact.clip', name: 'Test: Clip', executable: 'Test- Clip' });
+  const clip = appClip(app);
+  // The clip's plist: its own id and name, NSAppClip, no URL scheme and no dev link; the parent's keeps both.
+  const plist = flat(infoPlist(app, false, { id: clip.id, name: clip.name, executable: clip.executable, clip: true, development: { scheme: 'exact-dev', origins: ['http://localhost:4000'], token: 'a'.repeat(64) } }));
+  assert.match(plist, /<key>CFBundleIdentifier<\/key><string>com.exact.test.Clip<\/string>/);
+  assert.match(plist, /<key>CFBundleExecutable<\/key><string>Test<\/string>/);
+  assert.match(plist, /<key>NSAppClip<\/key><dict><key>NSAppClipRequestEphemeralUserNotification<\/key><false\/><key>NSAppClipRequestLocationConfirmation<\/key><false\/><\/dict>/);
+  assert.doesNotMatch(plist, /CFBundleURLTypes|ExactDevelopmentURLScheme/);
+  assert.match(flat(infoPlist(app, false, { development: { scheme: 'exact-dev', origins: [], token: '' } })), /<key>CFBundleURLSchemes<\/key><array><string>exacttest<\/string><string>exact-dev<\/string><\/array>/);
+  assert.doesNotMatch(infoPlist(app, false), /NSAppClip/);
+  // Entitlements: the clip signs its parent's identifier and each applinks: host as appclips:, in place of the
+  // applinks:; the parent lists the appclips: beside its applinks:. A simulator build prefixes both as the app's.
+  const sim = flat(entitlements({ ...app, id: clip.id, clipParent: app.id }, null, true, null, { simulator: true }));
+  assert.match(sim, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test.Clip<\/string>/);
+  assert.match(sim, /<key>com.apple.developer.parent-application-identifiers<\/key><array><string>SIMULATORX.com.exact.test<\/string><\/array>/);
+  assert.match(sim, /<key>com.apple.developer.associated-domains<\/key><array><string>webcredentials:exact.test<\/string><string>appclips:exact.test<\/string><\/array>/);
+  const device = flat(entitlements({ ...app, id: clip.id, clipParent: app.id }, 'TEAM', true, null, { prefix: 'PREFIX' }));
+  assert.match(device, /<key>application-identifier<\/key><string>PREFIX.com.exact.test.Clip<\/string>/);
+  assert.match(device, /<key>com.apple.developer.parent-application-identifiers<\/key><array><string>PREFIX.com.exact.test<\/string><\/array>/);
+  const parent = flat(entitlements(app, 'TEAM', true));
+  assert.match(parent, /<key>com.apple.developer.associated-domains<\/key><array><string>applinks:exact.test<\/string><string>webcredentials:exact.test<\/string><string>appclips:exact.test<\/string><\/array>/);
+  assert.doesNotMatch(parent, /parent-application-identifiers/);
+  assert.doesNotMatch(flat(entitlements(base, 'TEAM', true)), /appclips:/);
+  // The declared origin's applinks: becomes the clip's appclips: too; a tvOS build of the app has neither.
+  const origin = { ...app, origin: 'https://exact.test', manifest: { host: { ios: { associatedDomains: true, appClip: {} } } } };
+  assert.match(flat(entitlements({ ...origin, id: clip.id, clipParent: app.id }, 'TEAM', true)), /<array><string>appclips:exact.test<\/string><\/array>/);
+  assert.doesNotMatch(entitlements({ ...origin, widgetTV: true }, 'TEAM', true), /appclips:/);
+  // With widgets, the clip shares the parent's App Group and Keychain group, and takes no push environment.
+  const entries = { ...app, manifest: { ...app.manifest, live_activities: [{ kind: 'departure', push: true }] } };
+  const grouped = flat(entitlements({ ...entries, id: clip.id, clipParent: app.id }, 'TEAM', true, null, { prefix: 'PREFIX' }));
+  assert.match(grouped, /<key>com.apple.security.application-groups<\/key><array><string>group.com.exact.test<\/string><\/array>/);
+  assert.match(grouped, /<key>keychain-access-groups<\/key><array><string>PREFIX.com.exact.test<\/string><\/array>/);
+  assert.doesNotMatch(grouped, /aps-environment/);
+});
+
 test('widgets share the owner Keychain groups and leave the host sample outside the group', async () => {
   const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
   const app = {id:'com.exact.test',displayName:'Test',manifest:{widgets:[{kind:'next-trains',families:['systemSmall']}],host:{ios:{}}}};
@@ -420,6 +476,32 @@ test('a device build with entries takes the app\'s and the extension\'s profiles
   assert.equal(enterprise.method, 'enterprise');
   assert.equal(entryProfiles({app, udid:undefined, installed:[make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]}), make('Enterprise extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[], enterprise:true})], named:enterprise}).extension.name, 'Enterprise extension');
   assert.match(refusal([make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]})], {udid:undefined, named:enterprise}), /"Store extension" is for it but is App Store, not enterprise/);
+});
+
+test('a device build takes the App Clip\'s profile for its own App ID, of the app\'s profile\'s team, prefix and method, granting the parent identifier, or names what each profile for it lacked', async () => {
+  const { embeddedProfile } = await import('../host/apple/devices.mjs');
+  const day = 8.64e7, parent = 'com.apple.developer.parent-application-identifiers';
+  const make = (name, appId, extra = {}) => {
+    const p = { path: `/p/${name}`, name, team: 'TEAM', prefix: 'TEAM', appId, devices: ['PHONE'], dev: true, expires: new Date(Date.now() + day), entitlements: ['application-identifier', 'get-task-allow'], groups: [], keychain: [], aps: null, enterprise: false, ...extra };
+    p.method ??= p.dev ? 'development' : p.devices.length ? 'adhoc' : p.enterprise ? 'enterprise' : 'appstore';
+    return p;
+  };
+  const app = make('App', 'TEAM.com.exact.test'), wildcard = make('Team wildcard', 'TEAM.*');
+  const clip = make('Clip', 'TEAM.com.exact.test.Clip', { entitlements: [parent] });
+  assert.equal(embeddedProfile('PHONE', 'com.exact.test.Clip', app, [parent], [wildcard, clip]), clip);
+  const longer = make('Clip later', 'TEAM.com.exact.test.Clip', { entitlements: [parent], expires: new Date(Date.now() + 2 * day) });
+  assert.equal(embeddedProfile('PHONE', 'com.exact.test.Clip', app, [parent], [clip, longer]), longer, 'the longest-lived of the fits');
+  const refusal = (installed, like = app, udid = 'PHONE') => { try { embeddedProfile(udid, 'com.exact.test.Clip', like, [parent], installed); } catch (e) { return e.message; } assert.fail('refused'); };
+  assert.match(refusal([]), /no development profile on this Mac covers com.exact.test.Clip as the app's \(App\) does: none is for it\. In the Apple Developer portal, register the App ID com.exact.test.Clip with com.apple.developer.parent-application-identifiers, make a development profile for it of team TEAM that includes this phone, and install it\./);
+  // A team wildcard never grants the App Clip capability; the conditions the extension's profile meets, each named.
+  assert.match(refusal([wildcard]), /"Team wildcard" does not allow com.apple.developer.parent-application-identifiers/);
+  assert.match(refusal([make('Other team', 'OTHER.com.exact.test.Clip', { team: 'OTHER', prefix: 'OTHER', entitlements: [parent] })]), /"Other team" is team OTHER's, not TEAM's/);
+  assert.match(refusal([make('Elsewhere', 'TEAM.com.exact.test.Clip', { devices: ['OTHER'], entitlements: [parent] })]), /"Elsewhere" does not include this phone/);
+  assert.match(refusal([make('Store clip', 'TEAM.com.exact.test.Clip', { dev: false, devices: [], entitlements: [parent] })]), /"Store clip" is App Store, not development/);
+  // An archive: the clip's profile names every device the app's does.
+  const adHoc = make('Ad hoc app', 'TEAM.com.exact.test', { dev: false, devices: ['A', 'B'] });
+  assert.equal(embeddedProfile(null, 'com.exact.test.Clip', adHoc, [parent], [make('Ad hoc clip', 'TEAM.com.exact.test.Clip', { dev: false, devices: ['A', 'B'], entitlements: [parent] })]).name, 'Ad hoc clip');
+  assert.match(refusal([make('Ad hoc clip', 'TEAM.com.exact.test.Clip', { dev: false, devices: ['A'], entitlements: [parent] })], adHoc, null), /"Ad hoc clip" does not include 1 of the 2 devices the app's profile names/);
 });
 
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {
@@ -659,7 +741,7 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
     const runApple = (command, args) => {
       if (command !== 'swift') return run(command, args);
       if (args.includes('--show-bin-path')) return { stdout: bin };
-      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib')]);
+      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib'), ...args.flatMap((arg,i)=>arg==='-Xlinker'?['-Xlinker',args[i+1]]:[])]);
       return { stdout: '' };
     };
     const slice = resolve(prepared.xcframework, `macos-${process.arch === 'arm64' ? 'arm64' : 'x86_64'}/ExactCore.framework`);
@@ -679,6 +761,26 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       const executable = resolve(dir, `Fixture${version}`), frameworks = resolve(slice, '..');
       run('xcrun', ['clang', resolve(dir, 'app.c'), '-F', frameworks, '-framework', 'ExactCore', '-Wl,-rpath,' + frameworks, '-o', executable]);
       run(executable, []);
+    }
+    // A plan edit relinks the shared image even when its Rust archive stays.
+    const planDir=resolve(dir,'plan'); mkdirSync(planDir);
+    writeFileSync(resolve(planDir,'compat.json'),'{}');
+    writeFileSync(resolve(planDir,'app.hbc'),'');
+    writeFileSync(source, `#include <mach-o/getsect.h>
+      extern const struct mach_header_64 __dso_handle;
+      const unsigned char *exact_plan_bytes(unsigned long *size) {
+        return getsectiondata(&__dso_handle,"__TEXT","__exact_plan",size);
+      }`);
+    for (const text of ['first plan','second plan']) {
+      writeFileSync(resolve(planDir,'app.plan'),text);
+      sharedWidgetCore({app:{id:'com.exact.test',manifest:{}},prepared,libDir:dir,crate:'fixture',env:process.env,runApple,linkedPlan:{dir:planDir,digest:text}});
+      const executable=resolve(dir,'ReadPlan');
+      writeFileSync(resolve(dir,'read.c'), `#include <string.h>
+        extern const unsigned char *exact_plan_bytes(unsigned long *size);
+        int main(void) { unsigned long size=0; const unsigned char *bytes=exact_plan_bytes(&size);
+          return bytes && size==${text.length} && !memcmp(bytes,"${text}",size) ? 0 : 1; }`);
+      run('xcrun',['clang',resolve(dir,'read.c'),'-F',resolve(slice,'..'),'-framework','ExactCore','-Wl,-rpath,'+resolve(slice,'..'),'-o',executable]);
+      run(executable,[]);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

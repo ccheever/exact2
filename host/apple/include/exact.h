@@ -84,6 +84,16 @@ ExactRasterReady exact_raster_take_ready(uint64_t session, uint64_t request);
 void exact_raster_lease_release(uint64_t lease);
 ExactRasterStats exact_raster_stats(uint64_t session);
 
+/* An SVG file as an image (LLP 1011.001 D4). header: 1 when bytes begin an SVG,
+ * writing its natural size (CSS pixels) into size[0..2]; else 0. scene: the
+ * file resolved at width x height CSS pixels as the svg op's JSON, in a buffer
+ * of *out_len bytes to free with exact_svg_image_free; *flags bit 0 means the
+ * picture has text (drawn on the main thread, where the fonts are), bit 1 that
+ * the file was refused, the buffer then holding the reason. */
+uint32_t exact_svg_image_header(const uint8_t *bytes, size_t len, double *size);
+uint8_t *exact_svg_image_scene(const uint8_t *bytes, size_t len, double width, double height, size_t *out_len, uint32_t *flags);
+void exact_svg_image_free(uint8_t *ptr, size_t len);
+
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)
 #define EXACT_MIN_CONTENT (-2.0f)
@@ -100,6 +110,10 @@ typedef struct ExactTextRun {
     float letter_spacing;  /* points per glyph */
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
     float font_stretch;    /* CSS font-stretch, percent of normal width */
+    uint8_t variation_count;      /* CSS font-variation-settings: axes set */
+    uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
+    float variation_values[8];    /* in the axis's own units */
+    uint8_t optical_sizing_none;  /* 1 for CSS font-optical-sizing: none */
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -202,6 +216,8 @@ typedef struct ExactMeasureRequest {
     uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
     uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
     uint8_t text_wrap_style; /* CSS text-wrap-style: 0 auto, 1 balance (LLP 1001 §6) */
+    const uint8_t *atoms; size_t atoms_len; /* LLP 1045.000 D2: a Markdown paragraph's `atoms` JSON, UTF-8; 0 length for none */
+    const uint8_t *faces; size_t faces_len; /* its `atomFaces` JSON */
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
@@ -214,24 +230,28 @@ typedef struct ExactMarkupPiece {
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
     float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
     uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
+    const uint8_t *atom; size_t atom_len; /* LLP 1045.000 D6: an inline atom's JSON {kind,role,icon,title,href,source,start,end}, its text the label; null otherwise */
 } ExactMarkupPiece;
+/* LLP 1045.000 D2: a node's `atoms` and `atomFaces` JSON, parsed once; pass the handle (0 for none)
+ * to the calls below that take `atoms`, and free it with exact_markup_free. */
+uint64_t exact_markup_atoms(const uint8_t *kinds, size_t kinds_len, const uint8_t *faces, size_t faces_len);
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
-uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
+uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, uint64_t atoms, const ExactMarkupPiece **out, size_t *count);
 /* Styling for an editor, as JSON (see host/apple/src/markup.rs `style`): paragraphs, spans, hidden
  * ranges, replacements and link destinations over the source in UTF-16 units; the selection reveals
  * markers it touches, never a link destination (sel_start UINT32_MAX for none). Valid until
  * exact_markup_free(handle). */
-uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
+uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
 /* UTF-16 replacement JSON: {replacements:[[start,end,text],...],selection:[start,end]}.
  * Invalid commands return {error:...}; the original source is unchanged. */
 uint64_t exact_markup_edit(const uint8_t *utf8, size_t len, uint32_t start, uint32_t end,
     const uint8_t *command, size_t command_len, const uint8_t *argument, size_t argument_len,
     const uint8_t **out, size_t *count);
-/* {formats:string,mixed:bool,link:string,unavailable:string}; token lists use spaces. */
-uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint32_t start, uint32_t end,
+/* {formats:string,mixed:bool,link:string,unavailable:string,atom:string}; token lists use spaces. */
+uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end,
     const uint8_t **out, size_t *count);
 /* Raw UTF-8 plain text, sharing the same handle lifetime. */
-uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, const uint8_t **out, size_t *count);
+uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end, const uint8_t **out, size_t *count);
 void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {
@@ -393,7 +413,12 @@ uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_m
 /* Gallery-only query: a fresh data seam and scratch store, no host activation. */
 uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
+/* First root's literal viewport-fit=cover, without settlement. Input plan
+ * bytes of length len, or the baked plan when len is zero. */
+uint32_t exact_plan_covers_viewport(ExactRuntime rt, size_t len);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
+/* Check every participant and commit in one owner job, without intervening turns. */
+uint32_t exact_check_prepared(ExactRuntime rt);
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match
@@ -401,6 +426,10 @@ uint32_t exact_commit_plan(ExactRuntime rt);
  * Requests in flight refuse it (`"requests":true`) unless let_go, nonzero
  * only for a dev generation past its settle window (LLP 1007 §6). */
 uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
+/* After first pixel: activate the data source (evaluate a TypeScript module)
+ * without committing, so a presenter can run it off its own thread before
+ * exact_data_ready. Optional; a no-op once activated. */
+void exact_prepare_data(ExactRuntime rt);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 /* A peer committed to the shared store. Does not activate before first pixel. */
@@ -431,10 +460,23 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
  * for a route with no authored Back control. Not a batch. */
 uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* A retained visit's canonical location, UTF-8 in exact_out; 0 when absent. */
+uint32_t exact_visit_location(ExactRuntime rt, uint64_t id);
+/* Return from source to an earlier destination in the selected stack, one commit. A batch. */
+uint32_t exact_host_back_to(ExactRuntime rt, uint64_t source, uint64_t destination, double now_ms);
+/* LLP 1133.016 D15 item 1: a package's call of the app's handler, the JSON
+ * {"extension","handle","handler","args"} in the input buffer. The runner's
+ * answer, JSON ({"text"} or {"error","message"}), goes to reply(ctx, answer,
+ * len) once: during this call, or when the handler's own requests land on
+ * the runner's thread. Not a batch. */
+typedef void (*ExactInvokeReply)(void *ctx, const uint8_t *answer, uint32_t len);
+void exact_module_invoke(ExactRuntime rt, size_t len, ExactInvokeReply reply, void *ctx);
 /* LLP 1115 D5: the platform's own Back from visit `id` for a route with no
  * authored Back control under a root with no `navigate` handler: the
  * router's `back` as a commit of its own. A batch. */
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
+/* The runner's own go to the UTF-8 location in exact_in, a batch. */
+uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -458,7 +500,7 @@ uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
  * 49 = close (dialog); 50 = toggle: UTF-8 oldState,newState (open or closed).
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
- *      true|false for repeat;
+ *      true|false for repeat, and optionally newline, true|false for isComposing;
  * 46 = focusin, 47 = focusout (#283): UTF-8 `<target byte length>:<target id>`
  *      then `0` (no relatedTarget) or `1<related id>`;
  * any other kind is refused with an error batch.
@@ -604,10 +646,11 @@ uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset
  * running runner is not told. A date that does not validate is ignored. */
 uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Where the viewer is, as exact_set_place's input (locale NUL timeZone NUL
- * seed), for the next boot or candidate; the running runner is not told.
+ * seed, then optionally NUL formatLocale), for the next boot or candidate; the running runner is not told.
  * Returns zero when accepted, otherwise an error batch length; keeps the last valid fact. */
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
-/* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
+/* Beside the date: the locale and IANA time zone, as locale NUL timeZone input,
+ * then optionally NUL seed NUL formatLocale. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1126.001 WP9: declare the packaged arm before boot, then deliver
  * its source snapshots or send completions through the input buffer. */
@@ -620,9 +663,20 @@ uint32_t exact_midi(ExactRuntime rt, size_t len);
 /* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
  * a native module source's preferred value. Returns the batch length. */
 uint32_t exact_extension(ExactRuntime rt, size_t len);
+/* A module event the platform reported (LLP 1133.004 D6): {"extension",
+ * "event", "args", "activation"} in the input buffer; the batch's length. */
+uint32_t exact_module_event(ExactRuntime rt, size_t len);
 /* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
- * line in the input buffer: the runner sends their names to the module. */
+ * line in the input buffer: the runner sends their names to the module. A
+ * line `agent <name>` is an implementation bound under the agent, which
+ * answers an interface that is its own substitute (LLP 1133.006 D8). */
 void exact_bind_extensions(ExactRuntime rt, size_t len);
+/* @ref LLP 1133.019 D11 item 1: an `img` source of a package's scheme, in the
+ * input buffer, admitted as a read: the output is {"extension","scheme",
+ * "agent","owned"?} to ask that extension's implementation for the picture,
+ * {"error","message"} for an unresolved image, or empty for a source of no
+ * package's scheme. Never raises a ticket. */
+uint32_t exact_picture(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev
@@ -657,6 +711,9 @@ uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
 uint32_t exact_reads_on_line(ExactRuntime rt);
 /* @ref LLP 1069.000 D3: the root font size `rem` follows, in points. */
 uint32_t exact_set_root_font_size(ExactRuntime rt, double px);
+/* @ref LLP 1021 §5.3: the host's zoom over the root size, the app's own
+ * included (the Mac's View ▸ Actual Size, Zoom In, Zoom Out); after boot. */
+uint32_t exact_set_root_font_zoom(ExactRuntime rt, double factor);
 /* @ref LLP 1115 D6, LLP 1115.000 D13.4: whether a confirmation's rows are an
  * alert's (explanatory text, one cancel, at most three buttons): 1 or 0. The
  * kernel's rule, which lowering and the Linux host read too; needs no runtime. */
@@ -721,15 +778,19 @@ uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count)
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
- * sends the window's segments too). A nonpositive size clears it. */
+ * sends the window's segment grid too, its tops and lefts; a keyboard ends the
+ * segments with the viewport, LLP 1078). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* What changed of the view at once, from the input buffer's first len bytes,
  * little-endian 32-bit words: a mask of what is given (1 the window's size,
- * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
- * window's width and height (nonpositive clears it), the insets top, right,
- * bottom, left, the viewport's width and height, the regions' count (20 or
- * 0) and their insets: exact_screen, exact_insets, exact_regions and
- * exact_resize in one batch under one layout. */
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport, 16 the
+ * segments' rects), the window's width and height (nonpositive clears it),
+ * the insets top, right, bottom, left, the viewport's width and height, the
+ * regions' count (20 or 0) and their insets, then, with 16, the rects' count
+ * and each rect's x y w h, on the grid exact_segments set: exact_screen,
+ * exact_insets, exact_regions, exact_resize and a keyboard's segment extents
+ * in one batch under one layout. Rects off the grid, or not finite, are
+ * refused and change nothing. */
 uint32_t exact_view(ExactRuntime rt, size_t len);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
@@ -766,7 +827,11 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 /* What native containers cover of boxes (LLP 1075.003 §3.5) under one
  * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
  * 2 whole — float top, right, bottom, left). Edges add to the box's
- * padding; a whole box is laid out as display: none. Kind 10 is a cells
+ * padding; a whole box is laid out as display: none. Kind 6 places a host
+ * block: float x, y, width, height, uint32 holding view, then float content
+ * scroll offsets x and y (36 bytes including view and kind). Kind 13 uses
+ * the same record for a scrollport, including at offset zero; kind 6 ignores
+ * the offset. Kind 7 forgets either placement. Kind 10 is a cells
  * list's rows' cell margin (LLP 1138: float left, right, then two unused),
  * 11 clears it. */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
@@ -829,6 +894,24 @@ uint8_t exact_svg_islands(ExactRuntime rt);
  * "url":…} / {"op":"done","ticket":N,"status":N,"message":…}. Returns 0; the
  * executor wakes and the next pump delivers the answer. */
 uint32_t exact_auth(ExactRuntime rt, size_t len);
+
+/* How a presence check ended (LLP 1133.010 D13), JSON in the input buffer:
+ * {"call":N,"status":"passed"} (the backend reads the item),
+ * {"call":N,"status":"read","value":"…"}, {"call":N,"status":"read"} for an
+ * item the platform dropped, or {"call":N,"status":"failed","code":…,
+ * "message":…}. Returns 0; the next pump settles the call. Never journaled. */
+uint32_t exact_presence(ExactRuntime rt, size_t len);
+
+/* The keychain the presence backend keeps locked items in (D6). Called on
+ * the runtime's thread, synchronously; answered with done(reply, status,
+ * bytes, len) before it returns: status 0 done, 1 not found or not capable,
+ * below 0 failed with a message. op 1 add {"service","account","policy"}
+ * with the value; 2 delete {"service","account"}; 3 the accounts under
+ * {"service"}, a JSON array; 4 delete every item under {"service"}; 5
+ * whether this build keeps locked items. Never shows the person anything. */
+typedef void (*ExactPresenceReplyFn)(void *reply, int32_t status, const uint8_t *bytes, size_t len);
+typedef void (*ExactPresenceKeychainFn)(uint32_t op, const uint8_t *json, size_t len, const uint8_t *value, size_t value_len, void *reply, ExactPresenceReplyFn done);
+void exact_on_presence_keychain(ExactPresenceKeychainFn keychain);
 
 /* Optional delivery composition (LLP 1030 D4). L=0 returns NULL: no store,
  * keys, selection, check or networking implementation is linked. The higher

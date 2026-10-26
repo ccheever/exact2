@@ -92,6 +92,7 @@ component App
                       text "Quiet"
                     column height=2000
                       text "Tall"
+                  box testId="home-footer" position="absolute" bottom=0 left=0 right=0 height=40
               if e.name == "detail"
                 column navigationKey=`${e.id}` testId="route-detail" position="absolute" inset=0 display="flex" flex-direction="column"
                   header display="flex" testId="detail-header"
@@ -318,6 +319,29 @@ fn shelfs_add_form_and_its_other_tabs() {
     assert_eq!(titles(&top(&mut p).trailing), []);
 }
 
+/// An absolutely positioned footer over a route whose last child is its
+/// scroller rests on the navigation bar, not under it, as the scroller ends
+/// there (the kernel moves an absolute child's insets past its parent's
+/// cover; Linux insets no scroller, so the route keeps its padding).
+#[test]
+fn an_absolute_footer_over_the_routes_scroller_rests_on_the_navigation_bar() {
+    let (mut p, _) = barred(APP);
+    // The bar's top in the page's points, below the status bar's 52.
+    let bar = p.bars().1.expect("the navigation bar shows").frame;
+    let top = bar[1] - WINDOW.bars[0];
+    let (footer, list) = (id(&p, "home-footer"), id(&p, "list"));
+    let footer = p.rect_of(footer).unwrap();
+    let list = p.rect_of(list).unwrap();
+    assert!(
+        near(footer.1 + footer.3, top),
+        "the footer rests on the bar: {footer:?} over {bar:?}"
+    );
+    assert!(
+        near(list.1 + list.3, top),
+        "the scroller ends at the bar: {list:?} over {bar:?}"
+    );
+}
+
 #[test]
 fn a_pushed_route_has_the_up_arrow_which_goes_back() {
     let (mut p, _) = barred(APP);
@@ -498,6 +522,7 @@ fn the_largest_font_scale_clips_neither_bar() {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     };
@@ -587,4 +612,171 @@ fn a_host_with_no_such_shell_paints_the_header_and_the_tablist_in_the_page() {
     let header = id(&p, "home-header");
     let (header, list) = (p.rect_of(header).unwrap(), p.rect_of(list).unwrap());
     assert!(near(header.1, 0.0) && near(list.1, header.3));
+}
+
+/// A TV's device facts: no pointer (LLP 1115.001.003 D2).
+fn tv() -> Device {
+    Device {
+        night: false,
+        font_scale: 1.0,
+        locale: "en-US".into(),
+        rtl: false,
+        hour24: false,
+        reduced_motion: false,
+        bold_text: false,
+        high_contrast: false,
+        touch: false,
+        tv: true,
+        touch_slop: 0.0,
+        dates: String::new(),
+    }
+}
+
+/// [`barred`] on a TV.
+fn barred_tv(source: &str) -> Presenter<Nothing> {
+    let (mut p, _) = barred(source);
+    assert_eq!(p.set_device(&tv()), None);
+    assert_eq!(p.fit_window(), None);
+    p
+}
+
+/// A remote's key, down and up.
+fn remote(p: &mut Presenter<Nothing>, code: &str, key: &str) {
+    p.hardware_key(code, key, true, false);
+    p.hardware_key(code, key, false, false);
+}
+
+/// A TV's remote reaches what the bars stand for (LLP 1115.001.003 D4): Up
+/// from the list's first button is the header's More, lit in its bar and
+/// opened by Select; Down from the list's last button is a destination.
+#[test]
+fn a_tvs_remote_reaches_the_bars_targets() {
+    let mut p = barred_tv(APP);
+    let key = remote;
+    assert!(p.reader_bars(2.0).is_some());
+    p.set_focus(Some(id(&p, "open")), 0.);
+    key(&mut p, "ArrowUp", "ArrowUp");
+    assert_eq!(p.focus(), Some(id(&p, "more")), "the header's button");
+    assert!(p.reader_bars(2.0).is_some(), "its bar is told again, lit");
+    key(&mut p, "Select", "Enter");
+    let surface = p.surface().expect("Select opens its menu");
+    assert_eq!(surface.kind, crate::presenter::top::SurfaceKind::Menu);
+    assert!(p.dismiss_surface(0.));
+    p.set_focus(Some(id(&p, "open-quiet")), 0.);
+    key(&mut p, "ArrowDown", "ArrowDown");
+    let tabs = [id(&p, "tab-home"), id(&p, "tab-other")];
+    assert!(
+        p.focus().is_some_and(|f| tabs.contains(&f)),
+        "a destination"
+    );
+    p.set_focus(Some(tabs[0]), 0.);
+    key(&mut p, "ArrowRight", "ArrowRight");
+    assert_eq!(p.focus(), Some(tabs[1]));
+    key(&mut p, "Select", "Enter");
+    p.run_commands(|| Nothing);
+    assert_eq!(top(&mut p).title, "Other");
+}
+
+/// The focus on a bar's target outlives a commit, though its node is inert
+/// under its route; Select opens its menu with the first row focused, and
+/// a held Select chooses nothing more (LLP 1115.001.003 D3, D4).
+#[test]
+fn a_bar_targets_focus_outlives_a_commit_and_a_held_select_opens_once() {
+    let mut p = barred_tv(APP);
+    p.set_focus(Some(id(&p, "open")), 0.);
+    remote(&mut p, "ArrowUp", "ArrowUp");
+    let more = id(&p, "more");
+    assert_eq!(p.focus(), Some(more));
+    assert_eq!(p.after_commit(), None);
+    assert_eq!(p.focus(), Some(more), "kept through a commit");
+    p.hardware_key("Select", "Enter", true, false);
+    for _ in 0..3 {
+        p.hardware_key("Select", "Enter", true, true);
+    }
+    p.hardware_key("Select", "Enter", false, false);
+    assert!(p.surface().is_some(), "the menu stays open");
+    assert_eq!(text(&p, "said"), "nothing", "no row chosen by a repeat");
+    remote(&mut p, "Select", "Enter");
+    p.run_commands(|| Nothing);
+    assert_eq!(text(&p, "said"), "shared", "Select chose the first row");
+}
+
+/// From no focus on a screen whose only controls are the bars', an arrow
+/// reaches the bars' first target.
+#[test]
+fn from_no_focus_the_remote_reaches_a_bars_only_screen() {
+    let mut p = barred_tv(APP);
+    tap(&mut p, "tab-other").unwrap();
+    p.run_commands(|| Nothing);
+    assert_eq!(top(&mut p).title, "Other");
+    p.set_focus(None, 0.);
+    remote(&mut p, "ArrowDown", "ArrowDown");
+    assert_eq!(p.focus(), Some(id(&p, "tab-home")));
+}
+
+/// A TV's bars keep inside its overscan margin, as the page does (LLP
+/// 1115.001.003 D7): 5% of a 1920 × 1080 page is 96 at the sides and 54
+/// above and below.
+#[test]
+fn a_tvs_bars_keep_inside_its_overscan_margin() {
+    let mut p = barred_tv(APP);
+    let screen = Window {
+        size: (1920.0, 1080.0),
+        bars: [0.0; 4],
+        cutout: [0.0; 4],
+        keyboard: [0.0; 4],
+        gestures: [0.0; 4],
+    };
+    assert_eq!(p.set_window(screen), None);
+    let more = p.bar_box(id(&p, "more")).unwrap();
+    assert!(
+        more.1 >= 54.0 && more.0 + more.2 <= 1920.0 - 96.0,
+        "{more:?}"
+    );
+    let home = p.bar_box(id(&p, "tab-home")).unwrap();
+    assert!(
+        home.0 >= 96.0 && home.1 + home.3 <= 1080.0 - 54.0,
+        "{home:?}"
+    );
+}
+
+/// A TV's Back with no route to go back from presses a button that answers
+/// Escape where a bar shows it.
+#[test]
+fn a_tvs_back_presses_an_escape_button_a_bar_shows() {
+    let source = APP.replace(
+        r#"popovertarget="more" aria-label="More""#,
+        r#"popovertarget="more" aria-label="More" aria-keyshortcuts="Escape""#,
+    );
+    let mut p = barred_tv(&source);
+    assert!(p.bar_node(id(&p, "more")));
+    assert!(p.back_goes());
+    assert!(p.system_back(0.));
+    let surface = p.surface().expect("Back opened More's menu");
+    assert_eq!(surface.kind, crate::presenter::top::SurfaceKind::Menu);
+}
+
+/// A page whose root listens for keys holds the bars' targets: from no
+/// focus on a screen whose only controls are the bars', an arrow reaches
+/// them, not the root.
+#[test]
+fn a_root_with_a_key_handler_does_not_hold_the_remote_from_the_bars() {
+    let source = APP
+        .replace(
+            "  action share\n",
+            "  action heard(k: string)\n    said = said\n  action share\n",
+        )
+        .replace(
+            "    main navigationKey=",
+            "    main key=heard navigationKey=",
+        );
+    assert_ne!(source, APP);
+    let mut p = barred_tv(&source);
+    tap(&mut p, "tab-other").unwrap();
+    p.run_commands(|| Nothing);
+    p.set_focus(None, 0.);
+    remote(&mut p, "ArrowDown", "ArrowDown");
+    assert_eq!(p.focus(), Some(id(&p, "tab-home")));
+    remote(&mut p, "ArrowRight", "ArrowRight");
+    assert_eq!(p.focus(), Some(id(&p, "tab-other")));
 }

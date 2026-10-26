@@ -10,6 +10,7 @@ import { prCommand, pullRequestDetail } from '../../src/pull-requests/pages-pr-d
 import { linkedThreadItems, notePreviewHover, openLink, readPreview, threadPickerView } from '../../src/pull-requests/pages-pr-links';
 import { paletteView } from '../../src/palette/palette-view';
 import { contractComponent } from '../support/contract-action-fixture';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 type Reply = (payload: Obj) => unknown;
 const URL7 = 'https://github.com/lane/sandbox/pull/7';
@@ -54,13 +55,7 @@ const defaults = (extra: Record<string, Reply> = {}): Record<string, Reply> => (
   'pullRequests.detail': () => detail(), 'pullRequests.activity': () => ({ reviewers: [], commits: [], comments: [], reviewThreads: [] }), 'pullRequests.stack': () => null,
   'pullRequests.linkedThreads': () => relations, ...extra,
 });
-const gestures: Obj[] = [];
-const opened: string[] = [];
-const native = { available: true, watch: () => {}, later: async (request: Obj) => {
-  if (request.op === 'composerSendIntent') return { ok: true, generation: 1, value: gestures.shift() ?? {} };
-  if (request.op === 'remoteEditorsOpen') { opened.push(String(request.url)); return { ok: true, generation: 1, value: {} }; }
-  return { ok: true, generation: 1, value: {} };
-} } as unknown as Native;
+const native = { available: true, watch: () => {}, later: async () => ({ ok: true, generation: 1, value: {} }) } as unknown as Native;
 const storage = {} as Files;
 const selected = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7 });
 async function open(client: T3Client, input: Obj = {}) {
@@ -223,22 +218,19 @@ describe('pull request text (remarkPullRequestAutolinks, PullRequestLinkPreview)
     expect(await openLink(client, native, true, `reference\n${target}\nhttps://github.com/lane/sandbox/issues/101`, surface)).toBe(`pr-select:${target}`);
     expect(await openLink(client, native, false, `\n${target}\nhttps://github.com/lane/sandbox/pull/101`, surface)).toBe('');
     expect(surfaces).toEqual(['https://github.com/lane/sandbox/pull/101']);
-    // The click's own modifiers, a fourth line (markdown.contract PrLinkRun `open`); a recorded gesture is not this click's.
-    gestures.push({ modifiers: 'meta', source: 'key' });
-    opened.length = 0;
+    // The click's own modifiers, a fourth line (markdown.contract PrLinkRun `open`).
+    resetExternalOpensForTests();
     expect(await openLink(client, native, false, `\n${target}\nhttps://github.com/lane/sandbox/pull/101\n`, surface)).toBe('');
-    expect(opened).toEqual([]);
+    expect(externalOpensForTests()).toEqual([]);
     expect(surfaces).toEqual(['https://github.com/lane/sandbox/pull/101', 'https://github.com/lane/sandbox/pull/101']);
     for (const held of ['meta', 'shift', 'alt', 'control+alt']) {
-      opened.length = 0;
+      resetExternalOpensForTests();
       expect(await openLink(client, native, true, `\n${target}\nhttps://github.com/lane/sandbox/pull/101\n${held}`, surface)).toBe('');
-      expect(opened).toEqual(['https://github.com/lane/sandbox/pull/101']);
+      expect(externalOpensForTests()).toEqual(['https://github.com/lane/sandbox/pull/101']);
     }
-    expect(gestures).toHaveLength(1); // never asked for
-    gestures.length = 0;
     const issue = fakeClient(defaults({ 'pullRequests.preview': () => { throw new Error('not a pull request'); } }));
-    opened.length = 0;
+    resetExternalOpensForTests();
     expect(await openLink(issue.client, native, true, `reference\n${target}\nhttps://github.com/lane/sandbox/issues/101`, surface)).toBe('');
-    expect(opened).toEqual(['https://github.com/lane/sandbox/issues/101']);
+    expect(externalOpensForTests()).toEqual(['https://github.com/lane/sandbox/issues/101']);
   });
 });

@@ -1,0 +1,43 @@
+fn pick(n: number): number = n + 1
+
+component App
+  state chosen = 0
+  action pick(n: number)
+    chosen = n
+  view
+    column
+      text `${chosen}` testId="chosen"
+      Seg(pick=pick, extra=pick(3))
+      Bare()
+
+component Seg
+  props
+    pick: action
+    extra: number
+  derive matched = match some(7) { case some(pick) => pick(1), case none => 0 }
+  derive mapped = match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }
+  view
+    column
+      text `${matched}` testId="derive-match"
+      text `${mapped}` testId="derive-arrow"
+      text `${match some(7) { case some(pick) => pick(1), case none => 0 }}` testId="view-match"
+      text `${match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }}` testId="view-arrow"
+      button "Pick" press=pick(extra) testId="pick"
+
+component Bare
+  derive pick = match some(7) { case some(pick) => pick(1), case none => 0 }
+  derive mapped = match [7].map(pick => pick(1)).at(0) { case some(n) => n, case none => 0 }
+  view
+    column
+      text `${pick}` testId="bare-match"
+      text `${mapped}` testId="bare-arrow"
+
+test "binders preserve function calls and handlers still call the action"
+  expect text "derive-match" == "2"
+  expect text "derive-arrow" == "2"
+  expect text "view-match" == "2"
+  expect text "view-arrow" == "2"
+  expect text "bare-match" == "2"
+  expect text "bare-arrow" == "2"
+  tap "pick"
+  expect text "chosen" == "4"

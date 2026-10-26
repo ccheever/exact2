@@ -338,6 +338,8 @@ struct Record {
     framed_at: Option<f64>,
     /// Its last draw drew text: a font that loads redraws it (D8).
     text: bool,
+    /// The colour and direction its last draw drew in: a change redraws it.
+    drawn_in: Option<(Option<Rgba>, bool)>,
 }
 
 /// Every 2D canvas the runner draws.
@@ -382,7 +384,7 @@ pub trait CanvasEngine {
     /// [`Runner::canvas_wants_frame`].
     fn wants_frame(&self) -> bool;
     /// [`Runner::canvas_owed`].
-    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool) -> bool;
+    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool, style: NodeStyle<'_>) -> bool;
     /// Drop the canvases `alive` denies, and take the generations retired
     /// since the last take, for the source.
     fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)>;
@@ -512,6 +514,7 @@ impl CanvasEngine for Canvases {
                             draws: 0,
                             framed_at: None,
                             text: false,
+                            drawn_in: None,
                         },
                     );
                 }
@@ -612,7 +615,7 @@ impl CanvasEngine for Canvases {
         self.records.values().any(|r| r.wants_frame)
     }
 
-    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
+    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool, style: NodeStyle<'_>) -> bool {
         // What `draw` would hand the host or the source: lists and retired
         // generations waiting, a fresh bitmap, or a due draw it would run.
         !self.out.is_empty()
@@ -628,7 +631,7 @@ impl CanvasEngine for Canvases {
                 if causes.has(Causes::FRAME) && !on_screen(*view) {
                     causes = Causes(causes.0 & !Causes::FRAME.0);
                 }
-                !causes.is_empty()
+                !causes.is_empty() || r.drawn_in.is_some_and(|was| was != style(*view))
             })
     }
 
@@ -680,6 +683,10 @@ impl CanvasEngine for Canvases {
             if !ready || b.empty() || r.in_flight.is_some() || queued > QUEUED_BYTES {
                 continue;
             }
+            let drawn_in = style(view);
+            if r.drawn_in.is_some_and(|was| was != drawn_in) {
+                r.causes = r.causes.with(Causes::STYLE);
+            }
             let mut causes = r.causes;
             if causes.has(Causes::FRAME) && !on_screen(view) {
                 // A frame is held until the canvas is seen; the other
@@ -713,7 +720,8 @@ impl CanvasEngine for Canvases {
                 r.names.clone(),
                 r.ctx.clone(),
             );
-            let (current_color, rtl) = style(view);
+            let (current_color, rtl) = drawn_in;
+            r.drawn_in = Some(drawn_in);
             ctx.set_env(Env {
                 canvas: lifetime,
                 text: self.text.clone(),
@@ -975,6 +983,7 @@ impl<D: DataSource> Runner<D> {
             }
             None => updates,
         };
+        self.fed_canvases(&rest);
         self.surfaces.extend(rest);
     }
 
@@ -1083,17 +1092,18 @@ impl<D: DataSource> Runner<D> {
     /// lists and retired generations waiting. A host that runs its draws
     /// in a turn of their own (LLP 1072 §8.5) asks after every other turn.
     pub fn canvas_owed(&self, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
-        let ready = self.data.ready();
+        let (ready, dark) = (self.data.ready(), self.page_dark());
+        let style = |view: ViewId| canvas_node_style(&self.kernel, view, dark);
         self.canvases
             .as_ref()
-            .is_some_and(|c| c.owed(ready, on_screen))
+            .is_some_and(|c| c.owed(ready, on_screen, &style))
     }
 
     /// Run every due draw, in tree order, after this turn's commits and
     /// geometry. `on_screen` is the host's judgement; a frame request waits
     /// for it, every other cause draws regardless (D4).
     pub fn draw_canvases(&mut self, on_screen: &dyn Fn(ViewId) -> bool) {
-        let kernel = &self.kernel;
+        let (kernel, dark) = (&self.kernel, self.page_dark());
         let Some(c) = self.canvases.as_mut() else {
             return;
         };
@@ -1105,7 +1115,7 @@ impl<D: DataSource> Runner<D> {
         let now = self.now_ms;
         let data = &mut self.data;
         let mut lines = Vec::new();
-        let style = |view: ViewId| canvas_node_style(kernel, view);
+        let style = |view: ViewId| canvas_node_style(kernel, view, dark);
         c.draw(
             ready,
             now,
@@ -1212,12 +1222,20 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// A canvas's node `color` and `direction` (LLP 1056 D3, D8):
-/// `currentColor` and `direction = "inherit"` resolve to them.
-fn canvas_node_style(kernel: &exact_kernel::Kernel, view: ViewId) -> (Option<Rgba>, bool) {
+/// `currentColor` and `direction = "inherit"` resolve to them. The colour is
+/// its scheme's: the nearest `color-scheme`, else the page's (`dark`).
+fn canvas_node_style(
+    kernel: &exact_kernel::Kernel,
+    view: ViewId,
+    dark: bool,
+) -> (Option<Rgba>, bool) {
     let Some(node) = kernel.node(view) else {
         return (None, false);
     };
-    let c = node.text_color().resolve(false).0;
+    let c = node
+        .text_color()
+        .resolve(node.color_scheme_dark().unwrap_or(dark))
+        .0;
     let [r, g, b, a] = c.to_be_bytes();
     let rtl = node
         .computed_style(exact_kernel::StyleMask::INHERITED)

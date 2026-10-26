@@ -31,6 +31,7 @@ fn phone() -> Device {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     }
@@ -223,6 +224,59 @@ fn bold_text_weights_the_system_font() {
 }
 
 #[test]
+fn bold_text_weights_material_glyphs_and_symbols() {
+    for (family, steps) in [("system-ui", true), ("Georgia, serif", false)] {
+        for (element, field, stroked) in [
+            ("input type=\"time\"", true, true),
+            ("input type=\"date\"", true, true),
+            ("select", true, false),
+            ("image \"symbol:calendar\"", false, true),
+        ] {
+            let source = format!(
+                "component App\n  view\n    column font-family=\"{family}\" font-weight=500\n      {element} width=200 height=56 testId=\"icon\"\n"
+            );
+            let mut p = boot(&source);
+            let mut pictures = Vec::new();
+            for bold_text in [false, true, false] {
+                assert!(p
+                    .set_device(&Device {
+                        bold_text,
+                        ..phone()
+                    })
+                    .is_none());
+                let k = p.host().kernel();
+                let frame = k.node_by_key(k.find_by_test_id("icon")[0]).unwrap().frame;
+                let shot = p.frame();
+                // Crop only the 24 dp glyph, excluding the value and indicator.
+                let (x, y, w, h) = if field {
+                    (
+                        frame.x + frame.width - 36.,
+                        frame.y + (frame.height - 24.) / 2.,
+                        24,
+                        24,
+                    )
+                } else {
+                    (frame.x, frame.y, frame.width as u32, frame.height as u32)
+                };
+                let mut pixels = Vec::new();
+                for row in 0..h {
+                    for col in 0..w {
+                        pixels.push(shot.pixel(x as u32 + col, y as u32 + row).unwrap());
+                    }
+                }
+                pictures.push(pixels);
+            }
+            assert_eq!(pictures[0], pictures[2], "restored {element}, {family}");
+            assert_eq!(
+                pictures[0] != pictures[1],
+                steps && stroked,
+                "{element}, {family}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_touch_screen_alone_is_the_primary_pointer() {
     let touch = Pointing {
         absolute: true,
@@ -250,4 +304,28 @@ fn a_touch_screen_alone_is_the_primary_pointer() {
     assert!(!touch_only(&[touchpad]));
     assert!(!touch_only(&[kvm]));
     assert!(!touch_only(&[]));
+}
+
+/// Android's shell tells its locale and no regional format (LLP
+/// 1027.000.000): `formatLocale` answers the device's locale, not the one
+/// the process launched with.
+#[test]
+fn a_phones_locale_is_its_format_locale_too() {
+    let mut p = boot(READS);
+    let launched = exact_runner::time::Place {
+        format_locale: "en-US".into(),
+        seed: 1.0,
+        ..Default::default()
+    };
+    assert!(p.set_place(&launched).is_none());
+    let korean = Device {
+        locale: "ko-KR".into(),
+        ..phone()
+    };
+    assert!(p.set_device(&korean).is_none());
+    let place = p.host().runner().place();
+    assert_eq!(
+        (place.locale.as_str(), place.format_locale.as_str()),
+        ("ko-KR", "")
+    );
 }

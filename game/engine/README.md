@@ -367,8 +367,8 @@ replaces it.
 
 `Sim::save` captures the simulation; `Sim::restore` validates format, game identity,
 registered types and assets before replacing anything. Failed restores leave the
-receiver intact. Restore reinstates the saved input queue, held keys and touch
-viewport; a later host resize replaces the viewport. Agent inspection does not
+receiver intact. Restore reinstates the saved input queue, held keys and pads,
+triggers mid-gesture and touch viewport; a later host resize replaces the viewport. Agent inspection does not
 consume input.
 
 A game whose saved shape changes under the same `Game::ID` versions it: insert a

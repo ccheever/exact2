@@ -41,7 +41,7 @@ const REFERENCE_PATCH_CLIENT_KEYS = [
   'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'confirmQuit', 'fontFamilySans', 'fontFamilyComposer', 'fontFamilyCode', 'fontFamilyTerminal',
   'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'browserDefaultViewport', 'browserDefaultZoomFactor', 'browserDefaultAppearance',
   'browserRecordingFrameRate', 'browserRecordingShowKeyPresses', 'browserRecordingShowMousePresses', 'browserLinkTarget', 'browserSearchEngine', 'browserCustomSearchUrl',
-  'browserAutoShowFloatingPreview', 'pullRequestLinksOpenInApp',
+  'browserAutoShowFloatingPreview', 'pullRequestLinksOpenInApp', 'mathRenderingEnabled',
 ];
 /** useTheme's keys the restore also resets: setTheme("system"), clearThemeHalves(), setFollowSystem(true). */
 const REFERENCE_THEME_KEYS = ['theme', 'themeLight', 'themeDark', 'appearanceMode'];
@@ -58,7 +58,7 @@ const CHANGED: Record<keyof typeof CLIENT_DEFAULTS, string | number | boolean> =
   sidebarWorkingShelfEnabled: true, wordWrap: false, browserLinkTarget: 'app', theme: 'grove', themeLight: 'ocean', themeDark: 'ember', typographyAdvanced: true,
   confirmQuit: 'direct', sidebarProjectSortOrder: 'manual', sidebarThreadSortOrder: 'created_at', sidebarThreadPreviewCount: 8, browserRecordingFrameRate: 60,
   browserRecordingShowKeyPresses: true, browserRecordingShowMousePresses: true, browserAutoShowFloatingPreview: false, pullRequestLinksOpenInApp: false,
-  browserSearchEngine: 'kagi', browserCustomSearchUrl: 'https://search.example/?q=%s',
+  browserSearchEngine: 'kagi', browserCustomSearchUrl: 'https://search.example/?q=%s', mathRenderingEnabled: true,
 };
 
 describe('Restore defaults resets what the reference resets', () => {

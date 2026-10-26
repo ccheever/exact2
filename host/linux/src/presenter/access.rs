@@ -716,12 +716,15 @@ impl<D: DataSource> Presenter<D> {
             return;
         } else {
             // A swipe row is written as a scroller, and is the presenter's
-            // own gesture: its actions are not a place to scroll to.
+            // own gesture: its actions are not a place to scroll to. What
+            // scrolls is what the painter and the wheel scroll, a neutral
+            // alert's message box by the alert's defaults too.
+            let (ox, oy) = crate::paint::effective_overflow(&node);
             let may = !scope.inside
                 && node.props.str(PropId::SwipeContent).is_none()
-                && (node.node_type.scrolls_by_default()
-                    || matches!(node.style.overflow_x, Overflow::Scroll | Overflow::Auto)
-                    || matches!(node.style.overflow_y, Overflow::Scroll | Overflow::Auto));
+                && [ox, oy]
+                    .iter()
+                    .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
             let scroller = (may.then(|| self.scroller(id, &b.limits)).flatten())
                 .filter(|s| s.axes.0 || s.axes.1);
             let label = self.access_label(&node);

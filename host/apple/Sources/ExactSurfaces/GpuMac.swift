@@ -45,6 +45,8 @@ final class CanvasesHost {
     weak var session: ExactSession?
     /// postMessage events waiting for a live canvas of their surface name.
     var pendingPosts: [(name: String, text: String, at: Double)] = []
+    /// What packages wrote into the canvases' inputs (SensorRings.swift).
+    let sensorRings = SensorRings()
     final class Entry {
         let view: NodeView
         let name: String
@@ -464,6 +466,7 @@ final class CanvasesHost {
         let previous = frameNow
         frameNow = now
         defer { frameNow = previous }
+        drainSensors()
         var more = false
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
             guard let m = e.module else { continue }

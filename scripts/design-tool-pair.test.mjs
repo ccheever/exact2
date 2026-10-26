@@ -1,7 +1,7 @@
 // The design tool paired with a design server on another machine (LLP 1122
 // T6, LLP 1121 stage 10): driven as a person would, through the server's
 // trusted-tunnel door, which serves the tool itself, against a real `tamber
-// serve`. Its stub-server tests are in apps/design-tool/app.test.contract.
+// serve`. Its stub-server tests are apps/design-tool/*.test.contract.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DRIVEN, drive, lines, ROOT, stop, STUB_APP, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
 import { spawnOwned } from './test-children.mjs';
+import { upstream } from './tamber-request.mjs';
 
 toolTurns();
 
@@ -47,7 +48,7 @@ test('T6: a tool on another machine pairs through the trusted-tunnel door with a
       // (Its Host as the browser sent it, as a tunnel passes the bytes: the door answers to loopback at any port.)
       const headers = new Headers(req.headers);
       headers.delete('content-length');
-      const res = await fetch(`http://127.0.0.1:${tunnel}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
+      const res = await upstream(`http://127.0.0.1:${tunnel}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
       const bytes = await res.arrayBuffer();
       let request = {};
       try { request = url.pathname === '/__tamber' && body ? JSON.parse(body) : {}; } catch { /* not the wire */ }

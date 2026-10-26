@@ -282,7 +282,7 @@ impl Harness {
         let Child::Node(root) = &self.tree.children[0] else {
             panic!()
         };
-        root.collection.as_ref().unwrap()
+        root.collection().unwrap()
     }
 }
 #[test]
@@ -683,7 +683,7 @@ fn invalidated_zero_heights_do_not_hide_newly_nonempty_offwindow_rows() {
     let Child::Node(root) = &mut h.tree.children[0] else {
         panic!()
     };
-    let c = root.collection.as_mut().unwrap();
+    let c = root.collection_mut().unwrap();
     // Compact metadata after previously traversing a document of empty rows.
     for position in 0..c.index.len() {
         let key = c.index.key(position).unwrap().to_owned();

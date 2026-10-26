@@ -73,7 +73,7 @@ extension Agent {
     func nativeInFlight() -> Bool {
         !presenter.collections.animating.isEmpty || presenter.pageElementAnimation != nil
             || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil })
-            || session.natives.activationQueued || presenter.launchAutofocusPending
+            || session.activationInFlight || presenter.launchAutofocusPending
     }
 
     /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
@@ -107,19 +107,25 @@ extension Agent {
     }
 
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
-    /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
-    /// Never assign the viewport frame or subtract titlebar/toolbar heights:
-    /// AppKit owns that geometry. This is repeated programmatic window resize,
+    /// NSWindow: its page height and full content width, including a sidebar.
+    /// A cover or controls-overlay page includes the titlebar; other pages
+    /// start below the bars.
+    /// ExactView's ordinary fit/inset path follows AppKit's geometry.
+    /// This is repeated programmatic window resize,
     /// not a simulated titlebar drag or a physical frame-presentation receipt.
     func resizeWindow(_ size: CGSize) -> [String: Any] {
         guard contact == nil else { return ["error": "release the held contact before resizing"] }
         guard let window = presenter.viewport.window, let content = window.contentView else {
             return ["error": "no window to resize"]
         }
+        let cover = presenter.viewportFit == "cover" || session.view?.controlsOverlay == true
         window.setContentSize(size)
+        let initial = window.contentRect(forFrameRect: window.frame).size
+        let allowance = cover ? 0 : size.height - window.contentLayoutRect.height
+        if allowance != 0 { window.setContentSize(CGSize(width: initial.width, height: initial.height + allowance)) }
         content.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        let actual = window.contentRect(forFrameRect: window.frame).size
+        let actual = cover ? window.contentRect(forFrameRect: window.frame).size : window.contentLayoutRect.size
         let viewport = presenter.viewport.contentView.bounds.size
         let dimensions = { (s: CGSize) -> [Double] in [Agent.r2(s.width), Agent.r2(s.height)] }
         return ["resized": dimensions(actual), "viewport": dimensions(viewport),
@@ -243,6 +249,7 @@ extension Agent {
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            n["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
             if let toolbar = presenter.toolbar.observation(v) {
                 n = ["id": Int(id), "native": toolbar]
             }
@@ -292,12 +299,17 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        guard let v = presenter.textHost(UInt32(id)) else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
+        // A live node with no view of its own (a native button's face draws
+        // its svg): the runner's rows, and that nothing was mounted for it.
+        guard let v = presenter.textHost(UInt32(id)) else { return Self.unmounted(node, into: reply, now: session.now()) }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
+        if presenter.inlineText(UInt32(id)) == nil, presenter.toolbar.observation(v) == nil {
+            node["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
+        }
         let host = v.paragraphOwner
         // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
         if !host.flowShapes.isEmpty, let paragraph = host.paragraphLayout() {
@@ -371,10 +383,11 @@ extension Agent {
             node["visible"] = ["hidden": !presenter.toolbar.visible(host), "inert": host.inert,
                                "inViewport": false, "clipped": false]
         }
-        if let leaf = host.symbolView {
+        if let leaf: NSView = host.symbolView ?? host.symbolShape {
             let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
-            let size = leaf.image?.size ?? CGSize(width: points, height: points)
+            // A path's leaf fills the image's paths (IconShapeMac.swift): the image's size, as its view had it.
+            let size = (host.symbolView.map(\.image) ?? host.image)?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
             if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
@@ -461,12 +474,15 @@ extension Agent {
                         }
                         CFRunLoopWakeUp(CFRunLoopGetMain())
                     } else {
-                        // AppKit reads these from its tracking queue rather
-                        // than a reentrant sendEvent. Its queue reconstructs
-                        // locationInWindow from the CG event's screen point.
-                        let screen = win.convertPoint(toScreen: e.locationInWindow)
-                        e.cgEvent?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
-                        NSApp.postEvent(e, atStart: false)
+                        // NSEvent.cgEvent is a copy. Construct the queued event
+                        // with both its screen and window coordinates in place.
+                        if let cg = CGEvent(mouseEventSource: nil, mouseType: type == .leftMouseUp ? .leftMouseUp : .leftMouseDragged,
+                                            mouseCursorPosition: .zero, mouseButton: .left) {
+                            cg.timestamp = UInt64(t * 1_000_000_000)
+                            if let queued = Self.windowEvent(cg, at: toWindow(p), in: win, flags: contactFlags) {
+                                NSApp.postEvent(queued, atStart: false)
+                            }
+                        }
                     }
                 } else {
                     NSApp.sendEvent(e)
@@ -486,7 +502,9 @@ extension Agent {
             presenter.agentPointer = nil
             contactFlags = named
             let hit = win.contentView?.hitTest(toWindow(p))
-            contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
+            contactButton = sequence(first: hit, next: { $0?.superview }).compactMap { $0 as? NativeButtonMac }.first
+            contactButton?.beginHeldContact()
+            contactTracksNative = contactButton != nil
             contactWindow = win
             contact = p
             send(.leftMouseDown, p)
@@ -523,12 +541,13 @@ extension Agent {
             contactWindow = nil
             contactFlags = []
             contactTracksNative = false
+            contactButton = nil
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
-            // Queue a drag-away and lift to end native tracking. The contact
-            // test still exposes an action on cancel (QUEUE, LLP 1104 F6).
+            contactButton?.cancelHeldContact()
+            // End AppKit's tracking loop outside the button's bounds.
             let release = contactTracksNative ? CGPoint(x: -10000, y: -10000) : p
             if contactTracksNative { send(.leftMouseDragged, release) }
             send(.leftMouseUp, release)
@@ -536,6 +555,7 @@ extension Agent {
             contactWindow = nil
             contactFlags = []
             contactTracksNative = false
+            contactButton = nil
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["malformed": true, "error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
@@ -1141,7 +1161,7 @@ extension Agent {
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
-        let v = presenter.viewport
+        let v = presenter.navigation.split.agentRoot
         if req["window"] as? Bool == true {
             // The window server's picture of this window — Metal layers
             // included, which cacheDisplay cannot see. A process may read
@@ -1172,12 +1192,18 @@ extension Agent {
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        let picture = Capture.picture(of: v)
+        var picture = Capture.picture(of: v)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
+        let area = presenter.navigation.split.agentCaptureArea
+        if presenter.navigation.split.active, let full = picture, let image = full.cgImage {
+            let scale = CGFloat(full.pixelsWide) / v.bounds.width
+            picture = image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale))).map(NSBitmapImageRep.init(cgImage:))
+            picture?.size = area.size
+        }
         guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
-        var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
+        var r: [String: Any] = ["screenshot": path, "w": Agent.r2(area.width), "h": Agent.r2(area.height)]
         // An activated run (EXACT_AGENT_ACTIVATE=1, measure-controls'): whether the app was active and its window key
         // as it was taken, which the measure requires of each picture.
         if Self.activated { r["active"] = NSApp.isActive && (v.window?.isKeyWindow ?? false) }

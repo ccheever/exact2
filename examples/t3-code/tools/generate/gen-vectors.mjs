@@ -1,6 +1,5 @@
-// macos/tests/terminal/vectors.json: the shared terminal output buffer vectors, which terminal-output.test.ts
-// replays against the TypeScript port (terminal-output.ts) and the terminal AppKit tests against the Swift
-// one (T3TerminalOutput.swift). CASES below are committed test data: each step's inputs and what the
+// tests/terminal/vectors.json: the terminal output buffer vectors, which terminal-output.test.ts
+// replays against the TypeScript port (terminal-output.ts). CASES below are committed test data: each step's inputs and what the
 // buffer must hold after it. They are T3 Code 1e2ecbd975's own buffer (MIT reference, see LICENSE-T3:
 // packages/client-runtime/src/state/terminalOutput.ts, SHA-256 084bd07d61dca49b7945ce98485bbd8cb81449d3
 // 0cc3f82ff4630630a915bb18) over these inputs, checked against that file when they were written, and
@@ -13,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const example = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const ABOUT = 'Shared terminal output buffer vectors (terminal-output.ts, T3TerminalOutput.swift). Written from the committed test data in tools/generate/gen-vectors.mjs: the expectations are T3 Code 1e2ecbd975\'s terminalOutput.ts over these inputs, stated there, not computed from either port; strings longer than 256 UTF-16 units are {length (UTF-16 units), head and tail (64 code points each)}. An op\'s `parts` ([text, count] pairs, joined) replace its empty `data`. Each step applies `op` (`max` bytes, default 524288) `repeat` times; `readEach` reads after every repeat and joins the appended data, false skips the read, else one read follows. `staleRead` reads from the initial cursor.';
+const ABOUT = 'Terminal output buffer vectors (terminal-output.ts). Written from the committed test data in tools/generate/gen-vectors.mjs: the expectations are T3 Code 1e2ecbd975\'s terminalOutput.ts over these inputs, stated there, not computed from either port; strings longer than 256 UTF-16 units are {length (UTF-16 units), head and tail (64 code points each)}. An op\'s `parts` ([text, count] pairs, joined) replace its empty `data`. Each step applies `op` (`max` bytes, default 524288) `repeat` times; `readEach` reads after every repeat and joins the appended data, false skips the read, else one read follows. `staleRead` reads from the initial cursor.';
 
 const BOM_CHUNK = `${'x'.repeat(16384)}\ufeff${'y'.repeat(20)}`;
 /** 38 writes of 16 KiB: 608 KiB of ASCII, of which the 512 KiB budget keeps the last 512 KiB. */
@@ -98,5 +97,5 @@ export function generate() {
   }));
   // ASCII JSON, one space per level: every non-ASCII code unit escaped, so the bytes name each code point.
   const json = JSON.stringify({ about: ABOUT, cases }, null, 1).replace(/[\u0080-￿]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
-  return [{ file: join(example, 'macos', 'tests', 'terminal', 'vectors.json'), text: `${json}\n` }];
+  return [{ file: join(example, 'tests', 'terminal', 'vectors.json'), text: `${json}\n` }];
 }

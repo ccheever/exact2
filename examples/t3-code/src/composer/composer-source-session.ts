@@ -2,12 +2,14 @@
 import { codeAt, composerLines, composerMarkdown, emptyFenceAt, parseOpeningFence, type ComposerBlockOrigin } from './composer-markdown';
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
+import { listContinuationForEnter, listIndentForTab } from './composer-list-continuation';
+import { composerSurround } from './composer-surround';
 import type { ComposerRange } from './composer-markdown';
-import { composerCharacterDeletion, composerChipDeletion, composerChipWordDeletion, composerChips, composerChipsInBlocks, composerWordDeletion, outsideComposerChips, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
+import { composerCharacterDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, type ComposerChip, type SkillOffer } from './composer-source-chips';
 import type { ComposerBlock } from './composer-markdown';
 
 type FenceOrigins = Map<number, string>;
-type SourceOrigins = { chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
+type SourceOrigins = { blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
 type SourceChange = ComposerRange & { text: string };
 type Pending = { value: string; origins: FenceOrigins; blocks: ComposerBlockOrigin[] };
 export type ComposerMode = 'rich' | 'plain' | 'literal';
@@ -22,7 +24,9 @@ export class ComposerSourceSession {
   private pending: Pending | null = null;
   private currentBlocks: ComposerBlockOrigin[] = [];
   private currentChips: ComposerChip[] = [];
-  // Exact source signatures retain block and reference origins for native history, not edit commands.
+  private offer: SkillOffer = null;
+  private offerKey: string | null = null;
+  // Exact source signatures retain block and fence origins for native history, not edit commands.
   private historyOrigins = new Map<string, SourceOrigins>();
 
   matches(owner: string, value: string): boolean { return owner === this.owner && value === this.value; }
@@ -30,7 +34,16 @@ export class ComposerSourceSession {
   get mode(): ComposerMode { return this.currentMode; }
   get blockOrigins(): readonly ComposerBlockOrigin[] { return this.currentBlocks; }
 
-  observe(owner: string, value: string, inputType = '', mode: ComposerMode = 'rich'): void {
+  /** `skills`: the names the provider offers users, which alone become skill chips; null: every `$name`. */
+  observe(owner: string, value: string, inputType = '', mode: ComposerMode = 'rich', skills: readonly string[] | null = null): void {
+    const offerKey = skills ? skills.join('\n') : null;
+    if (offerKey !== this.offerKey) {
+      const names = skills ? new Set(skills) : null;
+      this.offerKey = offerKey;
+      this.offer = names ? name => names.has(name) : null;
+      // The provider changed what it offers: chips follow it without touching the source or its history.
+      if (this.currentMode !== 'literal') this.currentChips = composerChips(this.value, this.offer);
+    }
     const enteredRichText = this.currentMode === 'literal' && mode !== 'literal';
     if (mode !== this.currentMode) { this.origins = new Map(); this.pending = null; this.currentBlocks = []; }
     this.currentMode = mode;
@@ -40,16 +53,16 @@ export class ComposerSourceSession {
       this.origins = new Map();
       this.currentBlocks = [];
       this.historyOrigins.clear();
-      this.currentChips = mode === 'literal' ? [] : composerChips(value);
+      this.currentChips = mode === 'literal' ? [] : composerChips(value, this.offer);
       this.pending = null;
       return;
     }
     if (value === this.value) {
       if (mode === 'literal') this.currentChips = [];
-      else if (enteredRichText) this.currentChips = composerChips(value);
+      else if (enteredRichText) this.currentChips = composerChips(value, this.offer);
       return;
     }
-    this.rememberOrigins(this.value, this.currentChips, this.currentBlocks, this.origins);
+    this.rememberOrigins(this.value, this.currentBlocks, this.origins);
     if (this.pending?.value === value) {
       this.origins = this.pending.origins;
       this.currentBlocks = this.pending.blocks;
@@ -75,15 +88,15 @@ export class ComposerSourceSession {
       }
       this.origins = next;
     }
-    this.currentChips = mode === 'literal' ? [] : enteredRichText ? composerChips(value)
-      : reconcileComposerChips(this.value, value, this.currentChips);
+    // A reference is its source, recognized afresh as the editor's atoms are (LLP 1045.000 D1): one whose
+    // delimiter an edit took is text again, in the editor and here alike.
+    this.currentChips = mode === 'literal' ? [] : composerChips(value, this.offer);
     if (inputType === 'historyUndo' || inputType === 'historyRedo') {
       const remembered = this.historyOrigins.get(value);
       this.currentBlocks = mode === 'rich' ? remembered?.blocks.map(block => ({ ...block })) ?? [] : [];
       this.origins = mode === 'rich' ? new Map(remembered?.fences) : new Map();
-      if (remembered && mode !== 'literal') this.currentChips = remembered.chips.map(chip => ({ ...chip }));
     }
-    this.rememberOrigins(value, this.currentChips, this.currentBlocks, this.origins);
+    this.rememberOrigins(value, this.currentBlocks, this.origins);
     this.value = value;
     this.pending = null;
   }
@@ -91,6 +104,11 @@ export class ComposerSourceSession {
   input(owner: string, value: string, selection: ComposerRange, text: string, paste = false): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
     const blocks = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
+    const surround = paste || this.mode === 'literal' ? null : composerSurround(value, selection, text, this.sourceChips(value, blocks), this.mode === 'rich' ? blocks : []);
+    if (surround) {
+      this.pending = { value: applyComposerEdit(value, surround), origins: this.after(surround), blocks: this.blocksAfter(surround, applyComposerEdit(value, surround), true) };
+      return { kind: 'edit', edit: surround };
+    }
     // Text typed, pasted or dropped inside a reference goes after it.
     selection = outsideComposerChips(selection, this.sourceChips(value, blocks));
     const code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
@@ -107,25 +125,21 @@ export class ComposerSourceSession {
   key(owner: string, value: string, selection: ComposerRange, key: ComposerKey): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
     const parsed = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
-    // Backspace and Delete (`Word…`: with Option) reach here at a reference. One that was
-    // admitted at a reference and waited while an earlier edit removed it deletes as the field
-    // would have, so a queued second press is never lost.
-    const deletes = /^(Word)?(Backspace|Delete)$/.exec(key.name);
-    if (deletes) {
-      const word = deletes[1] !== undefined, backward = deletes[2] === 'Backspace', chips = this.sourceChips(value, parsed);
-      const chip = word ? composerChipWordDeletion(value, selection, chips, backward) : composerChipDeletion(selection, chips, backward);
-      if (chip) return this.deleted(value, chip);
-      if (word) return this.deleted(value, composerWordDeletion(value, selection, backward));
-      if (this.mode !== 'rich') return this.deleted(value, composerCharacterDeletion(value, selection, backward));
-    }
     if (this.mode !== 'rich') {
+      // The plain composer continues and indents Markdown lists typed as text; a literal answer does not.
+      const list = this.mode === 'plain' && !key.command
+        ? key.name === 'Enter' && key.shift ? listContinuationForEnter(value, selection.start, this.sourceChips(value, parsed))
+          : key.name === 'Tab' && !key.shift ? listIndentForTab(value, selection.start, selection.end, this.sourceChips(value, parsed)) : null
+        : null;
+      if (list && (key.name === 'Tab' || selection.start === selection.end)) return this.deleted(value, list);
       if (key.name !== 'Enter') return { kind: 'default' };
       if (key.command || !key.shift) return { kind: 'send' };
       return this.input(owner, value, selection, '\n');
     }
     const blocks = parsed, code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
-    const outcome = composerMarkdownKey(value, selection, key, code ? this.origins.get(code.start) : undefined, this.currentBlocks);
-    if (outcome.kind === 'default' && deletes) return this.deleted(value, composerCharacterDeletion(value, selection, deletes[2] === 'Backspace'));
+    const outcome = composerMarkdownKey(value, selection, key, code ? this.origins.get(code.start) : undefined, this.currentBlocks, this.sourceChips(value, parsed));
+    // Backspace at a code block's start reaches here; one the grammar leaves deletes as the field would have.
+    if (outcome.kind === 'default' && (key.name === 'Backspace' || key.name === 'Delete')) return this.deleted(value, composerCharacterDeletion(value, selection, key.name === 'Backspace'));
     if (outcome.kind === 'edit') {
       const next = applyComposerEdit(value, outcome.edit), origins = this.after(outcome.edit);
       if (code && composerMarkdown(next).blocks.some(block => block.kind === 'code' && block.start === code.start)) {
@@ -147,7 +161,7 @@ export class ComposerSourceSession {
     return this.mode === 'literal' ? [] : composerChipsInBlocks(value, blocks, this.currentChips);
   }
 
-  /** A deletion as one guarded edit; `handled` when there is nothing to delete. */
+  /** A deletion or other app edit as one guarded edit; `handled` when there is nothing to do. */
   private deleted(value: string, edit: ComposerEdit | null): ComposerSessionResult {
     if (!edit) return { kind: 'handled' };
     const next = applyComposerEdit(value, edit);
@@ -220,16 +234,17 @@ export class ComposerSourceSession {
     return next.slice(-1024);
   }
 
-  private rememberOrigins(value: string, chips: readonly ComposerChip[], blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
+  private rememberOrigins(value: string, blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
     this.historyOrigins.delete(value);
-    if (!chips.length && !blocks.length && !fences.size || value.length > 262_144 || chips.length + blocks.length + fences.size > 1024) return;
-    this.historyOrigins.set(value, { chips: chips.map(chip => ({ ...chip })), blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
+    if (!blocks.length && !fences.size || value.length > 262_144 || blocks.length + fences.size > 1024) return;
+    this.historyOrigins.set(value, { blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
     let characters = 0, count = 0;
-    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.chips.length + retained.blocks.length + retained.fences.size; }
+    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.blocks.length + retained.fences.size; }
     for (const [source, retained] of this.historyOrigins) {
       if (this.historyOrigins.size <= 32 && characters <= 262_144 && count <= 1024) break;
       this.historyOrigins.delete(source);
-      characters -= source.length; count -= retained.chips.length + retained.blocks.length + retained.fences.size;
+      characters -= source.length; count -= retained.blocks.length + retained.fences.size;
     }
   }
+
 }

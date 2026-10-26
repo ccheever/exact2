@@ -1,6 +1,6 @@
 import { notifyChatGptCreated } from './provider-created-callback';
 import { providerSettingsWritable, providerWritable } from './provider-permissions';
-// T3 Code 9c161462c9 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
+// T3 Code 74541bab17 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
 import { setupOf } from './provider-setup'; // the Account and Runtime rows
@@ -16,7 +16,7 @@ import { accentHsv } from './settings-b-accent';
 import { buildProviderInstanceOverridePatch, projectProviderEnabled } from './project-provider-overrides';
 import { modelPreferenceSource, runEnvironmentModelPrefOp } from './model-preferences';
 import { favoriteSlugs, groupModels, instancePrefs, MODEL_PREF_OPS } from './settings-b-models';
-import { DRIVERS, driverMeta, instanceEnabled, legacyProviders, sameValue, versionLabel, providerSummary, checkedLabel,
+import { DRIVERS, driverMeta, instanceEnabled, legacyProviders, sameValue, versionLabel, providerSummary, providerStatusKey, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
 import { letGo } from '../client/let-go';
 // The update popover, Update all, ACP management and the custom model
@@ -70,11 +70,14 @@ export function providerRows(settings: Obj, live: Obj[], target = ''): Row[] {
 }
 
 const hash = (text: string) => { let value = 5381; for (let i = 0; i < text.length; i++) value = ((value << 5) + value + text.charCodeAt(i)) | 0; return (value >>> 0).toString(36); };
+/** normalizeProviderAccentColor: a #rrggbb accent, else none. */
+const normalizedAccent = (value: unknown) => { const accent = str(value).trim(); return /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : ''; };
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join('') || '?';
 function rowStatus(row: Row, provider: Obj | undefined) {
   const enabled = instanceEnabled(row.instance);
-  const statusKey = enabled ? (['ready', 'warning', 'error', 'disabled'].includes(str(provider?.status)) ? str(provider?.status) : 'warning') : 'disabled';
-  const summary = enabled ? providerSummary(provider ? { ...provider, enabled: true } : provider) : { headline: 'Disabled', detail: '' };
+  const effective = provider && { ...provider, enabled };
+  const statusKey = enabled ? providerStatusKey(effective) : 'disabled';
+  const summary = enabled ? providerSummary(effective) : { headline: 'Disabled', detail: '' };
   const compatibility = str(obj(provider?.compatibilityAdvisory).status);
   const incompatible = enabled && ['graceful', 'unsupported', 'broken'].includes(compatibility);
   const needsAttention = statusKey === 'warning' || statusKey === 'error';
@@ -252,7 +255,7 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
       const override = scoped ? obj(obj(obj(settings.projectSettingsOverrides)[projectIds[0]!]).providerInstances)[row.id] : undefined;
       return { projectOverride: typeof obj(override).enabled === 'boolean', id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
         status: `${status.summary.headline}${status.needsAttention && status.inlineDetail ? ` · ${status.inlineDetail}` : ''}`,
-        dot: status.needsAttention ? status.statusKey : '', accent: str(row.instance.accentColor), badge: str(row.instance.accentColor) ? initials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
+        dot: status.needsAttention ? status.statusKey : '', accent: normalizedAccent(row.instance.accentColor), badge: normalizedAccent(row.instance.accentColor) ? initials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
     }),
     editors: selected ? [editorFor(host, selected, live)] : [], emptyEditor: selected ? '' : targetMissing ? 'This provider instance is no longer available on this device.' : 'No providers configured.',
     healthSeconds: String(health.seconds), healthDown: String(Math.max(0, health.seconds - 30)), healthUp: String(health.seconds + 30), healthCustom: health.seconds !== health.preset, cursorUsage: settings.cursorKeychainUsageEnabled === true,
@@ -319,12 +322,15 @@ const chatgptConnected = (host: ProviderHost, serial: number) => chatgptCreated?
 /** The streams the open Add ChatGPT account dialog shows. */
 export const chatgptDialogStreams = (open: boolean, serial: number) => open && chatgptCreated?.serial === serial ? [chatgptCreated.instanceId] : [];
 
-/** ACP Registry search (read scope); an empty query is the compact compatible catalog. */
+/** ACP_REGISTRY_MAX_AGENTS: the most agents a search answers with when it asks for them. */
+export const ACP_REGISTRY_MAX_AGENTS = 512;
+/** ACP Registry search (read scope); an empty query lists every compatible agent (a server answers 20 unless asked for more). */
 export async function acpRegistry(host: ProviderHost, native: Native | null | undefined, query: string, open: boolean, configured: string[]) {
   const empty = { ready: false, status: '', error: '', agents: [] as AcpAgent[] };
   if (!open || !native?.available || !host.ready) return empty;
   try {
-    const result = await host.rpc(native, 'server.searchAcpRegistry', { query: query.trim().slice(0, 120) });
+    const submitted = query.trim().slice(0, 120);
+    const result = await host.rpc(native, 'server.searchAcpRegistry', submitted ? { query: submitted } : { query: '', limit: ACP_REGISTRY_MAX_AGENTS });
     const agents: AcpAgent[] = arr(result.agents).map(agent => ({ id: str(agent.id), name: str(agent.name), description: str(agent.description),
       link: str(agent.website) || str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
       iconUrl: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: 'acpRegistry', agentId: str(agent.id), iconUrl: str(agent.icon) || undefined }) ?? '',

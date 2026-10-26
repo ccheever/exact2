@@ -229,9 +229,9 @@ package final class SwipeActionsHost {
     /// no swipe; the web's tap scrolls the row to the same control. False
     /// when UIKit would offer no such action (disabled, hidden, inert); nil
     /// when no row owns `id`.
-    func perform(_ id: UInt32) -> Bool? {
+    func perform(_ id: UInt32, before: () -> Bool = { true }) -> Bool? {
         // A loop, not `lazy.compactMap(…).first`, which asks its element twice: two presses.
-        for row in rows.values { if let offered = row.perform(id) { return offered } }
+        for row in rows.values { if let offered = row.perform(id, before: before) { return offered } }
         return nil
     }
 
@@ -475,7 +475,7 @@ package final class SwipeActionsHost {
             for control in leading + trailing { hide(control) }
             if let scroll = owner.scroll {
                 let start = -scroll.adjustedContentInset.left
-                if scroll.contentOffset.x != start { scroll.contentOffset.x = start }
+                if scroll.contentOffset.x != start { scroll.contentOffset = PixelGrid.offset(CGPoint(x: start, y: scroll.contentOffset.y), in: scroll, clamped: false) }
                 if scroll.isScrollEnabled { scroll.isScrollEnabled = false; stilled = true }
             }
         }
@@ -535,7 +535,7 @@ package final class SwipeActionsHost {
         }
         /// See `SwipeActionsHost.perform`: projected for the check UIKit's
         /// own configuration makes, then released again as after a touch.
-        func perform(_ id: UInt32) -> Bool? {
+        func perform(_ id: UInt32, before: () -> Bool = { true }) -> Bool? {
             guard let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
             // A projected row's content is the cell's already: mounting it
             // again would carry the table into its own cell.
@@ -544,8 +544,9 @@ package final class SwipeActionsHost {
             if !was { mount() }
             let offered = (projected || grouped) && enabled(target)
             if !was { DispatchQueue.main.async { [weak self] in self?.settle() } }
-            if offered { host.presenter.press(target.id) }
-            return offered
+            guard offered, before(), enabled(target) else { return false }
+            host.presenter.press(target.id)
+            return true
         }
         /// Hidden while projected; `restore` gives back what it was, once.
         private func hide(_ view: NodeView) {

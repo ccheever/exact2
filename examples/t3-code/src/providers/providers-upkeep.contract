@@ -264,7 +264,7 @@ component ProviderVersionAdvisory
           button press=dismiss popovertarget=advisory.popId popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 position="absolute" left=0 top=0 width=0 height=0 padding=0 border-width=0 overflow="hidden" background-color="#00000000" testId=`${advisory.popId}-escape` title=""
           column gap="0.125rem" min-width=0
             text advisory.title font-size="0.875rem" line-height="1.09375rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" testId=`${advisory.popId}-title`
-            text advisory.detail font-size="0.75rem" line-height="1.03125rem" color=(advisory.strong ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #818181)") testId=`${advisory.popId}-detail`
+            text advisory.detail font-size="0.75rem" line-height="1.03125rem" overflow-wrap="anywhere" color=(advisory.strong ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #818181)") testId=`${advisory.popId}-detail`
           if advisory.action != ""
             button press=op("upkeep:update", advisory.instanceId, "", advisory.target, true) class=PvOutline width="100%" height="1.5rem" font-size="0.75rem" disabled=advisory.updating opacity=(advisory.updating ? 0.64 : 1) testId=`${advisory.popId}-action`
               if advisory.updating
@@ -538,7 +538,7 @@ component CustomModelChoice
       input value=(labelEdited ? label : choice.label) input=editLabel placeholder="Label" aria-label="Choice label" class=PvField flex=1 min-width=0 font-size="0.75rem" autocorrect="off" id=`field-custom-model-choice-${choice.ref}-label` data-editable="yes"
       row gap="0.375rem" align-items="center" flex-shrink=0
         button press=op("upkeep:cm-default", instanceId, choice.ref, (choice.isDefault ? "false" : "true"), true) role="switch" aria-checked=choice.isDefault aria-label="Default choice" width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(choice.isDefault ? "flex-end" : "flex-start") flex-shrink=0 background-color=(choice.isDefault ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
-          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color=(choice.isDefault ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)")
         text "Default" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)"
       button press=op("upkeep:cm-remove-choice", instanceId, choice.ref, "", true) class=PvMicro aria-label="Remove choice" title=""
         PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")

@@ -52,7 +52,9 @@ class BoxShadowTests: XCTestCase {
         let n = node(raised)
         let caster = try XCTUnwrap(n.shadowCaster)
         XCTAssertTrue(caster.superlayer === host(n))
-        let cast = try XCTUnwrap(caster.sublayers?.last)
+        // One shadow: the masked container casts it.
+        XCTAssertNil(caster.sublayers)
+        let cast: CALayer = caster
         XCTAssertEqual(cast.shadowRadius, 6, "CSS's blur radius is twice the deviation")
         XCTAssertEqual(cast.shadowOffset, CGSize(width: 0, height: 2))
         XCTAssertEqual(cast.shadowColor?.alpha ?? 0, 0.2, accuracy: 0.002)

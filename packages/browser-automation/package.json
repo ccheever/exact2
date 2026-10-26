@@ -1,0 +1,11 @@
+{
+  "name": "@exact/browser-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Script, input and prompts for a partitioned iframe's guest, by WebDriver BiDi's names, under the browser.automation grant (LLP 1020.002 D9).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

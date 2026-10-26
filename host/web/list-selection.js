@@ -107,7 +107,7 @@ globalThis.exact.installListSelection = function ({ root, lists, index, text }) 
     applying = false; selectionPending = false;
     if (editor(event.target)) return;
     if (event.key === 'Escape') { clear(); return; }
-    if (event.key.toLowerCase() !== 'a' || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+    if (event.key.toLowerCase() !== 'a' || !(event.metaKey || event.ctrlKey) || event.altKey || event.defaultPrevented) return; // a key handler's preventDefault() keeps it, as on macOS and Linux
     const list = owner(getSelection()?.anchorNode) ?? (lastList?.isConnected ? lastList : null)
       ?? (lists.size === 1 ? lists.keys().next().value : null);
     if (!list) return;

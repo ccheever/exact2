@@ -1,6 +1,7 @@
 // The details card's pull request row with the host's detail (the
 // checks popover, the trailing action's measured width, the tooltip card) and the
 // Merge AlertDialog, as pr-row.ts and pr-row-actions.ts answer them.
+use PrBreakdown from "../pull-requests/pr-breakdown.contract"
 shape PrCheck
   key: string
   name: string
@@ -22,9 +23,10 @@ shape PrCard
   files: string
   additions: string
   deletions: string
+  breakdown: PrBreakdown
   flipped: bool
-  clamped: bool
-  maxWidth: number
+  width: number
+  height: number
 shape PrRowExtra
   destructive: bool
   suffix: bool

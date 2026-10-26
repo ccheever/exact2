@@ -7,7 +7,7 @@ import { composerEditorView, editorLocal, messageContext, threadContextRecords, 
 import { composerRichSource } from '../../src/composer/composer-rich-source';
 import { T3Client } from '../../src/client/client';
 import { Backend, storage } from '../support/client-fixture';
-import { arr } from '../../src/client/domain';
+import { arr, type Obj } from '../../src/client/domain';
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldObserved } from '../../src/composer/composer-field-bridge';
 
@@ -48,6 +48,29 @@ describe('command menus from the shared field', () => {
     expect((await composerEditorView(client, native)).menu.open).toBe(true);
     client.threadId = 't2';
     expect((await composerEditorView(client, native)).menu.open).toBe(false);
+  });
+  test('a suggestion from an older query is refused once the field holds a newer one (#18845)', async () => {
+    const { client, native, observe } = await opened();
+    const later = native.later.bind(native);
+    let release = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let first = true;
+    native.later = async (input: unknown) => {
+      if ((input as Obj).op === 'editorPoke' && first) { first = false; await held; }
+      return later(input);
+    };
+    observe('@Thre');
+    const older = composerEditorView(client, native);
+    await Bun.sleep(0);
+    observe('@Thread');
+    expect((await composerEditorView(client, native)).menu.rows.map(row => row.id)).toEqual(['thread:t2']);
+    release();
+    await older;
+    await expect(editorLocal(client, native, 'pick', 'thread:t2', '')).rejects.toThrow('That suggestion is no longer available.');
+    // Rows read for another workspace are refused too, though the query is the same.
+    await composerEditorView(client, native);
+    client.shell.projects[0]!.workspaceRoot = '/elsewhere';
+    await expect(editorLocal(client, native, 'pick', 'thread:t2', '')).rejects.toThrow('That suggestion is no longer available.');
   });
   test('Escape keeps the same token dismissed until the caret leaves it', async () => {
     const { client, native, observe } = await opened();
@@ -267,14 +290,14 @@ describe('skill chip labels', () => {
     await client.refresh(native, disk.files);
     const synced = async () => {
       await composerEditorView(client, native);
-      expect(native.calls.findLast(call => call.op === 'editorSync')).not.toHaveProperty('skills');
       const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: composerFieldOwner(client), value: '$imagegen $openai-docs $frontend-design ' });
       return Object.fromEntries(view.chips.map(chip => [chip.name, chip.face.label]));
     };
-    expect(await synced()).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
-    // The thread's workspace (the project root, /repo) has its own discovered list: it wins.
+    // Only a skill the provider offers users is a chip: the disabled `$frontend-design` stays text (composerSkillMeta).
+    expect(await synced()).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs' });
+    // The thread's workspace (the project root, /repo) has its own discovered list: it wins, and its chips follow it.
     native.emit('config', { type: 'providerStatuses', payload: { providers: [{ ...codex, workspaceSnapshots: [{ cwd: '/repo', skills: [{ name: 'imagegen', displayName: 'Repo Image Gen' }] }] }] } });
     await client.refresh(native, disk.files);
-    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen', 'openai-docs': 'Openai Docs', 'frontend-design': 'Frontend Design' });
+    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen' });
   });
 });

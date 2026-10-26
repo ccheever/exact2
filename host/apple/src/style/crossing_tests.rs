@@ -1,8 +1,12 @@
 //! Which positioning rows cross to the presenter, which otherwise reads a
 //! box's place from its frame: a dialog's insets, a placed popover's
-//! margins, a sticky box's vertical insets.
+//! margins, a sticky box's vertical insets. A width or height does not
+//! cross, but that its author wrote one does (`"written"`): a presenter tells
+//! an author's box from one a sheet gave (a grouped row's leading symbol,
+//! `GroupedCustomRowsIOS`).
 
 use super::*;
+use exact_runner::{DataError, DataSource, Runner};
 
 #[test]
 fn only_dialogs_keep_viewport_positioning_rows() {
@@ -154,4 +158,55 @@ fn a_placed_popover_carries_its_margins() {
     );
     assert_eq!(placed["margin_bottom"], 12, "{placed}");
     assert_eq!(placed["margin_left"], "auto", "{placed}");
+}
+
+struct NoData;
+impl DataSource for NoData {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+}
+
+#[test]
+fn an_authored_size_is_named_written_and_a_sheets_is_not() {
+    let source = r#"component App
+  view
+    column testId="root" width=402 height=874
+      list appearance="auto" testId="list" flex=1
+        section
+          row testId="sheet"
+            image "symbol:star" testId="sheet-star"
+            text "Favorites"
+          row testId="sized"
+            image "symbol:star" width=32 height=32 testId="sized-star"
+            text "Favorites"
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::new(Box::new(exact_kernel::MonospaceMeasurer::default())),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let written = |t: &str| -> serde_json::Value {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&style_json_for(&node, &Env::default()).0).unwrap();
+        assert!(json.get("width").is_none(), "the size itself is layout's");
+        json.get("written")
+            .cloned()
+            .unwrap_or(serde_json::json!([]))
+    };
+    assert_eq!(
+        written("sized-star"),
+        serde_json::json!(["width", "height"])
+    );
+    assert_eq!(written("sheet-star"), serde_json::json!([]));
 }

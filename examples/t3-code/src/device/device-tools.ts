@@ -7,6 +7,7 @@
 // serialized `device.action` (device-session.ts actDevice) whose result is the confirmed detail.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
+import { layoutFrames } from '../shell/layout-frames';
 
 export type ToolsOption = { value: string; label: string; selected: boolean };
 export type ToolsSwitch = { id: string; label: string; checked: boolean; disabled: boolean };
@@ -107,7 +108,7 @@ export function deviceControls(client: T3Client, input: DeviceControlsInput): De
   const textLabel = TEXT_SIZES.find(([value]) => value === textSize)?.[1], filterLabel = COLOR_FILTERS.find(([value]) => value === colorFilter)?.[1];
   const permissionList = ios ? IOS_PERMISSIONS : ANDROID_PERMISSIONS;
   const resolvedApp = ws.permApp.trim() || foreground;
-  const frame = obj(client.presentation.frames)['device-area'], area = Array.isArray(frame) ? frame.map(Number) : [];
+  const frame = layoutFrames(client)['device-area'], area = Array.isArray(frame) ? frame.map(Number) : [];
   const tools: ToolsDrawerState = {
     open: ws.tools, overlay: !(area.length >= 4 && area[2]! >= 700), pending: input.acting, error: input.error, loading: !input.detail && !input.error,
     diagnostics: input.hostDiagnostics, ios, platformTitle: ios ? 'Simulator' : 'Emulator',

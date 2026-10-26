@@ -121,8 +121,80 @@ function createGeometry(root) {
     });
   };
 
+  // Whether `offset` is on a line with no text (an empty field's too): a
+  // textarea's value breaks at LF (CR and CR LF become it) and at the other
+  // forced breaks a line keeps (CSS Text's BK and NL).
+  const breaks = '\n\u000b\u000c\u0085\u2028\u2029';
+  const emptyLine = (value, offset) =>
+    (offset === 0 || breaks.includes(value[offset - 1])) && (offset === value.length || breaks.includes(value[offset]));
+  // Where a textarea paints its caret at `offset`: a twin of the field,
+  // every computed style copied (its font, wrapping, writing mode, box,
+  // scrollbars, transform and zoom), standing where the field stands among
+  // the same ancestors and scrolled as it is, holding its whole value with
+  // a zero-width space at the offset; that space's box is the caret's
+  // (the text's height there), read in the viewport, then the twin goes.
+  const caretProbe = (el, offset) => {
+    const parent = el.parentNode;
+    if (!parent) return null;
+    const style = getComputedStyle(el), twin = document.createElement('exact-caret-twin');
+    // Its `left` and `top` are in its own zoomed px; the offsets are not.
+    const zoom = parseFloat(style.zoom) || 1;
+    for (const p of style) twin.style.setProperty(p, style.getPropertyValue(p));
+    Object.assign(twin.style, {
+      position: style.position === 'fixed' ? 'fixed' : 'absolute', left: `${el.offsetLeft / zoom}px`, top: `${el.offsetTop / zoom}px`,
+      right: 'auto', bottom: 'auto', margin: '0', visibility: 'hidden', pointerEvents: 'none', display: 'block', float: 'none',
+      // It moves, and scrolls, at once.
+      transition: 'none', animation: 'none', scrollBehavior: 'auto',
+      // The field's border box: a computed content width is less its own
+      // scrollbar, which the twin lays out again.
+      boxSizing: 'border-box', width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px`,
+      minWidth: '0', maxWidth: 'none', minHeight: '0', maxHeight: 'none',
+      minInlineSize: '0', maxInlineSize: 'none', minBlockSize: '0', maxBlockSize: 'none',
+    });
+    // A textarea's editor keeps every space and break whatever its
+    // `white-space` (Blink makes `normal` `pre-wrap` and `nowrap` `pre`;
+    // `break-spaces` it leaves).
+    if (style.whiteSpaceCollapse !== 'break-spaces') twin.style.whiteSpaceCollapse = 'preserve';
+    // Never read, reached or focused while it stands (inert takes the
+    // focus and the pointer from it and its text).
+    twin.setAttribute('aria-hidden', 'true');
+    twin.inert = true;
+    const mark = document.createElement('exact-caret-mark');
+    mark.style.cssText = 'all: unset; display: inline';
+    mark.textContent = '\u200b';
+    // A last empty line is a line in the field (its editor's placeholder
+    // break), as it isn't after a bare break in a box: keep it.
+    const last = offset < el.value.length && breaks.includes(el.value.at(-1)) ? '\u200b' : '';
+    twin.append(el.value.slice(0, offset), mark, el.value.slice(offset) + last);
+    parent.insertBefore(twin, el.nextSibling);
+    // Its containing block may not be the field's offset parent (a
+    // transformed ancestor, zoom): find where its box moves per px of
+    // `left` and `top` in the viewport (a box's bounds move with it under
+    // any transform), then move it onto the field's.
+    const at = () => { const r = twin.getBoundingClientRect(); return [r.x, r.y]; };
+    const [left, top] = [el.offsetLeft / zoom, el.offsetTop / zoom], r0 = at();
+    twin.style.left = `${left + 100}px`;
+    const r1 = at();
+    twin.style.left = `${left}px`;
+    twin.style.top = `${top + 100}px`;
+    const r2 = at(), e = el.getBoundingClientRect();
+    const [ax, ay, bx, by] = [(r1[0] - r0[0]) / 100, (r1[1] - r0[1]) / 100, (r2[0] - r0[0]) / 100, (r2[1] - r0[1]) / 100];
+    const [dx, dy, det] = [e.x - r0[0], e.y - r0[1], ax * by - bx * ay];
+    if (!det) { twin.remove(); return null; }
+    twin.style.left = `${left + (dx * by - bx * dy) / det}px`;
+    twin.style.top = `${top + (ax * dy - dx * ay) / det}px`;
+    twin.scrollTop = el.scrollTop;
+    twin.scrollLeft = el.scrollLeft;
+    const r = mark.getBoundingClientRect();
+    twin.remove();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  };
+
   return {
     point, points, namedPoints,
+    // The painted caret as `caretProbe` finds it, for the tests that hold it
+    // to Chrome's own carets on lines with text.
+    caretAt(el, offset) { return caretProbe(el, offset); },
     // `rangeFrame` (LLP 1114.007): a plain textarea's range through
     // `createValueRange` (OpaqueRange), the Markdown editor's through its own
     // source mapping; a collapsed range is the caret's rectangle. Offsets are
@@ -131,11 +203,18 @@ function createGeometry(root) {
     range(el, start, end, out) {
       if (!el?.isConnected || !root.contains(el) || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return 0;
       [start, end] = [Math.trunc(start), Math.trunc(end)];
-      if (!(start >= 0 && start <= end && end <= (el.value?.length ?? 0)) || composing.has(el) || el.exactComposing) return 0;
+      // A Markdown reader answers from its atoms' pills (LLP 1045.000 D7, atoms.js), its offsets the source's.
+      const reader = !el.exactMarkup && !('value' in el) && el.getAttribute('markup') === 'markdown';
+      if (!(start >= 0 && start <= end && end <= (reader ? el.$source?.length ?? Infinity : el.value?.length ?? 0)) || composing.has(el) || el.exactComposing) return 0;
       let box = null;
-      if (el.exactMarkup) box = el.exactMarkup.rangeFrame?.(start, end) ?? null;
+      if (reader) box = globalThis.exact?.atoms?.rangeFrame(el, start, end) ?? null;
+      else if (el.exactMarkup) box = el.exactMarkup.rangeFrame?.(start, end) ?? null;
       else if (el instanceof HTMLTextAreaElement && typeof el.createValueRange === 'function') {
-        try { const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect?.(); } catch { return 0; }
+        // Chrome puts a caret on an empty line at the end of the text before
+        // it, and an empty field's at the viewport's origin, where it paints
+        // the caret on that line: the grammar's answer is the painted caret.
+        if (start === end && emptyLine(el.value, start)) box = caretProbe(el, start);
+        else try { const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect?.(); } catch { return 0; }
       }
       if (!box) return 0;
       out.set([box.x, box.y, box.width, box.height]);

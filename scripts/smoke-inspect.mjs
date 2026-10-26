@@ -3,6 +3,7 @@
 // host sections (D2, D3); 7a, `layout agree` (LLP 1080.001 D5) at the drive's
 // settled points; and the pooling drive on Carousel's virtualized feed.
 import { render } from './agent-inspect.mjs';
+import { pollUntil } from './agent-launch.mjs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,14 +15,46 @@ const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+export async function formControlsSmoke({ host, open, check }) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-form-controls-')), root = resolve(import.meta.dir, '..'), plan = resolve(dir, 'controls.plan');
+  let s;
+  try {
+    const compiled = spawnSync(resolve(root, 'target', HOST_DEV, 'contract'), ['build', resolve(root, 'scripts/fixtures/form-controls.contract'), '-o', plan], { encoding: 'utf8' });
+    if (!check(compiled.status === 0, `${host} form controls compile: ${compiled.stderr ?? compiled.error}`)) return;
+    s = await open({ host, plan });
+    if (host === 'ios') for (const target of ['fruit', 'level', 'day']) {
+      const r = await s.tap(target);
+      check(r.delivery === 'unsupported' && r.reason?.includes('--touch platform'), `ios ${target}: a programmatic tap names the real-touch alternative: ${JSON.stringify(r)}`);
+    }
+    for (const [target, value] of [['fruit', 'pear'], ['level', '75'], ['day', '2026-11-05'], ['time', '13:45'],
+      ['moment', '2026-11-05T13:45']]) {
+      await s.type(target, value);
+      const actual = (await s.state()).slots[target];
+      check(String(actual) === value, `${host} ${target}: type changes its bound value to ${value}, got ${JSON.stringify(actual)}`);
+    }
+    const refused = await s.type('fruit', 'unavailable').then(r => r.error ?? '', e => e.message);
+    check(/disabled|no enabled option/.test(refused) && (await s.state()).slots.fruit === 'pear', `${host} select refuses its disabled option: ${refused}`);
+    await s.close(); s = null;
+    if (host === 'ios') for (const target of ['fruit', 'day']) {
+      s = await open({ host, plan, touch: 'platform' });
+      const before = await s.screenshot(resolve(dir, `${target}-closed.png`), true);
+      const tap = await s.tap(target);
+      const after = await pollUntil(() => s.screenshot(resolve(dir, `${target}-open.png`), true), r => !!r.presented, { bound: 5000 });
+      check(tap.delivery === 'platform' && !before.presented && !!after.presented, `ios ${target}: a real tap presents its UIKit chooser: ${JSON.stringify({ delivery: tap.delivery, before: before.presented, after: after.presented })}`);
+      await s.close(); s = null;
+    }
+  } catch (error) { check(false, `${host} form controls: ${error.message}`); }
+  finally { await s?.close(); rmSync(dir, { recursive: true, force: true }); }
+}
+
 // An HTTP guest must not become mixed content merely because the native
 // host supplies a wrapper (#106). Loopback IP needs no ATS exception, so
 // the existing smoke app can exercise the WebKit path without changing
 // its manifest. The named-host ATS opt-in is verified on a built bundle.
 // A bundled page (`local.html`) loads a loopback `http:` stylesheet, as
 // Chrome does from a secure page, and the host logs one that fails (#135).
-// A bundled PDF (`local.pdf`) is shown by its type, WebKit's PDF view, not
-// as its bytes in an HTML document (#115).
+// A bundled PDF (`local.pdf`) is shown by its type, not as its bytes in an
+// HTML document (#115): on Apple in PDFKit's view (LLP 1020.002 D10).
 export async function httpFrameSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-http-frames-'));
   const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
@@ -59,9 +92,10 @@ export async function httpFrameSmoke({ host, open, check }) {
     const guest = (tree, id) => byTestId(tree, id)?.guest?.find(n => n.id === 'result')?.text;
     // Before #115 the PDF's bytes were the text of an HTML body, which has
     // no element to outline; WebKit's PDF document has its annotation layer
-    // (a refused load's error page outlines too, so the layer is named).
+    // (a refused load's error page outlines too, so the layer is named), and
+    // an Apple host's PDF view says so with its pages (LLP 1020.002 D10).
     const pdf = (tree) => byTestId(tree, 'local-pdf');
-    const pdfShown = (tree) => pdf(tree)?.loading === false && !!pdf(tree).guest?.some(n => n.id === 'annotationContainer');
+    const pdfShown = (tree) => pdf(tree)?.loading === false && (pdf(tree).pdf === true || !!pdf(tree).guest?.some(n => n.id === 'annotationContainer'));
     let tree, state;
     for (let i = 0; i < 100; i++) {
       tree = await s.tree(); state = await s.state();
@@ -172,4 +206,81 @@ export async function rebooted(carrier) {
     await new Promise((done) => setTimeout(done, 50));
   }
   throw new Error('the reloaded page did not boot within 30 s');
+}
+
+/** Messages' authored menu must work with the Mac's default key loop and UIKit's keyboard focus. */
+async function messageMenuKeys(s, { host, check }) {
+  await s.tap('conversation-demo');
+  await s.clock('settle');
+  if (host === 'macos') check((await s.state()).focus.keyboardNavigation === false, 'Messages: Keyboard Navigation is off');
+  await s.type('composer', '');
+  const focused = async () => {
+    const id = (await s.state()).focus.logical;
+    return (await s.tree()).nodes.find(n => n.id === id);
+  };
+  let source;
+  for (let i = 0; i < 40; i++) {
+    const at = await focused();
+    if (!check(at != null, 'Messages: Tab has a focused starting point')) return;
+    await s.type(at.id, { key: 'Tab' });
+    const next = await focused();
+    if (next?.props.testId?.startsWith('message-actions-')) { source = next; break; }
+  }
+  if (!check(source != null, 'Messages: Tab reaches a message')) return;
+  const actions = ['reply', 'copy-message', 'read-message', 'delete-message', 'dismiss-context',
+    'react-heart', 'react-like', 'react-dislike', 'react-laugh', 'react-emphasis', 'react-question'];
+  for (const chord of ['ContextMenu', 'Shift+F10']) {
+    await s.type(source.id, { key: chord });
+    await s.clock('settle');
+    if (!check((await s.state()).slots.selected !== '', `Messages: ${chord} opens the menu`)) return;
+    if (!check((await focused())?.props.testId === 'reply', `Messages: ${chord} focuses Reply`)) return;
+    const reached = new Set();
+    for (let i = 0; i <= actions.length; i++) {
+      const at = await focused();
+      if (!check(actions.includes(at?.props.testId), `Messages: Tab stays in the menu, reached ${at?.props.testId}`)) return;
+      reached.add(at.props.testId);
+      await s.type(at.id, { key: 'Tab' });
+    }
+    check(actions.every(id => reached.has(id)), `Messages: Tab reaches every action: ${[...reached]}`);
+    await s.type((await focused()).id, { key: 'Escape' });
+    await s.clock('settle');
+    check((await s.state()).slots.selected === '', 'Messages: Escape dismisses the menu');
+    if (!check((await focused())?.id === source.id, 'Messages: Escape returns focus to the message')) return;
+  }
+  await s.type(source.id, { key: 'Shift+F10' });
+  await s.clock('settle');
+  const body = (await s.state()).slots.selectedBody;
+  await s.type((await focused()).id, { key: 'Space' });
+  const state = await s.state();
+  check(state.slots.selected === '' && state.slots.replyBody === body, 'Messages: Space on Reply selects this message');
+  check((await focused())?.props.testId === 'composer', 'Messages: Reply focuses the composer');
+  await s.reveal(source.id);
+  const b = (await s.layout()).nodes.find(n => n.id === source.id);
+  const tap = await s.tap(source.id, { at: [b.w / 2, b.h / 2] });
+  if (host === 'ios') check(tap.delivery === 'platform', 'Messages: the bubble receives a real touch');
+  check((await focused())?.props.testId === 'composer', 'Messages: a bubble tap keeps the composer focused');
+  check((await s.state()).slots.selected === '', 'Messages: a single tap leaves the menu closed');
+}
+
+
+/** Exercise each message consumer's keyboard route to its actions. */
+export async function messageKeys(s, { host, check, app }) {
+  if (app === 'messages') return messageMenuKeys(s, { host, check });
+  if (!['messages-stress', 'exact-live'].includes(app)) return;
+  if (app === 'messages-stress') await s.tap('toggle-windowed');
+  else if (!byTestId(await s.tree(), 'crew-input')) await s.tap('pane-crew');
+  await s.clock('settle');
+  if (host === 'macos') check((await s.state()).focus.keyboardNavigation === false, `${app}: Keyboard Navigation is off`);
+  const field = app === 'messages-stress' ? 'stress-input' : 'crew-input';
+  await s.type(field, '');
+  await s.type(field, { key: 'Shift+Tab' });
+  const tree = await s.tree(), id = (await s.state()).focus.logical;
+  const button = tree.nodes.find(n => n.id === id);
+  const reply = button?.props.testId?.startsWith('reply-') || button?.props.accessibilityLabel?.startsWith('Reply to ');
+  if (!check(reply, `${app}: Shift+Tab from the composer reaches Reply, got ${button?.props.testId ?? button?.props.accessibilityLabel}`)) return;
+  const source = app === 'messages-stress' ? button.props.testId.slice('reply-'.length)
+    : tree.nodes.find(n => n.parent === button.parent && n.props.testId?.startsWith('crew-swipe-'))?.props.testId.slice('crew-swipe-'.length);
+  if (!check(source != null, `${app}: Reply names a message`)) return;
+  await s.type(button.id, { key: 'Space' });
+  check((await s.state()).slots.replying === source, `${app}: Space replies to the focused message`);
 }

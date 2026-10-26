@@ -7,6 +7,13 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { editView, endLostEdit, removeExisting, restoreThreadDraft, saveEdit, startEdit, type QueuedEditing } from './queued-edit-attachments';
+import { citationsToPlainText, replaceContextReferences } from './composer-editor-menu';
+
+/** A queued row's one line (QueuedRunsControl at T3 Code 74541bab17): each context chip as its label, an image chip
+ *  nothing when the row shows thumbnails, and each quote as its text. */
+export function queuedPreviewText(text: string, thumbnails: boolean): string {
+  return citationsToPlainText(replaceContextReferences(text, reference => reference.kind === 'image' && thumbnails ? '' : reference.label)).replace(/\s+/g, ' ').trim();
+}
 
 export type QueuedRow = { runId: string; text: string; images: number; index: number; editing: boolean; last: boolean;
   /** The row's 16pt image thumbnails (ids the window matches to signed URLs) and a send still saving. */
@@ -54,7 +61,7 @@ export function queuedView(client: T3Client) {
   const current = queuedEdit(client);
   if (current && !state.queued.some(entry => entry.run.id === current.runId)) { editing.delete(client); endLostEdit(client, current); }
   const edit = queuedEdit(client);
-  const rows: QueuedRow[] = state.queued.map((entry, index) => ({ runId: str(entry.run.id), text: entry.text.replace(/\s+/g, ' ').trim(), images: entry.images,
+  const rows: QueuedRow[] = state.queued.map((entry, index) => ({ runId: str(entry.run.id), text: queuedPreviewText(entry.text, entry.thumbnails.length > 0), images: entry.images,
     index, editing: edit?.runId === entry.run.id, last: index === state.queued.length - 1, thumbnails: entry.thumbnails, pending: false }));
   // A queued send the projection has not acknowledged yet shows as a pending row (QueuedRunsControl optimisticQueued).
   const pending = pendingQueued(client);
@@ -109,6 +116,6 @@ function pendingQueued(client: T3Client): Omit<QueuedRow, 'index' | 'last'> | nu
   const pending = client.pending, payload = obj(pending?.payload);
   if (!client.busy || payload.type !== 'message.dispatch' || obj(payload.dispatchMode).type !== 'queue_after_active' || payload.threadId !== client.threadId) return null;
   if (arr(client.projection.messages).some(message => message.id === payload.messageId)) return null;
-  return { runId: `pending:${str(payload.messageId)}`, text: str(payload.text).replace(/\s+/g, ' ').trim(), images: 0, editing: false,
-    thumbnails: arr(payload.attachments).filter(attachment => attachment.type === 'image').map(attachment => ({ id: str(attachment.id), name: str(attachment.name) })), pending: true };
+  const thumbnails = arr(payload.attachments).filter(attachment => attachment.type === 'image').map(attachment => ({ id: str(attachment.id), name: str(attachment.name) }));
+  return { runId: `pending:${str(payload.messageId)}`, text: queuedPreviewText(str(payload.text), thumbnails.length > 0), images: 0, editing: false, thumbnails, pending: true };
 }

@@ -4,9 +4,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
-import { filesLocal, filesView } from '../../src/panel/files-surface';
+import { filesLocal, filesView, workspaceMutationId } from '../../src/panel/files-surface';
 import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
-import { contentRevision, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
+import { contentRevision, htmlPage, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
 import { highlight, type Token } from '../../src/highlight/timeline-highlight';
 import { deviceFolding } from '../../src/device/device-duo';
 
@@ -74,6 +74,29 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
     const view = await filesView(client, native, surface('site/index.html'), 1000);
     expect(view.preview).toBe('error');
     expect(view.previewError).toBe('Unable to load file preview.');
+  });
+
+  test('a renewed signature keeps the page on its first URL until the revision changes (BrowserDocumentFrame documentKey)', async () => {
+    const { client } = fakeClient();
+    let signature = 0;
+    (client as unknown as { rpc: () => Promise<unknown> }).rpc = async () => ({ relativeUrl: `/api/assets/signed/abc?sig=${++signature}` });
+    const first = await htmlPage(client, native, '/repo', '/repo/site/index.html', 'r1', 1000);
+    // Six minutes on, the signature is renewed; the page keeps its URL, so its form input and scroll survive.
+    const renewed = await htmlPage(client, native, '/repo', '/repo/site/index.html', 'r1', 1000 + 6 * 60_000);
+    expect(signature).toBe(2);
+    expect(renewed.url).toBe(first.url);
+    expect(first.url).toBe('http://127.0.0.1:9/api/assets/signed/abc?sig=1&workspace-revision=r1');
+    // An edit is a new document: it opens with the newest signature.
+    const edited = await htmlPage(client, native, '/repo', '/repo/site/index.html', 'r2', 1000 + 6 * 60_000);
+    expect(edited.url).toBe('http://127.0.0.1:9/api/assets/signed/abc?sig=2&workspace-revision=r2');
+  });
+
+  test('workspaceMutationId: the newest settled command or file change and the newest checkpoint (ChatView)', () => {
+    const at = (items: unknown[], checkpoints: unknown[] = []) => workspaceMutationId({ projection: { visibleTurnItems: items.map(item => ({ item })), checkpoints } } as unknown as T3Client);
+    expect(at([{ id: 'm1', type: 'assistant_message' }])).toBeNull();
+    expect(at([{ id: 'c1', type: 'command_execution', status: 'completed' }, { id: 'c2', type: 'command_execution', status: 'running' }])).toBe('["c1",null]');
+    expect(at([{ id: 'f1', type: 'file_change', status: 'completed' }], [{ runId: 'r1', appRunOrdinal: 1, capturedAt: '2026-10-21T00:00:00.000Z' }, { runId: null, appRunOrdinal: null, capturedAt: 'x' }]))
+      .toBe('["f1","2026-10-21T00:00:00.000Z"]');
   });
 
   test('helpers', () => {

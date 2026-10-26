@@ -1,5 +1,5 @@
 // The composer's provider and model, decided as T3 Code decides them (MIT; see
-// LICENSE-T3, reference 9c161462c9). Sources: apps/web/src/providerInstances.ts
+// LICENSE-T3, reference 74541bab17). Sources: apps/web/src/providerInstances.ts
 // (deriveProviderInstanceEntries, sortProviderInstanceEntries,
 // isProviderInstancePickerReady, resolveSelectableProviderInstanceEntry),
 // components/ChatView.logic.ts (resolveComposerProviderSelection),
@@ -163,7 +163,7 @@ function instanceCustomModels(settings: Obj, instanceId: string, driver: string)
 export function instanceModelOptions(local: Prefs, settings: Obj, entry: ProviderEntry, selectedModel?: string | null): Obj[] {
   const options = entry.models.filter(model => model.isCustom !== true);
   const seen = new Set(options.map(model => str(model.slug)));
-  for (const custom of instanceCustomModels(settings, entry.instanceId, entry.driverKind).slice(0, 32)) {
+  for (const custom of instanceCustomModels(settings, entry.instanceId, entry.driverKind)) {
     if (str(custom.slug).length > 256 || seen.has(str(custom.slug))) continue;
     seen.add(str(custom.slug)); options.push(custom);
   }

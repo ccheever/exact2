@@ -764,6 +764,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("y 30deg".into()),
         StyleValue::Text("blur(12px) saturate(1.14)".into()),
         StyleValue::Text("flip-block, flip-inline".into()),
+        StyleValue::Text("\"wght\" 650".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

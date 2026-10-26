@@ -14,6 +14,7 @@ import { imageChipInks } from './message-chips';
 import { videoMimeType } from '../composer/composer-video'; // sent videos (UserVideoAttachment)
 import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from '../media/media-views'; // the transcript's host-path media
 import { letGo } from '../client/let-go';
+import { imageAccent } from '../media/image-accent';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
 import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
@@ -85,7 +86,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   }
   if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
   media.push(...await galleryUrls(client, native, now, new Set(media.map(item => item.id))));
-  return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media, ...await toolImageUrls(client, native, now)] };
+  return { items: [...await withAccents(client, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media, ...await toolImageUrls(client, native, now)] };
 }
 /** The open Markdown gallery's URLs the transcript's do not hold: a web image as written, a host path signed through the
  *  thread (a draft's own in Files) with the document's folder and workspace, as its view signed it. */
@@ -225,17 +226,19 @@ export function imagePreviewView(client: T3Client) {
     imagePreviewTip: image?.name ?? '', imagePreviewReturn: '' };
 }
 
-// ImageChipButton tints its chip with the picture's average colour.
+// ImageChipButton tints its chip with the picture's average colour (image-accent.ts).
 const accents = new Map<string, { fill: string; hover: string; border: string; ink: string }>();
 const NO_INKS = { fill: '', hover: '', border: '', ink: '' };
-async function withAccents(client: T3Client, native: Native, items: { id: string; url: string }[], videoIds = new Set<string>()): Promise<AttachmentUrl[]> {
+async function withAccents(client: T3Client, items: { id: string; url: string }[], videoIds = new Set<string>()): Promise<AttachmentUrl[]> {
   const out: AttachmentUrl[] = [];
   for (const item of items) {
     if (videoIds.has(item.id)) { out.push({ ...item, ...NO_INKS }); continue; } // a video has no image chip to tint
     const key = JSON.stringify([client.environmentId, item.id]);
     if (!accents.has(key)) {
-      const reply = await client.restAccess(native).call({ op: 'imageAccent', url: item.url, key }).catch(() => ({}));
-      accents.set(key, imageChipInks(str(obj(reply).accent)) ?? NO_INKS);
+      // A passing failure (null) is not kept: the next answer reads the image again.
+      const accent = await imageAccent(item.url, letGo);
+      if (accent === null) { out.push({ ...item, ...NO_INKS }); continue; }
+      accents.set(key, imageChipInks(accent) ?? NO_INKS);
       if (accents.size > 256) accents.delete(accents.keys().next().value!);
     }
     out.push({ ...item, ...accents.get(key)! });

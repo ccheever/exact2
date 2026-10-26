@@ -22,7 +22,6 @@ private final class ComposerFixture {
     let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
     let button = NSView(frame: NSRect(x: 0, y: 100, width: 100, height: 30))
     let composer: ExactElement
-    let send: ExactElement
 
     init() {
         _ = NSApplication.shared
@@ -44,10 +43,7 @@ private final class ComposerFixture {
         composer = ExactElement(hatch: .t3Composer, id: "composer", node: 1, hatches: hooks)
         composer.view = editor
         composer.platform = editor
-        send = ExactElement(hatch: .t3Send, id: "send-message", node: 2, hatches: hooks)
-        send.view = button
         controller.install(composer)
-        controller.install(send)
     }
 
     func activate() -> Bool {
@@ -110,7 +106,7 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(fixture.clicks.pointee, 0)
     }
 
-    func testTriggerAnchorsReportRowOffsetsOnlyWhenTheyMove() {
+    func testAnchorsReportRowOffsetsOnlyWhenTheyMove() {
         let fixture = ComposerFixture()
         let row = NSView(frame: NSRect(x: 40, y: 0, width: 600, height: 32))
         let traits = NSView(frame: NSRect(x: 147, y: 2, width: 90.9, height: 28))
@@ -139,7 +135,7 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(controller.anchorFrames["runtime"], [230, 133], "a frame change re-measures on its own")
         XCTAssertGreaterThan(changes, before)
         controller.remove(elements[1])
-        XCTAssertNil(controller.anchorFrames["runtime"], "a removed trigger stops reporting")
+        XCTAssertNil(controller.anchorFrames["runtime"], "a removed anchor stops reporting")
         controller.destroy()
     }
 
@@ -230,15 +226,9 @@ final class ComposerTests: XCTestCase {
 
     func testEndedControlsAndDestroyDisableDispatch() {
         let fixture = ComposerFixture()
-        fixture.controller.remove(fixture.send)
-        XCTAssertNotNil(fixture.controller.handle(fixture.event()))
-        fixture.controller.install(fixture.send)
         fixture.controller.remove(fixture.composer)
         XCTAssertNotNil(fixture.controller.handle(fixture.event()))
         fixture.controller.install(fixture.composer)
-        fixture.send.ended = true
-        XCTAssertNotNil(fixture.controller.handle(fixture.event()))
-        fixture.send.ended = false
         fixture.controller.destroy()
         XCTAssertNotNil(fixture.controller.handle(fixture.event()))
         XCTAssertEqual(fixture.clicks.pointee, 0)
@@ -247,7 +237,7 @@ final class ComposerTests: XCTestCase {
 
 private func runComposerTests() {
     var executed = 0, failures = 0, succeeded = true
-    for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerQueueKeyTests.defaultTestSuite, ComposerPasteTests.defaultTestSuite] {
+    for suite in [ComposerTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite] {
         suite.run()
         guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
         executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded

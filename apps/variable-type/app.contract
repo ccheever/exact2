@@ -2,6 +2,10 @@
 // pad's x is the type's width (`font-stretch`, the `wdth` axis, 50%–150%) and
 // its y the weight (`font-weight`, `wght`, 100–1000) and size. Each row slides
 // by half its own width, so the loop stays seamless however wide the type is.
+// The type arrives from its lightest. Holding the poster eases it to its
+// heaviest and slanted (the `slnt` axis, through `font-variation-settings`),
+// and letting go returns it; a key on the pad eases it there (LLP 1019 §13
+// D10).
 // After the Expo SDK 58 variable-font poster in react-native-motion
 // (LLP 1019 §13). assets/RobotoFlex.ttf is Roboto Flex cut to the poster's
 // letters, every axis kept: another word needs the whole font.
@@ -10,6 +14,9 @@ font "Roboto Flex" = "assets/RobotoFlex.ttf"
 
 keyframes slide
   to translate="-50% 0px"
+
+keyframes arrive
+  from font-weight=100
 
 shape Viewport
   width: number
@@ -21,6 +28,7 @@ fn padWidth(): number = 162
 fn padHeight(): number = 138
 fn handle(): number = 46
 
+fn ease(): string = "350ms cubic-bezier(0.2, 0.8, 0.2, 1)"
 fn unit(v: number): number = min(1, max(0, v))
 fn axisWeight(y: number): number = round(1000 - y * y * y * y * 900)
 fn axisWidth(x: number): number = round(50 + x * 100)
@@ -37,6 +45,7 @@ component VariableType
   state x = 0.5
   state y = 0.55
   state dragging = false
+  state held = false
   derive frame = min(24, viewport.width * 0.025)
   derive posterWidth = max(1, viewport.width - frame * 2)
   derive posterHeight = max(1, viewport.height - frame * 2)
@@ -44,7 +53,7 @@ component VariableType
   derive smallest = max(base * 0.6, posterHeight / (12 * 0.76))
   derive largest = max(smallest, min(base * 1.5, posterHeight / (2.2 * 0.76)))
   derive size = largest - y * (largest - smallest)
-  derive weight = axisWeight(y)
+  derive weight = held ? 1000 : axisWeight(y)
   derive width = axisWidth(x)
   derive rows = ceil(posterHeight / (smallest * 0.76)) + 2
   // Each half of a row is wider than the poster at the narrowest type.
@@ -64,6 +73,10 @@ component VariableType
       y = unit((e.offsetY - handle() / 2) / (padHeight() - handle()))
   action release(e: PointerEvent)
     dragging = false
+  action hold(e: PointerEvent)
+    held = true
+  action letGo(e: PointerEvent)
+    held = false
   action step(k: string, e: KeyboardEvent)
     let by = e.shiftKey ? 0.1 : 0.025
     if k == "ArrowLeft"
@@ -82,12 +95,15 @@ component VariableType
     main testId="root" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" padding=frame background-color="#f2f1f3"
       column testId="poster" position="relative" flex=1 min-height=0 border-radius=40 corner-shape="-exact-continuous" overflow="hidden" background-color="#2002f5"
         column position="absolute" inset=0 role="img" aria-label="Rows of the word Exact in Roboto Flex, sliding left and right"
+          touch-action="none" pointerdown=hold pointerup=letGo
           for r in range(rows) key=r
             text rowText(r, copies) aria-hidden=true testId=`row-${r}`
               position="absolute" left=0 top=((r - 0.8) * size * 0.76)
               white-space="nowrap" color="#f2f1f3" font-family="Roboto Flex"
               font-size=size font-weight=weight font-stretch=`${width}%` line-height=0.76 letter-spacing=(0 - size * 0.045)
-              animation=(viewport.prefersReducedMotion ? "none" : `slide 40s linear ${0 - ((r * 37) % 100) * 0.4}s infinite ${r % 2 == 0 ? "normal" : "reverse"}`)
+              font-variation-settings=(held ? "'slnt' -10" : "'slnt' 0")
+              transition=(dragging ? "none" : `font-weight ${ease()}, font-stretch ${ease()}, font-variation-settings ${ease()}`)
+              animation=(viewport.prefersReducedMotion ? "none" : `arrive 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) ${r * 0.05}s backwards, slide 40s linear ${0 - ((r * 37) % 100) * 0.4}s infinite ${r % 2 == 0 ? "normal" : "reverse"}`)
         column testId="pad" position="absolute" right=16 bottom=16 width=164 height=140 box-sizing="border-box"
           border-radius=22 border="1px solid #cecbdf80" background-color="#2002f5" overflow="hidden"
           touch-action="none" tabindex=0 role="slider" aria-label="Font width and weight"

@@ -181,7 +181,7 @@ component InteractionGallery
           CountButton(count=100, label="100", gallery=gallery, command=command)
           CountButton(count=1000, label="1,000", gallery=gallery, command=command)
           CountButton(count=25000, label="25,000", gallery=gallery, command=command)
-          text `${gallery.total} studies · 6 local images` font-size=(12 * k) color=theme.muted flex=1 min-width=170
+          text `${gallery.total} ${gallery.total == 1 ? "study" : "studies"} · 6 local images` font-size=(12 * k) color=theme.muted flex=1 min-width=170
           button press=command("insert", "", 0) disabled=(not gallery.canInsert) testId="insert" aria-label="Insert a new study at the beginning" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
             text "+ Add study" font-size=(12 * k) color=theme.ink
           button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
@@ -300,7 +300,7 @@ component CountButton
     gallery: GalleryState
     command: action
   view
-    button press=command("load", "", count) testId=`count-${count}` aria-label=`Reset to ${count} studies` -exact-press-scale=0.97 padding=7 border-width=0 border-radius=6 background-color=(gallery.requested == count ? theme.wash : theme.card)
+    button press=command("load", "", count) testId=`count-${count}` aria-label=`Reset to ${count} ${count == 1 ? "study" : "studies"}` -exact-press-scale=0.97 padding=7 border-width=0 border-radius=6 background-color=(gallery.requested == count ? theme.wash : theme.card)
       text label font-size=(12 * k) color=theme.ink
 
 component PhotoCard

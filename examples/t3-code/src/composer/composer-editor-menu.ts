@@ -67,6 +67,8 @@ export function skillDisplayName(skill: Obj): string {
   return str(skill.name).split(/[\s:_-]+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 function invocable(skill: Obj): boolean { return skill.enabled !== false && skill.userInvocable !== false; }
+/** isProviderSkillUserInvocable: the names whose `$name` is a skill chip in the composer. */
+export function offeredSkillNames(skills: Obj[]): string[] { return skills.filter(invocable).map(skill => str(skill.name)).filter(Boolean); }
 function dedupe(skills: Obj[]): Obj[] {
   const seen = new Set<string>();
   return skills.filter(skill => { const key = str(skill.name).trim().toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; });
@@ -369,10 +371,11 @@ export function recallablePrompt(text: string): string {
   return trimmed;
 }
 /** Oldest first; consecutive duplicates collapse into the newest. */
-export function historyEntries(messages: Array<{ id: string; kind: string; body: string }>): Array<{ id: string; prompt: string }> {
+export function historyEntries(messages: Array<{ id: string; kind: string; body: string; attribution?: string }>): Array<{ id: string; prompt: string }> {
   const entries: Array<{ id: string; prompt: string }> = [];
   for (const message of messages) {
-    if (message.kind !== 'user') continue;
+    // Automations and other agents send user-role messages; recall only what the user typed.
+    if (message.kind !== 'user' || message.attribution) continue;
     const prompt = recallablePrompt(message.body);
     if (!prompt) continue;
     if (entries.length && entries[entries.length - 1]!.prompt === prompt) entries[entries.length - 1] = { id: message.id, prompt };

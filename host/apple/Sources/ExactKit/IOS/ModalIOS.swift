@@ -4,6 +4,13 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+#if os(iOS)
+/// A presented controller that paints its own surface, which a live theme
+/// edit has it paint again (`Presenter.applyThemeTint`).
+protocol PaintsSheetSurface: AnyObject { func paintSurface() }
+extension ModalController: PaintsSheetSurface {}
+#endif
+
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
     weak var host: ModalHost?
     let routeID: UInt32
@@ -86,6 +93,8 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             // Several: scrolling at the content's top grows the sheet, as
             // UIKit's own sheets do (LLP 1115 wave 1).
             sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
+            // In `animateChanges`, the surface moves with the sheet.
+            self.paintSurface()
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
@@ -143,12 +152,11 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has neither grouped backgrounds nor a keyboard layout guide.
         view.backgroundColor = .white
         #else
-        // A sheet's surface where the author painted none: the platform's
-        // (LLP 1115 D2), which UIKit elevates in dark mode.
         ThemeRoles.adopt(view, from: host?.presenter.root)
         // Its presenter's tint, as the root's (LLP 1095 D4): a sheet sits outside it.
         if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
-        view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
+        paintSurface()
+        registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (controller: ModalController, _: UITraitCollection) in controller.paintSurface() }
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false
@@ -165,6 +173,36 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         ])
         #endif
     }
+    #if os(iOS)
+    /// What shows under the route where it paints nothing (LLP 1115 D2):
+    /// the theme's ground; else, on a sheet resting below its large detent
+    /// in a compact width, nothing, so UIKit draws its glass as it does for
+    /// a hand-built sheet whose view is left clear (LLP 1141.001 D3); else
+    /// the system background, which UIKit elevates in dark mode. An authored
+    /// `transparent` is clear at any detent. The route's own paint is its
+    /// controller's (`RouteController.paintBackdrop`). While the keyboard
+    /// ends the content above the screen's bottom, the colour the content
+    /// goes on with shows behind the keys' bar (`ExactView.paintUnderKeys`).
+    func paintSurface() {
+        guard isViewLoaded else { return }
+        let presenter = host?.presenter
+        let keys = (presenter?.keyboardInset ?? 0) > 0 ? presenter?.bottomEdgeColor() : nil
+        let surface = keys ?? (transparent ? .clear
+            : ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view) ?? (glass ? .clear : .systemBackground))
+        if view.backgroundColor != surface { view.backgroundColor = surface }
+    }
+    private var glass: Bool {
+        // Unspecified until it is presented: an iPhone's, compact.
+        guard modalPresentationStyle == .pageSheet, traitCollection.horizontalSizeClass != .regular,
+              let sheet = sheetPresentationController else { return false }
+        return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) != .large
+    }
+    /// The route's author wrote a background with no alpha.
+    private var transparent: Bool {
+        guard let route, route.wrote("background_color") else { return false }
+        return [false, true].allSatisfy { route.channels("background_color", dark: $0).map { $0.count == 4 && $0[3] == 0 } ?? false }
+    }
+    #endif
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // The keyboard probe lays the sheet out as its keyboard layout guide
@@ -197,6 +235,7 @@ private final class Presentation {
     /// from the photo as it is then, zoomed or panned.
     var sampleLanding: (() -> Void)?
     var alreadyDismissed = false
+    var presentationsDidDismiss: (() -> Void)?
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
          background: UIViewController) {
@@ -485,6 +524,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         for layer in layers {
             layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
             layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route), grabber: layer.route.props["navigationGrabber"])
+            #if os(iOS)
+            layer.controller.paintSurface()
+            #endif
         }
     }
 
@@ -664,6 +706,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 presenter.transformGeometry.changed()
                 presenter.syncModal()
                 drainRetired()
+                presenter.menus.resumeAfterRouteDismissal()
             }
         }
         if guarded {
@@ -690,6 +733,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
         presenter.elementScrolls.cancel(inside: layer.controller.view)
         let controller = layer.controller
+        layer.presentationsDidDismiss = presenter.menus.retire(over: controller, removing: layer.route)
         presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
         layers.removeLast()
         endPress(layer)
@@ -704,11 +748,19 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     private func drainRetired() {
         guard dismissing == nil, let layer = retiring.first, !layer.presenting else { return }
+        let above = sequence(first: layer.controller.presentedViewController, next: { $0?.presentedViewController })
+        if let moving = above.compactMap({ $0 }).first(where: { $0.isBeingPresented || $0.isBeingDismissed }),
+           let coordinator = moving.transitionCoordinator,
+           coordinator.animate(alongsideTransition: nil, completion: { [weak self] _ in
+               DispatchQueue.main.async { self?.drainRetired() }
+           }) { return }
         dismissing = layer
         let completion = { [weak self, layer] in
             guard let self, dismissing === layer else { return }
             dismissing = nil
             retiring.removeAll { $0 === layer }
+            layer.presentationsDidDismiss?()
+            layer.presentationsDidDismiss = nil
             // Its routes, if they live on, give their blocks back (LLP 1123 D2)
             presenter.owners.publish()
             #if os(iOS)
@@ -718,6 +770,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 drainRetired()
+                defer { presenter.menus.resumeAfterRouteDismissal() }
                 guard let session = presenter.session, session.state != .destroyed else { return }
                 presenter.navigation.modalDidDismiss()
                 fit()
@@ -727,8 +780,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 presenter.syncModal()
             }
         }
-        if layer.alreadyDismissed || layer.controller.presentingViewController == nil { completion() }
-        else { layer.controller.dismiss(animated: layer.animated, completion: completion) }
+        if !layer.alreadyDismissed, let owner = layer.controller.presentingViewController {
+            // Dismissing the route itself would dismiss only what it presents.
+            owner.dismiss(animated: layer.animated, completion: completion)
+        } else { completion() }
     }
 
     private func refusesDismissal(of route: NodeView) -> Bool {
@@ -789,6 +844,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 extension ModalHost: UISheetPresentationControllerDelegate {
     func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
         presenter.resolveStatusBar()
+        layers.first { $0.controller.sheetPresentationController === sheetPresentationController }?.controller.paintSurface()
     }
 }
 #endif

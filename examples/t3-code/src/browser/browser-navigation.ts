@@ -5,11 +5,10 @@
 // `preview.toggle`/`togglePreviewPanel`; packages/shared/src/keybindings.ts `previewFocus`).
 //
 // The data module's half: the empty state's Recently used (at most 8, from browser-history.ts) and
-// Local servers (browser-targets.ts), every visit recorded and titled; zoom and appearance (the module's
-// `browserSet`: WebKit's `pageZoom` and the web view's `appearance`, which pages read as
-// `prefers-color-scheme`); the viewport (`preview.resize`, serialized per tab by browser-viewport.ts) with the
+// Local servers (browser-targets.ts), every visit recorded and titled; zoom and appearance (the frame's `zoom` and
+// `color-scheme`, which pages read as their zoom and `prefers-color-scheme`, browser-frames.ts); the viewport (`preview.resize`, serialized per tab by browser-viewport.ts) with the
 // device toolbar's preset, size, aspect lock, rotate and close, and the rails' drags and arrow keys; the zoom
-// indicator's trigger; the chords the module answers while the preview has the focus; and ⇧⌘J.
+// indicator's trigger; the preview's chords; and ⇧⌘J.
 import type { T3Client } from '../client/client';
 import { arr, obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -30,6 +29,9 @@ import {
 } from './browser-viewport';
 import { addBrowserSurface, browserHost, browserTabFavicon, effectiveNav, nativeTabs, openBrowserIn, type NativeTab } from './browser-surface';
 import { browserOpenDefaults } from './browser-defaults';
+import { commandFrame, enqueue, frameByElement, navigateFrame, setFrame, type FrameEntry } from './browser-frames';
+import { automationCalls } from './browser-automation-run';
+import { SANDBOX } from './browser-automation-scripts';
 
 // ── Per-client state the reference keeps in components (HostedBrowserWebview, ZoomIndicator) ──────
 /** `now`: the latest projection's wall time (a data source reads no clock), the time a visit an op makes is recorded at. */
@@ -89,10 +91,34 @@ export const emptyNavigationView = (): BrowserNavigationView => ({
 
 /** The chords the module answers while the preview has the focus (`when: previewFocus`), as `chord=command` words. */
 const PREVIEW_COMMANDS: Record<string, string> = { 'preview.refresh': 'refresh', 'preview.focusUrl': 'focus-url', 'preview.zoomIn': 'zoom-in', 'preview.zoomOut': 'zoom-out', 'preview.resetZoom': 'reset-zoom' };
+const previewWinners = (client: T3Client) => chordWinners(arr(client.config.keybindings), { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false,
+  draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false, previewFocus: true });
 export function previewKeys(client: T3Client): string {
-  const winners = chordWinners(arr(client.config.keybindings), { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false,
-    settingsOpen: false, diffOpen: false, previewFocus: true });
-  return [...winners].filter(([, command]) => PREVIEW_COMMANDS[command]).map(([chord, command]) => `${chord}=${PREVIEW_COMMANDS[command]}`).join(' ');
+  return [...previewWinners(client)].filter(([, command]) => PREVIEW_COMMANDS[command]).map(([chord, command]) => `${chord}=${PREVIEW_COMMANDS[command]}`).join(' ');
+}
+
+/** A View chord the window's menu took while the panel shows a Browser page (settings-shortcuts.contract ViewReload and
+ *  ViewZoom: `chord`, its ARIA name; `step`, the window zoom step it would set). A partitioned frame reports no focus
+ *  (clone/issues/browser-frame-focus-chords.md), so the page is asked, `document.hasFocus()` as a read. While it holds the
+ *  focus, ⌘R reloads it (Manager.ts isPreviewRefreshShortcut) and a chord bound to a preview command under `previewFocus`
+ *  runs that command (Manager.ts forwardedShortcuts); otherwise the window does what the chord does there, through the
+ *  root's `window` frame command. */
+export async function browserKey(client: T3Client, frameIds: string, packed: string): Promise<void> {
+  const q = new URLSearchParams(packed), chord = (q.get('chord') ?? '').replaceAll(' ', '+').toLowerCase(); // the View items send `meta+r` unencoded
+  const bound = [...previewWinners(client)].find(([candidate]) => candidate.toLowerCase() === chord)?.[1] ?? '';
+  const command = chord === 'meta+r' ? 'refresh' : PREVIEW_COMMANDS[bound] ?? '';
+  let focused: FrameEntry | null = null;
+  for (const frameId of command ? frameIds.split(',') : []) {
+    const entry = frameByElement(client, frameId);
+    if (!entry) continue;
+    try { if ((await automationCalls().evaluate({ id: frameId, expression: 'document.hasFocus()', sandbox: SANDBOX })).result === true) { focused = entry; break; } }
+    catch (error) { if (letGo(error)) throw error; }
+  }
+  if (focused && command === 'refresh') commandFrame(client, focused.runtimeId, 'refresh');
+  else if (focused && (command === 'zoom-in' || command === 'zoom-out')) setFrame(client, focused.runtimeId, { zoomStep: command === 'zoom-in' ? 'in' : 'out' });
+  else if (focused && command === 'reset-zoom') setFrame(client, focused.runtimeId, { zoom: 1 });
+  else enqueue(client, { kind: 'window', id: '', url: '', delta: Number(q.get('step')) || 0, flag: chord === 'meta+r' });
+  client.revision++;
 }
 
 /** A recent site's or a local server's icon: a Browser tab's captured icon of that origin, the public service, the globe. */
@@ -140,10 +166,8 @@ export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId
 // ── Commands ────────────────────────────────────────────────────────────────────────────────────
 /** The time an op's visit is recorded at: the latest projection's wall time. */
 export const navigationNow = (client: T3Client): number => nav(client).now;
-/** The module's `browserSet`: an absolute zoom, a ladder step taken from the page's own zoom (`zoomStep`), or an appearance. */
-async function nativeSet(client: T3Client, native: Native, runtimeId: string, change: { zoom?: number; zoomStep?: 'in' | 'out'; colorScheme?: string }): Promise<void> {
-  await client.raw(native, { op: 'browserSet', tab: runtimeId, ...change });
-}
+/** A frame's zoom (an absolute one, or a ladder step from its own) or appearance. */
+function nativeSet(client: T3Client, runtimeId: string, change: { zoom?: number; zoomStep?: 'in' | 'out'; colorScheme?: string }): void { setFrame(client, runtimeId, change); }
 
 /** handleViewportChange: `preview.resize`, its answer applied; serialized per tab; a failure toasts. The serial lets the view drop a drag it held. */
 async function commitViewport(client: T3Client, native: Native, ref: ScopedThreadRef, tabId: string, runtimeId: string, setting: PreviewViewportSetting, locked?: boolean): Promise<void> {
@@ -200,16 +224,16 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       const resolved = resolveDiscoveredServerUrl(ref.environmentId, value, preparedConnection(client));
       let url: string;
       try { url = normalizePreviewUrl(resolved); } catch { return ''; }
-      await client.raw(native, { op: 'browserNavigate', tab: runtimeId, url, profile: snapshot?.profileId ?? 'default', environment: ref.environmentId });
+      navigateFrame(client, runtimeId, url);
       browserHost(client).store.rememberUrl(ref, url);
       history.recordVisitForThread(ref, value, navigationNow(client), environmentHostname(client));
       return '';
     }
     case 'remove-recent': history.removeUrlForThread(ref, value); return '';
-    // Manager.ts applyZoom steps the tab's own zoom: the module steps the page's, so held ⌘= never steps from a stale report.
-    case 'zoom-in': case 'zoom-out': await nativeSet(client, native, runtimeId, { zoomStep: op === 'zoom-in' ? 'in' : 'out' }); return '';
-    case 'zoom-reset': await nativeSet(client, native, runtimeId, { zoom: 1 }); return '';
-    case 'color-scheme': if (['system', 'light', 'dark'].includes(value)) await nativeSet(client, native, runtimeId, { colorScheme: value }); return '';
+    // Manager.ts applyZoom steps the tab's own zoom.
+    case 'zoom-in': case 'zoom-out': nativeSet(client, runtimeId, { zoomStep: op === 'zoom-in' ? 'in' : 'out' }); return '';
+    case 'zoom-reset': nativeSet(client, runtimeId, { zoom: 1 }); return '';
+    case 'color-scheme': if (['system', 'light', 'dark'].includes(value)) nativeSet(client, runtimeId, { colorScheme: value }); return '';
     case 'device-toolbar': {
       // handleToggleDeviceToolbar: a fixed viewport goes back to fill; fill opens at the configured default (its
       // Settings › Integrations › Browser row), else the panel's framed area.
@@ -283,9 +307,3 @@ export function previewToggleRow(add: DispatchAdd, client: T3Client): void {
   if (state.visible && active?.kind === 'browser') add('preview.toggle', 'panel-close', '', 'Toggle Browser');
   else add('preview.toggle', 'command', 'shelllocal:surface-browser-show', 'Toggle Browser');
 }
-
-/** The module's reported zoom and appearance, read with the rest of a tab (browser-surface.ts nativeTabs). */
-export const readTabNavigation = (raw: unknown): { zoomFactor: number; colorScheme: string } => {
-  const value = obj(raw);
-  return { zoomFactor: Number(value.zoomFactor) || 1, colorScheme: str(value.colorScheme, 'system') };
-};

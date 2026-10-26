@@ -21,7 +21,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { authoredTests } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const GATE = join(ROOT, 'apps/scale-gate');
@@ -293,7 +294,8 @@ async function live() {
 /** Every scale cell names its source, as the kernel's build holds them (the
  * brief's "no brand's 4 px grid"): `=metric` a metrics row there is, `{px,
  * measured|guideline: id}` whose docs/scale-measured.md entry binds exactly
- * `name = px`, `full` for radius.full, and the terminal's `{cells: n}` (n a
+ * `name = px`, `{stretch: "=metric", why}` with its entry under Role
+ * stretches, `full` for radius.full, and the terminal's `{cells: n}` (n a
  * number) or a radius's 0. A bare number is no source. */
 export function citations(schema, measured) {
   const metrics = new Set((schema.metrics ?? []).map(r => r[0]));
@@ -305,6 +307,12 @@ export function citations(schema, measured) {
       const where = `${name} column ${i + 1}`;
       if (typeof cell === 'string' && cell.startsWith('=')) {
         if (!metrics.has(cell.slice(1))) bad.push(`${where}: ${cell} names no metrics row`);
+      } else if (!terminal && cell && typeof cell === 'object' && 'stretch' in cell) {
+        // A stretch (stage 13 D5): a metric, why in a line, and its entry under Role stretches.
+        const ok = typeof cell.stretch === 'string' && cell.stretch.startsWith('=') && metrics.has(cell.stretch.slice(1));
+        const stretches = (measured.replaceAll('\r\n', '\n').split('\n## ').find(s => s.startsWith('Role stretches\n')) ?? '').split('\n### ');
+        if (!ok || Object.keys(cell).length !== 2 || typeof cell.why !== 'string' || !cell.why.trim() || cell.why.includes('\n')) bad.push(`${where}: ${JSON.stringify(cell)} is no stretch of a metrics row with its why in a line`);
+        else if (!stretches.some(e => e.startsWith(`\`${cell.stretch}\``))) bad.push(`${where}: ${cell.stretch} has no entry under Role stretches`);
       } else if (cell === 'full') {
         if (name !== 'radius.full') bad.push(`${where}: full outside radius.full`);
       } else if (terminal && cell && typeof cell === 'object' && 'cells' in cell) {
@@ -485,7 +493,7 @@ export function lines(opts) {
       // dtool2's stage 11 tests: any in the tool's own test file (against its
       // stub server), and those against the real server, in
       // scripts/design-tool.test.mjs or design-tool-scale.test.mjs.
-      const own = [...readFileSync(join(ROOT, 'apps/design-tool/app.test.contract'), 'utf8').matchAll(/^test "(stage 11[^"]*)"/gm)].map(m => m[1]);
+      const own = authoredTests(join(ROOT, 'apps/design-tool')).flatMap(f => [...readFileSync(f, 'utf8').matchAll(/^test "(stage 11[^"]*)"/gm)].map(m => [basename(f), m[1]]));
       const real = ['scripts/design-tool.test.mjs', 'scripts/design-tool-scale.test.mjs'].filter(f => existsSync(join(ROOT, f))).flatMap(f =>
         [...readFileSync(join(ROOT, f), 'utf8').matchAll(/^test\('((?:[^'\\]|\\.)*)'/gm)].map(m => [f, m[1].replace(/\\(.)/g, '$1')]).filter(([, n]) => /stage 11/i.test(n)));
       if (!own.length && !real.length) return waits('dtool2\'s D (the tool half): no design-tool test says stage 11 yet');
@@ -497,10 +505,10 @@ export function lines(opts) {
         let results = [];
         const line = r.out.split('\n').findLast(l => l.startsWith('{"host"'));
         try { results = JSON.parse(line).tests?.results ?? []; } catch { /* said below */ }
-        for (const name of own) {
-          const result = results.find(x => x.name === name);
+        for (const [file, name] of own) {
+          const result = results.find(x => x.file === file && x.name === name);
           const passed = result && !result.failures?.length;
-          evidence.push(`app.test.contract "${name}": ${passed ? 'pass' : `FAIL (${result ? result.failures.join(' / ').slice(0, 200) : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 200)})`} (the tool's stub server)`);
+          evidence.push(`${file} "${name}": ${passed ? 'pass' : `FAIL (${result ? result.failures.join(' / ').slice(0, 200) : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 200)})`} (the tool's stub server)`);
           if (!passed) bad.push(name);
         }
       }

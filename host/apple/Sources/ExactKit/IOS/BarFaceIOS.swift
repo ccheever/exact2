@@ -10,7 +10,8 @@
 // D4). The header a bar replaces is laid out as `display: none`, so the parts
 // are read from their styles, not their frames: the host sends the authored
 // size of a childless box and an authored gap for this (`kept_geometry`,
-// host/apple/src/style.rs).
+// host/apple/src/style.rs). A native button has no such face: its title's
+// size and weight are the item's title font (`HeaderShape.Item.font`).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -117,8 +118,7 @@ struct ChipFace: Equatable {
                 opacities.append(alpha)
                 lineHeights.append(child.wrote("line_height") ? child.usedLineHeight : nil)
             } else if child.kind == "image", let name = child.faceSymbol {
-                let tinted = inked || child.wrote("tint_color")
-                parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), tinted ? pair(child, "tint_color") : nil))
+                parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(nil)
             } else if (child.presenter?.flats.children(of: child.id) ?? child.container.subviews.compactMap { ($0 as? NodeView)?.id }).isEmpty,

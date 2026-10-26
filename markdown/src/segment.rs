@@ -3,7 +3,10 @@
 //! @ref LLP 1045 D4, D7 — a text segment is what one node paints; an image,
 //! an embed and a table are the blocks text cannot be.
 
+use std::borrow::Cow;
+
 use crate::block::BlockKind;
+use crate::inline::{angle_destination, decode_destination};
 use crate::style::{analyze, Replacement};
 
 /// Who serves an embed.
@@ -38,7 +41,17 @@ pub struct Embed {
     pub provider: Provider,
     /// The provider's identifier for the content.
     pub id: String,
-    /// The URL as written.
+    /// The URL passed to [`embed`]. For angle-bracket figure destinations,
+    /// Markdown escapes have already been decoded.
+    ///
+    /// ```
+    /// use exact_markdown::{segments, Segment};
+    /// let parts = segments(r"[Watch](<https://youtu.be/abc\_123>)", 0);
+    /// let Segment::Embed { embed, .. } = &parts[0] else {
+    ///     panic!("expected an embed");
+    /// };
+    /// assert_eq!(embed.url, "https://youtu.be/abc_123");
+    /// ```
     pub url: String,
     /// What an `iframe` loads; empty when the identifier cannot be framed.
     pub frame: String,
@@ -56,14 +69,14 @@ pub enum Segment<'a> {
         /// The caption, drawn beneath and read as the accessible name.
         caption: &'a str,
         /// The image's source.
-        src: &'a str,
+        src: Cow<'a, str>,
     },
     /// A lone video file: `![Caption](clip.mp4)`.
     Video {
         /// The caption.
         caption: &'a str,
         /// The video's source.
-        src: &'a str,
+        src: Cow<'a, str>,
     },
     /// A lone embeddable URL, bare or as `[Caption](url)`.
     Embed {
@@ -81,31 +94,44 @@ pub enum Segment<'a> {
 
 /// What a paragraph that is one figure says: (caption, target, image syntax).
 /// `![Caption](src)`, `[Caption](url)`, a bare URL, or one in angle brackets.
-pub(crate) fn figure(text: &str) -> Option<(&str, &str, bool)> {
+pub(crate) fn figure(text: &str) -> Option<(&str, Cow<'_, str>, bool)> {
     let t = text.trim();
     let url = |t: &str| {
         (t.starts_with("https://") || t.starts_with("http://")) && !t.contains(char::is_whitespace)
     };
     if let Some(inner) = t.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
-        return url(inner).then_some(("", inner, false));
+        return url(inner).then_some(("", Cow::Borrowed(inner), false));
     }
     if url(t) {
-        return Some(("", t, false));
+        return Some(("", Cow::Borrowed(t), false));
     }
     let image = t.starts_with('!');
     let body = t.strip_prefix('!').unwrap_or(t);
-    let body = body.strip_prefix('[')?.strip_suffix(')')?;
+    let body = body.strip_prefix('[')?;
     let at = body.find("](")?;
     let (caption, target) = (&body[..at], &body[at + 2..]);
-    if caption.contains(['[', ']', '\n']) || target.contains([')', '(']) {
+    if caption.contains(['[', ']', '\n']) {
         return None;
     }
-    let target = target.split_whitespace().next().unwrap_or("");
-    let target = target
-        .strip_prefix('<')
-        .and_then(|t| t.strip_suffix('>'))
-        .unwrap_or(target);
-    if target.is_empty() && !image {
+    let target = target.trim_start_matches([' ', '\t', '\n', '\r']);
+    let target = if target.starts_with('<') {
+        let cs: Vec<_> = target.char_indices().collect();
+        let (close, range) = angle_destination(&cs, 0, cs.len())?;
+        if close + 1 != cs.len() {
+            return None;
+        }
+        decode_destination(&target[range])
+    } else {
+        let target = target.strip_suffix(')')?;
+        if target.contains([')', '(']) {
+            return None;
+        }
+        Cow::Borrowed(target.split_whitespace().next().unwrap_or(""))
+    };
+    if !image
+        && (target.is_empty()
+            || target.contains(|c: char| c.is_whitespace() || matches!(c, '(' | ')')))
+    {
         return None;
     }
     Some((caption.trim(), target, image))
@@ -125,9 +151,9 @@ pub fn video(target: &str) -> bool {
 /// What a lone figure paragraph is: an embed, a video, or an image.
 pub(crate) fn kind(text: &str) -> Option<BlockKind> {
     let (_, target, image) = figure(text)?;
-    if !image && embed(target).is_some() {
+    if !image && embed(&target).is_some() {
         Some(BlockKind::Embed)
-    } else if image && video(target) {
+    } else if image && video(&target) {
         Some(BlockKind::Video)
     } else if image {
         Some(BlockKind::Image)
@@ -276,7 +302,7 @@ pub fn segments<'a>(source: &'a str, limit: usize) -> Vec<Segment<'a>> {
         let line = block.content.first().map(|r| source[r.clone()].trim());
         let alone = match (&block.kind, line) {
             (BlockKind::Embed, Some(line)) => figure(line).and_then(|(caption, target, _)| {
-                embed(target).map(|embed| Segment::Embed { caption, embed })
+                embed(&target).map(|embed| Segment::Embed { caption, embed })
             }),
             (BlockKind::Video, Some(line)) => {
                 figure(line).map(|(caption, src, _)| Segment::Video { caption, src })
@@ -319,9 +345,73 @@ pub fn segments<'a>(source: &'a str, limit: usize) -> Vec<Segment<'a>> {
 
 /// The text a reader sees: markers gone, bullets and boxes as glyphs.
 pub fn plain(source: &str) -> String {
-    let analysis = analyze(source, None);
+    plain_with(source, &crate::Atoms::default())
+}
+
+/// The plain text of `range` (UTF-16) of `source`, each atom the whole
+/// source recognizes inside it as its label (⌘⇧C of a selection, LLP
+/// 1045.000 D5): the atoms are found in the whole source, where a token's
+/// surroundings decide it, not in the fragment alone.
+pub fn plain_range(source: &str, range: crate::Range, atoms: &crate::Atoms) -> String {
+    let units: Vec<u16> = source.encode_utf16().collect();
+    let (a, b) = (
+        range.start.min(range.end) as usize,
+        range.end.min(units.len() as u32) as usize,
+    );
+    let a = a.min(b);
+    // Each atom inside the range stands in as one private-use character
+    // while the rest is made plain, then becomes its label.
+    let found: Vec<crate::Atom> = crate::style_with(source, None, atoms)
+        .atoms
+        .into_iter()
+        .filter(|x| a <= x.range.start as usize && x.range.end as usize <= b)
+        .take(0x1900)
+        .collect();
+    let mut fragment: Vec<u16> = Vec::with_capacity(b - a);
+    let mut at = a;
+    for (i, x) in found.iter().enumerate() {
+        fragment.extend_from_slice(&units[at..x.range.start as usize]);
+        fragment.push(0xE000 + i as u16);
+        at = x.range.end as usize;
+    }
+    fragment.extend_from_slice(&units[at..b]);
+    let mut out = String::new();
+    for c in plain(&String::from_utf16_lossy(&fragment)).chars() {
+        match (c as u32)
+            .checked_sub(0xE000)
+            .and_then(|i| found.get(i as usize))
+        {
+            Some(x) => out.push_str(&x.label),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
+/// The plain text with each atom as its label (⌘⇧C, LLP 1045.000 D5).
+pub fn plain_with(source: &str, atoms: &crate::Atoms) -> String {
+    let analysis = crate::style::analyze_with(source, None, atoms);
+    let labels: Vec<String> = analysis
+        .atoms
+        .iter()
+        .map(|a| {
+            atoms
+                .face(&source[a.range.clone()])
+                .map(|f| f.label.as_str())
+                .filter(|l| !l.is_empty())
+                .unwrap_or(&a.default)
+                .to_string()
+        })
+        .collect();
     let mut skips: Vec<(std::ops::Range<usize>, &str)> =
         analysis.hidden.iter().map(|r| (r.clone(), "")).collect();
+    skips.extend(
+        analysis
+            .atoms
+            .iter()
+            .zip(&labels)
+            .map(|(a, l)| (a.range.clone(), l.as_str())),
+    );
     skips.extend(analysis.replaced.iter().map(|(r, with)| {
         (
             r.clone(),

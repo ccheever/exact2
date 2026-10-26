@@ -42,7 +42,7 @@ private final class CountingTextView: NSTextView {
     override func rightMouseDown(with event: NSEvent) { ownMenus += 1 }
 }
 
-/// An app-drawn image under a node (T3ToolActivityIcon's IconView): presses go through it to the node.
+/// An app-drawn image under a node (`T3ShellImageView`): presses go through it to the node.
 private final class DrawnIcon: NSView, T3ShellImageView {
     var shellImage: CGImage?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -73,7 +73,6 @@ class ShellMenuCase: XCTestCase {
         window.contentView!.addSubview(page)
         window.orderFrontRegardless()
         shell = T3TextContextMenu(agent: false)
-        shell.assistive = { false } // no VoiceOver: a `contextmenu` nothing raised opens nothing (SecondaryClickTests turn it on)
         popped = []
         shell.present = { [unowned self] menu, _, view in popped.append((T3ShellMenu.describe(menu), view)) }
         shell.install()

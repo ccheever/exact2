@@ -20,7 +20,9 @@ use exact_kernel::{NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod lineage;
 mod looks;
+mod pending;
 mod row;
 /// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
 pub use row::row_json;
@@ -49,6 +51,13 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // The module's storage still to land (LLP 1097 D10): what a host's
         // quit or suspension waits for, cheaper than `state`.
         Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
+        // A polled module source's ask in flight (LLP 1133.009 D10 item 7):
+        // what a jump waits for before it replies.
+        Some("polls") => format!("{{\"asking\":{}}}", runner.polls_asking()),
+        // The requests the server holds and the replies landed for them (LLP
+        // 1016.000 D9): what `clock held` polls and a clock reply names,
+        // cheaper than `state`.
+        Some("held") => pending::held(runner),
         Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
@@ -66,6 +75,12 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // Every view's plan site, and the plan's digest (LLP 1122 D5): what a
         // development page outlines by, without a node's whole explanation.
         Some("sites") => runner.view_sites_json(),
+        // A view and each logical ancestor to the root with its plan site (null for none): what a development
+        // page walks to move a selection up its call sites (tamber/1.16 `inspect` `select`), with no node's rows.
+        Some("ancestors") => match field_num(request, "id") {
+            Some(n) if n >= 0.0 && n == n.trunc() => lineage::ancestors(runner, n as u32),
+            _ => error("ancestors needs a numeric id"),
+        },
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -108,7 +123,7 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
 /// The kernel's half of `layout agree` (LLP 1080.001 D2), a private
 /// message: `{"op":"frames","limit":N}` answers every live node in preorder
 /// as `[id, parent|null, x, y, w, h, bits]` — the parent-relative frame a
-/// host is sent — with bit 1 for the node's own `display: none`, 2 for an
+/// host is sent, a block's root's in its block — with bit 1 for the node's own `display: none`, 2 for an
 /// own transform row (`translate`, `translate_z`, `rotate`, `rotate_axis`,
 /// `scale`, `transform`) whose value is not the initial one (`scale: 1`,
 /// `translate: 0`, `transform: none` move nothing), 4 for a frame the host owns rather than the
@@ -157,8 +172,10 @@ pub fn frames<D: DataSource>(
         }
         count += 1;
         let f = node.frame;
+        // A block's root is in its block's space, not its parent's.
         let (px, py) = node
             .parent
+            .filter(|_| kernel.host_block(id).is_none())
             .and_then(|p| kernel.node(p))
             .map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
         let mut bits = 0u32;
@@ -255,6 +272,14 @@ pub fn answer<D: DataSource>(
         quote(&(picker.picked_path)(runner, &name), &mut s);
         s.push('}');
         return Some((s, None));
+    }
+    if op == "frameRequest" {
+        let reply = runner.hold_frame_request(request);
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
+    // A module's listed entry: `tap @ref`, or a relaunch's launch flag (LLP 1133.004 §7).
+    if let Some(reply) = runner.listed_op(&op, request) {
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
     }
     if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
         return None;
@@ -691,19 +716,18 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         num(runner.now_ms())
     );
     let mut first = true;
-    for row in plan.slots.iter() {
+    for (i, row) in plan.slots.iter().enumerate() {
         if row.owner.is_some() {
             // A row slot has a value per row, not one here (LLP 1017 P4c).
             continue;
         }
-        let name = plan.str(row.name);
         if !first {
             s.push(',');
         }
         first = false;
-        quote(name, &mut s);
+        quote(plan.str(row.name), &mut s);
         s.push(':');
-        match runner.slot(name) {
+        match runner.slot_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -732,10 +756,14 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         runner.page(),
         runner.viewport().fold,
     );
-    let (files, pictures) = (page.can_share_files, page.can_share_pictures);
+    let (files, pictures, partition) = (
+        page.can_share_files,
+        page.can_share_pictures,
+        page.iframe_partition,
+    );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"iframePartition\":{partition},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -777,7 +805,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.derive(name) {
+        match runner.derive_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -790,7 +818,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.shown_resource(name) {
+        match runner.shown_resource_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -830,40 +858,9 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
-    s.push_str(",\"pending\":[");
-    let in_flight = runner.in_flight();
-    for (i, (name, ticket)) in in_flight.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(name, &mut s);
-        let _ = write!(s, ",\"ticket\":{ticket}}}");
-    }
-    // Held device requests, after the network's (LLP 1069.007 D3): each
-    // with its capability and that capability's inspection summary.
-    let network = in_flight.len();
-    for (i, hold) in runner.device_holds().iter().enumerate() {
-        if i > 0 || network > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(&hold.name, &mut s);
-        let _ = write!(
-            s,
-            ",\"ticket\":{},\"device\":{{\"capability\":",
-            hold.ticket
-        );
-        quote(&hold.capability, &mut s);
-        s.push_str(",\"args\":");
-        if hold.args.starts_with('{') && hold.args.ends_with('}') {
-            s.push_str(&hold.args);
-        } else {
-            s.push_str("{}");
-        }
-        s.push_str("}}");
-    }
-    s.push_str("],");
+    s.push(',');
+    pending::state(runner, &mut s);
+    s.push(',');
     streams::state(runner, &mut s);
     // Native modules, as the runner answers them (LLP 1133.002 §6).
     if let Some(extensions) = runner.extensions_json() {
@@ -902,15 +899,14 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
-    // Notifications posted under the agent, where none reaches the system.
-    s.push_str(",\"notifications\":[");
-    for (i, n) in runner.notifications().iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        n.summary(&mut s);
+    crate::notify::state(runner, &mut s);
+    // What a module's declared substitute keeps (LLP 1133.004 §7).
+    runner.declared_state_json(&mut s);
+    // The wake running, else the last (LLP 1133.017 §10).
+    if let Some(wake) = runner.wake_state() {
+        s.push_str(",\"wake\":");
+        s.push_str(&wake.to_string());
     }
-    s.push(']');
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
     transport::state(runner, request, &mut s);

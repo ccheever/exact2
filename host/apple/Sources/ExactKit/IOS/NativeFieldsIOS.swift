@@ -106,7 +106,8 @@ extension NodeView {
     func applyFieldStyle() {
     field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
     if let f = field, let t = text {
-        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
+            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
         f.textColor = fieldInk
         applyPlaceholder(f)
         styleNativeField()
@@ -300,7 +301,7 @@ extension Presenter {
     /// Applies a `fieldContent` op. A content box touches its node here,
     /// where it takes effect: the paragraph laid out in it, and a native
     /// button's face, whose padding the kernel resolved with it, asked for
-    /// again at the next controls sync.
+    /// again at its next read.
     func applyContentGeometry(_ v: NodeView, _ op: BatchOp) {
         v.applyFieldContent(op.payload)
         touched(v.id, textChanged: true)

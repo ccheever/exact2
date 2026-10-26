@@ -12,6 +12,7 @@ shape TimelineReadsResult
   complete: bool
 shape Time
   epochAtZero: number
+  formatLocale: string // the regional format (Electron's app.getSystemLocale), which timestamps follow (timestamp-format.ts)
 // exactPage(): the window's visibility and focus (document.visibilityState, document.hasFocus(); exact2 #219),
 // and its returns from being put away (the back/forward cache's pageshow with persisted: the window ⌘W hid, reopened).
 shape Page

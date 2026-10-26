@@ -13,7 +13,10 @@ use std::collections::{HashMap, HashSet};
 /// prop, inject, state, derive, resource, mutation, action, or a `for` or
 /// `match` binder of the name shadows the timeline as it shadows any name);
 /// in a style, where only a timeline's name is admitted, one no `timeline`
-/// declares is refused.
+/// declares is refused. A quoted declared name, `animation-timeline="Name"`,
+/// is refused with the unquoted spelling, unless it is a CSS keyword or a
+/// local takes the name: as a string it would be a CSS timeline's name, and
+/// CSS's are `--dashed`.
 pub fn resolve_clock_timelines(file: &mut File) -> Result<(), SyntaxError> {
     let names = file
         .timelines
@@ -31,7 +34,7 @@ pub fn resolve_clock_timelines_in(
     names: &HashMap<String, String>,
 ) -> Result<(), SyntaxError> {
     for style in &mut file.styles {
-        attrs(names, &HashSet::new(), &mut style.attrs);
+        attrs(names, &HashSet::new(), &mut style.attrs)?;
         if let Some(a) = style
             .attrs
             .iter()
@@ -63,60 +66,101 @@ pub fn resolve_clock_timelines_in(
             .filter(|n| names.contains_key(*n))
             .cloned()
             .collect();
-        nodes(names, &locals, &mut component.view);
+        nodes(names, &locals, &mut component.view)?;
     }
     Ok(())
 }
+
+/// `animation-timeline`'s keywords, its own and CSS's for every property.
+const CSS_KEYWORDS: &[&str] = &[
+    "auto",
+    "none",
+    "inherit",
+    "initial",
+    "unset",
+    "revert",
+    "revert-layer",
+];
 
 fn is_timeline(a: &Attr) -> bool {
     a.name == "animation-timeline" || a.name == "animationTimeline"
 }
 
-fn attrs(names: &HashMap<String, String>, locals: &HashSet<String>, attrs: &mut [Attr]) {
+fn attrs(
+    names: &HashMap<String, String>,
+    locals: &HashSet<String>,
+    attrs: &mut [Attr],
+) -> Result<(), SyntaxError> {
     for a in attrs {
         if !is_timeline(a) {
             continue;
         }
-        if let Expr::Ident(name, span) = &a.value {
-            if let Some(to) = names.get(name).filter(|_| !locals.contains(name)) {
-                a.value = Expr::Str(format!("-exact-clock({to})"), *span);
+        match &a.value {
+            Expr::Ident(name, span) => {
+                if let Some(to) = names.get(name).filter(|_| !locals.contains(name)) {
+                    a.value = Expr::Str(format!("-exact-clock({to})"), *span);
+                }
             }
+            // CSS's own keywords stay CSS's, whatever a `timeline` is named,
+            // and where a local takes the name, the unquoted spelling is it.
+            Expr::Str(text, span)
+                if names.contains_key(text.trim())
+                    && !locals.contains(text.trim())
+                    && !CSS_KEYWORDS.contains(&text.trim().to_ascii_lowercase().as_str()) =>
+            {
+                let name = text.trim();
+                return Err(SyntaxError {
+                    id: "contract-timeline-quoted",
+                    message: format!(
+                        "`{}=\"{name}\"` is a string, not the declared `timeline {name}`: write it unquoted, `{}={name}`",
+                        a.name, a.name
+                    ),
+                    span: *span,
+                });
+            }
+            _ => {}
         }
     }
+    Ok(())
 }
 
-fn nodes(names: &HashMap<String, String>, locals: &HashSet<String>, list: &mut [Node]) {
+fn nodes(
+    names: &HashMap<String, String>,
+    locals: &HashSet<String>,
+    list: &mut [Node],
+) -> Result<(), SyntaxError> {
     for node in list {
         match node {
             Node::Element {
                 attrs: a, children, ..
             } => {
-                attrs(names, locals, a);
-                nodes(names, locals, children);
+                attrs(names, locals, a)?;
+                nodes(names, locals, children)?;
             }
-            Node::Use { children, .. } => nodes(names, locals, children),
+            Node::Use { children, .. } => nodes(names, locals, children)?,
             Node::Children { .. } => {}
             Node::When {
                 then, otherwise, ..
             } => {
-                nodes(names, locals, then);
-                nodes(names, locals, otherwise);
+                nodes(names, locals, then)?;
+                nodes(names, locals, otherwise)?;
             }
             Node::Each {
                 var, index, body, ..
             } => {
                 let mut inner = locals.clone();
                 inner.extend(std::iter::once(&*var).chain(index.as_ref()).cloned());
-                nodes(names, &inner, body);
+                nodes(names, &inner, body)?;
             }
             Node::Match { some, none, .. } => {
                 let mut inner = locals.clone();
                 inner.insert(some.0.clone());
-                nodes(names, &inner, &mut some.1);
-                nodes(names, locals, none);
+                nodes(names, &inner, &mut some.1)?;
+                nodes(names, locals, none)?;
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -162,5 +206,30 @@ mod tests {
             timelines(src),
             ["-exact-clock(P)", "ident P", "-exact-clock(P)"]
         );
+    }
+
+    #[test]
+    fn a_quoted_declared_name_is_refused_with_its_unquoted_spelling() {
+        for src in [
+            "timeline P\ncomponent App\n  view\n    text \"a\" animation-timeline=\"P\"\n",
+            "timeline P\nstyle s\n  animation-timeline=\" P\"\ncomponent App\n  view\n    text \"a\"\n",
+        ] {
+            let mut file = crate::parse(src).unwrap();
+            let e = resolve_clock_timelines(&mut file).unwrap_err();
+            assert_eq!(e.id, "contract-timeline-quoted", "{src}");
+            assert!(e.message.contains("`animation-timeline=P`"), "{}", e.message);
+        }
+        let src = "timeline P\ncomponent App\n  view\n    text \"a\" animation-timeline=\"--p\"\n";
+        assert_eq!(timelines(src), ["--p"]);
+        // A timeline named like a CSS keyword leaves the keyword CSS's.
+        for word in ["auto", "unset"] {
+            let src = format!(
+                "timeline {word}\ncomponent App\n  view\n    text \"a\" animation-timeline=\"{word}\"\n"
+            );
+            assert_eq!(timelines(&src), [word]);
+        }
+        // Where a binder takes the name, it is left for lowering to refuse as CSS.
+        let src = "timeline P\ncomponent App\n  state items = []\n  view\n    for P in items key=P\n      text \"b\" animation-timeline=\"P\"\n";
+        assert_eq!(timelines(src), ["P"]);
     }
 }

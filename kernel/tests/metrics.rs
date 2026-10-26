@@ -52,7 +52,15 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
     assert_eq!(mac.min_height, Dimension::Points(36.0));
     assert_eq!(mac.padding_top, Dimension::Points(10.0));
     assert_eq!(mac.max_width, Dimension::Points(744.0));
-    assert_eq!(mac.background_color, Some(pair(0xf9f9_f9ff, 0x2727_27ff)));
+    let card = mac.background_color.unwrap();
+    assert_eq!(card.fallback(), pair(0xf9f9_f9ff, 0x2727_27ff));
+    let ColorValue::Platform(id) = card else {
+        panic!("the host needs the card surface identity")
+    };
+    assert_eq!(
+        roles::platform(id).unwrap().macos.as_deref(),
+        Some("exactGroupedCardColor")
+    );
     assert_eq!(
         mac.border_color_bottom,
         Some(pair(0xefef_efff, 0x3333_33ff))

@@ -54,20 +54,22 @@ const artifact = () => globalThis.exact.nativeArtifact ??= new Promise((resolve,
 // The artifact itself, for the page module's hatches (LLP 1075.003.000).
 globalThis.exact.nativeModule = artifact;
 
-globalThis.exact.nativeHost = ({ dispatch, log }) => {
-  let table = null, failure = null, nonce = 0;
+// `packages` (the JS target's views.js, LLP 1133.001 D1): the tags a package
+// serves, each made by its extension's implementation in the session, never
+// by the app's artifact, which such a tag does not load.
+globalThis.exact.nativeHost = ({ dispatch, log, packages = null }) => {
+  let table = null, failure = null, nonce = 0, loaded = null;
   const waiting = new Set();
   const defines = (globalThis.exact.nativeDefines ??= { count: 0 });
   const say = (line) => { log(`native ${line}`); };
   const url = artifactUrl();
+  const define = (tag) => { if (!customElements.get(tag)) { customElements.define(tag, class extends HTMLElement {}); defines.count += 1; } };
   const load = () => artifact().then((m) => {
     if (m.abi !== ABI) throw Object.assign(new Error(`module ABI ${m.abi}, host ABI ${ABI}`), { state: 'unavailable' });
     if (!m.roster || typeof m.create !== 'function' || typeof m.setProps !== 'function' || typeof m.destroy !== 'function') {
       throw Object.assign(new Error(`${url} is not a module table (abi, roster, create, setProps, destroy)`), { state: 'unavailable' });
     }
-    for (const tag of Object.keys(m.roster)) {
-      if (!customElements.get(tag)) { customElements.define(tag, class extends HTMLElement {}); defines.count += 1; }
-    }
+    for (const tag of Object.keys(m.roster)) define(tag);
     table = m;
     say(`loaded ${url}: ${Object.keys(m.roster).join(', ')} (abi ${m.abi})`);
   }).catch((error) => {
@@ -79,17 +81,10 @@ globalThis.exact.nativeHost = ({ dispatch, log }) => {
     st.state = state; st.error = error;
     say(`${st.name} #${st.id}: ${state}: ${error}`);
   }
-  function attachNow(el) {
-    const st = el.exactNative;
-    if (!st || st.destroyed) return;
-    if (failure) return fail(st, failure.state ?? 'unavailable', failure.message);
-    // The name is a table key, checked again on plan bytes (D2, D5).
-    if (!/^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$/.test(st.name)) return fail(st, 'error', `refused module name ${JSON.stringify(st.name)}`);
-    if (!Object.hasOwn(table.roster, st.name)) return fail(st, 'error', `the module artifact has no factory for ${st.name}`);
-    const mine = ++nonce;
-    st.nonce = mine;
+  // The element's events, checked against its nonce and dispatched after the batch that caused them.
+  function events(el, st, mine) {
     const live = () => st.nonce === mine && !st.destroyed;
-    const event = (kind, payload) => {
+    return { live, event(kind, payload) {
       const text = payload == null ? null : String(payload);
       if (!live()) { say(`${st.name} #${st.id}: dropped ${NAMES[kind] ?? kind} from nonce ${mine} after destroy`); return; }
       if (!Number.isInteger(kind) || kind < 0 || kind > 8) { say(`${st.name} #${st.id}: refused event kind ${kind}`); return; }
@@ -99,7 +94,28 @@ globalThis.exact.nativeHost = ({ dispatch, log }) => {
         if (!live()) { say(`${st.name} #${st.id}: dropped ${NAMES[kind]} from nonce ${mine} after destroy`); return; }
         globalThis.exact.ready.then(() => { if (live()) dispatch(el, code, kind === 1 || kind === 5 || kind === 8 ? (text ?? '') : null); }, () => {});
       });
-    };
+    } };
+  }
+  // Props replace the whole aggregate; a refusal keeps the last accepted.
+  function observe(el, st, live, set) {
+    st.observer = new MutationObserver(() => {
+      const next = el.getAttribute('data-nativeviewprops') ?? '{}';
+      if (next === st.props || !live()) return;
+      try { set(next); st.props = next; if (st.state === 'error') { st.state = 'ready'; delete st.error; } }
+      catch (error) { fail(st, 'error', `props refused: ${error?.message ?? error}`); }
+    });
+    st.observer.observe(el, { attributes: true, attributeFilter: ['data-nativeviewprops'] });
+  }
+  function attachNow(el) {
+    const st = el.exactNative;
+    if (!st || st.destroyed) return;
+    if (failure) return fail(st, failure.state ?? 'unavailable', failure.message);
+    // The name is a table key, checked again on plan bytes (D2, D5).
+    if (!/^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$/.test(st.name)) return fail(st, 'error', `refused module name ${JSON.stringify(st.name)}`);
+    if (!Object.hasOwn(table.roster, st.name)) return fail(st, 'error', `the module artifact has no factory for ${st.name}`);
+    const mine = ++nonce;
+    st.nonce = mine;
+    const { live, event } = events(el, st, mine);
     // The browser composites every module element into the page capture, so
     // the web never asks for a snapshot; a reply is accepted and unused.
     const reply = () => {};
@@ -108,31 +124,41 @@ globalThis.exact.nativeHost = ({ dispatch, log }) => {
     catch (error) { st.nonce = 0; return fail(st, 'error', `create refused: ${error?.message ?? error}`); }
     st.props = props; st.state = 'ready'; delete st.error;
     say(`${st.name} #${st.id}: ready`);
-    // Props replace the whole aggregate; a refusal keeps the last accepted.
-    st.observer = new MutationObserver(() => {
-      const next = el.getAttribute('data-nativeviewprops') ?? '{}';
-      if (next === st.props || !live()) return;
-      try { table.setProps(st.handle, next); st.props = next; if (st.state === 'error') { st.state = 'ready'; delete st.error; } }
-      catch (error) { fail(st, 'error', `props refused: ${error?.message ?? error}`); }
-    });
-    st.observer.observe(el, { attributes: true, attributeFilter: ['data-nativeviewprops'] });
+    observe(el, st, live, (next) => table.setProps(st.handle, next));
   }
-  let loaded = load();
+  // A package's view: its props as an object, its events by name.
+  function attachPackage(el) {
+    const st = el.exactNative;
+    define(st.name);
+    const mine = ++nonce;
+    st.nonce = mine;
+    const { live, event } = events(el, st, mine);
+    const handlers = Object.fromEntries(NAMES.map((name, kind) => [name, (payload) => event(kind, payload)]));
+    const props = el.getAttribute('data-nativeviewprops') ?? '{}';
+    return Promise.resolve().then(() => packages.make(st.name, { element: el, props: JSON.parse(props), events: handlers, view: st.id })).then((handle) => {
+      if (!live()) { handle?.destroy?.(); return; }
+      st.handle = handle; st.package = true; st.props = props; st.state = 'ready'; delete st.error;
+      say(`${st.name} #${st.id}: ready (a package's view)`);
+      observe(el, st, live, (next) => handle.setProps?.(JSON.parse(next)));
+    }, (error) => { st.nonce = 0; fail(st, 'error', `create refused: ${error?.message ?? error}`); });
+  }
   return {
     attach(el) {
       say(`${el.exactNative.name} #${el.exactNative.id}: loading`);
-      if (failure) { failure = null; loaded = load(); }
+      if (packages?.serves(el.exactNative.name)) return attachPackage(el);
+      if (!loaded || failure) { failure = null; loaded = load(); }
       if (table) attachNow(el); else waiting.add(el);
+      return loaded;
     },
     destroy(el) {
       const st = el.exactNative;
       waiting.delete(el);
       if (!st || !st.nonce) return;
       st.nonce = 0; st.observer?.disconnect();
-      try { table.destroy(st.handle); } catch (error) { say(`${st.name} #${st.id}: destroy threw ${error?.message ?? error}`); }
+      try { if (st.package) st.handle?.destroy?.(); else table.destroy(st.handle); } catch (error) { say(`${st.name} #${st.id}: destroy threw ${error?.message ?? error}`); }
       say(`${st.name} #${st.id}: destroyed`);
     },
-    get loaded() { return loaded; },
+    get loaded() { return loaded ?? Promise.resolve(); },
   };
 };
 

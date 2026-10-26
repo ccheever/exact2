@@ -1,5 +1,5 @@
 // Thread and provider notifications (MIT reference: components/
-// ThreadNotificationCoordinator.tsx, threadNotifications.ts,
+// ThreadNotificationCoordinator.tsx at 74541bab17, threadNotifications.ts,
 // ProviderUpdatePrimaryNotification.tsx, ProviderUpdateLaunchNotification
 // .logic.ts, providerUpdateDismissal.ts). The window's focus is the page's
 // (`exactPage().hasFocus`, document.hasFocus(): exact2 #219); the macOS side
@@ -80,8 +80,9 @@ export function threadTransitions(environment: { shell: Shell }, previous: Map<s
     const completion = settled && run?.status === 'completed' && Number.isFinite(completedAt) ? completedAt : prior?.completion ?? null;
     next.set(id, { attention, completion });
     if (!prior || thread.archivedAt != null) continue;
+    // A run asked to stop (latestRunStopRequested: an interrupt request on it) ends without a completion notification.
     const kind = attention && attention !== prior.attention ? 'input'
-      : completion !== null && (prior.completion === null || completion > prior.completion) ? 'completion' : null;
+      : thread.latestRunStopRequested !== true && completion !== null && (prior.completion === null || completion > prior.completion) ? 'completion' : null;
     if (!kind) continue;
     const title = kind === 'completion' ? 'Thread completed' : status === 'approval' ? 'Approval needed'
       : status === 'limited' ? 'Usage limit reached' : status === 'failed' ? 'Thread failed' : 'Input needed';

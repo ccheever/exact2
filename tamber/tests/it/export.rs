@@ -125,6 +125,46 @@ fn re_importing_the_unedited_export_proposes_nothing() {
     }
 }
 
+/// Stage 12 B3 (theme2's T3): the header's conversions gained a shadow's
+/// clause, and a baseline is matched by the header's design digest, never
+/// its text: an export pulled before the change, its header the old text,
+/// still re-imports against the kept export and against the design's own.
+#[test]
+fn an_export_from_before_the_shadow_clause_still_finds_its_baseline() {
+    const NEW: &str = ", a length over a base name the design leaves unset as a length's, the shadow's source in `lossy`";
+    for src in [FIXTURE, CLONE] {
+        let (text, _) = exported(src);
+        assert!(text.contains(NEW), "the clause is in the header");
+        let old = text.replace(NEW, "");
+        assert_ne!(old, text);
+        // Kept before the change, pulled before it.
+        let import = reimport(&old, std::slice::from_ref(&old), src, &vocab()).unwrap();
+        assert!(import.ops.is_empty(), "{:?}", import.ops);
+        assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+        // Kept none: the design's own export now, the new text, by digest.
+        let import = reimport(&old, &[], src, &vocab()).unwrap();
+        assert!(import.ops.is_empty(), "{:?}", import.ops);
+        assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    }
+    // One value edited in the old-header export: exactly that edit, against
+    // the kept old export and against the design's own (round 1, Astra 5).
+    let (text, _) = exported(FIXTURE);
+    let old = text.replace(NEW, "");
+    let mut doc: Value = serde_json::from_str(&old).unwrap();
+    doc["modifiers"]["mode"]["contexts"]["dark-style=dim, dark"][0]["accent"]["fill"]["$value"] =
+        serde_json::json!({"colorSpace": "srgb", "components": [1.0, 0.0, 0.0], "hex": "#ff0000"});
+    let edited = serde_json::to_string_pretty(&doc).unwrap();
+    for kept in [vec![old.clone()], Vec::new()] {
+        let import = reimport(&edited, &kept, FIXTURE, &vocab()).unwrap();
+        assert_eq!(import.ops.len(), 1, "{:?}", import.ops);
+        let Op::SetToken { name, value, .. } = &import.ops[0] else {
+            panic!("{:?}", import.ops[0]);
+        };
+        assert_eq!(name, "accent.fill");
+        assert!(value.contains("#ff0000"), "{value}");
+    }
+}
+
 #[test]
 fn one_changed_value_proposes_exactly_one_set_token() {
     let (text, mut doc) = exported(FIXTURE);

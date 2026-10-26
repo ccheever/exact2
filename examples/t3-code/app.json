@@ -10,6 +10,8 @@
     { "protocol": "http", "url": "/open?u=%s", "distribution_only": true }
   ],
   "display": "standalone",
+  "display_override": ["window-controls-overlay"],
+  "open_url": { "schemes": ["vscode", "vscode-insiders", "cursor", "vscodium", "zed", "jetbrains"] },
   "theme_color": "#fafafa",
   "background_color": "#fafafa",
   "icons": [
@@ -25,7 +27,6 @@
   },
   "modules": [
     "t3-ssh-password",
-    "t3-terminal",
     "t3-browser"
   ],
   "commands": {
@@ -36,16 +37,11 @@
   "hatches": [
     "t3-composer",
     "t3-prompt-preview",
-    "t3-send",
     "t3-anchor",
     "t3-snapshot-tile",
-    "t3-composer-key",
-    "t3-terminal-key",
-    "t3-frame",
-    "t3-file-editor",
     "t3-media",
     "t3-launcher",
-    "t3-tool-icon"
+    "t3-browser-page"
   ],
   "rust": {
     "placement": "worker"
@@ -86,17 +82,20 @@
     "media-name",
     "device-id",
     "device-host",
+    "device-origin",
+    "device-ticket",
+    "device-ask",
     "device-view",
     "device-ax",
     "surface-launcher-keys",
-    "tool-icon-light",
-    "tool-icon-dark",
-    "tool-icon-muted",
     "paint",
     "pick",
     "dialog-focus",
     "focus-stop",
     "dialog-return",
-    "editable"
+    "editable",
+    "browser-frame",
+    "browser-environment",
+    "browser-profile"
   ]
 }

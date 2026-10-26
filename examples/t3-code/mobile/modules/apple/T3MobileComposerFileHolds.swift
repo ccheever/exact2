@@ -112,6 +112,9 @@ final class T3MobileComposerFileHolds {
     private let queue = DispatchQueue(label: "t3.composer-file-holds", qos: .utility)
     private var alive = true
     init(coordinator: T3MobileQueuedEdit) { self.coordinator = coordinator }
+    func whenIdle(_ completion: @escaping () -> Void) {
+        queue.async { DispatchQueue.main.async(execute: completion) }
+    }
     private func retireMissingPorts() {
         let missing = entries.filter { $0.value.port == nil }
         for (key, entry) in missing { entries.removeValue(forKey: key); retire(entry.claim) }

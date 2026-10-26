@@ -38,6 +38,10 @@ impl DataSource for Module {
         std::mem::take(&mut self.host.storage_changed)
     }
 
+    fn note_storage_changed(&mut self) {
+        self.host.storage_changed = true;
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
     }
@@ -99,6 +103,9 @@ impl DataSource for Module {
                 Dispatch::Held
             });
         }
+        if self.yielded(token) {
+            return Module::ask_again();
+        }
         match self.continuation(token) {
             Some(work) => Dispatch::Run(Work::Now(work)),
             None => Dispatch::Missing,
@@ -124,6 +131,10 @@ impl DataSource for Module {
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         if token == exact_runner::BACKGROUND {
             return Some(self.storage.as_ref()?.continuation());
+        }
+        // A worker's owner thread resumes a yield at once, as a host settles `Dispatch::Again`.
+        if self.yielded(token) {
+            return Some(Box::new(Dispatch::again_outcome));
         }
         // An owner thread runs one turn to its end, so another answer's
         // work cannot land while this one waits for it (LLP 1027.002).
@@ -326,6 +337,13 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
+        // A handler a module calls back (LLP 1133.016 D9): `tools[name]`,
+        // its arguments and its value JSON text (the prelude's `tool`).
+        if source.starts_with(TOOL) && !self.sigs.contains_key(source) {
+            let (params, result) = (vec![Shape::String], Shape::String);
+            self.sigs
+                .insert(source.to_owned(), super::Sig { params, result });
+        }
         let answer = self.begin(Some(store), None, source, args);
         self.refresh_background();
         answer

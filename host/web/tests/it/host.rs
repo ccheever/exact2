@@ -103,7 +103,7 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     assert!(first.contains("\"src\":\"symbol:search\""));
     assert!(first.contains("\"data-symbol-path\":\"M16 10"));
     assert!(first.contains("\"alt\":\"\"") && first.contains("\"alt\":\"Add a stop\""));
-    assert!(first.contains("--exact-tint:light-dark("), "{first}");
+    assert!(first.contains("--exact-tint:currentcolor"), "{first}"); // a symbol's own tint: its colour
     let changed = host.dispatch(view_with_test_id(&host, "change"), Event::Press);
     assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");
 }
@@ -710,6 +710,20 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
     let id = view_with_test_id(&host, "open");
     let batch = host.dispatch(id, Event::Press);
     assert!(batch.contains("Delete 2 messages"), "{batch}");
+}
+
+/// LLP 1019 D9: `font-variation-settings` is written as CSS writes it.
+#[test]
+fn font_variation_settings_are_their_css() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    let value = StyleValue::Text("'GRAD' 150,'wdth' 60".into());
+    style
+        .set_dynamic(StyleId::FontVariationSettings, &value)
+        .unwrap();
+    let (css, _) = css_text(&style, &[]);
+    let want = r#"font-variation-settings:"GRAD" 150, "wdth" 60;"#;
+    assert!(css.contains(want), "{css}");
 }
 
 /// A scheme-aware colour is handed to the browser, not resolved here.

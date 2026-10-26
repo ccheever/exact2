@@ -139,11 +139,15 @@ final class ControlHost: NSObject {
     var spinners: [UInt32: UIActivityIndicatorView] = [:]
     /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
     var bars: [UInt32: UIProgressView] = [:]
-    /// Each native button's face as the runner last gave it. A face is the
-    /// control's viewless contents, which change only in a batch that says
-    /// so (`Batch.controls`), and its own props, which change only in a
-    /// batch that touches it: every other batch keeps it, and asks the
-    /// runner nothing.
+    /// Each native button's face as the runner last gave it: what its
+    /// control shows, and what `NodeView.face` tells every other reader (a
+    /// tab bar or navigation bar item, a menu row, an accessibility label).
+    /// A face is the button's viewless contents, which change only in a
+    /// batch that says so (`Batch.controls`), and its own props, which
+    /// change only in a batch that touches it: `Presenter.apply` drops it as
+    /// that batch or op arrives, and the next read asks the runner. Every
+    /// other batch keeps it, so a commit that changes no button waits on
+    /// the owner thread for none.
     private var faces: [UInt32: ButtonFace] = [:]
     func face(_ id: UInt32) -> ButtonFace {
         if let face = faces[id] { return face }
@@ -216,14 +220,17 @@ final class ControlHost: NSObject {
         if waiting.contains(where: { presenter.views[$0].map { !unshown($0) } ?? false }) { sync(contents: false) }
     }
 
-    /// Asks for the face of `id` again at the next sync.
+    /// Asks for the face of `id` again at its next read.
     func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
+    /// Asks for every face again at its next read.
+    func facesChanged() { faces.removeAll() }
 
-    /// `contents`: a control's viewless contents may have changed (a batch
-    /// with `controls`, or a sync outside any batch); `touched`, the nodes
-    /// the batch changed.
-    func sync(contents: Bool = true, touched: [UInt32] = []) {
-        if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
+    /// `contents`: a sync outside any batch, which reads every face again;
+    /// a batch has already dropped the faces it changes (`Presenter.apply`).
+    func sync(contents: Bool = true) {
+        if contents { faces.removeAll() }
+        // A face read with no control (a tab's, a menu row's) goes with its view.
+        for id in faces.keys where controls[id] == nil && presenter.views[id] == nil { faces.removeValue(forKey: id) }
         let all = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let owners = all.filter { !($0.isNativeButton && unshown($0)) }
         let live = Set(owners.map(\.id))
@@ -291,17 +298,16 @@ final class ControlHost: NSObject {
             // title and grows taller, as a pop-up button does under Auto Layout,
             // rather than running past its box (unit-converter at the largest
             // text size, round 22). Its width stays the widest option's (D3).
-            var narrowed: CGFloat?
             if owner.props["type"] == "select", let button = control as? UIButton, box.width > 0, box.width < natural.width - 0.5 {
-                narrowed = box.width
                 natural.height = max(natural.height, selectHeight(button, width: box.width))
             }
+            let fillsSelect = owner.props["type"] == "select"
+            #else
+            let fillsSelect = false
             #endif
-            // A slider's track spans its box, as the web's does; a native
-            // button fills it, its chrome inside (LLP 1069.011 D6); the
-            // others keep their own size. A select aligns its closed value
-            // inside the box; unstyled controls stay centred.
-            if control is NativeButtonIOS {
+            if fillsSelect {
+                assign(control, \.frame, box)
+            } else if control is NativeButtonIOS {
                 // The box is the button's alignment rect, as its natural size is.
                 let frame = control.frame(forAlignmentRect: box)
                 if control.frame != frame { control.frame = frame }
@@ -309,12 +315,12 @@ final class ControlHost: NSObject {
                 #if os(tvOS)
                 let width = natural.width
                 #else
-                let width = control is UISlider ? box.width : narrowed ?? natural.width
+                let width = control is UISlider ? box.width : natural.width
                 #endif
                 var x = box.midX - width / 2
                 #if os(iOS)
-                if owner.props["type"] == "select" {
-                    switch selectAlignment(owner) {
+                if control is UIDatePicker {
+                    switch valueAlignment(owner) {
                     case .left: x = box.minX
                     case .right: x = box.maxX - width
                     default: break
@@ -365,10 +371,12 @@ final class ControlHost: NSObject {
     }
 
     /// The agent's `tap` (LLP 1069.001 D9): the control's own activation.
-    func activate(_ node: NodeView) -> Bool? {
+    func activate(_ node: NodeView, before: (CGPoint?) -> Bool = { _ in true }) -> Bool? {
         // A native button takes the ordinary tap path (LLP 1069.011 D10).
         guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
+        let point = control.convert(CGPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
+        guard before(point), controls[node.id] === control, control.window != nil, control.isEnabled, !node.disabled, !node.inert else { return false }
         // A radio's tap, the host's own (x2apps survey #2).
         if control is ExactRadio { radioTapped(control); return true }
         #if os(tvOS)

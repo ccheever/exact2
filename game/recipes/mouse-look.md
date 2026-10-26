@@ -27,7 +27,7 @@ impl Game for Look {
 }
 let mut sim = Sim::<Look>::new(()).unwrap();
 sim.input(InputEvent::Pointer { id: 1, phase: PointerPhase::Move,
-    x: 100., y: 100., dx: 40., dy: 0., buttons: 0, at_ms: 0. });
+    x: 100., y: 100., dx: 40., dy: 0., buttons: 0, at_ms: 0., player: 0 });
 sim.run(20.);
 assert!((sim.world().resource::<Aim>().yaw + 0.1).abs() < 0.00001);
 ```

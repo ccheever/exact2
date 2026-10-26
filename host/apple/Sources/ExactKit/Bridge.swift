@@ -54,7 +54,7 @@ extension Runtime {
         on { read(exact_dispatch(rt, view, 42, write(selection.payload(value)), now)) }
     }
     /// The wall clock owns time, or the agent's clock does (the timers RFC, D1).
-    func liveClock(_ yes: Bool) { on { () -> Void in _ = exact_set_live_clock(rt, yes ? { ExactEnv.wall() } : nil) } }
+    func liveClock(_ yes: Bool) { setLiveClock(yes ? { ExactEnv.wall() } : nil) }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {
@@ -131,6 +131,7 @@ extension Runtime {
                 case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
                 case .whole?: (2, [0, 0, 0, 0])
                 case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
+                case .gutter(let right, let bottom)?: (12, [0, right, bottom, 0])
                 }
                 for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
                     withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }

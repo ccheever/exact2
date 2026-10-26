@@ -74,7 +74,7 @@ spelling. Boolean false removes an HTML boolean attribute, never serializes
 
 | Property | Meaning/default and projection |
 |---|---|
-| src, poster | HTTP(S), bundled relative asset, or the app's own `app:/` file (data, cache or tmp) as an `image` takes one (podcast F19); resolved through the existing asset owner on Apple. An empty `src` fails `src-not-supported`, as HTML's resource selection does |
+| src, poster | HTTP(S), bundled relative asset, or the app's own `app:/` file (data, cache or tmp) as an `image` takes one (podcast F19); resolved through the existing asset owner on Apple. An empty `src` fails `src-not-supported`, as HTML's resource selection does. On Apple the poster is placed by `object-fit`, as the frames are, and shows until playback or a seek has begun and the presentation is `readyForDisplay` (2026-10-21): hidden when playback began, it left a blank box for the 50 ms to 1 s AVPlayer takes to draw its first frame after launch |
 | controls, autoplay, loop, muted | false by default; native controls, playback request, item loop and audio mute |
 | preload | none/metadata/auto; a hint, browser-owned on web. AVKit may prepare an item even under none so its Play control can work |
 | playsinline | false by default; true keeps iPhone playback inline |

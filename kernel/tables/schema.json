@@ -176,6 +176,7 @@
       "id": 0,
       "name": "text",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "measure": true
     },
@@ -183,11 +184,13 @@
       "id": 1,
       "name": "imageSource",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 2,
       "name": "placeholder",
+      "watch": "admit",
       "kind": "str",
       "measure": true
     },
@@ -195,6 +198,7 @@
       "id": 3,
       "name": "accessibilityLabel",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -227,6 +231,7 @@
       "id": 9,
       "name": "lang",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -238,12 +243,14 @@
       "id": 11,
       "name": "testId",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 12,
       "name": "nativeId",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -255,6 +262,7 @@
       "id": 14,
       "name": "href",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -271,6 +279,7 @@
       "id": 17,
       "name": "value",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "measure": true
     },
@@ -293,12 +302,14 @@
       "id": 21,
       "name": "accessibilityRole",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 22,
       "name": "accessibilityHint",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -340,12 +351,14 @@
       "id": 30,
       "name": "accessibilityHeadingLevel",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "int"
     },
     {
       "id": 31,
       "name": "accessibilityElementsHidden",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "bool"
     },
     {
@@ -399,6 +412,7 @@
       "id": 42,
       "name": "src",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -410,6 +424,7 @@
       "id": 44,
       "name": "id",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -445,11 +460,13 @@
     {
       "id": 51,
       "name": "navigationKey",
+      "watch": "admit",
       "kind": "str"
     },
     {
       "id": 52,
       "name": "navigationBack",
+      "watch": "admit",
       "kind": "str"
     },
     {
@@ -1300,6 +1317,7 @@
       "id": 212,
       "name": "max",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1069.001 D1: HTML's `max`, as `min`."
     },
@@ -1406,6 +1424,7 @@
       "id": 237,
       "name": "title",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
     },
@@ -1533,7 +1552,7 @@
       "id": 259,
       "name": "navigationBar",
       "kind": "str",
-      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
+      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops), `transparent` (the bar as `auto` has it, drawn clear at the top of the route's scroller, whose content starts under it as under a fixed transparent header on the web: a hero photo bleeds to the top, and the bar's material comes as the content scrolls) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
     },
     {
       "id": 260,
@@ -1545,7 +1564,7 @@
       "id": 261,
       "name": "menuPlacement",
       "kind": "str",
-      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal app|file|edit|view|go|window|help. AppKit projects the button into that menu, with or without a chord; other hosts retain the ordinary button. No layout effect."
+      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal about|app|file|edit|view|go|window|help|none. AppKit projects the button into that menu, with or without a chord (none: no item, the chord kept); other hosts retain the ordinary button. No layout effect."
     },
     {
       "id": 263,
@@ -1605,6 +1624,7 @@
       "id": 272,
       "name": "datetime",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the time element’s instant in epoch milliseconds."
     },
@@ -1612,6 +1632,7 @@
       "id": 273,
       "name": "timeFormat",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1126 D6: the time element’s named presentation."
     },
@@ -1619,6 +1640,7 @@
       "id": 274,
       "name": "start",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the progress interval’s start instant in epoch milliseconds."
     },
@@ -1626,6 +1648,7 @@
       "id": 275,
       "name": "end",
       "snapshot": "admit",
+      "watch": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the progress interval’s end instant in epoch milliseconds."
     },
@@ -1647,6 +1670,68 @@
       "name": "decorationStyles",
       "kind": "str",
       "_comment": "@ref LLP 1114.007: the compiler's table of the `decoration` declarations visible in the textarea's source file, by name, each a list of [style id, literal] rows of the properties `::highlight()` admits. Not an authored attribute."
+    },
+    {
+      "id": 279,
+      "name": "alertPart",
+      "kind": "str",
+      "_comment": "The part of an alert (an alert-shaped `dialog role=\"alertdialog\"`) a child is: `title` (its first text, when it has no `aria-label`), `message` (the box of its texts) or `actions` (the box of its buttons), so a host that draws the alert can scroll a long message while the title and buttons stay in view; a host that presents the platform's alert reads through the boxes. The compiler's, never authored."
+    },
+    {
+      "id": 280,
+      "name": "defaultSurface",
+      "kind": "bool",
+      "_comment": "@ref LLP 1021 (theme2 2026-10-21 18:45, 19:55): the compiler's mark on a `popover` whose author wrote no surface (no background, border, box-shadow or `backgroundMaterial`, on it or its class). A host that paints the popover itself draws the platform's default popover surface under it (iOS: UIKit's popover glass, its corner the metrics' `popover-radius`; before iOS 26 the glass's ultra-thin stand-in with that corner and shadow, unmeasured against the pre-glass popover since no older runtime was installed); the web keeps the UA's popover style, the Mac its system popover, and a popover presented as a menu ignores it. Never authored."
+    },
+    {
+      "id": 281,
+      "name": "groupedAction",
+      "kind": "bool",
+      "_comment": "@ref LLP 1116.019 D6: whether a grouped list's button row is an action cell, in the platform's action ink. Set by Contract's grouped sheet, never written by an author (`contract/lower/src/grouped.rs` `ink`): the sheet decides from the source, which sees every state of an `if` or a choice row, where the shown children see one. Absent on a row the sheet does not judge (no `button`), where the kernel reads the row's shape (`GroupedRow::action`)."
+    },
+    {
+      "id": 282,
+      "name": "partition",
+      "kind": "str",
+      "_comment": "@ref LLP 1020.002 D1: an `iframe`'s partition: `persist:<name>` stores across launches, `<name>` in memory for the session; the guest is a top-level page with that partition's cookies and storage. Ignored on the web (`exactPage().iframePartition` is false there)."
+    },
+    {
+      "id": 283,
+      "name": "appleAllowsBackForwardNavigationGestures",
+      "kind": "bool",
+      "_comment": "@ref LLP 1020.002 §9: `apple.allowsBackForwardNavigationGestures=` on an `iframe`, `WKWebView`'s property of that name; inert elsewhere."
+    },
+    {
+      "id": 284,
+      "name": "appleAllowsMagnification",
+      "kind": "bool",
+      "_comment": "@ref LLP 1020.002 §9: `apple.allowsMagnification=` on an `iframe`, macOS `WKWebView`'s property of that name; inert elsewhere."
+    },
+    {
+      "id": 285,
+      "name": "appleInactiveSchedulingPolicy",
+      "kind": "str",
+      "_comment": "@ref LLP 1020.002 §9: `apple.inactiveSchedulingPolicy=` on an `iframe`, `WKPreferences.inactiveSchedulingPolicy`: `suspend`, `throttle` or `none`; inert elsewhere."
+    },
+    {
+      "id": 286,
+      "name": "atoms",
+      "kind": "str",
+      "measure": true,
+      "_comment": "@ref LLP 1045.000 D1, D3: the inline atom kinds a `markup=\"markdown\"` text or textarea recognizes, the compiler's table of the `atom` declarations its `atoms` names, as JSON `[{name, link | prefix, role}]` (`link` a scheme with its colon, or `relative`). Not an authored value."
+    },
+    {
+      "id": 287,
+      "name": "atomStyles",
+      "kind": "str",
+      "_comment": "@ref LLP 1045.000 D3: the paint of the atom kinds in `atoms`, by kind name, each a list of [style id, literal] rows of `color` and `background-color`, as `decorationStyles` carries a decoration's. Paint only: never measured."
+    },
+    {
+      "id": 288,
+      "name": "atomFaces",
+      "kind": "str",
+      "measure": true,
+      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title}]`, keyed by each atom's whole source text. Measured: a label changes a pill's width."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1940,6 +2025,13 @@
         "italic"
       ],
       "default": "normal"
+    },
+    "FontOpticalSizing": {
+      "values": [
+        "auto",
+        "none"
+      ],
+      "default": "auto"
     },
     "TextDecorationLine": {
       "values": [
@@ -2467,12 +2559,13 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a calculation after a zero f32 (style/calc/wire.rs, LLP 1116 D5): a tree node by node, each a u8 tag (0 a value, 1 env(), 2 a sum, 3 a product, 4 a negation, 5 an inversion, 6 min, 7 max, 8 clamp), then a value’s f64 and u8 unit (0 a number, 1 a percentage, 2 px, 3-12 a viewport unit); an env()’s u8 (0-3 a safe-area-inset edge, 8-13 a viewport-segment variable followed by its two u8 indices, 16-35 a layout region's inset, 16 + region × 4 + edge, 36-39 an env(titlebar-area-x/y/width/height), which only a tree holds); a list’s u8 count and its children; clamp’s three presence bytes, each before its argument; or, for a value whose env() has a fallback, tag 9 and the text as written as a string (u32 length, UTF-8), which the row reads once substituted (CSS Environment Variables 1 §3). A tree is admitted only when it is within CSS Values 4 §10.8’s limits, its own §10.13 text parses back to it and no other kind holds it; a text only when the row reads it as one. Kind 25 is an env(-exact-<region>-inset-<edge>) layout region's inset, the f32 the points added, then a u8 region (0 safe-area-corners, 1 layout-margins, 2 layout-margins-corners, 3 readable-content, 4 readable-content-corners) and a u8 edge (0 top, 1 right, 2 bottom, 3 left), LLP 1123 D10) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. refusesPercent marks a dimension row CSS gives no percentage (column-width): a percentage there, alone or inside a calculation, is refused when set and a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a calculation after a zero f32 (style/calc/wire.rs, LLP 1116 D5): a tree node by node, each a u8 tag (0 a value, 1 env(), 2 a sum, 3 a product, 4 a negation, 5 an inversion, 6 min, 7 max, 8 clamp), then a value’s f64 and u8 unit (0 a number, 1 a percentage, 2 px, 3-12 a viewport unit); an env()’s u8 (0-3 a safe-area-inset edge, 8-13 a viewport-segment variable followed by its two u8 indices, 16-35 a layout region's inset, 16 + region × 4 + edge, 36-39 an env(titlebar-area-x/y/width/height), which only a tree holds); a list’s u8 count and its children; clamp’s three presence bytes, each before its argument; or, for a value whose env() has a fallback, tag 9 and the text as written as a string (u32 length, UTF-8), which the row reads once substituted (CSS Environment Variables 1 §3). A tree is admitted only when it is within CSS Values 4 §10.8’s limits, its own §10.13 text parses back to it and no other kind holds it; a text only when the row reads it as one. Kind 25 is an env(-exact-<region>-inset-<edge>) layout region's inset, the f32 the points added, then a u8 region (0 safe-area-corners, 1 layout-margins, 2 layout-margins-corners, 3 readable-content, 4 readable-content-corners) and a u8 edge (0 top, 1 right, 2 bottom, 3 left), LLP 1123 D10) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, calc()/min()/max()/clamp() over px and %, fit-content(px or %), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. refusesPercent marks a dimension row CSS gives no percentage (column-width): a percentage there, alone or inside a calculation, is refused when set and a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
       "field": "width",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2483,6 +2576,7 @@
       "bit": 1,
       "field": "height",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2493,6 +2587,7 @@
       "bit": 2,
       "field": "min_width",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2503,6 +2598,7 @@
       "bit": 3,
       "field": "min_height",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2513,6 +2609,7 @@
       "bit": 4,
       "field": "max_width",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2523,6 +2620,7 @@
       "bit": 5,
       "field": "max_height",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2533,6 +2631,7 @@
       "bit": 6,
       "field": "padding_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2543,6 +2642,7 @@
       "bit": 7,
       "field": "padding_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2553,6 +2653,7 @@
       "bit": 8,
       "field": "padding_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2563,6 +2664,7 @@
       "bit": 9,
       "field": "padding_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2573,6 +2675,7 @@
       "bit": 10,
       "field": "margin_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2583,6 +2686,7 @@
       "bit": 11,
       "field": "margin_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2593,6 +2697,7 @@
       "bit": 12,
       "field": "margin_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2603,6 +2708,7 @@
       "bit": 13,
       "field": "margin_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2613,6 +2719,7 @@
       "bit": 14,
       "field": "flex_direction",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:FlexDirection",
       "layout": true
@@ -2621,6 +2728,7 @@
       "bit": 15,
       "field": "flex_wrap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:FlexWrap",
       "layout": true
@@ -2629,6 +2737,7 @@
       "bit": 16,
       "field": "justify_content",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyContent",
       "layout": true
@@ -2637,6 +2746,7 @@
       "bit": 17,
       "field": "align_items",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:AlignItems",
       "layout": true
@@ -2645,6 +2755,7 @@
       "bit": 18,
       "field": "align_self",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:AlignSelf",
       "layout": true
@@ -2653,6 +2764,7 @@
       "bit": 19,
       "field": "align_content",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:AlignContent",
       "layout": true
@@ -2661,6 +2773,7 @@
       "bit": 20,
       "field": "flex_grow",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2670,6 +2783,7 @@
       "bit": 21,
       "field": "flex_shrink",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2679,6 +2793,7 @@
       "bit": 22,
       "field": "flex_basis",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2689,6 +2804,7 @@
       "bit": 23,
       "field": "position_type",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:PositionType",
       "layout": true
@@ -2697,6 +2813,7 @@
       "bit": 24,
       "field": "top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2707,6 +2824,7 @@
       "bit": 25,
       "field": "right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2717,6 +2835,7 @@
       "bit": 26,
       "field": "bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2727,6 +2846,7 @@
       "bit": 27,
       "field": "left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2737,6 +2857,7 @@
       "bit": 28,
       "field": "row_gap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2746,6 +2867,7 @@
       "bit": 29,
       "field": "column_gap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2755,6 +2877,8 @@
       "bit": 30,
       "field": "aspect_ratio",
       "snapshot": "admit",
+      "rare": true,
+      "watch": "admit",
       "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
@@ -2764,6 +2888,7 @@
       "bit": 31,
       "field": "display",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:Display",
       "layout": true
@@ -2772,6 +2897,7 @@
       "bit": 32,
       "field": "box_sizing",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BoxSizing",
       "layout": true
@@ -2780,6 +2906,7 @@
       "bit": 33,
       "field": "overflow_x",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2788,6 +2915,7 @@
       "bit": 34,
       "field": "overflow_y",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2804,6 +2932,7 @@
       "bit": 36,
       "field": "grid_auto_flow",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:GridAutoFlow",
       "layout": true
@@ -2812,6 +2941,7 @@
       "bit": 37,
       "field": "grid_template_columns",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2821,6 +2951,7 @@
       "bit": 38,
       "field": "grid_template_rows",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2830,6 +2961,7 @@
       "bit": 39,
       "field": "grid_column",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2839,6 +2971,7 @@
       "bit": 40,
       "field": "grid_row",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2848,6 +2981,7 @@
       "bit": 41,
       "field": "justify_items",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyItems",
       "layout": true
@@ -2856,6 +2990,7 @@
       "bit": 42,
       "field": "direction",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:Direction",
       "inherited": true,
       "layout": true,
@@ -2865,6 +3000,7 @@
       "bit": 43,
       "field": "border_width_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2874,6 +3010,7 @@
       "bit": 44,
       "field": "border_width_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2883,6 +3020,7 @@
       "bit": 45,
       "field": "border_width_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2892,6 +3030,7 @@
       "bit": 46,
       "field": "border_width_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2901,6 +3040,7 @@
       "bit": 47,
       "field": "background_color",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": 0
@@ -2909,6 +3049,7 @@
       "bit": 48,
       "field": "opacity",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "default": 1
     },
@@ -2916,6 +3057,7 @@
       "bit": 49,
       "field": "border_radius_top_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2924,6 +3066,7 @@
       "bit": 50,
       "field": "border_radius_top_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2932,6 +3075,7 @@
       "bit": 51,
       "field": "border_radius_bottom_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2940,6 +3084,7 @@
       "bit": 52,
       "field": "border_radius_bottom_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2948,6 +3093,7 @@
       "bit": 53,
       "field": "border_color_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2957,6 +3103,7 @@
       "bit": 54,
       "field": "border_color_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2966,6 +3113,7 @@
       "bit": 55,
       "field": "border_color_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2975,6 +3123,7 @@
       "bit": 56,
       "field": "border_color_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -3028,6 +3177,7 @@
       "bit": 63,
       "field": "object_fit",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:ObjectFit",
       "cold": true
     },
@@ -3035,6 +3185,7 @@
       "bit": 64,
       "field": "font_size",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -3045,6 +3196,7 @@
       "bit": 65,
       "field": "font_weight",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "u16",
       "inherited": true,
@@ -3056,6 +3208,7 @@
       "bit": 66,
       "field": "font_style",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:FontStyle",
       "inherited": true,
@@ -3066,6 +3219,7 @@
       "bit": 67,
       "field": "font_family",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "u16",
       "inherited": true,
       "text": true,
@@ -3076,6 +3230,7 @@
       "bit": 68,
       "field": "text_align",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextAlign",
       "inherited": true,
@@ -3085,6 +3240,7 @@
       "bit": 69,
       "field": "line_height",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "line-height",
       "inherited": true,
       "text": true,
@@ -3095,6 +3251,7 @@
       "bit": 70,
       "field": "letter_spacing",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -3105,6 +3262,7 @@
       "bit": 71,
       "field": "text_decoration_line",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextDecorationLine"
     },
@@ -3112,6 +3270,7 @@
       "bit": 72,
       "field": "font_variant_numeric",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "u8",
       "keywords": "FontVariantNumeric",
       "inherited": true,
@@ -3123,6 +3282,7 @@
       "bit": 73,
       "field": "line_clamp",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "u32",
       "text": true,
@@ -3133,6 +3293,7 @@
       "bit": 74,
       "field": "text_overflow",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextOverflow",
       "text": true,
@@ -3142,6 +3303,7 @@
       "bit": 75,
       "field": "text_color",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "quantize",
       "codec": "color",
       "inherited": true,
@@ -3158,6 +3320,7 @@
       "bit": 77,
       "field": "white_space",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:WhiteSpace",
       "inherited": true,
@@ -3205,6 +3368,7 @@
       "bit": 84,
       "field": "clip_path",
       "snapshot": "admit",
+      "watch": "admit",
       "rare": true,
       "codec": "clip-path"
     },
@@ -3227,6 +3391,7 @@
       "bit": 87,
       "field": "overflow_wrap",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:OverflowWrap",
       "inherited": true,
@@ -3237,6 +3402,7 @@
       "bit": 88,
       "field": "border_style_top",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3245,6 +3411,7 @@
       "bit": 89,
       "field": "border_style_right",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3253,6 +3420,7 @@
       "bit": 90,
       "field": "border_style_bottom",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3261,6 +3429,7 @@
       "bit": 91,
       "field": "border_style_left",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3605,6 +3774,7 @@
       "bit": 140,
       "field": "text_transform",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "enum:TextTransform",
       "inherited": true,
@@ -3615,6 +3785,7 @@
       "bit": 141,
       "field": "background_image",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "background-image",
       "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or up to four linear/radial/conic/repeating-linear gradients; linear/radial stops take px or %. Painted over background-color, clipped as the background is.",
       "cold": true
@@ -3861,6 +4032,7 @@
       "bit": 175,
       "field": "order",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "admit",
       "codec": "i32",
       "layout": true,
@@ -3878,6 +4050,7 @@
       "bit": 177,
       "field": "text_indent",
       "snapshot": "admit",
+      "watch": "admit",
       "terminal": "cell",
       "codec": "f32",
       "inherited": true,
@@ -3890,6 +4063,7 @@
       "bit": 178,
       "field": "hyphens",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:Hyphens",
       "inherited": true,
       "text": true,
@@ -3917,6 +4091,7 @@
     {
       "bit": 181,
       "field": "column_width",
+      "rare": true,
       "codec": "dimension",
       "admitsAuto": true,
       "refusesPercent": true,
@@ -4067,6 +4242,7 @@
       "bit": 201,
       "field": "text_box_trim",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:TextBoxTrim",
       "text": true,
       "layout": true
@@ -4075,6 +4251,7 @@
       "bit": 202,
       "field": "text_box_edge",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:TextBoxEdge",
       "inherited": true,
       "text": true,
@@ -4091,6 +4268,7 @@
       "bit": 204,
       "field": "text_wrap_style",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "enum:TextWrapStyle",
       "inherited": true,
       "text": true,
@@ -4100,6 +4278,7 @@
     {
       "bit": 205,
       "field": "placeholder_color",
+      "rare": true,
       "codec": "color",
       "default": 0,
       "_comment": "@ref LLP 1104 D3: CSS `::placeholder { color }`, written as Contract's `::placeholder` part block on a text field (`input` of a text type, `textarea`). An unset mask (the default, 0, is never read) is the platform's own placeholder colour: UIKit's placeholderText, AppKit's placeholderTextColor, the browser's UA `::placeholder`. Its own alpha is the only opacity. Not inherited (it is the field's own part)."
@@ -4188,16 +4367,47 @@
       "bit": 216,
       "field": "font_stretch",
       "snapshot": "admit",
+      "watch": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
       "layout": true,
       "default": 100,
       "_comment": "@ref LLP 1019 D8: CSS `font-stretch` (Fonts 4's `font-width`), a percentage of the face's normal width, 100 normal; `<percentage>` or a keyword (`condensed` 75, …). It selects among a family's faces before style and weight (CSS Fonts 4 §5.2), and a face declared over a `wdth` range draws at it on that axis. Inherited, as in CSS."
+    },
+    {
+      "bit": 217,
+      "field": "font_variation_settings",
+      "snapshot": "admit",
+      "watch": "admit",
+      "codec": "font-variations",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1019 D9: CSS `font-variation-settings`, `normal` or up to eight `\"tag\" <number>` axes, applied after font-weight, font-stretch and optical sizing and winning for the same axis (CSS Fonts 4 §7.2). Inherited, as in CSS."
+    },
+    {
+      "bit": 218,
+      "field": "font_optical_sizing",
+      "snapshot": "admit",
+      "codec": "enum:FontOpticalSizing",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1019 §13: CSS `font-optical-sizing` (CSS Fonts 4 §2.7). `auto` sets a face's `opsz` axis to the font size in px; `none` leaves the face's own optical size. Inherited, as in CSS."
+    },
+    {
+      "bit": 219,
+      "field": "zoom",
+      "codec": "f32",
+      "rare": true,
+      "layout": true,
+      "default": 1,
+      "_comment": "@ref LLP 1020.002 D6: CSS `zoom` (CSS Viewport 1 §5), admitted on an `iframe` alone: the kernel multiplies the element's own absolute lengths (sizes, margins, padding, borders, insets and its default object size; never a percentage) and the host zooms the guest's page by it (`pageZoom` on Apple; the property itself on the web), as Chrome applies `zoom` to a frame."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (≤8), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (≤32), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (≤8), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (≤32), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), three for a `font-variation-settings` axis (its number, then its tag's high and low 16 bits; a keyframe carries one value per axis, LLP 1019 §13 D10), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {
@@ -4915,7 +5125,7 @@
       "adjust"
     ]
   ],
-  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
+  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path keeps to about the box's 20-unit live area, which the web draws an em across, as an SF Symbol's glyph is (the neutral look's `symbol-scale`). The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
@@ -5331,7 +5541,7 @@
       "#282828b3"
     ]
   ],
-  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
+  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (measured from UIKit on an iOS 27.0 simulator, in sRGB); the web draws it too, or in Safari WebKit's alias but for the backgrounds (host/web/look.mjs, LLP 1115.000 D4). Then the neutral light and dark pair, no platform's palette: what a host that paints its own controls shows (D17), and what the web's kernel resolves a role to that its page does not report, once a host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
   "colors": [
     [
       "Canvas",
@@ -5518,8 +5728,8 @@
       "-apple-system-opaque-separator",
       "opaqueSeparatorColor",
       "gridColor",
-      "#c6c6c8",
-      "#38383a",
+      "#e7e7e8",
+      "#2a2a2c",
       "#e0e0e0",
       "#383838"
     ],
@@ -5648,8 +5858,8 @@
       "-apple-system-orange",
       "systemOrangeColor",
       "systemOrangeColor",
-      "#ff9500",
-      "#ff9f0a",
+      "#ff8d28",
+      "#ff9230",
       "#a94e00",
       "#eb874a"
     ],
@@ -5659,7 +5869,7 @@
       "systemYellowColor",
       "systemYellowColor",
       "#ffcc00",
-      "#ffd60a",
+      "#ffd600",
       "#886602",
       "#c79e42"
     ],
@@ -5678,8 +5888,8 @@
       "",
       "systemMintColor",
       "systemMintColor",
-      "#00c7be",
-      "#63e6e2",
+      "#00c8b3",
+      "#00dac3",
       "#007e68",
       "#54b9a1"
     ],
@@ -5688,8 +5898,8 @@
       "-apple-system-teal",
       "systemTealColor",
       "systemTealColor",
-      "#30b0c7",
-      "#40c8e0",
+      "#00c3d0",
+      "#00d2e0",
       "#017b7f",
       "#52b7ba"
     ],
@@ -5698,8 +5908,8 @@
       "",
       "systemCyanColor",
       "systemCyanColor",
-      "#32ade6",
-      "#64d2ff",
+      "#00c0e8",
+      "#3cd3fe",
       "#007894",
       "#50b3d2"
     ],
@@ -5718,8 +5928,8 @@
       "-apple-system-indigo",
       "systemIndigoColor",
       "systemIndigoColor",
-      "#5856d6",
-      "#5e5ce6",
+      "#6155f5",
+      "#6d7cff",
       "#5555dc",
       "#8e9aff"
     ],
@@ -5728,8 +5938,8 @@
       "-apple-system-purple",
       "systemPurpleColor",
       "systemPurpleColor",
-      "#af52de",
-      "#bf5af2",
+      "#cb30e0",
+      "#db34f2",
       "#8840c6",
       "#be85f9"
     ],
@@ -5748,8 +5958,8 @@
       "-apple-system-brown",
       "systemBrownColor",
       "systemBrownColor",
-      "#a2845e",
-      "#ac8e68",
+      "#ac7f5e",
+      "#b78a66",
       "#896340",
       "#c09d7f"
     ],
@@ -5778,10 +5988,12 @@
   "lengths": [
     "hairline"
   ],
-  "_lengthRamps": "@ref LLP 1137: the length ramps, written `-exact-<name>` on any length row but a font's size and line height, as a named length is. Each is a length at every `textStyleBodies` body size, read at the root font size as a text style's size is (UIKit's Dynamic Type): `accessory-checkmark-width` and `-height` are the checkmark accessory of UIKit's list cell, measured on the iOS 27 simulator at each content size category (`~/audits/exact2-no-tells-2026-10-11/grouped-symbol-probe/ramp.txt`; the 13 body, which iOS has no category for, is the 14's scaled), which grows with the text to AX2, steps back at AX3 and grows again. `accessibility-stack-gap` is 8 through the largest standard size and wider than any line at the accessibility sizes (from the 28 body, AX1): as the gap between items of a wrapping row, it stacks them there, as UIKit's value cell and a hand-built cell's stack of labels turn vertical (`prefersSideBySideTextAndSecondaryText` off).",
-  "lengthRamps": [["accessory-checkmark-width", [14.55, 15.67, 17.33, 18.33, 19, 21.67, 24, 26.33, 31.33, 37.33, 36, 42.33, 48]], ["accessory-checkmark-height", [13.62, 14.67, 15.67, 16.67, 17.33, 19.67, 21.33, 24, 28.67, 34.33, 32.67, 38.67, 43.33]], ["accessibility-stack-gap", [8, 8, 8, 8, 8, 8, 8, 8, 2000, 2000, 2000, 2000, 2000]]],
-  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A seventh cell is Android's Material look's (LLP 1115.001.001 D2.4): Compose Material 3's value at the pinned version, which `host/android/reference/rows.json` traces to its symbol and `tokens.mjs` checks against the pinned source; a row without one reads the web's first look's there. The `field-` and `state-` rows at the end are the Material look's own. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); Android's Material look's where Android's reader says it; else the web's first look. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. `style length` (LLP 1121 stage 11 B, theme2's unit flag): a `style` row written on a length property (a gap, an inset, a corner, a width or height, a padding, a margin, an offset), whose number is px; the build holds the marker to the row's name both ways, and a base scale cell may name only such a row or a `length` one. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` under a coarse pointer, `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side; a row is `border-box` with its insets as padding, LLP 1084 D7, so its minimum heights count its padding: the Mac's 36-point row is 36 here, and `grouped-button-` rows keep a destructive row the Mac's content-box push button), and the neutral look's are the first look's on the neutral grounds with a surface's corners. The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
+  "_lengthRamps": "@ref LLP 1137: the length ramps, written `-exact-<name>` on any length row but a font's size and line height, as a named length is. Each is a length at every `textStyleBodies` body size, read at the root font size as a text style's size is (UIKit's Dynamic Type): `accessory-checkmark-width` and `-height` are the checkmark accessory of UIKit's list cell, measured on the iOS 27 simulator at each content size category (`~/audits/exact2-no-tells-2026-10-11/grouped-symbol-probe/ramp.txt`; the 13 body, which iOS has no category for, is the 14's scaled), which grows with the text to AX2, steps back at AX3 and grows again. The `list-symbol-` ramps are a list cell's leading symbol, measured the same way on iOS 27.0 under the system's text size (`UIListContentView`'s layout guides and the drawn symbol, a `star` and a `gear`; a window's trait override lays the cell out otherwise): through the standard sizes `-width` and `-height` scale the sheet's 24 by 20 slot as UIKit's drawn symbol grows and `-inset` is where the text starts (UIKit's `textLayoutGuide`); at the accessibility sizes they are UIKit's image box (`imageLayoutGuide`, which steps back at AX3 as the checkmark does) and the text's first line, 16 past it. `-pull` and `-gap` keep the symbol at the cell's 16-point margin and the text at that inset. UIKit wraps the text's later lines back under the symbol to the margin, which a slot beside the text does not. `accessibility-stack-gap` is 8 through the largest standard size and wider than any line at the accessibility sizes (from the 28 body, AX1): as the gap between items of a wrapping row, it stacks them there, as UIKit's value cell and a hand-built cell's stack of labels turn vertical (`prefersSideBySideTextAndSecondaryText` off).",
+  "lengthRamps": [["accessory-checkmark-width", [14.55, 15.67, 17.33, 18.33, 19, 21.67, 24, 26.33, 31.33, 37.33, 36, 42.33, 48]], ["accessory-checkmark-height", [13.62, 14.67, 15.67, 16.67, 17.33, 19.67, 21.33, 24, 28.67, 34.33, 32.67, 38.67, 43.33]], ["accessibility-stack-gap", [8, 8, 8, 8, 8, 8, 8, 8, 2000, 2000, 2000, 2000, 2000]], ["list-symbol-width", [18.83, 20.28, 21.63, 22.64, 24.0, 27.38, 30.08, 32.11, 36.33, 41.67, 41.0, 47.67, 54.33]], ["list-symbol-height", [15.29, 16.47, 17.64, 18.82, 20.0, 22.35, 24.41, 26.76, 33.33, 38.67, 47.67, 56.0, 63.0]], ["list-symbol-inset", [51.67, 52.67, 53.67, 55.0, 56.0, 58.33, 60.33, 63.67, 68.33, 73.67, 73.0, 79.67, 86.33]], ["list-symbol-pull", [-35.67, -36.67, -37.67, -39.0, -40.0, -42.33, -44.33, -47.67, -52.33, -57.67, -57.0, -63.67, -70.33]], ["list-symbol-gap", [8.84, 8.39, 8.04, 8.36, 8.0, 6.95, 6.25, 7.56, 8.0, 8.0, 8.0, 8.0, 8.0]]],
+  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A seventh cell is Android's Material look's (LLP 1115.001.001 D2.4): Compose Material 3's value at the pinned version, which `host/android/reference/rows.json` traces to its symbol and `tokens.mjs` checks against the pinned source; a row without one reads the web's first look's there. The `field-` and `state-` rows at the end are the Material look's own. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); Android's Material look's where Android's reader says it; else the web's first look. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. `style length` (LLP 1121 stage 11 B, theme2's unit flag): a `style` row written on a length property (a gap, an inset, a corner, a width or height, a padding, a margin, an offset), whose number is px; the build holds the marker to the row's name both ways, and a base scale cell may name only such a row or a `length` one. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` on a touch device (the web's `any-pointer: coarse`: any coarse input, normally a touch screen), `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side; a row is `border-box` with its insets as padding, LLP 1084 D7, so its minimum heights count its padding: the Mac's 36-point row is 36 here, and `grouped-button-` rows keep a destructive row the Mac's content-box push button), and the neutral look's are the first look's on the neutral grounds with a surface's corners. `popover-radius` is the corner of the default surface a host that paints a popover draws under one whose author wrote none (the `defaultSurface` prop): iOS's is UIKit's popover, Liquid Glass (`backgroundMaterial`'s `glass`) with 30-point continuous corners, measured against a presented `UIPopoverPresentationController` on the iOS 27 simulator (the edge profile of a `UIGlassEffect` view matched it best at 30 of 16 to 40); `popover-shadow-y`, `-blur` (CSS's blur radius) and `-alpha` (black's) are the faint shadow UIKit's popover casts beyond its glass's own, fitted the same way below and above it on a white page, in the light appearance only (over a red page UIKit's dark popover casts none); the web's first look holds iOS's values as every row does, and the web, the Mac and the neutral look draw their own (the UA's style, the system popover). The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
   "metrics": [
+    ["heading-title-weight", "style", "unset", "unset", 700, 700, "unset"],
+    ["heading-small-title-weight", "style", "unset", "unset", 600, 600, "unset"],
     ["header-ground", "style", "-exact-background"],
     ["header-color", "style", "-exact-label"],
     ["header-edge-width", "style length", 1],
@@ -5794,7 +6006,7 @@
     ["header-top", "style length", 0],
     ["grouped-ground", "style", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background"],
     ["grouped-ground-plain", "style", "light-dark(#ffffff, #000000)", "-exact-background", "light-dark(#ffffff, #000000)", "-exact-background"],
-    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "light-dark(#f9f9f9, #272727)", "light-dark(#ffffff, #1c1c1e)", "light-dark(#ffffff, #1c1c1e)"],
+    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "-exact-platform-color(macos exactGroupedCardColor, light-dark(#f9f9f9, #272727))", "light-dark(#ffffff, #1c1c1e)", "light-dark(#ffffff, #1c1c1e)"],
     ["grouped-separator", "style", "-exact-separator", "light-dark(#efefef, #333333)", "-exact-separator", "-exact-separator"],
     ["grouped-header-color", "style", "-exact-secondary-label", "-exact-label", "-exact-secondary-label", "-exact-secondary-label"],
     ["grouped-symbol-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
@@ -5804,7 +6016,7 @@
     ["grouped-section-width", "style length", "unset", "100%", "unset", "unset"],
     ["grouped-section-max-width", "style length", "unset", 744, "unset", "unset"],
     ["grouped-section-margin-inline", "style length", "unset", "auto", "unset", "unset"],
-    ["grouped-section-top", "style length", 17.33, 10, 17.33, 17.33],
+    ["grouped-section-top", "style length", 35, 10, 35, 35],
     ["grouped-section-top-first", "style length", 35.33, 20, 35.33, 35.33],
     ["grouped-section-top-header", "style length", 0, 30, 0, 0],
     ["grouped-section-top-header-first", "style length", 0, 20, 0, 0],
@@ -5829,7 +6041,7 @@
     ["grouped-row-min-height", "style length", 52, 36, 52, 52],
     ["grouped-row-padding-block", "style length", "unset", 10, "unset", "unset"],
     ["grouped-row-inset", "style length", 16, 10, 16, 16],
-    ["grouped-row-inset-symbol", "style length", 56, 10, 56, 56],
+    ["grouped-row-inset-symbol", "style length", "-exact-list-symbol-inset", 10, "-exact-list-symbol-inset", "-exact-list-symbol-inset"],
     ["grouped-row-padding-end", "style length", 16, 10, 16, 16],
     ["grouped-swipe-margin", "style length", 0, 10, 0, 0],
     ["grouped-swipe-max-width", "style length", "unset", "calc(100% - 10px)", "unset", "unset"],
@@ -5841,10 +6053,10 @@
     ["grouped-lines-padding-block", "style length", 15, 0, 15, 15],
     ["grouped-stack-gap", "style length", 0, 3, 0, 0],
     ["grouped-subtitle-gap", "style length", "unset", 3, "unset", "unset"],
-    ["grouped-symbol-width", "style length", 24, 16, 24, 24],
-    ["grouped-symbol-height", "style length", 20, 16, 20, 20],
-    ["grouped-symbol-pull", "style length", -40, 0, -40, -40],
-    ["grouped-symbol-gap", "style length", 8, 2, 8, 8],
+    ["grouped-symbol-width", "style length", "-exact-list-symbol-width", 16, "-exact-list-symbol-width", "-exact-list-symbol-width"],
+    ["grouped-symbol-height", "style length", "-exact-list-symbol-height", 16, "-exact-list-symbol-height", "-exact-list-symbol-height"],
+    ["grouped-symbol-pull", "style length", "-exact-list-symbol-pull", 0, "-exact-list-symbol-pull", "-exact-list-symbol-pull"],
+    ["grouped-symbol-gap", "style length", "-exact-list-symbol-gap", 2, "-exact-list-symbol-gap", "-exact-list-symbol-gap"],
     ["grouped-chevron-width", "style length", "0.82em", 9, "0.82em", "0.82em"],
     ["grouped-chevron-height", "style length", "0.82em", 11, "0.82em", "0.82em"],
     ["grouped-checkmark-width", "style length", "-exact-accessory-checkmark-width", 13, "-exact-accessory-checkmark-width", "-exact-accessory-checkmark-width"],
@@ -5868,6 +6080,10 @@
     ["grouped-button-margin-block", "style length", "unset", 10, "unset", "unset"],
     ["grouped-button-align", "style", "unset", "flex-start", "unset", "unset"],
     ["grouped-title-button-align", "style", "start", "unset", "start", "start"],
+    ["popover-radius", "length", 30, "unset", 30, "unset"],
+    ["popover-shadow-y", "length", 8, "unset", 8, "unset"],
+    ["popover-shadow-blur", "length", 24, "unset", 24, "unset"],
+    ["popover-shadow-alpha", "number", 0.015, "unset", 0.015, "unset"],
     ["control-height", "length", "2.25em"],
     ["control-height-coarse", "length", 44],
     ["control-radius", "length", 8],
@@ -5886,11 +6102,16 @@
     ["button-padding-block", "length", "0.4375em"],
     ["button-padding-inline", "length", "1em"],
     ["button-padding-inline-symbol", "length", "0.5em"],
+    ["symbol-scale", "number", 1.2],
+    ["button-symbol-scale", "number", 1.5],
+    ["button-image-gap", "length", 8],
     ["button-tint-alpha", "number", 0.12],
     ["button-hover-tinted", "number", 0.08],
     ["button-hover-filled", "number", 0.12],
     ["button-pressed-tinted", "number", 0.16],
-    ["button-pressed-filled", "number", 0.22],
+    ["button-pressed-alpha", "number", 0.75],
+    ["button-pressed-lighten", "number", 0.2],
+    ["bar-hover-alpha", "number", 0.65],
     ["field-padding-block", "length", "0.4375em"],
     ["field-padding-block-coarse", "length", "0.6875em"],
     ["field-padding-inline", "length", "0.75em"],
@@ -5924,6 +6145,7 @@
     ["sidebar-gap", "length", 10],
     ["back-padding-start", "length", "0.375em"],
     ["back-padding-end", "length", "0.625em"],
+    ["bar-symbol-size", "length", "1.2941rem"],
     ["alert-width", "length", "26rem"],
     ["alert-margin", "length", 32],
     ["alert-padding", "length", 24],
@@ -5931,6 +6153,7 @@
     ["alert-action-gap", "length", 12],
     ["alert-title", "length", "1.125em"],
     ["alert-message-gap", "length", 16],
+    ["alert-scroll-gutter", "length", 8],
     ["menu-min-width", "length", "11rem"],
     ["menu-max-width", "length", "20rem"],
     ["menu-margin", "length", 16],
@@ -5942,8 +6165,9 @@
     ["menu-row-gap", "length", "0.5em"],
     ["sheet-wide", "length", 900],
     ["sheet-width", "length", "35rem"],
-    ["sheet-max-height", "length", "45rem"],
+    ["sheet-height", "length", "45rem"],
     ["sheet-margin", "length", 64],
+    ["sheet-top", "length", 12],
     ["raised-shadow-y", "length", 4],
     ["raised-shadow-blur", "length", 12],
     ["raised-shadow-alpha", "number", 0.12],
@@ -5988,13 +6212,13 @@
     ["radio-disabled-opacity", "number", "unset", "unset", "unset", "unset", 0.38],
     ["touch-target", "length", "unset", "unset", "unset", "unset", 48]
   ],
-  "_scale": "@ref LLP 1121 stage 11 B (ruling 3, theme2's approvals 09:56 and 10:57). The base scale: nine names an app's views read with no design defining them (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a length in each column the metrics table has, and the terminal's. Each row: the name, then its cell for iOS, the Mac, the neutral look, Android's Material look and the terminal. There is no web column: every web build draws the neutral look, so `Column::Web` (a process that says no column, and Material's fallback) reads the neutral cell (theme2, 2026-10-19). A cell is never a bare number: it says where its value comes from, and the build refuses any other form (no arithmetic, no literal without a source). `=<metric>`: that metrics row's value in the same column (a `length`, or a `style` row's px), read when the kernel builds, so the cell cannot drift from it; only where the metric names the same role (a row's inset is space.md, a row gap space.sm, a control's corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm), or where theme2 ruled a role stretch, recorded in docs/scale-measured.md with its reason (the Mac's space.xl). `{\"px\": n, \"measured\": id}`: a value measured on the platform, `id` an entry of docs/scale-measured.md saying what was drawn or read, where, how and the number (scripts/measure-scale.mjs). `{\"px\": n, \"guideline\": id}`: a value a published guideline states (Material 3's spacing and shape scales), or the neutral look's own steps (LLP 1115.000 D17), `id` an entry of the same page with its citation. `full` (radius.full only): one oversized length, `style::scale::RADIUS_FULL`, which every host clamps into a pill by CSS's corner-overlap rule. The terminal's cells: `{\"cells\": n}`, a spacing of n cells (`n ch`), and `0` for a radius, which a terminal never draws. Units are px (points) with no Dynamic Type scaling (ruling 6; QUEUE has the opt-in). A kernel test holds every cell to its source and each look's steps in order (xs \u2264 sm \u2264 md \u2264 lg \u2264 xl, radius sm \u2264 md \u2264 lg; radius.full left out); `style::scale` is the one table any reader of the base takes (the design server's describe, resolve and explain read it in stage 10's D).",
+  "_scale": "@ref LLP 1121 stage 11 B (ruling 3, theme2's approvals 09:56 and 10:57). The base scale: nine names an app's views read with no design defining them (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a length in each column the metrics table has, and the terminal's. Each row: the name, then its cell for iOS, the Mac, the neutral look, Android's Material look and the terminal. There is no web column: every web build draws the neutral look, so `Column::Web` (a process that says no column, and Material's fallback) reads the neutral cell (theme2, 2026-10-19). A cell is never a bare number: it says where its value comes from, and the build refuses any other form (no arithmetic, no literal without a source). `=<metric>`: that metrics row's value in the same column (a `length`, or a `style` row's px), read when the kernel builds, so the cell cannot drift from it; only where the metric names the same role (a row's inset is space.md, a row gap space.sm, a control's corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm). `{\"stretch\": \"=<metric>\", \"why\": \"…\"}` (LLP 1121 stage 13 D5): that metrics row's value as `=<metric>` reads it, for a role it doesn't name, where theme2 ruled the stretch; `why` says why in a line, and docs/scale-measured.md's `=<metric>` entry under Role stretches gives the measurement and the ruling (the Mac's space.xl). `{\"px\": n, \"measured\": id}`: a value measured on the platform, `id` an entry of docs/scale-measured.md saying what was drawn or read, where, how and the number (scripts/measure-scale.mjs). `{\"px\": n, \"guideline\": id}`: a value a published guideline states (Material 3's spacing and shape scales), or the neutral look's own steps (LLP 1115.000 D17), `id` an entry of the same page with its citation. `full` (radius.full only): one oversized length, `style::scale::RADIUS_FULL`, which every host clamps into a pill by CSS's corner-overlap rule. The terminal's cells: `{\"cells\": n}`, a spacing of n cells (`n ch`), and `0` for a radius, which a terminal never draws. Units are px (points) with no Dynamic Type scaling (ruling 6; QUEUE has the opt-in). A kernel test holds every cell to its source and each look's steps in order (xs \u2264 sm \u2264 md \u2264 lg \u2264 xl, radius sm \u2264 md \u2264 lg; radius.full left out); `style::scale` is the one table any reader of the base takes (the design server's describe, resolve and explain read it in stage 10's D).",
   "scale": [
     ["space.xs", {"px": 5, "measured": "ios-button-small-inset-top"}, {"px": 6, "measured": "mac-grid-spacing"}, {"px": 4, "guideline": "neutral-steps"}, {"px": 4, "guideline": "m3-spacing"}, {"cells": 0}],
     ["space.sm", "=grouped-row-gap", "=grouped-row-gap", "=grouped-row-gap", "=grouped-row-gap", {"cells": 1}],
     ["space.md", "=grouped-row-inset", "=grouped-row-inset", "=grouped-row-inset", "=grouped-row-inset", {"cells": 1}],
     ["space.lg", {"px": 20, "measured": "ios-button-large-inset-leading"}, {"px": 20, "measured": "mac-window-margin"}, {"px": 24, "guideline": "neutral-steps"}, {"px": 24, "guideline": "m3-spacing"}, {"cells": 2}],
-    ["space.xl", {"px": 35, "measured": "ios-inset-grouped-section-gap"}, "=grouped-label-inset", {"px": 32, "guideline": "neutral-steps"}, {"px": 32, "guideline": "m3-spacing"}, {"cells": 2}],
+    ["space.xl", {"px": 35, "measured": "ios-inset-grouped-section-gap"}, {"stretch": "=grouped-label-inset", "why": "a grouped section label's inset, the Mac's largest grouped spacing: its headerless gap between sections (10) is below space.lg"}, {"px": 32, "guideline": "neutral-steps"}, {"px": 32, "guideline": "m3-spacing"}, {"cells": 2}],
     ["radius.sm", {"px": 5.6, "measured": "ios-cornerstyle-small-44"}, {"px": 5, "measured": "mac-checkbox-corner"}, "=mark-radius", {"px": 4, "guideline": "m3-shape"}, 0],
     ["radius.md", {"px": 17, "measured": "ios-button-medium-corner"}, {"px": 6, "measured": "mac-push-regular-corner"}, "=control-radius", {"px": 8, "guideline": "m3-shape"}, 0],
     ["radius.lg", "=grouped-card-radius", "=grouped-card-radius", "=surface-radius", {"px": 12, "guideline": "m3-shape"}, 0],

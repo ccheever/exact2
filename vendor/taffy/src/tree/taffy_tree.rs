@@ -471,7 +471,7 @@ where
                     #[cfg(feature = "block_layout")]
                     {
                         let style = &*tree.taffy.nodes[node_key].style;
-                        let bounds = (inputs.run_mode == RunMode::PerformLayout && style.multicol.is_some())
+                        let bounds = (inputs.run_mode == RunMode::PerformLayout && style.rare.multicol.is_some())
                             .then(|| crate::compute::leaf::height_bounds(&inputs, style, tree.taffy.calc_resolver));
                         if let Some((min, max)) = bounds {
                             tree.set_multicol_bounds(node_id, min, max);

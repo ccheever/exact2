@@ -132,7 +132,18 @@ final class TextField: UITextField {
     // DOM's clipboard events, before the field's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    override func paste(_ sender: Any?) {
+        NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) {
+            if super.canPerformAction(#selector(paste(_:)), withSender: sender) { super.paste(sender) }
+        }
+    }
+    #if os(iOS)
+    override func pasteAndMatchStyle(_ sender: Any?) { paste(sender) }
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if owner?.pastesFiles(action) == true { return isEnabled && owner?.props["editable"] != "false" }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    #endif
 }
 
 package final class TextArea: UITextView {
@@ -173,11 +184,15 @@ package final class TextArea: UITextView {
     /// comes with a new length is an edit's.
     var markupSelection: NSRange?
     var markupLength = 0
+    /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
+    var atomElements: [AtomElement] = []
+    var atomTap: (AnyObject, UITapGestureRecognizer)?
+    var atomLook: (any UITraitChangeRegistration)?
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
-        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; super.typingAttributes = shown }
+        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; shown[.markupAtom] = nil; super.typingAttributes = shown }
     }
     // VoiceOver reads the text without hidden link destinations (LLP 1045 D1).
     package override var accessibilityValue: String? {
@@ -333,7 +348,7 @@ package final class TextArea: UITextView {
     @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain((text as NSString).substring(with: selectedRange)) else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
         UIPasteboard.general.string = plain
         #endif
     }
@@ -348,7 +363,18 @@ package final class TextArea: UITextView {
         }
     }
     package override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    package override func paste(_ sender: Any?) {
+        NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) {
+            if super.canPerformAction(#selector(paste(_:)), withSender: sender) { super.paste(sender) }
+        }
+    }
+    #if os(iOS)
+    package override func pasteAndMatchStyle(_ sender: Any?) { paste(sender) }
+    package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if owner?.pastesFiles(action) == true { return isEditable }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    #endif
     // Keep TextKit's line pitch equal to the authored CSS line box. Updating
     // storage attributes preserves the value and selected range; replacing
     // attributedText would reset a selection (including a read-only one).
@@ -378,10 +404,18 @@ package final class TextArea: UITextView {
         super.draw(rect)
         decorations?.drawLines(in: self)
         if text.isEmpty, !placeholder.isEmpty {
-            (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
+            // Where the first line of text sits, however short the content
+            // box: what overflows the view is clipped, as the web clips a
+            // textarea's placeholder at its padding box. `draw(in:)` drops a
+            // line its rect cannot hold whole, so a short box drew nothing.
+            let box = bounds.inset(by: textContainerInset)
+            var attributes: [NSAttributedString.Key: Any] = [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
                 .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
-            ])
+            ]
+            attributes[.paragraphStyle] = typingAttributes[.paragraphStyle]
+            (placeholder as NSString).draw(with: CGRect(x: box.minX, y: box.minY, width: max(0, box.width), height: .greatestFiniteMagnitude),
+                                           options: .usesLineFragmentOrigin, attributes: attributes, context: nil)
         }
     }
 }
@@ -464,6 +498,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            f.atomsChanged()
         }
     }
     func applyTextArea() {
@@ -495,7 +530,8 @@ extension NodeView {
         textArea?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
-        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
+            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
         f.textColor = fieldInk
         f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
         if isNativeTextControl {

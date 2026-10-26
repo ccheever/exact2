@@ -31,6 +31,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+mod presentation;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+pub(crate) use presentation::Presentation;
 pub mod border;
 pub(crate) mod button;
 mod caret;
@@ -46,6 +50,7 @@ pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
 mod alert;
 pub(crate) mod inline;
+pub(crate) mod inline_frame;
 mod layer;
 mod lift;
 pub(crate) mod look;
@@ -532,6 +537,7 @@ pub struct Painter {
     // Accepted owners retain their paragraph leases while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     pub(crate) field_text: HashMap<ViewId, Rc<field::PaintedField>>,
+    pub(crate) inline_text: HashMap<ViewId, Rc<inline_frame::PaintedInline>>,
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
     damage: damage::Retained,
@@ -566,22 +572,12 @@ pub struct Painter {
     pub(crate) labels: material::Labels,
 }
 
-// O(painted owners) references and numeric publication metadata, not copied
-// glyphs/commands or a new render graph. The display retains acknowledged A
-// here while one submitted B owns its corresponding leases.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
-pub(crate) struct Presentation {
-    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
-    fields: HashMap<ViewId, Rc<field::PaintedField>>,
-    picture: Option<Rc<region::Picture>>,
-    frame: Option<region::Published>,
-}
-
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     fields: HashMap<ViewId, Rc<field::PaintedField>>,
+    inline: HashMap<ViewId, Rc<inline_frame::PaintedInline>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
@@ -615,26 +611,6 @@ impl Painter {
         std::mem::take(&mut self.materials.1)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", test))]
-    pub(crate) fn presentation(&self) -> Presentation {
-        Presentation {
-            text: self.accepted_text.clone(),
-            fields: self.field_text.clone(),
-            picture: self.region_picture.clone(),
-            frame: self.region_frame.as_ref().map(|f| region::Published {
-                incarnation: f.incarnation.clone(),
-                selection: f.selection.clone(),
-            }),
-        }
-    }
-    #[cfg(any(target_os = "linux", target_os = "android", test))]
-    pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
-        std::mem::swap(&mut self.accepted_text, &mut state.text);
-        std::mem::swap(&mut self.field_text, &mut state.fields);
-        std::mem::swap(&mut self.region_picture, &mut state.picture);
-        std::mem::swap(&mut self.region_frame, &mut state.frame);
-        state
-    }
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
@@ -671,6 +647,7 @@ impl Painter {
             clipped: None,
             field_content: HashMap::new(),
             field_text: HashMap::new(),
+            inline_text: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -875,6 +852,7 @@ impl Painter {
             boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
             fields: HashMap::new(),
+            inline: HashMap::new(),
             skip,
             replay,
             ranks: self.ranks.clone(),
@@ -906,6 +884,7 @@ impl Painter {
         if finished.is_ok() {
             self.accepted_text = walk.text;
             self.field_text = walk.fields;
+            self.inline_text = walk.inline;
         } else {
             drop(walk.text);
         }
@@ -1189,14 +1168,7 @@ impl Painter {
                     .kernel
                     .button_face_style(node.id)
                     .expect("button");
-                self.button_control(
-                    node,
-                    surface.outer.rect,
-                    ts,
-                    &face,
-                    &rows,
-                    walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
-                );
+                self.button_control(node, surface.outer.rect, ts, &face, &rows, walk);
             }
             NodeType::Control
                 if look::neutral() && node.props.str(PropId::Type) == Some("file") =>
@@ -1252,7 +1224,8 @@ impl Painter {
         // LLP 1104 D6: native buttons ring their own chrome; a bare
         // button rings its outer box even without a press handler.
         if paints_self
-            && node.node_type == NodeType::Pressable
+            && (node.node_type == NodeType::Pressable
+                || self.alert.is_some() && node.props.str(PropId::AlertPart) == Some("message"))
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
             && self.ringless != Some(node.id)
@@ -1279,10 +1252,10 @@ impl Painter {
 /// hit there too.
 fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
     let kernel = scene.kernel;
-    let Some(node) = kernel.node(id).filter(|n| {
-        n.computed_row(exact_kernel::StyleId::PositionType, |s| s.position_type)
-            == exact_kernel::PositionType::Sticky
-    }) else {
+    let Some(node) = kernel
+        .node(id)
+        .filter(|n| n.layout_position() == exact_kernel::PositionType::Sticky)
+    else {
         return offset;
     };
     let Some(c) = kernel.sticky_constraint(node.key) else {
@@ -1356,12 +1329,15 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
 
 /// A node's effective overflow per axis — the kernel's own rule: a
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
-/// unset axis beside a non-visible one is scrollable (CSS Overflow §3).
+/// unset axis beside a non-visible one is scrollable (CSS Overflow §3). A
+/// neutral alert and its part boxes read the alert's defaults too
+/// (kernel/src/arena/alert.rs): its message box scrolls.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let resolved;
     let s = if look::neutral()
-        && node.props.str(PropId::SemanticTag) == Some("dialog")
-        && node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+        && (node.props.get(PropId::AlertPart).is_some()
+            || node.props.str(PropId::SemanticTag) == Some("dialog")
+                && node.props.str(PropId::AccessibilityRole) == Some("alertdialog"))
     {
         resolved = node.computed_style(StyleMask::EMPTY);
         &resolved
@@ -1384,16 +1360,16 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 }
 
 /// A scroll container's content extent: the kernel's scrollable overflow,
-/// floored with the direct children's extent plus the end padding (Taffy's
-/// block containers do not always count end-edge padding), never less than
-/// the box itself.
+/// floored with its children's extent plus the end padding (Taffy's block
+/// containers do not always count it), never less than the box itself. A
+/// child in a block of its own (a popover's, the viewport) is elsewhere.
 pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     // Read the end padding the engine laid out with, a bar's cover included
     let (_, _, pad_right, pad_bottom) = kernel.layout_padding(node.key).unwrap_or_default();
     let mut w = node.frame.width.max(node.content.0);
     let mut h = node.frame.height.max(node.content.1);
     for child in node.children() {
-        if let Some(c) = kernel.node(child) {
+        if let Some(c) = kernel.node_unblocked(child) {
             w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
             h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
         }

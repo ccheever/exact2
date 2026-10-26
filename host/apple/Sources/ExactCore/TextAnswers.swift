@@ -2,7 +2,7 @@
 // engines read it (LLP 1072 §8.1): the measurer, on the owner thread, answers
 // a paragraph it has answered before without typesetting it again, and the
 // painter, on main, takes the line breaks its pixels are made from. Plain
-// values under one lock; no CoreText object is kept or crosses a thread.
+// values under one lock; no CoreText layout object is kept or crosses a thread.
 import Foundation
 import CoreText
 import CExact
@@ -24,11 +24,13 @@ package enum TextAnswerKey {
     }
     private static func fields(_ size: Double, _ weight: Int32, _ family: Int32, _ italic: Bool,
                                _ lineHeight: Double?, _ spacing: Double, _ numeric: Int32, _ stretch: Double,
-                               _ out: inout [UInt8]) {
+                               _ variations: [FontAxis], _ out: inout [UInt8]) {
         put(size.bitPattern, &out); put(weight, &out); put(family, &out)
         out.append(italic ? 1 : 0); out.append(lineHeight == nil ? 0 : 1)
         put((lineHeight ?? 0).bitPattern, &out); put(spacing.bitPattern, &out); put(numeric, &out)
         put(stretch.bitPattern, &out)
+        put(Int32(variations.count), &out)
+        for v in variations { put(v.tag, &out); put(v.value.bitPattern, &out) }
     }
     private static func paragraph(_ align: Int, _ clamp: Int, _ wrap: Int, _ direction: Int, _ space: Int,
                                   _ indent: Double, _ hyphens: Int, _ out: inout [UInt8]) {
@@ -54,7 +56,7 @@ package enum TextAnswerKey {
             }
             fields(single(r.size), Int32(truncatingIfNeeded: r.weight), Int32(truncatingIfNeeded: r.family), r.italic,
                    r.lineHeight.map(single), single(r.letterSpacing), Int32(truncatingIfNeeded: r.numeric),
-                   single(r.stretch), &out)
+                   single(r.stretch), r.variations, &out)
             // A list item's lines start at its indent (LLP 1045 D4): only an
             // expanded Markdown spec has one, never a request's plain runs.
             if r.indent != 0 || r.hang { out.append(r.hang ? 2 : 1); put(single(r.indent).bitPattern, &out) }
@@ -63,14 +65,16 @@ package enum TextAnswerKey {
         if let s = spec.strut {
             fields(single(s.size), Int32(truncatingIfNeeded: s.weight), Int32(truncatingIfNeeded: s.family), s.italic,
                    s.lineHeight.map(single), single(s.letterSpacing), Int32(truncatingIfNeeded: s.numeric),
-                   single(s.stretch), &out)
+                   single(s.stretch), s.variations, &out)
         }
         paragraph(spec.align, spec.lineClamp, spec.overflowWrap, spec.direction, spec.whiteSpace,
                   single(spec.textIndent), spec.hyphens, &out)
-        if spec.hyphens == 2 { out.append(contentsOf: Array(spec.language.utf8)) }
+        if spec.automaticHyphens { out.append(contentsOf: Array(spec.language.utf8)) }
         // CSS `text-box`: a trimmed paragraph's height and baselines differ.
         out.append(contentsOf: [UInt8(truncatingIfNeeded: spec.textBoxTrim), UInt8(truncatingIfNeeded: spec.textBoxOver), UInt8(truncatingIfNeeded: spec.textBoxUnder)])
         out.append(spec.balance ? 1 : 0)
+        put(UInt32(spec.emergencyBreaks.count), &out)
+        for point in spec.emergencyBreaks { put(UInt32(point), &out) }
         return finish(out)
     }
     /// The same bytes from the kernel's request, before any `String` is made
@@ -82,7 +86,7 @@ package enum TextAnswerKey {
         func run(_ r: ExactTextRun) {
             fields(Double(r.font_size), Int32(r.font_weight), Int32(r.font_family), r.italic != 0,
                    r.has_line_height != 0 ? Double(r.line_height) : nil, Double(r.letter_spacing),
-                   Int32(r.font_variant_numeric), Double(r.font_stretch), &out)
+                   Int32(r.font_variant_numeric), Double(r.font_stretch), FontAxis.of(r), &out)
         }
         put(Int32(truncatingIfNeeded: request.count), &out)
         for r in UnsafeBufferPointer(start: request.runs, count: request.count) {
@@ -94,8 +98,9 @@ package enum TextAnswerKey {
         run(request.strut)
         paragraph(Int(request.align), Int(request.line_clamp), Int(request.overflow_wrap), Int(request.direction),
                   Int(request.white_space), Double(request.text_indent), Int(request.hyphens), &out)
-        if request.hyphens == 2, let lang = request.lang { out.append(contentsOf: UnsafeBufferPointer(start: lang, count: request.lang_len)) }
+        if Spec.insertsHyphens(Int(request.hyphens), wrap: Int(request.overflow_wrap)), let lang = request.lang { out.append(contentsOf: UnsafeBufferPointer(start: lang, count: request.lang_len)) }
         out.append(contentsOf: [request.text_box_trim, request.text_box_over, request.text_box_under, request.text_wrap_style])
+        put(UInt32(0), &out)
         return finish(out)
     }
     /// A length at the kernel's precision.
@@ -120,6 +125,7 @@ package final class TextAnswers: @unchecked Sendable {
         let metrics: ExactMetrics
         /// A definite width's line breaks; an intrinsic offer has none.
         let lines: LineGeometry?
+        var glyphs: MeasuredGlyphs?
     }
     private final class Entry {
         let hash: Int
@@ -128,6 +134,9 @@ package final class TextAnswers: @unchecked Sendable {
         /// Replaced in turn past `TextAnswers.offersPerParagraph`.
         var next = 0
         var bytes = 0
+        var glyphBytes = 0
+        var olderGlyph: Entry?
+        unowned(unsafe) var newerGlyph: Entry?
         var older: Entry?
         unowned(unsafe) var newer: Entry?
         /// The next entry whose key hashes the same.
@@ -145,6 +154,10 @@ package final class TextAnswers: @unchecked Sendable {
     private let lock = NSLock()
     private var buckets: [Int: Entry] = [:]
     private var oldest: Entry?, newest: Entry?
+    private var oldestGlyph: Entry?, newestGlyph: Entry?
+    private var glyphBytes = 0
+    // Glyphs save one paint, so they occupy at most a sixteenth of the answer budget.
+    private var glyphLimit: Int { min(256 * 1024, limit / 16) }
     private var stats = Stats()
 
     package init(limit: Int = TextAnswers.defaultLimit) { self.limit = limit }
@@ -174,6 +187,7 @@ package final class TextAnswers: @unchecked Sendable {
         unlink(e); append(e)
     }
     private func remove(_ e: Entry) {
+        if e.glyphBytes > 0 { dropGlyphs(e) }
         unlink(e)
         if buckets[e.hash] === e { buckets[e.hash] = e.chained } else {
             var link = buckets[e.hash]
@@ -185,11 +199,11 @@ package final class TextAnswers: @unchecked Sendable {
     }
     /// What an entry costs the heap before its key's bytes and its offers:
     /// the object, two array headers, a bucket.
-    private static let entryBytes = 80 + 32 + 32 + 32
+    private static let entryBytes = 104 + 32 + 32 + 32
     /// A definite offer's two arrays; its place in the entry's array is
     /// counted with that array's capacity.
     private static func cost(_ offer: Offer) -> Int {
-        offer.lines.map { 64 + (($0.ranges.count * (MemoryLayout<CFRange>.stride + MemoryLayout<CGFloat>.stride)) + 31) & ~31 } ?? 0
+        (offer.glyphs?.bytes ?? 0) + (offer.lines.map { 64 + (($0.ranges.count * (MemoryLayout<CFRange>.stride + MemoryLayout<CGFloat>.stride)) + 31) & ~31 } ?? 0)
     }
 
     /// What measuring the paragraph keyed `key` at `offer` answered.
@@ -207,8 +221,50 @@ package final class TextAnswers: @unchecked Sendable {
         touch(e)
         return hit.lines
     }
+    /// Transfer the optional glyph copy to one raster job, retaining scalar answers.
+    package func takeGlyphs(hash: Int, key: [UInt8], width: CGFloat) -> MeasuredGlyphs? {
+        let offer = TextAnswerKey.offer(width: width)
+        lock.lock(); defer { lock.unlock() }
+        guard let e = find(hash, key), let i = e.offers.firstIndex(where: { $0.bits == offer }),
+              let glyphs = e.offers[i].glyphs else { return nil }
+        if e.glyphBytes == glyphs.bytes { unlinkGlyphs(e) }
+        e.offers[i].glyphs = nil
+        e.glyphBytes -= glyphs.bytes; glyphBytes -= glyphs.bytes
+        e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
+        touch(e)
+        return glyphs
+    }
+    package func discardGlyphs() {
+        lock.lock(); defer { lock.unlock() }
+        dropGlyphs()
+    }
+    private func unlinkGlyphs(_ e: Entry) {
+        if let newer = e.newerGlyph { newer.olderGlyph = e.olderGlyph } else { newestGlyph = e.olderGlyph }
+        if let older = e.olderGlyph { older.newerGlyph = e.newerGlyph } else { oldestGlyph = e.newerGlyph }
+        e.olderGlyph = nil; e.newerGlyph = nil
+    }
+    private func appendGlyphs(_ e: Entry) {
+        e.olderGlyph = newestGlyph
+        if let newestGlyph { newestGlyph.newerGlyph = e } else { oldestGlyph = e }
+        newestGlyph = e
+    }
+    private func dropGlyphs(_ e: Entry, keeping offer: UInt64? = nil) {
+        unlinkGlyphs(e)
+        // At most eight offers; entries without glyphs never enter this list.
+        for i in e.offers.indices where e.offers[i].bits != offer {
+            if let glyphs = e.offers[i].glyphs {
+                e.bytes -= glyphs.bytes; stats.bytes -= glyphs.bytes
+                e.glyphBytes -= glyphs.bytes; glyphBytes -= glyphs.bytes
+                e.offers[i].glyphs = nil
+            }
+        }
+        if e.glyphBytes > 0 { appendGlyphs(e) }
+    }
+    private func dropGlyphs() {
+        while let e = oldestGlyph { dropGlyphs(e) }
+    }
     /// The measurer's answer, published once per offer.
-    package func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?) {
+    package func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?, glyphs: MeasuredGlyphs? = nil) {
         guard limit > 0 else { return }
         lock.lock(); defer { lock.unlock() }
         let e: Entry
@@ -225,8 +281,10 @@ package final class TextAnswers: @unchecked Sendable {
             append(e)
             stats.paragraphs += 1; stats.bytes += e.bytes
         }
-        let value = Offer(bits: offer, metrics: metrics, lines: lines)
-        var cost = Self.cost(value)
+        let kept = glyphs.flatMap { $0.bytes <= glyphLimit ? $0 : nil }
+        let value = Offer(bits: offer, metrics: metrics, lines: lines, glyphs: kept)
+        var cost = Self.cost(value), glyphCost = kept?.bytes ?? 0
+        if e.glyphBytes > 0 { unlinkGlyphs(e) }
         if e.offers.count < Self.offersPerParagraph {
             let held = e.offers.capacity
             e.offers.append(value)
@@ -234,19 +292,26 @@ package final class TextAnswers: @unchecked Sendable {
             stats.offers += 1
         } else {
             cost -= Self.cost(e.offers[e.next])
+            glyphCost -= e.offers[e.next].glyphs?.bytes ?? 0
             e.offers[e.next] = value
             e.next = (e.next + 1) % Self.offersPerParagraph
         }
         e.bytes += cost; stats.bytes += cost
+        e.glyphBytes += glyphCost; glyphBytes += glyphCost
+        if e.glyphBytes > 0 { appendGlyphs(e) }
+        while glyphBytes > glyphLimit, let victim = oldestGlyph {
+            dropGlyphs(victim, keeping: victim === e ? offer : nil)
+        }
         while stats.bytes > limit, let victim = oldest, victim !== e { remove(victim) }
     }
     package func clear() {
         lock.lock(); defer { lock.unlock() }
+        dropGlyphs()
         // Unlinked one by one: a long chain of `older` links released at
         // once would recurse through every entry.
         while let e = oldest { unlink(e); e.chained = nil }
         buckets.removeAll(keepingCapacity: true)
         stats = Stats()
     }
-    deinit { while let e = oldest { unlink(e); e.chained = nil } }
+    deinit { dropGlyphs(); while let e = oldest { unlink(e); e.chained = nil } }
 }

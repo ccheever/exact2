@@ -511,6 +511,7 @@ extension NodeView {
         presenter?.session?.rasters.cancel(id)
         // A symbol keeps its glyph and key: the same symbol again costs no
         // image, and `finishReuse` reports its size under the new id.
+        buttonRasterView = nil
         raster = nil; imageSource = nil
         if symbolView == nil { image = nil }
         symbolRefusal = nil
@@ -525,7 +526,7 @@ extension NodeView {
         if layer.contents != nil { layer.contents = nil }
         // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
-        if materialView != nil { props["backgroundMaterial"] = nil; updateMaterial() }
+        if materialView != nil { props["backgroundMaterial"] = nil; props["defaultSurface"] = nil; updateMaterial() }
         // `glassGroupAuto` with it: a row recycled onto a numeric group must
         // not report the old one's `auto` (LLP 1053.000.000.000).
         if glassGroupView != nil { props["glassGroup"] = nil; props["glassGroupAuto"] = nil; syncGlassGroup() }

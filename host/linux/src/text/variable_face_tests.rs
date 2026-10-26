@@ -377,3 +377,54 @@ fn width_range_draws(assets: Assets) {
         "{condensed} {normal} {expanded}"
     );
 }
+
+/// LLP 1019 D9: `font-variation-settings` draws after the weight, the width
+/// and the size, each axis it names winning: `"wdth" 50` is `font-stretch:
+/// 50%`, `"wght" 300` beats `font-weight: 700`, and `"GRAD" 150` (a grade:
+/// heavier strokes on the same advances) changes ink, not width.
+#[test]
+fn font_variation_settings_win_for_their_own_axes() {
+    let plan = contract::compile("component App\n  view\n    text \"fixture\"\n").unwrap();
+    let mut builder = exact_plan::builder::PlanBuilder::from_plan(plan);
+    let family = builder.font_family(
+        "Flex",
+        &[exact_plan::builder::Face {
+            source: "fonts/RobotoFlex-subset.ttf",
+            weight: [100, 1000],
+            stretch: [250, 1510],
+            italic: false,
+        }],
+    );
+    builder.font_stack(&[(StackMemberKind::Family, Some(family))]);
+    let plan = builder.finish().unwrap();
+    let assets = Assets::embedded(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"));
+    let catalog = catalog::Catalog::for_assets(&plan, &assets);
+    let family = catalog
+        .families
+        .iter()
+        .position(|f| matches!(f, FamilyChoice::Declared(_)))
+        .unwrap() as u16;
+    let mut engine = TextEngine::with_catalog(catalog);
+    let mut drawn = |weight: u16, stretch: f32, settings: &str| {
+        let style = exact_kernel::StyleProps {
+            font_family: family,
+            font_weight: weight,
+            font_stretch: stretch,
+            font_variation_settings: exact_kernel::style::FontVariations::parse(settings).unwrap(),
+            font_size: 32.,
+            ..Default::default()
+        };
+        let p = engine.paragraph(&crate::paint::text_spec(&style, TEXT), None);
+        let coords = p.lines().faces[0].coords.to_vec();
+        (p.width, coords)
+    };
+    assert_eq!(drawn(700, 100., r#""wdth" 50"#), drawn(700, 50., "normal"));
+    assert_eq!(
+        drawn(700, 100., r#""wght" 300"#),
+        drawn(300, 100., "normal")
+    );
+    let (plain, plain_coords) = drawn(700, 100., "normal");
+    let (graded, graded_coords) = drawn(700, 100., r#""GRAD" 150"#);
+    assert_eq!(plain, graded, "a grade keeps the advances");
+    assert_ne!(plain_coords, graded_coords, "and moves the outlines");
+}

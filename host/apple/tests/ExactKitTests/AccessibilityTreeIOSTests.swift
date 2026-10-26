@@ -11,6 +11,155 @@ import XCTest
 final class AccessibilityTreeIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    func testLabelledImagesExposeTheirTraitAndDecorativeImagesStayHidden() throws {
+        let p = try fixture()
+        let image = NodeView(id: 20, kind: "image", presenter: p)
+        p.views[image.id] = image
+        p.root.addSubview(image)
+        image.frame = CGRect(x: 200, y: 0, width: 60, height: 60)
+        image.applyProps(set: ["accessibilityLabel": "Station map"], clear: [])
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityLabel, "Station map")
+        image.applyProps(set: ["imageSource": "symbol:train.side.front.car", "symbolName": "train.side.front.car"], clear: [])
+        image.updateSymbol()
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        image.applyProps(set: [:], clear: ["accessibilityLabel"])
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        image.applyProps(set: ["accessibilityLabel": ""], clear: [])
+        XCTAssertFalse(image.isAccessibilityElement)
+        image.applyProps(set: ["accessibilityLabel": "Station map"], clear: [])
+        p.apply(wireBatch([["op": "style", "id": 20, "style": ["visibility": "hidden"]]]))
+        image.applyProps(set: [:], clear: ["accessibilityLabel"])
+        p.apply(wireBatch([["op": "style", "id": 20, "style": ["visibility": "visible"]]]))
+        XCTAssertFalse(image.isAccessibilityElement, "clearing a label while hidden also clears its stored exposure")
+    }
+
+    func testAnImagesExplicitRangeRoleKeepsItsSpokenValue() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "image", "props": [
+                "accessibilityLabel": "Download", "accessibilityRole": "progressbar", "accessibilityValueNow": "50"]],
+            ["op": "children", "id": 4, "ids": [5, 20]],
+            ["op": "frame", "id": 20, "x": 110.0, "y": 0.0, "w": 60.0, "h": 60.0],
+        ]))
+        let image = try XCTUnwrap(p.views[20])
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+        XCTAssertNotNil(image.accessibilityValue)
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityValueNow": "75"]]]))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+        p.apply(wireBatch([["op": "props", "id": 20, "clear": ["accessibilityRole"]]]))
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        XCTAssertNil(image.accessibilityValue)
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityRole": "progressbar"]]]))
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "text", "props": ["id": "caption", "text": "Download progress"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21]],
+            ["op": "props", "id": 20, "set": ["accessibilityLabelledBy": "caption"]],
+        ]))
+        XCTAssertEqual(image.accessibilityLabel, "Download progress")
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+    }
+
+    func testImageExposureFollowsItsReferencedCaptionsArrivalAndRemoval() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "image", "props": ["accessibilityLabelledBy": "caption"]],
+            ["op": "children", "id": 4, "ids": [5, 20]],
+            ["op": "frame", "id": 20, "x": 110.0, "y": 0.0, "w": 60.0, "h": 60.0],
+        ]))
+        let image = try XCTUnwrap(p.views[20])
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "text", "props": ["id": "caption", "text": "Station map"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21]],
+            ["op": "frame", "id": 21, "x": 180.0, "y": 0.0, "w": 100.0, "h": 30.0],
+        ]))
+        XCTAssertEqual(image.accessibilityLabel, "Station map")
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([
+            ["op": "create", "id": 22, "kind": "image", "props": ["accessibilityLabelledBy": "caption"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21, 22]],
+            ["op": "frame", "id": 22, "x": 110.0, "y": 65.0, "w": 60.0, "h": 60.0],
+        ]))
+        let alreadyNamed = try XCTUnwrap(p.views[22])
+        XCTAssertTrue(alreadyNamed.isAccessibilityElement)
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["text": ""]]]))
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertFalse(alreadyNamed.isAccessibilityElement)
+        XCTAssertFalse(alreadyNamed.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["text": "Updated map"]]]))
+        XCTAssertEqual(image.accessibilityLabel, "Updated map")
+        XCTAssertTrue(image.isAccessibilityElement)
+        XCTAssertTrue(image.accessibilityTraits.contains(.image))
+        p.apply(wireBatch([
+            ["op": "children", "id": 4, "ids": [5, 20, 22]],
+            ["op": "destroy", "id": 21],
+        ]))
+        XCTAssertFalse(image.isAccessibilityElement)
+        XCTAssertFalse(image.accessibilityTraits.contains(.image))
+        XCTAssertFalse(alreadyNamed.isAccessibilityElement)
+        XCTAssertFalse(alreadyNamed.accessibilityTraits.contains(.image))
+    }
+
+    func testToggleButtonsReportFalseTrueAndMixedFromThePlatform() throws {
+        let p = try fixture()
+        for value in ["false", "true", "mixed"] {
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityPressed": value]]]))
+            p.syncAccessibility()
+            let ax = p.axElements(roots: [p.viewport])
+            let button = try XCTUnwrap(element(ax, "named"))
+            XCTAssertEqual(button["role"] as? String, "button")
+            let states = try XCTUnwrap(button["states"] as? [String: Any])
+            if value == "mixed" { XCTAssertEqual(states["pressed"] as? String, "mixed") }
+            else { XCTAssertEqual(states["pressed"] as? Bool, value == "true") }
+            XCTAssertNil(states["checked"])
+            XCTAssertTrue((ax["observes"] as? [String] ?? []).contains("pressed"))
+        }
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityPressed"]]]))
+        let ax = p.axElements(roots: [p.viewport])
+        let button = try XCTUnwrap(element(ax, "named"))
+        XCTAssertNil((button["states"] as? [String: Any])?["pressed"])
+    }
+
+    func testUnjoinedTogglesUseTheirControlRoleAndDoNotInventPressedState() throws {
+        let p = try fixture()
+        let toggle = UISwitch(frame: CGRect(x: 200, y: 250, width: 60, height: 40))
+        toggle.isOn = true
+        toggle.isAccessibilityElement = true
+        toggle.accessibilityLabel = "Native switch"
+        toggle.accessibilityValue = "1"
+        p.viewport.addSubview(toggle)
+        let unknown = UIView(frame: CGRect(x: 200, y: 300, width: 60, height: 40))
+        unknown.isAccessibilityElement = true
+        unknown.accessibilityTraits = .toggleButton
+        unknown.accessibilityLabel = "Unknown toggle"
+        unknown.accessibilityValue = "2"
+        p.viewport.addSubview(unknown)
+        let ax = p.axElements(roots: [p.viewport])
+        let native = try XCTUnwrap(elements(ax).first { $0["name"] as? String == "Native switch" })
+        XCTAssertTrue(native["id"] is NSNull)
+        XCTAssertEqual(native["role"] as? String, "switch")
+        let state = native["states"] as? [String: Any] ?? [:]
+        XCTAssertEqual(state["checked"] as? Bool, true)
+        XCTAssertNil(state["pressed"])
+        let other = try XCTUnwrap(elements(ax).first { $0["name"] as? String == "Unknown toggle" })
+        XCTAssertTrue(other["id"] is NSNull)
+        let unknownState = other["states"] as? [String: Any] ?? [:]
+        XCTAssertNil(unknownState["checked"])
+        XCTAssertNil(unknownState["pressed"])
+    }
+
     /// Two buttons (one named, one an image with no name) and a column.
     private func fixture() throws -> Presenter {
         let p = Presenter()
@@ -95,7 +244,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         }
     }
 
-    func testOnlyDocumentedPropertiesExcludeAndClearingOneExposesTheSubtree() throws {
+    func testHiddenSubtreesReturnWhenTheirExclusionsAreCleared() throws {
         let p = try fixture()
         let box = try XCTUnwrap(p.views[4])
         box.accessibilityElementsHidden = true
@@ -105,11 +254,39 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         // A negative through the walk: cleared after mount, the subtree is exposed again.
         box.accessibilityElementsHidden = false
         XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"))
-        // Alpha is not a documented exclusion: an alpha-0 view is still reported, and coverage says so.
+        // UIKit's settled snapshot omits a fully transparent subtree.
         box.alpha = 0
         let ax = p.axElements(roots: [p.viewport])
-        XCTAssertNotNil(element(ax, "inside"))
-        XCTAssertEqual((ax["coverage"] as? [String: Any])?["limits"] as? [String], ["alpha", "reading-order"])
+        XCTAssertNil(element(ax, "inside"))
+        XCTAssertEqual((ax["coverage"] as? [String: Any])?["limits"] as? [String], ["reading-order"])
+    }
+
+    func testAnEmptyNativeContainerExcludesItsSubtreeUntilBothAxesHaveArea() throws {
+        let p = try fixture()
+        let holder = UIView(frame: CGRect(x: 0, y: 100, width: 400, height: 100))
+        holder.addSubview(try XCTUnwrap(p.views[5]))
+        p.viewport.addSubview(holder)
+        for size in [CGSize(width: 400, height: 0), CGSize(width: 0, height: 100)] {
+            holder.bounds.size = size
+            XCTAssertNil(element(p.axElements(roots: [p.viewport]), "inside"))
+            let hidden = try XCTUnwrap(element(p.axElements(roots: [p.viewport], excluded: true), "inside"))
+            XCTAssertEqual(hidden["excluded"] as? [String], ["emptyBounds"])
+        }
+        holder.bounds.size = CGSize(width: 1, height: 1)
+        XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"), "a point on both axes is enough")
+    }
+
+    func testAZeroScaleOrFullyTransparentContainerIsAbsentFromTheSettledTree() throws {
+        let p = try fixture(), box = try XCTUnwrap(p.views[4])
+        box.transform = CGAffineTransform(scaleX: 0, y: 0)
+        XCTAssertNil(element(p.axElements(roots: [p.viewport]), "inside"))
+        XCTAssertEqual(element(p.axElements(roots: [p.viewport], excluded: true), "inside")?["excluded"] as? [String], ["emptyFrame"])
+        box.transform = .identity
+        box.alpha = 0
+        XCTAssertNil(element(p.axElements(roots: [p.viewport]), "inside"))
+        XCTAssertEqual(element(p.axElements(roots: [p.viewport], excluded: true), "inside")?["excluded"] as? [String], ["transparent"])
+        box.alpha = 0.001
+        XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"), "UIKit exposes even this faint subtree")
     }
 
     func testAModalViewHidesItsSiblingsAndALeakIsMarked() throws {
@@ -294,7 +471,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
                 let e = UIAccessibilityElement(accessibilityContainer: self); e.isAccessibilityElement = true; e.accessibilityLabel = "\(index)"; return e
             }
         }
-        let many = Many()
+        let many = Many(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         p.views[1]?.addSubview(many)
         let ax = p.axElements(roots: [p.viewport], limit: 1)
         XCTAssertLessThan(many.asked, 200, "enumeration is bounded by the visit budget, not the reported count")

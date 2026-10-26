@@ -12,6 +12,90 @@
 import UIKit
 
 extension Agent {
+    func layout() -> [String: Any] {
+        let vp = presenter.viewport
+        var nodes: [[String: Any]] = []
+        for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
+            if presenter.menus.ownsConfirmationNode(v) {
+                nodes.append(["id": Int(id), "presentation": "native-confirmation", "geometry": "unavailable"])
+                continue
+            }
+            let nativeAction = presenter.swipeActions.ownsAction(id)
+            let actionView = presenter.swipeActions.actionView(id)
+            // A bar's segment is where UIKit draws it.
+            let scope = (v as? NodeView).flatMap { presenter.navigation.barSegment($0) }.map { s in
+                s.control.convert(s.segment, to: vp).offsetBy(dx: -vp.pageOrigin.x, dy: -vp.pageOrigin.y)
+            }
+            let r = nativeAction ? actionView.map { box($0) } ?? .zero : scope ?? box(v)
+            var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            if !nativeAction, scope == nil {
+                n["radii"] = v.effectiveCornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
+            }
+            if nativeAction { n["presentation"] = "native-swipe-action"; n["visible"] = actionView != nil }
+            // A waiting scroll (a closed swipe row's) is at its start, with no range until it scrolls.
+            if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0; n["rx"] = 0.0; n["ry"] = 0.0 }
+            if let sv = v.scrollView {
+                n["sx"] = Agent.r2(sv.contentOffset.x)
+                n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
+                n.merge(Agent.range(of: sv)) { _, new in new }
+                n["port"] = port(of: v, sv)
+                // How far past its own ends it sits: a stretched bounce is a
+                // state a driver cannot read from the offset alone.
+                let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
+                    if value < start - 0.5 { return value - start }
+                    if value > end + 0.5 { return value - end }
+                    return 0
+                }
+                let i = sv.adjustedContentInset
+                let ox = past(sv.contentOffset.x, -i.left, max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+                let oy = past(sv.contentOffset.y, -i.top, max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
+                if ox != 0 { n["ox"] = Agent.r2(ox) }
+                if oy != 0 { n["oy"] = Agent.r2(oy) }
+            }
+            nodes.append(n)
+        }
+        for (id, leaf) in presenter.flats.leaves.sorted(by: { $0.key < $1.key }) {
+            guard let host = presenter.flats.host(of: id), host.window != nil,
+                  let frame = presenter.flats.frameInHost(id) else { continue }
+            let r = box(host, region: frame)
+            let local = CGRect(origin: .zero, size: leaf.frame.size)
+            let corners = BorderPaint.reduced(BorderPaint.radii(leaf.style, in: local), in: local)
+            nodes.append(["id": Int(id), "x": Agent.r2(r.minX), "y": Agent.r2(r.minY),
+                          "w": Agent.r2(r.width), "h": Agent.r2(r.height),
+                          "radii": corners.map { [Double($0.width), Double($0.height)] }])
+        }
+        nodes.append(contentsOf: inlineLayout())
+        nodes.sort { ($0["id"] as? Int ?? 0) < ($1["id"] as? Int ?? 0) }
+        // The page's environment (LLP 1012 §1): the insets the kernel was
+        // given, and the keyboard's inset on the viewport, by the web's
+        // `env()` names.
+        let i = presenter.insets
+        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
+            .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
+        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.pageSize.width), "h": Agent.r2(vp.pageSize.height)], "env": env, "nodes": nodes]
+        // A presentation the platform draws scaled (a floating sheet): its
+        // boxes above are the authored frames times `scale`, not the app's doing.
+        let scaled = presenter.modals.drawnScales.map { ["route": $0.route.props["navigationKey"] ?? "", "presentation": $0.kind, "scale": (Double($0.scale) * 1000).rounded() / 1000] as [String: Any] }
+        if !scaled.isEmpty { reply["scaled"] = scaled }
+        #if os(iOS)
+        // The status bar's style Exact asks for (LLP 1105 D7), and the node that decided it.
+        let bar = presenter.statusBar
+        reply["statusBar"] = ["style": bar.style == .lightContent ? "light-content" : bar.style == .darkContent ? "dark-content" : "default",
+                              "source": bar.source.map { Int($0) } ?? NSNull()] as [String: Any]
+        #endif
+        // The device's screen, where the viewport sits on it (LLP 1035.002
+        // D4's `screen` space) and the scene's interface orientation: what a
+        // real touch's aim is checked against (LLP 1080.000 D4).
+        if let w = vp.window, let container = vp.superview {
+            let screen = w.screen
+            let origin = container.convert(presenter.pageFrame.origin, to: screen.coordinateSpace) // the page's area (LLP 1130)
+            reply["screen"] = ["w": Agent.r2(screen.bounds.width), "h": Agent.r2(screen.bounds.height), "scale": Agent.r2(screen.scale),
+                               "x": Agent.r2(origin.x), "y": Agent.r2(origin.y), "orientation": Agent.orientation(w.windowScene)]
+        }
+        return reply
+    }
+
+
     // MARK: D1 — `layout <target> native`
 
     func nativeSubviews(_ id: UInt32, depth: Int, limit: Int, plan: Bool) -> [String: Any] {
@@ -107,6 +191,7 @@ extension Presenter {
         if let o = owner {
             let id = o.id
             if sub === o.symbolView { return ("glyph", id) }
+            if sub === o.textRasterTint { return ("text", id) } // its one-colour text, tinted as it composites (TextRasterIOS.swift)
             if sub === o.materialView || sub === o.glassSlot || sub === o.glassGroupView || sub === o.vibrancyView { return ("material", id) }
             if sub === o.clipBox { return ("clip", id) }
             if sub === o.metal || sub === o.overlay { return ("canvas", id) }

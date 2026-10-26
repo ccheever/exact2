@@ -27,6 +27,8 @@ struct WidgetVariant: Hashable, Identifiable {
     var mode = "fullColor"
     var scheme = "light"
     var size = "large"
+    /// Pixels per point of the rendered picture: 1 unless asked, a device's 2 or 3.
+    var scale: CGFloat = 1
     var id: Self { self }
     var typeSize: DynamicTypeSize { size == "xxxl" ? .xxxLarge : .large }
     var displaySize: CGSize {
@@ -69,10 +71,10 @@ final class WidgetPreview: ObservableObject {
         }
         let place = appSession.launchPlace
         let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
-        let facts = SessionFacts(displayScale: 1, preferences: variant.scheme == "dark" ? [.dark] : [],
+        let facts = SessionFacts(displayScale: Double(variant.scale), preferences: variant.scheme == "dark" ? [.dark] : [],
             rootFontSize: Double(SnapshotDriver.bodySize(for: variant.typeSize)),
             date: date, clock: clock,
-            timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+            timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, formatLocale: place.formatLocale, seed: place.seed)
         var result: [String: Any] = [:]
         if suppliedProps == nil {
             let initial = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: entry.assets)
@@ -183,7 +185,7 @@ final class ActivityPreview {
         let place = appSession.launchPlace
         let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
         let facts = SessionFacts(displayScale: 1, preferences: scheme == "dark" ? [.dark] : [], rootFontSize: Double(SnapshotDriver.bodySize(for: .large)),
-            date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+            date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, formatLocale: place.formatLocale, seed: place.seed)
         state = supplied ?? entry.preview
         render = try ActivityRender(plan: plan, kind: entry.kind, state: try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]), facts: facts, assets: entry.assets)
         _ = try render.session.advance(to: clock)
@@ -220,7 +222,7 @@ struct IslandGeometry {
 /// trailing content ... By default, leading and trailing positions receive
 /// an equal amount of horizontal space"): the sides take their content's
 /// width at least, the centre what is left of the inner width at most, the
-/// sides the equal remainder, the centre below the camera, the bottom below
+/// sides equal space capped at the camera, the centre below it, the bottom below
 /// them all. The frames never overlap.
 enum ExpandedArrangement {
     struct Frames: Equatable {
@@ -232,7 +234,7 @@ enum ExpandedArrangement {
         let sideLimit = max(0, (inner - geometry.obstruction.width) / 2)
         let sideMinimum = min(max(leading.width, trailing.width), sideLimit)
         let centerWidth = max(0, min(center.width, inner - 2 * sideMinimum))
-        let side = max(sideMinimum, (inner - centerWidth) / 2)
+        let side = min(sideLimit, max(sideMinimum, (inner - centerWidth) / 2))
         let leadingFrame = CGRect(x: 0, y: 0, width: side, height: leading.height)
         let trailingFrame = CGRect(x: inner - side, y: 0, width: side, height: trailing.height)
         let centerFrame = CGRect(x: (inner - centerWidth) / 2, y: geometry.obstruction.height, width: centerWidth, height: center.height)
@@ -494,11 +496,12 @@ enum WidgetGallery {
                     throw HeadlessSession.Failure(description: "unknown widget; available: \(entries.map(\.kind).joined(separator: ", "))")
                 }
                 let variant = WidgetVariant(entry: kind, family: address["family"] ?? entry.families.first ?? "systemSmall",
-                    mode: address["mode"] ?? "fullColor", scheme: address["scheme"] ?? "light", size: address["size"] ?? "large")
+                    mode: address["mode"] ?? "fullColor", scheme: address["scheme"] ?? "light", size: address["size"] ?? "large",
+                    scale: CGFloat(Int(address["scale"] ?? "1") ?? 0))
                 guard entry.families.contains(variant.family), SnapshotEnvironment.Family(rawValue: variant.family) != nil,
                       ["fullColor", "accented", "vibrant"].contains(variant.mode), ["light", "dark"].contains(variant.scheme),
-                      ["large", "xxxl"].contains(variant.size) else {
-                    throw HeadlessSession.Failure(description: "invalid widget variant; families: \(entry.families.joined(separator: ", ")); modes: fullColor, accented, vibrant; schemes: light, dark; sizes: large, xxxl")
+                      ["large", "xxxl"].contains(variant.size), [1, 2, 3].contains(variant.scale) else {
+                    throw HeadlessSession.Failure(description: "invalid widget variant; families: \(entry.families.joined(separator: ", ")); modes: fullColor, accented, vibrant; schemes: light, dark; sizes: large, xxxl; scales: 1, 2, 3")
                 }
                 guard ["tree", "screenshot", "state"].contains(op) else {
                     throw HeadlessSession.Failure(description: "widget gallery supports tree, screenshot, state and app clock")
@@ -531,14 +534,14 @@ enum WidgetGallery {
                 case "screenshot":
                     guard let path = request["path"] as? String else { throw HeadlessSession.Failure(description: "screenshot needs a path") }
                     let renderer = ImageRenderer(content: WidgetPreviewView(preview: preview))
-                    renderer.scale = 1; renderer.proposedSize = ProposedViewSize(variant.displaySize)
+                    renderer.scale = variant.scale; renderer.proposedSize = ProposedViewSize(variant.displaySize)
                     guard let image = renderer.cgImage,
                           let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil) else {
                         throw HeadlessSession.Failure(description: "could not render widget screenshot")
                     }
                     CGImageDestinationAddImage(destination, image, nil)
                     guard CGImageDestinationFinalize(destination) else { throw HeadlessSession.Failure(description: "could not write widget screenshot") }
-                    result["screenshot"] = path; result["w"] = variant.displaySize.width; result["h"] = variant.displaySize.height; result["scale"] = 1
+                    result["screenshot"] = path; result["w"] = variant.displaySize.width; result["h"] = variant.displaySize.height; result["scale"] = variant.scale
                     result["rendering"] = "in-process WidgetKit container stand-in"
                 default: break
                 }

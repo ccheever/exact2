@@ -1,0 +1,26 @@
+# @exact/contacts' and @exact/calendar's fixture on Android's Canvas host
+# (LLP 1133.018 stage 3): a library with no GPU module, so both
+# implementations compile into an APK and can be driven on an emulator. Off
+# Android the library is empty.
+[package]
+name = "contacts-calendar-fixture-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "@exact/contacts' and @exact/calendar's fixture on Android's Canvas host"
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+bench = false
+
+[target.'cfg(target_os = "android")'.dependencies]
+contacts-calendar-fixture-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+[build-dependencies]
+contacts-calendar-fixture-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

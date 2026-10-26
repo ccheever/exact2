@@ -50,6 +50,7 @@ pub(crate) fn emit(
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
         "EXACT_BAKE_OUTPUT",
+        "EXACT_BAKE_INPUTS",
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
         "EXACT_GPU_PRODUCT",
@@ -76,6 +77,7 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
+    let pictures = asset_islands(app, &assets);
     let (widget_assets, plans) = crate::widgets::emit(
         out,
         matches!(platform, "ios" | "macos") && app.join("app.ts").is_file(),
@@ -101,11 +103,11 @@ pub(crate) fn emit(
     };
     assets.extend(rust_assets);
     assets.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
-    let graph = artifact_graph(&plan, &compat.inputs, &assets, target)?;
+    let graph = artifact_graph(&plan, &compat.inputs, &assets, pictures, target)?;
     std::fs::write(out.join("artifacts.json"), graph.to_string()).map_err(|e| e.to_string())?;
     compat.target = target.into();
-    compat.embedded =
-        json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    compat.embedded = json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,
+        "genesis":true,"trust":trust});
     if plans.as_object().is_some_and(|p| !p.is_empty()) {
         compat.embedded["plans"] = plans;
     }
@@ -180,8 +182,8 @@ pub(crate) fn emit(
 }
 
 /// The GPU module's baked identity. `trust` is the build's resolved trust
-/// (unset is development), never the cohort input: a no-delivery (store L=0)
-/// cohort omits trust, and the hosts read the explicit build trust here.
+/// (unset is development, as `embedded.trust` records it), never the cohort
+/// input: a no-delivery (store L=0) cohort omits trust.
 /// gpu-dev authenticates the independently completed module receipt at load;
 /// production always embeds the exact GPU digest.
 fn gpu_card(
@@ -285,6 +287,28 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
         println!("cargo:rerun-if-changed={}", path.display());
     }
     Ok(cards)
+}
+
+/// Whether an asset of `cards` is an SVG whose picture can show an island
+/// (`exact_svg_file::Loaded::islands`): the host draws an SVG image's masks
+/// and filters through the island module, as it draws an `svg`'s. Each file
+/// is sniffed as the host's loader sniffs it, so the name decides nothing.
+fn asset_islands(app: &Path, cards: &[Value]) -> bool {
+    use std::io::Read;
+    cards
+        .iter()
+        .filter_map(|card| card["name"].as_str())
+        .any(|name| {
+            let path = app.join(name);
+            let mut prefix = Vec::new();
+            std::fs::File::open(&path)
+                .and_then(|file| file.take(4096).read_to_end(&mut prefix))
+                .is_ok_and(|_| exact_svg_file::sniff(&prefix))
+                && std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| exact_svg_file::load(&text).ok())
+                    .is_some_and(|picture| picture.islands())
+        })
 }
 
 // Supply bytes, never just signed names. A binary's entry-zero asset roster is
@@ -452,17 +476,20 @@ fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Resu
 /// head, not a native bake, checks a new plan against.
 pub fn plan_graph(plan_bytes: &[u8], inputs: &Value, target: &str) -> Result<Value, String> {
     let plan = exact_plan::Plan::decode(plan_bytes).map_err(|e| format!("the plan: {e:?}"))?;
-    let mut graph = artifact_graph(&plan, inputs, &[], target)?;
+    let mut graph = artifact_graph(&plan, inputs, &[], false, target)?;
     let node = &mut graph["artifacts"][0];
     node["sha256"] = json!(hash(plan_bytes));
     node["bytes"] = json!(plan_bytes.len());
     Ok(graph)
 }
 
+/// `pictures`: whether an SVG image the app bundles can show an island
+/// (`asset_islands`).
 fn artifact_graph(
     plan: &exact_plan::Plan,
     inputs: &Value,
     assets: &[Value],
+    pictures: bool,
     target: &str,
 ) -> Result<Value, String> {
     let mut sources = serde_json::Map::new();
@@ -521,7 +548,7 @@ fn artifact_graph(
             b.kind == exact_plan::BindingKind::Prop
                 && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         })
-        .filter_map(|b| crate::colors::literal(plan, b))
+        .filter_map(|b| crate::colors::literal(plan, &b))
         .filter(|word| handled.iter().any(|h| h == word))
         .collect();
     marked.sort_unstable();
@@ -591,10 +618,11 @@ fn artifact_graph(
     // The host's loaded modules the plan can reach (LLP 1047 D1's loaded
     // tier), deferred templates and branches included, each by the rule its
     // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
-    // island module where `svg_islands` holds, the video arm for a `Video`,
-    // the web arm for a `WebView`, and the sound arm for a declared sound
-    // (LLP 1096 D8: a `sound` declaration is not a node). A build whose plan
-    // is fixed leaves out the rest.
+    // island module where `svg_islands` holds or a bundled SVG image can
+    // show an island, the video arm for a `Video`, the web arm for a
+    // `WebView`, and the sound arm for a declared sound (LLP 1096 D8: a
+    // `sound` declaration is not a node). A build whose plan is fixed
+    // leaves out the rest.
     let makes = |wanted: exact_kernel::NodeType| {
         plan.nodes
             .iter()
@@ -602,7 +630,7 @@ fn artifact_graph(
     };
     let loads: Vec<&str> = [
         ("canvas", makes(exact_kernel::NodeType::Canvas)),
-        ("svg", exact_runner::svg_islands(plan)),
+        ("svg", pictures || exact_runner::svg_islands(plan)),
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),
@@ -645,7 +673,7 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
     let literal = |node: &exact_plan::NodesRow, kind, id: u16| {
         node.bindings.iter().find_map(|b| {
             let b = plan.binding(b);
-            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, b))
+            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, &b))
         })
     };
     let route = plan.nodes.iter().find(|node| {
@@ -655,7 +683,7 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
             && literal(node, Prop, PropId::TestId as u16) != Some(Some("not-found"))
     });
     let ground = route.and_then(|node| {
-        literal(node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
+        literal(&node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
     });
     if ground == Some("-exact-grouped-background") {
         "grouped"
@@ -685,6 +713,7 @@ pub fn write_development_artifacts(plan: &exact_plan::Plan) -> Result<(), String
         plan,
         &receipt["compat"]["inputs"],
         &[],
+        false,
         "wasm32-unknown-unknown",
     )?;
     let rows = receipt["graph"]["artifacts"]
@@ -805,7 +834,8 @@ mod tests {
         b.sound("assets/kick.wav", 4_800, 48_000, 1, "00");
         let with = b.finish().unwrap();
         for (plan, loads) in [(without, json!([])), (with, json!(["sound"]))] {
-            let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
+            let graph =
+                artifact_graph(&plan, &json!({}), &[], false, "aarch64-apple-darwin").unwrap();
             assert_eq!(graph["loads"], loads);
         }
     }
@@ -835,7 +865,7 @@ mod tests {
         }
         let plan = b.finish().unwrap();
         let requires = |inputs: Value| {
-            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-darwin").unwrap();
+            let graph = artifact_graph(&plan, &inputs, &[], false, "aarch64-apple-darwin").unwrap();
             graph["artifacts"][0]["requires"]["hatches"].clone()
         };
         // This platform handles `avatar` and `dot`; `badge` is another platform's.
@@ -857,7 +887,7 @@ mod tests {
             .finish()
             .unwrap();
         let requires = |inputs: Value| {
-            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-ios").unwrap();
+            let graph = artifact_graph(&plan, &inputs, &[], false, "aarch64-apple-ios").unwrap();
             graph["artifacts"][0]["requires"]["typescriptRuntime"].clone()
         };
         assert_eq!(
@@ -895,6 +925,7 @@ mod tests {
                 &b.finish().unwrap(),
                 &json!({}),
                 &[],
+                false,
                 "aarch64-apple-darwin",
             )
             .unwrap();
@@ -929,7 +960,7 @@ component App
         let launch = |route: &str, list: &str| {
             let plan = contract::compile(&SCREEN.replace("ROUTE", route).replace("LIST", list))
                 .unwrap_or_else(|e| panic!("{e}"));
-            artifact_graph(&plan, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+            artifact_graph(&plan, &json!({}), &[], false, "aarch64-apple-ios-sim").unwrap()
                 ["launchBackground"]
                 .clone()
         };
@@ -951,7 +982,7 @@ component App
         let bare =
             contract::compile("component App\n  view\n    text \"a\" testId=\"a\"\n").unwrap();
         assert_eq!(
-            artifact_graph(&bare, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+            artifact_graph(&bare, &json!({}), &[], false, "aarch64-apple-ios-sim").unwrap()
                 ["launchBackground"],
             json!("system")
         );
@@ -1040,7 +1071,7 @@ component App
             assert_eq!(card["sha256"], hash(&actual));
             assert_eq!(card["bytes"], actual.len());
         }
-        let graph = artifact_graph(&plan, &inputs, &cards, "aarch64-apple-ios").unwrap();
+        let graph = artifact_graph(&plan, &inputs, &cards, false, "aarch64-apple-ios").unwrap();
         for row in graph["artifacts"].as_array().unwrap() {
             assert_eq!(row["requires"]["rustAbi"], 2);
             assert_eq!(row["requires"]["rustMode"], "wasm");
@@ -1077,7 +1108,7 @@ component App
             )
         };
         let cards = stage(target).unwrap();
-        let graph = artifact_graph(&plan, &inputs, &cards, target).unwrap();
+        let graph = artifact_graph(&plan, &inputs, &cards, false, target).unwrap();
         for row in graph["artifacts"].as_array().unwrap() {
             assert_eq!(row["requires"]["rustMode"], "tiered");
             assert_eq!(row["requires"]["rustTarget"], target);
@@ -1249,6 +1280,52 @@ component App
         assets.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
         apply_release(&mut compat, &receipt, &plan).unwrap();
         assert_eq!(compat.embedded["seq"], 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// LLP 1141.001 D1: a bundled SVG image whose art is under a `mask`
+    /// loads the island module, though the plan has no `mask`; the same
+    /// logo without one, an SVG under another name and a PNG load nothing.
+    #[test]
+    #[cfg(unix)]
+    fn a_masked_svg_image_loads_the_svg_island_module() {
+        let root = std::env::temp_dir().join(format!(
+            "exact-bake-svg-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("assets/sponsors")).unwrap();
+        let art = "<path d=\"M0 0H5V5H0Z\" fill=\"#F2545B\"/>";
+        let masked = format!(
+            "<svg width=\"24\" height=\"12\" viewBox=\"0 0 24 12\" xmlns=\"http://www.w3.org/2000/svg\">\
+             <mask id=\"m\" style=\"mask-type:luminance\" maskUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"24\" height=\"12\">\
+             <path d=\"M24 0H0V12H24V0Z\" fill=\"white\"/></mask><g mask=\"url(#m)\">{art}</g></svg>"
+        );
+        let plain =
+            format!("<svg viewBox=\"0 0 24 12\" xmlns=\"http://www.w3.org/2000/svg\">{art}</svg>");
+        std::fs::write(root.join("assets/sponsors/plain.svg"), &plain).unwrap();
+        std::fs::write(root.join("assets/icon.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let manifest = Manifest::read(&root).unwrap();
+        let loads = |root: &Path| {
+            let cards = asset_cards(root, &root.join("out"), &manifest).unwrap();
+            let pictures = asset_islands(root, &cards);
+            artifact_graph(&plan, &json!({}), &cards, pictures, "aarch64-apple-ios").unwrap()
+                ["loads"]
+                .clone()
+        };
+        assert_eq!(loads(&root), json!([]));
+        // The host sniffs the bytes, so a masked SVG named `.png` counts too.
+        std::fs::write(root.join("assets/sponsors/logo.png"), &masked).unwrap();
+        assert_eq!(loads(&root), json!(["svg"]));
+        std::fs::remove_file(root.join("assets/sponsors/logo.png")).unwrap();
+        std::fs::write(root.join("assets/sponsors/gold.svg"), &masked).unwrap();
+        assert_eq!(loads(&root), json!(["svg"]));
         std::fs::remove_dir_all(root).unwrap();
     }
 

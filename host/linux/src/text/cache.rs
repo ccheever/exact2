@@ -1033,6 +1033,11 @@ fn fingerprint(spec: &Spec) -> u64 {
         run.family.hash(&mut h);
         run.italic.hash(&mut h);
         run.stretch.to_bits().hash(&mut h);
+        for (tag, value) in run.variations.axes() {
+            tag.hash(&mut h);
+            value.to_bits().hash(&mut h);
+        }
+        run.optical_sizing.hash(&mut h);
         run.line_height.map(f32::to_bits).hash(&mut h);
         run.letter_spacing.to_bits().hash(&mut h);
         run.font_variant_numeric.hash(&mut h);
@@ -1063,6 +1068,8 @@ fn equal(a: &Spec, b: &Spec) -> bool {
                     && a.family == b.family
                     && a.italic == b.italic
                     && a.stretch.to_bits() == b.stretch.to_bits()
+                    && a.variations == b.variations
+                    && a.optical_sizing == b.optical_sizing
                     && a.line_height.map(f32::to_bits) == b.line_height.map(f32::to_bits)
                     && a.letter_spacing.to_bits() == b.letter_spacing.to_bits()
                     && a.font_variant_numeric == b.font_variant_numeric

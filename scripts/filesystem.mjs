@@ -1,13 +1,45 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
+// The host deployment target and rustc wrapper every cargo call shares (`withHostDeployment`).
 // And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`);
 // and the checkout's node_modules, installed from its lock when it has none or one did not finish (`installedModules`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+
+// The macOS deployment target every cargo call on a Mac gives what it builds for the Mac
+// itself: build scripts, proc macros and the developer tools (the bake tool, the filesystem
+// helper). A build script that records MACOSX_DEPLOYMENT_TARGET (ring's, objc2's) is rebuilt
+// whenever two calls sharing a target directory differ in it, so one value for all of them:
+// an iOS build's host side, the bake tool's build and the helper's, from inside a build
+// script or not. A macOS app's own build still says its product's target (host/apple/build.mjs).
+export const HOST_MACOS = '14.0';
+
+// With a deployment target of 12.0 or later, ld-27037.1 (Xcode 27.1) links with chained fixups and can
+// write a dylib that dyld on macOS 27.0.1 refuses: "mis-aligned LINKEDIT string pool". rustc then fails
+// on the proc macro it cannot load, with that message or as "can't find crate for `zerofrom_derive`".
+// A deployment target is not in a proc macro's fingerprint, so a plain cargo call sharing the target
+// directory (caps' wasm check, a release build) takes such a dylib too. So the scripts' cargo calls run
+// rustc through `scripts/rustc/exact-rustc`, which links proc macros with `-no_fixup_chains`. Cargo
+// leaves RUSTC_WRAPPER out of its fingerprints, so plain and scripted calls still share every unit; it
+// is a name found on PATH so that kept modules' groups, which read it (scripts/kept.mjs), are the same
+// in every checkout. Remove both when ld is fixed.
+const WRAPPER = 'exact-rustc';
+
+/** `env` with the host deployment target when it names none, and the rustc wrapper when it names none (on a Mac). */
+export function withHostDeployment(env) {
+  if (process.platform !== 'darwin') return env;
+  const out = { ...env, MACOSX_DEPLOYMENT_TARGET: env.MACOSX_DEPLOYMENT_TARGET || HOST_MACOS };
+  if (!out.RUSTC_WRAPPER) {
+    const dir = resolve(root, 'scripts/rustc');
+    out.RUSTC_WRAPPER = WRAPPER;
+    out.PATH = [dir, ...(env.PATH ?? '').split(':').filter((entry) => entry && entry !== dir)].join(':');
+  }
+  return out;
+}
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
@@ -27,13 +59,24 @@ function executable() {
     const digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(basename(inherited))?.[1];
     if (digest && existsSync(inherited) && createHash('sha256').update(readFileSync(inherited)).digest('hex') === digest) return binary = inherited;
   }
+  // A helper another process checked from these same inputs: a record named by the digest of what the build reads
+  // (`helperInputs`, never trusted by time), naming a capture whose bytes still have the digest its name gives.
+  const inputs = helperInputs(), record = inputs && resolve(directory, `checked-${inputs}`);
+  if (record) try {
+    const named = readFileSync(record, 'utf8').trim(), digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(named)?.[1];
+    const captured = resolve(directory, named);
+    if (digest && createHash('sha256').update(readFileSync(captured)).digest('hex') === digest) return binary = captured;
+  } catch { /* none checked yet */ }
   const target = resolve(directory, `debug/exact-filesystem${suffix}`);
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
-  // on that app build directory lock. Once per Bun process, Cargo checks
-  // sources, lockfile and toolchain.
+  // on that app build directory lock. Otherwise Cargo checks sources, lockfile
+  // and toolchain, once per Bun process.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
-  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
+  // The host's deployment target always, whether a build script's (an app's macOS minimum) or not: its own target directory.
+  const own = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
+  delete own.MACOSX_DEPLOYMENT_TARGET;
+  const env = withHostDeployment(own);
   for (const name of ['CARGO_BUILD_TARGET', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUSTDOCFLAGS']) delete env[name];
   for (const name of ['RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER']) {
     if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];
@@ -70,8 +113,33 @@ function executable() {
       } finally { rmSync(temporary, { force: true }); }
     }
     binary = captured;
+    // Recorded only when the inputs are what they were before the build: an edit while it ran could be in either.
+    if (record && helperInputs() === inputs) {
+      const temporary = `${record}.${owner}.tmp`;
+      try { writeFileSync(temporary, basename(captured)); renameSync(temporary, record); } catch { rmSync(temporary, { force: true }); }
+    }
     return captured;
   } finally { release(); }
+}
+
+/** The digest of what building the helper reads: its crate's files, the workspace manifest, lock and toolchain pin,
+ * and Cargo's configuration (the checkout's, its parents', `CARGO_HOME`'s), with the platform it is built for; null
+ * where the checkout has no helper crate to read. */
+function helperInputs() {
+  const hash = createHash('sha256').update(`${process.platform} ${process.arch} ${HOST_MACOS}\n`);
+  const files = (dir) => readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((entry) => entry.isDirectory() ? files(resolve(dir, entry.name)) : [resolve(dir, entry.name)]);
+  let crate;
+  try { crate = files(resolve(root, 'filesystem')); } catch { return null; }
+  const configs = [];
+  for (let at = root; ; at = dirname(at)) { configs.push(resolve(at, '.cargo/config.toml'), resolve(at, '.cargo/config')); if (at === dirname(at)) break; }
+  const home = process.env.CARGO_HOME ?? resolve(homedir(), '.cargo');
+  for (const path of [...crate, ...['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'].map((f) => resolve(root, f)), ...configs, resolve(home, 'config.toml'), resolve(home, 'config')]) {
+    hash.update(`${path}\n`);
+    try { hash.update(readFileSync(path)); } catch { hash.update('missing'); }
+    hash.update('\n');
+  }
+  return hash.digest('hex').slice(0, 32);
 }
 
 /** The wait for the helper's build claim. It ends when the owner releases the claim, and
@@ -229,17 +297,26 @@ export async function filesystemLock(root, path, fn) {
 // HTTP reads share a resident process: per-read exec can stall in macOS
 // executable assessment. Idle pipes do not keep Bun alive; pending reads do.
 // Parent exit terminates its helper, including one still awaiting OS startup.
-let reader;
+let reader, closes = 0;
 /** Ends the resident reader now (it would otherwise live until this process exits). */
 export function closeFilesystemReader() {
+  closes++;
   reader?.close();
   reader = undefined;
 }
 export function filesystemRead(input) {
   if (input.op !== 'get') return Promise.reject(new Error('read session only accepts get'));
-  reader ??= createReader();
-  return reader.send(input);
+  // A helper that exits with reads pending (killed, or crashed) answered none of them, and a caller would take the
+  // failure for a missing file (serve.mjs's 404). A get changes nothing, so each is asked once more of a fresh
+  // helper; a second exit is the read's failure. A read a close (`closeFilesystemReader`) came after is not asked
+  // again, whichever was seen first, the close or the exit: nothing starts a helper after the close.
+  const at = closes;
+  return (reader ??= createReader()).send(input).catch((error) => {
+    if (error.code !== READER_EXITED || closes !== at) throw error;
+    return (reader ??= createReader()).send(input);
+  });
 }
+const READER_EXITED = 'EXACT_FS_READER_EXITED';
 function createReader() {
   const child = spawn(executable(), ['--serve-reads'], {stdio:['pipe','pipe','pipe']});
   const lines = createInterface({input:child.stdout});
@@ -263,9 +340,11 @@ function createReader() {
     lines.close(); child.stdin.destroy(); child.kill(); reference(false);
   };
   child.on('error', fail);
-  child.stdin.on('error', fail);
+  // Its input pipe breaking (EPIPE: it exited before reading) is its exit too, whichever is seen first.
+  const gone = error => fail(Object.assign(new Error(`filesystem reader exited (${error.message})`), { code: READER_EXITED, cause: error }));
+  child.stdin.on('error', gone);
   child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
-  child.on('close', (code, signal) => fail(new Error(`filesystem reader exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)));
+  child.on('close', (code, signal) => fail(Object.assign(new Error(`filesystem reader exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`), { code: READER_EXITED })));
   lines.on('line', line => {
     const item = pending.shift();
     if (!item) { fail(new Error('unexpected filesystem reply')); return; }
@@ -277,7 +356,7 @@ function createReader() {
     reference(true);
     return new Promise((resolve, reject) => {
       pending.push({resolve, reject});
-      child.stdin.write(`${JSON.stringify(request(input))}\n`, error => { if (error) fail(error); });
+      child.stdin.write(`${JSON.stringify(request(input))}\n`, error => { if (error) gone(error); });
     });
   }, close() { fail(new Error('filesystem reader closed')); }};
   reference(false);

@@ -13,7 +13,9 @@
 //!   an SVG attribute its length;
 //! - a length token over base names (stage 12 B2) is a `calc()` over their
 //!   properties (`calc(var(--exact-space-md) * 2)`, [`expression`]), and in
-//!   an SVG attribute that column's px ([`folded`]).
+//!   an SVG attribute that column's px ([`folded`]);
+//! - a shadow token whose lengths are over base names (stage 12 B3) is the
+//!   row's CSS with each such length its property or `calc()` ([`shadow`]).
 //!
 //! A design that defines a base name makes it its own token, which the
 //! token path writes (`modes`, `measures`). The web has no iOS or Mac look
@@ -30,7 +32,8 @@ use std::collections::BTreeSet;
 /// missing one is not, and a switch between two base names then never needs
 /// a property the sheet lacks). It may read one when:
 /// - a length token aliases one (`card.pad: length = space.md`), or is an
-///   expression over one (`calc(space.md * 2)`, stage 12 B2);
+///   expression over one (`calc(space.md * 2)`, stage 12 B2), or a shadow
+///   token's length is (`0 space.md 4px black`, B3);
 /// - a length row's value may be one, through `?:`, `match` and `let` (its
 ///   bytecode's string constants, trimmed as the page's lookup trims,
 ///   [`returns`]);
@@ -78,9 +81,11 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
     let mut every = false;
     let mut said: BTreeSet<&str> = BTreeSet::new();
     for row in &plan.theme {
-        if exact_kernel::style::theme::Kind::of(row.kind)
-            != Some(exact_kernel::style::theme::Kind::Length)
-        {
+        use exact_kernel::style::theme::Kind;
+        if !matches!(
+            Kind::of(row.kind),
+            Some(Kind::Length | Kind::BoxShadow | Kind::TextShadow)
+        ) {
             continue;
         }
         let slices = plan.theme_slices[row.slices.start as usize..][..row.slices.len as usize]
@@ -98,7 +103,7 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
     let looks = plan
         .looks
         .iter()
-        .map(|l| (l.bindings, plan.nodes[l.node.0 as usize].arm));
+        .map(|l| (l.bindings, plan.nodes.get(l.node.0 as usize).unwrap().arm));
     for (range, arm) in plan.nodes.iter().map(|n| (n.bindings, n.arm)).chain(looks) {
         for b in range.iter() {
             arms[b.0 as usize] = arm;
@@ -548,6 +553,81 @@ pub fn folded(value: &str) -> Option<String> {
     }
     let px = scale::evaluate(value, metrics::column())?;
     Some(format!("{px}px"))
+}
+
+/// A shadow token's text whose lengths are over base names (stage 12 B3) as
+/// the CSS the page writes: the row's CSS for the text this build's column
+/// folds it to, as css.rs writes a literal's (its colours, every length
+/// said), each length written over a base name then its property's `var()`
+/// or [`expression`]'s `calc()` over them, for the browser to fold. `None`
+/// for any other text, or a kind no shadow is.
+pub fn shadow(kind: exact_kernel::style::theme::Kind, value: &str) -> Option<String> {
+    use exact_kernel::style::theme::Kind;
+    let value = value.trim();
+    if !matches!(kind, Kind::BoxShadow | Kind::TextShadow) || scale::named_in(value).is_empty() {
+        return None;
+    }
+    let px = scale::fold_lengths(value, |n| scale::of(n, metrics::column()).map(scale::css))?;
+    // The row's CSS writes `inset`, then every length (a box shadow's four,
+    // a text shadow's three), then the colour.
+    let css = match kind {
+        Kind::BoxShadow => exact_kernel::style::BoxShadows::parse(&px)?.css(),
+        _ => exact_kernel::style::TextShadow::parse(&px)?.css(),
+    };
+    let written = top(value, ',');
+    let mut out = Vec::new();
+    for (i, one) in top(&css, ',').into_iter().enumerate() {
+        // The lengths as written, in order: the colour and `inset` aside.
+        let lengths: Vec<&str> = written
+            .get(i)
+            .map(|w| top(w, ' '))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|w| scale::is_length_item(w))
+            .collect();
+        let mut at = 0;
+        let words: Vec<String> = top(one, ' ')
+            .into_iter()
+            .map(|w| {
+                if !scale::is_length_item(w) {
+                    return w.to_string();
+                }
+                let said = lengths.get(at).copied();
+                at += 1;
+                match said {
+                    Some(b) if scale::is_base(b) => format!("var({})", property(b)),
+                    Some(e) => expression(e).unwrap_or_else(|| w.to_string()),
+                    None => w.to_string(),
+                }
+            })
+            .collect();
+        out.push(words.join(" "));
+    }
+    Some(out.join(", "))
+}
+
+/// `text`'s parts split at `sep` (a comma, or white space for `' '`)
+/// outside parentheses, trimmed, none empty.
+fn top(text: &str, sep: char) -> Vec<&str> {
+    let (mut out, mut depth, mut start) = (Vec::new(), 0u32, 0);
+    let at = |c: char| match sep {
+        ' ' => c.is_whitespace(),
+        _ => c == sep,
+    };
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && at(c) => {
+                out.push(text[start..i].trim());
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(text[start..].trim());
+    out.retain(|p| !p.is_empty());
+    out
 }
 
 /// A base name's custom property: `--exact-space-md`.

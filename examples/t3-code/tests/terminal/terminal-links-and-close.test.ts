@@ -8,7 +8,7 @@ import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes
 //   system-browser fallback.
 // - while a terminal close confirm is open, ChatView's window key handler refuses the terminal close chord
 //   (isTerminalCloseConfirmPending && preventTerminalCloseShortcut): neither rightPanel.close nor the same close again.
-// An oversized write's refusal text and CRLF system lines are Swift (macos/tests/terminal, drawer.swift).
+// An oversized write's refusal text and CRLF system lines are the page's (terminal-host/src/session.test.ts).
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { initialShell, obj, type Obj } from '../../src/client/domain';
@@ -24,6 +24,10 @@ import { terminalLinkAction } from '../../src/terminal/terminal-integrations';
 import { welcomeLocal, welcomeView } from '../../src/pages/pages-welcome';
 import { noPrimary, resetPrimary } from '../support/local-primary-fixture';
 import { environmentKey, fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
+import { beforeEach } from 'bun:test';
+
+beforeEach(() => resetExternalOpensForTests());
 
 const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
 const out = () => ({ message: '', id: '', value: '' });
@@ -64,16 +68,16 @@ describe('The welcome wizard setup terminal\'s links are the drawer\'s', () => {
       expect(rpcs.map(call => call.method)).toEqual(['terminal.open', 'terminal.write']); // the command is typed, never run
       rpcs.length = 0;
 
-      await welcomeLocal(client, native, 'terminal-exited', 'setup-env', link(terminalId, 'https://claude.ai/install.sh'));
-      await welcomeLocal(client, native, 'terminal-exited', 'setup-env', link(terminalId, 'https://claude.ai/install.sh', true));
-      expect(ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url)).toEqual(['https://claude.ai/install.sh', 'https://claude.ai/install.sh']);
-      await welcomeLocal(client, native, 'terminal-exited', 'setup-env', link(terminalId, './README.md:1'));
+      await welcomeLocal(client, native, 'terminal-page', 'setup-env', link(terminalId, 'https://claude.ai/install.sh'));
+      await welcomeLocal(client, native, 'terminal-page', 'setup-env', link(terminalId, 'https://claude.ai/install.sh', true));
+      expect([...externalOpensForTests()]).toEqual(['https://claude.ai/install.sh', 'https://claude.ai/install.sh']);
+      await welcomeLocal(client, native, 'terminal-page', 'setup-env', link(terminalId, './README.md:1'));
       expect(rpcs).toEqual([{ method: 'shell.openInEditor', payload: { cwd: '/Users/lane/work/./README.md:1', editor: 'cursor' } }]);
       // Another session's link (a terminal the wizard replaced) is not this setup's.
-      await welcomeLocal(client, native, 'terminal-exited', 'setup-env', link('old-session', 'https://example.com/'));
-      expect(ops.filter(op => op.op === 'terminalOpenExternal')).toHaveLength(2);
+      await welcomeLocal(client, native, 'terminal-page', 'setup-env', link('old-session', 'https://example.com/'));
+      expect(externalOpensForTests()).toHaveLength(2);
       // The exit report still closes the setup terminal.
-      await welcomeLocal(client, native, 'terminal-exited', 'setup-env', JSON.stringify({ type: 'exited', terminalId }));
+      await welcomeLocal(client, native, 'terminal-page', 'setup-env', JSON.stringify({ type: 'exited', terminalId }));
       expect(rpcs.at(-1)).toEqual({ method: 'terminal.close', payload: { threadId: 'onboarding-agent-setup', terminalId, deleteHistory: true } });
     } finally { resetPrimary(); }
   });
@@ -82,7 +86,7 @@ describe('The welcome wizard setup terminal\'s links are the drawer\'s', () => {
     const { client, native, rpcs, ops } = wizardClient();
     for (const message of [{ text: 'https://claude.ai/install.sh' }, { text: 'https://claude.ai/install.sh', metaKey: true }, { text: './README.md:1', cwd: '/Users/lane/work' }])
       await terminalLinkAction(client, native, { ...message, environmentId: 'setup-env', threadId: 'thread-1', terminalId: 'term-1' });
-    expect(ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url)).toEqual(['https://claude.ai/install.sh', 'https://claude.ai/install.sh']);
+    expect([...externalOpensForTests()]).toEqual(['https://claude.ai/install.sh', 'https://claude.ai/install.sh']);
     expect(rpcs).toEqual([{ method: 'shell.openInEditor', payload: { cwd: '/Users/lane/work/./README.md:1', editor: 'cursor' } }]);
   });
 
@@ -116,10 +120,10 @@ describe('The welcome wizard setup terminal\'s links are the drawer\'s', () => {
       expect(remote.filter(call => call.op === 'request').map(call => call.method)).toEqual(['terminal.open', 'terminal.write']);
       remote.length = 0;
 
-      await welcomeLocal(client, native, 'terminal-exited', entry.environmentId, JSON.stringify({ type: 'link', text: 'src/app.ts:3', terminalId }));
+      await welcomeLocal(client, native, 'terminal-page', entry.environmentId, JSON.stringify({ type: 'link', text: 'src/app.ts:3', terminalId }));
       expect(remote).toEqual([{ op: 'request', method: 'shell.openInEditor', payload: { cwd: '/remote/work/src/app.ts:3', editor: 'zed' }, generation: 7, fleet: key }]);
       expect(rpcs).toEqual([]);
-      await welcomeLocal(client, native, 'terminal-exited', entry.environmentId, JSON.stringify({ type: 'closed', terminalId }));
+      await welcomeLocal(client, native, 'terminal-page', entry.environmentId, JSON.stringify({ type: 'closed', terminalId }));
       expect(remote.at(-1)).toMatchObject({ method: 'terminal.close', fleet: key, generation: 7 });
     } finally {
       fleet.saved = saved;
@@ -154,22 +158,22 @@ describe('"Open links in" = T3 Code, set at runtime, reaches a drawer link', () 
   test('Settings › Integrations writes the preference, then the drawer\'s link opens a Browser tab and no system browser', async () => {
     const { client, native, rpcs, ops } = drawerClient();
     await terminalOps.call(client, 'terminallocal:message', 'local:thread-1|term-1', click('http://127.0.0.1:16405/lane-link?n=plain'), 0, native, storage, out());
-    expect(ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url)).toEqual(['http://127.0.0.1:16405/lane-link?n=plain']);
+    expect([...externalOpensForTests()]).toEqual(['http://127.0.0.1:16405/lane-link?n=plain']);
     expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
     await restCommand(client, native, storage, 'browser-link-target', '', 'app'); // the row's `rest:browser-link-target`
     await terminalOps.call(client, 'terminallocal:message', 'local:thread-1|term-1', click('http://127.0.0.1:16405/lane-link?n=app'), 0, native, storage, out());
     expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 'thread-1', url: 'http://127.0.0.1:16405/lane-link?n=app' });
-    expect(ops.filter(op => op.op === 'terminalOpenExternal')).toHaveLength(1);
+    expect(externalOpensForTests()).toHaveLength(1);
     // ⌘-click is the system browser whatever the setting says.
     await terminalOps.call(client, 'terminallocal:message', 'local:thread-1|term-1', click('http://127.0.0.1:16405/lane-link?n=cmd', true), 0, native, storage, out());
-    expect(ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url).at(-1)).toBe('http://127.0.0.1:16405/lane-link?n=cmd');
+    expect([...externalOpensForTests()].at(-1)).toBe('http://127.0.0.1:16405/lane-link?n=cmd');
   });
 
   test('an in-app open that fails is kept as the drawer\'s failure, then the system browser opens the link once', async () => {
     const { client, native, ops } = drawerClient({ failOpen: true });
     await restCommand(client, native, storage, 'browser-link-target', '', 'app');
     await terminalOps.call(client, 'terminallocal:message', 'local:thread-1|term-1', click('http://127.0.0.1:16405/lane-link?n=app'), 0, native, storage, out());
-    expect(ops.filter(op => op.op === 'terminalOpenExternal').map(op => op.url)).toEqual(['http://127.0.0.1:16405/lane-link?n=app']);
+    expect([...externalOpensForTests()]).toEqual(['http://127.0.0.1:16405/lane-link?n=app']);
     expect((await terminalDrawerView(client, null, 840, 0)).failure)
       .toBe('terminal link: Failed to open terminal link http://127.0.0.1:16405 in preview for thread thread-1. preview.open refused');
   });

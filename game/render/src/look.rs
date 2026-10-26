@@ -424,12 +424,14 @@ pub(crate) fn draws_json(
                 draw,
                 count,
                 variant,
+                triangles,
                 ..
             } => {
                 let label = facts.quad_labels.get(draw).map_or("quads", String::as_str);
+                let winding = if triangles { "ccw" } else { "camera-facing" };
                 let _ = write!(
                     out,
-                    ",\"draw\":{},\"winding\":\"camera-facing\",\"submitted\":{count},\"variant\":{variant}",
+                    ",\"draw\":{},\"winding\":\"{winding}\",\"submitted\":{count},\"variant\":{variant}",
                     quote(label)
                 );
                 if let Some(k) = facts.counted.iter().position(|&c| c == draw) {
@@ -807,7 +809,7 @@ fn group_word(
         return (
             format!("outside-cascade {}", facts.cascades - 1),
             format!(
-                "drawn, beyond every sun shadow cascade (0–{})",
+                "drawn, in no sun shadow cascade's list (0–{}): past them, or casting where the camera reads none",
                 facts.cascades - 1
             ),
         );

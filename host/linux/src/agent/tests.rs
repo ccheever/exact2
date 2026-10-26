@@ -570,6 +570,7 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
         locale: "en-US".into(),
         time_zone: "America/Los_Angeles".into(),
         seed: 1.0,
+        format_locale: String::new(),
     };
     assert!(p.set_place(&place).is_none());
     assert!(p.set_time(1_772_960_400_000.0, -480.0).is_none());

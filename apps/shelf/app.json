@@ -24,6 +24,14 @@
         "height": 700
       }
     },
+    "windows": {
+      "window": {
+        "width": 1024,
+        "height": 720,
+        "minWidth": 360,
+        "minHeight": 500
+      }
+    },
     "web": {}
   },
   "deploy": {
@@ -31,7 +39,8 @@
       "web": "0",
       "macos": "0",
       "ios": "0",
-      "linux": "0"
+      "linux": "0",
+      "windows": "0"
     }
   },
   "widgets": [

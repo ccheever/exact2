@@ -10,12 +10,16 @@
 // connection whose relay certificate verified by WebPKI (no flag turns that
 // off: theme2's condition 4):
 //   connector: `EXACT-RELAY/1 <account>\r\nauthorization: Bearer <token>\r\n`
-//              (`names: <tool> <canvas>\r\n` with names of its own), `\r\n`
+//              `run: <id>\r\n` (one random id a run, on every connection: the
+//              relay's one session for it, R3), (`names: <tool> <canvas>\r\n`
+//              with names of its own, or once the relay has named the run's),
+//              `\r\n`
 //   relay:     `READY <tool> <canvas>\n`, then idle; or `REFUSED <why>\n`
 //   relay:     `CLIENT <sni> <address>\n` and the client's bytes, both ways
 // The token is never in a URL, never logged, never sent to a client; the
 // address is the client's as the relay reports it, shown, never trusted.
 
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { homedir } from 'node:os';
@@ -27,7 +31,7 @@ import { connect as connectTLS } from 'node:tls';
 /** Idle connections held for clients to come down, and the longest wait
  * between tries when the relay can't be reached. */
 export const POOL = 4, BACKOFF_MS = 30_000;
-const LINE = 1024; // (a header line longer than this is no relay's)
+export const LINE = 1024; // (a header line longer than this is no relay's)
 
 /** `--relay host[:port]` and `--relay-account <label>`, with the
  * certificate for the relay's names (`--relay-cert`, `--relay-key`, PEM
@@ -42,7 +46,7 @@ export function relayArgs(argv, { env = process.env, home = homedir() } = {}) {
   const m = /^([a-z0-9.-]+)(?::(\d{1,5}))?$/i.exec(r);
   if (!m || Number(m[2] ?? 443) > 65535) throw new Error(`--relay takes the relay's host[:port] (relay.example.com), not ${JSON.stringify(r)}`);
   const account = value('--relay-account');
-  if (!account || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(account)) throw new Error('--relay needs --relay-account <label>, the account the relay gave you (lowercase letters, digits and -)');
+  if (!account || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(account)) throw new Error('--relay needs --relay-account <label>, the account the relay gave you (lowercase letters, digits and -)');
   // The certificate: the developer's own (`--relay-cert`/`--relay-key`), or
   // got here by ACME (R2): through the relay for its names, or with names of
   // the developer's own domain, through their DNS by `--relay-dns-hook`, a
@@ -95,7 +99,8 @@ export function relayTxt({ host, port, account, token }, record, value, { clear 
     // (stopped with the run: the connection gone, whatever it had sent)
     const stop = () => { clearTimeout(done); conn.destroy(); fail(new Error('stopped')); };
     if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });
-    conn.once('close', () => signal?.removeEventListener('abort', stop));
+    // (closed with no answer, cut or refused unsaid: failed then, not at the deadline)
+    conn.once('close', () => { signal?.removeEventListener('abort', stop); clearTimeout(done); fail(new Error('the relay closed the connection without answering the TXT record')); });
     conn.once('secureConnect', () => {
       if (!conn.authorized) { clearTimeout(done); conn.destroy(); return fail(new Error(`the relay's certificate did not verify: ${conn.authorizationError ?? 'unknown'}`)); }
       conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${clear ? 'txt-clear' : 'txt'}: ${record} ${value}\r\n\r\n`);
@@ -142,7 +147,7 @@ export function dnsHook(command, record, value, { clear = false, ms = 300_000, s
 }
 
 /** An ACME DNS-01 record's name. */
-const RECORD = /^_acme-challenge\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+export const RECORD = /^_acme-challenge\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 /** A relayed client's stream as a Duplex of its own: the bytes after the
  * header first, then the relay connection's, each way, read as the TLS
@@ -164,7 +169,7 @@ function streamOf(conn, rest) {
 
 /** A host name as the relay may name a session's (lowercase, dotted, at
  * most 253 characters), and an address as it may report one. */
-const NAME = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+export const NAME = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 /** Dials a second at most, and a burst: whatever a relay does, the token
  * goes out no faster (a dial a client is far below it). */
 const DIALS = { rate: 20, burst: 40 };
@@ -195,6 +200,8 @@ const shown = (text, token) => (carries(text, token) ? '[withheld: it carries th
 export function connectRelay({ host, port, account, token, names = null }, { client, named: told = () => true, ended = () => {}, warn = console.error, connect = connectTLS, pool = POOL, backoffMs = BACKOFF_MS, greetMs = 10_000, clock = () => performance.now() } = {}) {
   const live = new Set();
   let closed = false, idle = 0, carried = 0, wait = 250, timer = null, budget = null, served = null;
+  // (this run's one id, on every connection: the relay gives all of them one session, R3)
+  const run = randomBytes(16).toString('hex');
   // (a relay's word that carries the token is never shown, logged or an origin)
   const clean = word => !carries(word, token);
   // The dial budget, on a monotonic clock (a wall clock set back stalls nothing).
@@ -252,7 +259,10 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
     conn.once('secureConnect', () => {
       if (closed) return conn.destroy();
       if (!conn.authorized) { warn(`tamber: the relay ${host}:${port}'s certificate did not verify: ${conn.authorizationError ?? 'unknown'}`); return conn.destroy(); }
-      conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${names ? `names: ${names.tool} ${names.canvas}\r\n` : ''}\r\n`);
+      // (once served, its names asked for again on every connection: a relay that restarted, or let the session
+      // lapse, gives this run the same names back, or refuses; never others the run would have to drop)
+      const asked = names ?? served;
+      conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\nrun: ${run}\r\n${asked ? `names: ${asked.tool} ${asked.canvas}\r\n` : ''}\r\n`);
     });
     const onData = chunk => {
       buf = Buffer.concat([buf, chunk]);

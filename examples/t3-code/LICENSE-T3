@@ -846,3 +846,15 @@ INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
 LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
 OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
+
+---
+
+Diagram and math renderers
+
+The Mermaid page (assets/mermaid/) loads pele 1.8.0 (MIT, Copyright (c) 2026 kepano) and DOMPurify
+3.4.16 (Apache-2.0 or MPL-2.0, Cure53); the math page (assets/math/), and the
+Mermaid page for `$$` labels, load KaTeX 0.16.47 with its stylesheet and fonts (MIT, Copyright (c)
+2013-2020 Khan Academy and other contributors; the fonts ship in that package, which states no other
+licence for them). tools/generate/gen-mermaid.mjs copies them from the pinned packages into each page's vendor/
+folder with their licence files (LICENSE-pele, LICENSE-dompurify, LICENSE-katex); they are built, not
+committed. Mermaid 11.17.2 (MIT), which the Mermaid page loaded before pele, is no longer vendored.

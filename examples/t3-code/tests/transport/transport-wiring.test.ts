@@ -28,7 +28,10 @@ describe('app.contract', () => {
     // Shared field delivery can wait on an app edit, never a server reply;
     // source projection, intent and accepted-input ACKs are local too.
     // A pull request surface's remembered tab (prTabSaved) is the panel model's, as local as these.
-    for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved']) exempt.add(name);
+    // The window's last interaction is noted in the module (app.ts), as local as these.
+    for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved', 'interactionNoted', 'interactionResumed']) exempt.add(name);
+    // A Browser frame's package calls, which the root names but data code makes (app.contract frameCommand), ask no server.
+    for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);
@@ -40,7 +43,7 @@ describe('app.contract', () => {
 
   test('the snapshot and Settings › Connections are asked again for news only once their read in flight lands', () => {
     expect(contract).toMatch(/task transportNews when transportInbox\.news != transportSeen and not pending\(data\)/);
-    expect(contract).toMatch(/resource data = snapshot\([^\n]*transportSeen, composerTyping\)/);
+    expect(contract).toMatch(/resource data = snapshot\([^\n]*transportSeen, composerTyping, layoutFrames, wallTime\.formatLocale\)/);
     expect(contract).toMatch(/resource connectionsPage = connectionsPage\([^\n]*transportFleetSeen\)/);
   });
 });
@@ -48,6 +51,13 @@ describe('app.contract', () => {
 describe('app.ts', () => {
   test('grants whole schemes, for servers named at run time, and the catalog secret', () => {
     expect(grants.split('\n')).toEqual(expect.arrayContaining(['net.fetch http:', 'net.fetch https:', 'net.websocket ws:', 'net.websocket wss:', 'secret.keep t3-catalog']));
+  });
+
+  test('claims the camera and microphone for the commands terminals and agents run (build-desktop-artifact.ts)', async () => {
+    expect(grants.split('\n')).toEqual(expect.arrayContaining(['device.camera purpose.camera', 'device.microphone purpose.microphone']));
+    const strings = await Bun.file(new URL('../../strings/en.json', import.meta.url)).json() as Record<string, string>;
+    expect(strings['purpose.camera']).toBe('T3 Code lets commands run by terminals and coding agents use the camera.');
+    expect(strings['purpose.microphone']).toBe('T3 Code lets commands run by terminals and coding agents use the microphone.');
   });
 
   test('the tick answers now, as a mutation that sends must', () => {

@@ -2,7 +2,7 @@ import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes
 // The drawer's client side (terminal-drawer-view.ts) against a fake client and native bridge: what
 // toggle, New, Close, the exit report and thread delete send to the server (T3 Code 1e2ecbd975
 // ChatView.tsx toggleTerminalVisibility / closeTerminal, useThreadActions.ts), the metadata stream's
-// reconcile and the mounted threads the native side keeps attached.
+// reconcile and the messages of the panes' terminal pages (terminal-frames.ts).
 import { describe, expect, test } from 'bun:test';
 
 import type { T3Client } from '../../src/client/client';
@@ -14,6 +14,7 @@ import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { adoptTerminalPrefs, terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent } from '../support/contract-action-fixture';
+import { terminalFrameId } from '../../src/terminal/terminal-frames';
 
 type Call = { method: string; payload: Obj };
 function fixture(options: { fail?: string[]; connected?: boolean; closing?: Promise<void> } = {}) {
@@ -29,7 +30,11 @@ function fixture(options: { fail?: string[]; connected?: boolean; closing?: Prom
       if (method === 'terminal.close') await options.closing;
       return {};
     },
-    async call(_native: Native, request: Obj) { native.push(request); return request.op === 'subscribe' ? { id: '3-7' } : {}; },
+    async call(_native: Native, request: Obj) {
+      native.push(request);
+      if (request.op === 'terminalSocket') return { url: `ws://${String(request.environmentId)}/ws?wsTicket=t` };
+      return request.op === 'subscribe' ? { id: '3-7' } : {};
+    },
   };
   return { client: client as unknown as T3Client, raw: client, calls, native };
 }
@@ -226,19 +231,44 @@ describe('terminal drawer resource', () => {
     expect((await terminalDrawerView(client, null, 840, 70_000)).metadata).toContain('terminal:operate');
   });
 
-  test('keeps the active and the ten most recent hidden open threads attached natively', async () => {
-    const { client, native, raw } = fixture();
-    raw.shell.threads = Array.from({ length: 12 }, (_, index) => ({ id: `thread-${index}`, projectId: 'project-1' }));
-    for (let index = 0; index < 12; index += 1) {
-      raw.threadId = `thread-${index}`;
-      await run(client, 'toggle');
-      await terminalDrawerView(client, { available: true } as Native, 840, index);
-    }
-    const last = native.filter(request => request.op === 'terminalRetain').at(-1)!;
-    expect(last.sessions).toHaveLength(11);
-    expect(last.sessions).not.toContain('["env-a","thread-0","term-1"]');
-    expect(last.sessions).toContain('["env-a","thread-11","term-1"]');
-    expect((await terminalDrawerView(client, null, 840, 99)).mounted).toBe(11);
+  test('a pane is its terminal page: the session it attaches to, a socket ticket for its environment, its posts and its menu', async () => {
+    const { client, native } = fixture();
+    await run(client, 'toggle');
+    const frame = (await terminalDrawerView(client, null, 840, 0)).panes[0]!.frame;
+    expect(frame.id).toBe(terminalFrameId('drawer', 'env-a', 'thread-1', 'term-1'));
+    expect(frame.src).toBe('assets/terminal/index.html');
+    expect(JSON.parse(frame.session)).toEqual({ mode: 'session', identity: { environmentId: 'env-a', threadId: 'thread-1', terminalId: 'term-1', surface: 'drawer' },
+      readOnly: false, canAddToChat: true, attach: { threadId: 'thread-1', terminalId: 'term-1', cwd: '/repo/.t3/wt-1', worktreePath: '/repo/.t3/wt-1',
+        env: { T3CODE_PROJECT_ROOT: '/repo', T3CODE_WORKTREE_PATH: '/repo/.t3/wt-1' } } });
+    const identity = { environmentId: 'env-a', threadId: 'thread-1', terminalId: 'term-1', surface: 'drawer' };
+    // A post waits for the page's boot; the boot drops what an earlier document was sent.
+    await run(client, 'message', frame.id, JSON.stringify({ type: 'boot' }));
+    await run(client, 'message', frame.id, JSON.stringify({ type: 'ticket', ...identity }));
+    expect(native.filter(request => request.op === 'terminalSocket')).toEqual([{ op: 'terminalSocket', environmentId: 'env-a' }]);
+    let posts = (await terminalDrawerView(client, null, 840, 1)).panes[0]!.frame.posts;
+    expect(posts.map(post => JSON.parse(post.text))).toEqual([{ type: 'socket', url: 'ws://env-a/ws?wsTicket=t', serial: 0 }]);
+    await run(client, 'posted', frame.id, posts[0]!.key);
+    expect((await terminalDrawerView(client, null, 840, 2)).panes[0]!.frame.posts).toEqual([]);
+    // The selection popup, then Copy: the raw selection goes to the clipboard and the terminal takes the focus back.
+    const selection = { text: 'one\r\ntwo\n', position: { start: { x: 0, y: 2 }, end: { x: 3, y: 3 } } };
+    await run(client, 'message', frame.id, JSON.stringify({ type: 'selection-ready', x: 40, y: 50, ...selection, ...identity }));
+    const menu = (await terminalDrawerView(client, null, 840, 3)).panes[0]!.frame.menu;
+    expect(menu).toEqual({ serial: 1, x: 40, y: 50, rows: [{ id: 'add-to-chat', label: 'Add to chat', disabled: false }, { id: 'copy', label: 'Copy', disabled: false }] });
+    await run(client, 'menu', frame.id, `${menu.serial}|copy`);
+    expect(native.filter(request => request.op === 'copyText')).toEqual([{ op: 'copyText', text: 'one\r\ntwo\n' }]);
+    posts = (await terminalDrawerView(client, null, 840, 4)).panes[0]!.frame.posts;
+    expect(posts.map(post => JSON.parse(post.text))).toEqual([{ type: 'focus' }]);
+    // A right-click's menu: Paste, Select all and Jump to latest act on the page; a superseded menu's row does nothing.
+    await run(client, 'message', frame.id, JSON.stringify({ type: 'contextmenu', x: 5, y: 6, text: '', position: null, ...identity }));
+    expect((await terminalDrawerView(client, null, 840, 5)).panes[0]!.frame.menu.rows.map(row => [row.id, row.label, row.disabled])).toEqual([
+      ['add-to-chat', 'Add to chat', true], ['copy', 'Copy', true], ['paste', 'Paste', false], ['select-all', 'Select all', false], ['scroll-to-bottom', 'Jump to latest', false]]);
+    await run(client, 'menu', frame.id, '1|select-all');
+    await run(client, 'menu', frame.id, '2|scroll-to-bottom');
+    posts = (await terminalDrawerView(client, null, 840, 6)).panes[0]!.frame.posts;
+    expect(posts).toHaveLength(1);
+    await run(client, 'posted', frame.id, posts[0]!.key);
+    const later = (await terminalDrawerView(client, null, 840, 7)).panes[0]!.frame.posts;
+    expect([...posts, ...later].map(post => JSON.parse(post.text).type)).toEqual(['focus', 'scrollToBottom']);
   });
 });
 
@@ -325,15 +355,17 @@ test('native toggle preserves composer-focus result and rejects obsolete scope',
 });
 
 
-test('dedicated focus operations update pane context without dispatching a terminal command', async () => {
+test('the page\'s focus reports update pane context without dispatching a terminal command', async () => {
   const { client, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
   const store = terminalUiStore(client).getState();
   store.ensureTerminal(ref, 'term-1', { open: true }); store.splitTerminal(ref, 'term-2');
-  await run(client, 'focus-in', 'env-a:thread-1|term-2', 'drawer');
+  const focus = (terminalId: string, focused: boolean) => run(client, 'message', terminalFrameId('drawer', 'env-a', 'thread-1', terminalId),
+    JSON.stringify({ type: 'focus', focused, ...ref, terminalId, surface: 'drawer' }));
+  await focus('term-2', true);
   expect(focusedTerminal(client)).toEqual({ ...ref, terminalId: 'term-2', surface: 'drawer' });
-  await run(client, 'focus-out', 'env-a:thread-1|term-1', 'drawer');
+  await focus('term-1', false);
   expect(focusedTerminal(client)?.terminalId).toBe('term-2');
-  await run(client, 'focus-out', 'env-a:thread-1|term-2', 'drawer');
+  await focus('term-2', false);
   expect(focusedTerminal(client)).toBeNull(); expect(calls).toEqual([]);
 });
 

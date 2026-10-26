@@ -6,6 +6,19 @@
 import UIKit
 
 extension NavigationHost {
+    /// The search field a shown route projects into UIKit's search bar.
+    func drawnSearch(_ node: NodeView) -> UITextField? {
+        #if os(iOS)
+        guard !ExactEnv.authoredChrome else { return nil }
+        for c in controllers.values {
+            guard let nav = c.navigationController, nav.topViewController === c, barShows(nav),
+                  c.viewIfLoaded?.window != nil, let search = c.search, search.field === node else { continue }
+            return search.controller.searchBar.searchTextField
+        }
+        #endif
+        return nil
+    }
+
     /// Under `--chrome platform`, the navigation bar a header button's item
     /// sits in and the item's box in it: where a finger aims, and where its
     /// pull-down opens. Nil for any other node; a refusal for an item UIKit
@@ -31,6 +44,17 @@ extension NavigationHost {
 }
 
 extension Agent {
+    /// A compact control can occupy only one end of its authored box.
+    func nativeControlPoint(_ node: NodeView, box b: CGRect, in window: UIWindow) -> AddressedAim? {
+        guard let control = presenter.controls.controls[node.id], control.window === window else { return nil }
+        let cb = box(control), point = CGPoint(x: cb.midX, y: cb.midY), middle = CGPoint(x: b.midX, y: b.midY)
+        guard point != middle else { return nil }
+        let vp = presenter.viewport
+        let toWindow = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
+        guard pressReach(node, at: toWindow(point), in: window)?.isOwn(node) == true else { return nil }
+        return .at(point, pressReach(node, at: toWindow(middle), in: window) ?? .nothing)
+    }
+
     /// Under `--chrome platform`, the navigation bar a header button's item
     /// sits in and the item's box in it (r5 weather's Cities, r5 mood
     /// journal's sheet Save). Nil for any other node; a refusal for an item
@@ -39,13 +63,15 @@ extension Agent {
         presenter.navigation.barItem(node)
     }
 
-    /// Under `--chrome platform`, the control UIKit shows for the item
-    /// standing for the tab `node` is (or is in): the one accessibility
-    /// element with the item's identifier, as VoiceOver and XCUITest find it
-    /// (a `UITabBarItem` has no public frame). Nil for any other node; a
-    /// refusal when none, or more than one, shows.
+    /// The control UIKit shows for the item standing for the tab `node` is
+    /// (or is in), as VoiceOver and XCUITest find it (a `UITabBarItem` has no
+    /// public frame): in the tab bar its tablist is drawn as (`drawnItem`),
+    /// or under `--chrome platform` in UIKit's tab bar, the one accessibility
+    /// element with the item's identifier. Nil for any other node; a refusal
+    /// when none, or more than one, shows, or the item is outside the window.
     func tabItem(_ node: NodeView) -> Result<UIView, AimRefusal>? {
         #if os(iOS)
+        if let (bar, item) = presenter.segments.barItem(of: node) { return drawnItem(item, in: bar) }
         let nav = presenter.navigation
         guard nav.tabBarShows, let tabs = nav.container.flatMap({ NavigationTabs.of($0, presenter) }),
               let index = tabs.tabs.firstIndex(where: { node === $0 || node.isDescendant(of: $0) }),
@@ -55,17 +81,9 @@ extension Agent {
         // iPad, at the top or in the sidebar; by its title only without one.
         let item = items[index], id = item.accessibilityIdentifier ?? "", title = item.title ?? ""
         guard !id.isEmpty || !title.isEmpty else { return .failure(AimRefusal(why: "its tab has neither a test id nor a title UIKit's tab bar shows; give it a testId")) }
-        var found: [UIView] = [], pending: [UIView] = controller.view.subviews
-        while !pending.isEmpty {
-            let v = pending.removeFirst()
-            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView) else { continue }
-            if v.isAccessibilityElement {
-                let box = v.convert(v.bounds, to: nil)
-                if id.isEmpty ? v.accessibilityLabel == title : v.accessibilityIdentifier == id,
-                   box.width > 0, box.height > 0, v.window?.bounds.contains(CGPoint(x: box.midX, y: box.midY)) == true { found.append(v) }
-                continue
-            }
-            pending.append(contentsOf: v.subviews)
+        let found = Self.elements(under: controller.view.subviews).filter { v in
+            let box = v.convert(v.bounds, to: nil)
+            return (id.isEmpty ? v.accessibilityLabel == title : v.accessibilityIdentifier == id) && v.window?.bounds.contains(CGPoint(x: box.midX, y: box.midY)) == true
         }
         guard found.count == 1 else {
             return .failure(AimRefusal(why: found.isEmpty ? "UIKit's tab bar shows no item for its tab; `clock settle` first waits out a transition"
@@ -76,6 +94,57 @@ extension Agent {
         return nil
         #endif
     }
+
+    #if os(iOS)
+    /// The views under `roots` that an accessibility client reads as
+    /// elements, shown and with a box; the walk does not enter nodes.
+    private static func elements(under roots: [UIView]) -> [UIView] {
+        var found: [UIView] = [], pending = roots
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView) else { continue }
+            if v.isAccessibilityElement {
+                if v.bounds.width > 0, v.bounds.height > 0 { found.append(v) }
+                continue
+            }
+            pending.append(contentsOf: v.subviews)
+        }
+        return found
+    }
+
+    /// The control the tab bar a tablist is drawn as (LLP 1059) shows for
+    /// `item`. That bar centres its items in a pill narrower than its box, so
+    /// the hidden tab's box is not where its item is. By the item's
+    /// identifier, else by its name or title: iOS 27.1's tab button carries
+    /// its item's identifier only once an accessibility client has asked. The
+    /// bar draws each button twice for its glass, so copies at one box count
+    /// once: the copy a finger at its middle reaches.
+    private func drawnItem(_ item: UITabBarItem, in bar: UITabBar) -> Result<UIView, AimRefusal> {
+        let id = item.accessibilityIdentifier ?? "", names = [item.accessibilityLabel, item.title].compactMap { $0 }.filter { !$0.isEmpty }
+        let controls = Self.elements(under: [bar]).filter { $0 is UIControl }
+        var found = id.isEmpty ? [] : controls.filter { $0.accessibilityIdentifier == id }
+        let byName = found.isEmpty
+        if byName { found = controls.filter { $0.accessibilityLabel.map(names.contains) == true } }
+        var shown: [(box: CGRect, control: UIView)] = []
+        for v in found {
+            let box = v.convert(v.bounds, to: nil), middle = CGPoint(x: box.midX, y: box.midY)
+            let reached = v.window?.hitTest(middle, with: nil).map { $0 === v || $0.isDescendant(of: v) } == true
+            if let i = shown.firstIndex(where: { abs($0.box.midX - box.midX) < 1 && abs($0.box.midY - box.midY) < 1 }) {
+                if reached { shown[i].control = v }
+            } else { shown.append((box, v)) }
+        }
+        guard shown.count == 1 else {
+            return .failure(AimRefusal(why: shown.isEmpty ? "the tab bar its tablist is drawn as shows no item for its tab; `clock settle` first waits out a transition"
+                : byName ? "the tab bar its tablist is drawn as shows \(shown.count) items named \"\(names.first ?? "")\"; give each tab its own name"
+                : "the tab bar its tablist is drawn as shows \(shown.count) items as \(id); give each tab its own testId"))
+        }
+        let (box, control) = shown[0]
+        guard control.window?.bounds.contains(CGPoint(x: box.midX, y: box.midY)) == true else {
+            return .failure(AimRefusal(why: "its item is outside the window; scroll it into view first"))
+        }
+        return .success(control)
+    }
+    #endif
 
     /// Why a finger would not reach the segment or bar item UIKit draws in
     /// `node`'s place (a sheet over it, the keyboard), or nil: the tap that

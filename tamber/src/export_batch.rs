@@ -51,47 +51,53 @@ fn judged_on(base: &str, folding: Folding, members: &[&[Op]], vocab: &Vocab) -> 
 }
 
 /// `members` (each its place in the whole list, and its operations) on what
-/// `at` holds.
+/// `at` holds. The members a refusal blames are taken out and the rest tried
+/// again in a loop, not a call apiece (Astra's round 2 on the checker bound:
+/// a chain of edits each exposed by the last recursed once per edit); only
+/// halving recurses, as deep as the members halve.
 fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
-    if members.is_empty() {
-        return;
-    }
-    let ops: Vec<Op> = members
-        .iter()
-        .flat_map(|(_, m)| m.iter().cloned())
-        .collect();
-    let refused = match stepped_all(&at.text, &ops, vocab) {
-        Ok(text) => match crate::check(&text, vocab) {
-            Ok(folding) => {
-                at.text = text;
-                at.folding = folding;
+    let mut members: Vec<(usize, &[Op])> = members.to_vec();
+    loop {
+        if members.is_empty() {
+            return;
+        }
+        let ops: Vec<Op> = members
+            .iter()
+            .flat_map(|(_, m)| m.iter().cloned())
+            .collect();
+        let refused = match stepped_all(&at.text, &ops, vocab) {
+            Ok(text) => match crate::check(&text, vocab) {
+                Ok(folding) => {
+                    at.text = text;
+                    at.folding = folding;
+                    return;
+                }
+                Err(all) => match blamed(&text, &all, &members) {
+                    Some(blamed) => Err(blamed),
+                    None => Ok(all),
+                },
+            },
+            Err(all) => Ok(all),
+        };
+        match refused {
+            // Each token a diagnostic is on refused with its own, the rest
+            // tried again without them.
+            Err(blamed) => {
+                let out: std::collections::HashSet<usize> =
+                    blamed.iter().map(|(b, _)| *b).collect();
+                members.retain(|(k, _)| !out.contains(k));
+                at.refused.extend(blamed);
+            }
+            Ok(all) if members.len() == 1 => {
+                at.refused.push((members[0].0, all));
                 return;
             }
-            Err(all) => match blamed(&text, &all, members) {
-                Some(blamed) => Err(blamed),
-                None => Ok(all),
-            },
-        },
-        Err(all) => Ok(all),
-    };
-    match refused {
-        // Each token a diagnostic is on refused with its own, the rest tried
-        // again without them.
-        Err(blamed) => {
-            let out: std::collections::HashSet<usize> = blamed.iter().map(|(b, _)| *b).collect();
-            let rest: Vec<(usize, &[Op])> = members
-                .iter()
-                .filter(|(k, _)| !out.contains(k))
-                .copied()
-                .collect();
-            at.refused.extend(blamed);
-            take(at, &rest, vocab);
-        }
-        Ok(all) if members.len() == 1 => at.refused.push((members[0].0, all)),
-        Ok(_) => {
-            let half = members.len() / 2;
-            take(at, &members[..half], vocab);
-            take(at, &members[half..], vocab);
+            Ok(_) => {
+                let half = members.len() / 2;
+                take(at, &members[..half], vocab);
+                take(at, &members[half..], vocab);
+                return;
+            }
         }
     }
 }
@@ -464,5 +470,43 @@ mod tests {
         );
         // The same input, the same report.
         assert_eq!(refused(base, &members), first);
+    }
+
+    /// A chain of members each exposed only when the last is refused (Astra's
+    /// round 2 on the checker bound: one recursion per edit) is taken out in
+    /// the loop: 1,500 rounds on a 2 MiB stack, each member refused with
+    /// its own reason.
+    #[test]
+    fn a_chain_of_refusals_each_exposing_the_next_is_a_loop_not_a_recursion() {
+        let n = 1_500;
+        let mut base = String::from("tamber t\n\ntheme\n");
+        for k in 0..n {
+            base += &format!("  t{k} = 4px\n");
+        }
+        // Each a colour naming the next; the last refused on its own line
+        // (no such axis), which leaves it a length, so the one before names
+        // a length as a colour, and so on down.
+        let mut members: Vec<Vec<Op>> = (0..n - 1)
+            .map(|k| {
+                vec![set(
+                    &format!("t{k}"),
+                    &format!("light-dark(t{}, #000000)", k + 1),
+                )]
+            })
+            .collect();
+        members.push(vec![Op::SetToken {
+            name: format!("t{}", n - 1),
+            when: vec![("nope".into(), "x".into())],
+            value: "#ffffff".into(),
+            at: None,
+            comment: None,
+        }]);
+        let refused = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || refused(&base, &members).0.len())
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(refused, n);
     }
 }

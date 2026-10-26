@@ -9,8 +9,8 @@ import {composerSourceSession} from '../../src/composer/composer-rich-state';
 const root = contractComponent('app.contract', 'T3Code');
 const source = readFileSync(appPath('app.contract'), 'utf8').split('\n');
 const record = (fields: Env) => fields;
-const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
-const chipFns = contractFns('src/composer/composer-rich.contract', {sum});
+const chipFns = contractFns('src/composer/composer-rich.contract');
+const keyFns = contractFns('src/composer/composer-keys.contract');
 const chipsOf = (text: string) => composerRichProjection({value: text, owner: 'draft', styling: true, literal: false}).chips;
 function fixture(initial = 'word', caret = initial.length) {
   const client = {snapshotOwner: 'snapshot'};
@@ -30,7 +30,7 @@ function fixture(initial = 'word', caret = initial.length) {
   const observations: unknown[][] = [];
   const scope = (): Env => {
     const env: Env = {
-      data: {snapshotOwner: client.snapshotOwner, requestKey: '', requestMode: ''}, richComposerOwner: 'draft', composerOwner: 'draft',
+      data: {snapshotOwner: client.snapshotOwner, requestKey: '', requestMode: '', composer: {sendChords: 'Meta+Enter', sendCommandChords: ''}}, richComposerOwner: 'draft', composerOwner: 'draft', shortcuts: [], ...keyFns,
       composerText: state.draft, richComposer: projection, composerFieldLive: true, composerRequiresModifier: false, composerShift: false, composerCommand: false,
       editor: {menu: {open: false}, stash: {menuOpen: false}}, composerInCode: false, composerInList: false, composerCodeStart: false,
       first: (items: unknown[]) => items[0], ComposerIntentMetadata: record, ComposerFieldObservation: record, composerFieldObserved: (...args: unknown[]) => {observations.push(args); return {};}, command: () => '',
@@ -258,24 +258,24 @@ describe('actual root composer intent ordering', () => {
     ['Tab', '```ts\nx\n```', 7, 'Tab', false, 'edit'],
   ] as const) test(`Apple admitted ${label} after unchanged unmark uses the fresh key boundary`, () => {
     const f = fixture(text, caret); f.state.composerComposing = true;
-    f.call('composerKeyEvent', [key, {shiftKey: false, metaKey: meta, ctrlKey: false, altKey: false, repeat: false, code: key === 'b' ? 'KeyB' : key}], {composerInCode: key === 'Tab'});
+    f.call('composerKeyEvent', [key, {isComposing: false, shiftKey: false, metaKey: meta, ctrlKey: false, altKey: false, repeat: false, code: key === 'b' ? 'KeyB' : key}], {composerInCode: key === 'Tab'});
     expect(f.state.composerComposing).toBe(false); expect(f.suppressed).toBe(1);
     f.call('composerIntentPump'); expect(f.replies[0]?.kind).toBe(expected);
   });
   test('Command-B and Command-I are the Markdown field\'s format commands, even before the projection catches up', () => {
     for (const [key, command] of [['b', 'bold'], ['i', 'italic']] as const) {
       const f = fixture(); f.state.composerComposing = true;
-      f.call('composerKeyEvent', [key, {shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: key === 'b' ? 'KeyB' : 'KeyI'}],
+      f.call('composerKeyEvent', [key, {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: key === 'b' ? 'KeyB' : 'KeyI'}],
         {composerRichCurrent: false, composerSelectionCurrent: false});
       expect(f.state.composerComposing).toBe(false); expect(f.suppressed).toBe(1);
       expect(f.formats).toEqual([['composer', command]]); expect(f.state.composerIntentQueue).toEqual([]);
     }
     const plain = fixture(); plain.projection = {...plain.projection, mode: 'plain'};
-    plain.call('composerKeyEvent', ['b', {shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'}]);
+    plain.call('composerKeyEvent', ['b', {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'}]);
     expect(plain.formats).toEqual([]); expect(plain.suppressed).toBe(0);
   });
   test('Command-B pressed while an edit waits takes its turn after that edit, at the resulting selection', () => {
-    const bold = {shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'};
+    const bold = {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'};
     const kinds = (f: ReturnType<typeof fixture>) => (f.state.composerIntentQueue as {kind: string}[]).map(item => item.kind);
     const f = fixture('- a', 3); f.press(); f.call('composerIntentPump');
     f.call('composerKeyEvent', ['b', bold]);
@@ -304,145 +304,92 @@ describe('actual root composer intent ordering', () => {
   });
   test('Apple nonediting key after unchanged unmark refreshes field metadata once without source/input changes', () => {
     const f = fixture(); f.state.composerComposing = true;
-    const event = {shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, code: 'ArrowRight'};
+    const event = {isComposing: false, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, code: 'ArrowRight'};
     f.call('composerKeyEvent', ['ArrowRight', event]);
     expect(f.observations).toEqual([[expect.objectContaining({composing: false, value: 'word', start: 4, end: 4, inputSerial: 0}), false]]);
     expect(f.state.composerComposing).toBe(false); expect(f.state.composerFieldInputSerial).toBe(0);
     expect(f.state.draft).toBe('word'); expect(f.commands).toHaveLength(0); expect(f.requests).toHaveLength(0);
     f.call('composerKeyEvent', ['ArrowRight', event]); expect(f.observations).toHaveLength(1);
   });
+  test('a key that confirms an input method\'s candidate neither sends nor edits (KeyboardEvent.isComposing)', () => {
+    const f = fixture(); f.state.composerComposing = true;
+    f.call('composerKeyEvent', ['Enter', {isComposing: true, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'Enter'}]);
+    expect(f.state.composerComposing).toBe(true); expect(f.suppressed).toBe(0); expect(f.requests).toHaveLength(0); expect(f.sends).toBe(0);
+  });
   test('modifier-only key admission retains the cached composition state', () => {
     const f = fixture(); f.state.composerComposing = true;
-    f.call('composerKeyEvent', ['Shift', {shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, repeat: false, code: 'ShiftLeft'}]);
+    f.call('composerKeyEvent', ['Shift', {isComposing: true, shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, repeat: false, code: 'ShiftLeft'}]);
     expect(f.state.composerComposing).toBe(true); expect(f.suppressed).toBe(0); expect(f.requests).toHaveLength(0);
   });
 
 });
 
-// The reference's composer chips are atoms (ComposerPromptEditorTiptap: atom, contentEditable={false}): Backspace or
-// Delete beside one removes it whole, the caret never rests inside it and typing never edits it.
-describe('a composer reference is one unit', () => {
+// The reference's composer chips are atoms (ComposerPromptEditorTiptap: atom, contentEditable={false}). Here the
+// Markdown editor keeps a reference whole (LLP 1045.000 D5), so the app leaves the keys, deletions, caret and typing
+// at one to the field; only a paste is the app's, as anywhere in the prompt.
+describe('a composer reference is the editor\'s atom', () => {
   const cite = '[Assistant quote](t3-citation://v1/e/t/m?text=the&start=0&end=3&prefix=&suffix=)';
-  const draft = `see ${cite} now`, start = 4, end = 4 + cite.length, shownEnd = start + '[Assistant quote'.length;
+  const draft = `see ${cite} now`, start = 4, end = 4 + cite.length;
   const key = (k: string, held: Partial<Record<'altKey' | 'metaKey' | 'shiftKey' | 'ctrlKey', boolean>> = {}) =>
-    [k, {shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, ...held}, false];
+    [k, {isComposing: false, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, ...held}, false];
   const settle = (f: ReturnType<typeof fixture>) => {f.call('composerIntentPump'); f.reply(); f.accept(); f.call('composerIntentConfirmed');};
   const input = (f: ReturnType<typeof fixture>, inputType: string, at: number, data: string | null = null) =>
     f.call('composerBeforeInput', [{value: f.state.draft, selectionStart: at, selectionEnd: at, isComposing: false, cancelable: true, inputType, data}], {richComposer: {...f.projection, blocks: []}});
-  test('Backspace after it, Delete before it, either inside it, removes its whole source in one range edit', () => {
-    for (const [k, caret] of [['Backspace', end], ['Delete', start], ['Backspace', 10], ['Delete', 10]] as const) {
-      const f = fixture(draft, caret);
-      f.call('composerGrammarKey', key(k));
-      expect(f.suppressed).toBe(1);
-      settle(f);
-      expect(f.commands).toEqual([['composer', '', start, end, 'preserve']]);
-      expect([f.state.draft, f.state.composerSelectionStart, f.state.composerIntentQueue]).toEqual(['see  now', start, []]);
-    }
-  });
-  test('Option-Backspace takes the reference and the spaces between, as word deletion takes an atom', () => {
-    const f = fixture(draft.replace(' now', '  now'), end + 1);
-    f.call('composerGrammarKey', key('Backspace', {altKey: true}));
-    expect(f.suppressed).toBe(1);
-    settle(f);
-    expect(f.commands).toEqual([['composer', '', start, end + 1, 'preserve']]);
-  });
-  test('keys that do not reach it, and ⌘⌫, stay the field\'s own', () => {
-    for (const [k, caret, held] of [['Backspace', start, {}], ['Delete', end, {}], ['Backspace', end + 1, {}], ['Backspace', end, {metaKey: true}], ['Backspace', end + 4, {altKey: true}]] as const) {
+  test('Backspace, Delete, ⌥⌫ and ← → at it stay the field\'s own', () => {
+    for (const [k, caret, held] of [['Backspace', end, {}], ['Delete', start, {}], ['Backspace', end, {altKey: true}], ['ArrowLeft', end, {}], ['ArrowRight', start, {}]] as const) {
       const f = fixture(draft, caret);
       f.call('composerGrammarKey', key(k, held));
-      expect([f.suppressed, f.requests.length]).toEqual([0, 0]);
+      expect([f.suppressed, f.requests.length, f.selections]).toEqual([0, 0, []]);
     }
   });
-  test('a second Backspace pressed before the first removal lands deletes a character, not nothing', () => {
-    const f = fixture(draft, end);
-    f.call('composerGrammarKey', key('Backspace'));
-    f.call('composerGrammarKey', key('Backspace'));
-    expect(f.suppressed).toBe(2);
-    settle(f); settle(f);
-    expect([f.state.draft, f.state.composerSelectionStart, f.state.composerIntentNotice, f.state.composerIntentQueue]).toEqual(['see now', 3, '', []]);
-  });
-  test('cite, Backspace twice, type: the citation goes whole, so the text never enters its label', () => {
-    const f = fixture(`${cite} `, cite.length + 1);
-    f.call('composerGrammarKey', key('Backspace'));
-    expect(f.suppressed).toBe(0);
-    f.input(cite, cite.length); f.project();
-    f.call('composerGrammarKey', key('Backspace'));
+  test('⌃H, ⌃D, word deletion, typing and drops at it reach the field; a paste over it is the app\'s range edit', () => {
+    for (const [inputType, at] of [['deleteContentBackward', end], ['deleteContentForward', start], ['deleteWordBackward', end + 1], ['insertText', end], ['insertFromDrop', start]] as const) {
+      const f = fixture(draft, at);
+      input(f, inputType, at, inputType.startsWith('insert') ? 'x' : null);
+      expect(f.suppressed).toBe(0);
+    }
+    const f = fixture(draft, 0);
+    f.state.composerSelectionEnd = draft.length;
+    f.call('composerBeforeInput', [{value: draft, selectionStart: 0, selectionEnd: draft.length, isComposing: false, cancelable: true, inputType: 'insertFromPaste', data: 'z'}], {richComposer: {...f.projection, blocks: []}});
     expect(f.suppressed).toBe(1);
     settle(f);
-    expect([f.state.draft, f.state.composerSelectionStart]).toEqual(['', 0]);
+    expect([f.state.draft, f.state.composerSelectionStart]).toEqual(['z', 1]);
   });
-  test('⌃H, ⌃D and word deletion at it remove it whole through beforeinput', () => {
-    for (const [inputType, caret, removed] of [['deleteContentBackward', end, [start, end]], ['deleteContentForward', start, [start, end]], ['deleteWordBackward', end + 1, [start, end + 1]], ['deleteWordForward', start - 1, [start - 1, end]]] as const) {
+  test('⇧⇥ just after a citation opens its comment at the citation, before plan mode\'s ⇧⇥', () => {
+    const presses: unknown[][] = [];
+    const press = (caret: number, held = {}) => {
       const f = fixture(draft, caret);
-      input(f, inputType, caret);
-      expect(f.suppressed).toBe(1);
-      settle(f);
-      expect(f.commands).toEqual([['composer', '', removed[0], removed[1], 'preserve']]);
-    }
-    const away = fixture(draft, end + 3);
-    input(away, 'deleteWordBackward', end + 3);
-    expect(away.suppressed).toBe(0);
-  });
-  test('text typed or dropped inside it goes after it', () => {
-    for (const inputType of ['insertText', 'insertFromDrop']) {
-      const f = fixture(draft, 10);
-      input(f, inputType, 10, 'x');
-      expect(f.suppressed).toBe(1);
-      settle(f);
-      expect(f.commands).toEqual([['composer', 'x', end, end, 'preserve']]);
-      expect([f.state.draft, f.state.composerSelectionStart]).toEqual([`see ${cite}x now`, end + 1]);
-    }
-    const outside = fixture(draft, end);
-    input(outside, 'insertText', end, 'x');
-    expect(outside.suppressed).toBe(0);
-  });
-  test('text put over a selection that holds it replaces the whole selection, its source included', () => {
-    for (const [inputType, from, to, expected] of [
-      ['insertText', 0, draft.length, 'z'],
-      ['insertText', 2, start + 3, 'sez now'],
-      ['insertText', start - 1, end + 1, 'seeznow'],
-      ['insertFromPaste', 0, draft.length, 'z'],
-      ['insertReplacementText', start, end, 'see z now'],
-      ['insertFromDrop', start, end + 4, 'see z'],
-    ] as const) {
-      const f = fixture(draft, from);
-      f.state.composerSelectionEnd = to;
-      f.call('composerBeforeInput', [{value: draft, selectionStart: from, selectionEnd: to, isComposing: false, cancelable: true, inputType, data: 'z'}], {richComposer: {...f.projection, blocks: []}});
-      expect(f.suppressed).toBe(1);
-      settle(f);
-      expect(f.commands).toHaveLength(1);
-      expect([f.state.draft, f.state.composerSelectionStart]).toEqual([expected, expected.indexOf('z') + 1]);
-    }
-    const plain = fixture(draft, 0);
-    plain.state.composerSelectionEnd = 3;
-    plain.call('composerBeforeInput', [{value: draft, selectionStart: 0, selectionEnd: 3, isComposing: false, cancelable: true, inputType: 'insertText', data: 'z'}], {richComposer: {...plain.projection, blocks: []}});
-    expect(plain.suppressed).toBe(0);
-  });
-  test('a caret inside it goes to the nearer edge of its shown label; a range takes it whole', () => {
-    const moved = (from: number, to: number, toEnd = to) => {
-      const f = fixture(draft, from);
-      f.move(to, toEnd);
-      return f.selections.map(args => args.slice(1, 3));
+      f.call('composerKeyEvent', key('Tab', {shiftKey: true, ...held}), {composerChipPress: (...args: unknown[]) => presses.push(args),
+        data: {snapshotOwner: 'snapshot', requestKey: '', requestMode: '', connected: true, composer: {sendChords: 'Meta+Enter', sendCommandChords: '', planVisible: true, planActive: false}},
+        menuPick: (...args: unknown[]) => presses.push(['plan', ...args])});
+      return f.suppressed;
     };
-    expect(moved(0, start + 2)).toEqual([[start, start]]);
-    expect(moved(0, shownEnd - 2)).toEqual([[end, end]]);
-    expect(moved(end, end - 2)).toEqual([[end, end]]);
-    expect(moved(start, start + 1)).toEqual([[start, start]]);
-    expect(moved(0, 1, start + 2)).toEqual([[1, end]]);
-    expect(moved(end, start + 2, end)).toEqual([[start, end]]);
-    expect(moved(0, end)).toEqual([]);
-    expect(moved(0, 2)).toEqual([]);
+    expect(press(end)).toBe(1);
+    expect(presses).toEqual([['composer', 'draft', draft, 0, start, end, cite, true]]);
+    presses.length = 0;
+    // Elsewhere, or with ⌥, ⇧⇥ is plan mode's toggle.
+    for (const [caret, held] of [[start, {}], [end + 1, {}], [end, {altKey: true}]] as const) press(caret, held);
+    expect(presses.map(entry => entry[0])).toEqual(['plan', 'plan', 'plan']);
   });
-  test('an unmodified ← or → at its edge steps over it; ⇧, ⌥ and ↑/↓ stay the field\'s own', () => {
-    const step = (k: string, caret: number, held = {}) => {
-      const f = fixture(draft, caret);
-      f.call('composerGrammarKey', key(k, held));
-      return [f.suppressed, f.selections.map(args => args.slice(1, 3))];
-    };
-    expect(step('ArrowLeft', end)).toEqual([1, [[start, start]]]);
-    expect(step('ArrowRight', start)).toEqual([1, [[end, end]]]);
-    for (const [k, caret, held] of [['ArrowLeft', end, {shiftKey: true}], ['ArrowLeft', end, {altKey: true}], ['ArrowRight', end, {}], ['ArrowLeft', start, {}], ['ArrowUp', end, {}]] as const) {
-      expect(step(k, caret, held)).toEqual([0, []]);
+  test('a caret or range the field reports stays where it is', () => {
+    for (const [from, to] of [[start + 2, start + 2], [1, start + 2]] as const) {
+      const f = fixture(draft, 0);
+      f.move(from, to);
+      expect([f.selections, f.state.composerSelectionStart, f.state.composerSelectionEnd]).toEqual([[], from, to]);
+    }
+  });
+  test('a quote typed over a selection wraps it; composing or a collapsed caret leaves the field\'s own typing', () => {
+    const f = fixture('plain words', 0);
+    f.state.composerSelectionEnd = 5;
+    f.call('composerBeforeInput', [{value: 'plain words', selectionStart: 0, selectionEnd: 5, isComposing: false, cancelable: true, inputType: 'insertText', data: '"'}], {richComposer: {...f.projection, blocks: []}});
+    expect(f.suppressed).toBe(1);
+    settle(f);
+    expect([f.state.draft, f.state.composerSelectionStart, f.state.composerSelectionEnd]).toEqual(['"plain" words', 1, 6]);
+    for (const [from, to, composing] of [[0, 5, true], [5, 5, false]] as const) {
+      const g = fixture('plain words', from);
+      g.state.composerSelectionEnd = to;
+      g.call('composerBeforeInput', [{value: 'plain words', selectionStart: from, selectionEnd: to, isComposing: composing, cancelable: true, inputType: 'insertText', data: '"'}], {richComposer: {...g.projection, blocks: []}});
+      expect(g.suppressed).toBe(0);
     }
   });
 });

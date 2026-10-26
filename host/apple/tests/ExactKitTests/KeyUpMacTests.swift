@@ -51,6 +51,7 @@ final class KeyUpMacTests: XCTestCase {
                                "2 up Meta+b KeyB false", "1 up Meta+b KeyB false"])
         XCTAssertEqual(KeyPress("Meta+b", code: "KeyB", repeats: true).payload, "Meta+b\nKeyB\ntrue")
         XCTAssertEqual(KeyPress("a").payload, "a", "a chord alone when the host knows no more")
+        XCTAssertEqual(KeyPress("Shift", code: "ShiftLeft", up: true, composing: true).payload, "Shift\nShiftLeft\nfalse\ntrue")
     }
 
     func testCaptureRunsBeforeTargetAndBubbleAndCanClaimTheFieldDefault() throws {
@@ -118,7 +119,7 @@ final class KeyUpMacTests: XCTestCase {
         let heard = Heard()
         p.views[2]!.handlers.insert("input")
         p.onInput = { _, value in heard.lines.append("input \(value)") }
-        p.onKey = { id, press in if id == 2 { heard.lines.append("\(press.up ? "keyup" : "keydown") \(press.chord) \(press.code)") } }
+        p.onKey = { id, press in if id == 2 { heard.lines.append("\(press.up ? "keyup" : "keydown") \(press.chord) \(press.code)\(press.composing ? " composing" : "")") } }
         return heard
     }
     private func flags(_ p: Presenter, _ e: NSEvent) { _ = p.keyDown(e); p.keyUp(e) }
@@ -136,7 +137,8 @@ final class KeyUpMacTests: XCTestCase {
     /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys). So
     /// it is here: the text was heard as it was composed (LLP 1115.000 §5,
     /// ruling 6), the chord commits it and that is not heard again, ⌘'s own
-    /// keys pass through the composition, and the keyups follow.
+    /// keys pass through the composition, and the keyups follow. ⌘'s keydown
+    /// came composing; the chord, after the commit, did not.
     func testACommandChordCommitsTheCompositionThenReachesTheHandlers() throws {
         let p = try fixture()
         let heard = record(p)
@@ -148,7 +150,7 @@ final class KeyUpMacTests: XCTestCase {
         XCTAssertTrue(p.endedComposition(chord), "its menu item, too, is refused")
         XCTAssertFalse(p.routeKey(event(.keyUp, 11, leftCommand, "b"), focused: true))
         flags(p, event(.flagsChanged, 55, []))
-        XCTAssertEqual(heard.lines, ["input 한", "keydown Meta+Meta MetaLeft", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
+        XCTAssertEqual(heard.lines, ["input 한", "keydown Meta+Meta MetaLeft composing", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
         XCTAssertEqual(editor.string, "한")
         XCTAssertFalse(p.endedComposition(event(.keyDown, 11, leftCommand, "b", at: 1)), "a later ⌘B is a chord like any")
     }
@@ -203,7 +205,8 @@ final class KeyUpMacTests: XCTestCase {
 
     /// Shift held as a composition begins (Korean's doubled consonants) and
     /// released inside it: its keyup still comes, as Chrome forwards every
-    /// flags change, so no app's held-Shift state sticks.
+    /// flags change, so no app's held-Shift state sticks. The keyup is
+    /// `isComposing`, as Chrome's is; the keydown, before the text, is not.
     func testAModifierReleasedDuringACompositionIsAKeyUp() throws {
         let p = try fixture()
         let heard = record(p)
@@ -211,7 +214,56 @@ final class KeyUpMacTests: XCTestCase {
         flags(p, event(.flagsChanged, 56, NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.shift.rawValue | 0x2)))
         _ = try compose("ㅆ")
         flags(p, event(.flagsChanged, 56, []))
-        XCTAssertEqual(heard.lines.filter { $0.hasPrefix("key") }, ["keydown Shift+Shift ShiftLeft", "keyup Shift ShiftLeft"])
+        XCTAssertEqual(heard.lines.filter { $0.hasPrefix("key") }, ["keydown Shift+Shift ShiftLeft", "keyup Shift ShiftLeft composing"])
+    }
+
+    /// With nothing focused — at launch, or after the focused field
+    /// unmounted and AppKit gave the window its own focus — a key reaches
+    /// the root's `keycapture`, `key` and `keyup`, as the DOM's `window`
+    /// listeners hear one at `<body>`. The root takes no focus by it.
+    func testWithNothingFocusedTheRootHearsKeys() throws {
+        let p = try fixture()
+        p.views[1]!.handlers.insert("keycapture")
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.up ? "up" : press.capture ? "capture" : "down") \(press.chord)") }
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertFalse(p.routeKey(event(.keyUp, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture b", "1 down b", "1 up b"])
+        heard = []
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[2]?.field)))
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": []], ["op": "destroy", "id": 2]]))
+        XCTAssertTrue(window.firstResponder === window, "AppKit gives the window its own focus")
+        // kVK_Shift is 56; 0x2 is the left Shift's device bit.
+        flags(p, event(.flagsChanged, 56, NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.shift.rawValue | 0x2)))
+        flags(p, event(.flagsChanged, 56, []))
+        XCTAssertEqual(heard, ["1 capture Shift+Shift", "1 down Shift+Shift", "1 up Shift"])
+        XCTAssertNil(p.focusedNode, "the root hears keys without taking the focus")
+    }
+
+    /// A press outside a field composing text commits the composition
+    /// before the press runs, as Chrome's mousedown ends one; a press inside
+    /// it is the input method's own.
+    func testAPressOutsideCommitsTheComposition() throws {
+        let p = try fixture()
+        let heard = record(p)
+        let editor = try compose("한")
+        let press = { (x: CGFloat, y: CGFloat) in
+            NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: x, y: y), modifierFlags: [], timestamp: 0, windowNumber: self.window.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        let inside = editor.convert(NSPoint(x: editor.visibleRect.midX, y: editor.visibleRect.midY), to: nil)
+        p.commitCompositionBefore(press(inside.x, inside.y))
+        XCTAssertTrue(editor.hasMarkedText(), "a press inside is the input method's")
+        let node = try XCTUnwrap(p.views[2])
+        let padding = node.convert(NSPoint(x: 1, y: 1), to: nil)
+        XCTAssertFalse(editor.visibleRect.contains(editor.convert(padding, from: nil)), "the field's corner is outside its editor")
+        p.commitCompositionBefore(press(padding.x, padding.y))
+        XCTAssertTrue(editor.hasMarkedText(), "a press on the field's own padding is the field's")
+        p.commitCompositionBefore(press(250, 20))
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "한")
+        XCTAssertEqual(heard.lines, ["input 한"], "the commit is not heard again")
     }
 }
 #endif

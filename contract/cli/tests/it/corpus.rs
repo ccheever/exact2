@@ -636,6 +636,23 @@ fn a_module_tag_keeps_svg_names_and_names_the_fix_for_known_ones() {
             "{attr}: {e}"
         );
     }
+    // A state field where an action is wanted says so with the module hint.
+    let src = "component A\n  state n = 0\n  view\n    step-strip width=320 playing=n\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(
+        e.id == "analyze-unknown-action" && e.message.contains("give the module prop another name"),
+        "{e}"
+    );
+    // An event's name bound to a real action is a handler nothing fires: a
+    // module sends nine events, and `playing` is not one of them.
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    step-strip width=320 playing=go press=go\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(
+        e.message.contains(
+            "`playing` on `step-strip` is an event the box hears and a module never sends"
+        ) && e.message.contains("give the module prop another name"),
+        "{e}"
+    );
 }
 
 /// LLP 1024 D1: a module tag's leftover attributes are its props, one

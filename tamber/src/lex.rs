@@ -197,7 +197,7 @@ pub(crate) fn is_ident(s: &str) -> bool {
 }
 
 /// A token name: identifiers joined by `.`.
-pub(crate) fn is_name(s: &str) -> bool {
+pub fn is_name(s: &str) -> bool {
     !s.is_empty() && s.split('.').all(is_ident)
 }
 

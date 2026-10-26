@@ -13,7 +13,7 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { projectIdentity } from '../client/presentation';
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
-import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, flushQuickInvalidations } from './pages-pr-quick';
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
@@ -23,6 +23,7 @@ import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
 import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-pr-environments'; // the Server filter
 import { pullRequestHost } from '../palette/palette-linkpr';
+import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from './pr-change-breakdown';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -236,7 +237,7 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     key: entryKey(entry), ref, number: num(entry.number), title: str(entry.title), state: stateKey(entry), stateLabel: STATE_LABELS[stateKey(entry)] ?? 'Open',
     conflict: conflictLabel(entry), checks: str(entry.checksState), checksLabel: entry.checksState ? `Checks: ${CHECKS_LABELS[str(entry.checksState)] ?? ''}` : '',
     review: str(entry.reviewDecision), reviewLabel: REVIEW_LABELS[str(entry.reviewDecision)] ?? '', additions: measured(entry) ? `+${count(num(entry.additions))}` : '',
-    deletions: measured(entry) ? `-${count(num(entry.deletions))}` : '', author: author.login, avatar: author.avatar, initial: author.initial,
+    deletions: measured(entry) ? `-${count(num(entry.deletions))}` : '', breakdown: emptyBreakdown(), author: author.login, avatar: author.avatar, initial: author.initial,
     repository: str(entry.repository), age: relativeLabel(entry.updatedAt, now), selected: ref === selected,
     labels: arr(entry.labels).slice(0, 3).map(label => labelChip(str(label.name), labelColor(label.color))),
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
@@ -285,10 +286,10 @@ type LiveInput = { open: boolean; now: number; visible?: boolean; returns?: numb
 /**
  * The page's facts noted; what to ask liveRefreshDue, or null when nothing is asked (no wait then). `returns` counts
  * the window focused again (app.contract `windowReturned`, which reads the clock at that moment, so the 10 s rule is
- * measured from then, not from the last minute tick).
+ * measured from then, not from the last minute tick) and the reader back from six idle minutes (interactionResumes).
  */
 function listLiveAsk(client: object, input: LiveInput): { visible: boolean; now: number; arrival: boolean } | null {
-  const visible = input.visible !== false, returns = input.returns ?? 0;
+  const visible = input.visible !== false, returns = (input.returns ?? 0) + interactionResumes(client);
   let live = listLives.get(client);
   if (!live) { live = { open: false, visible: true, returns, due: false }; listLives.set(client, live); }
   const was = { ...live };
@@ -414,7 +415,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     view.hosts = carried.view.hosts.map(host => ({ ...host, selected: host.value === prefs.host }));
   }
   view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
-  if (!input.open) listLiveAsk(client, input);
+  if (!input.open) { listLiveAsk(client, input); releaseChangeBreakdowns(client, 'list'); } // a row's hover ends with the page
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
   if (input.open && native?.available && !client.ready && client.environmentId && carried?.environmentId === client.environmentId) return carried.view;
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
@@ -422,10 +423,10 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
   const payload = listPayload(prefs, query);
   // The server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
-  await holdPullRequestRefreshes(client, native, 'list', true);
+  await holdPullRequestRefreshes(client, native, 'list', true, input.now);
   // A due live read stays due until a read lands: a later run (a tick, a revision) overtakes this one's answer.
   const ask = listLiveAsk(client, input), live = listLives.get(client)!;
-  if (ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask)) live.due = true;
+  if (ask !== null && liveRefreshDue(client, LIST_VIEW, ask)) live.due = true;
   let cached = lists.get(client);
   // Every server that reads pull requests, a page at a time (pages-pr-paging.ts). A refresh
   // (Refresh, an announcement, a live read, a relist) reads the whole visible list again, never only the last slice.
@@ -470,6 +471,14 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // The rows' quick actions with their pending state, and the open popovers.
   const byKey = new Map(arr(answered?.entries).map(entry => [entryKey(entry), entry]));
   for (const group of presented.groups) group.rows = group.rows.map(row => { const entry = byKey.get(row.key); return entry ? { ...row, ...quickRow(client, entry) } : row; });
+  // Each row's +/- split, read once the row was hovered (PullRequestChangeBreakdownStat in PullRequestRow).
+  // A searched row's counts come from listStats, as presentList folds them in.
+  const breakdownOf = (entry: Obj) => {
+    const stat = measured(entry) ? null : cached.stats.get(entryKey(entry)), counted = stat ?? entry;
+    return { reference: entry, environmentId: str(entry.environmentId), additions: num(counted.additions), deletions: num(counted.deletions) };
+  };
+  await readChangeBreakdowns(client, native, presented.groups.flatMap(group => group.rows.flatMap(row => { const entry = byKey.get(row.key); return entry ? [breakdownOf(entry)] : []; })), { wakes: ['t3.pr'] });
+  for (const group of presented.groups) for (const row of group.rows) { const entry = byKey.get(row.key); if (entry) row.breakdown = presentChangeBreakdown(client, breakdownOf(entry)); }
   native.watch?.('t3.pr');
   await flushQuickInvalidations(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));

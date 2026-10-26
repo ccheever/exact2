@@ -5,6 +5,7 @@ import {mobileComposerFileHistoryProject as project,mobileComposerFileHistoryDis
 import {mobileFileHoldsCreate as create,mobileFileHoldReserve as reserve,mobileFileHoldAcquire as acquire,
  mobileFileHoldReleaseNeeded as releaseNeeded,mobileFileHoldRelease as release,mobileFileHoldHeld as held,
  type HeldFile} from './composer-file-holds-io';
+import {mobilePickerIntakeRequest} from './composer-picker-intake-io';
 import type {DraftFile} from './shared/composer-editor-files';
 import type {Native} from './shared/protocol';
 import type {Obj} from './shared/domain';
@@ -100,4 +101,38 @@ test('real IO adapter only supplies usable history while held; release-needed/re
  const pending=release(ledger,request.requestId,native);expect(ledger.entries[request.requestId]!.phase).toBe('releasing');expect(held(ledger,request.requestId)).toBeNull();
  expect(project(h,{...input(h),usableHolds:[]})).toEqual({status:'refused',reason:'unusable-hold'});
  finish({ok:true,generation:3,value:{status:'released',requestId:request.requestId}});await pending;expect(calls).toHaveLength(2);expect(held(ledger,request.requestId)).toBeNull();
+});
+
+test('file holds, picker intake and history share ordinary owner scope admission',()=>{
+ const owner=['ordinary',target.origin,target.environmentId,3,target.draftKey];
+ const checkScope=(encoded:string,t:typeof target,generation:number,valid:boolean)=>{
+  const i={...identity,owner:encoded},h={...history(),identity:i,target:t};
+  const hold=()=>create(i,generation,t);
+  const pick=()=>mobilePickerIntakeRequest({op:'composerPickerIntake',action:'pick',generation,identity:i,
+   operationId:uuid(77),target:t,document:{incarnation:'document',revision:0},source:'files',remaining:1,fileLimit:1024});
+  if(valid){expect(hold().generation).toBe(generation);expect(pick().generation).toBe(generation);
+   expect(project(h,{...input(h),identity:i,target:t}).status).toBe('ready')}
+  else {expect(hold).toThrow();expect(pick).toThrow();
+   expect(project(h,{...input(h),identity:i,target:t})).toEqual({status:'refused',reason:'invalid'})}
+ };
+ for(const generation of [0,3,Number.MAX_SAFE_INTEGER])for(const tail of [[],['incarnation']]){
+  checkScope(JSON.stringify([...owner.slice(0,3),generation,target.draftKey,...tail]),target,generation,true);
+ }
+ for(const encoded of ['{','null','{}',JSON.stringify(owner.slice(0,4)),JSON.stringify([...owner,'incarnation','extra']),
+  ...[true,-1,1.5,Number.MAX_SAFE_INTEGER+1,'3',null].map(generation=>JSON.stringify([...owner.slice(0,3),generation,target.draftKey])),
+  ...[0,1,2,4].map(index=>JSON.stringify(owner.map((value,i)=>i===index?'foreign':value)))])checkScope(encoded,target,3,false);
+ for(const t of [{...target,environmentId:'other'},
+  {...target,threadId:'other'},{...target,draftKey:'env:other'},
+  {...target,threadId:'new:draft',draftKey:'env:new:draft'},
+  {...target,threadId:'thread~queued-edit~1',draftKey:'env:thread~queued-edit~1'},
+  {...target,extra:'unknown'},{...target,[Symbol('hidden')]:true},
+  Object.defineProperty({...target},'origin',{value:target.origin,enumerable:false}),
+  Object.defineProperty({...target},'origin',{get:()=>target.origin,enumerable:true})]){
+  const encoded=JSON.stringify(['ordinary',t.origin,t.environmentId,3,t.draftKey]);
+  // Matching owner strings cannot authorize excluded draft namespaces or malformed targets.
+  checkScope(encoded,t,3,false);
+ }
+ expect(()=>create(identity,4,target)).toThrow();
+ expect(()=>mobilePickerIntakeRequest({op:'composerPickerIntake',action:'pick',generation:4,identity,
+  operationId:uuid(77),target,document:{incarnation:'document',revision:0},source:'files',remaining:1,fileLimit:1024})).toThrow();
 });

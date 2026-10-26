@@ -1,0 +1,11 @@
+{
+  "name": "@exact/browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A partitioned iframe's data, by the Clear Site Data header's types (LLP 1020.002 D4).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

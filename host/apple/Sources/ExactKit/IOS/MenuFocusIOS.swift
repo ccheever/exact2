@@ -4,8 +4,8 @@
 // attached that brings the software keyboard up over the menu's lower rows.
 // Measured on the iOS 27 simulator with a bare UIKit app: a context menu shows
 // no keyboard, and the same menu with a plain `UIView` as first responder
-// shows it. Exact always has such a responder: `ExactView` holds the focus for
-// key commands, and a pressed node takes it (NodeViewIOS `touchesEnded`). So
+// shows it. ExactView can hold focus for authored keyboard input, and a
+// focusable node can take it (NodeViewIOS `touchesEnded`). So
 // a native menu sets that focus aside as it shows, without dispatching
 // `blur`, and puts it back, without `focus`, when it has ended. A text
 // field's focus stays: its keyboard is up already, and typing is its own.
@@ -31,6 +31,8 @@ final class MenuFocus {
     private var heldIncarnation: UInt64?
     /// While set, a node gaining or losing the focus dispatches nothing.
     private(set) var quiet = false
+    private(set) var suspended = false
+    private var waitsForTouch = false
     /// The focus a bar's touch set aside waits for the next touch on the view.
     private(set) var untilNextTouch = false
     init(presenter: Presenter) { self.presenter = presenter }
@@ -40,6 +42,8 @@ final class MenuFocus {
         // The session's own: a node holding the focus itself (not its field
         // or text area), else the view.
         guard let presenter else { return }
+        suspended = true
+        waitsForTouch = untilTouch
         let node = presenter.focusedNode.flatMap { $0.isFirstResponder ? $0 : nil }
         guard let responder: UIView = node ?? presenter.session?.view.flatMap({ $0.isFirstResponder ? $0 : nil }),
               responder.window != nil, presenter.focusedNode == nil || node != nil else {
@@ -85,11 +89,16 @@ final class MenuFocus {
         }
     }
     /// A touch on the page, with a bar's focus still aside.
-    func touched() { if untilNextTouch { restore() } }
+    func touched() { if waitsForTouch { restore() } }
     /// The menu has ended: the focus goes back, unless something else has
     /// taken it since (a chosen row's press may have moved it).
     func restore() {
+        suspended = false
+        waitsForTouch = false
         untilNextTouch = false
+        #if os(iOS)
+        defer { presenter?.session?.view?.syncKeyboardFocus(afterMenu: true) }
+        #endif
         guard let responder = held else { return }
         let incarnation = heldIncarnation
         held = nil
@@ -100,6 +109,8 @@ final class MenuFocus {
         defer { quiet = false }
         _ = responder.becomeFirstResponder()
     }
+    func reset() { held = nil; suspended = false; untilNextTouch = false; waitsForTouch = false }
+
 }
 
 /// On a navigation bar whose items hold a menu, a touch sets the focus aside

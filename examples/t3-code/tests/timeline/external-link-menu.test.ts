@@ -1,7 +1,7 @@
-// A reply's web link menu (externalLinkContextMenu.test.ts's cases, ported) and its hookup: the
-// Markdown link nodes carry `contextmenu`, the root action names `chatlocal:link-menu`, and that op reaches the native
-// `contextMenu` op with the reference's items.
-import { describe, expect, mock, test } from 'bun:test';
+// A reply's web link menu (externalLinkContextMenu.test.ts's cases, ported) and its hookup: the window's `chat-link-menu`
+// popover shows the rows `chatLinkMenuView` computes before the right-click (the window's `linkMenuRows` picks them: the
+// page's, a pull request link's, else the thread's), and a row's press is `chatlocal:link-pick`, with no native menu.
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
 import { ClientError, type Files, type Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
@@ -9,8 +9,12 @@ import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
 import { toasts } from '../../src/shell/toast';
 import { changeChatLink, chatLinkThreadAction } from '../../src/pull-requests/pages-pr-links';
 import { activeRef } from '../../src/terminal/terminal-drawer-view';
-import { chatExternalLinkMenu, externalLinkContextMenuItems, resolveExternalWebLinkHost, resolveExternalWebLinkHref, showExternalLinkContextMenu,
+import { chatExternalLinkPick, chatLinkMenuView, externalLinkContextMenuItems, resolveExternalWebLinkHost, resolveExternalWebLinkHref, showExternalLinkContextMenu,
   type ExternalLinkContextMenuAction } from '../../src/timeline/external-link-menu';
+import { notePullRequestLinks, resetPullRequestLinksForTests } from '../../src/timeline/pull-link-registry';
+import { contractComponent, contractFns, value } from '../support/contract-action-fixture';
+import { appPath } from '../support/app-files';
+import { readFileSync } from 'node:fs';
 
 function harness(selection: ExternalLinkContextMenuAction | null) {
   return {
@@ -103,30 +107,49 @@ describe('external chat link context menu', () => {
 
 const files: Files = { fs: { mkdir: async () => undefined, readFile: async () => { throw new Error('none'); }, atomicWriteFile: async () => undefined } } as unknown as Files;
 
+/** The rows the window's popover shows for a right-click on `href` (app-window.contract `linkMenu`, then `linkMenuRows`), as labels. */
+const windowSource = readFileSync(appPath('src/shell/app-window.contract'), 'utf8');
+function shownRows(client: T3Client, native: Native, storage: Files | undefined, href: string, page = false): string[] {
+  const window = contractComponent('src/shell/app-window.contract', 'T3Window'), state: Obj = { linkMenuHref: '', linkMenuPage: false };
+  window.call('linkMenu', state, { pageCover: page }, [href]);
+  const rows = value(/^  derive linkMenuRows = (.+)$/m.exec(windowSource)![1]!, { ...state, data: { linkMenu: chatLinkMenuView(client, native, storage) } });
+  return (rows as Obj[]).map(row => String(row.label));
+}
+
 describe('the reply link menu hookup', () => {
-  test('chatlocal:link-menu opens the reference items over the open thread, and Copy Link copies the href', async () => {
+  test('the popover shows the reference rows over the open thread, and a row\'s pick acts: Copy Link copies the href', async () => {
     resetRemoteEditorsForTests();
+    resetPullRequestLinksForTests();
     const owner = new T3Client();
     owner.origin = 'http://127.0.0.1:41857'; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'p'; owner.threadId = 't';
     const calls: Obj[] = [];
-    let pick: string | null = null;
-    const native: Native = { available: true, watch() {}, later: async (input: unknown) => {
-      const request = obj(input); calls.push(request);
-      return { ok: true, generation: 0, value: request.op === 'contextMenu' ? { clicked: pick } : {} };
-    } };
-    await owner.command('chatlocal:link-menu', '', 'https://example.test', 0, native, files);
-    const menus = () => calls.filter(call => call.op === 'contextMenu').map(call => (call.items as Obj[]).map(item => item.label));
-    expect(menus()).toEqual([['Open in integrated browser', 'Open in system browser', 'Copy Link']]);
-    pick = 'copy-link';
-    await owner.command('chatlocal:link-menu', '', 'https://example.test/docs', 0, native, files);
+    const native: Native = { available: true, watch() {}, later: async (input: unknown) => { calls.push(obj(input)); return { ok: true, generation: 0, value: {} }; } };
+    expect(shownRows(owner, native, files, 'https://example.test')).toEqual(['Open in integrated browser', 'Open in system browser', 'Copy Link']);
+    expect(shownRows(owner, native, files, 'https://example.test', true)).toEqual(['Open in system browser', 'Copy Link']);
+    await owner.command('chatlocal:link-pick', '', 'copy-link\nhttps://example.test/docs', 0, native, files);
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['https://example.test/docs']);
     calls.length = 0;
-    await owner.command('chatlocal:link-menu', '', 'mailto:a@b.c', 0, native, files);
-    expect(menus()).toEqual([]);
-    expect(calls.filter(call => call.op === 'shellMenu')).toEqual([{ op: 'shellMenu', href: 'mailto:a@b.c' }]); // the shell's menu for the click (or the ContextMenu key), naming the link
-    pick = null;
-    await owner.command('chatlocal:link-menu', 'page', 'https://example.test', 0, native, files);
-    expect(menus()).toEqual([['Open in system browser', 'Copy Link']]);
+    // A link with no web host has no menu of its own (the shell's takes its right-click), and the page offers no Browser.
+    await owner.command('chatlocal:link-pick', '', 'copy-link\nmailto:a@b.c', 0, native, files);
+    await owner.command('chatlocal:link-pick', 'page', 'open-in-preview\nhttps://example.test', 0, native, files);
+    expect(calls.filter(call => call.op !== 'devicePresentation')).toEqual([]); // no copy, no browser, no native menu
+  });
+});
+
+// Which link node a run draws (markdown.contract FlowRuns): a web link's carries the `chat-link-menu` popover with its
+// `contextmenu`; a mailto link's and a fragment's carry neither, so their right-click is the desktop shell's.
+describe('the Markdown link nodes', () => {
+  const flow = contractComponent('src/timeline/markdown.contract', 'FlowRuns'), fns = contractFns('src/timeline/markdown.contract');
+  const run = (kind: string, href: string) => ({ id: 'r1', kind, href, mono: false, label: 'docs', text: 'docs', link: '', findParts: [] });
+  const drawn = (marker: string, kind: string, href: string) => flow.drawn(marker, {}, { ...fns, run: run(kind, href), chips: [] });
+  const webStart = 'contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" aria-label=run.label', plainStart = 'link href=run.href press=open(run.href) aria-label=run.label';
+  const webWord = 'contextPopover="chat-link-menu" tabindex=0', fragmentWord = 'box press=open(run.href) tabindex=-1';
+  test('a web link has the menu on its first and later words; a mailto link and a fragment leave it to the shell', () => {
+    expect([drawn(webStart, 'link-start', 'https://example.com'), drawn(plainStart, 'link-start', 'https://example.com')]).toEqual([true, false]);
+    for (const href of ['mailto:a@b.c', '#notes']) expect([drawn(webStart, 'link-start', href), drawn(plainStart, 'link-start', href)]).toEqual([false, true]);
+    expect([drawn(webWord, 'link', 'https://example.com'), drawn(fragmentWord, 'link', 'https://example.com')]).toEqual([true, false]);
+    expect([drawn(webWord, 'link', '#notes'), drawn(fragmentWord, 'link', '#notes')]).toEqual([false, true]);
+    expect([drawn(webWord, 'link', 'mailto:a@b.c'), drawn(fragmentWord, 'link', 'mailto:a@b.c')]).toEqual([false, false]); // its words are text
   });
 });
 
@@ -135,8 +158,7 @@ describe('the reply link menu hookup', () => {
 const PR7 = 'https://github.com/lane/sandbox/pull/7';
 const sandbox = { id: 'p1', title: 'sandbox', workspaceRoot: '/repos/sandbox', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/lane/sandbox', displayName: 'lane/sandbox', owner: 'lane', name: 'sandbox' } };
 function linking(over: Obj = {}, refusal = '') {
-  const dispatched: Obj[] = [], menus: string[][] = [];
-  let pick = '';
+  const dispatched: Obj[] = [];
   const client = {
     environmentId: 'env', origin: 'http://127.0.0.1:16360', connection: 'connected', statusMessage: '', scopes: [], threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, error: '',
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
@@ -149,16 +171,14 @@ function linking(over: Obj = {}, refusal = '') {
     async dispatch(_native: unknown, _storage: unknown, payload: Obj) { if (refusal) throw new ClientError(refusal); dispatched.push(payload); return {}; },
     restAccess: () => ({
       ids: async (count: number) => Array.from({ length: count }, (_, index) => `command-${index + 1}`),
-      call: async (request: Obj) => {
-        if (request.op !== 'contextMenu') return {};
-        menus.push((request.items as Obj[]).map(item => String(item.label)));
-        return { clicked: pick };
-      },
+      call: async () => ({}),
     }),
     ...over,
   } as unknown as T3Client;
   const native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 1, value: {} }) } as unknown as Native;
-  return { client, native, dispatched, menus, choose: (id: string) => { pick = id; } };
+  // The rows shown for a right-click on `href` (`page`: on the pull request page), and a row's pick.
+  return { client, native, dispatched, rows: (href: string, storage: Files | undefined = files, page = false) => shownRows(client, native, storage, href, page),
+    pick: (id: string, href: string, storage: Files | undefined = files, page = false) => chatExternalLinkPick(client, native, storage, `${id}\n${href}`, page) };
 }
 
 describe("a reply's pull request link over the open thread", () => {
@@ -181,46 +201,54 @@ describe("a reply's pull request link over the open thread", () => {
     expect(chatLinkThreadAction(linking({ threadId: 't1', ...single }).client, 'https://github.com/lane/elsewhere/pull/7')).toBeUndefined();
   });
 
+  // The pull request links in the Markdown on screen, which a chip list notes as it is made (message-chips.ts).
+  const mergeRequest = 'https://gitlab.com/other/repo/-/merge_requests/7';
+  beforeEach(() => { resetPullRequestLinksForTests(); notePullRequestLinks(`See [the release](${PR7}) and ${mergeRequest}.`); });
+
   test('the menu leads with the thread action and its pick links or unlinks the open thread', async () => {
     const linked = linking({ threadId: 't2' });
-    linked.choose('unlink-from-thread');
-    await chatExternalLinkMenu(linked.client, linked.native, files, PR7);
-    expect(linked.menus).toEqual([['Unlink from thread', 'Open in integrated browser', 'Open in system browser', 'Copy Link']]);
+    expect(linked.rows(PR7)).toEqual(['Unlink from thread', 'Open in integrated browser', 'Open in system browser', 'Copy Link']);
+    await linked.pick('unlink-from-thread', PR7);
     expect(linked.dispatched).toEqual([{ type: 'thread.pull-request.unlink', commandId: 'command-1', threadId: 't2', host: 'github.com', repository: 'lane/sandbox', number: 7 }]);
     const other = linking({ threadId: 't1' });
-    other.choose('link-to-thread');
-    await chatExternalLinkMenu(other.client, other.native, files, PR7);
-    expect(other.menus[0]![0]).toBe('Link to thread');
+    expect(other.rows(PR7)[0]).toBe('Link to thread');
+    await other.pick('unlink-from-thread', PR7); // a row the menu does not offer
+    await other.pick('link-to-thread', PR7);
     expect(other.dispatched).toEqual([{ type: 'thread.pull-request.link', commandId: 'command-1', threadId: 't1', host: 'github.com', repository: 'lane/sandbox', number: 7, url: PR7, source: 'manual' }]);
     const foreign = linking({ threadId: 't1' });
-    foreign.choose('link-to-thread');
-    const mergeRequest = 'https://gitlab.com/other/repo/-/merge_requests/7';
-    await chatExternalLinkMenu(foreign.client, foreign.native, files, mergeRequest);
+    expect(foreign.rows(mergeRequest)[0]).toBe('Link to thread');
+    await foreign.pick('link-to-thread', mergeRequest);
     expect(foreign.dispatched).toEqual([{ type: 'thread.pull-request.link', commandId: 'command-1', threadId: 't1', host: 'gitlab.com', repository: 'other/repo', number: 7, url: mergeRequest, source: 'manual' }]);
+    // A link node's href spelled as `new URL` spells it (host lowercased) finds the same rows.
+    notePullRequestLinks('See https://GitHub.com/lane/sandbox/pull/7 too.');
+    expect(other.rows('https://GitHub.com/lane/sandbox/pull/7')[0]).toBe('Link to thread');
+    expect(other.rows('https://github.com/lane/sandbox/pull/7')[0]).toBe('Link to thread');
+    // A pull request link not on screen yet has the plain rows until a chip list notes it.
+    expect(foreign.rows('https://github.com/lane/sandbox/pull/8')[0]).toBe('Open in integrated browser');
     // Without the data module's storage (no dispatch path) the menu has no thread action.
     const bare = linking({ threadId: 't2' });
-    await chatExternalLinkMenu(bare.client, bare.native, undefined, PR7);
-    expect(bare.menus).toEqual([['Open in integrated browser', 'Open in system browser', 'Copy Link']]);
+    expect(shownRows(bare.client, bare.native, undefined, PR7)).toEqual(['Open in integrated browser', 'Open in system browser', 'Copy Link']);
+    await chatExternalLinkPick(bare.client, bare.native, undefined, `unlink-from-thread\n${PR7}`);
+    expect(bare.dispatched).toEqual([]);
   });
 
   test("a new thread's draft offers the Browser, whose pick gives the draft its thread id first", async () => {
     const draft = linking({ threadId: '' });
-    draft.choose('open-in-preview');
-    await chatExternalLinkMenu(draft.client, draft.native, files, 'https://example.com/docs');
-    expect(draft.menus).toEqual([['Open in integrated browser', 'Open in system browser', 'Copy Link']]);
+    expect(draft.rows('https://example.com/docs')).toEqual(['Open in integrated browser', 'Open in system browser', 'Copy Link']);
+    await draft.pick('open-in-preview', 'https://example.com/docs');
     expect(activeRef(draft.client)).toEqual({ environmentId: 'env', threadId: 'command-1' });
     // No project (nothing open) has no thread to open beside.
     const none = linking({ threadId: '', projectId: '' });
-    await chatExternalLinkMenu(none.client, none.native, files, 'https://example.com/docs');
-    expect(none.menus).toEqual([['Open in system browser', 'Copy Link']]);
+    expect(none.rows('https://example.com/docs')).toEqual(['Open in system browser', 'Copy Link']);
   });
 
   test('on the pull request page there is no thread: no thread action and no integrated browser', async () => {
     const page = linking({ threadId: 't2' });
-    await chatExternalLinkMenu(page.client, page.native, files, PR7, true);
     const draft = linking({ threadId: '' });
-    await chatExternalLinkMenu(draft.client, draft.native, files, PR7, true);
-    expect([...page.menus, ...draft.menus]).toEqual([['Open in system browser', 'Copy Link'], ['Open in system browser', 'Copy Link']]);
+    expect([page.rows(PR7, files, true), draft.rows(PR7, files, true)]).toEqual([['Open in system browser', 'Copy Link'], ['Open in system browser', 'Copy Link']]);
+    await page.pick('unlink-from-thread', PR7, files, true);
+    await draft.pick('open-in-preview', PR7, files, true);
+    expect(page.dispatched).toEqual([]);
     expect(activeRef(draft.client)).toBeNull();
   });
 

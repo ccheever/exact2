@@ -1,6 +1,6 @@
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under its own names:
 // apps/desktop/src/preview/PreviewKeyboard.test.ts (16 with its \`it.each\` rows), whole. Then the clone's rows for
-// what the module sends: T3TerminalKeys' chord, the typed text, the editing expression and the DOM fallback.
+// what the module sends: T3Keys' chord, the typed text, the editing expression and the DOM fallback.
 import { describe, expect, it } from "bun:test";
 
 import {
@@ -189,7 +189,7 @@ describe("preview keyboard packets", () => {
 });
 
 describe("the module's key (pressPlan)", () => {
-  it("names the key as T3TerminalKeys reads it", () => {
+  it("names the key as T3Keys reads it", () => {
     expect(pressPlan({ key: "Enter" })).toMatchObject({ chord: "Enter", text: "\r", commands: [] });
     expect(pressPlan({ key: " " })).toMatchObject({ chord: "Space", text: " " });
     expect(pressPlan({ key: "a", modifiers: ["Meta"] })).toMatchObject({ chord: "Meta+a", text: "", commands: ["selectAll"] });

@@ -104,6 +104,43 @@ impl<D: DataSource> Runner<D> {
         });
     }
 
+    /// A request an iframe's guest made under the agent (@ref LLP 1020.002
+    /// §10), which a host holds instead of showing the platform's sheet or
+    /// panel: `{"op":"frameRequest","node":7,"capability":"dialog",
+    /// "args":{…}}` → `{"ticket":N}`. A `dialog` (`alert`, `confirm`,
+    /// `prompt`) is answered by `tap @t ok` or `cancel`, and a `prompt` by
+    /// `type @t <text>` too; `open-file` (a file input) and `save-file` (a
+    /// download's destination) as LLP 1069.010's are, and a download by
+    /// `tap @t ok` for the agent's default place. Retired with its frame.
+    pub fn hold_frame_request(&mut self, request: &str) -> Result<String, String> {
+        let Ok(serde_json::Value::Object(o)) = serde_json::from_str::<serde_json::Value>(request)
+        else {
+            return Err("frameRequest: unreadable request".into());
+        };
+        let node = o
+            .get("node")
+            .and_then(|n| n.as_u64())
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|id| self.kernel.node(*id).is_some())
+            .ok_or("frameRequest: no live iframe")?;
+        let capability = o.get("capability").and_then(|c| c.as_str()).unwrap_or("");
+        let args = o.get("args").filter(|a| a.is_object());
+        let prompt = args.and_then(|a| a.get("type")) == Some(&"prompt".into());
+        let (choices, value): (&[&str], bool) = match capability {
+            "dialog" => (&["ok"], prompt),
+            "open-file" => (&[], true),
+            "save-file" => (&["ok"], true),
+            _ => {
+                return Err(format!(
+                    "frameRequest: {capability:?} is not a frame request"
+                ))
+            }
+        };
+        let args = args.map_or_else(|| "{}".to_owned(), |a| a.to_string());
+        let ticket = self.hold(capability, Some(node), &args, choices, value);
+        Ok(format!("{{\"ticket\":{ticket}}}"))
+    }
+
     /// Every device request held for the agent, oldest first.
     pub fn device_holds(&self) -> &[Hold] {
         &self.device_holds
@@ -238,6 +275,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.module_answered(ticket, answer);
+        self.presence_answered(ticket, answer);
         Ok(hold)
     }
 
@@ -262,6 +300,7 @@ impl<D: DataSource> Runner<D> {
     /// Retire every hold whose node is gone (after a commit).
     pub(super) fn retire_holds(&mut self) {
         self.retire_modules();
+        self.views_committed();
         let kernel = &self.kernel;
         let pending = &self.pending;
         let (live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)

@@ -8,14 +8,14 @@ use exact_kernel::{PropId, StyleId};
 /// or not. Given the plan, also whether the list's text may be selected:
 /// the host policy and the `user-select` it has or takes from above.
 fn list_region<'a>(
-    plan: Option<&Plan>,
+    plan: Option<(&Plan, &SiteIndex)>,
     children: &'a [Child],
     view: ViewId,
     frames: &mut Vec<Frame>,
     policy: ListTextPolicy,
 ) -> Option<(&'a collection::Collection, Selection)> {
     fn walk<'a>(
-        plan: Option<&Plan>,
+        plan: Option<(&Plan, &SiteIndex)>,
         children: &'a [Child],
         view: ViewId,
         frames: &mut Vec<Frame>,
@@ -27,10 +27,10 @@ fn list_region<'a>(
                 Child::Node(n) => {
                     let selectable = plan.map_or(selectable, |p| selectable.at(n, p, policy));
                     if n.view == view {
-                        return n.collection.as_deref().map(|c| (c, selectable));
+                        return n.collection().map(|c| (c, selectable));
                     }
                     // A nested list lives in a mounted row (LLP 1070 §4.7).
-                    if let Some(c) = &n.collection {
+                    if let Some(c) = n.collection() {
                         for (_, row) in c.mounted_rows() {
                             frames.push(row.frame.clone());
                             if let Some(r) =
@@ -72,12 +72,12 @@ fn list_region<'a>(
     walk(plan, children, view, frames, Selection::default(), policy)
 }
 
-fn hidden(n: &NodeInst, plan: &Plan) -> bool {
+fn hidden(n: &NodeInst, plan: &Plan, sites: &SiteIndex) -> bool {
     plan.node(n.node).bindings.iter().enumerate().any(|(i, b)| {
         let b = plan.binding(b);
         b.kind == BindingKind::Style
             && b.id == StyleId::Display as u16
-            && n.last[i].as_ref().and_then(Value::as_str) == Some("none")
+            && n.emitted(plan, sites, i).as_ref().and_then(Value::as_str) == Some("none")
     })
 }
 
@@ -96,47 +96,54 @@ struct Selection {
     inert: bool,
 }
 impl Selection {
-    fn at(self, n: &NodeInst, plan: &Plan, policy: ListTextPolicy) -> Self {
+    fn at(self, n: &NodeInst, (plan, sites): (&Plan, &SiteIndex), policy: ListTextPolicy) -> Self {
         let mut next = self;
         let node = plan.node(n.node);
-        let prop = |id| n.bound_prop(plan, id).and_then(Value::as_str).unwrap_or("");
-        let native_button =
-            node.node_type == NodeType::Control as u8 && prop(PropId::Type) == "button";
-        if native_button {
+        let prop = |id| {
+            n.bound_prop(plan, sites, id)
+                .as_ref()
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_default()
+        };
+        // A control's label is not selectable, AppKit's on the Mac and the
+        // host stylesheet's on the web (`host/web/index.html`). A text's runs
+        // join its paragraph, which `collect` judges at the text.
+        let role = prop(PropId::AccessibilityRole);
+        let role = role.as_str();
+        let control = [NodeType::Pressable as u8, NodeType::Control as u8]
+            .contains(&node.node_type)
+            || node
+                .handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Press)
+            || [
+                "button",
+                "link",
+                "tab",
+                "menuitem",
+                "menuitemcheckbox",
+                "menuitemradio",
+                "option",
+                "checkbox",
+                "radio",
+                "switch",
+                "treeitem",
+            ]
+            .contains(&role);
+        if control {
             next.explicit = Some(false);
         }
         if policy == ListTextPolicy::MacOS {
-            let role = prop(PropId::AccessibilityRole);
             let tag = prop(PropId::SemanticTag);
-            let control = [NodeType::Pressable as u8, NodeType::Control as u8]
-                .contains(&node.node_type)
-                || node
-                    .handlers
-                    .iter()
-                    .any(|h| plan.handler(h).event == exact_plan::EventKind::Press)
-                || [
-                    "button",
-                    "link",
-                    "tab",
-                    "menuitem",
-                    "menuitemcheckbox",
-                    "menuitemradio",
-                    "option",
-                    "checkbox",
-                    "radio",
-                    "switch",
-                    "treeitem",
-                ]
-                .contains(&role);
-            if control {
-                next.explicit = Some(false);
-            }
+            let tag = tag.as_str();
             next.document |= tag == "article" || ["article", "document"].contains(&role);
             next.chrome |= ["header", "nav", "footer"].contains(&tag)
                 || ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"].contains(&role);
         }
         match n
-            .bound_style(plan, StyleId::UserSelect)
+            .bound_style(plan, sites, StyleId::UserSelect)
+            .as_ref()
             .and_then(Value::as_str)
         {
             Some("none") => next.explicit = Some(false),
@@ -144,12 +151,17 @@ impl Selection {
             Some(_) => next.explicit = Some(true),
         }
         if let Some(visibility) = n
-            .bound_style(plan, StyleId::Visibility)
+            .bound_style(plan, sites, StyleId::Visibility)
+            .as_ref()
             .and_then(Value::as_str)
         {
             next.hidden = visibility == "hidden";
         }
-        next.inert |= n.bound_prop(plan, PropId::Inert).and_then(Value::as_bool) == Some(true);
+        next.inert |= n
+            .bound_prop(plan, sites, PropId::Inert)
+            .as_ref()
+            .and_then(Value::as_bool)
+            == Some(true);
         next
     }
     fn selectable(self) -> bool {
@@ -171,11 +183,12 @@ fn collect(
 ) -> Result<(), InstanceError> {
     for child in children {
         match child {
-            Child::Node(n) if !hidden(n, u.env.plan) => {
-                let selectable = selectable.at(n, u.env.plan, policy);
+            Child::Node(n) if !hidden(n, u.env.plan, u.sites) => {
+                let selectable = selectable.at(n, (u.env.plan, u.sites), policy);
                 if policy == ListTextPolicy::MacOS
                     && u.env.plan.node(n.node).node_type == NodeType::Control as u8
-                    && n.bound_prop(u.env.plan, PropId::Type)
+                    && n.bound_prop(u.env.plan, u.sites, PropId::Type)
+                        .as_ref()
                         .and_then(Value::as_str)
                         == Some("button")
                 {
@@ -187,7 +200,8 @@ fn collect(
                 }
                 if text {
                     if let Some(value) = n
-                        .bound_prop(u.env.plan, PropId::Text)
+                        .bound_prop(u.env.plan, u.sites, PropId::Text)
+                        .as_ref()
                         .and_then(Value::as_str)
                     {
                         if let Some((last, _)) = out.last_mut() {
@@ -251,9 +265,14 @@ impl Tree {
         policy: ListTextPolicy,
     ) -> Result<String, InstanceError> {
         let mut frames = Vec::new();
-        let (list, selectable) =
-            list_region(Some(u.env.plan), &self.children, view, &mut frames, policy)
-                .ok_or(InstanceError::List("unknown list"))?;
+        let (list, selectable) = list_region(
+            Some((u.env.plan, u.sites)),
+            &self.children,
+            view,
+            &mut frames,
+            policy,
+        )
+        .ok_or(InstanceError::List("unknown list"))?;
         let mut start = (0, 0, 0);
         let mut end = (list.logical_len().saturating_sub(1), usize::MAX, usize::MAX);
         if let Some((a, b)) = range {

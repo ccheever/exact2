@@ -25,17 +25,35 @@ const node = () => ({ number: pr.number, title: pr.title, url, baseRefName: pr.b
   state: "OPEN", isDraft: false, mergedAt: null, closedAt: null, updatedAt: pr.updatedAt, isCrossRepository: false,
   headRepository: { name: pr.name, nameWithOwner: `${pr.owner}/${pr.name}` }, headRepositoryOwner: { __typename: "User", login: pr.owner } });
 
+/** The counts of the detail's patch and file stats (github-api-detail.mjs). */
+const COUNTS = { additions: 203, deletions: 1, changedFiles: 3 };
 /** The PullRequestSummary query's pull request: open, mergeable, its checks passing. */
 const summary = () => ({ number: pr.number, title: pr.title, url, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", reviewDecision: null,
-  additions: 12, deletions: 3, changedFiles: 2, updatedAt: pr.updatedAt, mergedAt: null, closedAt: null, headRefName: pr.headRefName, baseRefName: pr.baseRefName,
+  ...COUNTS, updatedAt: pr.updatedAt, mergedAt: null, closedAt: null, headRefName: pr.headRefName, baseRefName: pr.baseRefName,
   author: { __typename: "User", login: pr.author, avatarUrl: "https://avatars.githubusercontent.com/u/1", name: "Lane Fixture" },
   latestReviews: { nodes: [] }, commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, stack: null, stackEntry: null });
+
+/**
+ * The Pull Requests page's listing row (pullRequestListings.graphql PullRequestRow): the counts only with `$stats`,
+ * as the cross-repository search reads them afterwards (PullRequestStats).
+ */
+const listRow = (v) => ({ number: pr.number, title: pr.title, url, author: { __typename: "User", login: pr.author, avatarUrl: "https://avatars.githubusercontent.com/u/1", name: "Lane Fixture" },
+  headRefName: pr.headRefName, baseRefName: pr.baseRefName, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", reviewDecision: null, latestReviews: { nodes: [] },
+  ...(v.stats ? { additions: COUNTS.additions, deletions: COUNTS.deletions } : {}), createdAt: pr.createdAt, updatedAt: pr.updatedAt, mergedAt: null,
+  repository: { nameWithOwner: `${pr.owner}/${pr.name}` }, reviewRequests: { nodes: [] }, labels: { nodes: [] },
+  commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, ...(v.stacks ? { stack: null, stackEntry: null } : {}) });
+const noMore = { hasNextPage: false, endCursor: null };
+/** A search names its repositories (`repo:owner/name`) and its states; the one open pull request answers an open or any-state one. */
+const searched = (q) => String(q).toLowerCase().includes(`repo:${pr.owner}/${pr.name}`) && !/\bis:(closed|merged)\b/i.test(String(q));
 
 /** The GraphQL operations the server sends, by name: each answers `data` from the variables, or null for none. */
 const OPERATIONS = {
   PullRequestsByHead: (v) => ({ repository: ours(v) ? { pullRequests: { nodes: v.head === pr.headRefName ? [node()] : [] } } : null }),
   PullRequestByNumber: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? node() : null } : null }),
   PullRequestSummary: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? summary() : null } : null }),
+  PullRequestSearch: (v) => ({ search: { pageInfo: noMore, nodes: searched(v.q) ? [listRow(v)] : [] } }),
+  PullRequestList: (v) => ({ repository: ours(v) ? { pullRequests: { pageInfo: noMore, nodes: (v.states ?? ["OPEN"]).includes("OPEN") ? [listRow(v)] : [] } } : null }),
+  PullRequestStats: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? { additions: COUNTS.additions, deletions: COUNTS.deletions } : null } : null }),
   ...DETAIL_OPERATIONS,
 };
 const REST = { "/user": () => ({ id: 1, login: pr.author }) };

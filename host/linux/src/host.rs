@@ -59,7 +59,7 @@ mod transform_binding;
 mod value_watch;
 pub use error::{HostError, LET_GO_AFTER};
 
-use system::{persist_store_writes, physical_memory, store_snapshot};
+use system::{physical_memory, store_snapshot, StoreWrites};
 
 /// Caller-owned plan bytes, or linked bytes whose data pool stays in place.
 #[derive(Clone, Copy)]
@@ -80,6 +80,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    store_writes: StoreWrites,
     doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
@@ -246,7 +247,13 @@ impl<D: DataSource> Host<D> {
         crate::picker::know_roots(data.app_id());
         // A named drive's secrets, read before the runner takes the source.
         // A carried reload keeps its memory store and does not touch the files.
-        let store_snapshot = store_snapshot(data.app_id(), carried.is_some());
+        let mut store_snapshot = store_snapshot(data.app_id(), carried.is_some());
+        // Locked secrets' backend, reconciled before boot (LLP 1133.010 D4).
+        let presence = crate::presence_secrets::backend(data.app_id(), data.grants());
+        presence
+            .iter()
+            .filter(|_| carried.is_none())
+            .for_each(|p| store_snapshot.extend(p.snapshot.clone()));
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -258,11 +265,15 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        if let Some(p) = presence {
+            runner.install_presence(p.backend, p.keystore);
+        }
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
         let mut host = Host {
             runner,
+            store_writes: StoreWrites::default(),
             doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
@@ -710,6 +721,7 @@ impl<D: DataSource> Host<D> {
                 .map(|t| t * 1000.)
                 .into_iter()
                 .chain(self.press_settle())
+                .chain(self.runner.text_axes_settle_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
@@ -746,6 +758,7 @@ impl<D: DataSource> Host<D> {
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         self.runner.set_socket_reader(executor.socket_reader());
+        self.runner.set_retry_reader(executor.retry_reader());
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(0, &mut self.runner)); // one session (LLP 1069.010 slice 3)
         executor
     }
@@ -912,48 +925,6 @@ impl<D: DataSource> Host<D> {
         true
     }
 
-    pub(crate) fn dispatch_retained(
-        &mut self,
-        key: NodeKey,
-        binding: &exact_runner::runner::ActionBinding,
-        kind: exact_plan::EventKind,
-        now_ms: f64,
-    ) -> Result<bool, String> {
-        let event = match kind {
-            exact_plan::EventKind::Press => Event::Press,
-            exact_plan::EventKind::Swiperight => Event::Swiperight,
-            _ => return Ok(false),
-        };
-        // BEFORE host clock/focus/commit. Runner repeats its opaque binding check
-        // at dispatch; a refusal takes neither the sample nor an ordinary action.
-        if !now_ms.is_finite()
-            || now_ms < self.now_ms
-            || !self.retained_action_eligible(key)
-            || self.runner.validate_action_binding(binding, kind).is_err()
-        {
-            return Ok(false);
-        }
-        let result = self.runner.dispatch_bound(binding, event);
-        if matches!(
-            result,
-            Err(exact_runner::runner::ActionBindingError::Refused(_))
-        ) {
-            return Ok(false);
-        }
-        self.now_ms = now_ms;
-        let error = match result {
-            Ok(receipt) => self.commit(
-                &[Timed {
-                    at_ms: now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
-        };
-        error.map_or(Ok(true), Err)
-    }
-
     /// Move the clock: every timer due fires at its own due time (LLP 1012
     /// §2). The clock lands where the runner says — a timer's refusal stops
     /// it at that timer's due time and is the error; the commits before it
@@ -1114,10 +1085,23 @@ impl<D: DataSource> Host<D> {
 
     /// The viewer's place and launch seed, together in one commit.
     pub fn set_place(&mut self, place: &exact_runner::time::Place) -> Option<String> {
-        match self
-            .runner
-            .set_place(&place.locale, &place.time_zone, Some(place.seed))
-        {
+        let answer = self.runner.set_place_formatted(
+            &place.locale,
+            &place.time_zone,
+            Some(place.seed),
+            Some(&place.format_locale),
+        );
+        self.told(answer, "place")
+    }
+
+    /// A told fact's answer: its commit, nothing when the fact is unchanged,
+    /// or the refusal named by `what`.
+    fn told(
+        &mut self,
+        answer: Result<Option<exact_kernel::CommitReceipt>, exact_runner::RunnerError>,
+        what: &str,
+    ) -> Option<String> {
+        match answer {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -1126,23 +1110,14 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => None,
-            Err(e) => Some(format!("place: {e:?}")),
+            Err(e) => Some(format!("{what}: {e:?}")),
         }
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {
-        match self.runner.set_time(epoch_at_zero, utc_offset) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("time: {e:?}")),
-        }
+        let answer = self.runner.set_time(epoch_at_zero, utc_offset);
+        self.told(answer, "time")
     }
 
     /// The device's posture and the viewport segments (LLP 1078 D4), set
@@ -1188,33 +1163,15 @@ impl<D: DataSource> Host<D> {
 
     /// The display preferences (LLP 1061 D5): re-answer `exactViewport()` in one commit.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
-        match self.runner.set_preferences(preferences) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("preferences: {e:?}")),
-        }
+        let answer = self.runner.set_preferences(preferences);
+        self.told(answer, "preferences")
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
     /// D2): re-answer `exactPage()` in one commit.
     pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
-        match self.runner.set_page(page) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("page: {e:?}")),
-        }
+        let answer = self.runner.set_page(page);
+        self.told(answer, "page")
     }
 
     /// Seek presentation. Returns whether the registered Height changed layout;
@@ -1305,7 +1262,7 @@ impl<D: DataSource> Host<D> {
         // reload reads them back (platformer R10). The log is taken either way.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in persist_store_writes(&app_id, &writes) {
+        for line in self.store_writes.flush(&app_id, &writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();

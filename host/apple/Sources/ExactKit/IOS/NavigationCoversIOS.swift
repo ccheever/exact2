@@ -20,17 +20,20 @@ extension NavigationHost {
     /// edges past the document's insets (`env()`, which the page authored
     /// against) for a route in the document, and every edge of its own for a
     /// presented one, whose sheet the document's insets do not clear (LLP
-    /// 1123 D2). The top is a collapsing title's scroller's when it has one,
-    /// and the bottom a scroller's at the bottom edge (`reachBottom`); the
-    /// sides and the bottom only while the containers take the whole view
-    /// (`whole`), and the bottom only as far as the route reaches it.
-    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool,
-                           collapses: Bool, scrollsToBottom: Bool, reached: CGFloat) -> HostCover.Edges {
+    /// 1123 D2). The top is a collapsing title's scroller's when it has one;
+    /// the sides and the bottom only while the containers take the whole
+    /// view (`whole`) or the page covers it (`covered`: `viewport-fit="cover"`,
+    /// whose `env()` is the window's safe area and not the tab bar's, which a
+    /// child of a `UITabBarController` reads in its own), and the bottom only
+    /// as far as the route reaches it.
+    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool, covered: Bool = false,
+                           collapses: Bool, reached: CGFloat) -> HostCover.Edges {
         let env = presented ? .zero : document
+        let edges = whole || covered
         return .init(top: collapses ? 0 : max(0, safe.top - env.top),
-                     right: whole ? max(0, safe.right - env.right) : 0,
-                     bottom: whole && !scrollsToBottom ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
-                     left: whole ? max(0, safe.left - env.left) : 0)
+                     right: edges ? max(0, safe.right - env.right) : 0,
+                     bottom: edges ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
+                     left: edges ? max(0, safe.left - env.left) : 0)
     }
 
     /// What Exact's containers cover of each route — its controller's safe
@@ -44,18 +47,22 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) { wanted[node.id] = .whole }
-            // A held stack's route (HeldStackIOS) as a navigation controller's that hides its bar.
+            // Include the departing route until UIKit finishes its transition
             let nav = c.navigationController
-            guard nav?.viewControllers.contains(c) ?? (c.parent is HeldStack) else { continue }
+            let held = nav.map {
+                $0.viewControllers.contains(c) || $0.transitionCoordinator?.viewController(forKey: .from) === c
+            } ?? (c.parent is HeldStack)
+            guard held else { continue }
             // A presented route's controller takes its sheet's whole view, and
             // the document's insets (`env()`) are not the sheet's: its route is
             // covered for its own safe area whatever the document's fit (LLP
             // 1123 D2; its own clearance and credit are stage 2's)
             let presented = nav.map { nav in presentedNavigations.contains { $0 === nav } } ?? false
-            let whole = presented || (wantsWholeView && presenter.viewportFit != "cover")
+            let covered = wantsWholeView && presenter.viewportFit == "cover"
+            let whole = presented || (wantsWholeView && !covered)
             let shows = nav.map(barShows) ?? !ExactEnv.authoredChrome
-            guard shows || whole else { continue }
-            let edges: HostCover.Edges
+            guard shows || whole || covered else { continue }
+            let edges: HostCover.Edges?
             // A collapsing title's scroller goes under the bar, which insets it;
             // its expanded inset is where CSS scrollTop 0 rests.
             // While the bar is not as the route wants it (mid-transition to or
@@ -84,28 +91,39 @@ extension NavigationHost {
                     if node.scrollCollapsed == 0 || inset < node.scrollCollapsed { node.scrollCollapsed = inset }
                 }
             }
-            // A scroller UIKit insets lays its content out between those
-            // insets (LLP 1116.000 D1.2): content that fills its height rests
-            // under the bar and above the home indicator, and scrolling
-            // content still passes under both. A large title's inset is its
-            // widest, at rest (CSS scrollTop 0).
-            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
-                if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
-                    // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
-                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, safe.bottom - node.pageBand.bottom)
-                    if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
-                } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
-            }
             if settled, c.viewIfLoaded?.window != nil {
                 let safe = c.view.safeAreaInsets
                 // Only what the route reaches of the bottom bars is covered:
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole,
-                                        collapses: c.collapseScroll != nil, scrollsToBottom: c.edgeScroll != nil, reached: reached)
+                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
+                                        collapses: c.collapseScroll != nil || !c.ridingBars.isEmpty, reached: reached)
+                c.bottomClearance = edges?.bottom ?? 0
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
-            } else { continue }
+            } else { edges = nil }
+            // A scroller UIKit insets lays its content out between those
+            // insets (LLP 1116.000 D1.2): content that fills its height rests
+            // under the bar and above the home indicator, and scrolling
+            // content still passes under both. A large title's inset is its
+            // widest, at rest (CSS scrollTop 0).
+            // A transparent bar insets nothing of its scroller: the content
+            // starts under it (`collapse`), so no `.inset` is reported there.
+            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil && !(node === c.collapseScroll && Self.transparentBar(c.node)) {
+                if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
+                    // The bottom edge's scroller takes the route's bottom
+                    // clearance, which the route then pads nothing of
+                    // (`scroller_insets_bottom`) and still moves an
+                    // absolutely positioned footer past. Its own safe area
+                    // holds none while that padding ends it above the bars:
+                    // read alone, it would leave it there for good.
+                    let reach = node === c.edgeScroll ? c.bottomClearance : 0
+                    // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
+                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, max(safe.bottom, reach) - node.pageBand.bottom)
+                    if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
+                } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
+            }
+            guard let edges else { continue }
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
         // The tablist whose place the tab bar takes takes no room.
@@ -165,14 +183,10 @@ extension NavigationHost {
 
     /// Whether this build checks what Exact owns: every build but a
     /// production bake.
-    static let checksOwnership: Bool = {
-        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
-        return trust != "production"
-    }()
+    static let checksOwnership = !ExactEnv.productionBake
 
     /// Record the controllers Exact set on a stack.
     func recordOwned(_ nav: UINavigationController) {
-        guard NavigationHost.checksOwnership else { return }
         stacks[ObjectIdentifier(nav)]?.written = nav.viewControllers.map(ObjectIdentifier.init)
     }
 
@@ -180,7 +194,7 @@ extension NavigationHost {
     /// back button, the edge swipe) leaves a prefix of what Exact wrote, and
     /// is recorded; any other change is not Exact's and stays to be reported.
     func recordPop(_ nav: UINavigationController) {
-        guard NavigationHost.checksOwnership, let stack = stacks[ObjectIdentifier(nav)] else { return }
+        guard let stack = stacks[ObjectIdentifier(nav)] else { return }
         let now = nav.viewControllers.map(ObjectIdentifier.init)
         if now.count <= stack.written.count, Array(stack.written.prefix(now.count)) == now { stack.written = now }
     }
@@ -208,7 +222,7 @@ extension NavigationHost {
             #endif
         }
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
-            if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
+            if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.contentMount { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
             for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
         }

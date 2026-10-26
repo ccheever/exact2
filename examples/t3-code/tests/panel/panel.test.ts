@@ -2,6 +2,7 @@
 // Linked pull requests rows and the device wizard, against the reference's rules
 // (rightPanelStore.ts, FileBrowserPanel/FilePreviewPanel, ThreadPullRequestsPanel,
 // DeviceSetup.tsx). Network paths run against a recording fake of the native bridge.
+import { frames } from '../../src/browser/browser-frames';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from '../../src/panel/panel-surfaces';
@@ -201,7 +202,7 @@ describe('Files surface', () => {
       expect(rpcs.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: `/repo/${path}` } });
       expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't1', url: `http://127.0.0.1:9/api/assets/token/${path.split('/').pop()}` });
       expect(panelState(client)).toMatchObject({ active: `browser:${tab}`, visible: true });
-      expect(raws.filter(request => request.op === 'browserSync').at(-1)?.tabs).toHaveLength(1);
+      expect(frames(client).entries.size).toBe(1); // its frame mounts in the window's frame layer
       expect(toasts(client)).toEqual([]);
     }
     // A refused signature is the reference's stacked toast, and no tab opens.
@@ -266,7 +267,7 @@ describe('Files surface', () => {
     expect(files.diagrams.map(diagram => [diagram.code, diagram.light.diagram, diagram.dark.diagram])).toEqual([[flow, 'loading', 'loading']]);
     expect(calls.some(call => call.method === 'mermaidRender')).toBe(false); // the page renders it, no native module
     // The light page reports its render; the next view carries the diagram, and its expand opens it.
-    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'light', source: flow }));
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'light', source: flow, view: 'file' }));
     files = (await panelView(client, native, 0)).files;
     expect(files.diagrams[0]).toMatchObject({ code: flow, light: { diagram: 'rendered', width: 120, height: 80 } });
     diagramPreviewAction(client, 'diagram-open', flow);
@@ -366,6 +367,20 @@ describe('Device setup', () => {
     expect(calls.filter(call => call.method === 'device.list').length).toBe(1);
     await deviceLocal(client, native, 'continue', '', '');
     expect((await deviceView(client, native)).step).toBe(1);
+  });
+  // DeviceSetup.test.ts "names an EAS host instead of local tooling when only the cloud can run iOS" (74541bab17); the
+  // EAS host summary arrives as `easHosts` and its devices join the list beside the other hosts'.
+  test('an EAS host names the cloud, and its simulators join the device list', async () => {
+    const local = remoteOnly().hosts[0]!;
+    const wire = { ...remoteOnly(), hostStatuses: { eas: { status: 'ready' } }, hosts: [local],
+      easHosts: [{ id: 'eas', kind: 'eas', label: 'EAS Simulator', hubInstalled: true, agentDeviceInstalled: true, platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Not supported yet.' }] }],
+      devices: [{ hostId: 'eas', id: 'eas-ios', platform: 'ios', name: 'iPhone (EAS Simulator)', version: 'Cloud', booted: false, physical: false }] };
+    const { client } = fakeClient();
+    await surfaceLocal(client, native, 'open', 'm', '');
+    deviceStateEvent(client, { subscriptionId: '1-9', key: DEVICE_STATE_KEY, value: wire });
+    const view = await deviceView(client, native);
+    expect(view.platforms[0]).toEqual({ id: 'ios', platform: 'iOS', ready: true, message: 'EAS Simulator starts iOS Simulators in the cloud with EAS Simulator.' });
+    expect(view.groups).toEqual([{ id: 'ios', label: 'iOS Simulators', devices: [{ id: 'eas\u0000eas-ios', name: 'iPhone (EAS Simulator)', platform: 'ios', description: 'EAS Simulator · Cloud · Stopped', action: 'Start' }] }]);
   });
   test('Device opens the wizard until onboarding is complete; the stream decides readiness', async () => {
     const { client, calls } = fakeClient();

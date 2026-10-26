@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60 and 61 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65 and 66 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1937,15 +1937,16 @@ first screen: 312 caches of 448 bytes become 312 of 120 and their slots.
 compares every answer with an eagerly stored cache through 240 mixed stores,
 hits and clears) and the kernel's layout tests.
 
-## Patch 61: transfer an intrinsic flex row's resolved width through its ratio
+## Patch 61: transfer an intrinsic flex container's resolved width through its ratio
 
-After intrinsic main sizing resolves a flex row's width, refresh its height
-constraints, percentage basis and cross-axis definiteness through the same
-ratio resolution used for incoming dimensions. This happens before cross
-sizing and alignment, so the ratio floor sizes and places the lines as well
-as the container. The intrinsic main-axis constraints and definiteness stay
-intact. Content can exceed the automatic height floor; authored height bounds,
-explicit minima and scroll containers keep their existing ratio rules.
+After intrinsic main sizing resolves a flex row's width, repeat preliminary
+layout with that width and the input definiteness flags. The known width
+bounds the repeat to one pass. Item generation now resolves percentage heights
+and height bounds against the ratio height before flex sizing and alignment;
+refreshing only the container constants left the items' sizes unresolved.
+Pass only the width so content can exceed the automatic height floor without
+changing the ratio's percentage basis. Authored height bounds, explicit minima
+and scroll containers keep their existing ratio rules.
 See [CSS Sizing 4 §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-automatic),
 [§4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size) and
 [§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
@@ -1960,8 +1961,194 @@ width and height, columns, grid, content exceeding the floor, centered and
 stretched lines, reverse wrapping, nowrap, ratio 2, padding and borders under
 both box-sizing modes, a zero minimum and hidden overflow.
 
+The same test holds 16 literal `Chrome 151 intrinsic ratio percentages` cases,
+measured with Chrome 151.0.7922.34 on 2026-10-23 in `width:max-content` wrappers.
+Before item generation was repeated, 18 frames in 14 cases differed. A 60×60
+ratio root's 50% item now measures 60×30 instead of 60×0 (60×10 with a 10px
+minimum); a 100% item measures 60×60. Controls cover wrapping and reverse
+wrapping, padding under both box-sizing modes, definite width, percentage
+height bounds, ratio 2, a zero minimum and hidden overflow. Taller content and
+multiple lines check that the ratio's percentage basis stays below the used
+height when content exceeds it.
+
+Columns repeat after cross sizing supplies their width, before the size-only
+return. Repeat only when both dimensions were unknown: the supplied width
+bounds recursion even when the ratio height remains automatic. The input
+definiteness flags and the ratio's percentage basis are preserved as for rows.
+
+The same test holds 18 literal `Chrome 151 intrinsic ratio column percentages`
+cases, measured with Chrome 151.0.7922.34 on 2026-10-24 in `width:max-content`
+wrappers. Before the column repeat, 31 frames in 15 cases differed. The reported
+root changes from 60×0 to 60×60 and its 50% item from 60×0 to 60×30. With a
+120px-tall sibling, the root grows to 60×150 while the item stays 60×30.
+Controls cover definite width and height, no ratio, column-reverse, wrapping
+and reverse wrapping, ratio 2, width and height caps, padding and borders under
+both box-sizing modes, zero minimum, hidden overflow and percentage bounds.
+
+## Patch 62: allocate rare style fields only when needed
+
+`Style` keeps its grid templates, automatic tracks, names, areas, placements
+and `multicol` in one optional `Arc<RareStyle>`. Absent fields read shared
+initial values; clones share the allocation and writes copy it on demand.
+Default construction and conversion of an all-default group keep no allocation.
+Equality compares field values, including an allocated default group and NaNs,
+so the kernel's value interning and `engine_hash` retain their meaning. Ordinary
+block and flex styles no longer carry the grid vectors and placements inline:
+with Exact's features on 64-bit hosts, `Style` falls from 600 to 256 bytes
+(`RcInner<Style>`: 272). The kernel adapter keeps their rare group absent.
+Layout inputs are unchanged.
+
+## Patch 63: calculated lengths participate in automatic grid repetition
+
+`TrackSizingFunction::has_fixed_component` includes calc handles: they are
+length-percentage values, so a calculated minimum can size an `auto-fill` or
+`auto-fit` repetition. The existing resolver supplies the value against the
+container's content box. See [CSS Grid 2 §7.2.3](https://www.w3.org/TR/css-grid-2/#auto-repeat).
+
+`FromCss` and `CssParseResult` are exported so Exact can extend the generic
+`GridTemplateTracks` parser with its existing calculation parser. Taffy still
+parses line names, ordinary breadths and repetition counts; Exact owns the
+calculation representation and evaluator. Calculated `fit-content()` limits
+remain unsupported.
+
+**Held by** `style::grid::expand_tests::track_sizing_function_calc_round_trips` and
+Exact's `calculated_grid_tracks` parser, wire and layout tests. The layout
+cases were measured in Chrome 151 on Linux on 2026-10-23: automatic repetition
+at 150px and 650px, `auto-fit`, percentage arithmetic, clamped rows, negative
+results and indefinite percentage bases. The kernel retains floating-point
+coordinates; comparisons allow Chrome's 1/64px layout quantization.
+
+## Patch 64: retain transferred height caps in ratio leaf content probes
+
+A non-replaced ratio leaf's horizontal `ContentSize` probe with no known
+width keeps its height bounds and uses `container_sizes_through_ratio`
+when its height is unknown or its available width is min-content.
+Its preferred sizes and width bounds remain ignored. With no supplied
+height, the transferred maximum caps the intrinsic width, as it does for
+containers.
+The flex basis then agrees with the hypothetical size instead of exceeding
+it and freezing growth under [Flexbox §9.7](https://www.w3.org/TR/css-flexbox-1/#resolve-flexible-lengths).
+The flexible-length freeze rule is unchanged.
+
+`minimum_ratio_width` now supplies the clamped height to leaves as well as
+containers. For this min-content probe, the shared helper makes the width
+transfer a floor and removes the transferred width cap, so wider text is
+still measured independently. This replaces Patch 57's leaf-only
+unknown-height probe: omitting the height would now cap the text minimum.
+Cross-size resolution with a supplied height keeps the ratio-derived
+preferred width so text wraps at that width. Replaced leaves, vertical
+probes and probes with a known width retain their existing sizing path.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+18 literal `Chrome 151 ratio text growth` cases, measured with Chrome
+151.0.7922.34 on 2026-10-24, with the monospace advance normalized to 10px.
+Ten frames in nine cases failed before the patch: the reported
+leaf changes from 60×60 to 200×60, and content-box padding from 80×80 to
+200×80. Controls cover a zero basis, explicit minima, hidden overflow,
+a width cap, ratio 2, both box-sizing modes, definite heights, stretch,
+a growing sibling, and no ratio or height cap. The existing block
+growth, definite-height inline minima, replaced-element, percentage-height
+and exclusion-height tests remain passing.
+
+23 `Chrome 151 ratio text wrapping` cases use the same version and date,
+normalizing both letters and spaces to 10px. Seven failed when the helper
+also handled column cross-size resolution: the reported leaf measured
+130×100 instead of 100×100. They cover flexed and percentage heights,
+ratios and box sizing, with stretch, overflow, inline bounds, row, block
+and absolute controls. The auto-height column with a 100px height cap
+already measured 60×60 before Patch 64; it remains an owed case in `QUEUE.md`.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
 Exact worktree does not attach this excluded path dependency to the enclosing
 checkout. This is an Exact integration patch to retain when updating.
+
+## Patch 65: measure stretched items at a ratio row's definite height
+
+A single-line flex row with a ratio-derived automatic height measures a
+stretched auto-height item at that definite cross size, clamped by the item's
+authored height bounds and padding/border floor. Its overflowing descendants
+no longer inflate the row's content-based height minimum. Wrapping rows,
+non-stretched items, auto cross margins and explicit item heights keep their
+content measurement. The row's automatic height remains a floor that those
+items can exceed; columns, block and grid retain their content minima.
+
+This follows [Flexbox §9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)
+and Chrome 151's
+[`BuildSpaceForLayout`](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc#702),
+which applies definite stretch during measurement as well as final layout.
+Rows with a supplied outer height retain their existing intrinsic measurement:
+that measurement does not determine the container's height.
+
+The root solver transfers its filled width only when the width was automatic.
+Transferring an explicit width twice had mistaken its derived height minimum
+for an authored minimum and fixed the height. Explicit-width roots now retain
+the same content-based floor as automatic-width roots.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`
+and `ratio_roots_in_a_definite_offer_match_chrome`: 29 literal
+`Chrome 151 ratio root overflow` cases measured in Chrome 151.0.7922.34 on
+2026-10-24, in a 50px block and as direct roots offered 50×600 and 50×1000.
+The ten existing `ratio definite cross` cases were remeasured in both offers.
+Before the fix, the auto-width flex root and its ratio item were 50×70;
+both are now Chrome's 50×50, with the 10×70 child overflowing. The same defect
+without the item's ratio is covered. An explicit-width wrapping root was
+50×50 instead of Chrome's 50×70. Controls cover block, grid, columns,
+wrapping, explicit widths and heights, alignment overrides, auto margins,
+item minima, hidden overflow, padding and borders under both box-sizing modes.
+The grid control matches Chrome at 50×70 with a 70×70 item.
+
+## Patch 66: justify in-flow block children
+
+Block layout resolves a child's `justify-self` against the container's
+`justify-items`. Non-stretch alignment gives an automatic width fit-content
+sizing; placement aligns the margin box, with auto margins taking precedence
+and `safe` overflow falling back to the container's start edge. Self-relative
+values use the child's direction. `normal` and `stretch` retain block sizing.
+The block style traits expose both properties, and their existing `Style`
+fields are available with block layout as well as grid.
+
+This follows [CSS Box Alignment 3 §6.1.1](https://www.w3.org/TR/css-align-3/#justify-block)
+and Chrome 151.0.7922.34, measured on 2026-10-24. A centered 20px child in a
+100px block moves from x=0 to x=40; an automatic-width wrapper around it
+changes from 100px to 20px wide. A 120px child centers at x=-10, or x=0 with
+`safe center` in LTR. In RTL with an LTR child, `start` puts a 20px child at
+x=80 and `self-start` at x=0.
+
+**Held by** `browser_position::block_justify_items_matches_chrome`: 82 in-flow
+cases covering fixed and automatic widths, physical and logical alignment,
+RTL, overflow safety, margins, bounds, percentages, insets, box sizing,
+text, and block-level flex/grid children. The 72 mismatched frames before
+the patch now match Chrome. `block_justify_self_overrides_the_container_default`
+also failed before the patch and holds the vendor's per-item override; no
+Contract attribute is added. The remaining fixture records the absolute-child
+follow-up in `QUEUE.md`: automatic insets still give x=0 instead of Chrome's
+x=40. Floats remain disabled in Exact.
+
+## Patch 67: a scroll container's end padding extends its children's margin boxes
+
+Flex, block and grid layout added a scroll container's end padding (inline-end
+and bottom) to its whole scrollable overflow rectangle, which includes the
+overflow of descendants. [CSS Overflow 3 §2.2](https://www.w3.org/TR/css-overflow-3/#scrollable)
+adds it to the margin boxes of the container's in-flow children (and grid and
+flex items) only; descendant overflow counts as it is. A child's margin box
+is taken where it sits before any relative offset. So a full-bleed hairline in
+a padded list (`margin: 0 -10px` inside 10px of side padding) reaches the
+padding edge and leaves nothing to scroll, where Exact made the list scroll
+10px sideways; a last child's bottom margin now comes before the bottom
+padding; and a descendant overflowing its parent gets no padding after it.
+`common::scrollable_overflow` holds the rule (`margin_box_contribution`,
+`with_end_padding`). A container with no children keeps a rectangle of its
+padding alone, as before.
+
+Chrome 155.0.8059.86, measured on 2026-10-24: a 200 × 100 scroller with 10px
+padding (padding box 220 × 120) holding a hairline bled to its padding edge
+has `scrollWidth` 220 (Exact 230 before the patch); a 150px child with a 20px
+bottom margin gives `scrollHeight` 190 (170); a 50px child holding a 200px
+grandchild gives 210 (220); a 300px child with a 15px right margin gives
+`scrollWidth` 335 (320); a 200px child moved 30px by `left` gives 240 (250).
+
+**Held by** `browser_scroll_padding::end_padding_extends_children_not_descendants`:
+17 cases across block, flex row and column, grid, RTL and relative offsets,
+all of which failed before the patch.

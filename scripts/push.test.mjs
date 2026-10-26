@@ -29,6 +29,7 @@ test('push seals every Rust, TypeScript and graph bake against an inherited proo
     openOrigin:()=>({writable:true,list:async()=>[],describe:()=>root}),
     channelOrigin:()=>root,sha256:()=> 'digest',blobPath:x=>x,streamPath:()=> 'stream',
     defaultRelease:()=> 'r-fixture',inspectHead(){throw Error('unexpected head')},
+    requireReleasePins(){}, // the release pins' gate (game/inputs.mjs), not what this seals
     async publishStream({build}){
       expect(build.trust).toBe('production');calls.push('publish');
       return {action:'current',platform:'linux',compatibilityId:compat.id};

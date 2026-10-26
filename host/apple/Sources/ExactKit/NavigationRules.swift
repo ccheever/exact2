@@ -47,8 +47,9 @@ enum NavigationRules {
     }
 
     /// D2: a completed transition presses the Back control exactly once —
-    /// only for an interactive pop whose source is still selected. A
-    /// programmatic transition has no interactive source; its completion
+    /// only for a native pop whose live source is still selected. A swipe
+    /// captures its source; a Back-button pop removes it from our last write.
+    /// A stack change Exact writes has no departed source; its completion
     /// must not dismiss a newer route selected while UIKit was animating.
     /// A cancelled swipe shows the same key. Sheets have their own path.
     ///
@@ -59,53 +60,6 @@ enum NavigationRules {
     /// otherwise the replacement is pushed back in the moment the pop lands.
     static func dispatchesBack(shownKey: String, rootKey: String, sourceKey: String?, sourceReplaced: Bool = false, modalActive: Bool) -> Bool {
         !modalActive && shownKey != rootKey && (sourceKey == rootKey || sourceReplaced)
-    }
-
-    /// D1: the Back control is resolved at use, never captured at a
-    /// gesture's start: the lowest view id among live controls whose HTML
-    /// `id` is the container's `navigationBack`, that handle `press`, and are
-    /// enabled and owned by the active route. `nil` when no such control is live — and
-    /// then no gesture may begin and no dismissal may complete.
-    static func backControl<Control>(
-        named target: String?,
-        among controls: [Control],
-        id: (Control) -> UInt32,
-        htmlID: (Control) -> String?,
-        pressable: (Control) -> Bool,
-        disabled: (Control) -> Bool,
-        inActiveRoute: (Control) -> Bool
-    ) -> Control? {
-        guard let target else { return nil }
-        return controls
-            .filter { htmlID($0) == target && pressable($0) && !disabled($0) && inActiveRoute($0) }
-            .min { id($0) < id($1) }
-    }
-
-    /// How the platform's Back (its button, edge swipe, sheet swipe-down)
-    /// goes from the selected route.
-    enum Back: Equatable {
-        /// Press the authored Back control, this view.
-        case press(UInt32)
-        /// Deliver this location to the navigation root's `navigate`.
-        case navigate(String)
-        /// The runner's own `back` of the router (no `navigate` handler).
-        case pop
-    }
-
-    /// LLP 1115 D5, Back is always there: a route that declares a Back
-    /// control (a live element in it whose `id` is the root's
-    /// `navigationBack`) goes back by pressing it, and is refused while it
-    /// does not resolve (disabled, or no `press`) — the author's say, as
-    /// D1 has it. A route that declares none still goes back, as a
-    /// hand-built UIKit screen does and as the web's history Back does
-    /// (LLP 1038 D11, amended 2026-10-03): the root's `navigate` with the
-    /// location of the visit beneath, or with no `navigate` handler the
-    /// runner's own `back` of the router, the same on the web. With no
-    /// visit beneath there is nothing to go back to, and it is refused.
-    static func back(control: UInt32?, declared: Bool, hearsNavigate: Bool, beneath: () -> String?) -> Back? {
-        if let control { return .press(control) }
-        guard !declared, let location = beneath(), !location.isEmpty else { return nil }
-        return hearsNavigate ? .navigate(location) : .pop
     }
 
     /// What a route shows of the platform's navigation bar.
@@ -171,20 +125,6 @@ enum NavigationRules {
     /// Close is the app's own control either way.
     static func modalRefusesDismissal(closedby: String?) -> Bool {
         closedby == "none"
-    }
-
-    /// D5: a keyboard notification is a session's business only when one of
-    /// its own editors is editing, or it still holds an inset from a show it
-    /// applied; another session's keyboard in the same window is not.
-    static func keyboardConcerns(editing: Bool, holdsInset: Bool) -> Bool {
-        editing || holdsInset
-    }
-
-    /// D5: the viewport freeze that keeps a composer beside a sideways-moving
-    /// keyboard applies only to an initially interactive navigation
-    /// transition outside a sheet — never to a sheet's vertical dismissal.
-    static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
-        !modalActive && changing && initiallyInteractive
     }
 
     /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,

@@ -2,15 +2,15 @@
 // 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/components/preview/PreviewAutomationHosts.tsx, previewAutomationErrors.ts,
 // apps/web/src/browser/browserRecordingUpload.ts; the server's claimPreviewRecording for what the answer must carry).
 // The clone's own rows: the reference has no host tests for these cases. The lifecycle is BrowserRecordings
-// (browser-recording.test.ts ports its tests) over a fake RecordingHost; the module's hand-off and the native upload are
-// the AppKit binary `macos/tests/browser-automation` (recording.swift).
+// (browser-recording.test.ts ports its tests) over a fake RecordingHost; then the window's queued sends every
+// long-lived piece of browser work runs in.
 import { describe, expect, it } from 'bun:test';
 import {
   BrowserRecordings, PreviewAutomationRecordingDeadlineExpiredError, PreviewAutomationRecordingTooLargeError, PreviewAutomationRecordingTransferError,
   RECORDING_UPLOAD_MAX_BYTES, uploadBrowserRecording, type RecordingHost, type RecordingUploader,
 } from '../../src/browser/browser-recording';
 import { readFileSync } from 'node:fs';
-import { automationRecordingView, nativeDeps, readRecordingRequests, RECORDING_SENDS, recordingHostError, runRecordingRequest, serveRecordingRequests, type RecordingRequest } from '../../src/browser/browser-automation-recording';
+import { automationRecordingView, nativeDeps, queueSlotWork, RECORDING_SENDS, recordingHostError, runRecordingRequest, serveRecordingRequests, slotWorkRunning, type RecordingRequest } from '../../src/browser/browser-automation-recording';
 import { surfaceLocal, surfaceStore } from '../../src/panel/panel-surfaces';
 import { adoptCaptureNative } from '../../src/browser/browser-capture';
 import type { T3Client } from '../../src/client/client';
@@ -65,13 +65,6 @@ const request = (operation: RecordingRequest['operation'], extra: Partial<Record
 const uploaded: RecordingUploader = async () => ({ status: 'uploaded', attachmentId: 'pending-6f1c2a52-3c4e-4a8e-9a43-0d2c1b7f9e10-mp4' });
 
 describe('the previewAutomation host\'s recording operations', () => {
-  it('reads the requests the module handed over and drops malformed ones', () => {
-    const entry = { ...request('recordingStop'), tabId: null };
-    const presentation = { browserAutomation: { recordings: [entry, { key: 'k', requestId: 'r', operation: 'click' }, { operation: 'recordingStart' }, null] } };
-    expect(readRecordingRequests(presentation)).toEqual([{ ...entry, tabId: null }]);
-    expect(readRecordingRequests({})).toEqual([]);
-  });
-
   it('recordingStart starts the tab\'s recording (the Capture button\'s) and answers PreviewAutomationRecordingStatus', async () => {
     const { recordings, calls } = fakeRecordings();
     const answer = await runRecordingRequest(request('recordingStart'), { recordings, upload: uploaded, remove: () => undefined });
@@ -169,95 +162,100 @@ describe('uploadBrowserRecording', () => {
   });
 });
 
-describe('the window\'s send for the handed-over requests', () => {
+describe('the window\'s queued sends for long-lived browser work', () => {
   const nativeLog = (log: unknown[]): Native => ({ available: true, watch() {}, later: async (value: unknown) => { log.push(value); return { ok: true, generation: 0, value: { accepted: true } }; } } as unknown as Native);
-  it('the panel\'s serial bumps once for each request the module newly lists', () => {
-    const client = { presentation: {}, local: {}, revision: 0 } as unknown as T3Client & { presentation: unknown };
+  const fakeClient = () => ({ presentation: {}, local: {}, revision: 0 } as unknown as T3Client & { revision: number });
+  it('the panel\'s serial bumps once for each piece of work queued, and a key queued or running is queued once', async () => {
+    const client = fakeClient();
     expect(automationRecordingView(client)).toEqual({ serial: 0, slot: 0 });
-    client.presentation = { browserAutomation: { recordings: [request('recordingStart')] } };
+    queueSlotWork(client, 'a', async () => undefined);
+    queueSlotWork(client, 'a', async () => undefined);
     expect(automationRecordingView(client).serial).toBe(1);
-    expect(automationRecordingView(client).serial).toBe(1); // projected again: no new request
-    client.presentation = { browserAutomation: { recordings: [request('recordingStart'), request('recordingStop')] } };
-    expect(automationRecordingView(client).serial).toBe(2);
-    client.presentation = { browserAutomation: { recordings: [] } };
+    expect(client.revision).toBe(1);
+    queueSlotWork(client, 'b', async () => undefined);
     expect(automationRecordingView(client)).toEqual({ serial: 2, slot: 0 });
+    expect(slotWorkRunning(client, 'a')).toBe(true);
+    await serveRecordingRequests(client, nativeLog([]), 0);
+    expect(slotWorkRunning(client, 'a')).toBe(false);
+    queueSlotWork(client, 'a', async () => undefined); // done: the key may come again
+    expect(automationRecordingView(client).serial).toBe(3);
   });
 
-  it('a request listed while another send\'s request runs starts at once on a free send (handleRequest per request)', async () => {
-    // Thread A's request is still running (its answer to the module is held, as a stop's upload would hold it); thread
-    // B's start, listed meanwhile, runs on another send and answers without waiting for A (review of 2026-10-12).
-    const a = request('recordingStop', { key: 'a', requestId: 'a', threadId: 'thread-a' }), b = request('recordingStart', { key: 'b', requestId: 'b', threadId: 'thread-b', runtimeId: null });
-    const client = { presentation: { browserAutomation: { recordings: [a] } }, local: {}, revision: 0 } as unknown as T3Client & { presentation: unknown };
+  it('work queued while another send\'s work runs starts at once on a free send (handleRequest per request)', async () => {
+    // Thread A's request is still running (as a stop's upload would hold it); thread B's, queued meanwhile, runs on
+    // another send and ends without waiting for A (review of 2026-10-12).
+    const client = fakeClient(), done: string[] = [];
     let release = () => {};
     const held = new Promise<void>(resolve => { release = resolve; });
-    const answered: string[] = [];
-    const native = (hold: boolean): Native => ({ available: true, watch() {}, later: async (value: { op?: string; plan?: { answer?: string } }) => {
-      if (value.op === 'browserAutomation') { if (hold) await held; answered.push(String(value.plan?.answer)); }
-      return { ok: true, generation: 0, value: {} };
-    } } as unknown as Native);
+    queueSlotWork(client, 'a', async () => { await held; done.push('a'); });
     expect(automationRecordingView(client)).toEqual({ serial: 1, slot: 0 });
     let aDone = false;
-    const first = serveRecordingRequests(client, native(true), 0).then(() => { aDone = true; });
+    const first = serveRecordingRequests(client, nativeLog([]), 0).then(() => { aDone = true; });
     await new Promise(resolve => setTimeout(resolve, 1));
-    client.presentation = { browserAutomation: { recordings: [a, b] } };
+    queueSlotWork(client, 'b', async () => { done.push('b'); });
     expect(automationRecordingView(client)).toEqual({ serial: 2, slot: 1 }); // send 0 runs A
-    await serveRecordingRequests(client, native(false), 1);
-    expect(answered).toEqual(['b']);
+    await serveRecordingRequests(client, nativeLog([]), 1);
+    expect(done).toEqual(['b']);
     expect(aDone).toBe(false);
     release();
     await first;
-    expect(answered).toEqual(['b', 'a']);
+    expect(done).toEqual(['b', 'a']);
     expect(automationRecordingView(client).slot).toBe(0); // both sends free again
   });
 
-  it('with every send running a request, a new one waits behind one of them in turn', async () => {
-    const client = { presentation: {}, local: {}, revision: 0 } as unknown as T3Client & { presentation: unknown };
+  it('with every send running work, a new piece waits behind one of them in turn', async () => {
+    const client = fakeClient();
     let release = () => {};
     const held = new Promise<void>(resolve => { release = resolve; });
-    const holding = { available: true, watch() {}, later: async () => { await held; return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
-    const running: Promise<void>[] = [], listed: RecordingRequest[] = [];
+    const running: Promise<void>[] = [];
     for (let slot = 0; slot < RECORDING_SENDS; slot++) {
-      listed.push(request('recordingStart', { key: `k${slot}`, requestId: `r${slot}`, runtimeId: null }));
-      client.presentation = { browserAutomation: { recordings: [...listed] } };
+      queueSlotWork(client, `k${slot}`, async () => { await held; });
       expect(automationRecordingView(client)).toEqual({ serial: slot + 1, slot });
-      running.push(serveRecordingRequests(client, holding, slot));
+      running.push(serveRecordingRequests(client, nativeLog([]), slot));
       await new Promise(resolve => setTimeout(resolve, 1));
     }
-    client.presentation = { browserAutomation: { recordings: [...listed, request('recordingStart', { key: 'k4', requestId: 'r4', runtimeId: null })] } };
+    queueSlotWork(client, 'k4', async () => undefined);
     expect(automationRecordingView(client)).toEqual({ serial: 5, slot: 5 % RECORDING_SENDS });
     release();
     await Promise.all(running);
   });
 
-  it('its answer runs each listed request once, to its end, and sends the outcome to the module through its own native', async () => {
-    const stop = request('recordingStop');
-    const client = { presentation: { browserAutomation: { recordings: [stop] } }, local: {}, revision: 0 } as unknown as T3Client;
-    const first: unknown[] = [], second: unknown[] = [];
-    await serveRecordingRequests(client, nativeLog(first), 0); // awaited: the send's answer lives until the request settled
-    await serveRecordingRequests(client, nativeLog(second), 1); // listed again before the module's status caught up: not run twice
-    expect(first.filter(sent => (sent as { op?: string }).op === 'browserAutomation')).toEqual([{ op: 'browserAutomation', plan: { answer: stop.key, ok: false, error: {
-      _tag: 'PreviewAutomationExecutionError',
-      message: 'Preview automation request preview-recordingStop found no active recording for tab tab_1 on environment env-1 thread thread-1.',
-      detail: { requestId: 'preview-recordingStop', environmentId: 'env-1', threadId: 'thread-1', tabId: 'tab_1' } } } }]);
+  it('a send\'s answer runs each queued piece once, to its end, with that send\'s native', async () => {
+    const client = fakeClient(), first: unknown[] = [], second: unknown[] = [];
+    queueSlotWork(client, 'stop', async native => { await native.later({ op: 'timelineSleep', ms: 5 }); });
+    await serveRecordingRequests(client, nativeLog(first), 0); // awaited: the send's answer lives until the work settled
+    await serveRecordingRequests(client, nativeLog(second), 1);
+    expect(first).toEqual([{ op: 'timelineSleep', ms: 5 }]);
     expect(second).toEqual([]);
   });
 
-  it('the upload goes to the module with its connection under its own key, never a top-level fleet (T3Module routes those to the fleet)', async () => {
+  it('the upload is minted and cleaned up on the request\'s connection; only the bytes go from the module', async () => {
     const client = { presentation: {}, local: {}, revision: 0 } as unknown as T3Client;
-    const sent: Array<Record<string, unknown>> = [];
-    adoptCaptureNative(client, { available: true, watch() {}, later: async (value: Record<string, unknown>) => {
-      sent.push(value);
-      return { ok: true, generation: 0, value: value.action === 'upload' ? { status: 'uploaded', attachmentId: 'pending-1-mp4' } : {} };
-    } } as unknown as Native);
-    const deps = nativeDeps(client, request('recordingStop', { generation: 9, fleet: '' }));
-    expect(await deps.upload({ name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 })).toEqual({ status: 'uploaded', attachmentId: 'pending-1-mp4' });
+    const sent: Array<Record<string, unknown>> = [], rpcs: Array<[string, unknown]> = [];
+    let transfer: Record<string, unknown> = { status: 'uploaded' };
+    adoptCaptureNative(client, { available: true, watch() {}, later: async (value: Record<string, unknown>) => { sent.push(value); return { ok: true, generation: 0, value: transfer }; } } as unknown as Native);
+    let left = 10_000;
+    const deps = nativeDeps(client, { origin: 'http://127.0.0.1:4001', remaining: () => left, rpc: async (method, payload) => {
+      rpcs.push([method, payload]);
+      return method === 'attachments.createUploadUrl' ? { attachmentId: 'pending-1-mp4', relativeUrl: '/api/attachments/upload/pending-1-mp4' } : {};
+    } });
+    const input = { name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 };
+    expect(await deps.upload(input)).toEqual({ status: 'uploaded', attachmentId: 'pending-1-mp4' });
+    expect(rpcs).toEqual([['attachments.createUploadUrl', { type: 'file', name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3 }]]);
+    expect(sent).toEqual([{ op: 'browserRecordingUpload', origin: 'http://127.0.0.1:4001', relativeUrl: '/api/attachments/upload/pending-1-mp4', path: '/artifacts/a.mp4', mimeType: 'video/mp4', deadlineMs: 5 }]);
+    // A transfer the module failed keeps its attachment for the caller to remove, on the connection.
+    transfer = { status: 'failed', error: 'Recording upload rejected.', expired: true };
+    expect(await deps.upload(input)).toMatchObject({ status: 'failed', attachmentId: 'pending-1-mp4', expired: true });
     deps.remove('pending-1-mp4');
     await new Promise(resolve => setTimeout(resolve, 5));
-    expect(sent).toEqual([
-      { op: 'browserRecordingUpload', action: 'upload', connection: { generation: 9, fleet: '' }, name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 },
-      { op: 'browserRecordingUpload', action: 'remove', attachmentId: 'pending-1-mp4', connection: { generation: 9, fleet: '' } },
-    ]);
-    expect(sent.every(value => !('fleet' in value) && !('generation' in value))).toBe(true);
+    expect(rpcs.at(-1)).toEqual(['attachments.delete', { attachmentId: 'pending-1-mp4' }]);
+    // A module call that fails outright still hands back the minted attachment for removal.
+    adoptCaptureNative(client, { available: true, watch() {}, later: async () => ({ ok: false, generation: 0, error: { kind: 'Closed', message: 'The window was closed.' } }) } as unknown as Native);
+    expect(await deps.upload(input)).toMatchObject({ status: 'failed', attachmentId: 'pending-1-mp4' });
+    // A second or less left: nothing is minted.
+    left = 900; rpcs.length = 0;
+    expect(await deps.upload(input)).toMatchObject({ status: 'failed', attachmentId: null, expired: true });
+    expect(rpcs).toEqual([]);
   });
 
   it('is one of the window\'s four queued sends, the one the panel names, asked whenever the panel\'s serial passes the one it handled', () => {
@@ -276,12 +274,12 @@ describe('the window\'s send for the handed-over requests', () => {
   it('is not the person\'s use of the panel: the viewed thread\'s panel is left as it was (no userRevision, no state)', async () => {
     // An agent's request served before the viewed thread's saved panel was restored must not make restoreRightPanel skip
     // it (review of 2026-10-12): the op runs before surfaceLocal reads the panel.
-    const stop = request('recordingStop');
     const client = { environmentId: 'env', threadId: 't1', projectId: 'p1', draftKey: 'env:new:p1', ready: false, generation: 1, revision: 0, diffOpen: false,
-      presentation: { browserAutomation: { recordings: [stop] } }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
-    const sent: unknown[] = [];
-    expect(await surfaceLocal(client, nativeLog(sent), 'browser-automation-recording', '2', '')).toBe('');
-    expect(sent.filter(value => (value as { op?: string }).op === 'browserAutomation').length).toBe(1);
+      presentation: {}, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+    const ran: string[] = [];
+    queueSlotWork(client, 'r1', async () => { ran.push('r1'); });
+    expect(await surfaceLocal(client, nativeLog([]), 'browser-automation-recording', '2', '')).toBe('');
+    expect(ran).toEqual(['r1']);
     expect(surfaceStore(client).panels.size).toBe(0);
   });
 });

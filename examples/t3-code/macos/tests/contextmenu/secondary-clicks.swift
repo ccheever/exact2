@@ -2,10 +2,9 @@ import AppKit
 import XCTest
 
 // Since main #487 a Control-click is the secondary click ExactKit takes as a right-click
-// where a node wrote `contextmenu` (`NodeView.contextClick`), and since main #486 VoiceOver's show menu runs the
-// node's `contextmenu` with no event at all. Chromium sends a Control-click as `contextmenu` (no `click`) and fires
-// `contextmenu` at the element for VoiceOver's AXShowMenu (Blink `ShowNonLocatedContextMenu`); Electron's `context-menu`
-// then pops the shell's menu (DesktopWindow.ts `installContextMenu`: its template with no position, so at the pointer).
+// where a node wrote `contextmenu` (`NodeView.contextClick`). Chromium sends a Control-click as `contextmenu` (no
+// `click`), and where the page takes none Electron's `context-menu` pops the shell's menu (DesktopWindow.ts
+// `installContextMenu`).
 
 /// A link node that wrote its own `contextmenu`, as ExactKit runs it since #487: a right-click, or a Control-click that
 /// `contextClick` sends to `rightMouseDown`; a plain click presses it.
@@ -39,29 +38,12 @@ final class SecondaryClickTests: ShellMenuCase {
                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
     }
 
-    func testAControlClickIsThePageClickALinksHandlerLeavesToTheShell() {
-        let link = LinkNode(frame: NSRect(x: 20, y: 20, width: 80, height: 22))
-        page.addSubview(link)
-        var points: [NSPoint] = []
-        shell.present = { [unowned self] menu, event, view in popped.append((T3ShellMenu.describe(menu), view)); points.append(event.locationInWindow) }
-        controlClick(at: at(link, NSPoint(x: 10, y: 10)))
-        XCTAssertEqual([link.menus, link.presses], [1, 0], "the node's contextmenu ran, nothing pressed (ExactKit since #487)")
-        XCTAssertTrue(popped.isEmpty, "the shell waits for the handler")
-        XCTAssertTrue(shell.shellMenuForLastClick(href: "mailto:team@example.test"))
-        XCTAssertEqual(popped.map(\.titles), [["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"]],
-                       "the reference's menu for a Control-click on a mailto link, as for its right-click")
-        XCTAssertTrue(popped.first?.view === link)
-        XCTAssertEqual(points.first, link.convert(NSPoint(x: 10, y: 10), to: nil), "at the click")
-        XCTAssertFalse(shell.shellMenuForLastClick(href: "mailto:team@example.test"), "once")
-    }
-
     func testAPlainClickIsNoPageClick() {
         let link = LinkNode(frame: NSRect(x: 20, y: 20, width: 80, height: 22))
         page.addSubview(link)
         NSApp.sendEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: at(link, NSPoint(x: 10, y: 10)), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
         XCTAssertEqual([link.menus, link.presses], [0, 1])
-        XCTAssertFalse(shell.shellMenuForLastClick(href: "mailto:team@example.test"))
         XCTAssertTrue(popped.isEmpty)
     }
 
@@ -71,7 +53,6 @@ final class SecondaryClickTests: ShellMenuCase {
         controlClick(at: at(node, NSPoint(x: 50, y: 50)))
         XCTAssertEqual(popped.map(\.titles), [["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"]],
                        "the click went up the chain to the tail, as an unanswered right-click does")
-        XCTAssertFalse(shell.shellMenuForLastClick(), "the tail answered it")
     }
 
     func testAControlClickInATextInputGetsTheShellsTextMenu() {
@@ -85,33 +66,5 @@ final class SecondaryClickTests: ShellMenuCase {
         XCTAssertEqual(popped.map(\.titles), [["Cut", "Copy", "Paste (disabled)", "Select All"]], "the word is selected, as for a right-click")
         XCTAssertEqual((area.string as NSString).substring(with: area.selectedRange()), "theme")
         XCTAssertEqual(area.ownMenus, 0, "AppKit's own editing menu never shows")
-    }
-
-    // VoiceOver's show menu on a reply's mailto link. With no fresh click or ContextMenu key a `contextmenu` that asks
-    // for the shell's menu is an assistive technology's AXShowMenu (main #486); while one is on, the shell's menu opens for
-    // the link the request names, at the pointer as Electron pops it.
-    func testVoiceOversShowMenuOpensTheShellsMenuForTheLinkItNames() {
-        var points: [NSPoint] = []
-        shell.present = { [unowned self] menu, event, view in popped.append((T3ShellMenu.describe(menu), view)); points.append(event.locationInWindow) }
-        XCTAssertFalse(shell.shellMenuForLastClick(href: "mailto:team@example.test", windows: [window]), "no assistive technology: nothing raised it")
-        shell.assistive = { true }
-        XCTAssertTrue(shell.shellMenuForLastClick(href: "mailto:team@example.test", windows: [window]))
-        XCTAssertEqual(popped.map(\.titles), [["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"]])
-        XCTAssertTrue(popped.first?.view === page, "on the page")
-        XCTAssertEqual(points.first, window.mouseLocationOutsideOfEventStream, "at the pointer")
-        XCTAssertTrue(shell.shellMenuForLastClick(href: "https://example.com/c", windows: [window]), "each request its own menu")
-        XCTAssertEqual(popped.last?.titles.first, "Copy Link", "Copy Link from the link the request names")
-        page.selected = true
-        XCTAssertTrue(shell.shellMenuForLastClick(href: "#notes", windows: [window]))
-        XCTAssertEqual(popped.last?.titles, ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "Copy while page text is selected")
-    }
-
-    func testAFreshClickOrKeyStillWinsOverAnAssistiveRequest() {
-        shell.assistive = { true }
-        let link = LinkNode(frame: NSRect(x: 20, y: 20, width: 80, height: 22))
-        page.addSubview(link)
-        rightClick(at: at(link, NSPoint(x: 10, y: 10)))
-        XCTAssertTrue(shell.shellMenuForLastClick(href: "mailto:team@example.test", windows: [window]))
-        XCTAssertTrue(popped.first?.view === link, "the right-click's menu, at the click")
     }
 }

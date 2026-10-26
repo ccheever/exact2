@@ -5,6 +5,7 @@ import { LUCIDE_PATHS } from '../../src/settings/settings-b-lucide';
 import type { Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
+import { contractComponent } from '../support/contract-action-fixture';
 
 test('the icon grid is the popular set, else every Lucide name containing the query (60 at most)', () => {
   expect(filterIconNames('')).toEqual(POPULAR_ICONS);
@@ -88,6 +89,26 @@ test('the picker seeds from the current override and searches image files', asyn
   expect((await iconPicker(client, native, 'project-icon', '', '!!', '', '/w/actions', 'x')).monogramValid).toBe(false);
 });
 
+test('the image picker previews only the files whose rows have been on screen (ProjectFaviconThumbnail)', async () => {
+  const projects = [{ id: 'p1', title: 'icons', workspaceRoot: '/w/icons' }];
+  const paths = Array.from({ length: 40 }, (_, index) => `icons/icon-${index}.svg`);
+  const { client, rpcs } = fakeClient(projects, {
+    'projects.searchEntries': () => ({ entries: paths.map(path => ({ path, kind: 'file' })) }),
+    'assets.createUrl': payload => { const path = String((payload.resource as Obj).path); if (path.endsWith('-1.svg')) throw new Error('unreadable'); return { relativeUrl: `/api/assets/${path}?sig=1` }; },
+  });
+  const minted = () => rpcs.filter(([method]) => method === 'assets.createUrl').map(([, payload]) => payload.resource);
+  const first = await iconPicker(client, native, 'project-favicon', '', '', '', '/w/icons', 'icons');
+  expect(first.files.every(file => file.src === '')).toBe(true);
+  expect(minted()).toEqual([]);
+  const seen = await iconPicker(client, native, 'project-favicon', '', '', '', '/w/icons', 'icons', 0, 'icons/icon-0.svg\nicons/icon-1.svg');
+  expect(seen.files.slice(0, 3).map(file => file.src)).toEqual(['http://127.0.0.1:14809/api/assets/icons/icon-0.svg?sig=1', '', '']);
+  expect(minted()).toEqual([{ _tag: 'draft-workspace-file', cwd: '/w/icons', path: 'icons/icon-0.svg' }, { _tag: 'draft-workspace-file', cwd: '/w/icons', path: 'icons/icon-1.svg' }]);
+  // Scrolling to the end asks for the last file only; the others are remembered, a failure as no preview.
+  await iconPicker(client, native, 'project-favicon', '', '', '', '/w/icons', 'icons', 0, 'icons/icon-0.svg\nicons/icon-1.svg\nicons/icon-39.svg');
+  expect(minted().length).toBe(3);
+  expect(minted().at(-1)).toEqual({ _tag: 'draft-workspace-file', cwd: '/w/icons', path: 'icons/icon-39.svg' });
+});
+
 test('saving fans the icon out to every member and validates first', async () => {
   const projects = [{ id: 'p1', title: 'a', workspaceRoot: '/w/a' }, { id: 'p2', title: 'a', workspaceRoot: '/w/b' }];
   const { client, writes } = fakeClient(projects, {});
@@ -116,4 +137,21 @@ test('the settings row shows the override, else the server favicon, else the aut
   const lucide = [{ id: 'p3', title: 'r', workspaceRoot: '/w/r', projectIcon: { kind: 'lucide', name: 'rocket', color: 'rose' } }];
   fields = await iconFields(fakeClient(lucide, {}).client, native, 'r', lucide);
   expect([fields.iconKind, fields.iconD === LUCIDE_PATHS.rocket, fields.iconInk, fields.faviconSrc]).toEqual(['lucide', true, 'light-dark(#ec003f, #ff637e)', '']);
+});
+
+// ProjectFaviconThumbnail: the file-type icon until the preview loads, the image hidden until then, dropped on error.
+test('a preview replaces the file-type icon only once it has loaded, and a failed one leaves the icon', () => {
+  const thumb = contractComponent('settings-b-icons.contract', 'ProjectFaviconThumbnail');
+  const run = (src: string) => {
+    const state = thumb.state();
+    const act = (name: string, ...args: unknown[]) => thumb.call(name, state, { src, token: 'svg', testId: 't' }, args);
+    return { state, act };
+  };
+  const ok = run('http://127.0.0.1:1/a.svg');
+  expect([ok.state.loaded, ok.state.failed]).toEqual(['', '']);
+  ok.act('didLoad');
+  expect(ok.state.loaded).toBe('http://127.0.0.1:1/a.svg');
+  const bad = run('http://127.0.0.1:1/b.svg');
+  bad.act('didFail', 'decode');
+  expect([bad.state.loaded, bad.state.failed]).toEqual(['', 'http://127.0.0.1:1/b.svg']);
 });

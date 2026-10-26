@@ -25,6 +25,8 @@ public struct SessionFacts {
     public let epochAtZero: Double
     public let utcOffset: Double
     public let locale: String
+    /// The Region's format (`Locale.current`): `exactTime().formatLocale`.
+    public let formatLocale: String
     public let timeZone: String
     public let seed: UInt64
 
@@ -32,13 +34,14 @@ public struct SessionFacts {
                 rootFontSize: Double = Double(defaultRootFontSize),
                 date: Date = Date(), clock: Double = 0, timeZone: TimeZone = .current,
                 locale: String = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47),
+                formatLocale: String = Locale.current.identifier(.bcp47),
                 seed: UInt64 = UInt64(UInt32.random(in: .min ... .max)),
                 textResidencyBytes: Int = 2 * 1024 * 1024) {
         self.textResidencyBytes = max(0, textResidencyBytes)
         self.rootFontSize = rootFontSize; self.displayScale = displayScale; self.preferences = preferences
         epochAtZero = date.timeIntervalSince1970 * 1000 - clock
         utcOffset = Double(timeZone.secondsFromGMT(for: date)) / 60
-        self.locale = locale; self.timeZone = timeZone.identifier; self.seed = seed
+        self.locale = locale; self.formatLocale = formatLocale; self.timeZone = timeZone.identifier; self.seed = seed
     }
 
     package func prime(_ runtime: Runtime) throws {
@@ -49,7 +52,7 @@ public struct SessionFacts {
         try accept(runtime.setRootFontSize(rootFontSize))
         try accept(runtime.setDisplayScale(displayScale))
         runtime.setLaunchTime(epochAtZero: epochAtZero, utcOffset: utcOffset)
-        try accept(runtime.setLaunchPlace(locale: locale, timeZone: timeZone, seed: seed))
+        try accept(runtime.setLaunchPlace(locale: locale, timeZone: timeZone, seed: seed, formatLocale: formatLocale))
         try accept(runtime.setPreferences(preferences.rawValue))
     }
 }

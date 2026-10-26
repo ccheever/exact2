@@ -85,6 +85,7 @@ mod images;
 mod links;
 mod palette;
 pub mod preferences;
+pub(crate) mod remote;
 mod requests;
 mod retained_action;
 mod reveal;
@@ -113,6 +114,8 @@ mod events_tests;
 #[cfg(test)]
 mod kept_rows_tests;
 #[cfg(test)]
+mod longpoll_tests;
+#[cfg(test)]
 mod spacing_tests;
 #[cfg(test)]
 mod swipe_tests;
@@ -135,8 +138,9 @@ pub use window::{Chrome, Window};
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     /// Scrolled lists whose collection turn waits for the frame (see
-    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
-    deferred_collections: Option<Vec<ViewId>>,
+    /// [`Presenter::set_deferred_collections`]), with whether input moved the
+    /// acknowledged offset; `None` when turns run at once.
+    deferred_collections: Option<Vec<(ViewId, bool)>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
@@ -200,8 +204,7 @@ pub struct Presenter<D: DataSource> {
     /// Where the pointer last moved for hover (`hover_at`): a frame that
     /// moves content under it hovers again there (`follow_pointer`).
     hover_point: Option<(f32, f32)>,
-    /// The node holding the pointer's `pointerdown` until it lifts: the
-    /// innermost hearing a pointer event, which hears the moves.
+    /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
@@ -209,9 +212,9 @@ pub struct Presenter<D: DataSource> {
     /// During a pointer or wheel walk, a retired contact is cancelled when it
     /// ends so no other walk runs inside it ([`Presenter::retire_pointer`]).
     pointer_walking: bool,
-    /// The held pointer's buttons as DOM counts them: 1 primary, 2
-    /// secondary, 4 middle (review b5-b 1).
+    /// The held pointer's buttons as DOM counts them: 1 primary, 2 secondary, 4 middle (review b5-b 1).
     pointer_buttons: u8,
+    pub(crate) pads: crate::surfaces::controls::PadRoute,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -484,6 +487,7 @@ impl<D: DataSource> Presenter<D> {
             pointer_walking: false,
             pointer_buttons: 0,
             control_contact: None,
+            pads: Default::default(),
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             boxes_serial: 0,
@@ -574,14 +578,23 @@ impl<D: DataSource> Presenter<D> {
             self.host.runner().delivery(),
             let_go,
         )?;
-        let (mut host, error) = Host::boot_with(
-            plan,
-            data,
-            Box::new(Measurer(candidate_text.clone())),
-            self.viewport.0,
-            self.viewport.1,
-            Some(&carried),
-            Some(self.host.runner().delivery().clone()),
+        let (mut host, error) = exact_runner::time::launching_with(
+            exact_runner::time::Launch {
+                time: Some(self.host.runner().wall_time()),
+                place: Some(self.host.runner().place().clone()),
+                ..exact_runner::time::Launch::NONE
+            },
+            || {
+                Host::boot_with(
+                    plan,
+                    data,
+                    Box::new(Measurer(candidate_text.clone())),
+                    self.viewport.0,
+                    self.viewport.1,
+                    Some(&carried),
+                    Some(self.host.runner().delivery().clone()),
+                )
+            },
         )?;
         if let Some(error) = error {
             return Err(HostError::Layout(error));
@@ -767,9 +780,14 @@ impl<D: DataSource> Presenter<D> {
         self.sync_field_values();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
-            // A deadline the surface and auth paths can't keep: the executor
+            // A deadline the surface and auth paths can't keep, or a long poll
+            // on work that is no HTTP request (LLP 1016.000 D8): the executor
             // refuses it at admission, fencing later ordered work.
-            if r.request.timeout_refusal().is_some() {
+            if r.request
+                .timeout_refusal()
+                .or(r.request.long_poll_refusal())
+                .is_some()
+            {
                 self.run_dispatch(r, exact_runner::Dispatch::Missing);
                 continue;
             }
@@ -797,6 +815,19 @@ impl<D: DataSource> Presenter<D> {
         for (token, dispatch) in self.host.release_work() {
             if let Some(r) = self.parked.remove(&token) {
                 self.run_dispatch(r, dispatch);
+            }
+        }
+        // The platform's checks for presence calls: the shell's (LLP 1133.010 D8).
+        for ask in self.host.runner_mut().take_presence_asks() {
+            match self.has_shell() {
+                true => _ = self.request(requests::Request::Presence(ask.json())),
+                false => self.host.runner_mut().presence_answer(
+                    ask.id,
+                    exact_runner::presence::PresenceAnswer::Failed(
+                        "NotSupportedError".into(),
+                        "this host has no shell to check the person".into(),
+                    ),
+                ),
             }
         }
         // Socket frames of the commits that stood (LLP 1016.000 D7).

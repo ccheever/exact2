@@ -16,12 +16,14 @@ impl<D: DataSource> Presenter<D> {
     /// Loads that arrived since the last call: their sizes reach the kernel.
     /// Whether anything changed.
     pub fn poll_images(&mut self) -> bool {
+        self.images.paint_with(self.brush.text.clone());
         let reports = self.images.poll();
         self.apply_reports(reports)
     }
 
     /// Wait for every load in flight (bounded).
     pub fn wait_images(&mut self, timeout: Duration) -> bool {
+        self.images.paint_with(self.brush.text.clone());
         let reports = self.images.wait(timeout);
         self.apply_reports(reports)
     }
@@ -110,6 +112,7 @@ impl<D: DataSource> Presenter<D> {
             })
             .collect();
         let viewport = self.viewport;
+        self.images.paint_with(self.brush.text.clone());
         let reports = self
             .images
             .sync_visible(host.kernel(), &live, self.brush.scale, |id| {
@@ -149,6 +152,8 @@ impl<D: DataSource> Presenter<D> {
             .into_inner()
             .map(|index| (self.boxes_serial, order_epoch, index));
         self.images.order = Some((order_epoch, live));
+        let mut reports = reports;
+        reports.extend(self.pictures_out());
         self.dirty |= !reports.is_empty();
         self.images.settled = self.images.settled_at(epoch, reports.is_empty());
         if reports.is_empty() {

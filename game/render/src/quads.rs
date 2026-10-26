@@ -16,20 +16,23 @@ pub(crate) enum Kind {
     /// Additive, the `looks` index of a textured look (`NO_LOOK` for dots), and
     /// soft (fading into the opaque scene), and viewmodel depth membership.
     Particle(bool, u32, bool, bool),
+    /// Blended mesh triangles sharing the dot pipeline; viewmodel depth membership.
+    Primitive(bool),
     Sprite(usize),
     #[cfg(not(target_arch = "wasm32"))]
     Child(u16),
 }
 impl Kind {
     // Cross-kind identity is part of the total translucent order. Placed children
-    // join after model, sprite, particle; each owner keeps its own stable ordinal.
+    // join after model, sprite, particle and primitive; each owner keeps its own stable ordinal.
     fn rank(self) -> u8 {
         match self {
             Self::Model(..) => 0,
             Self::Sprite(_) => 1,
             Self::Particle(..) => 2,
+            Self::Primitive(_) => 3,
             #[cfg(not(target_arch = "wasm32"))]
-            Self::Child(_) => 3,
+            Self::Child(_) => 4,
         }
     }
 }
@@ -594,7 +597,9 @@ impl Quads {
         let target = (self.samples, Some(self.format));
         for i in 0..self.draws.len() {
             match self.draws[i].kind {
-                Kind::Particle(_, NO_LOOK, _, _) if self.direct.particles.is_none() => {
+                Kind::Particle(_, NO_LOOK, _, _) | Kind::Primitive(_)
+                    if self.direct.particles.is_none() =>
+                {
                     let shader = self.particle_shader(d);
                     self.direct.particles = Some(std::array::from_fn(|i| {
                         pipeline(
@@ -937,7 +942,7 @@ impl Quads {
         self.order.sort_unstable_by(Order::compare);
         for o in &self.order {
             let at = match o.kind {
-                Kind::Particle(..) => {
+                Kind::Particle(..) | Kind::Primitive(_) => {
                     let arena = self
                         .particle_arena
                         .as_mut()
@@ -988,7 +993,12 @@ impl Quads {
                 .expect("quad pipelines prepare before drawing")
         }
         pass.set_bind_group(0, &self.bind, &[]);
-        let local = match draw.kind {
+        // Primitives share the shader and arena, but never a particle counter or batch.
+        let pipeline_kind = match draw.kind {
+            Kind::Primitive(_) => Kind::Particle(false, NO_LOOK, false, false),
+            kind => kind,
+        };
+        let local = match pipeline_kind {
             Kind::Particle(additive, look, soft, _) => {
                 let soft = match (&self.soft_bind, &self.soft_pipelines) {
                     (Some((_, bind)), Some(pipelines)) if soft && self.soft_active => {
@@ -1053,7 +1063,7 @@ impl Quads {
                 pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
                 4
             }
-            Kind::Model(..) | Kind::Sprite(_) => unreachable!(),
+            Kind::Model(..) | Kind::Sprite(_) | Kind::Primitive(_) => unreachable!(),
         };
         QuadPipeline {
             variant: 8 * usize::from(direct) + local,
@@ -1091,6 +1101,7 @@ fn push_draw(
                             && j != NO_LOOK
                             && looks[i as usize].value.texture == looks[j as usize].value.texture))
             }
+            (Kind::Primitive(a), Kind::Primitive(b)) => a == b,
             (Kind::Sprite(a), Kind::Sprite(b)) => {
                 let (a, b) = (&sprites[a].value, &sprites[b].value);
                 a.texture == b.texture && a.alpha == b.alpha
@@ -1324,173 +1335,5 @@ fn pipeline_entry(
 }
 
 #[cfg(test)]
-mod retained_tests {
-    use super::*;
-    #[test]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn r14_native_children_reserve_order_before_frame() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        let q = &mut renderer.quads;
-        let plane = crate::placed::Plane {
-            placement: exact_gpu::Placement {
-                hidden: false,
-                homography: [0.; 9],
-                depth: 0.,
-                clip_depth: [[0.; 3]; 2],
-            },
-            center: Vec3::ZERO,
-            x: Vec3::X,
-            y: Vec3::Y,
-        };
-        q.children = (0..5000).map(|i| (i, plane)).collect();
-        q.prepare(&gpu.device, &gpu.queue);
-        let capacity = q.order.capacity();
-        q.frame::<false>(&FrameInput::default(), &BTreeMap::new(), true);
-        assert_eq!(q.order.len(), 5000);
-        assert_eq!(q.order.capacity(), capacity);
-    }
-    #[test]
-    fn emitter_reach_contains_every_derived_particle_quad() {
-        let mut w = World::new(60, 3);
-        let shapes = [
-            exact_game::emitter::Shape::Point,
-            exact_game::emitter::Shape::Sphere(1.5),
-            exact_game::emitter::Shape::Cone(0.7, 2.),
-        ];
-        let mut ids = Vec::new();
-        for (i, shape) in shapes.into_iter().enumerate() {
-            for drag in [0., 0.8] {
-                ids.push(w.spawn(Emitter {
-                    shape,
-                    drag,
-                    speed: 4. + i as f32,
-                    spread: 2.5,
-                    gravity: Vec3::new(1., -9.81, 0.5),
-                    size: [0.3, 0.9],
-                    ..Emitter::sparks().rate(200.).lifetime(1.5).seed(i as u64)
-                }));
-            }
-        }
-        for _ in 0..120 {
-            exact_game::emitter::step(&w);
-        }
-        let t = glam::Mat4::from_scale_rotation_translation(
-            Vec3::new(2., 0.5, 1.),
-            glam::Quat::from_rotation_z(0.7),
-            Vec3::new(3., 1., -2.),
-        );
-        let (right, up) = (Vec3::X, Vec3::Y);
-        for id in ids {
-            let e = w.get::<Emitter>(id).unwrap();
-            let reach = emitter_reach(&e, &t);
-            let mut seen = 0;
-            for alpha in [0., 0.5, 1.] {
-                e.particles(60, alpha, |p| {
-                    seen += 1;
-                    let centre = t.transform_point3(p.position);
-                    let x = right * p.size * t.x_axis.truncate().length();
-                    let y = up * p.size * t.y_axis.truncate().length();
-                    for corner in [x + y, x - y, -x + y, -x - y] {
-                        let d = (centre + corner * 0.5).distance(t.w_axis.truncate());
-                        assert!(d <= reach * 1.0001, "{d} beyond reach {reach}");
-                    }
-                });
-            }
-            assert!(seen > 100);
-        }
-    }
-    #[test]
-    fn every_kind_and_owner_ordinal_has_the_same_total_order() {
-        let mut kinds = vec![
-            Kind::Particle(false, NO_LOOK, false, false),
-            Kind::Model(0, 0),
-            Kind::Sprite(0),
-        ];
-        #[cfg(not(target_arch = "wasm32"))]
-        kinds.push(Kind::Child(0));
-        let mut rows = Vec::new();
-        for kind in kinds {
-            for index in [2, 0, 1] {
-                rows.push(Order {
-                    kind,
-                    depth: 3.,
-                    viewmodel: false,
-                    layer: 1,
-                    slot: 7,
-                    index,
-                });
-            }
-        }
-        rows.reverse();
-        rows.sort_unstable_by(Order::compare);
-        let actual: Vec<_> = rows.iter().map(|o| (o.kind.rank(), o.index)).collect();
-        let mut expected = vec![
-            (0, 0),
-            (0, 1),
-            (0, 2),
-            (1, 0),
-            (1, 1),
-            (1, 2),
-            (2, 0),
-            (2, 1),
-            (2, 2),
-        ];
-        #[cfg(not(target_arch = "wasm32"))]
-        expected.extend([(3, 0), (3, 1), (3, 2)]);
-        assert_eq!(actual, expected);
-        // Rank is independently pinned; a mistaken enum rank must fail too.
-        assert_eq!(Kind::Model(0, 0).rank(), 0);
-        assert_eq!(Kind::Sprite(0).rank(), 1);
-        assert_eq!(Kind::Particle(false, NO_LOOK, false, false).rank(), 2);
-        #[cfg(not(target_arch = "wasm32"))]
-        assert_eq!(Kind::Child(0).rank(), 3);
-    }
-    #[test]
-    fn revisions_reuse_owned_values_and_membership_compacts_in_order() {
-        let mut w = World::new(60, 0);
-        let first = w.spawn((Transform::default(), Emitter::default()));
-        let entity = w.spawn((
-            Transform::default(),
-            Emitter {
-                state: exact_game::emitter::EmitterState {
-                    births: vec![Default::default()],
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            Sprite::new("shared.tex", [1., 1.]),
-        ));
-        w.propagate();
-        let mut emitters = Vec::new();
-        let mut sprites = Vec::new();
-        feed::<Emitter>(&w, &mut emitters, true, false, false);
-        feed::<Sprite>(&w, &mut sprites, true, false, false);
-        let births = emitters[1].value.state.births.as_ptr();
-        let texture = sprites[0].value.texture.as_ptr();
-        w.get_mut::<Emitter>(entity).unwrap().rate = 90.;
-        w.get_mut::<Sprite>(entity).unwrap().frame = [16, 0, 16, 16];
-        feed::<Emitter>(&w, &mut emitters, false, false, false);
-        feed::<Sprite>(&w, &mut sprites, false, false, false);
-        assert_eq!(emitters[1].value.state.births.as_ptr(), births);
-        assert_eq!(sprites[0].value.texture.as_ptr(), texture);
-        assert_eq!(emitters[1].value.rate, 90.);
-        assert_eq!(sprites[0].value.frame, [16, 0, 16, 16]);
-        // Sentinel proves the unchanged-revision branch skipped the copy.
-        emitters[1].value.rate = 91.;
-        sprites[0].value.frame = [32, 0, 16, 16];
-        feed::<Emitter>(&w, &mut emitters, false, false, false);
-        feed::<Sprite>(&w, &mut sprites, false, false, false);
-        assert_eq!(emitters[1].value.state.births.as_ptr(), births);
-        assert_eq!(emitters[1].value.rate, 91.);
-        assert_eq!(sprites[0].value.frame, [32, 0, 16, 16]);
-        w.despawn(first);
-        feed::<Emitter>(&w, &mut emitters, false, false, false);
-        assert_eq!(emitters.len(), 1);
-        assert_eq!(emitters[0].entity, entity);
-        assert_eq!(emitters[0].value.state.births.as_ptr(), births);
-    }
-}
+#[path = "quads/tests.rs"]
+mod retained_tests;

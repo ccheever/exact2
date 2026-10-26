@@ -112,21 +112,127 @@ fn resource_context_defaults_to_zero_and_decoding_refuses_an_oversized_tail() {
     ));
 }
 
-/// A plan linked into the program decodes to the same plan, its data pool
-/// left in the program's bytes rather than copied.
+/// A plan linked into the program decodes to the same plan, its pools and
+/// its lent tables left in the program's bytes until a row is edited.
 #[test]
-fn a_static_plan_keeps_its_data_pool_in_place() {
-    let plan = sample();
-    assert!(!plan.data.is_empty(), "the sample has constants");
+fn a_static_plan_lends_pools_and_rows_until_mutated() {
+    let mut plan = sample();
+    let mut binding = plan.binding(exact_plan::BindingsId(0));
+    binding.id = 0x1234;
+    binding.kind = BindingKind::Style;
+    binding.written = false;
+    plan.bindings.to_mut().push(binding);
+    plan.nodes.to_mut()[1].bindings.len = 2;
+    plan.nodes.to_mut()[1].order = 0x1234_5678;
+    plan.nodes.to_mut()[1].node_type = 0xab;
+    plan.validate().unwrap();
     let bytes: &'static [u8] = plan.encode().leak();
     let decoded = Plan::decode_static(bytes).unwrap();
+    let owned = Plan::decode(bytes).unwrap();
     assert_eq!(decoded, plan);
-    let range = bytes.as_ptr_range();
+    assert_eq!(decoded, owned);
+    assert_eq!(decoded.encode(), bytes);
+    assert_eq!(decoded.structure(), owned.structure());
+    assert!(decoded.bindings.is_lent());
+    assert!(decoded.nodes.is_lent());
+    assert!(!owned.bindings.is_lent());
+    assert!(!owned.nodes.is_lent());
+    assert!(!plan.bindings.is_lent());
+    assert!(!plan.nodes.is_lent());
+    assert!(!decoded.data.is_empty());
     assert!(matches!(decoded.data, std::borrow::Cow::Borrowed(_)));
-    assert!(range.contains(&decoded.data.as_ptr()));
+    assert!(bytes.as_ptr_range().contains(&decoded.data.as_ptr()));
+    assert!(matches!(owned.data, std::borrow::Cow::Owned(_)));
+    assert!(matches!(decoded.code, std::borrow::Cow::Borrowed(_)));
+    assert!(bytes.as_ptr_range().contains(&decoded.code.as_ptr()));
+    assert!(!decoded.bindings.is_empty());
+    assert!(!decoded.nodes.is_empty());
+    assert_eq!(decoded.bindings.iter().len(), owned.bindings.len());
+    assert_eq!(decoded.nodes.iter().len(), owned.nodes.len());
+    for (i, row) in owned.bindings.iter().enumerate() {
+        assert_eq!(decoded.binding(exact_plan::BindingsId(i as u32)), row);
+    }
+    for (i, row) in owned.nodes.iter().enumerate() {
+        assert_eq!(decoded.node(exact_plan::NodesId(i as u32)), row);
+    }
+    for i in [decoded.bindings.len(), usize::MAX] {
+        assert_eq!(decoded.bindings.get(i), None);
+    }
+    for i in [decoded.nodes.len(), usize::MAX] {
+        assert_eq!(decoded.nodes.get(i), None);
+    }
+    let mut edited = decoded.clone();
+    assert!(edited.bindings.is_lent());
+    assert!(edited.nodes.is_lent());
+    edited.bindings.to_mut()[0].written = false;
+    assert!(!edited.bindings.is_lent());
+    assert!(edited.nodes.is_lent());
+    edited.nodes.to_mut()[0].order = 7;
+    assert!(!edited.nodes.is_lent());
+    assert!(decoded.binding(exact_plan::BindingsId(0)).written);
+    assert_eq!(decoded.node(exact_plan::NodesId(0)).order, 0);
+    assert_ne!(edited, decoded);
+    edited.validate().unwrap();
+    assert_eq!(Plan::decode(&edited.encode()).unwrap(), edited);
+    let pointer = edited.bindings.to_mut().as_ptr();
+    assert_eq!(edited.bindings.to_mut().as_ptr(), pointer);
+    let mut builder = PlanBuilder::from_plan(decoded.clone());
+    builder.node(
+        0,
+        None,
+        None,
+        9,
+        &[decoded.binding(exact_plan::BindingsId(0))],
+        &[],
+        None,
+    );
+    let built = builder.finish().unwrap();
+    assert!(!built.bindings.is_lent());
+    assert!(!built.nodes.is_lent());
+    assert_eq!(built.nodes.len(), decoded.nodes.len() + 1);
+    assert_eq!(built.bindings.len(), decoded.bindings.len() + 1);
+
+    let empty = PlanBuilder::new(0, 0).finish().unwrap().encode().leak();
+    let empty = Plan::decode_static(empty).unwrap();
+    assert!(empty.bindings.is_lent() && empty.bindings.is_empty());
+    assert!(empty.nodes.is_lent() && empty.nodes.is_empty());
+    assert_eq!(empty.bindings.get(0), None);
+    assert_eq!(empty.nodes.iter().next(), None);
+}
+
+#[test]
+fn static_decode_refuses_truncation_corrupt_rows_and_bad_references() {
+    let plan = sample();
+    let bytes: &'static [u8] = plan.encode().leak();
+    for end in 0..bytes.len() {
+        let owned = Plan::decode(&bytes[..end]).unwrap_err();
+        assert_eq!(
+            Plan::decode_static(&bytes[..end]).unwrap_err(),
+            owned,
+            "end {end}"
+        );
+    }
+    let mut other = plan.clone();
+    other.bindings.to_mut()[0].kind = BindingKind::Style;
+    other.bindings.to_mut()[0].written = false;
+    other.nodes.to_mut()[0].parent = Some(exact_plan::NodesId(1));
+    other.nodes.to_mut()[0].bindings.len = 1;
+    let other = other.encode();
+    for at in (0..bytes.len()).filter(|&i| bytes[i] != other[i]) {
+        let mut bad = bytes.to_vec();
+        bad[at] = 0xfe;
+        let owned = Plan::decode(&bad).unwrap_err();
+        assert_eq!(
+            Plan::decode_static(bad.leak()).unwrap_err(),
+            owned,
+            "byte {at}"
+        );
+    }
+    let mut cycle = plan;
+    cycle.nodes.to_mut()[0].parent = Some(exact_plan::NodesId(1));
     assert!(matches!(
-        Plan::decode(bytes).unwrap().data,
-        std::borrow::Cow::Owned(_)
+        Plan::decode_static(cycle.encode().leak()),
+        Err(PlanError::SiteTooDeep { .. })
     ));
 }
 
@@ -248,7 +354,7 @@ fn font_sources_are_portable_local_relative_paths() {
 fn a_bool_is_zero_or_one_and_nothing_else() {
     let written = sample();
     let mut implied = sample();
-    implied.bindings[0].written = false;
+    implied.bindings.to_mut()[0].written = false;
     let (a, b) = (written.encode(), implied.encode());
     let differing: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
     assert_eq!(differing.len(), 1, "the bit is one byte of the plan");
@@ -771,7 +877,7 @@ fn sites_nest_at_most_max_site_depth_and_types_never_contain_themselves() {
         Err(PlanError::SiteTooDeep { table: "nodes", .. })
     ));
     let mut cycle = deep(2).unwrap();
-    cycle.nodes[0].parent = Some(exact_plan::NodesId(1));
+    cycle.nodes.to_mut()[0].parent = Some(exact_plan::NodesId(1));
     assert!(matches!(
         cycle.validate(),
         Err(PlanError::SiteTooDeep { .. })
@@ -880,14 +986,17 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// `dragenter` and `dragleave` join the event kinds (LLP 1069.010, "Files
-/// dropped or pasted"). Every host needs a new binary for this plan format.
-/// The format digest is pinned: a change to `tables/format.json`, a comment
-/// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
+/// The `module_events` table joins the plan (LLP 1133.004 D6): a native
+/// module's event the root hears, a wake event's budget (LLP 1133.017 D5),
+/// and `currententrychange`, `navigatesuccess` and `navigateerror` the event
+/// kinds (LLP 1020.002 D2); `atompress` joins them (LLP 1045.000 D7), then
+/// `newwindow` and `download` (LLP 1020.002 D5), then `capture` (D7), then `userpromptopened` (D9). Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
+/// comment included, moves it, and every host then needs a new binary (LLP
+/// 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x6acd_8fd6_e21c_e140,
+        FORMAT_DIGEST, 0xec29_09c9_fc43_45ca,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

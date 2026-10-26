@@ -122,7 +122,7 @@ describe('general rows', () => {
     const sections = generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()));
     expect(sections.map(section => section.title)).toEqual(['New threads', 'Organization', 'Behavior', 'Projects & threads', 'Confirmations', 'Text generation', 'About', 'Diagnostics', 'Legacy features']);
     expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Model', 'Permissions', 'Workspace', 'Submodules', 'Project grouping', 'Project order', 'Auto-resume limited threads',
-      'Snooze limited threads', 'Working section (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
+      'Snooze limited threads', 'Working section (beta)', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
       'In-app notifications', 'Time format', 'Response streaming', 'Hide whitespace changes', 'Default diff file state', 'Diff layout', 'Proactive panels', 'Show skills in slash menu',
       'Rich text composer', 'Collapse composer on scroll', 'Send shortcut', 'Follow-up behavior', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
       'Start from remote', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
@@ -161,6 +161,28 @@ describe('general rows', () => {
   });
 });
 
+describe('default model', () => {
+  // resolveEffectiveDefaultModelSelection: the row shows what a new draft would run, as the composer resolves it.
+  const effort = (ids: string[]) => ({ optionDescriptors: [{ id: 'effort', label: 'Effort', type: 'select', options: ids.map((id, index) => ({ id, label: id, isDefault: index === 0 })) }] });
+  const claude = { instanceId: 'claude_work', driver: 'claudeAgent', displayName: 'Claude', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
+    models: [{ slug: 'claude-opus-5-5', name: 'Opus 5.5', isDefault: true, capabilities: effort(['medium', 'high']) }, { slug: 'claude-opus-5', name: 'Opus 5', capabilities: effort(['high', 'max']) }] };
+  const modelRow = (hidden: string[]) => {
+    const client = fake({ defaultModelSelection: { instanceId: 'claude_work', model: 'claude-opus-5', options: [{ id: 'effort', value: 'max' }] },
+      providerModelPreferences: { claude_work: { hiddenModels: hidden, modelOrder: [] } } });
+    client.config.providers = [claude];
+    const context = serverContext(as(client), resolveScope(as(client), '', '', ''), new Map());
+    return generalSections(as(client), context).flatMap(section => section.rows).find(entry => entry.id === 'default-model')!;
+  };
+  test('a hidden saved model shows the model it falls back to, with that model\'s default traits', () => {
+    const row = modelRow(['claude-opus-5']);
+    expect([row.value, row.label, row.label2]).toEqual(['claude_work|claude-opus-5-5', 'Opus 5.5', 'medium']);
+  });
+  test('a visible saved model keeps its saved traits', () => {
+    const row = modelRow([]);
+    expect([row.value, row.label, row.label2]).toEqual(['claude_work|claude-opus-5', 'Opus 5', 'max']);
+  });
+});
+
 describe('traits picker', () => {
   test('sections, Default badges and the speed label; a pick keeps the other traits (TraitsPicker)', () => {
     const tier = { id: 'serviceTier', label: 'Service Tier', type: 'select', options: [{ id: 'default', label: 'Standard', isDefault: true }, { id: 'priority', label: 'Fast', description: '2x speed, increased usage' }] };
@@ -186,6 +208,8 @@ describe('writes through the command', () => {
     const client = fake();
     await applyCoreSetting(as(client), native, 'snooze-limited-threads:|||', 'true');
     expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: true } });
+    await applyCoreSetting(as(client), native, 'compact-idle-threads:|||', 'true');
+    expect(client.writes.at(-1)).toEqual({ patch: { compactIdleThreads: true } });
     await applyCoreSetting(as(client), native, 'default-permissions:||repo|p2', 'approval-required');
     expect(client.writes.at(-1)).toEqual({ patch: { projectSettingsOverrides: { p2: { defaultRuntimeMode: 'approval-required' } } } });
     await applyCoreSetting(as(client), native, 'default-permissions:reset||repo|p2', '');
@@ -381,7 +405,7 @@ describe('navigation and search', () => {
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / General', 'Text generation model / General', 'Source control writer model / Source Control', 'Review guide model / Source Control',
       'Project defaults and overrides / General', 'Providers / Providers', 'Health check interval / Providers']);
-    expect(titles('token')).toEqual(['GitHub accounts and token / Source Control', 'Response streaming / General', 'Context window indicator (legacy) / General', 'Cursor account usage / Providers',
+    expect(titles('token')).toEqual(['GitHub accounts and token / Source Control', 'Compact idle Claude threads (beta) / General', 'Response streaming / General', 'Context window indicator (legacy) / General', 'Cursor account usage / Providers',
       'GitCafe credentials / Source Control', 'Bitbucket credentials / Source Control']);
     expect(titles('mcp')).toEqual([]);
     expect(titles('sidebar')).toEqual(['Sidebar (legacy) / General', 'Project grouping / General', 'Project order / General', 'Working section (beta) / General', 'Auto-settle inactive threads / General',
@@ -408,7 +432,7 @@ describe('appearance', () => {
     expect(cards.map(card => card.label)).toEqual(['T3 Code', 'T3 Chat', 'Grove', 'Ocean', 'Ember', 'Iris']);
     expect(cards.find(card => card.id === 'iris')!.orbs.every(orb => orb.picked)).toBe(true);
     const rows = appearanceSections(decodeClientPrefs({ glassOpacity: 60 }), true).flatMap(section => section.rows);
-    expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
+    expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Render math', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
     expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
     expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
     // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.

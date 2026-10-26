@@ -1,8 +1,9 @@
-// Provider readiness for first-run setup, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// Provider readiness for first-run setup, T3 Code 74541bab17 (MIT, see LICENSE-T3):
 // apps/web/src/onboarding/providerReadiness.logic.ts (getOnboardingProviderState) and
 // components/settings/providerStatus.ts (getProviderSummary). Moved out of pages-welcome.ts so
 // the managed Codex setup (codex-setup.ts) reads them without importing the welcome.
 import { obj, str, type Obj } from '../client/domain';
+import { antigravitySignInUnchecked } from './providers-meta';
 
 export function providerState(provider: Obj | undefined): string {
   if (!provider) return 'checking';
@@ -20,6 +21,7 @@ export function providerSummary(provider: Obj | undefined): { headline: string; 
   if (provider.enabled === false || provider.status === 'disabled') return { headline: 'Disabled', detail: message || 'This provider is installed but disabled for new sessions in T3 Code.' };
   if (provider.installed !== true) return { headline: 'Not found', detail: message || 'CLI not detected on PATH.' };
   if (auth.status === 'unauthenticated') return { headline: label ? `Not authenticated · ${label}` : 'Not authenticated', detail: message };
+  if (antigravitySignInUnchecked(provider)) return { headline: 'Installed · Sign-in not checked', detail: message };
   if (provider.status === 'warning') return { headline: 'Needs attention', detail: message || 'The provider is installed, but the server could not fully verify it.' };
   if (provider.status === 'error') return { headline: 'Unavailable', detail: message || 'The provider failed its startup checks.' };
   if (auth.status === 'authenticated') return { headline: label ? `Authenticated · ${label}` : 'Authenticated', detail: message };

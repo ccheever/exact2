@@ -5,10 +5,12 @@
 // 9c161462c9). The probe lists the remote-capable editors whose command resolves on the
 // login shell's PATH, inside an app bundle in ~/Applications or /Applications (a JetBrains
 // Toolbox bundle carries its version, `IntelliJ IDEA 2026.1.4.app`), or among Toolbox's
-// scripts; only an http(s) URL or a remote editor deep link with no URL user info reaches
-// NSWorkspace. Agent runs never open anything: the URL is recorded (T3_REMOTE_OPEN_LOG names a
-// file to append it to), and T3_EDITOR_PATH / T3_EDITOR_APP_ROOTS / T3_EDITOR_HOME replace the
-// PATH, the app folders and the home whose Toolbox scripts are read (none without it).
+// scripts. The client's opens are Contract's `openURL` (external-open.ts, app.json `open_url`);
+// `openOrRecord` opens for the module's own callers, only an http(s) URL or a remote editor deep
+// link with no URL user info. Agent runs never open anything: the URL is recorded
+// (T3_REMOTE_OPEN_LOG names a file to append it to), and T3_EDITOR_PATH / T3_EDITOR_APP_ROOTS /
+// T3_EDITOR_HOME replace the PATH, the app folders and the home whose Toolbox scripts are read
+// (none without it).
 import Foundation
 import AppKit
 
@@ -36,16 +38,14 @@ enum T3RemoteEditors {
     static let remoteSchemes: [String: String] = Dictionary(uniqueKeysWithValues: remoteCapable.map { ($0.id, $0.jetbrains ? "jetbrains" : $0.id) })
 
     private static let lock = NSLock()
-    private static var recorded: [String] = []
     private static var agentHintSeen = false
     private static var cachedLoginPath: String?
 
     /// ElectronShell.openExternal for module code off the main thread (T3CodexAuth.swift): an agent
-    /// run records the URL as `remoteEditorsOpen` does; otherwise NSWorkspace opens it.
+    /// run appends the URL to T3_REMOTE_OPEN_LOG; otherwise NSWorkspace opens it.
     static func openOrRecord(_ value: String, agent: Bool) -> Bool {
         guard let url = safeExternalUrl(value) else { return false }
         if agent {
-            lock.lock(); recorded.append(url); lock.unlock()
             if let log = ProcessInfo.processInfo.environment["T3_REMOTE_OPEN_LOG"], !log.isEmpty { append(url + "\n", to: log) }
             return true
         }
@@ -62,18 +62,6 @@ enum T3RemoteEditors {
                 let roots = (agent ? environment["T3_EDITOR_APP_ROOTS"] : nil)?.split(separator: ":").map(String.init) ?? defaultAppRoots(home: NSHomeDirectory())
                 let home = agent ? environment["T3_EDITOR_HOME"] : NSHomeDirectory()
                 completion(T3Ssh.success(["editors": probe(path: path, appRoots: roots, home: home)]))
-            case "remoteEditorsOpen":
-                guard let url = safeExternalUrl(request["url"]) else { completion(T3Ssh.success(["opened": false])); return }
-                if agent {
-                    lock.lock(); recorded.append(url); lock.unlock()
-                    if let log = environment["T3_REMOTE_OPEN_LOG"], !log.isEmpty { append(url + "\n", to: log) }
-                    completion(T3Ssh.success(["opened": true, "recorded": true]))
-                    return
-                }
-                DispatchQueue.main.async {
-                    let opened = URL(string: url).map { NSWorkspace.shared.open($0) } ?? false
-                    completion(T3Ssh.success(["opened": opened]))
-                }
             case "remoteEditorsHint":
                 let key = "t3.remoteOpen.hintSeen"
                 if request["seen"] as? Bool == true {
@@ -81,9 +69,6 @@ enum T3RemoteEditors {
                 }
                 lock.lock(); let seen = agent ? agentHintSeen : UserDefaults.standard.bool(forKey: key); lock.unlock()
                 completion(T3Ssh.success(["seen": seen]))
-            case "remoteEditorsOpened":
-                lock.lock(); let urls = recorded; lock.unlock()
-                completion(T3Ssh.success(["urls": urls]))
             default:
                 completion(T3Ssh.failure(T3Failure(kind: "Arguments", message: "Unknown remote editor operation.")))
             }

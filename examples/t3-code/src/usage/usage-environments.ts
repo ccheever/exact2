@@ -25,6 +25,7 @@ import { onUsageFleetChange, settleFleetWaiters, startFleetDetached } from './us
 import { needsCursorKeychainAccess, refreshUsage, refreshUsageLimits, sessionUnavailable, type UsageRefreshPort } from './usage-refresh';
 import { REDEEM_IDLE, redeemStep, type RedeemEvent, type RedeemState } from './reset-credits';
 import type { LimitAccount } from './usage-limits-pools';
+import { openExternal } from '../client/external-open';
 
 export type UsageWindowInput = { sinceDay: string; untilDay: string; timeZone: string; resolution: 'day' | 'hour'; sinceTime?: string; untilTime?: string };
 const PHASE_TEXT: Record<string, string> = { available: 'Disconnected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', error: 'Unavailable', unsupported: 'Update required',
@@ -344,7 +345,7 @@ export async function usagePoolLocal(client: T3Client, native: Native | null | u
   }
   if (op === 'open') {
     // ExternalUsage "Manage usage": shell.openExternal of a link the view showed (a failure is ignored, as `void` there).
-    if (native?.available && state.links.includes(id)) await bridgeReply(native, { op: 'remoteEditorsOpen', url: id }).catch(() => undefined);
+    if (state.links.includes(id)) openExternal(id);
     return '';
   }
   if (op === 'cursor') {

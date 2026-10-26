@@ -11,7 +11,9 @@
 //   bun scripts/agent-android.mjs build <app>              build the app's Linux crate for Android
 //   bun scripts/agent.mjs android --app <app> …            drive it on the first adb device or emulator
 //   bun scripts/agent-android.mjs build <app> --apk        the app on the Canvas reader, as an APK (host/android/README.md;
-//                                                          --release: the release profile, for measuring)
+//                                                          --release: the release profile, for measuring;
+//                                                          --write-locks: write the lock and checksums of the
+//                                                          Maven libraries the app's modules name)
 //   bun scripts/agent.mjs android --reader --app <app> …   drive that APK (EXACT_ANDROID_BIN names another)
 //
 // An app with a TypeScript data module also needs the Android Hermes bundle:
@@ -29,7 +31,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, buildBake, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
+import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations } from '../js/bake/src/typescript.mjs';
@@ -64,7 +66,7 @@ export function androidToolchainEnv(env = process.env) {
   // A TypeScript data module's lean Hermes VM: the Android bundle
   // `hermes-android.mjs build` made, for the target only (the host keeps its pinned one).
   const hermes = env.HERMES_LEAN_SYS_DIR_aarch64_linux_android ?? hermesAndroidBundle();
-  return { ...env, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
+  return { ...cargoEnvironment(env), CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
     CXX_aarch64_linux_android: `${cc}++`, AR_aarch64_linux_android: resolve(bin, 'llvm-ar'),
     // One C++ runtime, static, as the Hermes bundle links it (ANDROID_STL=c++_static):
     // the cc crate's Android default, c++_shared, needs libc++_shared.so beside the binary.
@@ -277,7 +279,7 @@ function bakedOut(dir, crate) {
  * Linux bake is (`buildBake`): the module first, then the library with the module's digest baked in, so the module
  * ships beside it and must reach the device byte for byte (the Gradle shell extracts it and keeps its symbols).
  * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
-function buildApk(app, env, profile) {
+function buildApk(app, env, profile, writeLocks = false) {
   const crate = app.crate('android');
   if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
@@ -309,24 +311,62 @@ function buildApk(app, env, profile) {
   const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];
   // The token names its hatches read (LLP 1121 D12), beside them in the build.
   if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
-  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out)], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+  const graph = mavenGraph(app, writeLocks);
+  if (!graph) return null;
+  let gradle;
+  try {
+    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+    if (gradle.status === 0) graph.kept();
+  } finally {
+    graph.done();
+  }
   return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
+}
+
+/** The Maven libraries the bound modules name (LLP 1133.008 D8 item 5), as Gradle arguments: one graph with the
+ * reader's own AndroidX, locked to the app's `gradle.lockfile` and verified against its `gradle-verification.xml`,
+ * both beside its other locks. The verification file is Gradle's, which it reads only from the reader's `gradle/`:
+ * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
+ * (`kept` copies the verification back). null, said why, when the app names libraries but not their lock. */
+function mavenGraph(app, writeLocks) {
+  const maven = [...new Set(androidImplementations(app.dir).flatMap((b) => b.maven ?? []))].sort();
+  const placed = resolve(READER, 'gradle/verification-metadata.xml');
+  const none = { args: [], kept() {}, done() {} };
+  if (!maven.length) return none;
+  const lock = resolve(app.dir, 'gradle.lockfile'), checksums = resolve(app.dir, 'gradle-verification.xml');
+  if (!writeLocks && !(existsSync(lock) && existsSync(checksums))) {
+    console.error(`${app.name}: its modules name Maven libraries (${maven.join(', ')}), whose one Gradle graph is locked and verified: write ${basename(lock)} and ${basename(checksums)} beside the app's other locks with bun scripts/agent-android.mjs build ${app.name} --apk --write-locks, and keep them with the app`);
+    return null;
+  }
+  rmSync(placed, { force: true });
+  if (existsSync(checksums)) copyFileSync(checksums, placed);
+  return {
+    args: [`-Pmaven=${maven.join(',')}`, `-PmavenLock=${lock}`, ...(writeLocks ? ['--write-locks', '--write-verification-metadata', 'sha256'] : ['--dependency-verification=strict'])],
+    kept() { if (writeLocks && existsSync(placed)) copyFileSync(placed, checksums); },
+    done() { rmSync(placed, { force: true }); },
+  };
 }
 
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
  * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
- * permissions the app's grant lines derive (the bake's `reach.android`), as Gradle properties. */
+ * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, as Gradle
+ * properties. */
 function extensionArgs(app, out) {
-  const bound = app.manifest.game ? [] : androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
+  const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
   let permissions = [];
   try { permissions = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach?.android ?? []; } catch { /* no bake output: none */ }
+  // And what the module names the app calls derive beside their lines (`android_entry`'s `permissions.txt`, LLP 1133.018 D11).
+  try { permissions = [...new Set([...permissions, ...readFileSync(resolve(out, 'permissions.txt'), 'utf8').split('\n').filter(Boolean)])].sort(); } catch { /* none */ }
   if (bound.length) {
     mkdirSync(resolve(generated, 'exact/app'), { recursive: true });
     writeFileSync(resolve(generated, 'exact/app/ExactExtensions.kt'), ['// Written by scripts/agent-android.mjs (LLP 1133.001 D5); never edited.', 'package exact.app', '',
       'class ExactExtensions : dev.exact.canvas.ExtensionRoster {',
       '    override val extensions: Map<String, (dev.exact.canvas.ExtensionContext) -> dev.exact.canvas.ExactExtension> = mapOf(',
-      ...bound.map((b) => `        ${JSON.stringify(b.extension)} to { c -> ${b.className}(c) },`), '    )', '}', ''].join('\n'));
+      ...bound.map((b) => `        ${JSON.stringify(b.extension)} to { c -> ${b.className}(c) },`), '    )',
+      // Each view a package serves, by the extension that makes it (LLP 1133.001 D1).
+      `    override val views: Map<String, String> = mapOf(${bound.flatMap((b) => (b.views ?? []).map((tag) => `${JSON.stringify(tag)} to ${JSON.stringify(b.extension)}`)).join(', ')})`,
+      '}', ''].join('\n'));
   }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : [])];
 }
@@ -349,7 +389,7 @@ if (import.meta.main && process.argv[2] === 'relay') {
   }
   const app = resolveApp(name), env = { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target };
   if (args.includes('--apk')) {
-    const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV);
+    const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'));
     if (apk) console.log(apk);
     process.exit(apk ? 0 : 1);
   }

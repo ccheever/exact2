@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { modelPreferenceSource, modelPreferencesMigrationPatch, runEnvironmentModelPrefOp, toggleModelFavorite } from '../../src/providers/model-preferences';
+import { migrateModelPreferences, modelPreferenceSource, modelPreferencesMigrationPatch, runEnvironmentModelPrefOp, toggleModelFavorite } from '../../src/providers/model-preferences';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 const native = { available: true, watch() {}, later: async () => ({}) } as Native;
@@ -26,4 +26,33 @@ test('favorite and visibility commands send atomic desired-state server patches'
     { setModelsHidden: [{ provider: 'codex', model: 'm', hidden: true }] },
   ]);
   expect(local.favoriteModels).toEqual([JSON.stringify(['codex', 'm'])]);
+});
+
+// useSettings.favorites.browser.test.tsx "legacy model preferences migration": a server that predates
+// migrateModelPreferences drops it and keeps answering null favorites; the client tries once per connection.
+test.each(['succeeds', 'fails'])('the migration waits for a connection and retries only after a reconnect when the first save %s', async outcome => {
+  const writes: string[] = [];
+  const settings = { favorites: null, providerModelPreferences: null };
+  const host = (environmentId: string) => ({ ready: false, generation: 0, local, config: { environment: { environmentId }, settings } as Obj,
+    async rpc(_native: Native, method: string) {
+      if (method === 'server.updateSettings') {
+        writes.push(environmentId);
+        if (outcome === 'fails' && writes.length === 1) throw new Error('save failed');
+      }
+      return method === 'server.getSettings' ? settings : method === 'server.getConfig' ? { environment: { environmentId }, settings } : {};
+    } });
+  const run = (target: ReturnType<typeof host>) => migrateModelPreferences(target, native).catch(() => {});
+  const mine = host(`migration-${outcome}`), other = host(`other-${outcome}`);
+  await run(mine); // not connected yet
+  Object.assign(mine, { ready: true, generation: 1 });
+  await run(mine);
+  await run(mine); // another settings push on the same connection
+  Object.assign(other, { ready: true, generation: 7 });
+  await run(other);
+  await run(mine);
+  Object.assign(mine, { ready: false });
+  await run(mine);
+  Object.assign(mine, { ready: true, generation: 2 });
+  await run(mine);
+  expect(writes).toEqual([`migration-${outcome}`, `other-${outcome}`, `migration-${outcome}`]);
 });

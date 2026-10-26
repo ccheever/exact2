@@ -17,19 +17,7 @@ enum ButtonConfigurationIOS {
         guard size != nil || weight != nil else { return incoming }
         let targetSize = size ?? incoming.pointSize
         let cssWeight = weight ?? TextEngine.controlWeight(incoming)
-        let platformWeight: UIFont.Weight
-        switch cssWeight {
-        case ..<200: platformWeight = .ultraLight
-        case 200..<300: platformWeight = .thin
-        case 300..<400: platformWeight = .light
-        case 400..<500: platformWeight = .regular
-        case 500..<600: platformWeight = .medium
-        case 600..<700: platformWeight = .semibold
-        case 700..<800: platformWeight = .bold
-        case 800..<900: platformWeight = .heavy
-        default: platformWeight = .black
-        }
-        return TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
+        return TextEngine.cssWeight(cssWeight, size: targetSize) { UIFont.systemFont(ofSize: targetSize, weight: TextEngine.namedWeight($0)) }
     }
     /// Whether a colour row is the platform's accent itself (`AccentColor`),
     /// which UIKit draws from the view's tint rather than as a colour of its
@@ -146,12 +134,12 @@ enum ButtonConfigurationIOS {
     /// both, where the face was resolved against the latest layout. Measuring
     /// has none and takes the face's.
     static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?, destructive: Bool = false,
-                      padding: [CGFloat?]? = nil) {
+                      padding: [CGFloat?]? = nil, raster: UIImage? = nil) {
         let rows = face.rows
         var (config, drawn, _) = ControlHost.configuration(face)
         config.title = face.title
         config.subtitle = face.subtitle
-        config.image = face.symbol.flatMap { FaceSymbol.image($0) }
+        config.image = face.symbol.flatMap { FaceSymbol.image($0) } ?? raster ?? ButtonRasterIOS.image(face, lease: nil)
         switch face.placement ?? (face.leading ? "leading" : "trailing") {
         case "trailing": config.imagePlacement = .trailing
         case "top": config.imagePlacement = .top
@@ -261,6 +249,7 @@ enum ButtonConfigurationIOS {
         let resolved = color(rows.symbol["tint_color"], traits: traits, accent: accent), own = follows ? nil : resolved
         let native = button as? NativeButtonIOS
         native?.symbolInk = nil
+        if face.image != nil, follows || own != nil { config.image = config.image?.withRenderingMode(.alwaysTemplate) }
         if follows || own != nil, let template = config.image {
             if !button.isEnabled {
                 // Disabled, an authored colour keeps its look through UIKit's disabled one (D16)

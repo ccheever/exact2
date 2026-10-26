@@ -1,6 +1,9 @@
 import XCTest
 import ImageIO
 import CoreGraphics
+#if os(iOS)
+import UIKit
+#endif
 @testable import ExactKit
 
 /// LLP 1011.000: Chrome's schedule for an animated image, its clock across
@@ -94,6 +97,45 @@ final class AnimatedRasterTests: XCTestCase {
         // Back to the start after the last, as a loop reads them.
         XCTAssertEqual(Array(try pixel(try XCTUnwrap(frames.frame(0)), 8, 8).prefix(3)), [255, 0, 0])
     }
+
+    #if os(iOS)
+    func testAnAnimatedRasterRepaintsTheDisplayedBitmap() throws {
+        let url = try gif([(1, 0, 0), (0, 0, 1)], delays: [0.1, 0.1], loop: 0, size: 16)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let s = ExactApp.shared.makeSession(label: "animated-bitmap")
+        defer { s.destroy() }
+        s.clock = 0
+        let p = Presenter(), loader = RasterLoader()
+        defer { loader.shutdown() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 32, height: 32))
+        window.addSubview(p.viewport); p.viewport.frame = window.bounds; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let node = NodeView(id: 1, kind: "image", presenter: p)
+        p.views[1] = node; p.viewport.addSubview(node)
+        node.frame = CGRect(x: 0, y: 0, width: 16, height: 16); node.loadGeneration = 1
+        let resolver = AssetResolver(root: url.deletingLastPathComponent())
+        loader.load(node, source: "data:image/gif;base64," + (try Data(contentsOf: url)).base64EncodedString(),
+                    resolver: resolver)
+        let end = Date(timeIntervalSinceNow: 5)
+        while node.raster == nil, Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertNotNil(node.raster, "\(loader.diagnostics), generation \(node.loadGeneration)")
+        p.session = s
+        node.applyImageLayer()
+        AnimatedRasters.shared.attach(node); AnimatedRasters.shared.evaluate()
+        func displayed() throws -> [UInt8] {
+            let context = try XCTUnwrap(CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 64,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            node.layer.render(in: context)
+            return try pixel(XCTUnwrap(context.makeImage()), 8, 8)
+        }
+        XCTAssertEqual(try displayed(), [255, 0, 0, 255])
+        s.clock = 150; AnimatedRasters.shared.evaluate()
+        XCTAssertNotNil(AnimatedRasters.shared.frame(for: node), "the second frame decoded")
+        XCTAssertEqual(try displayed(), [0, 0, 255, 255], "the displayed child bitmap advances with its player")
+        s.clock = 250; AnimatedRasters.shared.evaluate()
+        XCTAssertEqual(try displayed(), [255, 0, 0, 255], "the loop returns to its first frame")
+    }
+    #endif
 
     func testAStillGIFAndAGIFWithoutALoopCount() throws {
         let still = try gif([(1, 0, 0)], delays: [0.1], loop: nil)

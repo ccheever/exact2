@@ -132,7 +132,7 @@ struct Told {
     seq: i32,
     value: String,
     look: Vec<i32>,
-    strings: [String; 3],
+    strings: [String; 4],
 }
 
 fn string(words: &[i32], at: usize) -> (String, usize) {
@@ -153,7 +153,8 @@ fn read(words: &[i32]) -> Vec<Told> {
         let (value, look) = string(words, at + 13);
         let (placeholder, next) = string(words, look + 18);
         let (autocomplete, next) = string(words, next);
-        let (family, end) = string(words, next);
+        let (family, next) = string(words, next);
+        let (axes, end) = string(words, next);
         out.push(Told {
             id: words[at] as ViewId,
             generation: words[at + 1],
@@ -163,7 +164,7 @@ fn read(words: &[i32]) -> Vec<Told> {
             seq: words[at + 12],
             value,
             look: words[look..look + 18].to_vec(),
-            strings: [placeholder, autocomplete, family],
+            strings: [placeholder, autocomplete, family, axes],
         });
         at = end;
     }
@@ -237,6 +238,7 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     };
@@ -275,7 +277,12 @@ fn the_reader_is_told_each_field_its_box_and_its_keyboard() {
     assert_eq!(name.look[12], 400);
     assert_eq!(
         name.strings,
-        ["Name".to_string(), String::new(), String::new()]
+        [
+            "Name".to_string(),
+            String::new(),
+            String::new(),
+            String::new()
+        ]
     );
     // An email's keyboard, Done, and autofill's hint.
     assert_eq!(&fields[1].look[..4], &[128 | 256, 1, 0, 2]);

@@ -81,11 +81,13 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
     Ok(facts + &modules(plan, body))
 }
 
-/// The extensions the plan's module names belong to, each once, in order.
+/// The extensions the plan's module names and package views belong to, each
+/// once, in order.
 pub fn extensions(plan: &Plan) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for m in &plan.modules {
-        let e = plan.str(m.extension).to_owned();
+    let named = plan.modules.iter().map(|m| m.extension);
+    for e in named.chain(plan.views.iter().map(|v| v.extension)) {
+        let e = plan.str(e).to_owned();
         if !out.contains(&e) {
             out.push(e);
         }
@@ -99,9 +101,11 @@ pub fn extensions(plan: &Plan) -> Vec<String> {
 /// asks for permission, its options record's type or null, live]`, an enum's
 /// members spelled out, so a preferred value outside them is refused; then a
 /// loader of each extension's web implementation (`ext-<name>.js`, which
-/// the build writes beside the app, LLP 1133.002 D15).
+/// the build writes beside the app, LLP 1133.002 D15); then each package
+/// view, by its tag, `[extension, displayed, binding props]` (views.js);
+/// then the events the root hears.
 fn modules(plan: &Plan, body: &mut String) -> String {
-    if plan.modules.is_empty() {
+    if plan.modules.is_empty() && plan.views.is_empty() && plan.module_events.is_empty() {
         return String::new();
     }
     let rows: Vec<String> = plan
@@ -135,11 +139,52 @@ fn modules(plan: &Plan, body: &mut String) -> String {
             )
         })
         .collect();
+    let views: Vec<String> = (plan.views.iter())
+        .map(|v| {
+            let binds: Vec<&str> = plan.str(v.binds).split_whitespace().collect();
+            format!(
+                "{}:[{},{},{}]",
+                serde_json::to_string(plan.str(v.tag)).unwrap(),
+                serde_json::to_string(plan.str(v.extension)).unwrap(),
+                v.displayed,
+                serde_json::to_string(&binds).unwrap()
+            )
+        })
+        .collect();
+    // Each event the root hears (LLP 1133.004 D6): its action, taken when
+    // the event is heard (the actions are declared after this call), how it
+    // is raised, its hold, its parameters' types, its name and a wake's
+    // budget (LLP 1133.017 D5).
+    let events: Vec<String> = (plan.module_events.iter())
+        .map(|e| {
+            let action = plan.action(e.action);
+            let params: Vec<String> = (action.params.iter())
+                .map(|p| surface_type_json(plan, plan.param(p).ty))
+                .collect();
+            format!(
+                "{}:[()=>a_{},{},{},[{}],{},{}]",
+                serde_json::to_string(&format!(
+                    "{}.{}",
+                    plan.str(e.extension),
+                    plan.str(e.declared)
+                ))
+                .unwrap(),
+                e.action.0,
+                serde_json::to_string(plan.str(e.raised)).unwrap(),
+                e.hold,
+                params.join(","),
+                serde_json::to_string(plan.str(action.name)).unwrap(),
+                e.budget
+            )
+        })
+        .collect();
     let _ = write!(
         body,
-        "$modules({{{}}},{{{}}});",
+        "$modules({{{}}},{{{}}},{{{}}},{{{}}});",
         rows.join(","),
-        loaders.join(",")
+        loaders.join(","),
+        views.join(","),
+        events.join(",")
     );
     "import{modules as $modules}from\"./modules.js\";".into()
 }

@@ -41,15 +41,12 @@ final class FieldChromeCache: @unchecked Sendable {
     }
     func key(_ request: ExactFieldChromeRequest, font: NSFont) -> Key {
         lock.lock(); defer { lock.unlock() }
-        // A field in a grouped list's row (the cell bit, 4: LLP 1116.005
-        // D2) is borderless on the Mac too (LLP 1115.002 D6). A text area
-        // there keeps its own box, as SwiftUI's `TextEditor` does in a form.
-        return Key(kind: request.kind & 3 < 2 ? request.kind & 7 : request.kind & 3, family: request.family_id, name: font.fontName,
+        return Key(kind: request.kind & 7, family: request.family_id, name: font.fontName,
                    size: font.pointSize, weight: request.weight, italic: request.italic != 0, traits: traits)
     }
     func prefill(family: UInt16, font: NSFont, weight: UInt16, italic: Bool) {
         precondition(Thread.isMainThread)
-        for kind in [UInt8(0), 1, 2, 3, 4, 5] {
+        for kind in UInt8(0)...7 {
             let request = ExactFieldChromeRequest(kind: kind, family_id: family, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
             let k = key(request, font: font)
             lock.lock(); let known = entries[k] != nil; lock.unlock()
@@ -106,7 +103,8 @@ final class FieldChromeCache: @unchecked Sendable {
         lock.lock(); let current = appearance; lock.unlock()
         var result = ExactFieldChrome()
         current.performAsCurrentDrawingAppearance {
-            if key.kind == 3 {
+            if key.kind & 3 == 3 {
+                if key.kind & 4 != 0 { result = ExactFieldChrome(); return }
                 let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 100))
                 scroll.borderType = .bezelBorder
                 let inset = Self.textareaInset(for: current, scale: key.traits.scale)
@@ -146,16 +144,16 @@ extension TextEngine {
         if size == base.pointSize, weight == Self.controlWeight(base), italic == base.fontDescriptor.symbolicTraits.contains(.italic) { return base }
         let key = "control/\(family)/\(size)/\(weight)/\(italic)"
         if let font = fonts[key] { return font }
-        let generic = self.font(size: size, weight: weight, family: 0, italic: italic)
-        let traits = generic.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any] ?? [:]
-        var descriptor = base.fontDescriptor.addingAttributes([.traits: traits])
-        if italic { descriptor = descriptor.withSymbolicTraits(.italic) }
-        let font = TextEngine.cssWeight(NSFont(descriptor: descriptor, size: size) ?? generic, weight: weight, size: size)
+        let font = TextEngine.cssWeight(weight, size: size) { stop in
+            var descriptor = base.fontDescriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: TextEngine.namedWeight(stop).rawValue]])
+            if italic { descriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.italic)) }
+            return NSFont(descriptor: descriptor, size: size) ?? self.font(size: size, weight: stop, family: 0, italic: italic)
+        }
         fonts[key] = font
         return font
     }
     static func controlWeight(_ font: NSFont) -> Int {
-        if let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let weight = axes[0x77676874] { return weight.intValue }
+        if let weight = TextEngine.cssWeight(of: font) { return weight }
         let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
         let weight = traits?[.weight] as? CGFloat ?? 0
         return weight >= NSFont.Weight.bold.rawValue ? 700 : weight >= NSFont.Weight.semibold.rawValue ? 600 : 400

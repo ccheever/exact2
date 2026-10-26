@@ -159,6 +159,7 @@ pub enum Mode {
 /// One runner, one grid.
 pub struct Host<D: DataSource> {
     pub(crate) runner: Runner<D>,
+    input_clock: Option<std::time::Instant>,
     pub(crate) cols: usize,
     pub(crate) rows: usize,
     /// How the app occupies the terminal.
@@ -195,6 +196,11 @@ pub struct Host<D: DataSource> {
     /// frame written before the key was read had shown. No timer.
     pub frames: u64,
     pub(crate) born: HashMap<ViewId, u64>,
+    /// Each `autofocus` control already offered the focus: HTML's
+    /// candidates, each taken once, when it arrives with nothing focused.
+    /// One that can't take the focus yet (disabled, hidden, in a closed
+    /// layer) is offered when it can, as the Linux host has it.
+    autofocused: std::collections::HashSet<exact_kernel::NodeKey>,
     /// Largest settled tree since the last trim; halve before sweeping again.
     trim_at: usize,
     /// The frame count when the keys being handled were read.
@@ -266,6 +272,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            input_clock: None,
             cols,
             rows,
             mode,
@@ -286,6 +293,7 @@ impl<D: DataSource> Host<D> {
             outbound: Vec::new(),
             frames: 0,
             born: HashMap::new(),
+            autofocused: Default::default(),
             trim_at: 0,
             read_at: 0,
             arm: true,
@@ -323,6 +331,9 @@ impl<D: DataSource> Host<D> {
         let (receipts, _) = self.runner.apply_announced();
         if landed || !receipts.is_empty() {
             self.after_commit();
+        } else {
+            // (what a landing asked with no commit, a background round's next request, still goes out)
+            self.run_requests();
         }
     }
 
@@ -434,11 +445,19 @@ impl<D: DataSource> Host<D> {
         self.layers
             .retain(|(id, ..)| self.runner.kernel().node(*id).is_some());
         self.sync_top_layer();
-        if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
+        // Tab traversal stays in the top layer; focus follows modal eligibility.
+        if self
+            .focus
+            .is_some_and(|f| !self.is_control(f) || !self.input_eligible(f))
+        {
             self.focus = None;
         }
+        // An `autofocus` control takes the focus once, as it arrives with
+        // nothing focused; one arriving while something is (or after a blur
+        // or a click away) is spent, never refilling an empty focus later.
+        let fresh = self.autofocus();
         if self.focus.is_none() {
-            self.focus = self.autofocus();
+            self.focus = fresh;
             if let Some(f) = self.focus {
                 self.caret = self.value(f).graphemes(true).count();
             }
@@ -478,13 +497,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         if trace {
-            eprintln!(
+            crate::term::diagnostic(format_args!(
                 "commit: layout {:?}, focus {:?}, walks {:?}, nodes {}",
                 t_layout,
                 t_focus - t_layout,
                 t0.elapsed() - t_focus,
                 self.runner.kernel().live_count()
-            );
+            ));
         }
     }
 
@@ -517,6 +536,9 @@ impl<D: DataSource> Host<D> {
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
             env: self.runner.kernel().env(),
+            // A disabled or inert box is still hit, and swallows the press
+            // (`handler`), so nothing beneath it takes it either.
+            presses: Box::new(|id| self.runner.handlers_of(id).contains(&EventKind::Press)),
         }
     }
 
@@ -635,8 +657,18 @@ impl<D: DataSource> Host<D> {
     /// RFC, D1): a repeat that missed beats fires once, and every commit
     /// observes the clock.
     pub fn live_from(&mut self, start: std::time::Instant) {
+        self.input_clock = Some(start);
         let sample = move || start.elapsed().as_secs_f64() * 1000.0;
         self.runner.set_live_clock(Some(Box::new(sample)));
+    }
+
+    /// Run due timers before an external input chooses its target. Internal
+    /// key, press, blur and focus dispatches stay in the same input turn.
+    pub(crate) fn advance_for_input(&mut self) {
+        let now = self.input_clock.map_or(self.runner.now_ms(), |start| {
+            start.elapsed().as_secs_f64() * 1000.0
+        });
+        self.tick(now);
     }
 
     /// Advance the app's clock: timers fire.
@@ -666,6 +698,9 @@ impl<D: DataSource> Host<D> {
 
     /// The nearest node at or above `view` with a handler for `kind`.
     pub(crate) fn handler(&self, view: ViewId, kind: EventKind) -> Option<ViewId> {
+        if kind == EventKind::Press && !self.input_eligible(view) {
+            return None;
+        }
         let mut at = Some(view);
         while let Some(id) = at {
             if self.runner.handlers_of(id).contains(&kind) {
@@ -674,6 +709,55 @@ impl<D: DataSource> Host<D> {
             at = self.kernel().node(id)?.parent;
         }
         None
+    }
+
+    fn is_control(&self, id: ViewId) -> bool {
+        self.kernel().node(id).is_some_and(|n| {
+            matches!(
+                n.node_type,
+                NodeType::Pressable | NodeType::TextInput | NodeType::Control
+            )
+        })
+    }
+
+    /// Presented cells identify a target, but its live ancestry can refuse it.
+    pub(crate) fn input_eligible(&self, id: ViewId) -> bool {
+        let kernel = self.kernel();
+        let Some(node) = kernel.node(id) else {
+            return false;
+        };
+        if node.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+            != exact_kernel::Visibility::Visible
+        {
+            return false;
+        }
+        let modal = self.layers.iter().rposition(|(.., modal)| *modal);
+        let mut in_modal = modal.is_none();
+        let mut in_open_layer = false;
+        let mut at = Some(id);
+        while let Some(id) = at {
+            let Some(node) = kernel.node(id) else {
+                return false;
+            };
+            if node.style.display == exact_kernel::Display::None
+                || node.props.bool(PropId::Disabled) == Some(true)
+                || node.props.bool(PropId::Inert) == Some(true)
+            {
+                return false;
+            }
+            if Self::is_layer(&node) && !in_open_layer {
+                if self.open_mode(id).is_none() {
+                    return false;
+                }
+                in_open_layer = true;
+            }
+            // Layers opened above the modal remain interactive even when
+            // their authored parent is outside it.
+            in_modal |= modal
+                .is_some_and(|start| self.layers[start..].iter().any(|(layer, ..)| *layer == id));
+            at = node.parent;
+        }
+        in_modal
     }
 
     pub(crate) fn is_field(&self, id: ViewId) -> bool {
@@ -716,6 +800,7 @@ impl<D: DataSource> Host<D> {
             let Some(n) = kernel.node(id) else { continue };
             if n.style.display == exact_kernel::Display::None
                 || n.props.bool(PropId::Disabled) == Some(true)
+                || n.props.bool(PropId::Inert) == Some(true)
                 || (Self::is_layer(&n) && !open.contains(&id))
             {
                 continue;
@@ -723,7 +808,8 @@ impl<D: DataSource> Host<D> {
             if matches!(
                 n.node_type,
                 NodeType::Pressable | NodeType::TextInput | NodeType::Control
-            ) {
+            ) && self.input_eligible(id)
+            {
                 out.push(id);
             }
             if n.node_type != NodeType::Text {
@@ -733,18 +819,29 @@ impl<D: DataSource> Host<D> {
         out
     }
 
-    fn autofocus(&self) -> Option<ViewId> {
+    /// The first `autofocus` control not yet offered the focus; every such
+    /// control now present is spent.
+    fn autofocus(&mut self) -> Option<ViewId> {
         let kernel = self.runner.kernel();
-        self.focusables().into_iter().find(|id| {
-            kernel
-                .node(*id)
-                .is_some_and(|n| n.props.bool(PropId::Autofocus) == Some(true))
-        })
+        let fresh: Vec<(ViewId, exact_kernel::NodeKey)> = self
+            .focusables()
+            .into_iter()
+            .filter_map(|id| {
+                let n = kernel.node(id)?;
+                (n.props.bool(PropId::Autofocus) == Some(true)
+                    && !self.autofocused.contains(&n.key))
+                .then_some((id, n.key))
+            })
+            .collect();
+        self.autofocused
+            .retain(|key| kernel.node_by_key(*key).is_some());
+        self.autofocused.extend(fresh.iter().map(|(_, key)| *key));
+        fresh.first().map(|(id, _)| *id)
     }
 
     /// Move the focus to a node (or nowhere), telling the app.
     pub fn focus(&mut self, to: Option<ViewId>) {
-        if to == self.focus {
+        if to.is_some_and(|id| !self.input_eligible(id)) || to == self.focus {
             return;
         }
         if let Some(old) = self.focus.take() {
@@ -805,7 +902,13 @@ impl<D: DataSource> Host<D> {
         let Some(target) = kernel.node(id).map(|n| n.frame) else {
             return;
         };
-        let mut at = kernel.node(id).and_then(|n| n.parent);
+        // A block's root (a popover's, the viewport) is not in what scrolls
+        // above it: the walk stops at it.
+        let blocked = |view: ViewId| kernel.host_block(view).is_some();
+        let mut at = kernel
+            .node(id)
+            .and_then(|n| n.parent)
+            .filter(|_| !blocked(id));
         let mut changes = Vec::new();
         while let Some(p) = at {
             let Some(n) = kernel.node(p) else { break };
@@ -826,7 +929,7 @@ impl<D: DataSource> Host<D> {
                 };
                 changes.push((p, next.clamp(0.0, reach)));
             }
-            at = n.parent;
+            at = n.parent.filter(|_| !blocked(p));
         }
         for (view, offset) in changes {
             if self.scroll.get(&view).copied().unwrap_or(0.0) != offset {
@@ -916,14 +1019,24 @@ impl<D: DataSource> Host<D> {
     }
 
     fn press_with_inner(&mut self, id: ViewId, take: bool) {
+        if !self.input_eligible(id) {
+            return;
+        }
         if self.is_field(id) {
             self.focus(Some(id));
             return;
         }
         let key = self.runner.kernel().node(id).map(|node| node.key);
         if let Some(target) = self.handler(id, EventKind::Press) {
-            if take && (self.layers.is_empty() || self.focusables().contains(&id)) {
-                self.focus(Some(id));
+            // What can hold the focus takes it (the node pressed, else the
+            // control its press is); a press on what cannot (a pressable
+            // box) moves it away, as a click on a `div` does, never
+            // scrolling the box into view as a focus would.
+            let focusables = if take { self.focusables() } else { Vec::new() };
+            if let Some(f) = [id, target].into_iter().find(|f| focusables.contains(f)) {
+                self.focus(Some(f));
+            } else if take && self.layers.is_empty() {
+                self.focus(None);
             }
             self.dispatch(target, Event::Press);
         }
@@ -1067,9 +1180,43 @@ impl<D: DataSource> Host<D> {
         !self.layers.is_empty()
     }
 
+    /// The open layers, told to the runner. A popover in the viewport's
+    /// block (stage 14 B) is where it paints, not at its frame: by its
+    /// block's rectangle in the grid, which `frame` and `elementFromPoint`
+    /// map it through; any other layer is at its frame, as before.
     fn sync_top_layer(&mut self) {
         let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
-        self.runner.top_layer(&open);
+        let frames = {
+            let scene = self.scene();
+            let kernel = scene.kernel;
+            let shown = |&id: &ViewId| {
+                let used = kernel.host_block_size(id)?;
+                let (dx, dy) = crate::paint::placement(&scene, id, self.cols, self.rows, 0.0);
+                Some((
+                    id,
+                    [-dx as f64, -dy as f64, used.0 as f64, used.1 as f64],
+                    None,
+                ))
+            };
+            let placed: Vec<_> = open.iter().filter_map(shown).collect();
+            let at_frame = |&id: &ViewId| {
+                let f = kernel.node(id)?.frame;
+                let rect = [f.x as f64, f.y as f64, f.width as f64, f.height as f64];
+                Some(
+                    placed
+                        .iter()
+                        .find(|p| p.0 == id)
+                        .copied()
+                        .unwrap_or((id, rect, None)),
+                )
+            };
+            (!placed.is_empty()).then(|| open.iter().filter_map(at_frame).collect::<Vec<_>>())
+        };
+        let Some(frames) = frames else {
+            self.runner.top_layer(&open);
+            return;
+        };
+        self.runner.top_layer_frames(&frames, None);
     }
 
     /// The node an agent names by `testId`.
@@ -1133,6 +1280,10 @@ mod invocation_tests;
 #[cfg(test)]
 #[path = "host_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "host_top_layer_tests.rs"]
+mod top_layer_tests;
 
 #[cfg(test)]
 #[path = "host_scale_tests.rs"]

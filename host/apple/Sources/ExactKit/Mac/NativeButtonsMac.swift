@@ -21,6 +21,16 @@ final class NativeButtonCellMac: NSButtonCell {
         get { super.isHighlighted || owner?.holds("active") == true }
         set { super.isHighlighted = newValue }
     }
+    /// A borderless button's title stands inside the padding the kernel
+    /// applied at each side it names (an author's, or a list row's inset,
+    /// LLP 1138), as UIKit's configuration's content insets place it; a
+    /// bezel's title stays AppKit's, centred in its bezel.
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        guard !isBordered, let p = owner?.kernelPadding, p.count == 4 else { return super.titleRect(forBounds: rect) }
+        let left = p[3] ?? 0, right = p[1] ?? 0
+        guard left > 0 || right > 0 else { return super.titleRect(forBounds: rect) }
+        return super.titleRect(forBounds: NSRect(x: rect.minX + left, y: rect.minY, width: max(0, rect.width - left - right), height: rect.height))
+    }
     override func accessibilityPerformShowMenu() -> Bool { owner?.accessibilityPerformShowMenu() ?? false }
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)
@@ -132,6 +142,7 @@ final class NativeButtonMac: NSButton {
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
     override func mouseDown(with event: NSEvent) {
+        defer { heldContact = false; cancelsHeldContact = false }
         // A Control-click that a `contextPopover` or `contextmenu` from its
         // node up answers is no click (X85).
         if contextClicked(event) { return }
@@ -151,7 +162,13 @@ final class NativeButtonMac: NSButton {
     }
     /// The tracking loop sent the action: the click landed.
     private var clicked = false
+    /// AppKit has no cancelled mouse-up; an agent's cancellation withdraws its action.
+    private var heldContact = false
+    private var cancelsHeldContact = false
+    func beginHeldContact() { heldContact = true }
+    func cancelHeldContact() { if heldContact { cancelsHeldContact = true } }
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        guard !cancelsHeldContact else { return false }
         clicked = true
         owner?.pointerReleased(nil)
         return super.sendAction(action, to: target)
@@ -216,7 +233,9 @@ extension NodeView {
             guard path.isLive else { return }
         }
         guard presenter.views[target.id] === target else { return }
-        presenter.press(target.id, bubbled: bubbled)
+        presenter.menus.activating(from: self, pressing: target) {
+            presenter.press(target.id, bubbled: bubbled)
+        }
         if !bubbled { target.finishPointerPress() }
     }
 }
@@ -313,6 +332,15 @@ extension ControlHost {
                 "rows": rows, "standIns": standIns, "imagePosition": button.imagePosition.rawValue,
                 "pointerEvents": button.written?.interactive == false ? "none" : "auto",
                 "size": [Agent.r2(button.frame.width), Agent.r2(button.frame.height)]]
+    }
+}
+extension Presenter {
+    func dispatchButtonAncestor(_ source: NodeView, click: NSEvent?) {
+        let point = click.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.locationInWindow : nil }
+        guard let listener = buttonPressListener(above: source, at: point) else { return }
+        pressClick = click
+        defer { pressClick = nil }
+        onPress?(listener.id)
     }
 }
 #endif

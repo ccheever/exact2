@@ -4,22 +4,32 @@
 // Dvorak, German's ö), so one chord fires, never two.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
+import { Script } from 'node:vm';
 
-const moduleSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-const withoutPrompt = moduleSource.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
-if (withoutPrompt === moduleSource) throw new Error('input glue must retain the prompt side-effect import');
-const source = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
-function page(chords) {
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+for (const name of ['prompt-glue', 'alert-message']) {
+  const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
+  if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
+  inputSource = stripped;
+}
+const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputScript = new Script(`${inputCode}\ncreateInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });`, { filename: 'input-glue.js' });
+// `shown`: the buttons have boxes; `marked`: each is a Back control its route's bar stands for (navigation.js).
+function page(chords, { shown = true, marked = false } = {}) {
   const clicks = [], listeners = [];
-  const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => [{}],
-    getAttribute: () => chord, click() { clicks.push(chord); } }));
+  const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => (shown ? [{}] : []),
+    hasAttribute: name => marked && name === 'data-exact-bar-back', getAttribute: () => chord, click() { clicks.push(chord); } }));
   const context = {
-    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null } },
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null },
+      getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [] },
     getComputedStyle: () => ({ visibility: 'visible' }),
+    // What the input glue reads as it starts that no chord here touches: its sheets' observers, hover, looks.
+    MutationObserver: class { observe() {} disconnect() {} takeRecords() { return []; } },
+    queueMicrotask, Element: class {}, matchMedia: () => ({ matches: false, addEventListener() {} }),
+    addEventListener() {}, removeEventListener() {},
     root: { querySelectorAll: s => (s.includes('aria-modal') ? [] : buttons), addEventListener() {}, contains: () => true },
   };
-  runInNewContext(`${source}\ncreateInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });`, context);
+  inputScript.runInNewContext(context);
   const key = (key, code, extra = {}) => {
     const e = { key, code, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, composedPath: () => [],
       preventDefault() { this.prevented = true; }, stopImmediatePropagation() {}, ...extra };
@@ -50,4 +60,11 @@ test('the fallback keeps the chord\'s modifiers and refuses keys it cannot name'
     p.key('ㅠ', 'IntlRo'), p.key('ㅠ', undefined), p.key(undefined, 'KeyB'), p.key('Process', 'KeyB')]).toEqual([false, false, false, false, false, false, false]);
   expect(p.key('ㅠ', 'KeyB', { metaKey: false, ctrlKey: true })).toBe(true);
   expect(p.clicks).toEqual(['Control+B']);
+});
+
+// LLP 1116.000 D4: a Back control the bar stands for is not shown, and its chord still presses it; a button that is
+// not shown otherwise takes none.
+test('a Back control the bar stands for keeps its chord', () => {
+  const hidden = page(['Meta+['], { shown: false }), marked = page(['Meta+['], { shown: false, marked: true });
+  expect([hidden.key('[', 'BracketLeft'), hidden.clicks, marked.key('[', 'BracketLeft'), marked.clicks]).toEqual([false, [], true, ['Meta+[']]);
 });

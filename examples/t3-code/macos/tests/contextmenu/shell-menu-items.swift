@@ -3,11 +3,11 @@ import WebKit
 import XCTest
 
 // The shell's context menu as a person's right-click found it (#407).
-// The work group's tool icon sits two views below the node that takes its click, so Copy Image must look below
-// the hit view, not only at its own subviews. The menu AppKit draws holds DesktopWindow's items only, read back
+// An app-drawn image may sit two views below the node that takes its click, so Copy Image must look below the
+// hit view, not only at its own subviews. The menu AppKit draws holds DesktopWindow's items only, read back
 // from the menu window while it is open (AppKit adds AutoFill and Services to the drawn menu, never to `menu.items`).
 
-/// T3ToolActivityIcon's view: draws the icon's bitmap and lets every press through.
+/// An app view (`T3ShellImageView`) that draws an icon's bitmap and lets every press through.
 private final class ToolIconView: NSView, T3ShellImageView {
     var shellImage: CGImage?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -68,9 +68,9 @@ final class DrawnMenuReader: NSObject, NSMenuDelegate {
 }
 
 final class RealInput1010gTests: ShellMenuCase {
-    /// ToolActivityIcon (timeline-icons-kit.contract) is a 1rem box › a `pointer-events="none"` hook box ›
-    /// T3ToolActivityIcon's view. The click lands on the outer box; Copy Image copies the icon's own bitmap, as the
-    /// reference's `<img>` gives Copy Image (DesktopWindow.ts `mediaType === "image"`).
+    /// A 1rem box › a `pointer-events="none"` hook box › an app view drawing an icon. The click lands on the outer
+    /// box; Copy Image copies the icon's own bitmap, as the reference's `<img>` gives Copy Image (DesktopWindow.ts
+    /// `mediaType === "image"`).
     func testTheToolIconUnderItsPassThroughHookGetsCopyImage() throws {
         let box = NSView(frame: NSRect(x: 20, y: 200, width: 16, height: 16))
         let hook = PassThroughNode(frame: box.bounds)

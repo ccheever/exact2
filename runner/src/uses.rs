@@ -286,10 +286,10 @@ pub fn uses(plan: &Plan) -> Uses {
     let can_be = |binding: &exact_plan::BindingsRow, used: &dyn Fn(&str) -> bool| {
         constant_str(plan, plan.code(binding.expr)).is_none_or(used)
     };
-    for binding in &plan.bindings {
+    for binding in plan.bindings.iter() {
         match binding.kind {
             BindingKind::Prop => match PropId::from_wire(binding.id) {
-                Some(PropId::Markup) if can_be(binding, &|v| v == "markdown") => {
+                Some(PropId::Markup) if can_be(&binding, &|v| v == "markdown") => {
                     uses = uses.with(Capability::Markdown);
                 }
                 Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
@@ -306,11 +306,11 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::ListStyle) => uses = uses.with(Capability::GroupedLists),
                 Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
                 Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
-                Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
+                Some(PropId::Type) if can_be(&binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
                 }
                 Some(PropId::Type)
-                    if can_be(binding, &|v| {
+                    if can_be(&binding, &|v| {
                         matches!(v, "date" | "time" | "datetime-local")
                     }) =>
                 {
@@ -371,7 +371,7 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Grid);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
-                    && can_be(binding, &|v| v.contains("spring"))
+                    && can_be(&binding, &|v| v.contains("spring"))
                 {
                     uses = uses.with(Capability::Motion);
                 }
@@ -379,7 +379,7 @@ pub fn uses(plan: &Plan) -> Uses {
                 if matches!(
                     StyleId::from_bit(u32::from(binding.id)),
                     Some(StyleId::Transition | StyleId::LayoutTransition)
-                ) && can_be(binding, &|v| !matches!(v.trim(), "" | "none"))
+                ) && can_be(&binding, &|v| !matches!(v.trim(), "" | "none"))
                 {
                     uses = uses.with(Capability::Transitions);
                 }

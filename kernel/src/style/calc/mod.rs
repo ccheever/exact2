@@ -14,7 +14,7 @@ mod text;
 mod wire;
 
 pub use parse::nonnegative_row;
-pub(crate) use parse::{is_env, names_math, parse, refusal, signed, substitutes, Refused};
+pub(crate) use parse::{grid, is_env, names_math, parse, refusal, signed, substitutes, Refused};
 
 use super::env::{self, Edge, Env, Region, SegmentVar, TitleBarVar};
 use super::{Dimension, StyleId, ViewportUnit};
@@ -440,6 +440,11 @@ impl Comparison {
         row: StyleId,
     ) -> Result<Comparison, crate::error::DecodeError> {
         wire::decode(r, row)
+    }
+
+    pub(crate) fn is_length_percentage(self) -> bool {
+        self.tree(|t| !t.any(&|n| matches!(n, Node::Env(_) | Node::Value(_, Unit::Viewport(_)))))
+            .unwrap_or(false)
     }
 
     /// Whether a percentage stands in it: in a tree, at a leaf, which

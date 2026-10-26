@@ -275,3 +275,18 @@ fn eager_lists_do_not_admit_physical_reorder() {
         "lower-reorder-collection"
     );
 }
+
+#[test]
+fn dropped_top_row_anchors_its_visible_successor() {
+    let (mut h, _) = fixture();
+    feedback(&mut h, 200., None);
+    let grip = view(&h, "grip-10");
+    feedback(&mut h, 200., Some(grip));
+    let reply = h.reorder_begin(grip, 200., 100.);
+    assert_eq!(state(&reply).1, "active", "{reply}");
+    let token = state(&reply).0;
+    let reply = h.reorder_end(token, true, 90., 200., true, 0., 120.);
+    assert!(reply.contains("\"dispatched\":true"), "{reply}");
+    assert_eq!(h.runner.data_ref().0[14], "10");
+    assert_eq!(h.runner.collections()[0].correction.unwrap().offset, 180.);
+}

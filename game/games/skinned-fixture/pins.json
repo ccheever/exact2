@@ -4,16 +4,24 @@
     "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "0befa81d4850b97a5f6468bd33119b0ee57ebfba711a90c55dea54e0df879ee1"
+    "continuation": "2f5338e02cda7774856ade2a3446cc997099420bd7e7c19f79daf46fafe1d343"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "7df395704a2f55e5461f9f906211f0741aa51f4e2fb4fec352742f8cc2522c03",
-  "sourceInputs": "d1e7b01bc3e5fbe6ec4c33ffe8e0567959330401725900b79065eea50842b107",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "5100280688172207d0d083b4e921134342e27b16f970be632a47115c50268183",
+  "sourceInputs": "3083079398d99f5a2fbb9a2e887b34b88d3a619545f67f29e56549eb9328c342",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "0512f5892679d1a59963b0cc7d61d98cfc13aa4b",
-  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
+  "at": "1afbc5f64088fb9219aa2d56a54b27c296a536dd",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

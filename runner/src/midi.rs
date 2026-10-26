@@ -818,7 +818,7 @@ impl Midi {
                 "midi dropped: at is not a number (sendMIDI to {output})"
             ));
         }
-        if !self.ports.connected_output(&output) {
+        if !self.can_send(&output) {
             let why = if self.ports.access != Access::Granted {
                 format!("access is {}", self.ports.access.word())
             } else {
@@ -864,19 +864,25 @@ impl Midi {
         if m.tick.is_none() {
             log.push(format!(
                 "midi {id} to {} {} at {}{note}",
-                m.output,
+                if m.output.is_empty() {
+                    "no output"
+                } else {
+                    m.output
+                },
                 hex(&m.data),
                 num(m.at)
             ));
         } else {
             self.ticks += 1;
         }
-        self.ops.push(MidiOp::Send {
-            id,
-            output: m.output.to_string(),
-            data: m.data.clone(),
-            at: m.at,
-        });
+        if !m.output.is_empty() {
+            self.ops.push(MidiOp::Send {
+                id,
+                output: m.output.to_string(),
+                data: m.data.clone(),
+                at: m.at,
+            });
+        }
         // A reader of `sent` is answered again when the message goes.
         let sent = Sent {
             id,
@@ -902,7 +908,9 @@ impl Midi {
     fn retract(&mut self, i: usize, by: &'static str) {
         let s = &mut self.queue[i];
         s.by = Some(by);
-        self.ops.push(MidiOp::Retract { id: s.id });
+        if !s.output.is_empty() {
+            self.ops.push(MidiOp::Retract { id: s.id });
+        }
         if let Some(c) = self.clock.as_mut() {
             if s.seq && s.data == [0xFA] && s.output == c.output {
                 c.started = false;
@@ -953,9 +961,11 @@ impl Midi {
         on_at - HOLD > t && self.waiting(t) >= QUEUED
     }
 
-    /// Whether a sequence's notes and clock can go to `output` now.
+    /// Whether messages can go to `output` now: a connected output, or
+    /// `""`, no output, which no host is handed but `sent` lists as any
+    /// other (LLP 1125 D6), so an app logs what it plays without a device.
     pub(crate) fn can_send(&self, output: &str) -> bool {
-        self.ports.connected_output(output)
+        output.is_empty() || self.ports.connected_output(output)
     }
 
     /// One sequence note on `output` (LLP 1125 D7): `on` at `on_at`, its

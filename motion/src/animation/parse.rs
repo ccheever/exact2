@@ -271,9 +271,14 @@ impl Keyframes {
                 let property = Property::from_name(name)
                     .filter(|p| *p != Property::Height)
                     .ok_or_else(|| ParseError::UnknownProperty(name.to_string()))?;
-                for (property, light, night) in keyframe_values(property, value)? {
-                    values.retain(|(p, _)| *p != property);
-                    dark.retain(|(p, _)| *p != property);
+                let declared = keyframe_values(property, value)?;
+                // A later declaration replaces the whole value: every axis
+                // of a `font-variation-settings`, both halves of a shadow.
+                for (property, _, _) in &declared {
+                    values.retain(|(p, _)| p != property);
+                    dark.retain(|(p, _)| p != property);
+                }
+                for (property, light, night) in declared {
                     values.push((property, light));
                     if let Some(night) = night {
                         dark.push((property, night));
@@ -296,11 +301,11 @@ impl Keyframes {
                     .find(|f| f.offset == offset && f.easing == easing_here)
                 {
                     Some(frame) => {
-                        for (p, v) in &values {
+                        for (p, _) in &values {
                             frame.values.retain(|(q, _)| q != p);
                             frame.dark.retain(|(q, _)| q != p);
-                            frame.values.push((*p, *v));
                         }
+                        frame.values.extend(values.iter().copied());
                         frame.dark.extend(dark.iter().copied());
                     }
                     None => frames.push(Keyframe {
@@ -314,7 +319,7 @@ impl Keyframes {
             rest = rest[close + 1..].trim_start();
         }
         frames.sort_by(|a, b| a.offset.total_cmp(&b.offset));
-        let keyframes = Keyframes(frames);
+        let keyframes = Keyframes(frames.into());
         keyframes.validate().map_err(ParseError::InvalidAnimation)?;
         Ok(keyframes)
     }
@@ -323,17 +328,29 @@ impl Keyframes {
     /// `@keyframes name { … }`.
     pub fn css(&self) -> String {
         let mut out = String::new();
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             let _ = write!(out, "{}%{{", Shortest(frame.offset * 100.0));
             if let Some(e) = &frame.easing {
                 let _ = write!(out, "animation-timing-function:{};", easing_css(e));
             }
+            // The axes are one `font-variation-settings`, where its first is.
+            let axes: Vec<String> = (frame.values.iter())
+                .filter(|(p, _)| *p == Property::FontVariationSettings)
+                .map(|(p, v)| value_css(*p, *v))
+                .collect();
+            let mut axes = Some(axes.join(","));
             // The shadow's colour is written in its `box-shadow`.
             for (p, v) in frame
                 .values
                 .iter()
                 .filter(|(p, _)| *p != Property::ShadowColor)
             {
+                if *p == Property::FontVariationSettings {
+                    if let Some(axes) = axes.take() {
+                        let _ = write!(out, "font-variation-settings:{axes};");
+                    }
+                    continue;
+                }
                 let colour = |p: Property, v: Value| match frame.dark.iter().find(|(q, _)| *q == p)
                 {
                     Some((_, night)) => format!(
@@ -387,8 +404,13 @@ pub fn value_css(property: Property, v: Value) -> String {
         | Property::Y
         | Property::Rx
         | Property::Ry => format!("{}px", Shortest(v.x)),
-        Property::Scale | Property::Opacity | Property::StrokeDashoffset => {
+        Property::Scale | Property::Opacity | Property::StrokeDashoffset | Property::FontWeight => {
             format!("{}", Shortest(v.x))
+        }
+        Property::FontStretch => format!("{}%", Shortest(v.x)),
+        Property::FontVariationSettings => {
+            let tag: String = v.axis_tag().to_be_bytes().map(char::from).iter().collect();
+            format!("\"{tag}\" {}", Shortest(v.x))
         }
         // Offset and blur; the colour is `box-shadow`'s other half.
         Property::BoxShadow => format!(
@@ -553,6 +575,11 @@ fn keyframe_values(
             let (light, night) = colour(value)?;
             vec![(p, light, night)]
         }
+        Property::FontVariationSettings => variation_axes(value.trim())
+            .ok_or_else(bad)?
+            .into_iter()
+            .map(|(tag, n)| (property, Value::axis(tag, n), None))
+            .collect(),
         // `none` is CSS's transparent, zero-length shadow, which a shadow
         // interpolates from and to.
         Property::BoxShadow if value.trim() == "none" => vec![
@@ -627,6 +654,73 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
         | Property::Rx
         | Property::Ry => Value::scalar(length(value).ok_or_else(bad)?),
         p if p.is_color() => crate::color::parse(value).ok_or_else(bad)?,
+        // CSS Fonts 4 §2.2: a number in [1, 1000] or an absolute keyword;
+        // `bolder` and `lighter` are relative to a parent no keyframe has.
+        Property::FontWeight => Value::scalar(match value {
+            "normal" => 400.0,
+            "bold" => 700.0,
+            n => exact_num::parse_f64(n)
+                .ok()
+                .filter(|n| (1.0..=1000.0).contains(n))
+                .ok_or_else(bad)?,
+        }),
+        // CSS Fonts 4 §2.4: a non-negative percentage or a keyword.
+        Property::FontStretch => {
+            let keyword = [
+                ("ultra-condensed", 50.0),
+                ("extra-condensed", 62.5),
+                ("condensed", 75.0),
+                ("semi-condensed", 87.5),
+                ("normal", 100.0),
+                ("semi-expanded", 112.5),
+                ("expanded", 125.0),
+                ("extra-expanded", 150.0),
+                ("ultra-expanded", 200.0),
+            ];
+            let n = match keyword.iter().find(|(k, _)| *k == value) {
+                Some((_, n)) => *n,
+                None => value
+                    .strip_suffix('%')
+                    .and_then(|n| exact_num::parse_f64(n.trim()).ok())
+                    .filter(|n| *n >= 0.0)
+                    .ok_or_else(bad)?,
+            };
+            Value::scalar(n)
+        }
         _ => return Err(bad()),
     })
 }
+
+/// A `font-variation-settings` list (CSS Fonts 4 §7.2): a quoted
+/// four-character tag (U+0020–U+007E) and a number, comma-separated; a tag
+/// named twice keeps its last value in its first place. `normal`, which
+/// names no axis, is refused here: a keyframe's axes interpolate one by one
+/// with the other keyframes', so each keyframe names the same ones.
+fn variation_axes(value: &str) -> Option<Vec<(u32, f64)>> {
+    let mut out: Vec<(u32, f64)> = Vec::new();
+    for item in value.split(',').map(str::trim) {
+        let quote = item.chars().next().filter(|q| *q == '"' || *q == '\'')?;
+        let rest = &item[1..];
+        let close = rest.find(quote)?;
+        let (tag, number) = (&rest[..close], rest[close + 1..].trim());
+        if tag.len() != 4 || !tag.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+            return None;
+        }
+        let number = exact_num::parse_f64(number)
+            .ok()
+            .filter(|n| n.is_finite())?;
+        let tag = u32::from_be_bytes(tag.as_bytes().try_into().ok()?);
+        if let Some(axis) = out.iter_mut().find(|(t, _)| *t == tag) {
+            axis.1 = number;
+        } else if out.len() < MAX_AXES {
+            out.push((tag, number));
+        } else {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+/// The most axes one `font-variation-settings` names, as the kernel's row
+/// holds them.
+pub const MAX_AXES: usize = 8;

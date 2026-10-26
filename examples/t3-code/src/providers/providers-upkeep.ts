@@ -44,7 +44,8 @@ export function versionAdvisoryPresentation(advisory: Obj | undefined, compatibi
     const targetVersion = str(compatibility.recommendedVersion) || null;
     const recommendation = versionLabel(targetVersion) || str(compatibility.recommendedRange);
     return { title: COMPATIBILITY_TITLES[status]!, detail: str(compatibility.message) || (recommendation ? `Use ${recommendation} for full support.` : 'Update for full support.'),
-      updateCommand: targetVersion || latestIsIncompatible ? null : str(advisory?.updateCommand) || null, emphasis: status === 'graceful' ? 'normal' : 'strong', targetVersion };
+      // An installed version that is already the package's latest cannot be fixed by updating it (the recommendation may need another package).
+      updateCommand: targetVersion || latestIsIncompatible || advisory?.status === 'current' ? null : str(advisory?.updateCommand) || null, emphasis: status === 'graceful' ? 'normal' : 'strong', targetVersion };
   }
   if (!advisory || !str(advisory.status) || advisory.status === 'current' || advisory.status === 'unknown' || latestIsIncompatible) return null;
   const latest = versionLabel(advisory.latestVersion);

@@ -12,7 +12,8 @@ import { attachOffered } from './composer-controls-attach';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
-import { sendChords } from './composer-editor-intent';
+import { composerRequiresModifier, sendChords, sendCommandChords } from './composer-editor-intent';
+import { layoutFrames } from '../shell/layout-frames';
 import { draftHoldsCommandEnter } from '../diff/diff';
 import { fileDraftHoldsCommandEnter } from '../panel/files-surface'; // the Files preview's draft too
 import { activeRef, terminalOpen } from '../terminal/terminal-drawer-view'; // ChatComposer passes the real terminalOpen
@@ -146,15 +147,10 @@ export function commandChords(config: Obj, command: string, fallback: string, mo
   return [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
 }
 
-/**
- * Trigger offsets reported by the app module (T3Composer) relative to the
- * toolbar row; menus open above the trigger, start-aligned, and flip to end
- * alignment when the viewport cannot hold them (base-ui collision padding 5).
- */
-export function anchorsFrom(presentation: Obj) {
-  const anchors = obj(presentation.anchors);
-  const box = (name: string) => { const value = Array.isArray(anchors[name]) ? anchors[name] as unknown[] : []; return { x: Number(value[0]) || 0, width: Number(value[1]) || 0 }; };
-  return { traits: box('traits'), runtime: box('runtime'), controls: box('controls'), implement: box('implement'), meter: box('meter'), actions: box('actions'), more: box('more') };
+/** The toolbar controls row's width (the app module's `controls` anchor, T3Composer), which footerLayout fits; 0 until laid out. */
+export function controlsWidth(presentation: Obj): number {
+  const value = obj(presentation.anchors).controls;
+  return Array.isArray(value) ? Number(value[1]) || 0 : 0;
 }
 
 // The last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
@@ -179,12 +175,11 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const runtimes = runtimeModes.filter(option => !supported.length || supported.includes(option.mode));
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
   const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
-  const anchors = anchorsFrom(client.presentation);
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
   const modelTitle = model ? triggerModelName(model) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
   const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
-    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
+    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
   footerSteps.set(client, steps);
   // The "More composer controls" rows for the expanded and the resting footer.
@@ -205,14 +200,12 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     ultrathink: ultrathinkFrame(client, prompt),
     more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
     moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // the spectrum ring and the model icon's chroma
-    traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width, moreX: anchors.more.x, moreWidth: anchors.more.width,
     keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext),
   };
 }
 
-/** Window-space tops of the composer's popover anchors (T3ComposerFrames.swift); 0 until measured. */
-export function frameTops(presentation: Obj) {
-  const frames = obj(presentation.frames);
+/** Window-space tops of the composer's toolbar and context strip, which its menus open from (layout-frames.ts); 0 until measured. */
+export function frameTops(frames: Obj) {
   const top = (name: string) => { const value = Array.isArray(frames[name]) ? frames[name] as unknown[] : []; return Number(value[1]) || 0; };
   const strip = Array.isArray(frames.strip) ? frames.strip as unknown[] : [];
   const toolbar = Array.isArray(frames.toolbar) ? frames.toolbar as unknown[] : [];
@@ -255,7 +248,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
   const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
     choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
-  const tasks = tasksProgress(client), sync = syncStatus(client), anchors = anchorsFrom(client.presentation);
+  const tasks = tasksProgress(client), sync = syncStatus(client);
   // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) is the stack's
   // first activity item (ChatComposer bannerStackItems): urgent, warning and error notices go before it.
   const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
@@ -280,18 +273,19 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
-  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
-    // composer-editor-intent.ts. A focused Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
-    // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
-    // any `key` handler, so the button declares none then. Annotate's editor keeps ⌘↩ the same way (browser-annotation.ts).
-    sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), annotatingOpenThread(client)),
+  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
+    // composer-editor-intent.ts; the focused composer's key action takes these (app.contract composerKeyEvent). A focused
+    // Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut), and Annotate's
+    // editor too (browser-annotation.ts): the set is empty, or without ⌘↩, then.
+    sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)), annotatingOpenThread(client)),
+    sendCommandChords: sendCommandChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
     ...composerMenus(client.presentation, view, runOnLabels(environmentView(client)),
       [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500))]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
-    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
+    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client) }, rootFontSize);
 }
 
 /**

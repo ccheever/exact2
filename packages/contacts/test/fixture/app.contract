@@ -1,0 +1,67 @@
+// The conformance fixture (LLP 1133.001 D7): every name of @exact/contacts,
+// read and sent as an app would, each answer shown by testId for the suite.
+// The store is read by data code (app.ts), a page at a time.
+use contactsStatus, getContactProperties, selectContacts, showContactAccessPicker, ContactsStatus, ContactProperties, ContactSelection, ContactInfo from "@exact/contacts"
+
+shape Line
+  text: string
+
+shape Page
+  text: string
+  next: string
+
+// A picked contact as the suite reads it: its name, then each icon's path.
+fn picked(c: ContactInfo): string = `${match c.name { case some(n) => n.join(" "), case none => "-" }}${match c.icon { case some(i) => ` ${i.join(" ")}`, case none => "" }}`
+
+component Fixture
+  state text = ""
+  state after = ""
+  resource status = contactsStatus() as shape ContactsStatus
+  resource fields = getContactProperties() as shape ContactProperties
+  resource walk = walk(text, 5) as shape Line
+  resource page = page(4, after) as shape Page
+  resource found = names(text) as shape Line
+  mutation chosen as shape ContactSelection
+  mutation shared as shape ContactSelection
+  action pick
+    send chosen = selectContacts(properties=["name", "icon"], multiple=true)
+  action pickOne
+    send chosen = selectContacts(properties=["name"])
+  action share
+    send shared = showContactAccessPicker()
+  action search(value: string)
+    text = value
+  action more
+    after = page.next
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state} ${status.access}` testId="status"
+      text fields.properties.join(",") testId="properties"
+      input type="search" value=text input=search testId="search" aria-label="Search"
+      text walk.text testId="walk"
+      text page.text testId="page"
+      text found.text testId="names"
+      text page.next testId="next"
+      button press=more testId="more"
+        text "More"
+      button press=pick testId="pick"
+        text "Pick"
+      button press=pickOne testId="pick-one"
+        text "Pick one"
+      button press=share testId="share"
+        text "Share more"
+      match chosen
+        case some(s)
+          text s.contacts.map((c) => picked(c)).join("; ") testId="chosen"
+        case none
+          text "none" testId="chosen"
+      match failure(chosen)
+        case some(f)
+          text f.code testId="chosen-error"
+        case none
+          text "" testId="chosen-error"
+      match failure(shared)
+        case some(f)
+          text f.code testId="share-error"
+        case none
+          text "" testId="share-error"

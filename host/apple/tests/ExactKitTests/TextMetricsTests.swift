@@ -58,6 +58,7 @@ final class TextMetricsTests: XCTestCase {
             else { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             appended.append(NSAttributedString(string: run.text, attributes: attrs))
         }
+        TextEngine.setBaseDirection(appended, direction: spec.direction)
         let actual = engine.attributed(spec)
         XCTAssertEqual(Array(actual.string.utf16), Array(appended.string.utf16))
         XCTAssertTrue(actual.isEqual(to: appended))

@@ -37,21 +37,14 @@ pub(super) fn measure(
     {
         cached.metrics
     } else {
-        let mut title = arena.computed_style(context.slot, crate::StyleMask::INHERITED);
-        title.font_size = crate::style::metrics::length_in(
-            crate::generated::metric::ALERT_TITLE,
-            crate::style::metrics::Column::Neutral,
-            title.font_size,
-            arena.root_font_size(),
-        )
-        .unwrap();
-        title.font_weight = 600;
+        let title = arena.alert_title_style(context.slot);
         let shown = title.hyphens.shown(title.text_transform.apply(label, ""));
         let run = TextRun {
             text: shown,
             style: crate::TextStyle::from_style(&title),
         };
         let request = TextMeasureRequest {
+            atoms: Default::default(),
             runs: std::slice::from_ref(&run),
             paragraph: crate::text::Paragraph::from_style(&title),
             width,
@@ -83,11 +76,21 @@ pub(super) fn measure(
     ))
 }
 
-impl LayoutTree {
-    pub(super) fn new_alert_prefix(&mut self, slot: u32) -> NodeId {
-        let mut style = taffy::Style::default();
+/// The title's box: a line of its own in a flat alert's wrapping row, and in
+/// a grouped alert's column one that keeps its size (host/web/index.html).
+pub(super) fn prefix_style(grouped: bool) -> taffy::Style {
+    let mut style = taffy::Style::default();
+    if grouped {
+        style.flex_shrink = 0.0;
+    } else {
         style.flex_basis = taffy::style_helpers::percent(1.0);
-        let style = self.share(style);
+    }
+    style
+}
+
+impl LayoutTree {
+    pub(super) fn new_alert_prefix(&mut self, slot: u32, grouped: bool) -> NodeId {
+        let style = self.share(prefix_style(grouped));
         match self.taffy.new_leaf_with_context(
             style,
             MeasureContext {
@@ -115,7 +118,7 @@ impl LayoutTree {
                 self.mark_dirty(node);
                 Some(node)
             }
-            (true, None) => Some(self.new_alert_prefix(slot)),
+            (true, None) => Some(self.new_alert_prefix(slot, arena.grouped_alert(slot))),
             (false, Some(node)) => {
                 self.alert_prefixes.remove(&slot);
                 self.remove(node);

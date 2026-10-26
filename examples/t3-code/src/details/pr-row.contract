@@ -14,11 +14,11 @@
 //   blur settles to over the card (#fff, #121212): backdrop blur here sees only
 //   its parent, so a translucent popup would show the rows under it.
 // - PrCard: the row's tooltip with the host's detail: title and number, then
-//   the state, base ← head, the checks while open, a draft's conflict and the
-//   diff size; 4pt above the row, start-aligned unless it would cross the window
-//   (`flipped`: its end meets the link half's end). The reference portals it; here
-//   the details card clips it, so a flipped card wider than the room left of the
-//   link half's end is held inside the card's 8pt insets (`clamped`).
+//   the state, base ← head, the checks while open, a draft's conflict, the
+//   diff size and its split by file kind (74541bab17); 4pt above the row, start-aligned unless it would cross the window
+//   (`flipped`: its end meets the link half's end). The reference portals it; here the window's hover layer
+//   draws it (kind "pr-card"), so the details card does not clip it, and keeps it inside the window, flipping
+//   below the row where it does not fit above.
 // - MergeDialog: "Merge pull request?" / "This merges #N using <method>." with
 //   Cancel (Escape) and Merge.
 use DetailsPrRow from "../panel/pr-attachment-shapes.contract"
@@ -29,6 +29,7 @@ use ShellDetails from "../shell/shell-shapes.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use prdTone from "../pull-requests/pages-pr-detail.contract"
 use Tip from "../shell/shell-tip.contract"
+use PrBreakdownGrid from "../pull-requests/pr-breakdown.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
@@ -117,41 +118,44 @@ component PrCheckRow
       else if details
         text "Details" flex-shrink=0 font-size="0.75rem" line-height="1rem" visibility="hidden" aria-hidden=true
 
-// The tooltip card above the row's link half.
+// The row's tooltip card, as the window's hover layer draws it (app-window.contract, kind "pr-card").
 component PrCardView
   props
     card: PrCard
-    shown: bool
+    testId: string
   view
-    row position="absolute" bottom="2.25rem" left=(card.clamped ? "-0.5rem" : card.flipped ? "-25rem" : "0px") right=(card.flipped and not card.clamped ? "0px" : "-25rem") justify-content=(card.flipped and not card.clamped ? "flex-end" : "flex-start") pointer-events="none" z-index=140
-      column max-width=card.maxWidth padding-left="0.8125rem" padding-right="0.8125rem" padding-top="0.8125rem" padding-bottom="0.8125rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not shown) testId=(shown ? "details-pr-card" : "details-pr-card-hidden")
-        row gap="0.375rem" align-items="baseline" min-width=0
-          text card.title min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="0.75rem" font-weight=500 color=prRowInk()
-          text card.number flex-shrink=0 font-size="0.75rem" line-height="0.75rem" color=prRowMuted()
-        column gap="0.375rem" padding-left="0.125rem"
+    column max-width="20rem" padding-left="0.8125rem" padding-right="0.8125rem" padding-top="0.8125rem" padding-bottom="0.8125rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" role="tooltip" testId=testId
+      row gap="0.375rem" align-items="baseline" min-width=0
+        text card.title min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="0.75rem" font-weight=500 color=prRowInk()
+        text card.number flex-shrink=0 font-size="0.75rem" line-height="0.75rem" color=prRowMuted()
+      column gap="0.375rem" padding-left="0.125rem"
+        row gap="0.5rem" height="1rem" align-items="center"
+          PgIcon(name=(card.stateKey == "draft" ? "git-pull-request-draft" : card.stateKey == "closed" ? "git-pull-request-closed" : card.stateKey == "merged" ? "git-merge" : "git-pull-request-arrow"), size=12, color=prdTone(card.stateKey))
+          text card.stateLabel min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=prRowSoft()
+        row gap="0.5rem" height="1rem" align-items="center"
+          PgIcon(name="git-branch", size=12, color=prRowMuted())
+          text card.branches min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=prRowSoft()
+        if card.checksShown
           row gap="0.5rem" height="1rem" align-items="center"
-            PgIcon(name=(card.stateKey == "draft" ? "git-pull-request-draft" : card.stateKey == "closed" ? "git-pull-request-closed" : card.stateKey == "merged" ? "git-merge" : "git-pull-request-arrow"), size=12, color=prdTone(card.stateKey))
-            text card.stateLabel min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=prRowSoft()
-          row gap="0.5rem" height="1rem" align-items="center"
-            PgIcon(name="git-branch", size=12, color=prRowMuted())
-            text card.branches min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=prRowSoft()
-          if card.checksShown
-            row gap="0.5rem" height="1rem" align-items="center"
-              CheckGlyph(status=card.checksStatus, size=14)
-              text card.checksText min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=prRowSoft()
-          if card.conflictText != ""
-            row gap="0.5rem" align-items="flex-start"
-              box margin-top="0.125rem" display="flex" flex-shrink=0
-                PgIcon(name="triangle-alert", size=12, color=prRowDestructive())
-              // text-xs's own leading, so the mt-0.5 icon sits on its first line.
-              text card.conflictText flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=prRowDestructive()
-          row gap="0.5rem" height="1rem" align-items="center"
-            PgIcon(name="file-diff", size=12, color=prRowMuted())
-            row gap="0.25rem" align-items="baseline" min-width=0
-              text card.files white-space="nowrap" font-size="0.75rem" line-height="1rem" color=prRowSoft()
-              if card.additions != ""
-                text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
-                text card.deletions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=prRowDestructive()
+            CheckGlyph(status=card.checksStatus, size=14)
+            text card.checksText min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=prRowSoft()
+        if card.conflictText != ""
+          row gap="0.5rem" align-items="flex-start"
+            box margin-top="0.125rem" display="flex" flex-shrink=0
+              PgIcon(name="triangle-alert", size=12, color=prRowDestructive())
+            // text-xs's own leading, so the mt-0.5 icon sits on its first line.
+            text card.conflictText flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=prRowDestructive()
+        row gap="0.5rem" height="1rem" align-items="center"
+          PgIcon(name="file-diff", size=12, color=prRowMuted())
+          row gap="0.25rem" align-items="baseline" min-width=0
+            text card.files white-space="nowrap" font-size="0.75rem" line-height="1rem" color=prRowSoft()
+            if card.additions != ""
+              text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
+              text card.deletions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=prRowDestructive()
+        // PullRequestChangeBreakdownRows: the split inline (pl-5, foreground/75), with no Total.
+        if card.breakdown.rows.length > 0
+          box padding-left="1.25rem" display="flex"
+            PrBreakdownGrid(rows=card.breakdown.rows, total=card.breakdown.total, diff="", ink=prRowSoft())
 
 // The action at the second line's end (part "meta", tone primary or destructive): Resolve and Fix (with the
 // hand-off arrow), Ready, Merge.

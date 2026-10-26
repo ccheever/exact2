@@ -1,0 +1,12 @@
+{
+  "name": "@fixture/swatch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A package that carries a view: the seam's fixture for package views and their displayed and binding reports (LLP 1133.001 D1, LLP 1133.008 D8 items 1 and 2).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

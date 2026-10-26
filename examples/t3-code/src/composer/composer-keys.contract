@@ -1,0 +1,9 @@
+// The composer's chords, read from its own keydown (app.contract composerKeyEvent).
+
+// keyboard-dispatch.ts ariaChord's key: a named key as KeyboardEvent names it, a letter or digit by its physical key
+// (so ⌥A, which types "å", and a key under a Korean or Russian input source still match), anything else lowercased.
+fn composerChordKey(k: string, code: string): string = k == " " ? "Space" : (k.length > 1 ? k : ((code.startsWith("Key") and code.length == 4) ? code.slice(3).toLowerCase() : ((code.startsWith("Digit") and code.length == 6) ? code.slice(5) : k.toLowerCase())))
+// The chord as `aria-keyshortcuts` spells it: Meta, Control, Alt, Shift, then the key.
+fn composerChord(k: string, e: KeyboardEvent): string = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), composerChordKey(k, e.code)].filter((part) => part != "").join("+")
+// Whether a space-separated chord list holds the chord.
+fn composerChordIn(chords: string, chord: string): bool = chords.split(" ").includes(chord)

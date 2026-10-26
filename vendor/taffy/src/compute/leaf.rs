@@ -4,10 +4,10 @@
 use crate::geometry::Rect;
 use crate::geometry::Size;
 use crate::style::{AvailableSpace, Overflow, Position};
-use crate::tree::{Baselines, CollapsibleMarginSet, RunMode};
+use crate::tree::{Baselines, CollapsibleMarginSet, RequestedAxis, RunMode};
 use crate::tree::{LayoutInput, LayoutOutput, SizingMode};
 use crate::util::debug::debug_log;
-use crate::compute::ratio::{floors_height, Ratio};
+use crate::compute::ratio::{container_sizes_through_ratio, floors_height, Ratio};
 use crate::util::sys::{f32_max, f32_min};
 use crate::util::MaybeMath;
 use crate::util::{MaybeResolve, ResolveOrZero};
@@ -54,11 +54,33 @@ where
     let box_sizing_adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb_sum } else { Size::ZERO };
 
     // Resolve node's preferred/min/max sizes (width/heights) against the available space (percentages resolve to pixel values)
-    // For ContentSize mode, we pretend that the node has no size styles as these should be ignored.
+    // ContentSize normally ignores size styles; ratio width probes keep height bounds below.
     // EXACT PATCH 12 (LLP 1053 G1): the size styles through the ratio
     // (`compute::ratio`); the authored minimum is kept for the table below.
     let ratio = Ratio::of(style, pb_sum);
+    let ratio_content_width = sizing_mode == SizingMode::ContentSize
+        && inputs.axis == RequestedAxis::Horizontal
+        && ratio.is_some() && !style.is_compressible_replaced() && known_dimensions.width.is_none()
+        && (known_dimensions.height.is_none() || available_space.width == AvailableSpace::MinContent);
     let (given, raw_min_size, raw_max_size) = match sizing_mode {
+        // EXACT PATCH 64: an unsized non-replaced ratio leaf keeps height
+        // bounds for its intrinsic width, as containers do. Dropping the
+        // transferred cap inflates its flex basis and freezes growth.
+        // With a supplied height, only min-content needs the independent
+        // content floor. Cross-size resolution keeps the preferred ratio width.
+        SizingMode::ContentSize if ratio_content_width => (
+            known_dimensions,
+            Size {
+                width: None,
+                height: style.min_size().height.maybe_resolve(parent_size.height, &resolve_calc_value)
+                    .maybe_add(box_sizing_adjustment.height),
+            },
+            Size {
+                width: None,
+                height: style.max_size().height.maybe_resolve(parent_size.height, &resolve_calc_value)
+                    .maybe_add(box_sizing_adjustment.height),
+            },
+        ),
         SizingMode::ContentSize => (known_dimensions, Size::NONE, Size::NONE),
         SizingMode::InherentSize => (
             known_dimensions.or(style.size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment)),
@@ -68,6 +90,9 @@ where
     };
     let floor_height = floors_height(style, raw_min_size.height);
     let (node_size, node_min_size, node_max_size) = match ratio {
+        Some(_) if ratio_content_width => {
+            container_sizes_through_ratio(style, pb_sum, given, raw_min_size, raw_max_size, sizing_mode)
+        }
         Some(ratio) => ratio.resolve(given, raw_min_size, raw_max_size, floor_height),
         None => (given, raw_min_size, raw_max_size),
     };

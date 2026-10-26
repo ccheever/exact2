@@ -27,6 +27,11 @@ package final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 package class ScrollView: UIScrollView {
+    var scrollingNode: NodeView? { (superview as? NodeView) ?? (self as? Viewport)?.documentNode }
+    package override func layoutSubviews() {
+        super.layoutSubviews()
+        keepPlatformViewsOver()
+    }
     package override var accessibilityElements: [Any]? {
         get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
         set { super.accessibilityElements = newValue }
@@ -95,7 +100,7 @@ package class ScrollView: UIScrollView {
             if current === self { break }
             view = current.superview
         }
-        if let owner = superview as? NodeView, !owner.allowsTouchPan(direction) { return false }
+        if let owner = scrollingNode, !owner.allowsTouchPan(direction) { return false }
         return !handsOff(direction)
     }
     /// CSS's scroll chaining at a gesture's start (LLP 1070 G1, Q4 as ruled
@@ -106,7 +111,7 @@ package class ScrollView: UIScrollView {
     /// view actually scrolls; `contain` keeps the band, `none` keeps the
     /// gesture with no band. Never mid-gesture: UIKit asks once, at begin.
     func handsOff(_ velocity: CGPoint) -> Bool {
-        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        guard velocity != .zero, let owner = scrollingNode else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         let behavior = owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto"
         // One flag for both axes, written each gesture so a style that leaves
@@ -120,7 +125,7 @@ package class ScrollView: UIScrollView {
     /// `velocity` begun now chains to an enclosing scroller (a descendant's
     /// recognizer asks it, LLP 1057.001 rule 2).
     package func chains(_ velocity: CGPoint) -> Bool {
-        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        guard velocity != .zero, let owner = scrollingNode else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         guard (owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") == "auto" else { return false }
         let i = adjustedContentInset
@@ -142,6 +147,8 @@ package class ScrollView: UIScrollView {
                     ? (outer.contentOffset.x, -o.left, outer.contentSize.width + o.right - outer.bounds.width, (outer as? ScrollView)?.scrollsX ?? false)
                     : (outer.contentOffset.y, -o.top, outer.contentSize.height + o.bottom - outer.bounds.height, (outer as? ScrollView)?.scrollsY ?? (outer.superview as? NodeView)?.scrollsVertically ?? false)
                 if scrolls && high > low && (toward > 0 ? at > low + 0.5 : at < high - 0.5) { return true }
+                if scrolls, let node = (outer as? ScrollView)?.scrollingNode ?? (outer.superview as? NodeView),
+                   (node.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") != "auto" { return false }
             }
             up = current.superview
         }
@@ -245,7 +252,7 @@ extension NodeView {
         return node.isDescendant(of: sv) && !node.isHidden ? node.convert(node.bounds, to: sv) : nil
     }
 
-    func captureScrollPosition() {
+    func captureScrollPosition(focused: NodeView?) {
         // UIKit may have pending row geometry and its own offset adjustment.
         // Snapshot both from the same layout before preserving the reader.
         if groupedOwner { scrollView?.layoutIfNeeded() }
@@ -260,7 +267,7 @@ extension NodeView {
                     // UIKit quantizes offsets independently of fractional insets.
                     // A rounding difference at the start is not a reading anchor.
                     if sv.contentOffset.y + sv.adjustedContentInset.top > 0.5 { readingAnchors = presenter?.groupedLists?.scrollAnchors(for: id) ?? [] }
-                } else { captureScrollAnchor(sv) }
+                } else { captureScrollAnchor(sv, focused: focused) }
             }
             return
         }
@@ -312,7 +319,7 @@ extension NodeView {
                     let y = sv.isTracking || sv.isDecelerating ? top : min(max(top, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
                     // An element reveal heads for where its target now is instead (`IntoView.swift`).
                     if presenter?.elementScrolls.revealing(sv) != nil { presenter?.elementScrolls.retarget(sv) }
-                    else if y != sv.contentOffset.y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+                    else if y != sv.contentOffset.y { sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv, clamped: !(sv.isTracking || sv.isDecelerating)), animated: false) }
                 } else if !groupedOwner { restoreScrollAnchor(sv) }
             }
             return
@@ -345,9 +352,9 @@ extension NodeView {
             if prior.end { followsEndAfterInteraction = true }
             else if top != prior.top {
                 if groupedOwner {
-                    if sv.contentOffset.y != top { sv.contentOffset.y = top }
+                    if sv.contentOffset.y != top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: top), in: sv, clamped: false) }
                 }
-                else { sv.contentOffset.y += top - prior.top }
+                else { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: sv.contentOffset.y + top - prior.top), in: sv, clamped: false) }
             }
             anchoredScrollTop = sv.contentOffset.y
             return
@@ -361,7 +368,7 @@ extension NodeView {
             // smooth `scrollTop` write is; a shrink or a jump up lands at once.
             let animate = prior.end && y > sv.contentOffset.y && style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes && window != nil
             followingEndAnimated = animate
-            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: animate)
+            sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: y), in: sv), animated: animate)
         }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.

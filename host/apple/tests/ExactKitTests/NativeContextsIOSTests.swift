@@ -243,6 +243,28 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertFalse(segments.isEnabled, "inert disables it too")
     }
 
+    func testASegmentedTablistsBackgroundBelongsToTheNativeControlAndReturnsWithItsAuthoredTabs() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
+        defer { window.isHidden = true }
+        let owner = try XCTUnwrap(p.views[1]), control = try XCTUnwrap(p.segments.control(of: 1))
+        p.apply(wireBatch([
+            ["op": "style", "id": 1, "style": ["background_color": [255, 0, 0, 255]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0],
+        ]))
+        owner.layer.displayIfNeeded()
+        XCTAssertEqual(control.backgroundColor?.cgColor.components, [1, 0, 0, 1])
+        XCTAssertNil(owner.layer.backgroundColor, "no rectangular background around UIKit's compact control")
+        XCTAssertLessThan(control.frame.height, owner.bounds.height)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": [0, 0, 255, 255]]]]))
+        XCTAssertEqual(control.backgroundColor?.cgColor.components, [0, 0, 1, 1])
+        p.apply(wireBatch([["op": "style", "id": 1, "style": [:]]]))
+        XCTAssertNil(control.backgroundColor, "removing the colour restores UIKit's appearance")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "background_color": [255, 0, 0, 255], "written": ["appearance"]]]]))
+        owner.layer.displayIfNeeded()
+        XCTAssertNil(p.segments.control(of: 1))
+        XCTAssertEqual(owner.layer.backgroundColor?.components, [1, 0, 0, 1], "the authored box draws its own background again")
+    }
+
     func testNativeTabsAreATabBarOrSegmentsFromTheirFaces() throws {
         // A symbol and a title on every tab: the tab bar.
         var p = tablist([2: face("Inbox", symbol: "tray"), 3: face("Sent", symbol: "paperplane"), 4: face("Trash", symbol: "trash")],
@@ -257,8 +279,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual((0..<3).map { segments.titleForSegment(at: $0) }, ["Day", "Week", "Month"])
         // A face that becomes a symbol drops its title.
         p.buttonFace = { [unowned self] id in id == 2 ? self.face(nil, symbol: "sun.max", label: "Day") : self.face(id == 3 ? "Week" : "Month") }
-        p.views[2]?.props["accessibilityLabel"] = "Day"
-        p.segments.sync()
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Day"], "clear": []]]))
         XCTAssertNotNil(segments.imageForSegment(at: 0))
         XCTAssertEqual(segments.titleForSegment(at: 0) ?? "", "", "an image segment shows no title")
         // Symbols alone, named by their labels: image segments.
@@ -389,6 +410,19 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(node("period-Week")?.props["accessibilityChecked"], "false")
         p.segments.sync()
         XCTAssertEqual(segments.selectedSegmentIndex, 2)
+        // The same choice with radios that paint the chosen one (a class on
+        // one arm, LLP 1104 D2): the plan makes the group the author's, so
+        // it is never a segmented control, before a pick or after it, and its
+        // radios keep the group's keys.
+        let tint = try XCTUnwrap(node("tint"))
+        XCTAssertTrue(tint.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty)
+        XCTAssertEqual(node("tint-Day")?.isHidden, false)
+        XCTAssertTrue(node("tint-Day")?.ariaRadioGroup === tint)
+        p.press(try XCTUnwrap(node("tint-Day")).id)
+        p.segments.sync()
+        XCTAssertTrue(tint.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty, "a pick does not project it")
+        XCTAssertEqual(node("tint-Day")?.props["accessibilityChecked"], "true")
+        XCTAssertTrue(node("tint-Week")?.ariaRadioGroup === tint)
     }
 
     /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):
@@ -587,7 +621,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
         XCTAssertNotNil(controller.presentedViewController as? UIAlertController)
         names[3] = "Citymapper"
-        p.menus.sync()
+        p.apply(facesBatch())
         XCTAssertNil(p.menus.observation(), "the sheet is gone")
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[3])), false)
         XCTAssertEqual(pressed, [])

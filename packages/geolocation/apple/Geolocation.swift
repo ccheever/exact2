@@ -1,11 +1,16 @@
 // @exact/geolocation on Apple (LLP 1133.002 D3, D5, D10, D15): CoreLocation
 // through one `CLLocationManager`, answered in the interface's shapes. The
-// app's composed module calls it outside the agent; under the agent the
-// runner's substitute answers and no manager is created.
+// app's composed module calls it outside the agent, through `ExactPackage`'s
+// shape; under the agent the runner's substitute answers and no manager is
+// created, unless the drive binds it (`--bind geolocation`).
 //
 // - An option the call omits stays CoreLocation's (D2): `desiredAccuracy`
 //   is set only from `apple.desiredAccuracy` or a written
 //   `enableHighAccuracy` (WebKit's mapping: `Best`, `HundredMeters`).
+// - The approximate line is a ceiling (D7): iOS 27 opens the prompt with
+//   Precise on despite the line's `NSLocationDefaultAccuracyReduced`, so
+//   under the line every request asks for `kCLLocationAccuracyReduced`,
+//   which CoreLocation honours whatever the person granted.
 // - The state is a fact (D8): `authorizationStatus` and
 //   `accuracyAuthorization`, announced when they change.
 // - A request while `notDetermined` asks first (D9); a source asks only for
@@ -19,9 +24,10 @@
 //   delegate and, while a reader runs, the options it writes; a development
 //   build names a change to them (`log`).
 import CoreLocation
+import ExactPackage
 import Foundation
 
-public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
+public final class GeolocationModule: NSObject, CLLocationManagerDelegate, ExactPackage {
     /// The app's access hatch (D4): given the manager once, before its first
     /// request; a delegate returned hears every delegate call after the module.
     public static var hatch: ((CLLocationManager) -> CLLocationManagerDelegate?)?
@@ -46,15 +52,20 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
     /// One-shots asked again after a transient `locationUnknown`.
     private var unknown = 0
     private var watching = false
+    /// The last fix delivered, which under the ceiling is the cached one a
+    /// read may take: `manager.location` can be a precise fix.
+    private var delivered: CLLocation?
     private var last: [String: Any]?
     private var watchers: [([String: Any]) -> Void] = []
     /// The authorization last answered: CoreLocation also calls
     /// `locationManagerDidChangeAuthorization` when a manager is made.
     private var said: (CLAuthorizationStatus, CLAccuracyAuthorization)?
+    /// Whether the build carries the approximate line (D7); macOS has no such key.
+    private let approximate = Bundle.main.object(forInfoDictionaryKey: "NSLocationDefaultAccuracyReduced") as? Bool == true
 
-    public init(changed: @escaping (String) -> Void, agent: Bool, log: @escaping (String) -> Void) {
-        self.changed = changed
-        self.log = log
+    public init(context: ExactPackageContext) {
+        changed = context.changed
+        log = context.log
         super.init()
     }
 
@@ -77,7 +88,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    public func later(_ name: String, _ args: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+    public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
             checkOwned()
             switch name {
@@ -96,7 +107,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
         case "geolocationStatusSync": return status()
         case "getCurrentPositionSync":
             if authorization != .notDetermined, !granted { return ["error": "PERMISSION_DENIED"] }
-            guard granted, let fix = manager.location, eligible(fix, args) else { return ["error": "POSITION_UNAVAILABLE"] }
+            guard granted, let fix = cached, eligible(fix, args) else { return ["error": "POSITION_UNAVAILABLE"] }
             return position(fix)
         default: return ["error": "NotSupportedError"]
         }
@@ -138,7 +149,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
         return [
             "available": CLLocationManager.locationServicesEnabled(),
             "state": state,
-            "accuracy": state == "granted" ? (full ? "precise" : "approximate") : "unknown",
+            "accuracy": state == "granted" ? (full && !approximate ? "precise" : "approximate") : "unknown",
             "apple": ["authorizationStatus": authorizationWord, "accuracyAuthorization": full ? "fullAccuracy" : "reducedAccuracy"],
             "android": NSNull(),
         ]
@@ -191,11 +202,16 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
             "kilometer": kCLLocationAccuracyKilometer, "threeKilometers": kCLLocationAccuracyThreeKilometers,
             "reduced": kCLLocationAccuracyReduced,
         ]
+        var accuracy = manager.desiredAccuracy
         if let word = apple["desiredAccuracy"] as? String, let a = accuracies[word] {
-            manager.desiredAccuracy = a
+            accuracy = a
         } else if let high = args["enableHighAccuracy"] as? Bool {
-            manager.desiredAccuracy = high ? kCLLocationAccuracyBest : kCLLocationAccuracyHundredMeters
+            accuracy = high ? kCLLocationAccuracyBest : kCLLocationAccuracyHundredMeters
         }
+        if approximate { accuracy = kCLLocationAccuracyReduced }
+        // Each change makes CoreLocation deliver again, and a delivery asks
+        // the watch's readers again, which configure again.
+        if accuracy != manager.desiredAccuracy { manager.desiredAccuracy = accuracy }
         if let d = apple["distanceFilter"] as? Double { manager.distanceFilter = d }
         let activities: [String: CLActivityType] = ["other": .other, "automotiveNavigation": .automotiveNavigation, "fitness": .fitness, "otherNavigation": .otherNavigation, "airborne": .airborne]
         if let word = apple["activityType"] as? String, let a = activities[word] { manager.activityType = a }
@@ -205,6 +221,8 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
         wrote = (manager.desiredAccuracy, manager.distanceFilter, manager.activityType)
     }
 
+    private var cached: CLLocation? { approximate ? delivered : manager.location }
+
     /// A cached fix is eligible only when `maximumAge` is above 0 and it is
     /// younger (D2).
     private func eligible(_ fix: CLLocation, _ args: [String: Any]) -> Bool {
@@ -213,7 +231,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
     }
 
     private func oneShot(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
-        if let fix = manager.location, eligible(fix, args) { return reply(position(fix)) }
+        if let fix = cached, eligible(fix, args) { return reply(position(fix)) }
         let id = nextShot
         nextShot += 1
         oneShots.append((id, reply))
@@ -239,7 +257,8 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
     }
 
     private func precise(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
-        guard manager.accuracyAuthorization == .reducedAccuracy, let key = args["purposeKey"] as? String else {
+        // Under the ceiling there is no precise to ask for, as on Android.
+        guard !approximate, manager.accuracyAuthorization == .reducedAccuracy, let key = args["purposeKey"] as? String else {
             return reply(status())
         }
         // Declined or dismissed is no failure: the call answers the status (D10).
@@ -252,6 +271,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
         checkOwned()
         unknown = 0
         if let fix = locations.last {
+            delivered = fix
             let p = position(fix)
             let shots = oneShots
             oneShots = []

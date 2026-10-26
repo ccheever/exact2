@@ -56,7 +56,7 @@ fn toolbar_commands_and_select_record_roundtrip_and_run() {
     let editor = id(&r, "editor");
     assert_eq!(r.handlers_of(editor), [EventKind::Select]);
     let event =
-        Event::selection_payload("bold heading2\n1\ncode\nhttps://example.com\npath").unwrap();
+        Event::selection_payload("bold heading2\n1\ncode\n\nhttps://example.com\npath").unwrap();
     r.dispatch(editor, event).unwrap();
     assert_eq!(r.slot("formats"), Some(&Value::str("bold heading2")));
     assert_eq!(r.slot("mixed"), Some(&Value::Bool(true)));
@@ -68,7 +68,7 @@ fn toolbar_commands_and_select_record_roundtrip_and_run() {
     assert_eq!(r.slot("boldActive"), Some(&Value::Bool(true)));
     r.dispatch(
         editor,
-        Event::selection_payload("boldly italic\n0\n\n").unwrap(),
+        Event::selection_payload("boldly italic\n0\n\n\n").unwrap(),
     )
     .unwrap();
     assert_eq!(r.slot("boldActive"), Some(&Value::Bool(false)));
@@ -194,7 +194,7 @@ fn the_editors_text_events_carry_the_source_selection() {
             "input **あb**:insertCompositionText:3-3:true",
         ),
         (
-            Event::selection_payload("bold\n0\n\n").unwrap(),
+            Event::selection_payload("bold\n0\n\n\n").unwrap(),
             "select bold",
         ),
     ] {

@@ -1,21 +1,62 @@
 // A design server request's body and its JSON (scripts/tamber-server.mjs):
 // read whole up to a limit, parsed to an object, and how deep it nests.
 
-/** The body as text; null when over `limit` bytes (the connection is cut)
- * or when the client left. */
-export const readBody = (req, limit) => new Promise(done => {
-  if (req.destroyed) return done(null);
-  if (Number(req.headers['content-length']) > limit) { req.destroy?.(); return done(null); }
-  const chunks = []; let size = 0, settled = false;
-  const finish = v => { if (!settled) { settled = true; done(v); } };
-  req.on('data', chunk => {
-    size += chunk.length;
-    if (size > limit) { finish(null); req.destroy?.(); } else chunks.push(chunk);
+/** A request whose body is refused: answered first (a 413), its connection
+ * closing after. Until the answer has gone out the rest goes unread; then it
+ * is read and dropped, and the connection closed when it ends, so the client's
+ * last bytes meet no reset that could cost it the answer (closing with its
+ * bytes unread resets the connection); 5 s at most, whatever the client does.
+ * The design server's and the canvas gateway's. */
+export const refuseBody = (req, res, answer = () => {}) => {
+  req.pause();
+  res.setHeader('connection', 'close');
+  const fallback = setTimeout(() => req.destroy?.(), 5000);
+  fallback.unref?.();
+  // (Its socket's close, not the response's or the request's: Bun's node:http fires those before the answer is out.)
+  (req.socket ?? res.socket)?.once?.('close', () => clearTimeout(fallback));
+  res.once('finish', () => {
+    req.on('data', () => {});
+    req.once('end', () => { clearTimeout(fallback); req.destroy?.(); });
+    req.resume();
   });
-  req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
-  req.on('error', () => finish(null));
-  req.on('close', () => finish(null));
+  answer();
+};
+
+/** The body as text (`raw`: its bytes); null when over `limit` bytes,
+ * undefined when the client left (`== null` for either). Over it, with `res`, refused (`refuseBody`: the caller's
+ * answer goes out first); without `res`, the connection is cut. */
+export const readBody = (req, limit, res = null, raw = false) => new Promise(done => {
+  if (req.destroyed) return done(undefined);
+  const over = () => (res ? refuseBody(req, res) : req.destroy?.());
+  if (Number(req.headers['content-length']) > limit) { over(); return done(null); }
+  const chunks = []; let size = 0, settled = false;
+  // (its connection's close, below, let go of once settled: a keep-alive connection's requests add none for good)
+  const gone = () => finish(undefined);
+  const finish = v => { if (!settled) { settled = true; req.socket?.off?.('close', gone); done(v); } };
+  req.on('data', chunk => {
+    if (settled) return;
+    size += chunk.length;
+    if (size > limit) { chunks.length = 0; finish(null); over(); } else chunks.push(chunk);
+  });
+  req.on('end', () => finish(raw ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8')));
+  req.on('error', () => finish(undefined));
+  // The client left: settled here, or on its connection's close below. One that stays and only trickles is
+  // cut by its door's connection deadline (10 s, `timeoutMs` in tamber-remote.mjs's guard), which runs while
+  // a body arrives; a loopback request has the dev loop's.
+  req.on('close', () => finish(undefined));
+  // (and when its connection closes: Bun loses `req`'s close on a socket a TLS door hands to the HTTP
+  // server, so a client that left mid-body would hold this, and its chunks, for good)
+  req.socket?.once?.('close', gone);
 });
+
+/** A remote door's body, read while the server may still be starting (`ready`):
+ * 'over' (refuse it now: refuseBody's 5 s would otherwise run out behind a
+ * slow start), 'gone' (the client left: answer nothing, hold nothing), or
+ * 'go' (the body, or the server ready first). */
+export const earlyAnswer = async (early, ready) => {
+  const first = await Promise.race([early, ready.then(() => '')]);
+  return first === null ? 'over' : first === undefined ? 'gone' : 'go';
+};
 
 /** Whether `v` nests deeper than `max` arrays or objects (iterative, so a
  * deep value can't exhaust the stack here; stage 10 A2). */
@@ -41,3 +82,18 @@ export const parseRequest = text => {
  * bind's peer) never may (LLP 1122 D12): the wire and the canvas both ask
  * this, so the rule lives here once. */
 export const viaDoor = access => access?.local === true || access?.remote === true || access?.tunnel === true;
+
+/** A request sent on to a design server or dev loop on this machine (`tamber tool --via`'s proxy, the canvas gateway,
+ * their probes, the tool tests' proxy), on a connection of its own. A pooled one can be one the server has just
+ * closed as idle (Bun's node:http closes a kept-alive socket after 5 s and a second's grace): sent on it, the request
+ * meets a reset (ECONNRESET, "the socket connection was closed unexpectedly"). That is the likely cause of the
+ * design-tool test split's one ECONNRESET under load (QUEUE 2026-10-22), where the time before this side sees the
+ * close is long enough to land in; tamber-upstream.test.mjs makes the reuse certain. A loopback connect costs next
+ * to nothing. (`keepalive: false` turns pooling off in Bun's fetch, which runs these; Node's and a browser's read it
+ * otherwise.) */
+export const upstream = (url, init = {}) => {
+  // (A `connection: keep-alive` passed on from the client would put the socket back in the pool all the same.)
+  const headers = new Headers(init.headers);
+  headers.delete('connection'); headers.delete('keep-alive');
+  return fetch(url, { ...init, headers, keepalive: false });
+};

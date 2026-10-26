@@ -97,6 +97,7 @@ final class ComposerTextView: UITextView {
   private var ownedAlive = true
   private var pasteSerial = 0
   private var pasteProgress: [Progress] = []
+  private let imagePasteWork = DispatchGroup()
   private var ownedPasteURIs = Set<String>()
   override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
     super.setMarkedText(markedText, selectedRange: selectedRange)
@@ -330,6 +331,10 @@ final class ComposerTextView: UITextView {
     replace(textRange, withText: "")
   }
 
+  func whenImagePastesFinish(_ completion: @escaping () -> Void) {
+    imagePasteWork.notify(queue: .main, execute: completion)
+  }
+
   func loadImages(from providers: [NSItemProvider]) {
     guard ownedAlive, !isReadOnly, markedTextRange == nil, pasteAllowed() else { return }
     pasteSerial += 1
@@ -337,6 +342,8 @@ final class ComposerTextView: UITextView {
     for progress in pasteProgress { progress.cancel() }
     pasteProgress.removeAll()
     let group = DispatchGroup()
+    let work = imagePasteWork
+    work.enter()
     let lock = NSLock()
     var images = [UIImage?](repeating: nil, count: providers.count)
 
@@ -355,6 +362,7 @@ final class ComposerTextView: UITextView {
     }
 
     group.notify(queue: .main) { [weak self] in
+      defer { work.leave() }
       guard let self, self.ownedAlive, !self.isReadOnly, self.markedTextRange == nil, self.pasteSerial == serial, self.pasteAllowed(),
             self.serializedText() == source, NSEqualRanges(self.selectedRange, selection) else {
         return

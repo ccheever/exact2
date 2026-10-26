@@ -19,6 +19,18 @@ import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInput
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
+/** Poll host I/O until ready; a bound only ends a hung load. Return its last observation for diagnostics. */
+export async function pollUntil(read, ready, { bound = 60_000, interval = 50, now = Date.now, pause = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const until = now() + bound;
+  while (true) {
+    const value = await read();
+    if (ready(value)) return value;
+    const remaining = until - now();
+    if (remaining <= 0) return value;
+    await pause(Math.min(interval, remaining));
+  }
+}
+
 // The compiler's warnings in a build's output, and the lines a drive says for them: app-cli.mjs, which runs a
 // drive's build first, has them; verify, the dev loop and agent-build.mjs read them from here.
 export { compilerWarnings, warningLines } from './app-cli.mjs';
@@ -196,14 +208,6 @@ export function noteDefaultStore({ host, device, appId, dir }, root = resolve(ho
   if (existsSync(mark)) return;
   try { mkdirSync(store, { recursive: true }); writeFileSync(mark, ''); } catch { /* noted again next time */ }
   console.error("note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored (one that compares with a reference starts empty); --reset-storage empties it, --storage <name> names another");
-}
-/** What a drive with XCTest's touches says when the simulator `udid`'s accessibility automation was off: the touches
- * turn it on and it stays on, across reboots, so UIKit loads its accessibility runtime at every launch (euxy's debug
- * launch: 1.25 s, then 2.45 s, iPhone 17 on iOS 27). Null when it was on already. */
-export function accessibilityNote(udid, touch) {
-  const read = spawnSync('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', 'com.apple.Accessibility', 'AutomationEnabled'], { encoding: 'utf8' });
-  return read.stdout?.trim() === '1' ? null
-    : `--touch ${touch} turns this simulator's accessibility automation on, and it stays on: every launch is then about a second slower, so time a launch on a simulator no such drive has used, or turn it off: xcrun simctl spawn ${udid} defaults write com.apple.Accessibility AutomationEnabled -bool false, then xcrun simctl shutdown ${udid} and xcrun simctl boot ${udid}`;
 }
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
@@ -464,6 +468,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
+    else if (argv[i] === '--format-locale') flags.formatLocale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
     else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
@@ -479,12 +484,18 @@ export function parseFlags(argv) {
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
     else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A relaunch whose platform hands it a listed entry (LLP 1133.004 §7): `--notification '<entry>'`, the
+    // entry as `state.notifications` printed it, delivered as its tap would be before the first op.
+    else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
+    // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
+    else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if (['ios', 'host-ios'].includes(rest[0]) && flags.phone !== undefined && !flags.device) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
   if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
@@ -569,7 +580,7 @@ export function withEpoch(href, epoch) {
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 
-export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
+export function launchFacts({seed, locale, formatLocale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
   // An ISO date, Unix milliseconds or `now` (the machine's clock, read here, once); hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
@@ -583,12 +594,15 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
   new Intl.DateTimeFormat(locale, {timeZone}).format(0);
+  // The Region's format apart from the language (`exactTime().formatLocale`); unsaid, the hosts answer the locale.
+  formatLocale = formatLocale ?? env.EXACT_AGENT_FORMAT_LOCALE;
+  if (formatLocale !== undefined) formatLocale = Intl.getCanonicalLocales(formatLocale)[0];
   failFetch = faultSpec(failFetch ?? env.EXACT_AGENT_FAIL_FETCH);
-  return {seed, locale, timeZone, epoch, ...(failFetch ? {failFetch} : {})};
+  return {seed, locale, timeZone, epoch, ...(formatLocale ? {formatLocale} : {}), ...(failFetch ? {failFetch} : {})};
 }
 
 export function launchEnvironment(facts) {
-  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
+  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch), ...(facts.formatLocale ? {EXACT_AGENT_FORMAT_LOCALE: facts.formatLocale} : {}), ...(facts.failFetch ? {EXACT_AGENT_FAIL_FETCH: facts.failFetch} : {})};
 }
 
 // A build older than what it was made from is refused before launch
@@ -795,8 +809,10 @@ export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|dat
 const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
 const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // A shell or op-list helper outside the trees a build actually reads. A `.js`
-// or `.mjs` file counts: `app.ts` may import one (a game's own scripts are
-// `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
+// or `.mjs` file is read through `moduleGraph` like a `.ts`: one app.ts
+// imports counts, one it never imports (an export script beside the app) is
+// no input; without a graph every one counts, since a stale build run as
+// fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 // What app.ts reaches (LLP 1116.003 D1.1). The bake captures every TypeScript
@@ -810,7 +826,7 @@ const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 // name: over-inclusion costs only a rebuild. Null (every TypeScript file counts)
 // without an app.ts, or when tsconfig maps bare specifiers (`paths`, `baseUrl`).
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)(['"])([^'"\n]+)\1/g;
-export const MODULE_FILE = /\.(tsx?|json)$/;
+export const MODULE_FILE = /\.(tsx?|[cm]?js|json)$/;
 export const CONFIG_JSON = /^(app|package|jsconfig|tsconfig[^/]*)\.json$/;
 /** The declarations the bake writes beside app.ts: its output, never an input. */
 export const DECLARATIONS = 'app.contract.d.ts';
@@ -827,7 +843,7 @@ export function moduleGraph(dir, manifest) {
     let isFile = false; try { isFile = statSync(file).isFile(); } catch {}
     if (seen.has(at) || !isFile) continue;
     seen.add(at); graph.add(file);
-    if (!/\.tsx?$/.test(file)) continue;
+    if (!/\.(tsx?|[cm]?js)$/.test(file)) continue;
     for (const [, , spec] of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
       if (!spec.startsWith('.')) continue;
       const base = resolve(dirname(at), spec), stem = base.replace(/\.(m?js|jsx)$/, '');
@@ -1226,4 +1242,14 @@ export function proofProductChanges(receipt, bin, app, root = ROOT) {
   for (const [path,hash] of Object.entries(record.products))
     if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
   return changed;
+}
+
+/** Each `--notification '<entry>'` (LLP 1133.004 §7): the entry handed to the relaunched app, as the platform hands a
+ * closed app its click, before the drive's first op; each `--wake '<entry>'` (LLP 1133.017 §10) likewise, raised as a
+ * cold wake. */
+export async function launchEntries(s, flags) {
+  for (const entry of flags.launchEntries ?? []) {
+    const r = await s.op({ op: 'launchEntry', ...entry });
+    if (r?.error) throw new Error(r.error);
+  }
 }

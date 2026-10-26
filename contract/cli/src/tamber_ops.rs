@@ -104,16 +104,23 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
                 name: s(v, "name")?,
                 when: conds(v)?,
                 value: s(v, "value")?,
+                respell: None,
             },
             Some("unset-param") => Op::UnsetParam {
                 name: s(v, "name")?,
                 when: conds(v)?,
+                respell: None,
             },
             Some("remove-axis-value") => Op::RemoveAxisValue {
                 axis: s(v, "axis")?,
                 value: s(v, "value")?,
             },
-            other => return Err(bad(format!("no operation {}", other.unwrap_or("(none)")))),
+            other => {
+                let what = other.unwrap_or("(none)");
+                return Err(bad(exact_tamber::bounded_words(format!(
+                    "no operation {what}"
+                ))));
+            }
         };
         out.push((file, op));
     }
@@ -123,8 +130,10 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
 /// The app's params as the design's folds take them (LLP 1121 D15).
 pub(crate) fn params(app: &contract::tamber_params::AppParams) -> exact_tamber::params::Params {
     // And its packages' tokens (LLP 1121 D11), which every plan folds beside the design.
+    let (joined, joined_icons) = contract::tamber_params::joined_all(app);
     exact_tamber::params::Params {
-        joined: contract::tamber_params::joined(app),
+        joined,
+        joined_icons,
         ..contract_lower::params::folds(&app.tokens, &app.identities)
     }
 }
@@ -133,7 +142,9 @@ pub(crate) fn params(app: &contract::tamber_params::AppParams) -> exact_tamber::
 /// name no param answers or an ambiguous short one; written on the line the
 /// design already has for that param, by the name that line uses, or by
 /// the name an earlier op of this transaction wrote it by, so one
-/// transaction never gives a param two lines.
+/// transaction never gives a param two lines; an exported library
+/// component's param set by its full name, its line respelled if it is
+/// short (LLP 1139 D8).
 pub(crate) fn param_names(
     ops: &mut [(String, Op)],
     snap: &[(String, String, String)],
@@ -155,13 +166,26 @@ pub(crate) fn param_names(
                 continue;
             }
         }
-        let name = match op {
-            Op::SetParam { name, .. } | Op::UnsetParam { name, .. } => name,
+        let (name, respell) = match op {
+            Op::SetParam { name, respell, .. } => (name, Some(respell)),
+            // A `when` line's removal keeps the param's line, respelled;
+            // the whole param's removes it as it is spelled.
+            Op::UnsetParam {
+                name,
+                when,
+                respell,
+            } => (name, (!when.is_empty()).then_some(respell)),
             _ => continue,
         };
+        // Bounded before anything formats it, as `edit::valid` would.
+        if let Some((id, why)) = exact_tamber::over_name(name) {
+            return Err(json!({"message": format!("{id}: {why}"), "id": id}));
+        }
         let resolve = |n: &str| contract_lower::params::resolve(&app.tokens, &app.identities, n);
-        let p = resolve(name)
-            .map_err(|e| json!({"message": format!("{}: {}", e.id, e.message), "id": e.id}))?;
+        let p = resolve(name).map_err(|e| {
+            let message = exact_tamber::bounded_words(format!("{}: {}", e.id, e.message));
+            json!({"message": message, "id": e.id})
+        })?;
         let design = snap
             .iter()
             .find(|(f, _, _)| f == file)
@@ -172,11 +196,27 @@ pub(crate) fn param_names(
                 .find(|e| resolve(&e.name.value).is_ok_and(|q| q.token == p.token))
                 .map(|e| e.name.value.clone())
         });
+        // An earlier op's spelling first: it may have respelled the line.
         let earlier = written
             .iter()
-            .find(|(f, t, _)| f == file && *t == p.token)
+            .rfind(|(f, t, _)| f == file && *t == p.token)
             .map(|(_, _, n)| n.clone());
-        let spelled = line.or(earlier).unwrap_or_else(|| name.clone());
+        // An exported library component's param is written by its full
+        // name whatever name it was asked by, a new line and a set of a
+        // line spelled short alike: a short one is
+        // `tamber-param-short-library`, which the build refuses (LLP 1139
+        // D8). An unset removes the line as it is spelled.
+        let library = app
+            .library
+            .iter()
+            .any(|(identity, _, d)| *identity == p.identity && d.library);
+        let mut spelled = earlier.or(line).unwrap_or_else(|| name.clone());
+        if let (true, Some(respell)) = (library, respell) {
+            if spelled != p.full {
+                *respell = Some(spelled);
+                spelled = p.full.clone();
+            }
+        }
         written.push((file.clone(), p.token.clone(), spelled.clone()));
         *name = spelled;
     }
@@ -223,11 +263,21 @@ pub(crate) fn param_values(
                 }
             })),
             Ok(folding) if refused.is_empty() => {
-                // An icon param's SVG is the app's file (D10), as the build
-                // reads it.
+                // An icon param's SVG is a file beside the design it is
+                // written in (D10; a package's default's, its package's, stage 13), as the build reads it.
                 for i in folding.icons.iter().filter(|i| i.name.starts_with(contract_lower::params::PREFIX)) {
-                    if let Some(svg) = i.svg.as_ref().filter(|f| !dir.join("assets").join(f).is_file()) {
-                        refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` is no file of the app", i.name))}));
+                    let home = contract_lower::icons::Home::of(i, Some(dir), &app.packages, list);
+                    let whose = home.package.map_or_else(|| "the app".to_string(), |p| format!("the package `{p}`"));
+                    if let Some(svg) = i.svg.as_ref() {
+                        // A package's confined to its own `assets/` (round 1, Astra 4).
+                        let why = match home.svg(svg) {
+                            Some(p) if home.leaves(&p) => Some("leaves"),
+                            Some(p) if p.is_file() => None,
+                            _ => Some("is no file of"),
+                        };
+                        if let Some(why) = why {
+                            refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` {why} {whose}", i.name))}));
+                        }
                     }
                 }
                 // A value set charged to its line, a default to its own.

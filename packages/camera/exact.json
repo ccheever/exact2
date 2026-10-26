@@ -1,0 +1,89 @@
+{
+  "kind": "interface",
+  "name": "@exact/camera",
+  "version": "1.0.0",
+  "uses": "@exact/media-capture@1.0.0",
+  "grants": [
+    "device.camera"
+  ],
+  "substitute": "implementation",
+  "shapes": {
+    "Photo": {
+      "path": "string",
+      "type": "string",
+      "size": "number",
+      "width": "number",
+      "height": "number"
+    },
+    "PhotoCapabilities": {
+      "redEyeReduction": "enum<never|always|controllable>",
+      "imageWidth": "PhotoRange",
+      "imageHeight": "PhotoRange",
+      "fillLightMode": "enum<auto|off|flash>[]"
+    },
+    "PhotoRange": {
+      "min": "number",
+      "max": "number",
+      "step": "number"
+    },
+    "CameraPicture": {
+      "path": "string"
+    }
+  },
+  "views": {
+    "exact-camera": {
+      "props": {
+        "srcObject": {
+          "type": "handle<track>",
+          "binds": true
+        },
+        "object-fit": "option<string>",
+        "tapToFocus": "option<bool>",
+        "pinchToZoom": "option<bool>"
+      },
+      "events": [
+        "load"
+      ],
+      "displayed": true
+    }
+  },
+  "names": [
+    {
+      "send": "takePhoto",
+      "grants": [
+        "device.camera"
+      ],
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "track": "handle<track>",
+        "fillLightMode": "option<enum<auto|off|flash>>",
+        "imageWidth": "option<number>",
+        "imageHeight": "option<number>",
+        "redEyeReduction": "option<bool>",
+        "path": {
+          "type": "path",
+          "access": "write",
+          "optional": true
+        }
+      },
+      "answers": "Photo"
+    },
+    {
+      "source": "getPhotoCapabilities",
+      "live": true,
+      "grants": [
+        "device.camera"
+      ],
+      "options": {
+        "track": "handle<track>"
+      },
+      "answers": "PhotoCapabilities"
+    },
+    {
+      "source": "picture",
+      "live": true,
+      "answers": "CameraPicture"
+    }
+  ]
+}

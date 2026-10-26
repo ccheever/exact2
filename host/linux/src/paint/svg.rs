@@ -155,7 +155,10 @@ impl Painter {
                     .resolve(self.dark),
             )
         });
-        self.symbol_face(role, style, rect, colour, ts);
+        let face = node.computed_style(exact_kernel::StyleMask::of(
+            exact_kernel::StyleId::FontWeight,
+        ));
+        self.symbol_face(role, &face, rect, colour, ts);
     }
 
     /// A semantic button's symbol shares the portable image painter.
@@ -353,6 +356,25 @@ impl Painter {
         }
         self.paint_svg(&scene, clips, rect, content, ts);
         self.svg_layers.clear();
+    }
+
+    /// An SVG image's picture (LLP 1011.001 D3): `scene`, resolved at a
+    /// content box of `css` points, painted by a painter of its own at
+    /// `scale` device pixels per point into a transparent pixmap of
+    /// `css × scale` pixels, as an island is, so the picture and the same
+    /// content inlined never differ on this host.
+    pub(crate) fn svg_picture(
+        text: crate::text::Shared,
+        scene: &exact_kernel::svg::Scene,
+        css: (f32, f32),
+        scale: f32,
+    ) -> Result<tiny_skia::Pixmap, String> {
+        let mut painter = Painter::new(text, scale, Box::new(crate::raster::Raster::transparent()));
+        painter.viewport = css;
+        painter.backend.begin(css.0, css.1, scale);
+        let rect: Rect4 = (0.0, 0.0, css.0, css.1);
+        painter.paint_svg(scene, scene.clip, rect, rect, Transform::identity());
+        painter.backend.finish()
     }
 
     /// A resolved `svg` scene inside its box: clipped to the border box

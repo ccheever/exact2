@@ -6,7 +6,7 @@
 //
 // `planRequest` is the reference's `handleRequest` up to the point where it waits on the page: it resolves the
 // target tab from the thread's preview store, decides reuse, presentation and readiness, and names everything the
-// module needs. The module (T3BrowserAutomation.swift) does the waiting and answers `previewAutomation.respond`.
+// executor needs. The executor (browser-automation-run.ts) does the waiting and answers `previewAutomation.respond`.
 import type { PreviewSessionSnapshot, PreviewViewportSetting, ThreadPreviewState } from './browser-state';
 import { previewRuntimeTabId } from './browser-state';
 import { normalizePreviewUrl } from './browser-url';
@@ -54,8 +54,8 @@ export function resolveHostWaitBudgetMs(requestTimeoutMs: number): number {
 }
 export type Timers = { now: () => number; setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (handle: unknown) => void };
 /** Both readiness probes and polling delays share the request's host deadline. A data source has no clock and no
- *  timers (LLP 1027.000), so the module runs this rule (T3BrowserAutomation.waitForHostReadiness, from the budget it
- *  is handed); this port, over an injected clock, is the rule's tested statement. */
+ *  timers (LLP 1027.000), so the executor runs this rule over the module's sleeps (browser-automation-run.ts
+ *  `waitUntil`); this port, over an injected clock, is the rule's tested statement. */
 export async function waitForHostReadiness(deadlineMs: number, isReady: () => Promise<boolean>, timers: Timers): Promise<boolean> {
   while (timers.now() < deadlineMs) {
     let timeout: unknown;
@@ -209,7 +209,6 @@ export function planRequest(context: PlanContext): { plan: Plan; effects: PlanEf
       return { plan: { ...base, tabId: null, runtimeId: null, open: {
         create: { threadId: request.threadId, ...(input.url !== undefined ? { url: input.url } : {}), viewport, profileId: context.openDefaults?.profileId ?? 'default' },
         epoch: state.serverEpoch, present, suppress: suppressed,
-        // Part 2 (the device toolbar) renders it; T3BrowserViewport is the hook.
         defaultViewport: previewAutomationDefaultViewport(false, { viewport }),
       } }, effects };
     }

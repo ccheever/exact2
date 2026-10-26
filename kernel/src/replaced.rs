@@ -13,6 +13,72 @@ use taffy::geometry::{Rect, Size};
 use taffy::style::{AvailableSpace, BoxSizing};
 use taffy::tree::SizingMode;
 
+/// CSS `zoom` on an `iframe` (@ref LLP 1020.002 D6), else 1: the one
+/// element the compiler admits it on.
+pub(crate) fn zoom(arena: &NodeArena, slot: u32) -> f32 {
+    let z = arena.style(slot).rare.zoom;
+    if arena.node_type(slot) == NodeType::WebView && z.is_finite() && z > 0.0 {
+        z
+    } else {
+        1.0
+    }
+}
+
+/// Multiplies the element's own absolute lengths by its `zoom`, as Chrome
+/// zooms a frame: its sizes, margins, padding, borders and insets, never a
+/// percentage (a frame sized by its container keeps its size; Chrome 155,
+/// LLP 1020.002 D6). The default object size is zoomed in [`measure`].
+pub(crate) fn apply_zoom(arena: &NodeArena, slot: u32, s: &mut taffy::Style) {
+    use taffy::style::{CompactLength, Dimension, LengthPercentage, LengthPercentageAuto};
+    let z = zoom(arena, slot);
+    if z == 1.0 {
+        return;
+    }
+    let scaled =
+        |raw: CompactLength| (raw.tag() == CompactLength::LENGTH_TAG).then(|| raw.value() * z);
+    let dim = |d: &mut Dimension| {
+        if let Some(v) = scaled(d.into_raw()) {
+            *d = Dimension::length(v);
+        }
+    };
+    let lp = |d: &mut LengthPercentage| {
+        if let Some(v) = scaled(d.into_raw()) {
+            *d = LengthPercentage::length(v);
+        }
+    };
+    let lpa = |d: &mut LengthPercentageAuto| {
+        if let Some(v) = scaled(d.into_raw()) {
+            *d = LengthPercentageAuto::length(v);
+        }
+    };
+    dim(&mut s.size.width);
+    dim(&mut s.size.height);
+    for size in [&mut s.min_size, &mut s.max_size] {
+        lpa(&mut size.width);
+        lpa(&mut size.height);
+    }
+    for rect in [&mut s.padding, &mut s.border] {
+        for side in [
+            &mut rect.left,
+            &mut rect.right,
+            &mut rect.top,
+            &mut rect.bottom,
+        ] {
+            lp(side);
+        }
+    }
+    for rect in [&mut s.margin, &mut s.inset] {
+        for side in [
+            &mut rect.left,
+            &mut rect.right,
+            &mut rect.top,
+            &mut rect.bottom,
+        ] {
+            lpa(side);
+        }
+    }
+}
+
 /// The content size of `slot` given what is `known` and the `space` offered,
 /// or `None` when it is not a replaced element. `inset` is its padding plus
 /// border.
@@ -30,7 +96,10 @@ pub(crate) fn measure(
         return None;
     }
     let natural = arena.intrinsic(slot);
-    let default = node_type.default_object_size();
+    let zoom = zoom(arena, slot);
+    let default = node_type
+        .default_object_size()
+        .map(|((w, h), natural)| ((w * zoom, h * zoom), natural));
     // What the ratio relates: the content box, or the border box
     // (box-sizing, unless `auto <ratio>`).
     let (pw, ph) = if style.aspect_ratio_content_box || style.box_sizing == BoxSizing::ContentBox {
@@ -120,14 +189,22 @@ pub(crate) fn symbol_role(arena: &NodeArena, slot: u32) -> Option<&str> {
 
 /// The Apple system symbol a `symbol:` role draws: an `sf/<name>`'s own
 /// name, an icon token's SF Symbol (LLP 1121 D10), or a portable role's
-/// Apple name; "" for a role with none, which draws no glyph.
+/// Apple name; "" for a role with none, which draws no glyph. A role is read
+/// by any of its spellings, as the compiler reads a literal source: a
+/// computed `symbol:house` or `symbol:gear` draws what the literal would.
 pub fn apple_symbol_name(role: &str) -> &str {
     if let Some(icon) = Icon::parse(role) {
         return icon.sf;
     }
     role.strip_prefix("sf/")
-        .or_else(|| crate::generated::symbol(role).map(|s| s.0))
+        .or_else(|| crate::generated::symbol(portable_role(role)).map(|s| s.0))
         .unwrap_or("")
+}
+
+/// The portable role `name` spells (itself, Apple's name for it or a table
+/// alias), or `name` as given when it spells none.
+fn portable_role(name: &str) -> &str {
+    crate::generated::symbol_role(name).unwrap_or(name)
 }
 
 /// An icon token's source form, as the build writes it after `symbol:`
@@ -189,7 +266,7 @@ pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
             .iter()
             .copied()
             .find(|r| crate::generated::symbol(r).is_some_and(|s| s.0 == sf))?,
-        None => name,
+        None => portable_role(name),
     };
     crate::generated::symbol(role).map(|(_, d, filled)| SymbolPath {
         d,
@@ -224,5 +301,23 @@ mod tests {
         assert_eq!(symbol_path(&format!("sf/{}", back.0)), Some(role));
         assert_eq!(symbol_path("sf/flag.checkered"), None);
         assert_eq!(apple_symbol_name("sf/flag.checkered"), "flag.checkered");
+    }
+
+    /// A computed source spells a role as a literal may: by Apple's name or
+    /// a table alias, which the runtime reads as the compiler does.
+    #[test]
+    fn a_role_by_another_spelling_draws_as_the_role() {
+        let home = crate::generated::symbol("home").unwrap();
+        assert_eq!(apple_symbol_name("home"), home.0);
+        assert_eq!(
+            apple_symbol_name("house"),
+            home.0,
+            "Apple's name, `.` read as `-`"
+        );
+        assert_eq!(symbol_path("house"), symbol_path("home"));
+        let settings = crate::generated::symbol("settings").unwrap();
+        assert_eq!(apple_symbol_name(settings.0), settings.0);
+        assert_eq!(apple_symbol_name("no-such-role"), "");
+        assert_eq!(symbol_path("no-such-role"), None);
     }
 }

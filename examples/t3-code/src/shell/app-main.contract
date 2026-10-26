@@ -56,6 +56,7 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 // The conversation column: header, transcript (or the empty thread), composer stack and alerts.
 component ChatColumn
   inject
+    frameMoved: action
     threadFind: ThreadFindView
     rem: number
     // Ends a citation's placement (app.contract citePlace): the reader's wheel or a minimap jump moves the transcript.
@@ -291,7 +292,7 @@ component ChatColumn
   // details popover (below), and any other popup that overflows the column's foot, runs over an open drawer as the
   // reference's portaled popups do.
   view
-    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped hatch="t3-frame" data-frame="chat"
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped id="frame-chat" resize=frameMoved
       input type="file" id="composer-attach-input" multiple=true display="none" change=filesPicked
       HeroWidthProbe(name=home.projectName)
       // z-index 20 here as on the header inside: z-index orders siblings only (LLP 1001), and the header's menus overhang the transcript.
@@ -332,24 +333,24 @@ component ChatColumn
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
-      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hatch="t3-frame" data-frame="overlay" testId="composer-overlay"
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" id="frame-overlay" resize=frameMoved testId="composer-overlay"
         column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab.
-          row width="100%" align-items="flex-end" hatch="t3-frame" data-frame="shoulder"
-            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") hatch="t3-frame" data-frame="dock"
+          row width="100%" align-items="flex-end" id="frame-shoulder" resize=frameMoved
+            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") id="frame-dock" resize=frameMoved
               if editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
                 ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             if editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
           RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 6 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
         // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
-        column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hatch="t3-frame" data-frame="stack"
+        column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" id="frame-stack" resize=frameMoved
           column width="100%" max-width=data.look.chatMax position="relative"
             // A pending approval leaves the composer usable: a send declines it and redirects the agent.
             if data.composer.subagent
               SubagentBar(data=data, busy=commandPending, openParent=selectThread)
             else
-              ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp, openModels=openModels)
+              ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               if branches.show and not resting
                 ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768), compact=data.composer.stripCompact)
@@ -368,9 +369,10 @@ component ChatColumn
       // A device floated over the chat (device-workspace.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
-      // A Browser tab floated over the chat (browser-capture.contract).
-      if shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
-        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
+      // A server Browser tab floated over the chat (browser-capture.contract); a tab with a frame floats in the page layer
+      // (browser-frames.contract BrowserFrameLayer).
+      if shell.panel.browserMini.show and shell.panel.browserMini.server and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
+        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside, framed=false)
       if hero and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.

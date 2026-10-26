@@ -1,5 +1,6 @@
 // T3 protocol 2, inspected at 4f7760e6. The backend remains the wire authority.
 import { obj, str, num, arr, type Obj } from './domain';
+import { adoptedFiles } from '../media/save-file';
 
 export interface BridgeReply {
   ok: boolean;
@@ -71,29 +72,53 @@ export async function bridgeReply(native: Native, request: unknown): Promise<Bri
   }
 }
 
-// Keep the versioned preference file under Exact's app-scoped native data root.
-// Each operation uses this answer's native ticket; it never opens an Exact
-// storage turn or chains work behind another answer's pending promise.
-export function nativeFiles(native: Native): Files {
-  const invoke = async (request: Obj) => {
-    const result = await bridgeReply(native, request);
-    if (!result.ok) throw new ClientError(result.error!.message, result.error!.kind);
-    return obj(result.value);
-  };
+/** The versioned preference file (client.ts): selections, drafts and preferences, written whole. */
+export const PREFERENCE_PATH = 'app:/data/t3-code.json';
+const PREFERENCE_LIMIT = 16 * 1024 * 1024;
+type StorageError = Error & { kind?: string; code?: string };
+const storageFailure = (error: unknown): StorageError | null => error instanceof Error && (error as StorageError).kind === 'Unavailable' ? error as StorageError : null;
+/**
+ * The preference file in Exact's app storage (`storage.fs`, which runs a module's operations in the order they were
+ * issued, so a read sees every write before it). `storage` is an answer's; without one, the last an answer handed over
+ * (save-file.ts adoptAppFiles: a field's completion saves from an answer that has none). A file that is not there reads as empty, as every read
+ * does in a drive that names no scratch store; such a drive keeps no writes, and neither does the build. Any other
+ * failure is a ClientError the client shows. The SnapShot shortcut and the embedded server's carry-over read the same
+ * file natively (the module's data root is `app:/data`).
+ */
+export function preferenceFiles(storage: Files | null | undefined = adoptedFiles() as Files | null): Files {
+  const fs = storage?.fs as (Files['fs'] & { stat?(path: string): Promise<{ size: number }> }) | undefined;
   const checkPath = (path: string) => {
-    if (path !== 'app:/data/t3-code.json') throw new ClientError('The preference path is invalid.', 'Persistence');
+    if (path !== PREFERENCE_PATH) throw new ClientError('The preference path is invalid.', 'Persistence');
   };
   return { fs: {
     async mkdir() {},
     async readFile(path) {
       checkPath(path);
-      const result = await invoke({ op: 'readPreferences' });
-      if (typeof result.text !== 'string') throw new ClientError('The saved preferences could not be read.', 'Persistence');
-      return new TextEncoder().encode(result.text).buffer;
+      if (!fs) return new ArrayBuffer(0);
+      let bytes: ArrayBuffer;
+      try {
+        if (fs.stat && (await fs.stat(path)).size > PREFERENCE_LIMIT) throw new ClientError('Saved drafts and preferences are too large.', 'Limit');
+        bytes = await fs.readFile(path);
+      } catch (error) {
+        const failure = storageFailure(error);
+        if (!failure) throw error;
+        if (failure.code === 'ENOENT' || failure.code === 'bake') return new ArrayBuffer(0);
+        throw new ClientError(`Could not read saved drafts and preferences: ${failure.message}`, 'Persistence');
+      }
+      try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+      catch { throw new ClientError('Saved drafts and preferences are not valid UTF-8.', 'Persistence'); }
+      return bytes;
     },
     async atomicWriteFile(path, bytes) {
       checkPath(path);
-      await invoke({ op: 'writePreferences', text: new TextDecoder().decode(bytes) });
+      if (bytes.byteLength > PREFERENCE_LIMIT) throw new ClientError('Drafts and preferences are too large to save.', 'Limit');
+      if (!fs) return;
+      try { await fs.atomicWriteFile(path, bytes); } catch (error) {
+        const failure = storageFailure(error);
+        if (!failure) throw error;
+        if (failure.code === 'agent' || failure.code === 'bake') return;
+        throw new ClientError(`Could not save drafts and preferences: ${failure.message}`, 'Persistence');
+      }
     },
   } };
 }

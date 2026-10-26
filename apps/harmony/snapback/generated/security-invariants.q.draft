@@ -1,0 +1,65 @@
+-- DRAFT: NOT ACCEPTED. Generated from access rules, not the app specification.
+-- Confirm or correct each policy against the spec, then copy chosen declarations
+-- into an authored snapback/*.q file. This .q.draft file is never compiled.
+-- Check current roles, grant revocation, count/existence privacy, deadlines and
+-- required evidence separately. A copied wrong rule cannot catch itself.
+-- snapback4 guide security
+
+-- Candidate from emoji read rule; AUTHOR MUST CONFIRM.
+invariant emoji.read only allow
+-- Candidate from emoji insert rule; AUTHOR MUST CONFIRM.
+invariant emoji.insert only .createdBy = viewer
+-- Candidate from emoji delete rule; AUTHOR MUST CONFIRM.
+invariant emoji.delete only .createdBy = viewer
+-- Candidate from lastReads read rule; AUTHOR MUST CONFIRM.
+invariant lastReads.read only .principal = viewer
+-- Candidate from lastReads insert rule; AUTHOR MUST CONFIRM.
+invariant lastReads.insert only .principal = viewer
+-- Candidate from lastReads update rule; AUTHOR MUST CONFIRM.
+invariant lastReads.update only .principal = viewer
+-- Candidate from members read rule; AUTHOR MUST CONFIRM.
+invariant members.read only exists members[.roomId, viewer]
+-- Candidate from members insert rule; AUTHOR MUST CONFIRM.
+invariant members.insert only exists members[.roomId, viewer] or created rooms[.roomId]
+-- Candidate from members delete rule; AUTHOR MUST CONFIRM.
+invariant members.delete only .principal = viewer
+-- Candidate from messages read rule; AUTHOR MUST CONFIRM.
+invariant messages.read only exists members[.roomId, viewer]
+-- Candidate from messages insert rule; AUTHOR MUST CONFIRM.
+invariant messages.insert only .authorId = viewer and exists members[.roomId, viewer]
+-- Candidate from messages update rule; AUTHOR MUST CONFIRM.
+invariant messages.update only .authorId = viewer
+-- Candidate from messages delete rule; AUTHOR MUST CONFIRM.
+invariant messages.delete only .authorId = viewer
+-- Candidate from pins read rule; AUTHOR MUST CONFIRM.
+invariant pins.read only exists members[.roomId, viewer]
+-- Candidate from pins insert rule; AUTHOR MUST CONFIRM.
+invariant pins.insert only .pinnedBy = viewer and exists members[.roomId, viewer]
+-- Candidate from pins delete rule; AUTHOR MUST CONFIRM.
+invariant pins.delete only exists members[.roomId, viewer]
+-- Candidate from profiles read rule; AUTHOR MUST CONFIRM.
+invariant profiles.read only allow
+-- Candidate from profiles insert rule; AUTHOR MUST CONFIRM.
+invariant profiles.insert only .principal = viewer
+-- Candidate from profiles update rule; AUTHOR MUST CONFIRM.
+invariant profiles.update only .principal = viewer
+-- Candidate from reactions read rule; AUTHOR MUST CONFIRM.
+invariant reactions.read only exists members[.roomId, viewer]
+-- Candidate from reactions insert rule; AUTHOR MUST CONFIRM.
+invariant reactions.insert only .principal = viewer and exists members[.roomId, viewer]
+-- Candidate from reactions delete rule; AUTHOR MUST CONFIRM.
+invariant reactions.delete only .principal = viewer
+-- Candidate from rooms read rule; AUTHOR MUST CONFIRM.
+invariant rooms.read only exists members[.id, viewer]
+-- Candidate from rooms insert rule; AUTHOR MUST CONFIRM.
+invariant rooms.insert only .createdBy = viewer
+-- Candidate from rooms update rule; AUTHOR MUST CONFIRM.
+invariant rooms.update only exists members[.id, viewer]
+-- Candidate from typing read rule; AUTHOR MUST CONFIRM.
+invariant typing.read only exists members[.roomId, viewer]
+-- Candidate from typing insert rule; AUTHOR MUST CONFIRM.
+invariant typing.insert only .principal = viewer and exists members[.roomId, viewer]
+-- Candidate from typing update rule; AUTHOR MUST CONFIRM.
+invariant typing.update only .principal = viewer and exists members[.roomId, viewer]
+-- Candidate from typing delete rule; AUTHOR MUST CONFIRM.
+invariant typing.delete only .principal = viewer

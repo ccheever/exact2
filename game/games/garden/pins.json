@@ -4,16 +4,24 @@
     "5136": "0xbc5d77669a63bf80"
   },
   "saves": {
-    "continuation": "4cb9951084a9e2ac00b3fde26c0cca8f112515d6806cf9b81238e414f617d9ff"
+    "continuation": "ec3723152eaccdf0c8501fafcd94049b3462c6061916b313b010e51c2c23c793"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "3cffd05d89abd9f4dd0b936beb72134ea8f0413b332ad30c60e52cd962ef1d92",
-  "sourceInputs": "a844ac11ee813024f10925e8c0f41ea3496785d6c7ba6e2db368db8b5cd3d765",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "8444b0f8b97648b4d2eeb148a48a83e51ddca49a7026f78bfb9d25de9dc2a2c5",
+  "sourceInputs": "c713af0f6c922306e78a49bd419393d6708a64c6d841cfa0adc11ea8d1d7d771",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "06d3351617c03665fdcc23b8bf446140db54c6b1",
-  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
+  "at": "7239ec0490500b238a9fa1ab5b138b93fc0423ce",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { MalformedOperation } from './agent-keys.mjs';
 
-const VALUES = new Set(['--app', '--storage', '--sim', '--session', '--open', '--world', '--plan', '--backend', '--browser', '--size', '--scale', '--test', '--url', '--seed', '--locale', '--time-zone', '--epoch', '--timing', '--touch', '--chrome', '--phone', '--port', '--fail-fetch', '--family', '--mode', '--scheme', '--props', '--placement', '--state', '--permission', '--bind']);
+const VALUES = new Set(['--app', '--storage', '--sim', '--session', '--open', '--world', '--plan', '--backend', '--browser', '--size', '--scale', '--test', '--url', '--seed', '--locale', '--format-locale', '--time-zone', '--epoch', '--timing', '--touch', '--chrome', '--phone', '--port', '--fail-fetch', '--family', '--mode', '--scheme', '--props', '--placement', '--state', '--permission', '--bind', '--notification', '--wake']);
 const supported = 'widget: tree, state, "screenshot <png>" or "clock <ms|+ms|settle|data>"; screenshot film, window and compare options are unavailable';
 
 export function widgetArguments(input) {
@@ -19,7 +19,7 @@ export function widgetArguments(input) {
   const widget = { entry };
   argv.splice(at, 2);
   for (let i = 0; i < argv.length;) {
-    const local = kind === 'activity' ? ['--placement', '--scheme', '--state'].includes(argv[i]) : ['--family', '--mode', '--scheme', '--size', '--props'].includes(argv[i]);
+    const local = kind === 'activity' ? ['--placement', '--scheme', '--state', '--scale'].includes(argv[i]) : ['--family', '--mode', '--scheme', '--size', '--props', '--scale'].includes(argv[i]);
     if (local) {
       const flag = argv[i], value = argv[i + 1];
       if (!value || value.startsWith('--')) throw new Error(`${flag} needs a value`);
@@ -35,6 +35,8 @@ export function widgetArguments(input) {
     if (!props || Array.isArray(props) || typeof props !== 'object') throw new Error(`${kind} --${jsonFlag}: expected a JSON object`);
   }
   if (widget.mode === 'full-color') widget.mode = 'fullColor';
+  // The stand-in renders one pixel per point unless asked: a device's 2 or 3 shows the picture as the widget draws it.
+  if (widget.scale !== undefined && !['1', '2', '3'].includes(widget.scale)) throw new Error(`${kind} --scale: 1, 2 or 3`);
   if (kind === 'activity') {
     widget.placement ??= 'lockScreen';
     if (!['lockScreen', 'compactLeading', 'compactTrailing', 'minimal', 'expanded'].includes(widget.placement)) throw new Error('activity --placement: use lockScreen, compactLeading, compactTrailing, minimal or expanded');
@@ -55,7 +57,6 @@ export function widgetOperation(line, kind = 'widget') {
 export function validateWidget(flags, rest) {
   const kind = flags.activity ? 'activity' : 'widget';
   if (flags.test || flags.plan || flags.url || flags.device) throw new Error(`${kind}: use a development app on macos or an iOS simulator`);
-  if (flags.scale !== undefined) throw new Error(`${kind}: --scale is unavailable; snapshots use one pixel per point`);
   for (const line of rest.slice(1)) widgetOperation(line, kind);
 }
 

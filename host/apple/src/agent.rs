@@ -9,8 +9,13 @@ impl<D: DataSource> Host<D> {
     /// the engine, which is what the presenter's `clock` advances to.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.engine.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+            let engine = self.engine.settle_time().map(|t| t * 1000.0);
+            return match engine
+                .into_iter()
+                .chain(self.runner.text_axes_settle_ms())
+                .reduce(f64::max)
+            {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
                 None => "{\"settle\":null}".to_string(),
             };
         }
@@ -33,5 +38,25 @@ impl<D: DataSource> Host<D> {
             );
         }
         reply
+    }
+
+    /// The agent's `sensorEvents` (LLP 1133.013 D6): what the substitute's
+    /// canvas inputs owe their surfaces up to `to`, which the Swift agent
+    /// hands each surface before it steps the worlds a frame; `inputs` is
+    /// false when no input runs or has an end still to deliver.
+    pub(crate) fn sensor_events(&mut self, request: &str) -> String {
+        let to = exact_runner::agent::field_num(request, "to").unwrap_or(0.0);
+        let inputs = self.runner.surface_sensor_inputs();
+        let events: Vec<String> = if inputs {
+            (self.runner.surface_sensor_events(to).into_iter())
+                .map(|(surface, event)| {
+                    let surface = serde_json::to_string(&surface).unwrap_or_default();
+                    format!("{{\"surface\":{surface},\"event\":{event}}}")
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        format!("{{\"inputs\":{inputs},\"events\":[{}]}}", events.join(","))
     }
 }

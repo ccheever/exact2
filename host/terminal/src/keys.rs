@@ -1,7 +1,8 @@
 //! Keys and paste, routed as LLP 1101 D6 says.
 //!
 //! A key goes to the focused node's (or its nearest ancestor's) `key`
-//! handler first, then to its default, as on the web: unless the handler
+//! handler first, with nothing focused to the root's (as the web's `window`
+//! listener hears a key at `<body>`), then to its default: unless the handler
 //! called `preventDefault()`, a field edits, a dialog's Escape closes it,
 //! `aria-keyshortcuts` presses its node (without moving the focus), Tab and
 //! the arrows move the focus — or, with nothing focused, the arrows, Space,
@@ -40,6 +41,7 @@ impl<D: DataSource> Host<D> {
     /// must not fire a shortcut). A single-line field takes line breaks as
     /// spaces.
     pub fn paste(&mut self, text: &str) {
+        self.advance_for_input();
         let Some(f) = self.focus.filter(|f| self.is_field(*f) && self.armed(*f)) else {
             return;
         };
@@ -164,14 +166,21 @@ impl<D: DataSource> Host<D> {
 
     /// A key, routed as the module comment says.
     pub fn key(&mut self, key: Key) -> After {
+        self.advance_for_input();
         let chord = key.chord();
         // A focused control the screen has not shown yet (a dialog this
         // read opened) takes no typed-ahead key: not its handler, not its
         // text, not its submit (LLP 1101.002 §0 P1).
         let focus = self.focus.filter(|f| self.armed(*f));
-        // The focused node's (or its nearest ancestor's) `key` handler first.
+        // The focused node's (or its nearest ancestor's) `key` handler
+        // first; with nothing focused, the first root's.
         self.prevented = false;
-        if let Some(target) = focus.and_then(|f| self.handler(f, EventKind::Key)) {
+        let target = match self.focus {
+            Some(_) => focus.and_then(|f| self.handler(f, EventKind::Key)),
+            None => (self.runner.roots().first().copied())
+                .filter(|r| self.runner.handlers_of(*r).contains(&EventKind::Key)),
+        };
+        if let Some(target) = target {
             self.dispatch(target, Event::key(&chord));
         }
         if self.quit {

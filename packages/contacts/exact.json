@@ -1,0 +1,211 @@
+{
+  "kind": "interface",
+  "name": "@exact/contacts",
+  "version": "1.0.0",
+  "grants": [
+    "device.contacts"
+  ],
+  "substitute": "implementation",
+  "permission": [
+    {
+      "name": "contacts",
+      "grants": [
+        "device.contacts"
+      ],
+      "status": "contactsStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "allow": {
+        "access": "full"
+      },
+      "choices": {
+        "limited": {
+          "access": "limited"
+        }
+      },
+      "deny": {
+        "access": "none"
+      }
+    }
+  ],
+  "agent": {
+    "store": "string",
+    "notify": "number"
+  },
+  "shapes": {
+    "ContactAddress": {
+      "addressLine": "string[]",
+      "city": "string",
+      "country": "string",
+      "dependentLocality": "string",
+      "organization": "string",
+      "phone": "string",
+      "postalCode": "string",
+      "recipient": "string",
+      "region": "string",
+      "sortingCode": "string"
+    },
+    "ContactInfo": {
+      "id": "option<string>",
+      "name": "option<string[]>",
+      "email": "option<string[]>",
+      "tel": "option<string[]>",
+      "address": "option<ContactAddress[]>",
+      "icon": "option<string[]>"
+    },
+    "ContactSelection": {
+      "contacts": "ContactInfo[]"
+    },
+    "ContactPage": {
+      "contacts": "ContactInfo[]",
+      "next": "option<string>"
+    },
+    "ContactProperties": {
+      "properties": "string[]"
+    },
+    "ContactsStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "access": "enum<full|limited|none|unknown>",
+      "apple": "option<AppleContactsStatus>",
+      "android": "option<AndroidContactsStatus>"
+    }
+  },
+  "names": [
+    {
+      "send": "selectContacts",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "permission": false,
+      "grants": [],
+      "options": {
+        "properties": "enum<address|email|icon|name|tel>[]",
+        "multiple": "option<bool>"
+      },
+      "answers": "ContactSelection",
+      "substitute": {
+        "choose": {
+          "ticket": "contacts",
+          "many": "multiple"
+        },
+        "unsupported": [
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "source": "getContactProperties",
+      "permission": false,
+      "grants": [],
+      "answers": "ContactProperties",
+      "sync": {
+        "name": "getContactPropertiesSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "properties": []
+        }
+      }
+    },
+    {
+      "source": "contactsStatus",
+      "live": true,
+      "answers": "ContactsStatus",
+      "sync": {
+        "name": "contactsStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt",
+          "access": "none"
+        },
+        "web": {
+          "available": false,
+          "state": "unknown",
+          "access": "unknown"
+        },
+        "targets": {
+          "web": {
+            "available": false,
+            "access": "unknown"
+          },
+          "linux": {
+            "available": false,
+            "access": "unknown"
+          },
+          "windows": {
+            "available": false,
+            "access": "unknown"
+          },
+          "tvos": {
+            "available": false,
+            "access": "unknown"
+          }
+        }
+      }
+    },
+    {
+      "source": "queryContacts",
+      "live": true,
+      "request": "when-prompt",
+      "grants": [
+        "device.contacts"
+      ],
+      "options": {
+        "text": "option<string>",
+        "ids": "option<string[]>",
+        "properties": "enum<address|email|icon|name|tel>[]",
+        "limit": {
+          "type": "option<number>",
+          "min": 1,
+          "max": 1000,
+          "default": 100
+        },
+        "after": "option<string>"
+      },
+      "answers": "ContactPage",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "showContactAccessPicker",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "permission": false,
+      "grants": [
+        "device.contacts"
+      ],
+      "answers": "ContactSelection",
+      "substitute": {
+        "choose": {
+          "ticket": "share",
+          "status": "contactsStatus",
+          "while": {
+            "access": "limited"
+          }
+        },
+        "unsupported": [
+          "web",
+          "macos",
+          "android",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

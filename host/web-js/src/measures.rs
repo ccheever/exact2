@@ -20,6 +20,11 @@ pub fn kind(row: &exact_plan::ThemeRow) -> Option<Kind> {
 /// literal on a row: a length's text, a text style as its `rem`, the
 /// hairline as the sheet's property; a number's text.
 pub fn css(kind: Kind, value: &str) -> String {
+    // A shadow over base names (stage 12 B3): each such length its
+    // property's, the browser folding it.
+    if let Some(css) = crate::base_scale::shadow(kind, value) {
+        return css;
+    }
     // A shadow is its row's CSS, as css.rs writes the literal's.
     match kind {
         Kind::BoxShadow => {
@@ -51,6 +56,7 @@ pub fn css(kind: Kind, value: &str) -> String {
                 exact_web::css::num(n * unit.basis(medium, medium, 1.0) / medium)
             )
         }
+        Some((unit @ Unit::TextStyleAtMost(_), n)) => unit.capped_css(n),
         Some((Unit::Hairline, _)) => exact_web::css::HAIRLINE.to_string(),
         _ => value.trim().to_string(),
     }
@@ -114,7 +120,7 @@ pub fn row(id: StyleId) -> bool {
 /// refused ([`refuse_inline`]).
 pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    for node in &plan.nodes {
+    for node in plan.nodes.iter() {
         let attributes = exact_kernel::NodeType::from_wire(node.node_type)
             .map_or(&[][..], exact_web::host::template::attribute_rows);
         for b in node.bindings.iter() {

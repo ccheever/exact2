@@ -333,12 +333,15 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual(dropped, ["replaced", "replaced"])
     }
 
-    /// `active` resolves to the host's real press: a button's default link is one (theme2's 11:48).
-    @MainActor func testAButtonsDefaultLinkIsThePressAnActiveHoldResolvesTo() throws {
+    /// Active feedback follows a declared handler, as the author guide specifies.
+    @MainActor func testAPresslessLinkDoesNotTakeAnActiveHold() throws {
         let (p, _, _) = try fixture()
-        let link = try XCTUnwrap(p.views[6])
+        let link = try XCTUnwrap(p.views[6]), label = try XCTUnwrap(p.views[7])
         XCTAssertNotNil(link.defaultLink)
-        XCTAssertEqual(try XCTUnwrap(p.views[7]).hold("active", dropped: nil).held, "active")
+        XCTAssertNil(label.hold("active", dropped: nil).held)
+        XCTAssertFalse(link.holds("active"))
+        link.handlers = ["press"]
+        XCTAssertEqual(label.hold("active", dropped: nil).held, "active")
         XCTAssertTrue(link.holds("active"))
     }
 

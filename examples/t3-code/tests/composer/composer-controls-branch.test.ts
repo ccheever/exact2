@@ -73,14 +73,24 @@ describe('workspace strip details', () => {
     await command('cclocal:previous-worktree');
     expect(await composerBranches(client, native, false, '')).toMatchObject({ envLabel: 'Current worktree' });
   });
-  test('right-clicking the branch offers Copy branch name, copied with a toast', async () => {
+  test('Copy branch name copies with a toast', async () => {
     const { client, native, command } = await connected();
-    await command('cclocal:branch-menu', '', 'main');
+    await command('cclocal:branch-copy', '', '');
     expect(native.copied).toEqual([]);
-    native.menuPick = 'copy-branch-name';
-    await command('cclocal:branch-menu', '', 'main');
+    await command('cclocal:branch-copy', '', 'main');
     expect(native.copied).toEqual(['main']);
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Branch name copied', description: 'main' });
+  });
+  test('the trigger and each ref name the Copy branch name popover, which copies the right-clicked name', async () => {
+    const source = await Bun.file(appPath('composer-controls.contract')).text();
+    expect(source).toContain('contextmenu=refMenu(ref.name) contextPopover="branch-ref-menu"');
+    // The root's command: the picker's own (menuCommand) closes it, and the reference's menu leaves it open.
+    expect(source).toContain('BranchNameMenu(menuId="branch-ref-menu", name=menuRef, command=rootCommand)');
+    expect(await Bun.file(appPath('app-window.contract')).text()).toContain('ComposerMenus(rootCommand=command,');
+    expect(source).toContain('menu=(strip.branch == "" ? "" : "branch-name-menu")');
+    expect(source).toContain('BranchNameMenu(menuId="branch-name-menu", name=strip.branch, command=command)');
+    expect(source).toContain('button press=command("cclocal:branch-copy", "", name, 0) popovertarget=menuId popovertargetaction="hide" role="menuitem"');
+    expect(source).not.toContain('branch-menu"');
   });
 });
 

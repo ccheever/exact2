@@ -15,14 +15,20 @@ takes) has a diff; "Write <n> notes [after <s>s]" waits s seconds, then writes n
 `notes/batch-<time>/`, so every such turn's checkpoint has n files (three open the diff on their own
 with Settings › General › Proactive panels on, and the wait lets a drive see the turn running); "Ask before editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
 server turns into an approval on a thread in the runtime mode "approval-required" (in
-"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. "Read the thread <id> for <n>s" thinks first (a
+"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. "Ask a question" sends `elicitation/create` with a
+form of one string field, which the server shows as a pending question that takes a typed answer
+and attachments; the reply repeats the answer and names each attachment the server appended to it
+(`Attached image "<name>"`, with "(missing)" when its file is not on the server), never its path.
+"Read the thread <id> for <n>s" thinks first (a
 reasoning item headed "Checking the other thread"), then holds a running `t3_thread_read` tool call
 on that thread id for n seconds before it replies, so a drive sees the live row carry the latest
 thought over a running tool, and the settled row name that thread by its title. "Wait on the
 thread <id> for <n>s" holds a running `t3_thread_wait` tool call on that id for n seconds, so the
 server reports the turn blocked on another thread (the sidebar's Waiting); "Link the thread <id>"
 replies with a `t3-thread://v1/<id>` link (a thread chip); "Fail the turn" fails the turn with a
-provider's JSON error whose message is a sentence (the thread error banner's message). Each new or
+provider's JSON error whose message is a sentence (the thread error banner's message). "Show the
+Markdown sample pausing <n>s" replies with a Mermaid flowchart, then n seconds later a sequence
+diagram, a table and two display formulas, so a drive sees a closed fence drawn mid-reply. Each new or
 loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3
 lists under `$` as a skill), so a stand-in thread's composer can hold a skill chip. It
 advertises `loadSession`, and `session/load` brings a session back with no history (it keeps

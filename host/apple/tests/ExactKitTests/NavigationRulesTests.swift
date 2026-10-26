@@ -214,7 +214,7 @@ final class NavigationRulesTests: XCTestCase {
             C(id: 3, html: "close", press: true, disabled: false),
         ]
         let resolve = { (target: String?) -> UInt32? in
-            NavigationRules.backControl(named: target, among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active)?.id
+            NavigationBack.control(named: target, among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active)?.id
         }
         XCTAssertEqual(resolve("back"), 12)
         XCTAssertEqual(resolve("close"), 3)
@@ -222,25 +222,37 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(resolve(nil))
         // All disabled: nothing may begin.
         let disabled = [C(id: 1, html: "back", press: true, disabled: true)]
-        XCTAssertNil(NavigationRules.backControl(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        XCTAssertNil(NavigationBack.control(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
         let inactive = controls.filter { !$0.active }
-        XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        XCTAssertNil(NavigationBack.control(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        // A control in no route (a header the screens share) serves the active route that has none of its own;
+        // one in another route never does, and the route's own comes first.
+        struct S { let id: UInt32; let html: String?; let press: Bool; let disabled: Bool; let active: Bool; let routed: Bool }
+        let shared = [S(id: 2, html: "back", press: true, disabled: false, active: false, routed: false),
+                      S(id: 5, html: "back", press: true, disabled: false, active: false, routed: true)]
+        let resolveShared = { (controls: [S]) -> UInt32? in
+            NavigationBack.control(named: "back", among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active, inAnyRoute: \.routed)?.id
+        }
+        XCTAssertEqual(resolveShared(shared), 2)
+        XCTAssertNil(resolveShared(shared.filter { $0.id == 5 }), "another route's control is that route's")
+        XCTAssertEqual(resolveShared(shared + [S(id: 8, html: "back", press: true, disabled: false, active: true, routed: true)]), 8, "the route's own first")
+        XCTAssertNil(resolveShared([S(id: 2, html: "back", press: true, disabled: true, active: false, routed: false)]), "a disabled shared control refuses")
     }
 
     /// LLP 1115 D5: the authored control when it resolves; refused while a
     /// declared one does not; else, given a visit beneath, the root's
     /// `navigate` with its location, or the runner's own back.
     func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
-        typealias B = NavigationRules.Back
+        typealias B = NavigationBack.Way
         var asked = 0
         let beneath = { () -> String? in asked += 1; return "/" }
-        XCTAssertEqual(NavigationRules.back(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
-        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
+        XCTAssertEqual(NavigationBack.way(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
+        XCTAssertNil(NavigationBack.way(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
         XCTAssertEqual(asked, 0, "the runner is asked only when there is no control")
-        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
-        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
-        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
-        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
+        XCTAssertEqual(NavigationBack.way(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
+        XCTAssertEqual(NavigationBack.way(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
+        XCTAssertNil(NavigationBack.way(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
+        XCTAssertNil(NavigationBack.way(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 
     /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when
@@ -299,23 +311,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertTrue(NavigationRules.modalRefusesDismissal(closedby: "none"))
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: "closerequest"))
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: nil))
-    }
-
-    /// D5: a session answers a keyboard only for its own editor, or while it
-    /// still holds an inset it applied.
-    func testAKeyboardConcernsOnlyTheSessionThatOwnsIt() {
-        XCTAssertTrue(NavigationRules.keyboardConcerns(editing: true, holdsInset: false))
-        XCTAssertTrue(NavigationRules.keyboardConcerns(editing: false, holdsInset: true))
-        XCTAssertFalse(NavigationRules.keyboardConcerns(editing: false, holdsInset: false))
-    }
-
-    /// D5: the viewport freeze is for an initially interactive pop, never a
-    /// sheet — the Messages defect of 2026-09-09.
-    func testTheViewportFreezeIsForAnInteractivePopOnly() {
-        XCTAssertTrue(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: true))
-        XCTAssertFalse(NavigationRules.freezesViewport(modalActive: true, changing: true, initiallyInteractive: true))
-        XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: false, initiallyInteractive: true))
-        XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
     }
 
     /// D3: a focus that cannot be delivered has a named reason, in a fixed
@@ -811,7 +806,9 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
         XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
                                                 "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
-        XCTAssertEqual(shown("View").first?.title, "Zoom In")
+        // ⌘= stands in for the host's Zoom In, in its place (LLP 1021 §5.3.1).
+        XCTAssertEqual(shown("View").prefix(3).map(\.title), ["Actual Size", "Zoom In", "Zoom Out"])
+        XCTAssertTrue(shown("View")[1].target is ShortcutHost)
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
         let close = menu("File").items.first { $0.title == "Close Window" }!
         XCTAssertEqual(close.keyEquivalent, "", "⌘W is the app's Close Board, once")

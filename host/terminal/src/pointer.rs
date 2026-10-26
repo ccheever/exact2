@@ -23,6 +23,8 @@ pub struct Presented {
     pub layer: Option<CellRect>,
     /// Inline runs a click reaches, and their cells.
     pub runs: Vec<(ViewId, CellRect)>,
+    /// The nodes painted with visible cells.
+    pub shown: Vec<ViewId>,
     /// The screen row of the painting's first row.
     pub origin: Option<i32>,
     /// A layer opened or closed since this was presented: what it shows is
@@ -38,6 +40,7 @@ impl<D: DataSource> Host<D> {
             scrollers: painted.scrollers.clone(),
             layer: painted.layer,
             runs: painted.runs.clone(),
+            shown: painted.shown.clone(),
             origin: origin.or(self.presented.origin),
             stale: false,
         };
@@ -56,23 +59,61 @@ impl<D: DataSource> Host<D> {
         self.presented.origin.map(|o| y - o)
     }
 
-    /// A press on an inline run at a cell of the presented painting: its
-    /// `press` handler, or else its link (`Host::follow`). Whether a run
-    /// was there.
-    fn press_run_at(&mut self, x: i32, y: i32) -> bool {
-        let found = self
-            .presented
+    /// The inline run at a cell of the presented painting.
+    fn run_at(&self, x: i32, y: i32) -> Option<ViewId> {
+        self.presented
             .runs
             .iter()
             .rev()
             .find(|(_, r)| r.contains(x, y))
-            .map(|(id, ..)| *id);
-        found.is_some_and(|id| self.press_run(id))
+            .map(|(id, ..)| *id)
+    }
+
+    /// A click at a cell: an inline run inside what it hits (a link in a
+    /// pressable card's text) is the innermost target, as in the DOM, when
+    /// a press or a link of its own lies between it and the hit; else the
+    /// hit, which a plain styled label inside a button leaves the button's.
+    fn press_at(&mut self, x: i32, local: i32, hit: Option<ViewId>) -> bool {
+        let run = self.run_at(x, local).filter(|run| match hit {
+            None => true,
+            Some(hit) => {
+                let kernel = self.kernel();
+                let mut own = false;
+                let mut at = Some(*run);
+                while let Some(n) = at.and_then(|a| kernel.node(a)) {
+                    if n.id == hit {
+                        return own;
+                    }
+                    own |= self
+                        .runner
+                        .handlers_of(n.id)
+                        .contains(&exact_plan::EventKind::Press)
+                        || n.props.str(PropId::Href).is_some_and(|h| !h.is_empty());
+                    at = n.parent;
+                }
+                false
+            }
+        });
+        if let Some(run) = run {
+            if !self.input_eligible(run) || self.press_run(run) {
+                return true;
+            }
+        }
+        match hit {
+            Some(id) => {
+                self.press(id);
+                true
+            }
+            None => false,
+        }
     }
 
     /// A press on an inline run: its `press` handler, or else the link it
     /// or its paragraph names. Whether anything took it.
     pub fn press_run(&mut self, id: ViewId) -> bool {
+        if !self.input_eligible(id) {
+            return false;
+        }
         if self.handler(id, exact_plan::EventKind::Press).is_some() {
             self.press_with(id, false);
             return true;
@@ -113,6 +154,7 @@ impl<D: DataSource> Host<D> {
     /// in its bounds (its title, its padding) is inside it; one outside
     /// closes it only when `closedby="any"`, and presses nothing beneath.
     pub fn click(&mut self, x: i32, y: i32) {
+        self.advance_for_input();
         let Some(local) = self.local(y) else { return };
         let hit = self.hit(x, y);
         if let Some((top, ..)) = self.layers.last().copied() {
@@ -127,27 +169,18 @@ impl<D: DataSource> Host<D> {
                 }
                 return;
             }
-            match hit {
-                Some(id) => self.press(id),
-                None => {
-                    self.press_run_at(x, local);
-                }
-            }
+            self.press_at(x, local, hit);
             return;
         }
-        match hit {
-            Some(id) => self.press(id),
-            None => {
-                if !self.press_run_at(x, local) {
-                    self.focus(None);
-                }
-            }
+        if !self.press_at(x, local, hit) {
+            self.focus(None);
         }
     }
 
     /// A wheel at a screen cell: the innermost presented scroller under it
     /// moves by rows (with a layer open, only the layer's are presented).
     pub fn wheel(&mut self, x: i32, y: i32, rows: i32) {
+        self.advance_for_input();
         let Some(y) = self.local(y) else { return };
         let found = self
             .presented
@@ -226,11 +259,16 @@ impl<D: DataSource> Host<D> {
         self.settle_collections();
     }
 
-    /// Whether `id`, or the interactive node it sits in, has cells in what
-    /// was presented: the agent's `tap` presses only what a person could.
+    /// Whether `id` has cells in what was presented, and it or the
+    /// interactive node it sits in takes a press there: the agent's `tap`
+    /// presses only what a person could (never a node scrolled out of, or
+    /// hidden in, a pressable box that shows).
     pub fn on_screen(&self, id: ViewId) -> bool {
         if self.is_presented_run(id) {
             return true;
+        }
+        if !self.presented.shown.contains(&id) {
+            return false;
         }
         let kernel = self.kernel();
         let mut at = Some(id);

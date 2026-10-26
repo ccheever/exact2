@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.15`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.17`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.15"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.17"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -116,9 +116,15 @@ on macOS and Linux.
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
-  values for a length over unset base names (stage 12 D1); a param's levels (stage 12 B2-levels):
-  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
-  `describe`'s param rows' `reaches`; a relay session's `spki` with its
+  values for a length over unset base names (stage 12 D1); a shadow token's lengths as expressions over
+  length tokens and base names, those over unset base names kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
+  `length_texts` (only then) gives every length's text, with the base names they read in `bases`
+  (stage 12 B3); a param's levels (stage 12 B2-levels):
+  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name` per
+  side (`{light, dark}`: a correction within the window, which first gave one of each), and
+  `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
+  `library` (stage 12 D3; a param's winning level per tuple is `resolve`'s, B2-levels); a build's `page`, `"gallery"` for the
+  variant gallery's page in its registration and on the build in `builds` (LLP 1139 D5, the design tool's G3); a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
   every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
   for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
@@ -130,6 +136,48 @@ on macOS and Linux.
   with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
   development-only source map lists each Contract source's `home`, from which a param's full name
   is built.
+- `tamber/1.16` (after stage 12 closed) adds a shadow token's per-column values over unset base names:
+  `columns` on `explain`'s value, each `when` line and each of `resolve`'s tuples (D1's form, but for the
+  terminal's), and each of `resolve`'s shadows' `columns` with its `value` and `lengths`; and a shadow's
+  `lengths` (*1.15*, stage 12 B3) write a zero as 0, never -0 (`calc(space.md * -0)`), a correction;
+  `explain`'s `bases_by_tuple` beside `bases` (stage 13 D4): each tuple's base names, as it folds
+  there (`bases` keeps its meaning, as wide as `names`); and the base rows emit the reserved source
+  kind `{kind: "stretch", ref, why}` (stage 13 D5): the Mac's `space.xl` now reads `stretch` (`ref`
+  `grouped-label-inset`, with its why), which read `metric` before; and a package design's icons
+  (stage 13): a package icon's `describe` row carries `package` and `file`, its `resolve` answer
+  `package`, `file` and `identity`, and its `explain` answer those and, when the app's design
+  overrides it, `package_value`, as a package token's do (its `draws` reads the package's `assets/`).
+  Also in 1.16 (stage 13 E, the design tool's second hands-on pass, theme2's 09:29 ruling): a
+  selection's inherited row carries `fromAt: {file, line, component}` beside `from`, the source of the
+  node it inherits from, joined from the plan site the page reports (`fromSite`, the server's alone; a
+  host that gives none leaves `fromAt` out and a client falls back to `from`); and `inspect` takes
+  `{select: {up: n}, build}` (n from 1 to 64, the scope `inspect` has, the build's inspecting
+  client's alone): that build's page moves its selection `n` call sites up, to the outermost node above
+  it of the nearest enclosing copy that owns one, past the outermost call to the app's root, and
+  reports it as a click's selection. A selection that moved since the client's chain was read
+  (another node, or a rebuild) is stale, 409 with `stale: true`, as staleness is everywhere, and a
+  page whose selection moved while the frame was on its way reports its selection as it is now;
+  `unsupported` with `what: "inspect"` is only a page that can't step at all (none of the shipped hosts now: the web pages and Apple's step),
+  which a client takes as no `select` there, not as no inspect.
+- `tamber/1.17` (stage 14, after stage 13 closed) is opened by the `pen` importer (stage 14 A): it adds `import`'s kind `pen`, Pencil's `.pen` file
+  (stage 13 B, carried into stage 14 A), and every import's `notes` (in the held proposal's `review`
+  when it has any): what decided a choice the source didn't say, a Pencil number's kind; and an
+  import's `prefix` is at most 128 characters, for every kind (a correction: a longer one is refused).
+  It also adds the checker's own limits (the checker bound): `tamber-value-size`, `tamber-value-depth`,
+  `tamber-length-size` and `tamber-reference-depth`, refused alike by `check`, the build and every write and import.
+  It also adds `GET /__tamber/events?after=<cursor>&epoch=<e>&client=<c>` (stage 14 D): the events read for a client
+  that re-asks by cursor (LLP 1016.000 D8's `exactLongPoll`), with the POST read's token, scope and doors. Each
+  answer carries a `cursor`, which is opaque (a client only compares it and sends it back), and `asked`, the cursor
+  it answers (null with none), so a client sees one it never had (a reply coalesced away); nothing new in 25 s is a
+  204 with no body (a heartbeat). An ask with no `after` (a stream's first, which its host waits on) is answered at
+  once, as `wait: false` is: from `open=<cursor>` if given, the events since that cursor, `asked` being it (`open`
+  is read only with no `after`, so a host's re-asks, which set `after`, leave it unread; one this run can't serve,
+  another run's or past what is kept, is answered `missed`, as the POST answers a gap). The POST read's answer
+  carries a `cursor` too, for a stream to open from. The parameters are bounded as the body's fields are. The route
+  sends no `Retry-After` longer than 30 s. A client polling so stays present 90 s after an answer (LLP 1122 D4). The
+  Figma plugin keeps the POST form: its door's CORS preflight allows POST only.
+  It also adds **`edit-held`** `{client, proposal, index, when?, value, items?}`: one value of a held proposal
+  changed in place, no ops sent (see Held proposals), the reason word `edited`, and `editedBy` on the proposal.
 
 ## Where it runs
 
@@ -164,6 +212,7 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 | `/__tamber` | POST | one request, one reply |
 | `/__tamber/subscribe` | POST | the change stream, as server-sent events on the response |
 | `/__tamber/events` | POST | the change stream as a long poll, for a client whose `fetch` reads a whole body |
+| `/__tamber/events?after=…` | GET | the same, re-asked by cursor (`exactLongPoll`, *1.17*): first from `open=…` at once, a `cursor` in each answer, 204 after 25 s with nothing new |
 | `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request (*1.1*) and on the remote doors (stage 10 B) |
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
@@ -317,7 +366,8 @@ statuses:
   dials are budgeted (20 a second, a burst of 40) whatever the relay does. The relay's names are
   served only when the certificate covers them, and no word of the relay's that carries the token
   becomes a name, an address or a log line.
-  The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
+  The connector's own protocol (`EXACT-RELAY/1`, one random `run` id on every connection of a run)
+  is outside `tamber/1`: scripts/tamber-relay.mjs; the relay itself, docs/tamber-relay-service.md.
 
 ### Pairing (*1.13*)
 
@@ -376,8 +426,8 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 | Scope | Requests |
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
-| `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop` and `edit-held` of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` and `edit-held` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
@@ -456,7 +506,8 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     written, null where unwritten (D10), and `draws` (*1.12*): `{target: source}` for each target the
     app ships, the source that target draws (`sf`, `svg`) or null for none, by D10's rule (the one
     `tamber-icon-missing` checks).
-  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
+  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params, or
+    it uses an exported library component (*1.15*): each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
     range, step, control, options, label, help, group, priority}`. `name` is its full name
@@ -471,6 +522,10 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     A param whose default is a reference adds `reaches: {token, base, app_set}` (*1.15*): the first
     token its default reaches, the base name every tuple reaches (or null), and whether the app
     overrides that token (`explain`'s `levels`, compact; none where `levels` is null).
+    An exported library component (LLP 1139 D0) adds `library: true`, `parts: [{name, groups, slot}]`
+    (`slot: true` on the part whose node holds `children`) and `variants: [{prop, options}]` (each
+    enum or bool prop its own view reads in a class condition, a `?:` or a `match`), from the IR; one
+    with no params is listed too, with `params: []` (*1.15*, stage 12 D3).
     A component that isn't Contract, declared in the design (`component MapCard` over
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
@@ -497,8 +552,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `{value, source}`: `value` a CSS length (`16px`), `full` (radius.full, the pill) or the
     terminal's `<n>cell` (`0` for none); `source` where it comes from, `{kind: "metric", ref}` (a
     metrics row), `{kind: "measured", id}` or `{kind: "guideline", cite}` (an entry in
-    docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
-    for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
+    docs/scale-measured.md), `{kind: "stretch", ref, why}` (a metrics row borrowed for a role it
+    doesn't name, where theme2 ruled it, with why in a line: the Mac's `space.xl`; the table carries
+    it since stage 13 D5), `{kind: "full"}` or `{kind: "terminal"}`. Every cell is the kernel's
     table's (`style::scale`), never a copy;
   - `override` is the line of the design file the request names (the app's, by default) that sets
     the name, `{file, line, col, text}`, or null. When it is set, the name is the app's token: its
@@ -565,12 +621,14 @@ tuple:
   either spelling, as the checker keys it: `secondary-label` or `-exact-secondary-label`, any case),
   then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
   at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
-  expression), at a base name or at a role, and that place wins. A `when` naming an axis `under
-  scheme=dark` is a colour's light/dark pair: the walk follows neither side, and its line wins. An icon
-  param answers the same.
-  - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
-    `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
-    "the component's default"), and `name`, the name at
+  expression), at a base name or at a role, and that place wins. Each side of a tuple is walked on
+  its own, as the fold picks that side's value: the dark side takes the most specific holding `when`
+  of all, the light side the most specific holding `when` that names no axis `under scheme=dark`, and
+  either the line's own value when none holds. An icon param answers the same.
+  - Each of `resolve`'s tuples adds `level` and `name`, each `{light, dark}` as its value's sides
+    (the same on both where the scheme decides nothing). A level is one of `app-param`, `app-token`,
+    `package`, `base`, `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
+    "the component's default"); a name is the name at
     that level (a param's full name, a token's, a base name; a role, or an override of one, by the row
     spelling the fold publishes: `AccentColor`, `-exact-secondary-label`).
   - `levels: {token, app, base, param}` when the param's default is a reference; `levels: null` for a
@@ -579,7 +637,7 @@ tuple:
       `params` lines; at most 8 hops), `{name, package?, file, line, value}`: a package's own line
       with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
     - `app` is the app's override of that package token, `{file, line, value}`, or null;
-    - `base` is the base name every tuple's walk reaches, or null when they differ or one reaches
+    - `base` is the base name every tuple's walk reaches on both sides, or null when they differ or one reaches
       none (each tuple's own is on `resolve`'s tuples);
     - `param` is the app's own value of the param, `{file, line, value}`, or null (`param.set`
       stays).
@@ -596,6 +654,14 @@ tuple:
   layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
   out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
   is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
+  A shadow token (*1.16*) with a length over unset base names gets the same `columns` in the
+  same places, minus the terminal's (the terminal draws no shadow: a stated exception to "left
+  out only where it doesn't fold"), each `value` the whole shadow's text as that column's host
+  reads it (the kernel's `fold_lengths`, `"0px 16px 16px #000000ff"`, a colour kept whole), and
+  each of `resolve`'s shadows that has `length_texts` adds `columns: {ios, mac, neutral,
+  material: {value, lengths}}`, that shadow's own text there and every one of its lengths as a
+  number in px, in `lengths`' order, never null; a shadow over no unset base name (px only, or over
+  a base the app sets) has no `columns` key, and no zero in them is negative.
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it
@@ -603,6 +669,14 @@ tuple:
   strings, each once, in no promised order (parallel to `names`, which is as wide; a client looks
   each up in `describe`'s `base`). A base name read from a file that is not the design's, or
   a design that is refused, is refused as any token is.
+  Beside it, `bases_by_tuple` (*1.16*, stage 13 D4): one `{modes, light, dark}` a tuple, in
+  `resolve`'s tuple order with its `modes`, each side the base names the token's value in that
+  tuple reaches as the checker folds it there (an unset one read bare, a set one as the token it
+  names) and those of the tokens it names in the same tuple, a branch no tuple selects left out,
+  never a function's name, a keyword or a word in a string (`label.gap = 4px` / `when
+  density=roomy: card.pad`, with `card.pad`'s `when density=tight: space.sm`, reaches `space.sm`
+  in no tuple, though `bases` lists it). A base name is a length's, whose light and dark sides are
+  one (a `when` under `scheme=dark` is a colour's alone), so the two sides are alike.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -706,13 +780,24 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
+  - (*1.17*) a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
+    groups deep (`tamber-value-depth`), refused before anything reads it, in every op that
+    carries one (a name or metadata word past 4096 bytes too), in words that give its size and
+    never echo it; each importer refuses a source value past them with the same id;
+  - (*1.17*) a length over base names expands to at most 256 terms (`tamber-length-size`): a chain of
+    tokens each naming the next more than once, or a sum of many, is refused where it passes;
+  - (*1.17*) a chain of tokens naming one another, with the functions their values nest, is at most 512 deep (`tamber-reference-depth`), past
+    the importers' 256 links;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
 - **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
   or its short one (`PostButton.radius`); a name no param of the app answers, or a short name two
   components share (whichever has the param, or neither), is refused (`tamber-param-unknown`,
   `tamber-param-ambiguous`). The line is written by the name the design's line already has, or an
   earlier op of the transaction wrote, or the name given, so a transaction never gives one param
-  two lines; the `params` block is made at the end when there is none, indented as its lines are,
+  two lines. An exported library component's param is written by its full name whatever name it
+  was given, since the build refuses a short one (LLP 1139 D8): a new line, and a line spelled
+  short that a set or a `when` line's unset keeps, which is respelled in place, its value, comment
+  and other `when` lines kept; the `params` block is made at the end when there is none, indented as its lines are,
   and goes when its last line does. A `when` line needs the param's own line first. After any
   write to an app with params, every param folds with the design and is inside its range, each
   value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`; a
@@ -935,7 +1020,9 @@ pushes.
 ### Held proposals (LLP 1122 D10)
 
 **`propose` with `hold: true`** and a `client` keeps the plan for 15 minutes, 64 at most (the
-oldest goes; below `write`, only the client's own, else 409: see Scopes), and announces it.
+oldest goes, never one an `edit-held` is planning; below `write`, only the client's own, else 409: see Scopes;
+with every one held being edited, 409, and an accept's proposal that can't be put back then is dropped as `too many
+held`), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
@@ -956,6 +1043,22 @@ with.
   planned again from its commit (see `revert`).
 
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
+
+**`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
+holds it again in its place, sending no ops:
+- `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of an `add-token`'s
+  `whens` branches (a `set-token` writes its value alone); with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,
+  keeps only those operations, and must keep `index`.
+- A held revert is not edited (it is planned from its commit: drop it and revert again).
+- The proposal stays held, and counted in the held caps, while its edit is planned; a concurrent `accept`, `drop` or
+  `edit-held` of it finds none (404), and it doesn't expire meanwhile. The value is set, and the rest held again on the current files as a **new** proposal, the original client's (its owner, who may accept or
+  drop it), with its own guards and a fresh expiry. The proposal carries `editedBy`, its last editor's client (the
+  owner's own name when the owner edits it), wherever it is shown: the list, `subscribed`, the `proposal` event, and
+  a recompute of it. Its review is renumbered as a recompute's, marked `kept` (its overrides were ticked) and `from` the
+  old id. A server re-import is held as an edit: the value given, not marked again.
+- The reply is a recompute's, `{recomputed: true, replaces, proposal, …}`. The old one's end is
+  `proposal-dropped {reason: "edited", replacedBy, editedBy}`. A plan that fails leaves the old one held as it was.
+- It needs `propose` for the client's own proposal and `write` for another client's, as `drop` does.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
 `proposal` event shows it, except a long poll that names the list's current revision (below). A
@@ -1033,8 +1136,45 @@ list is unchanged: it keeps its own.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
   `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
   `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
-- **`kind`** is `shadcn`, `tailwind` or `dtcg`. `prefix` is the token prefix, by default
-  `shadcn`, `tw` or `dtcg`.
+- **`kind`** is `shadcn`, `tailwind`, `dtcg` or `pen` (*1.17*). `prefix` is the token prefix, by
+  default `shadcn`, `tw`, `dtcg` or `pen`, at most 128 characters (*1.17*).
+- **`pen`** (*1.17*, stage 13 B) is a Pencil `.pen` file (version 2.x), read into DTCG's layers:
+  - **Axes.** Its `themes` are its axes, in the order written, each one's first value the default.
+    The first axis of two values, `dark` and `light` or `default` in any case, is the scheme: `dark`
+    is its dark side and the other its light one, the default the host's whichever Pencil lists
+    first; any other is a proposed axis. As every kind's, a value other than a colour that differs
+    between the scheme's sides has no token and is reported (only a colour has a dark side). More than
+    16 axes, 64 values of one, or an axis or value named in more than 64 characters refuse the
+    import, as do more contexts than a design takes. A value is a scalar; an object or a list is
+    reported, as is a variable named in more than 128 characters.
+  - **Values.** Each entry of a variable's `value` (a scalar is one) is a layer active where its
+    `theme` holds, every axis it names at once. Later entries win, as Pencil's "the last whose
+    theme is satisfied" does. An entry whose `theme` names an axis or value `themes` doesn't declare
+    (names match as written, case and all) never holds, and is reported. `"$name"` is an alias, of a
+    variable of its own `type`; one to another type, or to none, is reported.
+  - **Names** are flat, as Pencil's are: `a` and `a.b` are two tokens. A token's name drops what an
+    identifier can't hold (a leading `--`), so `--x` and `x` collide, and the second is reported.
+  - **Kinds.** A `color` is a colour. A `number`, whose value must be a JSON number (a string is reported), is a length (px) when every node reading it, or
+    any number it aliases or that aliases it, reads it as a pixel property (`cornerRadius`, `gap`,
+    `padding`, `fontSize`, `letterSpacing`, `strokeWidth`, `width`, `height`, an effect's `radius`
+    and `blur`, a side or corner of one, a shadow's `offset`), else a number (`lineHeight` is a
+    multiplier, anything inside a gradient a fraction of the box, a typed object's `uniforms`,
+    `inputs` and `metadata` the author's own names; only a property that takes a variable is a use,
+    so an `id`, a `context`, a node's `theme`, a position or a layout enum binds none, while a paint,
+    `opacity`, `rotation`, `enabled`, an ellipse's `innerRadius` and angles, a polygon's count, an
+    icon's names and weight, a gradient stop's `position` and the type longhands, `content` among
+    them, do); each number's `notes` line
+    names the properties that decided it. A
+    `string` every node reads as `fontFamily` is a family. A note says the file's frames and
+    components are not imported.
+  - **Reported.** Any other string, a boolean, an unknown `type`, a variable whose `value` holds no
+    entry, each entry of no shape (the others read), a literal in braces (`{x}`, which the importer
+    would read as an alias), an alias to a name with a brace, a variable declared again later (the
+    last stands), and each of `imports` (another `.pen`: a client's upload has no directory to find
+    it in) are in `unmapped`.
+  - **Re-import.** There is no `.pen` export, so a re-import has no `baseline`. Its `pins` are still
+    marked against the design as it is (a literal over a line that followed another). Its budget,
+    process and size limit are every import's.
 - **Every kind** (stage 6 H): a length, number, type, family, shadow, duration or easing
   is proposed as its kind's token, the `add-token` naming its `kind`, when it folds as that
   kind beside the import's other tokens; one that does not, or that has a value per side of
@@ -1045,7 +1185,8 @@ list is unchanged: it keeps its own.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
-  tokens, dials?, pins?}` (the last two a re-import's, below):
+  tokens, notes?, dials?, pins?}` (`notes` *1.17*, what decided a choice the source didn't say; the
+  last two a re-import's, below):
   - `counted` is `{source, mapped, reported}`;
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
@@ -1171,8 +1312,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 |---|---|
 | `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
 | `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
-| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked) |
-| `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
+| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked), `editedBy?` (*1.17*: its last editor's client, `edit-held`) |
+| `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `edited` (*1.17*, with `replacedBy` and `editedBy`), `stale`, `expired` or `too many held` (never one an `edit-held` is planning) |
 | `down` | `message`: the design server stopped or never started |
 | `paired` | `client`, `scope` (*1.13*: a client paired) |
 | `revoked` | `client`, `reason`: `revoked` or `expired` (*1.13*) |
@@ -1279,6 +1420,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `web-js`, `ios` (tvOS too), `macos`, `linux`, or `android` for the Android reader, *1.9*). `planDigest`
   (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
   joins and outlines that build from that plan's map.
+  - `page` (*1.15*): `"gallery"` for the variant gallery's page (the JS dev loop's `/__dev/gallery/`,
+    development only; the wasm loop answers it 404 with why: its stream `/__dev/gallery/stream` carries
+    its own reloads and errors, never the app's, nor the app's its), absent for the app's own page. Listed on the build in `builds` and
+    `hello` as it was said. It is the page's own claim, used only to group and label builds: it
+    grants nothing and changes nothing a build may receive (a gallery page offers no `navigate`).
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
@@ -1367,7 +1513,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`: inspect mode on or off (`seq` numbers
+  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*:
+    `levels` are the plan sites of each enclosing copy from `up` call sites out to the app's own,
+    each that owns a node, nearest first, as the server's map gives them for the selection at site
+    `from` (its instance path `instance`) under `plan`; a page whose selection or plan is another reports its selection as it is now, else it
+    selects, in the first level with a node above its selection, the outermost by its own tree,
+    and reports it as a click's selection): inspect mode on or off (`seq` numbers
     the command), or the selection
     reported again under the digests now (found again by its site and instance path after a
     new generation, or said gone). In inspect mode the page shows a banner with a close control
@@ -1588,7 +1739,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; write scope and the build's inspecting client alone, 409 otherwise, or with no selection to move from, or with `stale: true` when the selection moved since its chain was read: its selection moves `n` call sites up, past the outermost to the root, answered `{builds}`)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops

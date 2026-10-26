@@ -30,7 +30,7 @@ use PanelIcon from "./panel-icons.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use ChecksTrigger from "../details/pr-row.contract"
 use ChecksPopover from "../details/pr-row.contract"
-use PrCardView from "../details/pr-row.contract"
+use hoverTipAtFrame, hoverTipWide from "../shell/hover-layer.contract"
 use PrActionButton from "../details/pr-row.contract"
 use AttachmentMediaBody from "../media/attachment-media.contract"
 
@@ -42,6 +42,8 @@ fn prCheckStatus(rollup: string): string = rollup == "passing" ? "success" : rol
 // ThreadDetailsPrRows: the current pull request's row, then (with other links)
 // "Show N more" and, expanded, one row per other link.
 component DetailsPrRows
+  inject
+    frameMoved: action
   props
     prs: DetailsPrRowList
     act: action
@@ -56,7 +58,7 @@ component DetailsPrRows
       // The other links as one list (data-thread-details-pr-list): it scrolls with the card, so the
       // details card's density leaves its height out (thread-details-card-layout.ts).
       if prs.rest.length > 0
-        column width="100%" hatch="t3-frame" data-frame="details-pr-list"
+        column width="100%" id="frame-details-pr-list" resize=frameMoved
           for row in prs.rest key=row.key
             DetailsPrRowView(row=row, act=act, local=local)
       if prs.moreLabel != ""
@@ -69,6 +71,8 @@ component DetailsPrRows
 // keeps 8pt below so stacked pull requests read as separate pairs. A link no project here can read stays an
 // ordinary link.
 component DetailsPrRowView
+  inject
+    hoverTipAt: action
   props
     row: DetailsPrRow
     act: action
@@ -76,6 +80,13 @@ component DetailsPrRowView
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+    // The card's split is read when the card is first pointed at (PullRequestChangeBreakdownRows reads on mount).
+    if over and id == "row" and not row.extra.card.breakdown.requested
+      local("surface-pr-breakdown", "card", row.extra.card.breakdown.ref)
+    // The tooltip card: drawn by the window's hover layer above the link half (side top, start-aligned, or ending
+    // where the link half ends when it would cross the window), so the details card around the row cannot clip it.
+    if id == "row" and row.split and row.extra.card.show
+      hoverTipAt(hoverTipWide(hoverTipAtFrame(`details-pr-card-${row.key}`, "pr-card", row.key, [], "top", (row.extra.card.flipped ? "end" : "start"), frame(`details-pr-open-${row.key}`), row.extra.card.height, "details-pr-card"), row.extra.card.width), "trigger", over)
   action open(e: MouseEvent)
     local("surface-linked-pr-open", (e.metaKey or e.ctrlKey) ? "held" : row.target, row.url)
   // onAuxClick: the middle button opens it in the browser when it goes down and comes up on the row.
@@ -100,9 +111,7 @@ component DetailsPrRowView
             button id=`details-pr-open-${row.key}` press=open pointerdown=openDown pointerup=openUp hover=hover("row") aria-label=row.aria flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
               PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : surfaceMuted()))
               text (row.checks != "" or row.action != "" or row.watching ? row.extra.card.title : row.label) flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk() text-box-trim="trim-both" text-box-edge="cap alphabetic" testId=`details-pr-title-${row.key}`
-            if row.extra.card.show
-              PrCardView(card=row.extra.card, shown=(hovered == "row"))
-            else
+            if not row.extra.card.show
               TipBubble(label=row.tooltip, side="top", align="start", offset=36, inset=0, shown=(hovered == "row"))
           if row.checks != "" or row.action != "" or row.watching
             row width="100%" min-width=0 height="1.5rem" margin-top="-0.25rem" padding-left="2.25rem" padding-right="0.25rem" box-sizing="border-box" gap="0.125rem" align-items="center" testId=`details-pr-meta-${row.key}`

@@ -150,7 +150,7 @@ Rows rule 2 admits go to the control. The host does one of three things with eac
 | `text-align` | `textAlignment` | `alignment` | applies |
 | `accent-color`, `caret-color` | `tintColor` | `insertionPointColor` (field editor) | applies |
 | `padding-*` | text-rect insets added to the chrome's | added inside the bezel (cell subclass) | applies |
-| `-exact-control-size` | stand-in (UIKit has no field sizes) | `controlSize` | CSS's absolute `font-size` keyword, as 1069.011.001 D8 |
+| `-exact-control-size` | refused | refused | refused (the row sizes a native button; Contract refuses it on a field, `lower-button-style-attr`) |
 
 The table is a starting point. The build fills in each cell from a measured fixture (§4). A cell that doesn't hold becomes a reported stand-in, never a devolve.
 

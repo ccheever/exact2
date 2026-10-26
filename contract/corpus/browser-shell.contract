@@ -1,0 +1,57 @@
+// Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6,
+// §9): a partitioned top-level guest, the Navigation API's events with their
+// `FrameNavigation` record, the four frame commands, a guest's window
+// requests and downloads, a capture of the guest (D7), and an
+// agent-controlled frame's dialog (D9).
+component Shell
+  state address = ""
+  state title = ""
+  state loading = false
+  state failure = ""
+  state back = false
+  state opened = ""
+  state saved = ""
+  state shot = ""
+  state prompted = ""
+  action moved(e: FrameNavigation)
+    address = e.url
+    title = e.title
+    back = e.canGoBack
+  action started(e: FrameNavigation)
+    loading = e.loading
+  action landed
+    loading = false
+  action failed(e: FrameNavigation)
+    failure = e.error
+    loading = false
+  action asked(e: FrameNewWindow)
+    opened = e.disposition + " " + e.url
+  action downloaded(e: FrameDownload)
+    saved = e.state + " " + e.suggestedFilename + " " + e.path
+  action goBack
+    traverseHistory("tab", -1)
+  action go
+    navigate("tab", "https://example.com/next")
+  action again
+    reload("tab", ignoreCache=true)
+  action halt
+    stopLoading("tab")
+  action snap
+    captureScreenshot("tab", "app:/tmp/shot.png", clip=DOMRect(x=10, y=20, width=200, height=100))
+  action whole
+    captureScreenshot("tab", "app:/tmp/whole.png")
+  action asking(e: FrameUserPrompt)
+    prompted = e.type + " " + e.message + " " + e.defaultValue
+  action captured(e: FrameCapture)
+    shot = e.path + " " + e.width.toString() + "x" + e.height.toString() + " " + e.error
+  view
+    column testId="root"
+      row
+        button "Back" testId="back" press=goBack disabled=(not back)
+        button "Go" testId="go" press=go
+        button "Reload" testId="reload" press=again
+        button "Stop" testId="stop" press=halt
+        button "Snap" testId="snap" press=snap
+        button "Whole" testId="whole" press=whole
+      iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed newwindow=asked download=downloaded capture=captured userpromptopened=asking testId="tab" width=400 height=300
+      text address testId="address"

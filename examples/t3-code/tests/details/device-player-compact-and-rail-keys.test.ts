@@ -12,6 +12,7 @@ import { floatMiniDevice, miniStoreOf } from '../../src/device/device-session';
 import { shellDetails } from '../../src/details/shell-details';
 import { forgetDetails } from '../../src/details/pr-row-actions';
 import { resetPrimary, primaryAt } from '../support/local-primary-fixture';
+import { setLayoutFrames } from '../support/layout-frames';
 
 const iphone = { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' };
 const KEY = 'device:local:IPHONE';
@@ -29,7 +30,8 @@ const args = (extra: Partial<ChatCanvasArgs> = {}): ChatCanvasArgs => ({ width: 
 const playerAt = (y: number) => miniStoreOf(client).resize('t1', KEY, 240, { x: 1300, y });
 
 beforeEach(() => {
-  client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: { frames: fullLayout }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+  client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: {}, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+  setLayoutFrames(client, fullLayout);
 });
 
 describe('ThreadDetailsCard measures its content per density', () => {
@@ -87,13 +89,13 @@ describe('ThreadDetailsCard measures its content per density', () => {
     const compact = await chatCanvasView(client, native, args());
     expect([compact.density, compact.popover, compact.cardShown, compact.cardHeight, compact.overlapsDetailsCard]).toEqual(['compact', false, true, 300 - 24, true]);
     // Laid out compact, the card measures its compact rows (a marker frame, no full-only parts); the full height is kept.
-    client.presentation = { frames: { chat, overlay, [DETAILS_FRAMES.content]: [1292, 64, 280, COMPACT - 2], [DETAILS_FRAMES.compact]: [1292, 64, 0, 0] } };
+    setLayoutFrames(client, { chat, overlay, [DETAILS_FRAMES.content]: [1292, 64, 280, COMPACT - 2], [DETAILS_FRAMES.compact]: [1292, 64, 0, 0] });
     expect((await chatCanvasView(client, native, args())).density).toBe('compact');
     playerAt(220);
     const essential = await chatCanvasView(client, native, args());
     expect([essential.density, essential.cardHeight]).toEqual(['essential', 220 - 24]);
     // Essential is not measured: the heights stay, so a smaller player brings the compact and then the full rows back.
-    client.presentation = { frames: { chat, overlay, [DETAILS_FRAMES.content]: [1292, 64, 280, 120] } };
+    setLayoutFrames(client, { chat, overlay, [DETAILS_FRAMES.content]: [1292, 64, 280, 120] });
     playerAt(300);
     expect((await chatCanvasView(client, native, args())).density).toBe('compact');
     playerAt(600);
@@ -101,12 +103,12 @@ describe('ThreadDetailsCard measures its content per density', () => {
   });
 
   test('the popover takes the canvas height less 52 pt, measured under its own key when chat is narrow', async () => {
-    client.presentation = { frames: { chat: [0, 0, 900, 300], overlay, ...{ [DETAILS_FRAMES.content]: [600, 60, 264, 325], [DETAILS_FRAMES.fullTop]: [608, 68, 248, 32] } } };
+    setLayoutFrames(client, { chat: [0, 0, 900, 300], overlay, ...{ [DETAILS_FRAMES.content]: [600, 60, 264, 325], [DETAILS_FRAMES.fullTop]: [608, 68, 248, 32] } });
     const narrow = await chatCanvasView(client, native, args({ width: 900, viewportHeight: 300, detailsInline: false, wide: false, popoverOpen: true }));
     // 300 − 52 header − 52 = 196: the full content (327) does not fit; its compact height (327 − 32 = 295) does not either.
     expect([narrow.popover, narrow.density]).toEqual([true, 'essential']);
     // The docked card's measurements are another key: a wide canvas starts again from its own.
-    client.presentation = { frames: { chat: [0, 0, 1584, 300], overlay } };
+    setLayoutFrames(client, { chat: [0, 0, 1584, 300], overlay });
     expect((await chatCanvasView(client, native, args({ viewportHeight: 300, popoverOpen: false }))).density).toBe('full');
   });
 });
@@ -157,11 +159,11 @@ describe('the pull request rows place their cards for the presentation shown', (
     } as unknown as T3Client;
     // The docked card (open by default on a wide chat): 262 pt rows 12 pt in; the trigger ends 185.1 pt from the window's edge.
     const docked = (await shellDetails(prClient, native, false, 't1', true, 1, 0)).prRows.rows[0]!;
-    expect([docked.extra.tail, docked.extra.card.maxWidth]).toEqual([185.1, 262 + 8]);
+    expect(docked.extra.tail).toBe(185.1);
     // The popover shown on the same wide chat: 246 pt rows 13 pt in, as on a narrow one.
     const shown = (await shellDetails(prClient, native, true, 't1', true, 1, 0)).prRows.rows[0]!;
     const narrow = (await shellDetails(prClient, native, true, 't1', false, 1, 0)).prRows.rows[0]!;
-    expect([shown.extra.tail, shown.extra.card.maxWidth]).toEqual([170.1, 246 + 8]);
+    expect(shown.extra.tail).toBe(170.1);
     expect(shown.extra).toEqual(narrow.extra);
     forgetDetails(prClient);
   });

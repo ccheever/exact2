@@ -328,10 +328,8 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         let small = ["get-app", "try-demo", "subscriptions", "sign-out", "clear"].contains(name)
         let fontSize = small ? 13 : NSFont.systemFontSize(for: b.controlSize)
         if small || name == "sign-in" {
-            // CSS 600 is the SF variable axis, not AppKit's approximate named weight.
-            let base = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: [0x77676874: 600]] as CFDictionary)
-            b.font = CTFontCreateCopyWithAttributes(base as CTFont, fontSize, nil, descriptor) as NSFont
+            // CSS 600 is AppKit's semibold (LLP 1019 §13 D11).
+            b.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
         } else { b.font = NSFont.systemFont(ofSize: fontSize) }
         let green = NSColor(red: 52.0 / 255, green: 199.0 / 255, blue: 89.0 / 255, alpha: 1)
         let tint = name.hasPrefix("a-") || name == "wide" ? green : NSColor.controlAccentColor
@@ -372,7 +370,11 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         let context = try XCTUnwrap(CGContext(data: &bytes, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: cg.width * 4,
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
-        let colours = Set(stride(from: 0, to: bytes.count, by: 4).map { UInt32(bytes[$0]) << 24 | UInt32(bytes[$0 + 1]) << 16 | UInt32(bytes[$0 + 2]) << 8 | UInt32(bytes[$0 + 3]) })
+        var colours = Set<UInt32>()
+        for at in stride(from: 0, to: bytes.count, by: 4) {
+            let high = UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16
+            colours.insert(high | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3]))
+        }
         XCTAssertGreaterThan(colours.count, 2, "capture must contain visible ink, not a blank diff")
         b.removeFromSuperview()
         return bytes

@@ -18,7 +18,7 @@
 import type { Sources } from './app.contract.d.ts';
 
 type Call = (path: string, body: unknown, timeout?: number, bound?: string) => Promise<{ error: string; reply: { ok?: any; error?: any }; used: string }>;
-type Build = { id: string; status: any; pin: any; planDigest: string | null; unsupported: { what: string; detail: string | null } | null; holding: { can: boolean; hold: any; held: any } };
+type Build = { id: string; page?: string; status: any; pin: any; planDigest: string | null; unsupported: { what: string; detail: string | null } | null; holding: { can: boolean; hold: any; held: any } };
 type Selection = { e: any; stale: string } | null;
 type Pin = { scheme?: string; mode?: Record<string, string>; rootFontSize?: number };
 type Hold = { site: number; instance: unknown[]; state: string };
@@ -95,7 +95,7 @@ const heldText = (h: Build['holding']) => !h.hold ? '' : `${h.held?.state === h.
 const owned = new Map<string, { pin?: { json: string; revision: number }; hold?: { state: string; instance: string } }>();
 const asked = new Map<string, string>();
 const seen = new Map<string, string>(), sentTo = new Map<string, string>(), sentAt = new Map<string, number>(), went = new Map<string, string>(), reloaded = new Map<string, string>(), refusals = new Map<string, number>();
-let run = '', place = '', handle = '', chosen = 0, policy = '', passNo = 0;
+let run = '', place = '', handle = '', chosen = 0, policy = '', passNo = 0, framed = '';
 let shown: { sel: object; e: any; facts: Pin; location: string; words: string; chosen: number } | null = null;
 // The passes asked: each runs in turn, and one a newer ask has superseded
 // sends nothing more (the newer pass reconciles from what is then).
@@ -155,6 +155,8 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
     let src: URL | null = null;
     try { src = at ? new URL(at) : null; } catch { src = null; }
     if (!src) tiles = [];
+    // Another page framed (the variant gallery's, or the app's again): where copies were sent or reloaded was the old page's.
+    if (at !== framed) { framed = at; reloaded.clear(); sentTo.clear(); went.clear(); seen.clear(); place = ''; }
     // Each tile's page: the dev loop's, or the place it was reloaded at; a new page waits for its own word.
     const shownNames = new Set(tiles.map(t => t.name));
     for (const n of NAMES) if (!shownNames.has(n)) { srcs.delete(n); copies.delete(n); reloaded.delete(n); }
@@ -175,7 +177,8 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
     // again, a router's rewrite or a Back included; nor one saying its first).
     for (const t of tiles) {
       const b = of(t), loc = String(b?.status?.location ?? '');
-      if (!b || !loc) continue;
+      // (A variant gallery's copy leads nowhere and is sent nowhere: its page is the gallery's, not a route.)
+      if (!b || !loc || b.page === 'gallery') continue;
       const was = seen.get(b.id);
       if (sentTo.has(b.id) && (loc !== was || passNo - (sentAt.get(b.id) ?? 0) > 5)) { went.set(b.id, sentTo.get(b.id)!); sentTo.delete(b.id); }
       else if (view === 'grid' && mirror && was !== undefined && loc !== was && !sentTo.has(b.id)) place = loc;
@@ -213,7 +216,7 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
         if (sentTo.has(b.id) && refused > (refusals.get(b.id) ?? 0)) { if (moving) reloaded.set(t.name, sentTo.get(b.id)!); sentTo.delete(b.id); }
         refusals.set(b.id, refused);
         // (A copy reloaded once, its build unable to navigate, is reloaded again at each new place.)
-        if (place && reloaded.has(t.name) && reloaded.get(t.name) !== place) reloaded.set(t.name, place);
+        if (b.page === 'gallery') { /* never navigated, never reloaded at the app's place */ } else if (place && reloaded.has(t.name) && reloaded.get(t.name) !== place) reloaded.set(t.name, place);
         else if (place && loc && loc !== place && !sentTo.has(b.id) && went.get(b.id) !== place && !reloaded.has(t.name)) {
           sentTo.set(b.id, place);
           sentAt.set(b.id, passNo);

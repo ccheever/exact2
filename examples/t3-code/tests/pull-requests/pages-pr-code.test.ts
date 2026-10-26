@@ -277,6 +277,15 @@ describe('Viewed ticks (usePullRequestFilesViewed)', () => {
     const view = await f.settle();
     expect([view.codeTab.viewedCount, toasts(f.client).map(toast => toast.title)]).toEqual(['0 / 310', ['Could not update viewed files']]);
   });
+  test('a failed write reads the marks again, since the batch may have applied some paths', async () => {
+    const f = fixture({ 'pullRequests.setFilesViewed': () => { throw new ClientError('Resource not accessible by integration', 'PullRequestOperationError'); } });
+    await walk(f);
+    const reads = f.of('pullRequests.filesViewed').length;
+    await f.press('viewed', 'data/item-001.txt|true');
+    await f.settle(); await f.drain();
+    await f.settle();
+    expect(f.of('pullRequests.filesViewed').length).toBe(reads + 1);
+  });
   test('a file pushed to since it was ticked reads "Changed"; unreadable ticks say so', async () => {
     let fail = false;
     const f = fixture({ 'pullRequests.filesViewed': () => { if (fail) throw new ClientError('HTTP 502', 'HTTP'); return { files: [{ path: 'src/catalog.js', state: 'dismissed' }, { path: 'src/strings.js', state: 'viewed' }], truncated: true }; } });

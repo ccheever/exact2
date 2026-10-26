@@ -5,6 +5,7 @@
 //! keeps nothing for one: the kernel holds every column.
 
 use exact_kernel::style::{metrics::Column, scale};
+use exact_tamber as tamber;
 
 thread_local! {
     /// Every token name the design declares, of any kind, while its styles
@@ -83,6 +84,58 @@ pub(crate) fn unfolded(value: &str) -> Option<&'static str> {
         .map(|(name, _)| *name)
 }
 
+/// A shadow token's value over base names the design leaves unset (LLP
+/// 1121 stage 12 B3): its text in each column, by the column's name, each
+/// length over one folded to px as that column's host folds it
+/// (`scale::fold_lengths`), `None` in a column it doesn't fold in. `None`
+/// for any other text.
+pub(crate) fn shadow_columns(value: &str) -> Option<Vec<(&'static str, Option<String>)>> {
+    let value = value.trim();
+    if scale::named_in(value).is_empty() {
+        return None;
+    }
+    let each =
+        |column: Column| scale::fold_lengths(value, |n| scale::of(n, column).map(scale::css));
+    Some(
+        scale::COLUMNS
+            .iter()
+            .map(|(name, column)| (*name, each(*column)))
+            .collect(),
+    )
+}
+
+/// Why a token over base names the design leaves unset is refused, with
+/// its id: a length's expression that doesn't fold in a column (stage 12
+/// B2), or a shadow whose lengths don't fold in one, or whose px there the
+/// row's codec refuses, a blur gone negative (B3). The first column it
+/// fails in is named, so no host meets a value it can't read. `None` for
+/// one every column reads, or any other value.
+pub(crate) fn refusal(kind: tamber::Kind, name: &str, v: &str) -> Option<(&'static str, String)> {
+    use exact_kernel::style::{BoxShadows, TextShadow};
+    if kind == tamber::Kind::Length {
+        let column = unfolded(v)?;
+        return Some((
+            "tamber-kind",
+            format!("`{name}` is `{v}`, which doesn't fold to a length on {column}: {UNFOLDED}"),
+        ));
+    }
+    let check = match kind {
+        tamber::Kind::BoxShadow => |t: &str| BoxShadows::check(t).map(drop),
+        tamber::Kind::TextShadow => |t: &str| TextShadow::check(t).map(drop),
+        _ => return None,
+    };
+    shadow_columns(v)?.into_iter().find_map(|(column, text)| {
+        let message = match text {
+            None => format!("`{name}` is `{v}`, whose lengths don't fold on {column}: {UNFOLDED}"),
+            Some(text) => {
+                let why = check(&text).err()?;
+                format!("`{name}` is `{v}`, the shadow `{text}` on {column}, which no host draws: {why}")
+            }
+        };
+        Some(("tamber-base-expression", message))
+    })
+}
+
 /// [`columns`], and a bare base name the design leaves unset's too: what a
 /// ranged param checks (stage 12 B2, theme2's "ranges included").
 pub(crate) fn ranged(value: &str) -> Option<Vec<(&'static str, f32)>> {
@@ -102,13 +155,33 @@ pub(crate) fn px(n: f32) -> String {
     format!("{}px", exact_num::Shortest32(n))
 }
 
-/// A token's values, each over base names as its columns' px (what a row
+/// Value `v` of a token of `kind` in each column it is over base names in,
+/// by the column's name: a length's px, a shadow's text with its lengths
+/// px (stage 12 B3). `None` for one over no base name.
+fn by_column(kind: tamber::Kind, v: &str) -> Option<Vec<(&'static str, String)>> {
+    match kind {
+        tamber::Kind::BoxShadow | tamber::Kind::TextShadow => Some(
+            shadow_columns(v)?
+                .into_iter()
+                .filter_map(|(name, text)| Some((name, text?)))
+                .collect(),
+        ),
+        _ => Some(
+            columns(v)?
+                .into_iter()
+                .map(|(name, n)| (name, px(n)))
+                .collect(),
+        ),
+    }
+}
+
+/// A token's values, each over base names as its columns' (what a row
 /// checks: every column's, as every tuple's), distinct.
-pub(crate) fn expanded(values: &[String]) -> Vec<String> {
+pub(crate) fn expanded(kind: tamber::Kind, values: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for v in values {
-        let each = match columns(v) {
-            Some(columns) => columns.into_iter().map(|(_, n)| px(n)).collect(),
+        let each = match by_column(kind, v) {
+            Some(columns) => columns.into_iter().map(|(_, v)| v).collect(),
             None => vec![v.clone()],
         };
         for v in each {
@@ -120,15 +193,14 @@ pub(crate) fn expanded(values: &[String]) -> Vec<String> {
     out
 }
 
-/// Where among `values` (a token's, over its tuples) a length is `px`:
-/// the columns an expression over base names folds to it in, said with
-/// the expression (`on mac (`calc(space.md - 12px)`)`); `None` when no
-/// expression does.
-pub(crate) fn place(values: &[String], px_text: &str) -> Option<String> {
+/// Where among `values` (a token's of `kind`, over its tuples) one is
+/// `px_text`: the columns a value over base names is it in, said with the
+/// value (`on mac (`calc(space.md - 12px)`)`); `None` when none is.
+pub(crate) fn place(kind: tamber::Kind, values: &[String], px_text: &str) -> Option<String> {
     values.iter().find_map(|v| {
-        let on: Vec<&str> = columns(v)?
+        let on: Vec<&str> = by_column(kind, v)?
             .into_iter()
-            .filter(|(_, n)| px(*n) == px_text)
+            .filter(|(_, text)| text == px_text)
             .map(|(name, _)| name)
             .collect();
         (!on.is_empty()).then(|| format!("on {} (`{}`)", on.join(", "), v.trim()))

@@ -122,11 +122,13 @@ fn requested(kernel: &Kernel, id: ViewId) -> Option<f64> {
 }
 
 fn out_of_flow(node: NodeRef<'_>) -> bool {
-    matches!(node.style.position_type, PositionType::Absolute)
+    // A popover lays out absolute too (the kernel's top layer), unless sticky.
+    node.layout_position() == PositionType::Absolute
 }
 
 fn contains_absolute(node: NodeRef<'_>) -> bool {
-    node.style.position_type != PositionType::Static
+    // A popover lays out absolute (the kernel's top layer), unless sticky.
+    node.layout_position() != PositionType::Static
         || [
             StyleId::Transform,
             StyleId::Translate,
@@ -140,10 +142,13 @@ fn contains_absolute(node: NodeRef<'_>) -> bool {
 }
 
 fn excluded(kernel: &Kernel, node: NodeRef<'_>, scroller: ViewId) -> bool {
-    if node.style.display == Display::None {
+    // A box in a block of its own (a popover's, the viewport) is in that
+    // block's space, and scrolls with no scroller here.
+    if node.style.display == Display::None || kernel.host_block(node.id).is_some() {
         return true;
     }
-    match node.style.position_type {
+    // A popover lays out absolute (the kernel's top layer), unless sticky.
+    match node.layout_position() {
         PositionType::Sticky => true,
         PositionType::Absolute if scroller != PAGE => {
             let mut at = node.parent;

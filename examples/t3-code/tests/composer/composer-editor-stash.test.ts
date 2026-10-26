@@ -47,3 +47,24 @@ describe('prompt stash', () => {
     expect(stashEntries(next)).toEqual([{ id: 'a', createdAt: at.toISOString(), prompt: 'p', environmentId: 'e' }]);
   });
 });
+
+describe('stash drawer keys (ComposerStashMenu at T3 Code 74541bab17)', () => {
+  const { contractComponent } = require('../support/contract-action-fixture') as typeof import('../support/contract-action-fixture');
+  const { readFileSync } = require('node:fs') as typeof import('node:fs');
+  const { appPath } = require('../support/app-files') as typeof import('../support/app-files');
+  const menu = contractComponent('src/composer/composer-editor.contract', 'StashMenu');
+  test('Escape inside the drawer closes it; no window-wide Escape chord takes it from a terminal or a diff comment', () => {
+    for (const [k, held, closes] of [['Escape', {}, true], ['Escape', { shiftKey: true }, false], ['ArrowDown', {}, false]] as const) {
+      const ops: unknown[][] = [];
+      let prevented = 0;
+      menu.call('drawerKey', menu.state(), { op: (...args: unknown[]) => ops.push(args), preventDefault: () => prevented++, stopPropagation: () => {} },
+        [k, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...held }]);
+      expect(ops).toEqual(closes ? [['stash-menu', '', 'close']] : []);
+      expect(prevented).toBe(closes ? 1 : 0);
+    }
+    const source = readFileSync(appPath('src/composer/composer-editor.contract'), 'utf8');
+    const drawer = source.slice(source.indexOf('component StashMenu'), source.indexOf('component ComposerEditorDock'));
+    expect(drawer).not.toContain('aria-keyshortcuts="Escape"');
+    // From the composer, its key action closes it (app.contract composerStashKey; composer-plan-key.test.ts).
+  });
+});

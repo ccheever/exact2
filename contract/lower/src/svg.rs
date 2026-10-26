@@ -405,7 +405,7 @@ impl Lowerer<'_> {
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke, font-weight, font-stretch, font-variation-settings and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9; LLP 1019 §13 D10)",
                                 a.name
                             ),
                             span: a.span,
@@ -501,7 +501,18 @@ impl Lowerer<'_> {
                 }
                 Err(e) => errors.push(LowerError {
                     id: "lower-keyframes",
-                    message: format!("`keyframes {}`: {e:?}", decl.name),
+                    message: match e {
+                        // @ref LLP 1019 §13 D10 — the axes interpolate one by one.
+                        exact_motion::ParseError::InvalidAnimation(
+                            exact_motion::AnimationError::NotAnimatable(
+                                Property::FontVariationSettings,
+                            ),
+                        ) => format!(
+                            "`keyframes {}`: every keyframe that sets `font-variation-settings` names the same axes, which interpolate one by one",
+                            decl.name
+                        ),
+                        e => format!("`keyframes {}`: {e:?}", decl.name),
+                    },
                     span: decl.span,
                 }),
             }
@@ -519,149 +530,7 @@ impl Lowerer<'_> {
         span: Span,
     ) -> Result<(), LowerError> {
         let in_svg = in_svg(self.svg_depth > 0, parent_tag);
-        // A nested `svg` is an SVG element (a new viewport, LLP 1055.000 D4),
-        // and so is `text` inside one (D11).
-        let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
-        if let Some(parent) = parent_tag.filter(|_| in_svg) {
-            if !holds(parent, tag) {
-                return err(
-                    "lower-svg-content",
-                    format!("`{parent}` does not hold `{tag}`"),
-                    span,
-                );
-            }
-        }
-        if tag != "svg" && is_element(tag) && !in_svg {
-            return err(
-                "lower-svg-content",
-                format!("`{tag}` is an SVG element: it goes inside an `svg` or a `g`"),
-                span,
-            );
-        }
-        if in_svg && !element {
-            return err(
-                "lower-svg-content",
-                format!(
-                    "an `svg` or `g` holds SVG elements (svg, g, path, polyline, polygon, circle, ellipse, line, rect), not `{tag}`"
-                ),
-                span,
-            );
-        }
-        for a in attrs {
-            // A module tag's own prop named like an SVG attribute (`fx`)
-            // is the module's (LLP 1024 D1).
-            if crate::native::leftover(tag, a) {
-                continue;
-            }
-            if a.name == "transform" && !element && tag != "svg" {
-                return err(
-                    "lower-attr-tag",
-                    crate::vocab::BOX_TRANSFORM_REFUSAL,
-                    a.span,
-                );
-            }
-            // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
-            // a box's `clip-path` is a path.
-            if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {
-                return err(
-                    "lower-svg-attr",
-                    "per-glyph `rotate` on SVG text is a later stage (LLP 1055.000 §4); rotate the `text` with `transform`",
-                    a.span,
-                );
-            }
-            // @ref LLP 1055.000 D19 — blending is SVG elements' so far: a
-            // native box would draw it unblended.
-            if matches!(a.name.as_str(), "mix-blend-mode" | "isolation") && !element {
-                return err(
-                    "lower-attr-tag",
-                    format!(
-                        "`{}` applies to SVG elements (LLP 1055.000 D19); boxes do not blend yet",
-                        a.name
-                    ),
-                    a.span,
-                );
-            }
-            if a.name == "clip-path"
-                && !element
-                && matches!(&a.value, Expr::Str(v, _) if v.trim_start().starts_with("url("))
-            {
-                return err(
-                    "lower-attr-value",
-                    "`clip-path: url(#…)` clips SVG elements; a box takes `path(\"…\")`",
-                    a.span,
-                );
-            }
-            if let Some(owners) = owners(&a.name) {
-                if !owners.contains(&tag) {
-                    return err(
-                        "lower-attr-tag",
-                        format!(
-                            "`{}` belongs to {}, not `{tag}`",
-                            a.name,
-                            owners.join(" or ")
-                        ),
-                        a.span,
-                    );
-                }
-            } else if element
-                && !shared(&a.name)
-                // @ref LLP 1055.000 D17 — an element that renders handles
-                // events: the host hits it by `pointer-events`.
-                && !(matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler("press")))
-                    && !matches!(
-                        tag,
-                        "defs"
-                            | "linearGradient"
-                            | "radialGradient"
-                            | "stop"
-                            | "symbol"
-                            | "clipPath"
-                            | "marker"
-                            | "mask"
-                            | "pattern"
-                            | "filter"
-                            | "tspan"
-                    ) && !FE.contains(&tag))
-                && !((matches!(tag, "rect" | "svg" | "use" | "mask" | "pattern" | "foreignObject" | "filter")
-                    || (FE.contains(&tag) && !tag.starts_with("feFunc") && !tag.ends_with("Light") && tag != "feMergeNode"))
-                    && matches!(a.name.as_str(), "width" | "height"))
-                && !(matches!(tag, "use" | "linearGradient" | "radialGradient" | "pattern")
-                    && a.name == "href")
-                && !(tag == "svg"
-                    && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
-                && !(FE.contains(&tag) && (is_length_prop(&a.name) || a.name == "type"))
-            {
-                let why = if matches!(
-                    tags::attr(&a.name),
-                    Some(tags::AttrTarget::Handler("press"))
-                ) {
-                    "a definition handles no events: it renders only where it is referenced (LLP 1055.000 D17)"
-                } else if matches!(
-                    tags::attr_valued(&a.name, &a.value),
-                    Some(tags::AttrTarget::Handler(_))
-                ) {
-                    "an SVG element takes `press` so far; its other handlers are a later stage (LLP 1055.000 D17)"
-                } else {
-                    "it does not apply to an SVG element"
-                };
-                return err(
-                    "lower-svg-attr",
-                    format!("`{}` on `{tag}`: {why}", a.name),
-                    a.span,
-                );
-            }
-            let length = match a.name.as_str() {
-                "textX" => Some("x"),
-                "textY" => Some("y"),
-                "textDx" => Some("dx"),
-                "textDy" => Some("dy"),
-                "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "markerWidth" | "markerHeight"
-                | "refX" | "refY" => Some(a.name.as_str()),
-                _ => None,
-            };
-            if let Some(name) = length.filter(|_| element) {
-                check_length(name, &a.value)?;
-            }
+        check_svg_with(tag, in_svg, parent_tag, attrs, span, &|a| {
             if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
             }
@@ -671,8 +540,8 @@ impl Lowerer<'_> {
             if a.name == "-exact-exit-animation" {
                 exit_ends(&a.value)?;
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     fn check_animation_names(&self, tag: &str, value: &Expr) -> Result<(), LowerError> {
@@ -892,6 +761,160 @@ impl Lowerer<'_> {
         });
         Ok(Some(out))
     }
+}
+
+/// [`Lowerer::check_svg`]'s content model and attribute placement, for a
+/// node `in_svg` or not under `parent_tag`, each attribute's motion checks
+/// by `animation` (the keyframes' own): the design server's write check
+/// calls it too (`theme::scan`), so it keeps no row of an element lowering
+/// refuses here.
+pub(crate) fn check_svg_with(
+    tag: &str,
+    in_svg: bool,
+    parent_tag: Option<&str>,
+    attrs: &[Attr],
+    span: Span,
+    animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
+    // A nested `svg` is an SVG element (a new viewport, LLP 1055.000 D4),
+    // and so is `text` inside one (D11).
+    let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
+    if let Some(parent) = parent_tag.filter(|_| in_svg) {
+        if !holds(parent, tag) {
+            return err(
+                "lower-svg-content",
+                format!("`{parent}` does not hold `{tag}`"),
+                span,
+            );
+        }
+    }
+    if tag != "svg" && is_element(tag) && !in_svg {
+        return err(
+            "lower-svg-content",
+            format!("`{tag}` is an SVG element: it goes inside an `svg` or a `g`"),
+            span,
+        );
+    }
+    if in_svg && !element {
+        return err(
+            "lower-svg-content",
+            format!(
+                "an `svg` or `g` holds SVG elements (svg, g, path, polyline, polygon, circle, ellipse, line, rect), not `{tag}`"
+            ),
+            span,
+        );
+    }
+    for a in attrs {
+        // A module tag's own prop named like an SVG attribute (`fx`)
+        // is the module's (LLP 1024 D1).
+        if crate::native::leftover(tag, a) {
+            continue;
+        }
+        // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
+        // a box's `clip-path` is a path.
+        if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {
+            return err(
+                "lower-svg-attr",
+                "per-glyph `rotate` on SVG text is a later stage (LLP 1055.000 §4); rotate the `text` with `transform`",
+                a.span,
+            );
+        }
+        // @ref LLP 1055.000 D19 — blending is SVG elements' so far: a
+        // native box would draw it unblended.
+        if matches!(a.name.as_str(), "mix-blend-mode" | "isolation") && !element {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`{}` applies to SVG elements (LLP 1055.000 D19); boxes do not blend yet",
+                    a.name
+                ),
+                a.span,
+            );
+        }
+        if a.name == "clip-path"
+            && !element
+            && matches!(&a.value, Expr::Str(v, _) if v.trim_start().starts_with("url("))
+        {
+            return err(
+                "lower-attr-value",
+                "`clip-path: url(#…)` clips SVG elements; a box takes `path(\"…\")`",
+                a.span,
+            );
+        }
+        if let Some(owners) = owners(&a.name) {
+            if !owners.contains(&tag) {
+                return err(
+                    "lower-attr-tag",
+                    format!(
+                        "`{}` belongs to {}, not `{tag}`",
+                        a.name,
+                        owners.join(" or ")
+                    ),
+                    a.span,
+                );
+            }
+        } else if element
+            && !shared(&a.name)
+            // @ref LLP 1055.000 D17 — an element that renders handles
+            // events: the host hits it by `pointer-events`.
+            && !(matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler("press")))
+                && !matches!(
+                    tag,
+                    "defs"
+                        | "linearGradient"
+                        | "radialGradient"
+                        | "stop"
+                        | "symbol"
+                        | "clipPath"
+                        | "marker"
+                        | "mask"
+                        | "pattern"
+                        | "filter"
+                        | "tspan"
+                ) && !FE.contains(&tag))
+            && !((matches!(tag, "rect" | "svg" | "use" | "mask" | "pattern" | "foreignObject" | "filter")
+                || (FE.contains(&tag) && !tag.starts_with("feFunc") && !tag.ends_with("Light") && tag != "feMergeNode"))
+                && matches!(a.name.as_str(), "width" | "height"))
+            && !(matches!(tag, "use" | "linearGradient" | "radialGradient" | "pattern")
+                && a.name == "href")
+            && !(tag == "svg"
+                && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
+            && !(FE.contains(&tag) && (is_length_prop(&a.name) || a.name == "type"))
+        {
+            let why = if matches!(
+                tags::attr(&a.name),
+                Some(tags::AttrTarget::Handler("press"))
+            ) {
+                "a definition handles no events: it renders only where it is referenced (LLP 1055.000 D17)"
+            } else if matches!(
+                tags::attr_valued(&a.name, &a.value),
+                Some(tags::AttrTarget::Handler(_))
+            ) {
+                "an SVG element takes `press` so far; its other handlers are a later stage (LLP 1055.000 D17)"
+            } else {
+                "it does not apply to an SVG element"
+            };
+            return err(
+                "lower-svg-attr",
+                format!("`{}` on `{tag}`: {why}", a.name),
+                a.span,
+            );
+        }
+        let length = match a.name.as_str() {
+            "textX" => Some("x"),
+            "textY" => Some("y"),
+            "textDx" => Some("dx"),
+            "textDy" => Some("dy"),
+            "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "markerWidth" | "markerHeight"
+            | "refX" | "refY" => Some(a.name.as_str()),
+            _ => None,
+        };
+        if let Some(name) = length.filter(|_| element) {
+            check_length(name, &a.value)?;
+        }
+        animation(a)?;
+    }
+    Ok(())
 }
 
 /// Whether a node's animations follow a named timeline: any

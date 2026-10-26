@@ -3,14 +3,19 @@
 // the platform's own gesture recognizers (PhotoEditorIOS.swift: UIKit;
 // PhotoEditorMac.swift: AppKit). What crosses to the Contract is small:
 //
-//   props   photo   the image, relative to the app's assets root
+//   props   photo   the image: relative to the app's assets root, or an
+//                   `app:/data|cache|tmp/…` path in the app's own files
+//                   (a photo the camera took)
 //           turns   quarter turns clockwise (the Rotate 90° button)
 //           reset   a counter; each change resets zoom, rotation, position and crop
 //   events  load      once the photo is up (and `change` with the first state)
 //           change    the edit state, when a gesture ends or a prop moves it
-//           message   "edited", beside each change after the first
+//           message   "edited", beside each change after the first; and
+//                     `edit {"rotate", "crop"}` with each change, the edit
+//                     in the photo's own terms (`PhotoEdit.inPhoto`)
 import Foundation
 import CoreGraphics
+import ImageIO
 import QuartzCore
 #if os(macOS)
 import AppKit
@@ -20,7 +25,9 @@ import UIKit
 
 final class PhotoEditorModule: ExactModule {
     override class var views: [String: ExactNativeFactory] {
-        ["photo-editor": ExactNativeFactory { props, events in try PhotoEditor(props: props, events: events) }]
+        ["photo-editor": ExactNativeFactory(for: PhotoEditorModule.self) { module, props, events in
+            try PhotoEditor(files: module.context, props: props, events: events)
+        }]
     }
 }
 let exactModule: ExactModule.Type = PhotoEditorModule.self
@@ -67,6 +74,26 @@ struct PhotoEdit: Equatable {
         let px = stage.width > 0 ? Double(offset.x / stage.width) : 0, py = stage.height > 0 ? Double(offset.y / stage.height) : 0
         return String(format: "scale %.2f× · rotation %.1f° · pan x %.2f y %.2f · crop x %.2f y %.2f w %.2f h %.2f",
                       Double(scale), degrees, z(px), z(py), Double(crop.minX), Double(crop.minY), Double(crop.width), Double(crop.height))
+    }
+
+    /// The edit in the photo's terms, as `storage.fs.transformImage` takes
+    /// it (LLP 1133.019 §11): the clockwise angle in degrees, and the crop
+    /// in the turned photo's pixels (its bounding box after the turn), the
+    /// canvas's crop mapped back through the fit, scale and pan. JSON.
+    func inPhoto(_ image: CGSize, stage: CGSize) -> String {
+        let f = fit(image, in: stage)
+        guard image.width > 0, image.height > 0, f.width > 0, stage.width > 0, stage.height > 0 else { return "{}" }
+        let m = f.width / image.width * scale, c = abs(cos(angle)), s = abs(sin(angle))
+        let turned = CGSize(width: image.width * c + image.height * s, height: image.width * s + image.height * c)
+        let r = CGRect(x: ((crop.minX - 0.5) * stage.width - offset.x) / m + turned.width / 2,
+                       y: ((crop.minY - 0.5) * stage.height - offset.y) / m + turned.height / 2,
+                       width: crop.width * stage.width / m, height: crop.height * stage.height / m)
+            .intersection(CGRect(origin: .zero, size: turned))
+        guard !r.isNull, r.width >= 1, r.height >= 1 else { return "{\"rotate\":\(degrees)}" }
+        let x = Int(r.minX.rounded()), y = Int(r.minY.rounded())
+        let w = max(1, min(Int(turned.width.rounded()) - x, Int(r.width.rounded())))
+        let h = max(1, min(Int(turned.height.rounded()) - y, Int(r.height.rounded())))
+        return "{\"rotate\":\(degrees),\"crop\":{\"x\":\(x),\"y\":\(y),\"width\":\(w),\"height\":\(h)}}"
     }
 
     /// Scale by `factor` about `point` (relative to the canvas centre): the
@@ -223,38 +250,61 @@ extension Double {
     }
 }
 
-/// The photo, found under the app's assets: the development asset root,
-/// then the bundle (macOS Resources, the iOS bundle root).
-func loadPhoto(_ relative: String?) -> CGImage? {
-    guard let relative, !relative.isEmpty, !relative.contains("..") else { return nil }
-    var roots: [String] = []
-    if let assets = ProcessInfo.processInfo.environment["EXACT_ASSETS"] { roots.append(assets) }
-    if let resources = Bundle.main.resourcePath { roots.append(resources) }
-    roots.append(Bundle.main.bundlePath)
-    for root in roots {
-        let url = URL(fileURLWithPath: root).appendingPathComponent(relative)
-        #if os(macOS)
-        if let image = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil) { return image }
-        #else
-        if let image = UIImage(contentsOfFile: url.path)?.cgImage { return image }
-        #endif
+/// The photo: an `app:/` path in the session's own directories (`files`,
+/// a scratch tree under the agent), else a path under the app's assets: the
+/// development asset root, then the bundle (macOS Resources, the iOS bundle
+/// root).
+func loadPhoto(_ relative: String?, files: ExactModuleContext) -> CGImage? {
+    guard let relative, !relative.isEmpty, !relative.split(separator: "/").contains("..") else { return nil }
+    var urls: [URL] = []
+    if relative.hasPrefix("app:/") {
+        let parts = relative.dropFirst(5).split(separator: "/", maxSplits: 1).map(String.init)
+        let roots = ["data": files.data, "cache": files.cache, "tmp": files.temporary]
+        guard parts.count == 2, let root = roots[parts[0]] else { return nil }
+        urls.append(root.appendingPathComponent(parts[1]))
+    } else {
+        var roots: [String] = []
+        if let assets = ProcessInfo.processInfo.environment["EXACT_ASSETS"] { roots.append(assets) }
+        if let resources = Bundle.main.resourcePath { roots.append(resources) }
+        roots.append(Bundle.main.bundlePath)
+        urls = roots.map { URL(fileURLWithPath: $0).appendingPathComponent(relative) }
+    }
+    for url in urls {
+        if let image = orientedImage(url) { return image }
     }
     return nil
+}
+
+/// The image at `url` turned upright by its EXIF orientation, as a camera's
+/// photo is stored rotated with its orientation beside it.
+private func orientedImage(_ url: URL) -> CGImage? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let width = properties[kCGImagePropertyPixelWidth] as? Int,
+          let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
 }
 
 /// One `<photo-editor>`: the platform view, the props it follows, the events it sends.
 final class PhotoEditor: ExactNativeInstance {
     private let canvas: PhotoCanvas
+    private let files: ExactModuleContext
     private var turns = 0
     private var reset = "0"
     private var photo = ""
 
-    init(props: [String: String], events: ExactNativeEvents) throws {
+    init(files: ExactModuleContext, props: [String: String], events: ExactNativeEvents) throws {
         canvas = PhotoCanvas(frame: .zero)
+        self.files = files
         super.init(events: events)
         canvas.onEdit = { [weak self] edit in self?.report(edit, edited: true) }
         photo = props["photo"] ?? ""
-        guard let image = loadPhoto(photo) else { throw ExactNativeRefusal("no photo at \(photo)") }
+        guard let image = loadPhoto(photo, files: files) else { throw ExactNativeRefusal("no photo at \(photo)") }
         canvas.image = image
         turns = Int(props["turns"] ?? "") ?? 0
         reset = props["reset"] ?? "0"
@@ -267,7 +317,7 @@ final class PhotoEditor: ExactNativeInstance {
 
     override func setProps(_ props: [String: String]) throws {
         if let next = props["photo"], next != photo {
-            guard let image = loadPhoto(next) else { throw ExactNativeRefusal("no photo at \(next)") }
+            guard let image = loadPhoto(next, files: files) else { throw ExactNativeRefusal("no photo at \(next)") }
             photo = next
             canvas.image = image
         }
@@ -292,6 +342,7 @@ final class PhotoEditor: ExactNativeInstance {
         guard edit != reported else { return }
         reported = edit
         events.change(canvas.summary(edit))
+        events.message("edit " + canvas.inPhoto(edit))
         if edited { events.message("edited") }
     }
 }

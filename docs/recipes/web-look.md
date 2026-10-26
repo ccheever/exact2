@@ -12,11 +12,11 @@ box (emphasis is a part: [content-design](content-design.md)).
 | `buttonStyle="plain"`, `"tinted"` | the accent as text; as a light tint |
 | `destructive=true` | red, in the button's style |
 | a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (an authored press replaces the dim); dimmed when disabled |
-| `row role="radiogroup"` of `button role="radio"` (a value from two to five); a root `tablist` (`aria-controls`) | a segmented control, arrows move the choice; a tab bar |
-| a route's `header` | an app bar, sticky as a page scrolls |
+| `row role="radiogroup"` of `button role="radio"` (two to five); a root `tablist` (`aria-controls`) | a segmented control, arrows move the choice; a tab bar |
+| a route's `header` | an app bar, sticky on scroll |
 | `dialog role="alertdialog"` | an alert: its `aria-label` the title |
 | an `input` checkbox, radio, range; `switch` | in the accent; a switch |
-| `input`, `textarea`, `select`, `date`, `time` | 36 px fields; the browser's picker |
+| `input`, `textarea`, `select`, `date`, `time` | 36 px fields (44 on touch); the browser's picker |
 | `text role="heading" aria-level=1…3` | its level's text style, bold (3 semibold) |
 
 What you write wins: a heading's `font-weight`, an `accent-color` on a button or the root.

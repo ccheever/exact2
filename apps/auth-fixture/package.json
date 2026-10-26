@@ -1,0 +1,8 @@
+{
+  "name": "auth-fixture",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@exact/passkeys": "file:../../packages/passkeys"
+  }
+}

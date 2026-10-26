@@ -53,6 +53,11 @@ pub struct ParamToken {
     pub identity: String,
     /// The param as declared, its default rewritten.
     pub param: ComponentParam,
+    /// The package whose file declares it; none for the app's.
+    pub package: Option<String>,
+    /// That package's directory, whose `assets/` a literal `icon(svg …)`
+    /// default reads (LLP 1121 stage 13); none for the app's.
+    pub root: Option<String>,
 }
 
 /// Every param of `file`'s components, as tokens, in declaration order:
@@ -75,6 +80,8 @@ pub fn tokens(file: &File) -> Vec<ParamToken> {
                 full: full_name(&identity, &p.name),
                 identity: identity.clone(),
                 param: p.clone(),
+                package: c.params.package.clone(),
+                root: c.params.root.clone(),
             })
         })
         .chain(designed)
@@ -149,6 +156,8 @@ pub fn design_tokens(design: &contract_syntax::DesignSource) -> (Vec<ParamToken>
                     attrs,
                     span: span(&p.name),
                 },
+                package: design.package.clone(),
+                root: design.root.clone(),
             });
         }
     }
@@ -203,6 +212,7 @@ pub fn folds(params: &[ParamToken], components: &[String]) -> exact_tamber::para
             .collect(),
         components: components.to_vec(),
         joined: Vec::new(),
+        joined_icons: Vec::new(),
     }
 }
 
@@ -678,6 +688,8 @@ mod tests {
                 attrs: Vec::new(),
                 span: Span::default(),
             },
+            package: None,
+            root: None,
         };
         let e = collisions(&[token(&a), token(&b)]);
         assert_eq!(e.len(), 1);

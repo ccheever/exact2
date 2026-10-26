@@ -61,7 +61,13 @@ impl<D: DataSource> Runner<D> {
             .resources
             .iter()
             .position(|r| self.plan.str(r.name) == name)
-            .and_then(|i| self.resource_values[i].as_ref().map(|v| v.get(&self.plan)))
+            .and_then(|i| self.shown_resource_at(i))
+    }
+
+    /// What the plan's `i`th resource shows ([`Runner::shown_resource`]).
+    pub(crate) fn shown_resource_at(&self, i: usize) -> Option<&Value> {
+        let held = self.resource_values.get(i)?.as_ref()?;
+        Some(held.get(&self.plan))
     }
 
     /// The writes shown over resources, in send order: each send's id, its

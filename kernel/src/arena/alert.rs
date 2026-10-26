@@ -91,7 +91,78 @@ static BUTTON: LazyLock<StyleProps> = LazyLock::new(|| {
         (StyleId::FlexBasis, "0%"),
     ])
 });
+// An alert the compiler grouped (`alertPart`, contract/lower/src/alert_parts.rs)
+// is a column: its message box shrinks to fit the dialog's ceiling and
+// scrolls, while its title, a prompt's field and its actions keep their size
+// (host/web/index.html).
+static GROUPED: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = ALERT.clone();
+    s.set_dynamic(StyleId::FlexDirection, &StyleValue::Text("column".into()))
+        .expect("alert CSS row");
+    s.set_dynamic(StyleId::FlexWrap, &StyleValue::Text("nowrap".into()))
+        .expect("alert CSS row");
+    s
+});
+// Its title (unless it is the label's prefix, layout/alert.rs) and a prompt's
+// field keep their size and read as the message does
+static KEPT: LazyLock<StyleProps> = LazyLock::new(|| {
+    rows(&[
+        (StyleId::FlexShrink, "0"),
+        (StyleId::TextColor, "-exact-secondary-label"),
+    ])
+});
+static MESSAGE: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = rows(&[
+        (StyleId::FlexGrow, "0"),
+        (StyleId::FlexShrink, "1"),
+        (StyleId::MinHeight, "0"),
+        (StyleId::OverflowX, "auto"),
+        (StyleId::OverflowY, "auto"),
+    ]);
+    metric_row(&mut s, StyleId::RowGap, metric::ALERT_GAP);
+    s
+});
+// Room at its inline end for an overlay scroll indicator, which draws there
+// beside the words: on the right, and on the left in right-to-left text,
+// where the layout mirrors the sides it set (`style::sides::mirror_unsaid`;
+// host/web/neutral.css's `padding-inline-end`)
+static MESSAGE_BOX: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = MESSAGE.clone();
+    metric_row(&mut s, StyleId::PaddingRight, metric::ALERT_SCROLL_GUTTER);
+    s
+});
+// Its texts read as a flat alert's do. The box leaves color to them, so a
+// text that inherits its color takes the alert's.
+static MESSAGE_TEXT: LazyLock<StyleProps> =
+    LazyLock::new(|| rows(&[(StyleId::TextColor, "-exact-secondary-label")]));
+// Its actions wrap in a row, `ALERT_MESSAGE_GAP` below a row above them
+// (ACTIONS), as a flat alert's buttons are below its last text; under only the
+// label's title (an empty message box), the alert's gap alone (ACTIONS_FIRST)
+static ACTIONS_FIRST: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = rows(&[(StyleId::FlexShrink, "0"), (StyleId::FlexWrap, "wrap")]);
+    metric_row(&mut s, StyleId::RowGap, metric::ALERT_GAP);
+    metric_row(&mut s, StyleId::ColumnGap, metric::ALERT_ACTION_GAP);
+    s
+});
+static ACTIONS: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = ACTIONS_FIRST.clone();
+    metric_row(&mut s, StyleId::MarginTop, metric::ALERT_MESSAGE_GAP);
+    s
+});
 impl NodeArena {
+    pub(crate) fn alert_title_style(&self, slot: u32) -> StyleProps {
+        let mut title = self.computed_style(slot, StyleMask::INHERITED);
+        title.font_size = metrics::length_in(
+            metric::ALERT_TITLE,
+            metrics::Column::Neutral,
+            title.font_size,
+            self.root_font_size(),
+        )
+        .unwrap();
+        title.font_weight = self.emboldened(slot, 600, title.font_family);
+        title
+    }
+
     pub(crate) fn has_alert_prefix(&self, slot: u32) -> bool {
         self.alert_prefixes.contains(slot)
     }
@@ -112,13 +183,62 @@ impl NodeArena {
     fn is_alert_button(&self, slot: u32) -> bool {
         self.is_button(slot) || self.is_native_button(slot)
     }
+    fn alert_part(&self, slot: u32) -> Option<&str> {
+        self.props(slot).str(PropId::AlertPart)
+    }
+    /// Whether `slot` is a neutral alert the compiler grouped: its buttons
+    /// are in its `actions` box.
+    pub(crate) fn grouped_alert(&self, slot: u32) -> bool {
+        self.neutral_alert(slot)
+            && self
+                .children(slot)
+                .iter()
+                .any(|c| self.alert_part(*c) == Some("actions"))
+    }
+    /// Whether `slot` is a grouped neutral alert's `message` or `actions`
+    /// box, whose children take the alert's defaults too.
+    pub(crate) fn alert_group(&self, slot: u32) -> bool {
+        metrics::column() == metrics::Column::Neutral
+            && matches!(self.alert_part(slot), Some("message" | "actions"))
+            && self.parent(slot).is_some_and(|p| self.neutral_alert(p))
+    }
     pub(crate) fn alert_context(&self, slot: u32) -> u8 {
         if self.neutral_alert(slot) {
-            return 1;
+            return if self.grouped_alert(slot) { 5 } else { 1 };
         }
-        let Some(parent) = self.parent(slot).filter(|p| self.neutral_alert(*p)) else {
+        let Some(parent) = self.parent(slot) else {
             return 0;
         };
+        if self.alert_group(parent) {
+            return match self.alert_part(parent) {
+                Some("message") => 10,
+                _ if self.is_alert_button(slot) => 2,
+                _ => 0,
+            };
+        }
+        if !self.neutral_alert(parent) {
+            return 0;
+        }
+        if self.grouped_alert(parent) {
+            return match self.alert_part(slot) {
+                Some("message" | "actions") if self.children(slot).is_empty() => 8,
+                Some("message") => 7,
+                Some("actions")
+                    if self
+                        .children(parent)
+                        .iter()
+                        .take_while(|row| **row != slot)
+                        .all(|row| {
+                            self.alert_part(*row) == Some("message")
+                                && self.children(*row).is_empty()
+                        }) =>
+                {
+                    12
+                }
+                Some("actions") => 9,
+                _ => 6,
+            };
+        }
         if self.is_alert_button(slot) {
             return 2;
         }
@@ -138,17 +258,40 @@ impl NodeArena {
             2 => Some(&BUTTON),
             3 => Some(&TEXT),
             4 => Some(&LAST_TEXT),
+            5 => Some(&GROUPED),
+            6 => Some(&KEPT),
+            7 => Some(&MESSAGE_BOX),
+            8 => None,
+            9 => Some(&ACTIONS),
+            10 => Some(&MESSAGE_TEXT),
+            12 => Some(&ACTIONS_FIRST),
             _ => None,
         }
     }
     pub(crate) fn alert_rows() -> StyleMask {
-        ALERT
-            .mask
-            .union(TEXT.mask)
-            .union(LAST_TEXT.mask)
-            .union(BUTTON.mask)
+        [
+            &ALERT,
+            &TEXT,
+            &LAST_TEXT,
+            &BUTTON,
+            &GROUPED,
+            &KEPT,
+            &MESSAGE_BOX,
+            &MESSAGE_TEXT,
+            &ACTIONS,
+        ]
+        .into_iter()
+        .fold(StyleMask::EMPTY, |mask, s| mask.union(s.mask))
     }
     pub(crate) fn alert_layout(&self, slot: u32, s: &mut taffy::style::Style) {
+        // A part box its `if` leaves empty takes no room. The compiler writes
+        // the box's `display`, which a default row cannot override
+        // (`effective_style`), so the layout leaves it out here (the web says
+        // it with `!important`).
+        if self.alert_context(slot) == 8 {
+            s.display = taffy::Display::None;
+            return;
+        }
         if !self.neutral_alert(slot) {
             return;
         }

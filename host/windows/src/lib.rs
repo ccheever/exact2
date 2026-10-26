@@ -3,22 +3,53 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg_attr(not(windows), allow(dead_code))]
+mod pad_poll;
+#[cfg(windows)]
+mod pads;
 #[cfg(windows)]
 mod window;
 
-/// Run a Windows app with its display name, baked plan and product identity.
+/// The window an app opens in, in logical pixels: `host.windows.window` in
+/// its `app.json`, which the bake writes as `WINDOW`. `EXACT_SIZE` overrides
+/// the size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Window {
+    /// The width it opens at.
+    pub width: f32,
+    /// The height it opens at.
+    pub height: f32,
+    /// The narrowest a person can make it; 0 sets no minimum.
+    pub min_width: f32,
+    /// The shortest a person can make it; 0 sets no minimum.
+    pub min_height: f32,
+}
+
+impl Default for Window {
+    fn default() -> Self {
+        Self {
+            width: 1280.0,
+            height: 720.0,
+            min_width: 0.0,
+            min_height: 0.0,
+        }
+    }
+}
+
+/// Run a Windows app with its display name, window, baked plan and product identity.
 pub fn run<D: exact_runner::DataSource + Default + 'static>(
     name: &str,
+    window: Window,
     plan: &[u8],
     compat: &str,
 ) -> i32 {
     #[cfg(windows)]
     {
-        window::run::<D>(name, plan, compat, None)
+        window::run::<D>(name, window, plan, compat, None)
     }
     #[cfg(not(windows))]
     {
-        let _ = (name, plan, compat);
+        let _ = (name, window, plan, compat);
         refuse()
     }
 }
@@ -34,6 +65,7 @@ pub fn run_with_hatches<
     H: exact_linux::Hatches,
 >(
     name: &str,
+    window: Window,
     plan: &[u8],
     compat: &str,
     words: &'static [&'static str],
@@ -41,11 +73,11 @@ pub fn run_with_hatches<
     #[cfg(windows)]
     {
         let hatches = exact_linux::hatches::install::<H>(words);
-        window::run::<D>(name, plan, compat, Some(hatches))
+        window::run::<D>(name, window, plan, compat, Some(hatches))
     }
     #[cfg(not(windows))]
     {
-        let _ = (name, plan, compat, words);
+        let _ = (name, window, plan, compat, words);
         refuse()
     }
 }

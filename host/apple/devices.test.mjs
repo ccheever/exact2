@@ -5,8 +5,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, ut
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard } from './devices.mjs';
-import { spawn } from 'node:child_process';
+import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, installedAlready, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard, replacedNote, keepInstalledRelease } from './devices.mjs';
+import { spawn, spawnSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
 
@@ -39,13 +39,16 @@ test('a refused phone token cannot admit a command carrier; the right token stil
 
 const solid = (width, height, rgba) => encodePng({ width, height, data: Uint8Array.from({ length: width * height * 4 }, (_, i) => rgba[i % 4]) });
 
-// `displays`: one picture every read gets, or one per read in turn; `reads(dir)` counts the reads.
+// `displays`: one picture every read gets, or one per read in turn (the reads overlap: each is known by the file it
+// writes, `withDisplay`'s first, second and third); `reads(dir)` counts the reads, and `times(dir)` says when each
+// started and ended. SLOW names a read that takes 0.3 s.
 async function withFakeSimctl(displays, body) {
   const dir = mkdtempSync(resolve(tmpdir(), 'devices-test-'));
   const env = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR };
   try {
     [displays].flat().forEach((display, i) => writeFileSync(resolve(dir, `display-${i}.png`), display));
-    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\nn=$(cat '${dir}/n' 2>/dev/null || echo 0)\nf='${dir}/display-'$n'.png'\n[ -f "$f" ] || f='${dir}/display-0.png'\ncp "$f" "$last"\necho $((n + 1)) > '${dir}/n'\n`);
+    const now = `$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')`;
+    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\nname=$(basename "$last")\necho "start $name ${now}" >> '${dir}/n'\ncase "$name" in again.png) n=1 ;; last.png) n=2 ;; *) n=0 ;; esac\n[ "$name" = "$SLOW" ] && sleep 0.3\nf='${dir}/display-'$n'.png'\n[ -f "$f" ] || f='${dir}/display-0.png'\ncp "$f" "$last"\necho "end $name ${now}" >> '${dir}/n'\n`);
     chmodSync(resolve(dir, 'xcrun'), 0o755);
     process.env.PATH = `${dir}:${env.PATH}`;
     process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
@@ -56,7 +59,9 @@ async function withFakeSimctl(displays, body) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
-const reads = (dir) => { try { return Number(readFileSync(resolve(dir, 'n'), 'utf8')); } catch { return 0; } };
+const log = (dir) => { try { return readFileSync(resolve(dir, 'n'), 'utf8').split('\n').filter(Boolean).map((l) => l.split(' ')); } catch { return []; } };
+const reads = (dir) => log(dir).filter(([at]) => at === 'end').length;
+const times = (dir) => Object.fromEntries(log(dir).map(([at, name, ms]) => [`${at} ${name}`, Number(ms)]));
 
 test('a simulator is chosen without booting it, and is the drive\'s own only when this call booted it', () => {
   // A fake `xcrun simctl`: one shut-down iPhone; `boot` succeeds, or fails as when another process booted it first.
@@ -119,6 +124,40 @@ test('of several booted simulators, the one with the app installed; of several s
   }
 });
 
+test('an installed bundle is found where simctl last said, and simctl is asked again when it is not there', () => {
+  // A fake `xcrun simctl get_app_container` that counts its calls and names `installed`.
+  const dir = mkdtempSync(resolve(tmpdir(), 'devices-installed-')), records = resolve(dir, 'records'), calls = resolve(dir, 'calls');
+  const built = resolve(dir, 'built/App.app'), installed = resolve(dir, 'installed/App.app');
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR };
+  const count = () => (existsSync(calls) ? readFileSync(calls, 'utf8').length : 0);
+  const place = (root, executable) => {
+    mkdirSync(resolve(root, '_CodeSignature'), { recursive: true });
+    for (const [file, text] of [['App', executable], ['receipt.json', '{}'], ['_CodeSignature/CodeResources', 'signed']]) {
+      writeFileSync(resolve(root, file), text);
+      utimesSync(resolve(root, file), 1_700_000_000, 1_700_000_000);
+    }
+  };
+  try {
+    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nprintf x >> '${calls}'\necho '${installed}'\n`);
+    chmodSync(resolve(dir, 'xcrun'), 0o755);
+    process.env.PATH = `${dir}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    place(built, 'build one'); place(installed, 'build one');
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([true, 1]);
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([true, 1]);
+    // Another build there (another executable): simctl is asked, and the answer is that it is not this build.
+    place(installed, 'build two!');
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([false, 2]);
+    // Its directory gone (a reinstall moves it): simctl is asked again.
+    rmSync(resolve(dir, 'installed'), { recursive: true });
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([false, 3]);
+  } finally {
+    process.env.PATH = saved.PATH;
+    if (saved.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a drive shows the software keyboard on a simulator it booted and puts the setting back, durably; on another it only says so', () => {
   // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted;
   // a write fails while FAIL_WRITE is set (the simulator shut down under the drive).
@@ -174,6 +213,37 @@ test('a drive shows the software keyboard on a simulator it booted and puts the 
   }
 });
 
+test('a touch session records the accessibility keys it found and puts them back so, or unset after a session that left them on', async () => {
+  const { foundAccessibility, restoreAccessibility } = await import('./touches.mjs');
+  // What a session found is recorded, and a session after one killed before its end takes that record, not the keys
+  // the killed one left on.
+  const dir = mkdtempSync(resolve(tmpdir(), 'touches-ax-')), record = resolve(dir, 'sim/U1.json');
+  try {
+    let reads = 0;
+    const read = async () => { reads++; return reads === 1 ? { ApplicationAccessibilityEnabled: '1' } : { AutomationEnabled: '1', AccessibilityEnabled: '1', ApplicationAccessibilityEnabled: '1' }; };
+    expect(await foundAccessibility('U1', record, read)).toEqual({ ApplicationAccessibilityEnabled: '1' });
+    expect(await foundAccessibility('U1', record, read)).toEqual({ ApplicationAccessibilityEnabled: '1' });
+    expect(reads).toBe(1);
+    rmSync(record);
+    expect(await foundAccessibility('U1', record, async () => null)).toBe(null);
+    expect(existsSync(record)).toBe(false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  // `defaults` as a simulator answers: a delete of a key it lacks fails, saying so; `status` is each write's, `gone` each other delete's.
+  const put = async (found, status = 0, gone = { status: 1, err: "Error: Could not find key 'k' in domain 'com.apple.Accessibility'." }) => {
+    const calls = [];
+    const failed = await restoreAccessibility('U1', found, async (udid, args) => { calls.push(args.filter((a) => a !== 'com.apple.Accessibility').join(' ')); return args[0] === 'write' ? { status, out: '', err: 'no' } : { out: '', ...gone }; });
+    return { calls: calls.sort(), failed };
+  };
+  // A simulator no session had used, and one whose person turned ApplicationAccessibilityEnabled on for `tree --ax`.
+  expect(await put({})).toEqual({ calls: ['delete AccessibilityEnabled', 'delete ApplicationAccessibilityEnabled', 'delete AutomationEnabled'], failed: null });
+  expect((await put({ ApplicationAccessibilityEnabled: '1', AccessibilityEnabled: '0' })).calls).toEqual(['delete AutomationEnabled', 'write AccessibilityEnabled -bool false', 'write ApplicationAccessibilityEnabled -bool true']);
+  // AutomationEnabled already on: an earlier session (or a killed drive) left all three, so all go.
+  expect((await put({ AutomationEnabled: '1', AccessibilityEnabled: '1', ApplicationAccessibilityEnabled: '1' })).calls).toEqual(['delete AccessibilityEnabled', 'delete ApplicationAccessibilityEnabled', 'delete AutomationEnabled']);
+  expect((await put({ ApplicationAccessibilityEnabled: '1' }, 1)).failed).toBe('ApplicationAccessibilityEnabled: no');
+  // A delete that failed otherwise (the simulator gone, no answer) is a failure, so the record is kept for the next session.
+  expect((await put({ ApplicationAccessibilityEnabled: '1' }, 0, { status: -1, err: 'no answer in 10 s' })).failed).toBe('AutomationEnabled: no answer in 10 s; AccessibilityEnabled: no answer in 10 s');
+});
+
 // 8x16 pixels at scale 2: a 4x8-point window. The app drew it red; the display shows the status bar (rows 0-1) green,
 // glass over rows 12-15 blue, and the keyboard, when there is one, from row 8 down. `paint` changes rows of a picture.
 const RED = [255, 0, 0, 255], BLUE = [0, 0, 255, 255], GREEN = [0, 255, 0, 255], GREY = [128, 128, 128, 255];
@@ -184,7 +254,7 @@ const paint = (bands) => encodePng({ width: 8, height: 16, data: Uint8Array.from
 const APP = paint([]), DISPLAY = paint([[0, 2, GREEN], [12, 16, BLUE]]);
 const rows = (path) => { const png = decodePng(readFileSync(path)); return (y) => [...png.data.subarray(y * png.width * 4, y * png.width * 4 + 4)]; };
 // The app's answer: in front at epoch 3, a plain point at (2, 2) points (pixel 4, 4); the probe after the reads says
-// the same unless told otherwise. `fast` skips the gap before the third read.
+// the same unless told otherwise; `gap: 0` starts the third read as soon as the first two have ended.
 const front = { front: true, epoch: 3, incarnation: 1, clock: 1500, scale: 2, opaque: [[2, 2]] };
 const still = (more = {}) => ({ gap: 0, probe: async () => ({ ...front, ...more }) });
 const keyboard = { visible: true, top: 4, windowTop: 4 };
@@ -257,6 +327,39 @@ test('a display that moves by the third read leaves the app\'s picture, and a ke
     expect([r.pixels, r.pixelsWhy, r.keyboard.captured]).toEqual(['app', 'the display changed while it was read', true]);
     expect(reads(dir)).toBe(3);
   });
+});
+
+// The third read is never taken while the first two may still be taking theirs, however long they take.
+test('the third read starts once the first two have ended', async () => {
+  const saved = process.env.SLOW;
+  try {
+    for (const slow of ['display.png', 'again.png']) {
+      process.env.SLOW = slow;
+      await withFakeSimctl(DISPLAY, async (dir) => {
+        await shoot(dir, { ...front }, 1, still());
+        const t = times(dir);
+        expect(t['start last.png']).toBeGreaterThanOrEqual(Math.max(t['end display.png'], t['end again.png']));
+      });
+    }
+  } finally { if (saved === undefined) delete process.env.SLOW; else process.env.SLOW = saved; }
+});
+
+// The home indicator changes its shade on its own; anything else in the bottom safe area is the app's, and is held to
+// the reads' agreement. 200x16 pixels at scale 1: the indicator's columns are 20 to 180.
+test('a display that moves only where the home indicator is drawn is taken, and anywhere else in its rows is not', async () => {
+  const wide = (bands) => encodePng({ width: 200, height: 16, data: Uint8Array.from({ length: 200 * 16 * 4 }, (_, i) => {
+    const x = (i / 4) % 200, y = Math.floor(i / 800), band = bands.find(([from, to, x0, x1]) => y >= from && y < to && x >= x0 && x < x1);
+    return (band ? band[4] : RED)[i % 4];
+  }) });
+  const shown = wide([[0, 2, 0, 200, GREEN]]), at = { ...front, scale: 1, safeArea: { top: 2, bottom: 2 } };
+  for (const [x, taken] of [[100, true], [5, false], [190, false]]) {
+    await withFakeSimctl([shown, shown, wide([[0, 2, 0, 200, GREEN], [15, 16, x, x + 1, GREY]])], async (dir) => {
+      const shot = resolve(dir, 'app.png');
+      writeFileSync(shot, wide([]));
+      const r = await withDisplay({ ...at }, shot, 'UDID', 2, still());
+      expect([x, r.pixels]).toEqual([x, taken ? 'display' : 'app']);
+    });
+  }
 });
 
 test('a keyboard band that moves between the reads is not taken', async () => {
@@ -456,4 +559,52 @@ test('a page capture with no glass in it reads nothing of the display', async ()
 test('an iOS drive passes EXACT_STORE on to the app it launches, and nothing else of its environment', () => {
   expect(forwardedEnv({ EXACT_STORE: 'real', HOME: '/h' })).toEqual({ EXACT_STORE: 'real' });
   expect(forwardedEnv({ HOME: '/h' })).toEqual({});
+});
+
+
+test('both Release reinstall notes preserve spaces and apostrophes as one shell argument', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'devices-reinstall-'));
+  const keys = ['PATH', 'DEVELOPER_DIR', 'AA_INSTALLED_APP', 'AA_INSTALL_CALLS', 'AA_ARGUMENTS'];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const calls = resolve(dir, 'calls'), argumentsFile = resolve(dir, 'arguments.json');
+  try {
+    writeFileSync(resolve(dir, 'xcrun'), `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+if (args[1] === 'install') writeFileSync(process.env.AA_ARGUMENTS, JSON.stringify(args));
+else if (args[1] === 'get_app_container') {
+  let count = 0; try { count = Number(readFileSync(process.env.AA_INSTALL_CALLS, 'utf8')); } catch {}
+  writeFileSync(process.env.AA_INSTALL_CALLS, String(count + 1));
+  if (count % 2 === 0) process.exit(1);
+  console.log(process.env.AA_INSTALLED_APP);
+} else process.exit(2);
+`);
+    writeFileSync(resolve(dir, 'cp'), `#!${process.execPath}
+import { cpSync } from 'node:fs';
+cpSync(process.argv.at(-2), process.argv.at(-1), {recursive: true});
+`);
+    for (const name of ['xcrun', 'cp']) chmodSync(resolve(dir, name), 0o755);
+    process.env.PATH = `${dir}:${saved.PATH}`;
+    process.env.AA_INSTALL_CALLS = calls;
+    process.env.AA_ARGUMENTS = argumentsFile;
+    for (const name of ['Plain Notes', "Charlie's Notes"]) {
+      const installed = resolve(dir, 'installed', `${name}.app`), release = resolve(dir, 'release', `${name}.app`);
+      mkdirSync(installed, {recursive: true}); mkdirSync(release, {recursive: true});
+      writeFileSync(resolve(installed, 'receipt.json'), JSON.stringify({build: {trust: 'production'}}));
+      process.env.AA_INSTALLED_APP = installed;
+      const fromBuild = replacedNote('U1', {id: 'com.example.notes'}, {what: 'Release'}, release).split('put it back with ')[1];
+      const kept = keepInstalledRelease('U1', 'com.example.notes', resolve(dir, 'development'), 'Notes', {records: resolve(dir, 'records', name)});
+      const fromDrive = kept.note.split('Put it back with: ')[1];
+      const copy = resolve(dir, 'records', name, 'U1-com.example.notes', `${name}.app`);
+      expect(existsSync(resolve(copy, 'receipt.json'))).toBe(true);
+      for (const [command, path] of [[fromBuild, release], [fromDrive, copy]]) {
+        const ran = spawnSync('/bin/sh', ['-c', command], {encoding: 'utf8'});
+        expect(ran.status).toBe(0);
+        expect(JSON.parse(readFileSync(argumentsFile, 'utf8'))).toEqual(['simctl', 'install', 'U1', path]);
+      }
+    }
+  } finally {
+    for (const key of keys) if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+    rmSync(dir, {recursive: true, force: true});
+  }
 });

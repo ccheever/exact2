@@ -12,17 +12,15 @@ import AppKit
 ///   key reports another script (Korean 2-Set's ㅠ for B), the physical key's Latin letter
 ///   (KeyboardEvent.code) is the chord's key. exact2 #168 matches the declared chords
 ///   (`aria-keyshortcuts`, the launcher's letters among them) and the host's command menu items
-///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`); it does not
-///   reach the menu's standard and app-added items, which AppKit matches by the typed character
-///   (Copy, Cut, Paste, Undo, Redo, Select All, Quit, Hide, Minimize, Close Window, Reload, Paste
-///   as Text, Actual Size, Zoom In, Zoom Out), the terminal's web view, or this module's own key
-///   readers that read the event's characters (the composer's queued-edit chords, the SnapShot
-///   shortcut). So the event is still re-issued with that letter, and each of them matches it
-///   anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
+///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`), and AppKit
+///   matches the menu's own items by the key's Latin letter too (the event's characters with ⌘,
+///   measured under Korean 2-Set, LLP 1021 §5.3.1). Neither reaches this module's own key readers that read the event's characters (the composer's queued-edit chords,
+///   the SnapShot shortcut). So the event is still re-issued with that letter, and each of them
+///   matches it anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
 ///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
 ///   not a per-route one: what was retired (#110) is the surface launcher's
 ///   own native re-post of its letters, now declared shortcuts matched by the physical
-///   key. Composition keeps its own keys (the composer ends it first, T3ComposerInput.swift).
+///   key. Composition keeps its own keys (the composer commits it first).
 /// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which
 /// hit-tests a resting pointer after layout and scrolling as a browser does (exact2 #139).
 final class T3LatinChords {
@@ -74,14 +72,8 @@ final class T3LatinChords {
                                 isARepeat: event.isARepeat, keyCode: event.keyCode)
     }
     /// Internal so tests can drive it: what the local monitor returns for `event`.
-    /// A ⌃ chord that begins while the terminal composes goes on as it was typed. The Korean input
-    /// method then commits the syllable itself, and T3 Code's drawer reads its clear shortcut from
-    /// `KeyboardEvent.key` on that "Process" key (keybindings.ts isTerminalClearShortcut), so ⌃L
-    /// ("ㅣ") ends the composition without clearing the screen.
     func route(_ event: NSEvent) -> NSEvent {
-        let responder = event.window?.firstResponder
-        let composing = (responder as? NSTextInputClient)?.hasMarkedText() == true
-            || (responder as? T3TerminalView.WebView)?.composesKey?(event) == true
+        let composing = (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
         return Self.latinChord(event, composing: composing) ?? event
     }
     private func installMonitor() {

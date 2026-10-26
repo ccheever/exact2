@@ -125,6 +125,8 @@ describe("a drive", () => {
   test("passes --epoch to the driver with the size and the store", () => {
     expect(driverFlags(["--local", "--epoch", "now", "--storage", "s1"])).toEqual(["--size", "1280x840", "--storage", "s1", "--epoch", "now"]);
     expect(driverFlags(["--size", "900x700", "--json"])).toEqual(["--size", "900x700", "--storage", "t3-fixtures", "--json"]);
+    // A drive against a server an earlier drive used takes a new seed (clone/issues/command-receipt-relaunch.md).
+    expect(driverFlags(["--pair", "second", "--seed", "48211", "--storage", "s2"])).toEqual(["--size", "1280x840", "--storage", "s2", "--seed", "48211"]);
   });
   test("prints no pairing token", () => {
     expect(redact('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=LEY3T64Y3TVC"')).toBe('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=<redacted>"');
@@ -189,11 +191,21 @@ describe("the GitHub API stand-in (seed --pull-request)", () => {
   });
   test("answers the summary and the lookup by number; anything else is an error, a REST path 404", () => {
     expect(graphql("query PullRequestSummary($owner:String!){}", { owner: "t3-fixture", name: "shared-notes", number: 7, stacks: false }).data.repository.pullRequest)
-      .toMatchObject({ state: "OPEN", isDraft: false, mergeable: "MERGEABLE", additions: 12 });
+      .toMatchObject({ state: "OPEN", isDraft: false, mergeable: "MERGEABLE", additions: 203, deletions: 1, changedFiles: 3 });
     expect(graphql("query PullRequestByNumber($owner:String!){}", { owner: "other", name: "repo", number: 7 }).data.repository).toBeNull();
-    expect(graphql("query PullRequestSearch($owner:String!){}", {}).errors[0].message).toContain("PullRequestSearch");
+    expect(graphql("query ViewerLabels($owner:String!){}", {}).errors[0].message).toContain("ViewerLabels");
     expect(JSON.parse(respond("GET", "/user", "").body)).toMatchObject({ login: PULL_REQUEST.author });
     expect(respond("GET", "/repos/t3-fixture/shared-notes/pulls/7/files", "").status).toBe(404);
+  });
+  test("answers the Pull Requests page: the search and a repository's list name #7 while open, its counts with $stats or after", () => {
+    const search = (q: string, stats = false) => graphql("query PullRequestSearch($q:String!){}", { q, first: 100, stacks: false, stats }).data.search.nodes;
+    expect(search("is:pr is:open archived:false repo:t3-fixture/shared-notes")).toEqual([expect.objectContaining({ number: 7, state: "OPEN", repository: { nameWithOwner: "t3-fixture/shared-notes" } })]);
+    expect(search("is:pr is:open repo:t3-fixture/shared-notes")[0].additions).toBeUndefined();
+    expect(search("is:pr is:open repo:t3-fixture/shared-notes", true)[0]).toMatchObject({ additions: 203, deletions: 1 });
+    expect([search("is:pr is:merged repo:t3-fixture/shared-notes"), search("is:pr is:open repo:t3-fixture/agent-edits")]).toEqual([[], []]);
+    const list = (states: string[]) => graphql("query PullRequestList($owner:String!){}", { owner: "t3-fixture", name: "shared-notes", states, first: 100, stacks: false, stats: false }).data.repository.pullRequests.nodes;
+    expect([list(["OPEN"]).length, list(["MERGED"]).length]).toEqual([1, 0]);
+    expect(graphql("query PullRequestStats($owner:String!){}", { owner: "t3-fixture", name: "shared-notes", number: 7 }).data.repository.pullRequest).toEqual({ additions: 203, deletions: 1 });
   });
   test("answers the detail panel: core with its checks, activity, review threads, the patch, then a comment and a close", () => {
     resetDetail();

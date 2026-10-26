@@ -60,9 +60,12 @@ final class T3NotificationsTests: XCTestCase {
     func testClickedNotificationAsksTheWindowToOpenItsThread() {
         _ = NSApplication.shared
         var changes = 0
+        var reveals = 0
         let module = T3Notifications(agent: true) { _ in changes += 1 }
+        module.reveal = { reveals += 1 }
         module.open(threadId: "t1")
         module.open(threadId: "t1")
+        XCTAssertEqual(reveals, 2, "each click raises the window (revealWindow)")
         XCTAssertEqual(module.opened, "2:t1", "each click is a new request, even for the same thread")
         XCTAssertEqual(module.openedThread, "t1")
         XCTAssertEqual(changes, 2)

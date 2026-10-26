@@ -57,6 +57,22 @@ final class TableFeedKeyMacTests: XCTestCase {
         pump { up }
         f.settle()
     }
+    /// Why a held click on `view` shows no press on `row`: TableHost.pointer's
+    /// guards for the mouse-down, read again at `view`'s middle (QUEUE,
+    /// 2026-10-24: this test's held asserts failed once in a full Mac run).
+    private func pressGuards(_ view: NSView, _ row: NodeView, in f: TableFixture) -> String {
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        guard let content = f.window.contentView else { return "no content view" }
+        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        guard let table = hit as? RunnerTableView else { return "the hit view is \(hit.map { String(describing: type(of: $0)) } ?? "nil"), not the table" }
+        guard let feed = table.feed else { return "the table has no feed" }
+        let index = table.row(at: table.convert(point, from: nil))
+        guard let fed = feed.row(at: index) else { return "the feed has no row at table row \(index)" }
+        guard let node = feed.pressing(fed) else { return "feed.pressing(row \(index)) is nil: no mounted, pressable root for that row" }
+        if node !== row { return "feed.pressing(row \(index)) is node \(node.id), not row-1's \(row.id)" }
+        if !node.authorsPress || node.disabled || node.inert { return "the row refuses a press (authorsPress \(node.authorsPress), disabled \(node.disabled), inert \(node.inert))" }
+        return "every guard passes now (read again at the held moment): at the mouse-down one may have missed and since recovered, TableHost.pointer may not have seen the event (another local event monitor in this process?), or something let the press go before the release"
+    }
     private func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], in f: TableFixture) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             NSApp.sendEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
@@ -583,6 +599,73 @@ final class TableFeedKeyMacTests: XCTestCase {
         }
     }
 
+    func testPressContactTemporarilySuppressesSelectionAndSelectedInk() throws {
+        let source = TableFixture.source(count: 20).replacingOccurrences(of: "row press=open(r)", with: "row press=open(r) -exact-press-opacity=0.4")
+        let f = try TableFixture(count: 20, source: source)
+        fixture = f
+        f.window.orderFrontRegardless()
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        f.settle()
+        f.table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        let row = try f.node("row-1"), title = try f.node("title-1")
+        let cell = try XCTUnwrap(f.table.rowView(atRow: 1, makeIfNecessary: true)?.view(atColumn: 0) as? TableRowCell)
+        cell.backgroundStyle = .emphasized
+        XCTAssertTrue(cell.paintsSelection)
+        XCTAssertTrue(title.inEmphasizedRow)
+        let point = title.convert(NSPoint(x: title.bounds.midX, y: title.bounds.midY), to: nil)
+        f.presenter.tables.pointer(mouse(.leftMouseDown, point, f.window))
+        XCTAssertTrue(row.pressed)
+        XCTAssertFalse(cell.paintsSelection)
+        XCTAssertFalse(title.inEmphasizedRow)
+        XCTAssertEqual(f.table.selectedRow, 1)
+        f.presenter.tables.pointer(mouse(.leftMouseUp, point, f.window))
+        XCTAssertFalse(row.pressed)
+        XCTAssertTrue(cell.paintsSelection)
+        XCTAssertTrue(title.inEmphasizedRow)
+        XCTAssertEqual(f.table.selectedRow, 1)
+        f.table.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .numericPad], timestamp: 0,
+                                       windowNumber: f.window.windowNumber, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125)!)
+        f.settle()
+        XCTAssertEqual(f.table.selectedRow, 2)
+        let next = try XCTUnwrap(f.table.rowView(atRow: 2, makeIfNecessary: true)?.view(atColumn: 0) as? TableRowCell)
+        next.backgroundStyle = .emphasized
+        XCTAssertTrue(next.paintsSelection)
+        XCTAssertTrue(try f.node("title-2").inEmphasizedRow)
+    }
+
+    func testAuthoredPressedPaintFollowsTheTablesClickWithoutReplacingSelection() throws {
+        let source = TableFixture.source(count: 20).replacingOccurrences(of: "row press=open(r)", with: "row press=open(r) -exact-press-opacity=0.4 -exact-press-background-color=\"#ff0000\" -exact-press-color=\"#00ff00\"")
+        let f = try keyed(count: 20, source: source)
+        let row = try f.node("row-1"), title = try f.node("title-1")
+        XCTAssertTrue(row.authorsPress)
+        var observed = false
+        click(try f.node("title-1"), in: f) {
+            observed = true
+            XCTAssertTrue(row.pressed, self.pressGuards(title, row, in: f))
+            XCTAssertTrue(row.pressPaint.down, self.pressGuards(title, row, in: f))
+            XCTAssertEqual(row.pressPaint.depth, 0.6, accuracy: 0.001)
+            XCTAssertEqual(f.table.selectedRow, -1, "AppKit still selects on release")
+        }
+        XCTAssertTrue(observed)
+        XCTAssertFalse(row.pressed)
+        XCTAssertEqual(f.table.selectedRow, 1)
+        XCTAssertTrue(f.window.firstResponder === f.table)
+        XCTAssertTrue(f.status.hasPrefix("opened 1 presses 1 "), f.status)
+        XCTAssertGreaterThan(chroma(try fill(1, in: f)), 0.08, "release restores the selected-item ground")
+        XCTAssertTrue(try f.node("title-1").inEmphasizedRow)
+        let cell = try XCTUnwrap(f.table.rowView(atRow: 1, makeIfNecessary: false)?.view(atColumn: 0) as? TableRowCell)
+        click(title, in: f) {
+            XCTAssertTrue(row.pressed, self.pressGuards(title, row, in: f))
+            XCTAssertFalse(cell.paintsSelection, self.pressGuards(title, row, in: f))
+            XCTAssertFalse(title.inEmphasizedRow, self.pressGuards(title, row, in: f))
+        }
+        XCTAssertGreaterThan(chroma(try fill(1, in: f)), 0.08)
+        down(in: f)
+        XCTAssertEqual(f.table.selectedRow, 2)
+        XCTAssertGreaterThan(chroma(try fill(2, in: f)), 0.08)
+        XCTAssertTrue(try f.node("title-2").inEmphasizedRow)
+    }
+
     func testAContextClickAndADoubleClickOnARowAreTheRowsOwn() throws {
         let f = try keyed(count: 20, source: Self.acting)
         /// A press of a mouse button and its release in the middle of `view`, as `click` sends the left one.
@@ -771,12 +854,15 @@ final class TableFeedKeyMacTests: XCTestCase {
         other.isReleasedWhenClosed = false
         self.other = other
         /// A click on `view` while another window is key.
-        func first(_ view: NSView) {
+        func first(_ view: NSView) throws {
             other.makeKeyAndOrderFront(nil)
-            pump { other.isKeyWindow }
+            pump { other.isKeyWindow && NSApp.isActive }
+            try XCTSkipUnless(NSApp.isActive && other.isKeyWindow,
+                              "the first-click probe needs this application active and its other window key")
             XCTAssertFalse(f.window.isKeyWindow)
             click(view, in: f)
-            pump(1) { f.window.isKeyWindow }
+            pump(1) { f.window.isKeyWindow || !NSApp.isActive }
+            try XCTSkipUnless(NSApp.isActive, "another application became active during the first-click probe")
             XCTAssertTrue(f.window.isKeyWindow, "the click brought the window forward")
         }
         // A person's clicks first, then the driver's rule, under which every click counts (its window is never key).
@@ -786,16 +872,16 @@ final class TableFeedKeyMacTests: XCTestCase {
             NodeView.everyClickCounts = every
             let note = every ? "every click counts" : "AppKit's rule"
             let row = 6 + round, presses = 1 + round, bumps = 1 + round
-            first(try f.node("title-\(row)"))
+            try first(f.node("title-\(row)"))
             XCTAssertEqual(f.table.selectedRow, row, "\(note): the click selected the row")
             XCTAssertTrue(f.status.hasPrefix("opened \(row) presses \(presses) "), "\(note): and pressed it, \(f.status)")
-            first(try f.node("bump-3"))
+            try first(f.node("bump-3"))
             XCTAssertTrue(f.status.contains("presses \(presses) bumps \(bumps) "), "\(note): a button in a row took the click, \(f.status)")
             XCTAssertEqual(f.table.selectedRow, row, note)
-            first(try f.node("check-3"))
+            try first(f.node("check-3"))
             XCTAssertTrue(f.status.contains("bumps \(bumps) on \(round == 0) "), "\(note): a checkbox in a row took the click, \(f.status)")
             let field = try XCTUnwrap(try f.node("field-3").field)
-            first(field)
+            try first(field)
             XCTAssertNotNil(field.currentEditor(), "\(note): a field in a row took the click and the keyboard")
             XCTAssertEqual(f.table.selectedRow, row, note)
             XCTAssertTrue(f.window.makeFirstResponder(f.table))

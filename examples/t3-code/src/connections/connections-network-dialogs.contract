@@ -58,7 +58,7 @@ component NdAction
     press: action
     key: action
   view
-    button id=buttonId press=press key=key disabled=disabled autofocus=first aria-keyshortcuts=keys testId=buttonId class=NdButton opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")
+    button -exact-menu="none" id=buttonId press=press key=key disabled=disabled autofocus=first aria-keyshortcuts=keys testId=buttonId class=NdButton opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")
       if busyLabel != ""
         // Spinner (`motion-safe:animate-spin`): still under reduced motion.
         box width="0.875rem" height="0.875rem" display="flex" animation=(still ? "none" : "ndSpin 1s linear infinite") testId=`${buttonId}-spinner`
@@ -203,7 +203,7 @@ component TailscaleSetupDialog
       preventDefault()
       focus("tailscale-port")
   action submitKey(k: string, e: KeyboardEvent)
-    if k == "Enter"
+    if k == "Enter" and not e.isComposing
       confirm()
     first(k, e)
   action plainKey(k: string)

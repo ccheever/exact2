@@ -298,6 +298,7 @@ fn motion<G: Game>(sim: &mut Sim<G>, at_ms: f64, dx: f32) {
         dy: 0.0,
         buttons: 0,
         at_ms,
+        player: 0,
     });
 }
 

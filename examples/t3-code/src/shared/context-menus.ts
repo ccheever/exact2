@@ -4,8 +4,8 @@
 // components/pullRequest/pullRequestLinkContextMenu.ts (a change request's number),
 // ChatMarkdown.tsx's file-link menu, components/preview/fileExplorerLabel.ts and
 // editorLabels.ts openInEditorMenuLabel; diffFileActions.ts resolveDiffPathForWorkspace and
-// packages/shared/src/path.ts for the absolute path. The module's `contextMenu` op
-// (T3ContextMenu.swift) shows them as ElectronMenu.ts would: an item with children is a submenu.
+// packages/shared/src/path.ts for the absolute path. Contract context popovers show them, which macOS
+// presents as ElectronMenu.ts's native menu: an item with children is a submenu.
 import { obj, str, type Obj } from '../client/domain';
 import { EDITOR_DEFINITIONS } from './editors';
 import type { MenuItem } from '../sidebar/sidebar-menu';
@@ -148,16 +148,17 @@ export function pullRequestLinkContextMenuItems(openLabel: string): MenuItem[] {
 // ── Chat file link ───────────────────────────────────────────────────────
 
 /**
- * ChatMarkdown's file-link menu: "Preview media" for media in a thread, the open item whenever
- * shell actions are allowed (named for the preferred editor), the reveal item with the server's
- * wording, then the copies; the relative path only for a file inside the thread's workspace
- * (MarkdownFileLink.logic.ts markdownFileCopyMenuItems, T3 Code 74541bab17). "Open in integrated
- * browser" is the Browser surface's (#100).
+ * ChatMarkdown's file-link menu (MarkdownFileLink.tsx showFileContextMenu, T3 Code 74541bab17): "Preview media" for
+ * media in a thread, the open item whenever shell actions are allowed (named for the preferred editor), "Open in
+ * integrated browser" for a page or a PDF the thread's Browser can show, the reveal item with the server's wording,
+ * then the copies; the relative path only for a file inside the thread's workspace (MarkdownFileLink.logic.ts
+ * markdownFileCopyMenuItems).
  */
-export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; preferredEditor: string | null; revealLabel: string | undefined; canCopyRelative?: boolean }): MenuItem[] {
+export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; canOpenInBrowser?: boolean; preferredEditor: string | null; revealLabel: string | undefined; canCopyRelative?: boolean }): MenuItem[] {
   return [
     ...(input.canPreviewMedia ? [{ id: 'preview-media', label: 'Preview media' }] : []),
     ...(input.canOpen ? [{ id: 'open', label: openInEditorMenuLabel(input.preferredEditor) }] : []),
+    ...(input.canOpenInBrowser ? [{ id: 'open-in-browser', label: 'Open in integrated browser' }] : []),
     ...(input.canOpen && input.revealLabel ? [{ id: 'reveal', label: input.revealLabel }] : []),
     ...(input.canCopyRelative !== false ? [{ id: 'copy-relative', label: 'Copy relative path' }] : []), { id: 'copy-full', label: 'Copy full path' },
   ];

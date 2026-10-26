@@ -39,14 +39,12 @@ describe('background environments (registry.ts)', () => {
     expect(ninth.error).toMatchObject({ kind: 'Limit' });
   });
 
-  test("the module's links follow the connected sessions", async () => {
-    const drive = new Drive(new FakeServer(A, 'env-a'));
+  test('the module is told no routes or bearers: it holds no connection of its own', async () => {
+    const drive = new Drive(new FakeServer(A, 'env-a'), new FakeServer(B, 'env-b'));
     await drive.op(pairing(A));
     await drive.op({ op: 'status' });
-    const links = drive.moduleCalls.filter(call => call.op === 'links');
-    expect(links.at(-1)).toEqual({ op: 'links', focused: 'env-a', routes: [{ fleet: '', environmentId: 'env-a', origin: A, token: 'token-1', primary: false }] });
-    await drive.op({ op: 'status' });
-    expect(drive.moduleCalls.filter(call => call.op === 'links')).toHaveLength(links.length);
+    expect(drive.moduleCalls.map(call => call.op).filter(op => op !== 'status')).toEqual([]);
+    expect(JSON.stringify(drive.moduleCalls)).not.toContain('token-1');
   });
 });
 
@@ -240,5 +238,25 @@ describe('activity reports (backgroundActivityReporter.ts)', () => {
     expect(reports().length).toBe(count + 1);
     // The client id is kept in the catalog.
     expect(JSON.parse(drive.store.get('t3-catalog')!).activityClientId).toBe(reports()[0]!.clientId);
+  });
+  test('recent until 45 s pass without an interaction; the next one reports at once', async () => {
+    const server = new FakeServer(A);
+    const drive = new Drive(server);
+    await drive.op(pairing(A));
+    await drive.op({ op: 'activityFacts', visible: true, focused: true });
+    await drive.advance(500);
+    const reports = () => server.rpcs.filter(rpc => rpc.method === 'server.reportClientActivity').map(rpc => rpc.payload);
+    expect(reports().at(-1)!.recentlyInteracted).toBe(true); // the reporter's start counts, as the reference's clock does
+    await drive.advance(50_000, 1_000);
+    expect(reports().at(-1)!.recentlyInteracted).toBe(false);
+    const count = reports().length;
+    drive.transport.activity.interaction(drive.now); // app.contract `interacted`, through app.ts
+    await drive.advance(1_500, 250);
+    expect(reports()).toHaveLength(count + 1);
+    expect(reports().at(-1)!.recentlyInteracted).toBe(true);
+    // A move within the window changes nothing until the cadence.
+    drive.transport.activity.interaction(drive.now);
+    await drive.advance(1_500, 250);
+    expect(reports()).toHaveLength(count + 1);
   });
 });

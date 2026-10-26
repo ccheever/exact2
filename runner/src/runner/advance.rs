@@ -11,7 +11,7 @@ use super::*;
 pub(super) struct Clock {
     /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4)
     pub(super) presenting: bool,
-    sample: Option<Box<dyn FnMut() -> f64>>,
+    pub(super) sample: Option<Box<dyn FnMut() -> f64>>,
     /// The scheduling instant of the callback running, which the `then`s and
     /// queue `next`s it arms inherit (D2)
     instant: Option<f64>,
@@ -207,7 +207,47 @@ impl<D: DataSource> Runner<D> {
         self.advance_within(self.now_ms, false, false)
     }
 
+    /// [`Self::advance_steps`] with the wakes (LLP 1133.017 D6): a wake's
+    /// deadline within the advance expires it there, after the work due
+    /// before it, and what the wakes can deliver is delivered after. No
+    /// timer fires while a wake runs unseen.
     fn advance_within(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
+        let unseen = self.wake_stops_timers();
+        let deadline = self
+            .wake_deadline()
+            .filter(|d| now_ms.is_finite() && *d <= now_ms);
+        let Some(deadline) = deadline else {
+            let mut a = self.advance_steps(now_ms, until_request, timers && !unseen);
+            if a.error.is_none() && !a.stopped_on_request {
+                let at_ms = self.now_ms;
+                let (woke, error) = self.step_wakes();
+                a.receipts
+                    .extend(woke.into_iter().map(|receipt| Timed { at_ms, receipt }));
+                a.error = error;
+            }
+            return a;
+        };
+        let mut a = self.advance_steps(deadline.max(self.now_ms), until_request, timers && !unseen);
+        if a.error.is_some() || a.stopped_on_request {
+            return a;
+        }
+        let at_ms = self.now_ms;
+        let (expired, error) = self.expire_wake();
+        a.receipts
+            .extend(expired.into_iter().map(|receipt| Timed { at_ms, receipt }));
+        if error.is_some() {
+            a.error = error;
+            return a;
+        }
+        let rest = self.advance_within(now_ms, until_request, timers);
+        a.receipts.extend(rest.receipts);
+        a.now_ms = rest.now_ms;
+        a.error = rest.error;
+        a.stopped_on_request = rest.stopped_on_request;
+        a
+    }
+
+    fn advance_steps(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
         let live = self.clock.sample.is_some();
         // A host that presents frames fires frame tasks at `frame`; else
         // their virtual frames are timers (LLP 1073 D3).
@@ -244,6 +284,7 @@ impl<D: DataSource> Runner<D> {
         self.queues.stopped_on_next = false;
         // A module's value ticket that timed out by now (LLP 1133.002 §6).
         self.module_deadlines(now_ms);
+        self.pump_presence();
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self
@@ -381,7 +422,11 @@ impl<D: DataSource> Runner<D> {
                 let action = self.plan.mutations[m].then.expect("armed only with a then");
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
+                // A `then` runs under its answer's origin (LLP 1133.002 D12).
+                let origin = self.then_origin(m);
+                let result = self.as_origin(origin, |r| {
+                    r.scheduled(at, |r| r.run_action(action, Vec::new(), &[]))
+                });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -606,6 +651,24 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        // A polled module source whose period passed (LLP 1133.009 D10 item
+        // 7): asked once, at the clock the advance landed on.
+        if !stopped_on_request {
+            match self.poll() {
+                Ok(polled) => receipts.extend(polled.into_iter().map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(error) => {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(error),
+                        stopped_on_request: false,
+                    }
+                }
+            }
+        }
         if !receipts.is_empty() {
             let line = super::lines::advanced(
                 receipts.len(),
@@ -613,10 +676,22 @@ impl<D: DataSource> Runner<D> {
             );
             self.log(line);
         }
+        // A font axis's frame, after the log: a presented frame each, which
+        // the journal does not count.
+        let error = match self.tick_text_axes() {
+            Ok(receipt) => {
+                receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }));
+                None
+            }
+            Err(error) => Some(error),
+        };
         Advanced {
             receipts,
             now_ms: self.now_ms,
-            error: None,
+            error,
             stopped_on_request,
         }
     }

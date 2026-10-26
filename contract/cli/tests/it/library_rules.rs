@@ -620,6 +620,24 @@ fn a_librarys_names_are_its_api() {
             .any(|e| e.message.contains("lib.gap")),
         "{all:?}"
     );
+    // Its icons are names it defines too (LLP 1121 stage 13): the app's
+    // icon overriding one builds, one under its namespace it lacks is
+    // refused.
+    let icons = format!("{DESIGN}\nicons\n  lib.star = icon(sf \"star\")\n");
+    let drawn = card.replace("      text \"a\"\n", "      image \"symbol:lib.star\"\n");
+    for (name, app_icons, refused) in [
+        ("icon-override", "lib.star", false),
+        ("icon-unknown", "lib.gone", true),
+    ] {
+        let design = format!("tamber app\n\nicons\n  {app_icons} = icon(sf \"heart\")\n");
+        let all = build_as(name, "@acme/lib", "@acme/lib", &icons, &drawn, APP, &design);
+        let unknown = ids(&all, "tamber-package-unknown");
+        assert_eq!(!unknown.is_empty(), refused, "{name}: {all:?}");
+        assert!(
+            unknown.iter().all(|e| e.message.contains("lib.gone")),
+            "{all:?}"
+        );
+    }
 }
 
 #[test]
@@ -651,4 +669,125 @@ fn a_package_is_its_own_name_and_base_names_are_no_packages() {
         "tamber app\n\ntheme\n  space.md = 20px\n",
     );
     assert!(ids(&all, "tamber-package-unknown").is_empty(), "{all:?}");
+}
+
+/// A library view's buttons stand in for platform controls (LLP 1139 D9's
+/// condition (b), theme2 2026-10-22 04:40): each is named, and one whose
+/// look reads a state (`selected`, `pressed`, …) says it aloud, through an
+/// `aria-*` state or a label that reads it; a presentational bool (a size,
+/// an ink) needs nothing.
+#[test]
+fn a_library_button_is_named_and_says_the_state_its_look_shows() {
+    let id = "lower-library-control";
+    let card = |body: &str| {
+        format!("component Card\n  props\n    selected: bool\n    small: bool\n    go: action\n  derive lit = selected\n  derive spoken = (selected ? \"Selected\" : \"Select\")\n  derive fade = (selected ? 1 : 0.5)\n  derive fade2 = (lit ? 1 : 0.5)\n  view\n    column\n{body}")
+    };
+    let app = "use Card from \"@acme/lib\"\n\ncomponent App\n  action go\n  view\n    Card(selected=true, small=false, go=go)\n";
+    for (name, body, said) in [
+        (
+            "unnamed",
+            "      button press=go\n        box width=4 height=4\n",
+            "without a name",
+        ),
+        (
+            "unnamed-role",
+            "      row role=\"button\" press=go\n        box width=4 height=4\n",
+            "without a name",
+        ),
+        (
+            "unsaid",
+            "      button press=go aria-label=\"Home\" opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n",
+            "doesn't say aloud: its look reads `selected`",
+        ),
+        (
+            "empty-label",
+            "      button press=go aria-label=\"\"\n        box width=4 height=4\n",
+            "without a name",
+        ),
+        (
+            "hidden-text",
+            "      button press=go\n        text \"Go\" aria-hidden=true\n",
+            "without a name",
+        ),
+        (
+            "one-arm",
+            "      button press=go\n        if small\n          text \"Go\"\n",
+            "without a name",
+        ),
+        (
+            "derived-look",
+            "      button press=go aria-label=\"Home\" opacity=(lit ? 1 : 0.5)\n        box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
+            "derived-fade",
+            "      button press=go aria-label=\"Home\" opacity=fade\n        box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
+            "derive-under-binding",
+            "      for selected in [\"a\"] key = selected\n        button press=go aria-label=\"Row\" opacity=(lit ? 1 : 0.5)\n          box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
+            "text-one-arm",
+            "      button press=go opacity=(selected ? 1 : 0.5)\n        if small\n          text (selected ? \"On\" : \"Off\")\n        else\n          text \"Home\"\n",
+            "doesn't say aloud",
+        ),
+        (
+            "label-wins",
+            "      button press=go aria-label=\"Home\" opacity=(selected ? 1 : 0.5)\n        text (selected ? \"On\" : \"Off\")\n",
+            "doesn't say aloud",
+        ),
+        (
+            "hidden-text-says",
+            "      button press=go opacity=(selected ? 1 : 0.5)\n        text \"Home\"\n        text (selected ? \"On\" : \"Off\") aria-hidden=true\n",
+            "doesn't say aloud",
+        ),
+        (
+            "labelledby-wins",
+            "      text \"Home\" id=\"home-name\"\n      button press=go aria-labelledby=\"home-name\" aria-label=(selected ? \"On\" : \"Off\") opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n",
+            "doesn't say aloud",
+        ),
+        (
+            "derive-met-twice",
+            "      button press=go aria-label=\"Home\" opacity=([lit].length * fade2)\n        box width=4 height=4\n",
+            "its look reads `selected`",
+        ),
+        (
+            "label-own-binding",
+            "      for selected in [\"row\"] key = selected\n        text selected id=\"bound-name\"\n        button press=go aria-labelledby=\"bound-name\" opacity=fade\n          box width=4 height=4\n",
+            "doesn't say aloud",
+        ),
+        (
+            "unsaid-inside",
+            "      button press=go aria-label=\"Home\"\n        box width=4 height=4 opacity=(selected ? 1 : 0.5)\n",
+            "doesn't say aloud",
+        ),
+    ] {
+        let all = build(&format!("btn-{name}"), &card(body), app, PLAIN);
+        assert!(
+            ids(&all, id).iter().any(|e| e.message.contains(said)),
+            "{name}: {all:?}"
+        );
+    }
+    // Said by aria-selected, by a label that reads it, a text names a
+    // button, and a presentational bool needs nothing: the build passes.
+    let all = build(
+        "btn-ok",
+        &card("      button press=go aria-label=\"Home\" aria-selected=selected opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go aria-label=(selected ? \"Undo\" : \"Do\") opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go\n        text \"Go\"\n      button press=go aria-label=\"Back\" opacity=(small ? 0.5 : 1)\n        box width=4 height=4\n      button press=go aria-label=spoken opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go aria-label=\"\" opacity=(selected ? 1 : 0.5)\n        text (selected ? \"On\" : \"Off\")\n      text (selected ? \"Mine\" : \"Theirs\") id=\"state-name\"\n      button press=go aria-labelledby=\"state-name\" opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      button press=go aria-labelledby=\"\" aria-label=spoken opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      for selected in [\"row\"] key = selected\n        button press=go aria-labelledby=\"state-name\" opacity=fade\n          box width=4 height=4\n      if small\n        text (selected ? \"A\" : \"B\") id=\"twice\"\n      else\n        text \"C\" id=\"twice\"\n      button press=go aria-labelledby=\"twice\" opacity=(selected ? 1 : 0.5)\n        box width=4 height=4\n      for selected in [\"a\"] key = selected\n        button press=go aria-label=\"Row\" opacity=(selected == \"a\" ? 1 : 0.5)\n          box width=4 height=4\n"),
+        app,
+        PLAIN,
+    );
+    assert!(all.is_empty(), "{all:?}");
+    // Named by its caller's content (the slot) or a used component's text,
+    // a state said by its own text, and an id that reads a state (no look):
+    // the build passes (reload1's review).
+    let all = build(
+        "btn-ok-more",
+        "component Label\n  props\n    text: string\n  view\n    text text\n\ncomponent Card\n  props\n    selected: bool\n    go: action\n  slot\n  view\n    column\n      button press=go\n        children\n      button press=go\n        Label(text=\"Go\")\n      button press=go opacity=(selected ? 1 : 0.5)\n        text (selected ? \"Unfollow\" : \"Follow\")\n      button press=go aria-label=\"Home\" id=(selected ? \"on\" : \"off\")\n        box width=4 height=4\n",
+        "use Card from \"@acme/lib\"\n\ncomponent App\n  action go\n  view\n    Card(selected=true, go=go)\n      text \"x\"\n",
+        PLAIN,
+    );
+    assert!(all.is_empty(), "{all:?}");
 }

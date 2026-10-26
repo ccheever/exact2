@@ -25,7 +25,7 @@ impl<D: DataSource> Host<D> {
     /// never a view. A native button's title and image, or a run in its
     /// title, likewise: its face, read through `exact_press_face`
     /// (LLP 1069.011 D5).
-    fn option_part(&self, id: ViewId) -> bool {
+    pub(super) fn option_part(&self, id: ViewId) -> bool {
         let kernel = self.runner.kernel();
         let mut at = kernel.node(id);
         while let Some(node) = at {
@@ -290,7 +290,7 @@ impl<D: DataSource> Host<D> {
         };
         let mut props = self.props_of(&node);
         if let Some(size) = self.face_box_size(id) {
-            props.insert("faceBoxSize".into(), size);
+            props.insert("faceBoxSize", size);
         }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
@@ -306,8 +306,7 @@ impl<D: DataSource> Host<D> {
                 handlers.contains(&"transformrelease"),
             );
         }
-        let pairs: Vec<(&str, String)> =
-            props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+        let pairs: Vec<(&str, String)> = props.iter().map(|(k, v)| (*k, v.clone())).collect();
         batch.create(id, kind, &pairs, &style, &handlers);
         // Kept to compare with the next update, as `update` keeps it.
         let style = self.style_texts.share(style);
@@ -348,7 +347,7 @@ impl<D: DataSource> Host<D> {
         let node = self.runner.kernel().node(id).expect("live");
         let mut props = self.props_of(&node);
         if let Some(size) = self.face_box_size(id) {
-            props.insert("faceBoxSize".into(), size);
+            props.insert("faceBoxSize", size);
         }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
@@ -360,13 +359,13 @@ impl<D: DataSource> Host<D> {
             let set: Vec<(&str, String)> = props
                 .iter()
                 .filter(|(k, v)| m.props.get(*k) != Some(*v))
-                .map(|(k, v)| (k.as_str(), v.clone()))
+                .map(|(k, v)| (*k, v.clone()))
                 .collect();
             let clear: Vec<&str> = m
                 .props
                 .keys()
                 .filter(|k| !props.contains_key(*k))
-                .map(String::as_str)
+                .copied()
                 .collect();
             batch.props(id, &set, &clear);
             m.props = props;
@@ -391,7 +390,11 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let mut children = self.runner.kernel().node(id).expect("live").children();
-        if self.mirror.get(&id).is_none_or(|m| m.children != children) {
+        if self
+            .mirror
+            .get(&id)
+            .is_none_or(|m| *m.children != *children)
+        {
             // Retained children still inherit from the same parent. Only an
             // arriving subtree needs its descendants' spelling hints revisited;
             // changed ancestor hints already queue their subtree in update().
@@ -423,9 +426,9 @@ impl<D: DataSource> Host<D> {
             });
         }
         let m = self.mirror.entry(id).or_default();
-        if children != m.children {
+        if *children != *m.children {
             batch.children(id, &children);
-            m.children = children;
+            m.children = children.into_boxed_slice();
         }
     }
 
@@ -529,16 +532,26 @@ impl<D: DataSource> Host<D> {
     /// A node's props as Swift gets them: a hatch word the plan does not give
     /// this platform is sent as `hatchOff`, so the node is an ordinary one
     /// there and Swift lists the word as unhandled.
-    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+    pub(crate) fn props_of(
+        &self,
+        node: &NodeRef<'_>,
+    ) -> exact_kernel::SortedMap<&'static str, String> {
         let mut props = props_for(node);
         if let Some(line) = super::layout::separator::json(self.runner.kernel(), node.id) {
-            props.insert(super::layout::separator::PROP.into(), line);
+            props.insert(super::layout::separator::PROP, line);
+        }
+        if node.props.bool(PropId::DefaultSurface) == Some(true) {
+            if let Some((radius, shadow)) = default_surface(exact_kernel::style::metrics::column())
+            {
+                props.insert("defaultSurfaceRadius", radius);
+                props.insert("defaultSurfaceShadow", shadow);
+            }
         }
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {
                 if self.hatches.off.contains(word) {
                     let word = props.remove(PropId::Hatch.name()).unwrap_or_default();
-                    props.insert("hatchOff".into(), word);
+                    props.insert("hatchOff", word);
                 }
             }
         }
@@ -546,8 +559,21 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+/// A popover's default surface (`defaultSurface`) as `column` says: its
+/// corner (`popover-radius`) and its shadow's offset down, CSS blur and
+/// black's alpha (`popover-shadow-`), none where the platform draws its own.
+fn default_surface(column: exact_kernel::style::metrics::Column) -> Option<(String, String)> {
+    use exact_kernel::generated::metric;
+    use exact_kernel::style::metrics::{length_in, number_in};
+    let radius = length_in(metric::POPOVER_RADIUS, column, 0.0, 0.0)?;
+    let y = length_in(metric::POPOVER_SHADOW_Y, column, 0.0, 0.0)?;
+    let blur = length_in(metric::POPOVER_SHADOW_BLUR, column, 0.0, 0.0)?;
+    let alpha = number_in(metric::POPOVER_SHADOW_ALPHA, column)?;
+    Some((radius.to_string(), format!("{y} {blur} {alpha}")))
+}
+
 /// Props by their own names, including derived text advances.
-pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static str, String> {
     let mut out = exact_kernel::SortedMap::default();
     for (id, value) in node.props.iter() {
         let text = match value {
@@ -560,15 +586,15 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
             }
             PropValue::Float(f) => style::num(*f as f32),
         };
-        out.insert(id.name().to_string(), text);
+        out.insert(id.name(), text);
     }
     // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
-        out.insert(PropId::Text.name().to_string(), shown);
+        out.insert(PropId::Text.name(), shown);
     }
     style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
     if let Some(scale) = fit_scale(node) {
-        out.insert("fitScale".into(), scale);
+        out.insert("fitScale", scale);
     }
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
@@ -578,7 +604,7 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
     if node.node_type == NodeType::TextInput {
         out.remove("spellcheck");
         if let Some(value) = node.spellcheck() {
-            out.insert("spellcheck".into(), value.to_string());
+            out.insert("spellcheck", value.to_string());
         }
     }
     if node.node_type == NodeType::Image {
@@ -587,18 +613,15 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
             .str(PropId::ImageSource)
             .and_then(|s| s.strip_prefix("symbol:"))
         {
-            out.insert(
-                "symbolName".into(),
-                exact_kernel::apple_symbol_name(role).into(),
-            );
+            out.insert("symbolName", exact_kernel::apple_symbol_name(role).into());
             // @ref LLP 1121 D10 — an svg-only icon's path, which Apple draws (stage 9 A).
             if let Some((d, view_box)) = crate::icon_path::commands(role) {
-                out.insert("symbolPath".into(), d);
-                out.insert("symbolViewBox".into(), view_box.into());
+                out.insert("symbolPath", d);
+                out.insert("symbolViewBox", view_box.into());
             }
             // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
             if node.symbol_color_said() {
-                out.insert("symbolColorWritten".into(), "1".into());
+                out.insert("symbolColorWritten", "1".into());
             }
         }
     }
@@ -631,3 +654,7 @@ impl StyleTexts {
         shared
     }
 }
+
+#[cfg(test)]
+#[path = "popover_surface_tests.rs"]
+mod popover_surface_tests;

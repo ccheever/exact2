@@ -41,6 +41,15 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertNotEqual(try WidgetContainer.pin(root: root, compatibility: "cohort").lastPathComponent, first)
         XCTAssertThrowsError(try WidgetContainer.pin(root: root, generation: first, compatibility: "another-cohort"))
         XCTAssertThrowsError(try WidgetContainer.pin(root: root, generation: "../current", compatibility: "cohort"))
+        // A generation names the binary that published it: the extension of another build (a binary update the app has
+        // not yet launched after) falls back to its embedded plan rather than pin the old app's.
+        XCTAssertTrue(try WidgetContainer.publish(assets("third"), root: root, kinds: ["card"], compatibility: "cohort", embedded: "build-a"))
+        XCTAssertNoThrow(try WidgetContainer.pin(root: root, compatibility: "cohort", embedded: "build-a"))
+        XCTAssertThrowsError(try WidgetContainer.pin(root: root, compatibility: "cohort", embedded: "build-b")) { error in
+            XCTAssertTrue(String(describing: error).contains("another binary"), "\(error)")
+        }
+        XCTAssertNoThrow(try WidgetContainer.pin(root: root, compatibility: "cohort"), "a reader with no embedded plan of its own takes what is current")
+        XCTAssertThrowsError(try WidgetContainer.pin(root: root, generation: first, compatibility: "cohort", embedded: "build-a"), "a generation published before binaries were named is no binary's")
     }
     func testTypeScriptPublicationRefusesEitherMissingHalf() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

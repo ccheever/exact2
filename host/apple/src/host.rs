@@ -11,10 +11,10 @@
 //! truth; the mirror is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
 use exact_kernel::{
-    Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
-    ViewId,
+    CommitReceipt, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
+    TextMeasurer, ViewId,
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
@@ -70,6 +70,8 @@ mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
 use paragraph::props_for;
+#[path = "persistence.rs"]
+mod persistence;
 #[path = "presence.rs"]
 mod presence;
 #[path = "tamber.rs"]
@@ -106,7 +108,7 @@ mod spacing_tests;
 #[path = "storage_tests.rs"]
 mod storage_tests;
 #[path = "svg.rs"]
-mod svg;
+pub(crate) mod svg;
 #[path = "svg_lower.rs"]
 mod svg_lower;
 #[cfg(test)]
@@ -143,16 +145,20 @@ impl std::fmt::Display for HostError {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Mirror {
-    props: exact_kernel::SortedMap<String, String>,
+    props: exact_kernel::SortedMap<&'static str, String>,
     /// The style the presenter last heard, one allocation per text ([`paragraph::StyleTexts`]).
     style: std::rc::Rc<str>,
-    children: Vec<ViewId>,
+    children: Box<[ViewId]>,
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
-    flow: Vec<exact_kernel::FlowShape>,
-    field_content: Option<crate::batch::ContentBox>,
+    flow: Box<[exact_kernel::FlowShape]>,
+    /// Boxed: only a text field has one, and inline it was a quarter of the mirror.
+    field_content: Option<Box<crate::batch::ContentBox>>,
     field_cell: bool,
     block: Option<(f32, f32)>,
+    /// Whether the block is the kernel's (a popover's, the viewport): a
+    /// host that gives the popover its own is sent the used size again.
+    implied: bool,
 }
 
 /// One runner, one presenter.
@@ -166,7 +172,7 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
+    /// Boxed: a mirror is 128 bytes, and the table has up to twice as many slots as views.
     mirror: IdMap<ViewId, Box<Mirror>>,
     style_texts: paragraph::StyleTexts,
     keys: IdMap<NodeKey, ViewId>,
@@ -185,9 +191,11 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
-    /// Committing a presented frame's timers and frame tasks
-    /// ([`Host::frame`]), where nothing but their commits moves the tree.
-    in_frame: bool,
+    /// A layout failed or a commit's did not run: `inert_layout` lays out.
+    layout_owed: bool,
+    /// Committing an advance's or a presented frame's timers, answers and
+    /// frame tasks ([`Host::advanced`]), where only their commits move the tree.
+    in_advance: bool,
     /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
     /// §9.11), each with its width, resolved padding, border and bottom cover when last measured.
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
@@ -199,6 +207,7 @@ pub struct Host<D: DataSource> {
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
+    collection_heads: Option<Vec<exact_runner::CollectionSnapshot>>,
     engine: Engine,
     paint: paint::Paint,
     holds: BTreeMap<u64, HoldToken>,
@@ -230,7 +239,10 @@ pub struct Host<D: DataSource> {
     /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
+    pending_store_writes: Vec<exact_runner::StoreWrite>,
     data_activated: bool,
+    /// The source's activation, run ahead of `activate_data` by `prepare_data`.
+    source_prepared: Option<Result<(), String>>,
     store_refresh_pending: bool,
     store_activation_pending: bool,
     store_retry_names: Vec<String>,
@@ -455,6 +467,7 @@ impl<D: DataSource> Host<D> {
         // Its own roles from here, not those of the session it replaces (a
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
+        runner.share_app_state(activation::app_state());
         runner.set_device_links(links.device);
         if links.activities {
             runner.link_activities().map_err(HostError::Runner)?;
@@ -507,13 +520,15 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
-            in_frame: false,
+            layout_owed: false,
+            in_advance: false,
             fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
             ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
+            collection_heads: Some(Vec::new()),
             engine: {
                 // Settled values only when the plan animates nothing (LLP 1047.001).
                 let mut engine = Engine::linked(links.engine);
@@ -550,12 +565,14 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            source_prepared: None,
             store_refresh_pending: false,
             store_activation_pending: false,
             store_retry_names: Vec::new(),
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,
+            pending_store_writes: Vec::new(),
             update_line: None,
             delivery,
             colors_seen: None,
@@ -667,6 +684,9 @@ impl<D: DataSource> Host<D> {
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());
         }
+        if op.as_deref() == Some("sensorEvents") {
+            return Some(self.sensor_events(request));
+        }
         // The documents a person chose, and those the app keeps (LLP 1069.010 D1, 1069.010.000).
         if let Some(reply) = crate::documents::answer(op.as_deref(), request, &self.runner) {
             return Some(reply);
@@ -735,12 +755,6 @@ impl<D: DataSource> Host<D> {
         source.configure_storage(data, cache, temporary)
     }
 
-    /// The common post-pixel activation order for committed sources.
-    pub(crate) fn activate_source(source: &mut D) -> Result<(), exact_runner::DataError> {
-        Self::configure_storage(source)?;
-        source.activate()
-    }
-
     /// The work behind a continuation, dispatched on this thread after the
     /// commit that handed it out (LLP 1027.002 D3).
     pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
@@ -753,12 +767,13 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
-    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it
-    /// (D7); watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes (D7) and
+    /// long polls' backoff waits (D8) from it; watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
     pub fn listen_io(&mut self, io: &dyn crate::executor::Io, owner: u64) {
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
+        self.runner.set_retry_reader(io.retry_reader());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
@@ -788,32 +803,6 @@ impl<D: DataSource> Host<D> {
             .ok()
             .flatten()
             .map(|(roots, _)| roots)
-    }
-
-    /// What the last commit kept or forgot, into the platform's store (LLP
-    /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
-    /// login; kept answers queued for their writer thread (`store.rs`). A
-    /// write that fails is journaled (a kept answer's at a later commit);
-    /// the app is otherwise unaffected, as a web app is when `setItem`
-    /// throws: the next launch will not remember.
-    fn persist(&mut self) {
-        let mut changed = self.runner.data().take_storage_changed();
-        for line in self.kept_failures() {
-            self.runner.log(line);
-        }
-        for w in self.runner.take_store_writes() {
-            let Some(secrets) = &self.secrets else {
-                continue;
-            };
-            if let Err(e) = secrets.write(&w) {
-                self.runner.log(format!("store {} failed: {e}", w.name));
-            } else {
-                changed = true;
-            }
-        }
-        if changed {
-            crate::store::widget_changed(self.runner.data_ref().app_id());
-        }
     }
 
     /// The kept answers the writer failed to write since the last call.
@@ -950,10 +939,28 @@ impl<D: DataSource> Host<D> {
 
     /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
     pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
+        self.own_navigation(now_ms, |runner| runner.host_back(id))
+    }
+
+    /// Return to the visit selected in the platform's Back-history menu.
+    pub fn host_back_to(&mut self, source: u64, destination: u64, now_ms: f64) -> String {
+        self.own_navigation(now_ms, |runner| runner.host_back_to(source, destination))
+    }
+
+    /// Follow a declared route without an authored navigate handler.
+    pub fn host_go(&mut self, location: &str, now_ms: f64) -> String {
+        self.own_navigation(now_ms, |runner| runner.host_go(location))
+    }
+
+    fn own_navigation(
+        &mut self,
+        now_ms: f64,
+        navigate: impl FnOnce(&mut Runner<D>) -> Result<Option<CommitReceipt>, RunnerError>,
+    ) -> String {
         let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
         self.now_ms = a.now_ms.max(self.now_ms);
         if a.error.is_none() {
-            match self.runner.host_back(id) {
+            match navigate(&mut self.runner) {
                 Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
                     at_ms: self.now_ms,
                     receipt,
@@ -1007,10 +1014,7 @@ impl<D: DataSource> Host<D> {
         // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = self.runner.frame(now_ms);
-        self.in_frame = true;
-        let out = self.advanced(a);
-        self.in_frame = false;
-        out
+        self.advanced(a)
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
@@ -1021,7 +1025,10 @@ impl<D: DataSource> Host<D> {
         }
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
-        self.commit(&a.receipts, error)
+        self.in_advance = true;
+        let out = self.commit(&a.receipts, error);
+        self.in_advance = false;
+        out
     }
 
     /// An image loaded: its intrinsic size, in points (`None` when it failed
@@ -1030,6 +1037,7 @@ impl<D: DataSource> Host<D> {
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> String {
         self.height_targets_dirty = true;
         let mut batch = Batch::new();
+        batch.controls = self.option_part(view);
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
             Ok(()) => self.layout(&mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
@@ -1045,6 +1053,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let mut error = None;
         for &(view, size) in sizes {
+            batch.controls |= self.option_part(view);
             if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
                 error.get_or_insert(format!("intrinsic: {e:?}"));
             }
@@ -1089,7 +1098,7 @@ impl<D: DataSource> Host<D> {
 
     /// The viewport's new size, in one batch.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
-        self.resize_inner(width, height, Batch::new(), None)
+        self.resize_at(width, height, self.now_ms)
     }
 
     /// A placement root's resolved margins and whether its width is the author's
@@ -1110,39 +1119,42 @@ impl<D: DataSource> Host<D> {
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
-        match self.runner.set_time(epoch_at_zero, utc_offset) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("time: {e:?}"))),
-        }
+        let answer = self.runner.set_time(epoch_at_zero, utc_offset);
+        self.told(answer, "time")
     }
 
     /// The user's display preferences (LLP 1061 D4): re-answer
     /// `exactViewport` in one commit; the same preferences commit nothing.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> String {
-        match self.runner.set_preferences(preferences) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("preferences: {e:?}"))),
-        }
+        let answer = self.runner.set_preferences(preferences);
+        self.told(answer, "preferences")
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
     /// D2): re-answer `exactPage` in one commit; the same facts commit nothing.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
-        match self.runner.set_page(page) {
+        let answer = self.runner.set_page(page);
+        self.told(answer, "page")
+    }
+
+    /// The viewer's locale and zone, beside the date: one commit when it changes.
+    pub fn set_place(
+        &mut self,
+        locale: &str,
+        time_zone: &str,
+        seed: Option<f64>,
+        format_locale: Option<&str>,
+    ) -> String {
+        let answer = self
+            .runner
+            .set_place_formatted(locale, time_zone, seed, format_locale);
+        self.told(answer, "place")
+    }
+
+    /// A told fact's answer: its commit, an empty batch when the fact is
+    /// unchanged, or the refusal named by `what`.
+    fn told(&mut self, answer: Result<Option<CommitReceipt>, RunnerError>, what: &str) -> String {
+        match answer {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -1151,27 +1163,8 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("page: {e:?}"))),
+            Err(e) => self.finish(Batch::new(), Some(format!("{what}: {e:?}"))),
         }
-    }
-
-    /// The viewer's locale and zone, beside the date: one commit when it changes.
-    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
-        let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("place: {e:?}"))),
-        };
-        if receipts.is_empty() {
-            return self.finish(Batch::new(), error);
-        }
-        self.commit(&receipts, error)
     }
 
     /// The viewport's change into `batch`, after what it holds (`set_view`).
@@ -1346,6 +1339,12 @@ impl<D: DataSource> Host<D> {
                 &|v| !runner.handlers_of(v).is_empty(),
             );
             svg_lower::hand_over_paths(runner.kernel(), &mut self.engine, self.svg.box_motion);
+            // A reveal changes a held play without changing its style row.
+            for (key, _) in &sync.animations {
+                if let Some(view) = self.keys.get(&node_key(*key)).copied() {
+                    self.svg.element(runner.kernel(), view);
+                }
+            }
             for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
                 self.svg.element(self.runner.kernel(), view);
             }
@@ -1366,17 +1365,17 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        // A frame whose commits changed no node (a frame task that only
-        // moved state nothing shows) lays out as a timer with no commit
-        // does: sixty commits a second each cost a whole layout and paint
-        // order walk otherwise. A withheld layout still runs to settle.
-        let inert = self.in_frame
-            && !self.layout_withheld
-            && receipts.iter().all(|t| unchanged(&t.receipt));
+        // An advance whose commits changed no node (a frame task that only
+        // moved state nothing shows; a `sent` reader answered at each MIDI
+        // message's time, LLP 1125 D6, with nothing on screen reading it)
+        // lays out only what such a commit can move (`inert_layout`): each
+        // would cost a whole layout and paint order walk otherwise.
+        let inert = self.in_advance && receipts.iter().all(|t| unchanged(&t.receipt));
         let layout_error = if height_target_error.is_some() {
+            self.layout_owed = true;
             height_target_error
         } else if inert {
-            self.height_layout_if_needed(&mut batch).err()
+            self.inert_layout(&mut batch, !receipts.is_empty()).err()
         } else {
             self.layout(&mut batch).err()
         };
@@ -1410,7 +1409,7 @@ impl<D: DataSource> Host<D> {
 }
 
 /// Whether a commit left every node as it was.
-fn unchanged(r: &exact_kernel::CommitReceipt) -> bool {
+fn unchanged(r: &CommitReceipt) -> bool {
     !r.layout_invalidated
         && r.created.is_empty()
         && r.destroyed.is_empty()

@@ -17,7 +17,7 @@
 mod literals;
 
 use super::CompileError;
-use contract_syntax::{File, Span, Stmt};
+use contract_syntax::{Expr, File, Span, Stmt};
 use contract_types::strings::Strings;
 use std::path::Path;
 
@@ -78,31 +78,77 @@ fn sources(dir: &Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+/// The commands of `file`'s actions, in order, through `if`, `match` and calls.
+fn commands(file: &File) -> Vec<(&str, &[Expr], Span)> {
+    fn walk<'f>(stmts: &'f [Stmt], out: &mut Vec<(&'f str, &'f [Expr], Span)>) {
+        for s in stmts {
+            match s {
+                Stmt::Command { name, args, span } => out.push((name, args, *span)),
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    walk(then, out);
+                    walk(otherwise, out);
+                }
+                Stmt::Match { some, none, .. } => {
+                    walk(&some.1, out);
+                    walk(none, out);
+                }
+                Stmt::Call { body, .. } => walk(body, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for a in file.components.iter().flat_map(|c| &c.actions) {
+        walk(&a.body, &mut out);
+    }
+    out
+}
+
+/// Whether the file's MIDI provably reaches no device: it never asks for
+/// access, so none is granted; it sends only to `""`, no output, whose
+/// messages `sent` lists with no device (LLP 1125 D6); and its `exactMIDI()`
+/// reads, by shapes this file declares, `sent` alone, not the `state` or
+/// ports a grant would change. An activity log of that kind needs no grant.
+fn midi_silent(file: &File, commands: &[(&str, &[Expr], Span)]) -> bool {
+    let reads_sent_only = |r: &contract_syntax::ResourceDecl| match &r.shape {
+        contract_syntax::TypeExpr::Named(shape, _) => file
+            .shapes
+            .iter()
+            .find(|s| s.name == *shape)
+            .is_some_and(|s| s.fields.iter().all(|f| f.name == "sent")),
+        _ => false,
+    };
+    commands.iter().all(|(name, args, _)| match *name {
+        "requestMIDIAccess" => false,
+        "sendMIDI" => matches!(args.first(), Some(Expr::Str(o, _)) if o.is_empty()),
+        _ => true,
+    }) && file
+        .components
+        .iter()
+        .flat_map(|c| &c.resources)
+        .filter(|r| r.source == "exactMIDI")
+        .all(reads_sent_only)
+}
+
 /// The first place `file` reaches `device`: a resource reading one of its
 /// sources, else a command, in any action.
 fn first_use(file: &File, device: &Device) -> Option<(Span, String)> {
-    fn walk(stmts: &[Stmt], device: &Device) -> Option<(Span, String)> {
-        stmts.iter().find_map(|s| match s {
-            Stmt::Command { name, span, .. } if device.commands.contains(&name.as_str()) => {
-                Some((*span, format!("`{name}`")))
-            }
-            Stmt::If {
-                then, otherwise, ..
-            } => walk(then, device).or_else(|| walk(otherwise, device)),
-            Stmt::Match { some, none, .. } => walk(&some.1, device).or_else(|| walk(none, device)),
-            Stmt::Call { body, .. } => walk(body, device),
-            _ => None,
-        })
+    let commands = commands(file);
+    if device.name == "midi" && midi_silent(file, &commands) {
+        return None;
     }
-    let components = || file.components.iter();
-    components()
+    file.components
+        .iter()
         .flat_map(|c| &c.resources)
         .find(|r| device.sources.contains(&r.source.as_str()))
         .map(|r| (r.span, format!("`{}()`", r.source)))
         .or_else(|| {
-            components()
-                .flat_map(|c| &c.actions)
-                .find_map(|a| walk(&a.body, device))
+            commands
+                .iter()
+                .find(|(name, _, _)| device.commands.contains(name))
+                .map(|(name, _, span)| (*span, format!("`{name}`")))
         })
 }
 
@@ -150,7 +196,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         let has = |key: &str| strings.is_some_and(|s| s.base_table().contains_key(key));
         // A grant built otherwise cannot be read, so it is not warned about;
         // granted with its purpose anywhere settles it; else the first key written.
-        let Some(keys) = literals::keys(&lits, device.name) else {
+        let Some(keys) = literals::keys(&lits, &line) else {
             continue;
         };
         if keys.iter().any(|k| has(k)) {
@@ -191,7 +237,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
     for (grants, span, call) in modules {
         let Some(found) = grants
             .iter()
-            .map(|g| literals::keys(&lits, g.trim_start_matches("device.")))
+            .map(|g| literals::keys(&lits, g))
             .collect::<Option<Vec<_>>>()
         else {
             continue;
@@ -201,11 +247,21 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         }
         let lines: Vec<String> = grants.iter().map(|g| format!("`{g}`")).collect();
         let last = grants.last().cloned().unwrap_or_default();
-        let key = format!("purpose.{}", last.trim_start_matches("device."));
+        // A device line names its purpose key; any other its target (`auth.passkey <rp id>`).
+        let named = |d: &str| {
+            (exact_runner::device::DEVICES.iter()).any(|row| row.name == d && row.purpose)
+        };
+        let add = match last.strip_prefix("device.") {
+            Some(device) if !named(device) => format!("`{last}` to the app's grants"),
+            Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
+            // A line that names no target (LLP 1020.002 D9).
+            None if last == "browser.automation" => format!("`{last}` to the app's grants"),
+            None => format!("`{last} <its target>` to the app's grants"),
+        };
         out.push(CompileError {
             id: "grant-missing".into(),
             ..warn(span, format!(
-                "{call} answers only under one of {}, and no file of the app's data module names one: add `{last} {key}` to the app's grants, with its purpose in strings/{base}.json",
+                "{call} answers only under one of {}, and no file of the app's data module names one: add {add}",
                 lines.join(" or ")
             ))
         });
@@ -213,23 +269,23 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
     out
 }
 
-/// Each native module interface the app reads or sends, once, by its first
-/// use: its grant lines, where, and the call.
+/// Each set of grant lines a native module's names the app reads or sends
+/// answer under, once, by its first use: the lines, where, and the call. A
+/// name's own list of lines is its set (an empty one, as a picker's, needs
+/// none: LLP 1133.018 D4); else its interface's.
 fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
     let mut out: Vec<(Vec<String>, Span, String)> = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
+    let mut seen: Vec<(&str, Vec<String>)> = Vec::new();
     for m in &file.modules {
-        if seen.contains(&m.extension.as_str()) {
-            continue;
-        }
-        let grants: Vec<String> = serde_json::from_str::<serde_json::Value>(&m.substitute)
-            .ok()
-            .and_then(|s| s["grants"].as_array().cloned())
-            .unwrap_or_default()
-            .iter()
+        let sub = serde_json::from_str::<serde_json::Value>(&m.substitute).unwrap_or_default();
+        let lines = match &sub["nameGrants"] {
+            serde_json::Value::Array(own) => own.clone(),
+            _ => sub["grants"].as_array().cloned().unwrap_or_default(),
+        };
+        let grants: Vec<String> = (lines.iter())
             .filter_map(|g| g.as_str().map(str::to_owned))
             .collect();
-        if grants.is_empty() {
+        if grants.is_empty() || seen.contains(&(m.extension.as_str(), grants.clone())) {
             continue;
         }
         fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
@@ -255,7 +311,7 @@ fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
                     .find_map(|a| sends(&a.body, &m.name))
             });
         if let Some(span) = used {
-            seen.push(&m.extension);
+            seen.push((&m.extension, grants.clone()));
             out.push((grants, span, format!("`{}`", m.declared)));
         }
     }

@@ -1,0 +1,58 @@
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.019 §11): each name of
+// @exact/photos, its answers shown by testId for the suite. The list is read
+// once `read` is pressed; its first six photos are drawn as pictures, each
+// counting its `load` and `error`.
+use photoLibraryStatus, copyPhotoAsset, addToPhotoLibrary, managePhotoSelection, PhotoLibraryStatus, PhotoAssetList, PhotoCopy, PhotoAdded from "@exact/photos"
+
+component Fixture
+  state reading = false
+  state loads = 0
+  state errors = 0
+  state lastError = ""
+  resource status = photoLibraryStatus() as shape PhotoLibraryStatus else empty()
+  resource list = assets(reading) as shape PhotoAssetList else empty()
+  mutation copied as shape PhotoCopy
+  mutation added as shape PhotoAdded
+  mutation managed as shape PhotoLibraryStatus
+  derive first = match list.assets.at(0) { case some(a) => a.id, case none => "" }
+  derive copyError = match failure(copied) { case some(f) => f.code, case none => "" }
+  derive addError = match failure(added) { case some(f) => f.code, case none => "" }
+  derive manageError = match failure(managed) { case some(f) => f.code, case none => "" }
+  action read
+    reading = true
+  action copyFirst
+    send copied = copyPhotoAsset(asset=first)
+  action addCopy
+    send added = addToPhotoLibrary(path=match copied { case some(c) => c.path, case none => "" })
+  action manage
+    send managed = managePhotoSelection()
+  action loaded
+    loads = loads + 1
+  action failed(message: string)
+    errors = errors + 1
+    lastError = message
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state} ${status.access} ${status.addState}` testId="status"
+      text (match status.apple { case some(a) => a.authorizationStatus + " " + a.addOnlyAuthorizationStatus, case none => "none" }) testId="apple"
+      text `${list.assets.length}` testId="count"
+      text first testId="first"
+      text (match list.assets.at(0) { case some(a) => `${a.width}x${a.height} ${a.picture == "photos:" + a.id}`, case none => "" }) testId="first-size"
+      text `${loads} ${errors} ${lastError}` testId="pictures"
+      row gap=4 flex-wrap="wrap"
+        for a, i in list.assets.slice(0, 6) key=a.id
+          image a.picture testId=`picture-${i + 1}` width=60 height=60 object-fit="cover" alt=`Photo ${i + 1}` load=loaded error=failed
+      text (match copied { case some(c) => `${c.path} ${c.type} ${c.size > 0} ${c.width}x${c.height}`, case none => "none" }) testId="copied"
+      text copyError testId="copy-error"
+      text (match added { case some(a) => (match a.asset { case some(id) => id, case none => "no id" }), case none => "none" }) testId="added"
+      text addError testId="add-error"
+      text (match managed { case some(s) => `${s.state} ${s.access}`, case none => "none" }) testId="managed"
+      text manageError testId="manage-error"
+      button press=read testId="read"
+        text "Read"
+      button press=copyFirst testId="copy"
+        text "Copy"
+      button press=addCopy testId="add"
+        text "Add"
+      button press=manage testId="manage"
+        text "Manage"

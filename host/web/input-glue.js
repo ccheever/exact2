@@ -1,5 +1,6 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
 import "./prompt-glue.js"; // a prompt's Return
+import "./alert-message.js"; // a grouped alert's message box
 /** An element whose `press` the keyboard reaches only through its tabindex:
  * not one the browser activates itself (the wasm host's handler list, or the
  * JS target's `data-exact-on`). */
@@ -54,14 +55,18 @@ function radioArrow(root, event) {
   if (next !== el) { rove(all, next); next.focus(); next.click(); }
   return true;
 }
-/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items move by the arrow keys, as WAI-ARIA's patterns give
- * the roles and a web developer expects of them: Left and Right along a tablist (Up and Down when it is vertical: its
- * `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down in a menu (and into an open one from
- * outside it), Home and End to the ends, wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's
- * press is the app's action (a fetch, in Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A
- * tablist is one Tab stop: its selected tab, or the tab the arrows left the focus on. */
-const ROVES = '[role="tablist"], [role="menu"]';
-const roversOf = group => [...group.querySelectorAll(group.getAttribute("role") === "menu" ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items (a chooser's too, drawn as a menu) move by the
+ * arrow keys, as WAI-ARIA's patterns give the roles and a web developer expects of them: Left and Right along a tablist
+ * (Up and Down when it is vertical: its `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down
+ * in a menu, Home and End to its ends (into the one on top: Up and Down from outside, all four from a menu beneath),
+ * wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's press is the app's action (a fetch, in
+ * Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A tablist is one Tab stop: its selected tab,
+ * or the tab the arrows left the focus on. */
+const MENUS = '[role="menu"], [data-exact-chooser]', ROVES = `[role="tablist"], ${MENUS}`;
+const roversOf = group => [...group.querySelectorAll(group.matches(MENUS) ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+// The open menu on top: the last to open (navigation.js stamps `exactOpened`), which is the top layer's order and not
+// the document's (a chooser a menu's row opens stands over the menu, wherever each is written).
+const topMenu = root => [...root.querySelectorAll(`:is(${MENUS}):popover-open`)].sort((a, b) => (a.exactOpened ?? 0) - (b.exactOpened ?? 0)).at(-1);
 function tabStops(root) {
   for (const list of root.querySelectorAll('[role="tablist"]')) {
     const all = roversOf(list), at = document.activeElement;
@@ -72,14 +77,15 @@ function tabStops(root) {
 function roveArrow(root, event) {
   const el = event.target, key = event.key, within = el?.closest?.(ROVES);
   if (!el || !(root.contains(el) || el === document.body)) return false;
-  const open = !within && /^Arrow(Up|Down)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? root.querySelector('[role="menu"]:popover-open') : null;
+  const top = /^(Arrow(Up|Down)|Home|End)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? topMenu(root) : null;
+  const open = top && !top.contains(el) && (within ? within.matches(MENUS) : /^Arrow/.test(key)) ? top : null; // from a menu beneath it, or by an arrow from outside
   const group = open ?? within;
   if (!group || !root.contains(group)) return false;
-  const menu = group.getAttribute("role") === "menu", all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
+  const menu = group.matches(MENUS), all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
   if (!open && !all.includes(el)) return false;
   const vertical = menu || group.getAttribute("aria-orientation") === "vertical" || group.parentElement?.hasAttribute("data-exact-sidebar"), rtl = getComputedStyle(group).direction === "rtl";
   const step = (vertical ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 })[key];
-  const next = open ? live.at(key === "ArrowDown" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
+  const next = open ? live.at(key === "ArrowDown" || key === "Home" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
   if (!next) return false;
   event.preventDefault();
   if (next !== el) { if (!menu) rove(all, next); next.focus(); }
@@ -151,11 +157,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
       if (modal && !modal.contains(el)) continue;
       if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
-      if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
+      // A hidden Back control takes its shortcut through the visible bar button, in a header or in content.
+      const target = backButton(el) ?? el;
+      if (!target.isConnected || !(target.getClientRects().length || target.hasAttribute("data-exact-bar-back")) || inertAncestor(el) || getComputedStyle(target).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (!event.repeat && !el.disabled) el.click();
+      if (!event.repeat && !el.disabled) target.click();
       return;
     }
   }, true);
@@ -181,6 +189,36 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.click();
     if (event.key === " " && !surface(el)) keyed(el);
   });
+  // @ref LLP 1115.000 D6 — the unsaid dim (index.html) is CSS's while the
+  // press holds; on release it holds at least 0.1 s from the press and fades
+  // back over 0.2 s, ease-out, as the iOS host's does (PressFeedback.swift
+  // `dimHold`, `dimFade`), so a quick tap still flashes. The innermost
+  // pressable showing the dim's 65% is the one dimmed: a finger's
+  // `data-pressed` still holds at the release, read in capture; a mouse's
+  // `:active` has gone by then (Chrome sets it before `pointerdown`'s
+  // listeners and clears it before `pointerup`'s), so it is read at the press.
+  // The agent's clock skips it.
+  const DIM = { opacity: "0.65", hold: 100, fade: 200 };
+  const dimStarts = new WeakMap(), dimFades = new WeakMap(), dimmedAtPress = new WeakSet();
+  const pressable = at => at?.closest?.('button, a[data-view][href], [data-exact-on~="press"]');
+  const fadeDim = el => {
+    if (agentMode || !el || !root.contains(el)) return;
+    if (getComputedStyle(el).opacity !== DIM.opacity && !dimmedAtPress.has(el)) return;
+    dimmedAtPress.delete(el);
+    const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
+    dimFades.get(el)?.cancel();
+    // No closing keyframe: the fade ends at whatever lies beneath the dim.
+    dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+  };
+  root.addEventListener("pointerdown", e => {
+    const el = pressable(e.target);
+    if (!el) return;
+    dimFades.get(el)?.cancel();
+    dimStarts.set(el, performance.now());
+    if (e.pointerType === "mouse" && getComputedStyle(el).opacity === DIM.opacity) dimmedAtPress.add(el);
+    else dimmedAtPress.delete(el);
+  }, true);
+  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => fadeDim(pressable(e.target)), true);
   // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
   // scrim that closes a sheet, a viewer that toggles its bars) and shows no
   // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
@@ -201,11 +239,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const keyed = el => {
     const up = (e, now = false) => {
       if (e?.type === "keyup" && e.key !== " ") return;
+      if (!now) fadeDim(el);
       showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
       if (keyHold === up) keyHold = null;
     };
     keyHold?.(null, true);
+    dimStarts.set(el, performance.now());
     showPress(el, true);
     up.el = el;
     keyHold = up;
@@ -219,7 +259,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // browser eases a separate factor, multiplied into CSS `scale`, so
   // authored transforms, transitions and keyframes keep their values. A
   // native button is pressed by the same rule with or without a row or a
-  // handler of its own, as a UIButton highlights (the shell dims its face).
+  // handler of its own, as a UIButton highlights (neutral.css draws the
+  // highlight: a wash, or a plain button's fading face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
   // and on the same ease as the scale. The shell's important rules
@@ -291,8 +332,25 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, EASE.duration);
     if (!down && (now || !el.isConnected)) endPaint(el, state);
   };
+  // Keep the release style only until its transitions end. Immediate cancellation and the agent's clock skip it.
+  const releases = new WeakMap(), RELEASED = new Set(["opacity", "background-color", "--exact-wash"]);
   const showPress = (el, down, now = false) => {
+    const native = el.matches("button[data-button-style]");
+    const eased = native && !down && !now && !agentMode && el.hasAttribute("data-pressed");
+    const running = eased ? new Set(el.getAnimations({ subtree: true })) : null;
     el.toggleAttribute("data-pressed", down);
+    if (native && down) {
+      // Flush the pressed style so a tap released before the next frame still shows its highlight (LLP 1061 D2)
+      el.removeAttribute("data-exact-released");
+      getComputedStyle(el).opacity;
+    } else if (eased) {
+      el.setAttribute("data-exact-released", "");
+      // Leave an author's running transitions independent of the release marker
+      const ease = el.getAnimations({ subtree: true }).filter(a => !running.has(a) && RELEASED.has(a.transitionProperty) && (a.effect.target === el || a.effect.target.parentElement === el));
+      const ends = Promise.allSettled(ease.map(a => a.finished));
+      releases.set(el, ends);
+      ends.then(() => { if (releases.get(el) === ends) el.removeAttribute("data-exact-released"); });
+    }
     showPaint(el, down, now);
     // A design token's scale is its property's `var()`: the computed value
     // is the token's (LLP 1121 D7).
@@ -558,7 +616,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // Back, to the control whose press pushed the route that left (the row, the link, the button that opened a sheet),
   // else as on a push. A focus the commit set is left alone: an `autofocus` field, a `focus()` command, anything
   // now inside the route, or anywhere that is neither the pressed control nor where the focus was as the press began
-  // (so a route that arrives with no press never takes the focus from where a person put it). Another
+  // (so a route that arrives with no press never takes the focus from where a person put it), but for one still in a
+  // leaving element (`[data-exiting]`: a sheet sliding away or a presence view leaving), which is no one's. Another
   // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
   // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
   // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
@@ -587,21 +646,21 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   const arrive = () => {
     const nav = root.querySelector("[navigationBack]"), key = nav?.getAttribute("navigationKey");
-    for (const route of nav?.querySelectorAll("[navigationPresentation], [data-exact-dialog]") ?? []) dialog(route);
+    for (const route of nav?.querySelectorAll(":is([navigationPresentation], [data-exact-dialog]):not([data-exiting])") ?? []) dialog(route); // a sheet sliding away is no route (navigation.js `sheetLeaves`)
     const top = key == null ? null : [...nav.querySelectorAll("[navigationKey]")].find(r => r.getAttribute("navigationKey") === key && r.parentElement.closest("[navigationKey]") === nav);
     if (!top) return;
-    const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey")), stack = routes.slice(0, routes.indexOf(top) + 1);
+    const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey") && !r.hasAttribute("data-exiting")), stack = routes.slice(0, routes.indexOf(top) + 1);
     const was = shown, active = document.activeElement, by = pressed && performance.now() - pressed.at < 2000 ? pressed : null;
     shown = stack;
     if (!was || was[0] !== stack[0] || was.at(-1) === top) return;
     const back = was.includes(top);
     if (!back) origins.set(top, was.length === stack.length ? origins.get(was.at(-1)) : by?.el); // a replace keeps where its route came from
     pressed = null;
-    if (active && active !== document.body && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return;
+    if (active && active !== document.body && !active.closest("[data-exiting]") && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return; // a focus a leaving element still holds (in a frame or a shadow root, where its blur does not reach) is no one's
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) });
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
@@ -879,6 +938,9 @@ const guestValue = (target) => "value" in target ? (target.type === "password" &
 // Both agents supply their modal-aware inert check; standalone callers default to DOM ancestry.
 export function reveal(el, id, inert = el => el.closest("[inert]")) {
   if (!el?.isConnected) return { error: `no view ${id}` };
+  // The shadow button does not carry the route control's inert ancestry.
+  if (inert(el)) return { revealed: id, scrolled: false };
+  el = backButton(el) ?? el;
   const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
   const [x, y] = middle();
   let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
@@ -886,7 +948,7 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || inert(el) || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
   (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
@@ -895,10 +957,24 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
 // touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
+// The visible Back that stands for a hidden route control. The hiding mark belongs only to bar items;
+// author-hidden controls keep their styles. Input uses only the selected route; geometry can read a covered route.
+export function backButton(el, selectedOnly = true) {
+  if (!el?.id || el.checkVisibility?.({ visibilityProperty: true }) !== false) return null;
+  const route = el.closest("[navigationkey]"), nav = route?.parentElement?.closest("[navigationback]");
+  if (!nav || nav.getAttribute("navigationBack") !== el.id || (selectedOnly && nav.getAttribute("navigationKey") !== route.getAttribute("navigationKey"))
+    || route.querySelector(`[id="${CSS.escape(el.id)}"]`) !== el) return null;
+  const back = route.querySelector(":scope > header")?.shadowRoot?.querySelector('button[part="back"]:not([hidden])');
+  return back?.checkVisibility({ visibilityProperty: true }) ? back : null;
+}
+
 // A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
 // text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
-// when the box stretches its items (a block, or a flex or grid box that stretches).
+// when the box stretches its items (a block, or a flex or grid box that stretches). A Back control its route's bar
+// stands for (index.html) is where that bar's Back is, so a tap that names it presses that Back, as a person does.
 export function viewBox(el) {
+  const back = backButton(el, false);
+  if (back) return back.getBoundingClientRect();
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
   range.selectNodeContents(el);
@@ -968,5 +1044,40 @@ export function selectAll(el) {
   if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
   return event;
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll };
+// LLP 1069.001 D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's
+// `input`, then `change`. A select takes one of its enabled options by value, else by its one label (Playwright's
+// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that
+// differs, as a person would. The page's `inertAncestor` and `settleValue` (navigation.js) are passed in.
+export function typeControl(el, request, inertAncestor, settleValue) {
+  let text = String(request.text ?? "");
+  const id = request.id;
+  if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
+  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
+  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
+  if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
+  if (el.type === "checkbox") {
+    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
+    if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
+  if (el.type === "radio") {
+    if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
+    if (!el.checked) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  if (el instanceof HTMLSelectElement) {
+    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
+    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
+    else if (!enabled.some((o) => o.value === text))
+      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
+  }
+  if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
+  el.value = text;
+  if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { typed: id, value: el.value, delivery: "recognized", handled: true };
+}
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

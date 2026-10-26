@@ -154,6 +154,25 @@ pub fn from_value(value: &Value) -> Result<String, String> {
     Ok(encode(&decorations))
 }
 
+/// Convert the compiler's positional `AtomFace(source, label, icon, title)`
+/// list to the named JSON of the `atomFaces` prop (LLP 1045.000 D2).
+pub fn atom_faces(value: &Value) -> Result<String, String> {
+    let Value::List(faces) = value else {
+        return Err("atomFaces: expected a list".into());
+    };
+    let rows = faces
+        .iter()
+        .map(|face| match face {
+            Value::Record(f) if f.len() == 4 => {
+                let text = |i: usize| f[i].as_str().ok_or("atomFaces: expected text");
+                Ok(json!({"source": text(0)?, "label": text(1)?, "icon": text(2)?, "title": text(3)?}))
+            }
+            _ => Err("atomFaces: invalid record shape".to_string()),
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(serde_json::Value::Array(rows).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -37,6 +37,8 @@ struct Log {
     p3: Vec<bool>,
     /// Reply with a list that does not read.
     malformed: bool,
+    /// Each draw's `currentColor`.
+    colors: Vec<Option<exact_canvas::Rgba>>,
 }
 
 struct Spark(Rc<RefCell<Log>>);
@@ -76,6 +78,7 @@ impl DataSource for Spark {
     }
     fn draw(&mut self, request: &DrawRequest<'_>, ctx: &Context2d) -> Drawn {
         self.0.borrow_mut().p3.push(request.p3);
+        self.0.borrow_mut().colors.push(request.current_color);
         if self.0.borrow().later {
             self.0
                 .borrow_mut()
@@ -390,4 +393,71 @@ fn a_canvas_settings_reach_the_draw_and_the_host() {
     let lists = r.take_canvas_lists();
     assert!(lists[0].fresh && lists[0].generation == 1, "a new context");
     assert_eq!(log.borrow().p3.last(), Some(&false));
+}
+
+/// `-exact-system-green` in a scheme, as a draw's `currentColor`.
+fn green(dark: bool) -> Option<exact_canvas::Rgba> {
+    let role = exact_kernel::style::roles::role("-exact-system-green").unwrap();
+    let [r, g, b, a] = exact_kernel::ColorValue::Role(role)
+        .resolve(dark)
+        .0
+        .to_be_bytes();
+    Some(exact_canvas::Rgba {
+        r,
+        g,
+        b,
+        a: a as f64 / 255.0,
+    })
+}
+
+/// A canvas's `currentColor` is its colour in its own scheme (LLP 1056 D3):
+/// a role under `color-scheme="dark"` is the role's dark value, else the
+/// window's scheme's.
+#[test]
+fn a_canvas_current_color_is_its_schemes() {
+    let (mut r, log) = boot_source(
+        "component App
+  view
+    column
+      canvas surface=spark(1) width=10 height=10 color=\"-exact-system-green\"
+      column color-scheme=\"dark\"
+        canvas surface=spark(1) width=10 height=10 color=\"-exact-system-green\"
+",
+    );
+    for view in r.canvas_views() {
+        r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    }
+    r.draw_canvases(&|_| true);
+    assert_ne!(green(false), green(true), "the role has two values");
+    assert_eq!(log.borrow().colors, [green(false), green(true)]);
+}
+
+/// With no subtree scheme, a canvas's `currentColor` follows the scheme the
+/// app chose (`setScheme`), not the window's beneath it, and a change of
+/// scheme draws it again (cause `"style"`), as nothing else would.
+#[test]
+fn a_canvas_current_color_follows_the_apps_scheme() {
+    let (mut r, log) = boot_source(
+        "component App
+  action chooseLight
+    setScheme(\"light\")
+  view
+    canvas surface=spark(1) width=10 height=10 color=\"-exact-system-green\"
+",
+    );
+    r.set_preferences(exact_runner::Preferences {
+        dark: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let view = r.canvas_views()[0];
+    r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    r.draw_canvases(&|_| true);
+    r.take_canvas_lists();
+    assert!(!r.canvas_owed(&|_| true), "drawn, and nothing changed");
+    r.act("chooseLight", vec![]).unwrap();
+    assert!(r.canvas_owed(&|_| true), "the scheme changed");
+    r.draw_canvases(&|_| true);
+    assert_eq!(log.borrow().colors, [green(true), green(false)]);
+    assert_eq!(log.borrow().frames.last().unwrap().cause.names(), ["style"]);
 }

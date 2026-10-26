@@ -100,14 +100,41 @@ impl Tree {
             })
             .unwrap_or_else(|| c.index.leading());
         let offset = (at - origin).max(-c.index.leading());
-        let position = c.index.row_at(offset.max(0.0)).ok()??;
+        // The first row shown in the port, and how far into it the port
+        // starts as shown. A host that draws edges on device pixels puts its
+        // scroll offsets on them too (iOS's `PixelGrid`; a browser:
+        // Chromium's `PixelSnappedIntRect`), each edge taken to a layout
+        // unit (1/64) and rounded to the nearest pixel with a half up, so a
+        // jump to a row whose start is off the grid lands up to half a
+        // device pixel from it: a row ending less than half a device pixel
+        // past the port's start is drawn wholly before it, and a row
+        // starting within half a device pixel of it is drawn at it. Where a
+        // host draws fractional edges, that row is a fainter line than one
+        // pixel's, and is not counted either.
+        let half = 0.5 / f64::from(kernel.display_scale());
+        let unit = |v: f64| (v * 64.0).round() / 64.0;
+        let mut position = c.index.row_at(offset.max(0.0)).ok()??;
+        // Past each row drawn before the port: `row_at` passes rows of no
+        // height, and this, rows too short to reach it.
+        while let Some(end) = c.index.prefix(position + 1) {
+            match c.index.row_at(end).ok().flatten() {
+                Some(next) if next > position && unit(end) - offset < half => position = next,
+                _ => break,
+            }
+        }
         let start = c.index.prefix(position)?;
         if port <= 0.0 || start >= offset + port {
             return None;
         }
+        let within = offset - start;
+        let drawn = offset - unit(start);
         Some((
             Value::str(&super::super::key_text(c.keys.get(position)?)?[2..]),
-            offset - start,
+            if drawn > -half && drawn <= half {
+                0.0
+            } else {
+                within
+            },
         ))
     }
     /// O(live instances) snapshots. No unmounted record/key serialization.
@@ -150,7 +177,7 @@ impl Tree {
         while let Some(child) = stack.pop() {
             match child {
                 Child::Node(node) => {
-                    if let Some(collection) = &node.collection {
+                    if let Some(collection) = node.collection() {
                         out.push((
                             collection.view,
                             collection.data_generation,
@@ -181,7 +208,7 @@ impl Tree {
         while let Some(child) = stack.pop() {
             match child {
                 Child::Node(node) => {
-                    if let Some(collection) = &node.collection {
+                    if let Some(collection) = node.collection() {
                         out.push(collection.snapshot_rows(rows));
                         collection.add_children(&mut stack);
                     }
@@ -304,7 +331,7 @@ impl Tree {
             }
             match child {
                 Child::Node(n) => {
-                    if let Some(c) = &n.collection {
+                    if let Some(c) = n.collection() {
                         visit(c)?;
                         for row in &c.mounted {
                             push_children_bounded(stack, &row.row.roots, limit)?;
@@ -412,7 +439,7 @@ fn feedback_walk(
     for child in children {
         let found = match child {
             Child::Node(node) => {
-                if let Some(collection) = &mut node.collection {
+                if let Some(collection) = crate::instance::rare::list_mut(&mut node.rare) {
                     if collection.view == feedback.view {
                         return collection
                             .feedback(u, frames, feedback.clone(), by_view, fill)
@@ -473,7 +500,7 @@ fn find_collection(children: &[Child], view: ViewId) -> Option<&Collection> {
     while let Some(child) = stack.pop() {
         match child {
             Child::Node(node) => {
-                if let Some(collection) = &node.collection {
+                if let Some(collection) = node.collection() {
                     if collection.view == view {
                         return Some(collection);
                     }
@@ -499,11 +526,11 @@ fn find_collection_mut(children: &mut [Child], view: ViewId) -> Option<&mut Coll
     while let Some(child) = stack.pop() {
         match child {
             Child::Node(node) => {
-                if node.collection.as_ref().is_some_and(|c| c.view == view) {
-                    return node.collection.as_deref_mut();
+                if node.collection().is_some_and(|c| c.view == view) {
+                    return node.collection_mut();
                 }
                 // A nested collection lives in a mounted row (LLP 1070 N1).
-                if let Some(collection) = &mut node.collection {
+                if let Some(collection) = crate::instance::rare::list_mut(&mut node.rare) {
                     for row in &mut collection.mounted {
                         stack.extend(row.row.roots.iter_mut());
                     }
@@ -534,7 +561,7 @@ fn release_other_pins(
     for child in children {
         match child {
             Child::Node(node) => {
-                if let Some(collection) = &mut node.collection {
+                if let Some(collection) = crate::instance::rare::list_mut(&mut node.rare) {
                     // The addressed list's ancestors keep their rows: the new
                     // pin's chain runs through them (LLP 1070 N5), and
                     // releasing one would retire the row that holds it.
@@ -693,7 +720,7 @@ pub(in crate::instance) fn invalidate_typography(
     for child in children {
         match child {
             Child::Node(node) => {
-                if let Some(collection) = &mut node.collection {
+                if let Some(collection) = crate::instance::rare::list_mut(&mut node.rare) {
                     collection.invalidate_measurements(u, frames)?;
                     for row in &mut collection.mounted {
                         let mut inner = frames.to_vec();
@@ -745,7 +772,7 @@ fn edit_walk<T>(
     for child in children {
         let found = match child {
             Child::Node(n) => {
-                if let Some(c) = &mut n.collection {
+                if let Some(c) = n.collection_mut() {
                     if c.view == view {
                         return edit(c, u, frames).map(Some);
                     }

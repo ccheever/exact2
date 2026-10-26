@@ -165,7 +165,7 @@ impl Batch {
         out: &mut String,
         id: u32,
         parent: u32,
-        props: &exact_kernel::SortedMap<String, String>,
+        props: &exact_kernel::SortedMap<&'static str, String>,
         style: &str,
         handlers: &[&str],
         paints: bool,
@@ -177,7 +177,7 @@ impl Batch {
         string_map(
             &props
                 .iter()
-                .map(|(k, v)| (k.as_str(), v.clone()))
+                .map(|(k, v)| (*k, v.clone()))
                 .collect::<Vec<_>>(),
             out,
         );
@@ -442,6 +442,18 @@ impl Batch {
         quote(&session.callback, &mut s);
         s.push_str(&format!(",\"ephemeral\":{}}}", session.ephemeral));
         self.ops.push(s);
+    }
+
+    /// `{"op":"presence","call":N,"name":…,"account":…,"service":…,"policy":…,
+    /// "reason":…,"origin":…}`: the platform's check for a presence call
+    /// (LLP 1133.010 D13), and, with a `service`, the item the host reads
+    /// after it, one op per ask. Nothing secret: the value comes back by
+    /// `exact_presence`.
+    pub fn presences(&mut self, asks: Vec<exact_runner::presence::PresenceAsk>) {
+        for ask in asks {
+            self.ops
+                .push(format!("{{\"op\":\"presence\",{}", &ask.json()[1..]));
+        }
     }
 
     /// A reserved activity send, dispatched to the demand-loaded arm.
@@ -737,14 +749,25 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"block","id":…,"w":…,"h":…}` — the used size of the containing
-    /// block a host gave this subtree (LLP 1115.002 D8.2).
-    pub fn block(&mut self, id: u32, w: f32, h: f32) {
+    /// `{"op":"block","id":…,"w":…,"h":…,"x":…,"y":…}` — the used size of
+    /// the containing block a host gave this subtree (LLP 1115.002 D8.2),
+    /// or the kernel did (a popover's, the viewport), and where the root
+    /// sits in it: a top-layer box is reported by its block's rectangle.
+    pub fn block(&mut self, id: u32, (w, h): (f32, f32), (x, y): (f32, f32)) {
+        let num = crate::style::num;
         self.ops.push(format!(
-            "{{\"op\":\"block\",\"id\":{id},\"w\":{},\"h\":{}}}",
-            crate::style::num(w),
-            crate::style::num(h)
+            "{{\"op\":\"block\",\"id\":{id},\"w\":{},\"h\":{},\"x\":{},\"y\":{}}}",
+            num(w),
+            num(h),
+            num(x),
+            num(y)
         ));
+    }
+
+    /// `{"op":"block","id":…}` — the subtree has no block any more (a
+    /// popover out of the top layer): its block's rectangle is forgotten.
+    pub fn unblock(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"block\",\"id\":{id}}}"));
     }
 
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;

@@ -64,11 +64,11 @@ package final class Frames: NSObject {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
                 s.followOffset()
-                // A frame task whose commit shows nothing (a playhead that
-                // moves eight times a second, sampled sixty) skips the
-                // presenter's pass, as an empty timer's does.
+                // A frame task or a timer whose commit shows nothing (a
+                // playhead that moves eight times a second, sampled sixty;
+                // a `sent` reader off screen) skips the presenter's pass.
                 if tasks { s.applyUnlessEmpty(s.runtime.frame(now: frameNow, wall: now)) }
-                else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
+                else if s.timerDue.map({ now >= $0 }) ?? true { s.applyUnlessEmpty(s.runtime.advance(now: now), timer: true) }
             }
             // Motion samples at the frame's target, and starts there what
             // waits for it (LLP 1003.001 D5); the agent's clock has no frames.

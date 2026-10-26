@@ -60,3 +60,5 @@ component App
   fixes a subtree in one. Modes the person picks (Dim, Black) are axes ([tamber](tamber.md)).
 - **Check it:** `bun exact.mjs tamber check .` (`pair=` warns below 4.5:1); drive with
   `prefer prefers-color-scheme dark`, or `check both` to judge both schemes.
+  An authored test can use `prefer prefers-color-scheme dark` before an `expect`
+  or `screenshot`; switch to `light` later to check the other scheme.

@@ -19,7 +19,11 @@ impl<D: DataSource> Runner<D> {
             self.sounds
                 .apply(&self.plan, self.now_ms, &calls, &mut lines);
         }
-        if commands.iter().any(|c| c.name == "reload") {
+        // An iframe's `reload(id)` reloads its page, not the app (LLP 1020.002 D3).
+        if commands
+            .iter()
+            .any(|c| c.name == "reload" && c.args.is_empty())
+        {
             if !self.plan.sounds.is_empty() {
                 self.sounds.reload(self.now_ms, &mut lines);
             }

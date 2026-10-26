@@ -140,9 +140,16 @@ extension ActivityDriverTests {
 
     private func region(_ image: CGImage, _ rect: CGRect) throws -> [UInt8] {
         let p = try pixels(image)
-        return (max(0, Int(rect.minY))..<min(p.height, Int(rect.maxY.rounded(.up)))).flatMap { y in
-            (max(0, Int(rect.minX))..<min(p.width, Int(rect.maxX.rounded(.up)))).flatMap { x in Array(p.data[((y * p.width + x) * 4)..<((y * p.width + x) * 4 + 3)]) }
+        let rows = max(0, Int(rect.minY))..<min(p.height, Int(rect.maxY.rounded(.up)))
+        let columns = max(0, Int(rect.minX))..<min(p.width, Int(rect.maxX.rounded(.up)))
+        var out: [UInt8] = []
+        for y in rows {
+            for x in columns {
+                let at = (y * p.width + x) * 4
+                out.append(contentsOf: p.data[at..<(at + 3)])
+            }
         }
+        return out
     }
 }
 

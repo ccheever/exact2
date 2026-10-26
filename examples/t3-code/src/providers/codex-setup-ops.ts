@@ -24,6 +24,7 @@ import { letGo } from '../client/let-go';
 export const RECEIVE_FAILED = 'Could not finish sign-in on this computer. Try again or paste the redirect URL below.';
 const SETUP_FAILED = 'Codex setup failed. Try again.';
 import { HANDOFF_KEY, handoffHosts } from './codex-handoff-events';
+import { openExternal as openSystem } from '../client/external-open';
 
 /** One instance's setup on one connection: `native` reaches that connection, `module` the app's own module ops. */
 export type CodexContext = {
@@ -46,11 +47,8 @@ export async function run(flow: CodexFlow, request: () => Promise<Obj>, onSucces
   finally { flow.pending = false; }
 }
 
-/** The module's browser open (ElectronShell.openExternal; an agent run records the URL). */
-async function openExternal(module: Native, url: string): Promise<boolean> {
-  const reply = await bridgeReply(module, { op: 'remoteEditorsOpen', url });
-  return reply.ok && obj(reply.value).opened === true;
-}
+/** The browser open (ElectronShell.openExternal, external-open.ts; an agent run journals the URL). */
+async function openExternal(_module: Native, url: string): Promise<boolean> { return openSystem(url); }
 
 /** primaryAuthEnvironmentId: a remote environment signs in on the connected loopback primary. */
 export function handoffAvailable(context: CodexContext): boolean {

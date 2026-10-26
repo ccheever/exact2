@@ -344,6 +344,24 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                 } => self.child_parse(rust, target, &mut scratch, &source, &args, outcome),
             };
             return match answer {
+                // A long poll on a member's own work (LLP 1016.000 D8): no request a host could run, so the
+                // answer fails as the member's own refusal would.
+                Ok(Answer::Later(request)) if request.long_poll_refusal().is_some() => {
+                    let why = request.long_poll_refusal().unwrap_or_default();
+                    if let Some(child) = request.continuation {
+                        if rust {
+                            self.rust.discard(child);
+                        } else {
+                            self.javascript.discard(child);
+                        }
+                    }
+                    let outcome = envelope::encode(
+                        Err(DataError::Unavailable(why.into())),
+                        &mut scratch,
+                        Vec::new(),
+                    );
+                    Dispatch::Run(Work::Now(Box::new(move || outcome)))
+                }
                 Ok(Answer::Later(request)) if request.continuation.is_some() => {
                     let child = request.continuation.expect("checked");
                     if let Some(running) = self.sets[set].running.as_mut() {

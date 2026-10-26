@@ -35,9 +35,9 @@ describe('composer app field command normalization', () => {
   });
   test('menu replacements validate current trigger and carry only admitted Contract effects', () => {
     const state = context('/model ' , 6);
-    const result = apply({ op: 'editorEdit', start: 0, end: 6, kind: 'slash-command', text: '', then: 'models', focus: false, fold: 7 }, state);
+    const result = apply({ op: 'editorEdit', start: 0, end: 6, kind: 'slash-command', text: '', then: 'models', focus: false }, state);
     expect(result.value).toBe(' ');
-    expect(result.result).toMatchObject({ then: 'models', focus: false, fold: 7 });
+    expect(result.result).toMatchObject({ then: 'models', focus: false });
     expect(apply({ op: 'editorEdit', start: 0, end: 5, kind: 'path', text: '@new ', extendSpace: true }, context('@path rest', 5)).value).toBe('@new rest');
     expect(composerFieldReplacement({ op: 'editorEdit', start: 0, end: 2, kind: 'path', text: '' }, context('@new', 4))).toEqual({ kind: 'refused', reason: 'changed' });
     expect(composerFieldReplacement({ op: 'editorEdit', then: 'arbitrary-native-target' }, state)).toEqual({ kind: 'refused', reason: 'field action invalid' });
@@ -51,7 +51,7 @@ describe('composer app field command normalization', () => {
   });
   test('invalid boundary values, changed owners, composition and detached fields refuse before editing', () => {
     const state = context('text');
-    for (const request of [null, { op: 'other' }, { op: 'editorEdit', text: 2 }, { op: 'editorEdit', start: -1 }, { op: 'editorEdit', end: 5 }, { op: 'editorEdit', caret: NaN }, { op: 'editorEdit', focus: 'true' }, { op: 'editorEdit', fold: -1 }]) {
+    for (const request of [null, { op: 'other' }, { op: 'editorEdit', text: 2 }, { op: 'editorEdit', start: -1 }, { op: 'editorEdit', end: 5 }, { op: 'editorEdit', caret: NaN }, { op: 'editorEdit', focus: 'true' }]) {
       expect(composerFieldReplacement(request, state).kind).toBe('refused');
     }
     expect(composerFieldReplacement({ op: 'editorInsert', owner: 'old-draft' }, state)).toEqual({ kind: 'refused', reason: 'another composer' });

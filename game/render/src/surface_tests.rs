@@ -547,6 +547,7 @@ fn headless_fixture_ticks_under_the_agent_clock_to_the_native_hash() {
         code: "KeyW".into(),
         down: true,
         at_ms: 0.,
+        player: 0,
     });
     reference.run(1500.);
     let moved = format!("0x{:016x}", reference.world().hash());
@@ -996,6 +997,58 @@ fn control_json_reaches_world_and_unknown_names_refuse_without_poisoning_it() {
             .y,
         1.
     );
+}
+
+/// The rows the Linux presenter sends for a pad's 150 ms and 210 ms presses
+/// (`host/linux`'s `pad_report_times_survive_the_read_and_the_first_owner`),
+/// parsed as the canvas parses them: the shorter is a tap, the longer a hold.
+#[test]
+fn pad_rows_tap_and_hold_by_their_report_times() {
+    struct Pads;
+    impl Game for Pads {
+        const ID: &'static str = "pad-route";
+        type Args = ();
+        fn actions() -> exact_game::Actions {
+            exact_game::Actions::new()
+                .tap("dash", &["GamepadEast"])
+                .hold("charge", &["GamepadEast"], 0.2)
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("player", (Transform::default(),));
+        }
+        fn tick(w: &mut World, input: &Input, _: &()) {
+            let mut player = w.get_mut::<Transform>("player").unwrap();
+            player.position.x += f32::from(u8::from(input.pressed("dash")));
+            player.position.y += f32::from(u8::from(input.pressed("charge")));
+        }
+    }
+    let row = |east: u8, at: f64| {
+        let mut buttons = [0; 17];
+        buttons[1] = east;
+        format!(
+            r#"{{"t":"pad","index":0,"connected":true,"standard":true,"buttons":{buttons:?},"axes":[0,0,0,0],"at":{at}}}"#
+        )
+    };
+    for (release, dash, charge) in [(1250., 1., 0.), (1310., 0., 1.)] {
+        let mut surface = WorldSurface::<Pads>::default();
+        surface.bind(&[], Some(1000.)).unwrap();
+        for text in [row(0, 1100.), row(1, 1100.), row(0, release)] {
+            surface.input(&exact_gpu::json::parse_input(&text).unwrap());
+            assert!(surface.take_error().is_none());
+        }
+        surface
+            .sim
+            .as_mut()
+            .unwrap()
+            .advance(1600., Clock::Seekable);
+        let p = surface
+            .sim()
+            .unwrap()
+            .get::<Transform>("player")
+            .unwrap()
+            .position;
+        assert_eq!((p.x, p.y), (dash, charge), "released at {release}");
+    }
 }
 
 #[test]

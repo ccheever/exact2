@@ -15,6 +15,7 @@
 
 mod card;
 mod concepts;
+mod frames;
 mod recipes;
 
 use concepts::Concept;
@@ -177,6 +178,61 @@ fn part(name: &str) -> Option<Part> {
     })
 }
 
+/// An event record (`ScrollEvent`, `MIDIMessageEvent`): its fields as the type
+/// checker declares them, and each handler that hands it to its action as an
+/// optional last parameter, with the action that handler calls. Builders
+/// meet the name in an arity refusal and looked it up (euxy ports 19, 20).
+struct Event {
+    fields: Vec<(String, String)>,
+    handlers: Vec<(&'static str, String)>,
+}
+
+/// The records a handler hands by the control it is on, which
+/// `event_record` (one record a handler) does not say: the type checker's
+/// `payload` and `edits_text` rules.
+const CONTROL_RECORDS: &[(&str, &str, &str)] = &[
+    ("InputEvent", "select", "`select=act` on a text field calls `action act(event: InputEvent)`"),
+    ("InputEvent", "selectionchange", "`selectionchange=act` on a text field or textarea hands its action the `InputEvent` as an optional last parameter"),
+    ("MarkdownSelection", "select", "`select=act` on the Markdown editor calls `action act(selection: MarkdownSelection)`; its `atom` is the selected atom's source"),
+    ("FrameNavigation", "navigate", "`navigate=act` on an `iframe` calls `action act`, or `action act(event: FrameNavigation)` for its `FrameNavigation` (LLP 1020.002 D2)"),
+];
+
+fn event(name: &str) -> Option<Event> {
+    let mut handlers: Vec<(&'static str, String)> = vocab::attrs()
+        .into_iter()
+        .map(|(h, _)| h)
+        .filter(|h| contract_types::event_record(h) == Some(name))
+        .map(|h| {
+            let calls = match h {
+                "selectionchange" => format!("`selectionchange=act` outside a text field hands its action the `{name}` as an optional last parameter"),
+                _ => contract_types::handler_signature(h).unwrap_or_else(|| {
+                    format!("`{h}=act` hands its action the `{name}` as an optional last parameter, after what the control hands it")
+                }),
+            };
+            (h, calls)
+        })
+        .collect();
+    handlers.extend(
+        CONTROL_RECORDS
+            .iter()
+            .filter(|(record, _, _)| *record == name)
+            .map(|(_, h, calls)| (*h, calls.to_string())),
+    );
+    if handlers.is_empty() {
+        return None;
+    }
+    let shapes = contract_syntax::parse("component G\n  view\n    column\n")
+        .ok()
+        .and_then(|f| contract_types::check_declarations(&f).ok());
+    let fields = shapes
+        .and_then(|s| s.map.get(name).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(f, t)| (f, t.to_string()))
+        .collect();
+    Some(Event { fields, handlers })
+}
+
 fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
     // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
@@ -240,6 +296,22 @@ fn refusal(name: &str) -> String {
 
 /// One name as JSON, and whether it was known.
 fn one_json(name: &str) -> (Value, bool) {
+    if let Some(e) = event(name) {
+        let fields: Vec<Value> = e
+            .fields
+            .iter()
+            .map(|(f, t)| json!({ "name": f, "type": t }))
+            .collect();
+        let handlers: Vec<Value> = e
+            .handlers
+            .iter()
+            .map(|(h, calls)| json!({ "name": h, "calls": calls }))
+            .collect();
+        return (
+            json!({ "name": name, "event": { "fields": fields, "handlers": handlers } }),
+            true,
+        );
+    }
     let Some(Entry {
         tag,
         attr,
@@ -312,6 +384,14 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         println!("{name}: a heading of level {level}: `{name} \"Title\"` is `text \"Title\" role=\"heading\" aria-level={level}`; a level the app computes is written that way");
         return true;
     }
+    if let Some(e) = event(name) {
+        let fields: Vec<String> = e.fields.iter().map(|(f, t)| format!("{f}: {t}")).collect();
+        println!("{name}: an event record, its fields {}", fields.join(", "));
+        for (_, calls) in &e.handlers {
+            println!("  {calls}");
+        }
+        return true;
+    }
     let Some(Entry {
         tag,
         attr,
@@ -364,6 +444,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         for line in attr_detail(name, &a) {
             println!("  {line}");
         }
+        if let Some(note) = frames::note(name) {
+            println!("  {note}");
+        }
         if let Some(only) = only_on(name) {
             println!("  only on {only}");
         }
@@ -407,7 +490,7 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
             println!("  on a sheet route (`navigationPresentation=\"modal\"`). \"visible\" shows the sheet's grabber, the short bar at its top edge, \"hidden\" hides it; \"auto\", the default, is the platform's: iOS shows one on a sheet with several detents (`navigationDetent=\"medium large\"`), which the grabber resizes, and none on a sheet of one height. UIKit's `prefersGrabberVisible`. Draw no grabber of your own: say this. Hosts whose sheets have none ignore it");
         }
         if name == "wakelock" {
-            println!("  on any element (LLP 1125 D11). \"screen\" keeps the display from dimming or locking for idleness while the element is mounted and displayed (no ancestor `display: none`, under no unselected tab and no screen a stack keeps under its top; the one a sheet covers is shown), so a screen kept in a hidden tab panel holds nothing; \"none\", the default, holds nothing. Bind it to state: `wakelock=(playing ? \"screen\" : \"none\")`. A literal other than the two is refused; a computed one is journaled and holds nothing. iOS's idle timer, a macOS display-sleep assertion, the web's Screen Wake Lock (asked again when the page is visible again), Android's `keepScreenOn`; Linux and Windows journal it as unavailable. The agent's `state.wakelock` is `{{held, by}}`");
+            println!("  on any element (LLP 1125 D11). \"screen\" keeps the display from dimming or locking for idleness while the element is mounted and displayed (no ancestor `display: none`, under no unselected tab and no screen a stack keeps under its top; the one a sheet covers is shown), so a screen kept in a hidden tab panel holds nothing; \"none\", the default, holds nothing. Bind it to state: `wakelock=(playing ? \"screen\" : \"none\")`. A literal other than the two is refused; a computed one is journaled and holds nothing. iOS's idle timer, a macOS display-sleep assertion, the web's Screen Wake Lock (asked again when the page is visible again), Android's `keepScreenOn`; Linux and Windows journal it as unavailable. The agent's `state.wakelock` is `{{held, by}}`; `expect wakelock held` or `expect wakelock released` asserts this holder record (displayed elements requesting the lock), not whether the OS or browser granted it.");
         }
         if name == "navigationSplit" {
             println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
@@ -570,8 +653,6 @@ const MEANS: &[(&[&str], &str)] = &[
     ),
     (
         &[
-            "keyframes",
-            "@keyframes",
             "Animated",
             "Reanimated",
             "LayoutAnimation",
@@ -712,19 +793,19 @@ fn function_text(f: &Function) -> String {
     out
 }
 
-/// `exactMIDI()`, a reserved source (LLP 1125 D6), and what `sent` leaves
-/// out: the euxy port expected its notes with no output connected.
-const MIDI_SOURCE: &str = "reserved source, `resource midi = exactMIDI() as shape MIDI`: `state`, `inputs` and `outputs` by Web MIDI's names, and `sent`, the last 128 messages that went out ({output, data, timeStamp}) by the runner's clock. A message to an output that is not connected, or before access is granted, goes nowhere: `sendMIDI` and a sequence's notes drop it, the journal (`logs`) says so, and `sent` never lists it, since nothing was sent. A log of what the app means to send is the app's own, written where it sends (LLP 1125 D6, D7; apps/metronome)";
+/// `exactMIDI()`, a reserved source (LLP 1125 D6), and what `sent` lists:
+/// the euxy port expected its notes with no output connected.
+const MIDI_SOURCE: &str = "reserved source, `resource midi = exactMIDI() as shape MIDI`: `state`, `inputs` and `outputs` by Web MIDI's names, and `sent`, the last 128 messages that went out ({output, data, timeStamp}) by the runner's clock. `\"\"` is no output: a track's `output=\"\"` and `sendMIDI(\"\", …)` reach no device and need no access, and `sent` lists them with `output: \"\"`, so an activity log shows what plays with no device connected (filter on `output` for what reached one). A message to a named output that is not connected, or before access is granted, goes nowhere: `sendMIDI` and a sequence's notes drop it, the journal (`logs`) says so, and `sent` never lists it (LLP 1125 D6, D7; apps/metronome)";
 
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "requestMIDIAccess" | "sendMIDI" => "; `sendMIDI` to an output that is not connected drops the message (`contract vocab exactMIDI`); MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
+        "requestMIDIAccess" | "sendMIDI" => "; `sendMIDI` to an output that is not connected drops the message; to `\"\"`, no output, it reaches no device and `exactMIDI().sent` lists it, with no access needed (`contract vocab exactMIDI`); MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
         "setRangeText" =>"; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
-        _ => "",
+        _ => frames::command(name).unwrap_or(""),
     };
     format!("host command, an action statement (docs/contract-grammar.md#host-commands){what}")
 }
@@ -751,6 +832,12 @@ fn kind(a: &AttrTarget) -> &'static str {
 }
 
 fn prop_type(p: PropId) -> String {
+    if p == PropId::Atoms {
+        return "a literal list of `atom` names: `atoms=\"citation mention\"`".into();
+    }
+    if p == PropId::AtomFaces {
+        return "AtomFace[]: AtomFace(source, label, icon, title), keyed by each atom's whole source text".into();
+    }
     if p == PropId::Decorations {
         return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();
     }
@@ -792,6 +879,9 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
+    if name == "atoms" || name == "atomFaces" {
+        return Some("a `text` or `textarea` with `markup=\"markdown\"`: `atoms` lists the `atom` kinds it recognizes, `atomFaces` the app's `AtomFace(source, label, icon, title)` records by each atom's source; web, macOS and iOS draw pills, Linux, Windows and Android the source (LLP 1045.000)");
+    }
     if name == "decorations" {
         return Some("plain `textarea`: paint only, each span's name a `decoration` declaration (color, background-color, text-decoration, text-shadow); the web paints it where `createValueRange` exists, Apple, Linux and Windows all but its text-shadow, Android and the terminal not yet (LLP 1114.007)");
     }
@@ -841,6 +931,8 @@ fn tag_json(name: &str, t: &Tag) -> Value {
     doc
 }
 
+const GRID_TRACKS: &str = "CSS track lists: none, px, %, fr, auto, min-content, max-content, named lines, fit-content(px or %), minmax(), and repeat() with a count, auto-fill or auto-fit. Lengths accept calc(), min(), max() and clamp() over px and %, including in minmax() and valid repetitions. Percentages use the grid's content box in that axis; negative calculated results clamp to zero. Example: repeat(auto-fill, minmax(min(100%, 200px), 1fr)). Calculated fit-content(), other length units, var() and env() are unsupported; grid-auto-columns/rows are not yet attributes.";
+
 const TEXT_PX_WIDTH: &str = "A fixed ceiling from width or max-width (a number, px, pt, absolute calc(), or em against an authored absolute font), after min-width wins any conflict, can constrain scalable text at accessibility sizes (lower-text-px-width). Express the width and its bounds in rem (width=\"3rem\" or max-width=\"3rem\"), or let content determine the width. A minimum alone supplies no ceiling. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width without a fixed maximum, and minimum bounds that may grow past the ceiling. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s parent layout, grouped-list typography and known styles. A computed width can still have a fixed maximum; computed fonts remain unknown.";
 
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
@@ -862,6 +954,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
         }
         AttrTarget::Handler(event) => {
             doc["event"] = (*event).into();
+            if let Some(calls) = contract_types::handler_signature(name) {
+                doc["calls"] = calls.into();
+            }
             if name == "contextmenu" {
                 doc["note"] = CONTEXTMENU.into();
             }
@@ -878,6 +973,14 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
     }
+    if let Some(note) = frames::note(name) {
+        let key = if doc.get("note").is_some() {
+            "iframe"
+        } else {
+            "note"
+        };
+        doc[key] = note.into();
+    }
     if name == "type" {
         doc["note"] = SEARCH_TYPE.into();
     }
@@ -892,6 +995,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if matches!(name, "width" | "font-size") {
         doc["note"] = TEXT_PX_WIDTH.into();
+    }
+    if matches!(name, "grid-template-columns" | "grid-template-rows") {
+        doc["note"] = GRID_TRACKS.into();
     }
     if name == "buttonStyle" {
         doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
@@ -1007,6 +1113,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if matches!(name, "width" | "font-size") {
                 lines.push(TEXT_PX_WIDTH.into());
             }
+            if matches!(name, "grid-template-columns" | "grid-template-rows") {
+                lines.push(GRID_TRACKS.into());
+            }
             if name == "font-family" {
                 lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
             }
@@ -1061,7 +1170,12 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         AttrTarget::Handler(event) if name == "navigate" => {
             vec![format!("event {event}"), NAVIGATE.into()]
         }
-        AttrTarget::Handler(event) => vec![format!("event {event}")],
+        // The action's signature first: the scroll port guessed one
+        // `ScrollEvent` parameter, and `moved(x, y)` was a later bullet.
+        AttrTarget::Handler(event) => contract_types::handler_signature(name)
+            .into_iter()
+            .chain([format!("event {event}")])
+            .collect(),
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],
         AttrTarget::MediaMetadata => vec![
             format!("record {METADATA}"),

@@ -37,6 +37,21 @@ function stateOf(client: T3Client): MediaState {
 /** Whether a player or a picture reported an error for this URL (a `video` or `image` `error`, exact2 #121). */
 export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);
 
+// The workspace mutation each file preview image was last signed for (useAssetUrlRefresh's handled token); null after
+// the connection dropped, so the next connected view signs it again.
+const handledMutations = new WeakMap<T3Client, Map<string, string | null>>();
+function refreshDue(client: T3Client, id: string, mutationId: string | null): boolean {
+  let handled = handledMutations.get(client);
+  if (!handled) { handled = new Map(); handledMutations.set(client, handled); }
+  if (client.connection !== 'connected') { handled.set(id, null); return false; }
+  const token = JSON.stringify(mutationId), last = handled.get(id);
+  if (last === token) return false;
+  handled.set(id, token);
+  if (handled.size > 256) handled.delete(handled.keys().next().value!);
+  // The first view shares the signature it is about to mint (only the initial mount shares a pending request).
+  return last !== undefined || mintedOf(client).has(id);
+}
+
 // Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is.
 type Minted = { url: string; at: number; error: boolean; resource: Obj };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
@@ -284,8 +299,10 @@ export function markdownMediaChips(text: string, root: string, scope: MediaScope
  * `media-noaccess:<path>` too when the session lacks `filesystem:read`, which the host requires: blockedAssetUrlState
  * skips the request so the label can say to pair again), or a given document's. `threadId` names the thread they sign through (a draft's own id in Files, as the reference's draft
  * thread ref; the server signs an absolute `media-file` path without looking the thread up).
+ * A rendered Markdown file passes its workspace's `mutationId` (ChatMarkdownAssetImage at 74541bab17): when it changes,
+ * or the connection comes back, each image is signed again so an edited file's picture reloads; a video is not.
  */
-export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[], scope: MediaScope & { threadId?: string } = {}): Promise<{ id: string; url: string }[]> {
+export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[], scope: MediaScope & { threadId?: string; mutationId?: string | null } = {}): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
   const threadId = scope.threadId ?? client.threadId;
   if (!threadId) return out;
@@ -301,8 +318,8 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
   const blocked = client.ready && !client.scopes?.includes('filesystem:read');
   for (const [key, media] of [...wanted].slice(-32)) {
     if (blocked) { out.push({ id: `media-failed:${key.slice('media:'.length)}`, url: '' }, { id: `media-noaccess:${key.slice('media:'.length)}`, url: '' }); continue; }
-    const resource = { ...media.source!.asset!.resource, threadId };
-    const entry = await mint(client, native, `md:${client.environmentId}|${threadId}|${key}`, resource, now);
+    const resource = { ...media.source!.asset!.resource, threadId }, id = `md:${client.environmentId}|${threadId}|${key}`;
+    const entry = await mint(client, native, id, resource, now, scope.mutationId !== undefined && media.kind !== 'video' && refreshDue(client, id, scope.mutationId));
     if (!entry) continue;
     out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url + media.fragment });
   }

@@ -167,6 +167,23 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
             "{built}: {warnings:?}"
         );
     }
+    // An app that only logs to `""`, no output (LLP 1125 D6), and reads
+    // `sent` alone, never asking for access, reaches no device: no grant is
+    // owed. Asking for access, sending to a named output, or reading
+    // `state` reaches one.
+    let silent = |send: &str, extra: &str, field: &str| {
+        let src = format!("shape Message\n  output: string\n  data: number[]\n  timeStamp: number\nshape M\n  {field}\ncomponent A\n  resource midi = exactMIDI() as shape M\n  action log\n    sendMIDI({send}, [144, 60, 100])\n{extra}  view\n    button \"Log\" press=log\n");
+        std::fs::write(dir.join("app.contract"), src).unwrap();
+        grant("").is_empty()
+    };
+    assert!(silent("\"\"", "", "sent: Message[]"));
+    assert!(!silent("\"synth\"", "", "sent: Message[]"));
+    assert!(!silent(
+        "\"\"",
+        "  action ask\n    requestMIDIAccess()\n",
+        "sent: Message[]"
+    ));
+    assert!(!silent("\"\"", "", "state: string"));
     let _ = std::fs::remove_dir_all(&dir);
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/metronome/app.contract");

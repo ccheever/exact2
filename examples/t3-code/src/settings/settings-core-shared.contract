@@ -29,6 +29,7 @@ shape CorePalette
   accentText: string
   switchOff: string
   thumb: string
+  thumbOff: string
   popover: string
   popoverBorder: string
   highlight: string

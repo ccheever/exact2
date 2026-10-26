@@ -5,15 +5,13 @@
   "id": "com.exact.recorder",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#101418",
-  "background_color": "#101418",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "background_color_dark": "#000000",
   "app": {
     "id": "com.exact.recorder",
     "name": "Recorder"
   },
-  "modules": [
-    "waveform-view"
-  ],
   "host": {
     "ios": {
       "minimumOS": "17.0",

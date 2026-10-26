@@ -96,6 +96,29 @@ pub fn reduced(radii: [(f32, f32); 4], w: f32, h: f32) -> [(f32, f32); 4] {
     radii.map(|(x, y)| ((x * factor).max(0.0), (y * factor).max(0.0)))
 }
 
+fn normalized_radii(radii: [(f32, f32); 4], w: f32, h: f32) -> [(f32, f32); 4] {
+    // Direct internal Shapes can bypass the constructors' CSS reduction.
+    // Sanitize before either the cubic arcs or corner-shape outline is built.
+    let radius = |r: f32| if r.is_finite() && r >= 0.0 { r } else { 0.0 };
+    let mut radii = radii.map(|(x, y)| (radius(x), radius(y)));
+    let sums = [
+        (radii[0].0 + radii[1].0, w),
+        (radii[3].0 + radii[2].0, w),
+        (radii[0].1 + radii[3].1, h),
+        (radii[1].1 + radii[2].1, h),
+    ];
+    // The constructor's sum, division, products and final sum each round.
+    // Repeating its reduction can change corner-shape's sample count.
+    if sums.iter().any(|&(sum, edge)| {
+        let rounding =
+            (f64::from(edge) * f64::from(f32::EPSILON)).max(f64::from(f32::from_bits(1)));
+        f64::from(sum) > f64::from(edge) + 4.0 * rounding
+    }) {
+        radii = reduced(radii, w, h);
+    }
+    radii
+}
+
 /// A shape's outline: its corners' `corner-shape` from the kernel (LLP 1077
 /// D1), else [`rounded_rect`].
 pub fn shape_path(out: &mut Vec<PathOp>, shape: &Shape) {
@@ -109,6 +132,7 @@ pub fn shaped_rect(
     radii: [(f32, f32); 4],
     corners: Option<&CornerShape>,
 ) {
+    let radii = normalized_radii(radii, rect.2, rect.3);
     let Some(corners) =
         corners.filter(|c| !c.is_round() && radii.iter().any(|r| r.0 > 0.0 && r.1 > 0.0))
     else {

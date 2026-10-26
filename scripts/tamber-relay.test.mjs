@@ -398,6 +398,27 @@ test('round 3: closing the server ends a relayed client\'s long poll', async () 
   await poll.closed;
 });
 
+test("the events GET long poll through the relay: a paired read token gets an answer and its cursor (tamber/1.17)", async () => {
+  const relay = await fakeRelay();
+  let doors = null;
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemote(w, { relay: relayOf(relay.control) }, { connect: toRelay(relay.control), say: () => {}, warn: () => {} });
+  closing.push(async () => { await doors.close(); await w.close(); });
+  await until(() => relay.idle.length === POOL);
+  const pt = await pairThrough(w, relay.pub);
+  const out = await new Promise((ok, fail) => {
+    const s = connectTLS({ host: '127.0.0.1', port: relay.pub, servername: TOOL, ca: devCert.cert }, () => s.write(`GET /__tamber/events?client=relayed HTTP/1.1\r\nHost: ${TOOL}\r\nx-exact-tamber-token: ${pt}\r\nConnection: close\r\n\r\n`));
+    let got = '';
+    s.on('data', d => { got += d; });
+    for (const e of ['end', 'close']) s.on(e, () => ok(got));
+    s.on('error', e => (got ? ok(got) : fail(e)));
+  });
+  expect(out.startsWith('HTTP/1.1 200')).toBe(true);
+  expect(out.toLowerCase()).not.toContain('retry-after');
+  const body = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+  expect(body.cursor).toBe(`${body.seq}.${body.held}`);
+});
+
 /** A paired client's long poll through the relay, pending: its first ask for where to start, then a wait after it. */
 async function longPoll(port, tok) {
   const first = await ask(port, TOOL, { path: '/__tamber/events', headers: `x-exact-tamber-token: ${tok}\r\n`, body: '{"wait":false}' });
@@ -623,6 +644,40 @@ test('R1b: the canvas through the relay: its own gateway and origin pair, minted
   expect((await https1(relay.pub, CANVAS, { headers: { cookie } })).status).toBe(404);
   expect((await https1(Number(tls.port), null, { host: tls.host, headers: { cookie: tlsCookie }, ca: null })).status).toBe(404);
 });
+
+// The ghost builds' follow-up (theme2's per-door test): a canvas through the relay stops being a build when it goes.
+// The connector hands its TLS socket to the canvas's HTTP server, whose req 'close' never fires under Bun; the gateway
+// lets go of the loop's request on res 'close'.
+test('a canvas stream through the relay ends upstream when its client leaves', async () => {
+  const relay = await fakeRelay();
+  const upstream = new Set();
+  const loop = createHTTP((req, res) => { if (req.url.startsWith('/__dev/page')) { upstream.add(req); req.on('close', () => upstream.delete(req)); res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': open\n\n'); return; } res.end('{}'); });
+  await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
+  let doors = null;
+  const said = [];
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemoteCanvas(w, { remote: { host: '127.0.0.1', port: 0 }, tunnel: null, relay: relayOf(relay.control) }, `http://127.0.0.1:${loop.address().port}`, { connect: toRelay(relay.control), say: l => said.push(l), warn: () => {} });
+  closing.push(async () => { await doors.close(); await w.close(); loop.close(); });
+  await until(() => relay.idle.length === POOL && said.some(l => l.includes('canvas through the relay')));
+  let token = null, text = '';
+  await w.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+  const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+  queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read', name: 'far' })));
+  await w.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+  const json = t => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
+  const paired = json((await https1(relay.pub, TOOL, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: JSON.parse(text).ok.code, name: 'far' }) })).text).ok;
+  const minted = json((await https1(relay.pub, TOOL, { method: 'POST', path: '/__tamber', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': paired.token }, body: '{"method":"canvas"}' })).text).ok;
+  const entry = await https1(relay.pub, CANVAS, { method: 'POST', path: new URL(minted.url).pathname, headers: { origin: `https://${CANVAS}`, 'content-type': 'application/json' }, body: JSON.stringify({ grant: minted.grant }) });
+  const cookie = entry.headers['set-cookie'][0].split(';')[0];
+  let got = '';
+  const sock = connectTLS({ host: '127.0.0.1', port: relay.pub, servername: CANVAS, ca: devCert.cert }, () => sock.write(`GET /__dev/page HTTP/1.1\r\nhost: ${CANVAS}\r\ncookie: ${cookie}\r\n\r\n`));
+  sock.on('data', d => { got += d; });
+  sock.on('error', () => {});
+  await until(() => got.includes(': open'), 3000);
+  expect(upstream.size).toBe(1);
+  sock.destroy();
+  await until(() => upstream.size === 0, 5000);
+}, 30_000);
 
 test('R1b: one mint limit a client across both doors\' gateways', async () => {
   const relay = await fakeRelay();

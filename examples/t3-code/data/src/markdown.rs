@@ -13,6 +13,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
         javascript,
         exact_data::Placed::new(Markdown, placement),
         &[
+            "activityInteraction",
+            "activityResumed",
             "snapshot",
             "snapshotSettings",
             "modelCatalog",
@@ -130,6 +132,11 @@ impl DataSource for Markdown {
         let Some(Value::List(messages)) = args.first() else {
             return Ok(Value::record(vec![Value::list(Vec::new())]));
         };
+        // Render math (Settings › Appearance): renderMarkdown's seventh argument, renderFileMarkdown's second.
+        let math = matches!(
+            args.get(if source == "renderMarkdown" { 6 } else { 1 }),
+            Some(Value::Bool(true))
+        ) && (source == "renderMarkdown" || source == "renderFileMarkdown");
         let mut documents = Vec::new();
         for message in messages.iter() {
             let Value::Record(fields) = message else {
@@ -152,6 +159,12 @@ impl DataSource for Markdown {
                 continue;
             }
             let text = fields.get(3).and_then(Value::as_str).unwrap_or("");
+            let fenced = if math {
+                display_math_fences(text)
+            } else {
+                String::new()
+            };
+            let text = if math { fenced.as_str() } else { text };
             // FileMarkdownPreview: task checkboxes write the editable file.
             if kind == "file" {
                 documents.push(document_with_tasks(id.clone(), text, None, true));
@@ -197,6 +210,7 @@ include!("markdown_links.rs");
 include!("markdown_media.rs");
 include!("markdown_headings.rs");
 include!("markdown_runs.rs");
+include!("markdown_math.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";

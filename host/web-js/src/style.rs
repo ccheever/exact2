@@ -70,6 +70,72 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
     })
 }
 
+/// A bound `-exact-layout-transition`'s values (GitHub #809): each string its
+/// code pushes that the row holds, with the declaration the kernel's own CSS
+/// writes for it (css.rs `layout_transition_css`), `None` where it writes none
+/// (`none`, or no transition covering layout); and the strings that clear the
+/// row unjournaled, as the runner clears one (`StyleValue::text_unsets`: a
+/// blank, `unset`). A string the kernel refuses is in neither. The JS target
+/// has no transition grammar of its own: a value its code computes, not one of
+/// these, is unset (`layout_transition_map`).
+pub struct LayoutTransitions {
+    pub held: std::collections::BTreeMap<String, Option<String>>,
+    pub unsets: Vec<String>,
+}
+
+pub fn layout_transitions(plan: &Plan, code: &[u8]) -> LayoutTransitions {
+    let mut out = LayoutTransitions {
+        held: Default::default(),
+        unsets: Vec::new(),
+    };
+    let strings = instructions(code)
+        .filter_map(|i| i.ok().filter(|i| i.op == Opcode::Str))
+        .map(|i| plan.str(exact_plan::StrId(i.args[0] as u32)));
+    for v in strings {
+        if layout_unsets(v) {
+            out.unsets.push(v.to_string());
+        } else if let Some(css) = layout_transition(v) {
+            out.held.insert(v.to_string(), css);
+        }
+    }
+    out
+}
+
+/// The map of a bound `-exact-layout-transition` over `values`: the kernel's
+/// declaration for each value the code names that the row holds, none for one
+/// that clears it. Another (one it computed) is unset with a journal line for
+/// the view `view` names, in the runner's words for an invalid value
+/// (`instance.rs` `invalid`) but saying why: the kernel may take it, and this
+/// target can't tell (QUEUE.md).
+pub fn layout_transition_map(values: &LayoutTransitions, view: &str, say: &str) -> String {
+    let held = serde_json::to_string(&values.held).unwrap();
+    let unsets = serde_json::to_string(&values.unsets).unwrap();
+    format!("v=>{{if(v==null||/^\\s*(unset)?\\s*$/i.test(v)||{unsets}.includes(v))return null;const T={held};if(typeof v===\"string\"&&Object.hasOwn(T,v))return T[v];{say}(`view ${{{view}}}: invalid layout-transition value ${{JSON.stringify(v)}}; unset (the JS target writes only the values the code names)`);return null}}")
+}
+
+/// Whether the runner clears the row for `v` before parsing it, unjournaled
+/// (`instance.rs`, `bridge::unsets`).
+pub fn layout_unsets(v: &str) -> bool {
+    exact_kernel::StyleValue::text_unsets(v, StyleId::LayoutTransition)
+}
+
+/// The kernel's `--exact-layout-transition` for one bound value it parses:
+/// `None` where it refuses the value, `Some(None)` where it declares nothing.
+pub fn layout_transition(v: &str) -> Option<Option<String>> {
+    let mut p = exact_kernel::StyleProps::default();
+    p.set_dynamic(
+        StyleId::LayoutTransition,
+        &exact_kernel::StyleValue::Text(v.into()),
+    )
+    .ok()?;
+    let (text, _) = exact_web::css::css_text(&p, &[]);
+    Some(
+        text.split(';')
+            .find_map(|d| d.strip_prefix("--exact-layout-transition:"))
+            .map(str::to_string),
+    )
+}
+
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
 /// the value at creation; the JS target from its presence). A `progress`'s
@@ -160,7 +226,7 @@ pub fn static_tree(
                 },
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
-                    if decides_tag(plan, node, prop) {
+                    if decides_tag(plan, &node, prop) {
                         ops.push(Op::SetProp {
                             id: view(i),
                             prop,
@@ -180,7 +246,7 @@ pub fn static_tree(
                 // With what the binding says of the row (the author wrote it, or the compiler
                 // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_binding_style(&mut patch, row, &v, plan)
+                    bridge::set_binding_style(&mut patch, &row, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
@@ -211,7 +277,7 @@ pub fn static_tree(
                     }
                     continue;
                 }
-                bridge::set_binding_style(&mut patch, row, &v, plan)
+                bridge::set_binding_style(&mut patch, &row, &v, plan)
                     .map_err(|e| format!("node {i}: {e:?}"))?;
             }
             looks.push((look.state, patch));
@@ -254,7 +320,9 @@ pub fn project(
     // height may come to be the parent's).
     let repeated = each_rows(plan, sites);
     let bound = |i: usize, only_text: bool| {
-        plan.nodes[i]
+        plan.nodes
+            .get(i)
+            .unwrap()
             .bindings
             .iter()
             .map(|b| plan.binding(b))
@@ -275,12 +343,12 @@ pub fn project(
     };
     let may_fold: Vec<bool> = (0..plan.nodes.len())
         .map(|i| {
-            plan.nodes[i].handlers.len == 0
+            plan.nodes.get(i).unwrap().handlers.len == 0
                 && !repeated.contains(&i)
                 && !bound(i, true)
                 && parents[i].is_some_and(|p| {
-                    let button =
-                        NodeType::from_wire(plan.nodes[p].node_type) == Some(NodeType::Pressable);
+                    let button = NodeType::from_wire(plan.nodes.get(p).unwrap().node_type)
+                        == Some(NodeType::Pressable);
                     !bound(p, false) && !(button && parents[p].is_none_or(|g| bound(g, false)))
                 })
         })
@@ -305,7 +373,7 @@ pub fn project(
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
                 if let Some(prop) =
-                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, node, *p))
+                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, &node, *p))
                 {
                     if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
                     {
@@ -393,7 +461,14 @@ fn symbol_color(
     i: usize,
 ) -> Option<(Vec<(usize, Ink)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
-    let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
+    let rows = |i: usize| {
+        plan.nodes
+            .get(i)
+            .unwrap()
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+    };
     let bound = |i: usize, kind: BindingKind, id: u16| {
         rows(i).find(|b| b.kind == kind && b.id == id && literal(plan, plan.code(b.expr)).is_none())
     };
@@ -772,15 +847,54 @@ fn ramp_rem(text: &str) -> Option<String> {
 
 /// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by
 /// the ordinary and the pressed mappers: comments go (CSS removes them, so a
-/// check must too); springs are the engine's; an entry naming the host's
-/// `--exact-*` or an old spelling is dropped, as the native parser refuses
-/// it; `-exact-tint-color` becomes the property the browser animates,
-/// `--exact-tint`. `p` is the list of kept entries.
-pub const TRANSITION_ENTRIES: &str = "const p=v.replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/spring\\(/i.test(t)&&!/(^|\\s)(--exact-\\S*|tint-color|exit-animation|layout-transition|press-scale|drag-timeline|symbol-rendering|symbol-palette|symbol-value|symbol-effect|press-haptic|content-transition|scroll-edge-effect|hover-effect|smart-invert|animation-trigger)(?=\\s|$)/i.test(t)).map(t=>t.replace(/(^|\\s)-exact-tint-color(?=\\s|$)/i,\"$1--exact-tint\"));";
+/// check must too); springs on non-physics properties become `linear()`;
+/// an entry naming the host's `--exact-*` or an old spelling is dropped,
+/// as the native parser refuses it. `-exact-tint-color` becomes the property
+/// the browser animates, `--exact-tint`. `p` is the list of kept entries.
+pub static TRANSITION_ENTRIES: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use exact_motion::Property;
+    let mut properties: std::collections::BTreeMap<_, Vec<&str>> = Property::ALL
+        .into_iter()
+        .chain([Property::D])
+        .filter(|p| *p != Property::ShadowColor)
+        .map(|p| {
+            (
+                p.name(),
+                if p.springs() {
+                    vec![]
+                } else {
+                    vec![p.css_name()]
+                },
+            )
+        })
+        .collect();
+    properties.insert("border-color", vec!["border-color"]);
+    properties.insert("all", vec![]);
+    let all: Vec<_> = Property::ALL
+        .into_iter()
+        .chain([Property::D])
+        .filter(|p| !p.springs() && *p != Property::ShadowColor)
+        .map(|p| {
+            if p == Property::BorderTopColor {
+                "border-color"
+            } else {
+                p.css_name()
+            }
+        })
+        .filter(|n| !n.starts_with("border-") || *n == "border-color")
+        .collect();
+    let spring = include_str!("../transition-spring.js")
+        .replace("ALL_PROPERTIES", &serde_json::to_string(&all).unwrap())
+        .replace("PROPERTIES", &serde_json::to_string(&properties).unwrap());
+    format!("const spring={spring};const p=v.replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/(^|\\s)(--exact-\\S*|tint-color|exit-animation|layout-transition|press-scale|drag-timeline|symbol-rendering|symbol-palette|symbol-value|symbol-effect|press-haptic|content-transition|scroll-edge-effect|hover-effect|smart-invert|animation-trigger)(?=\\s|$)/i.test(t)).flatMap(t=>/spring\\(/i.test(t)?spring(t):[t]).map(t=>t.replace(/(^|\\s)-exact-tint-color(?=\\s|$)/i,\"$1--exact-tint\"));")
+});
 
 /// A computed `transition`, as the browser takes it: [`TRANSITION_ENTRIES`].
 pub static TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    format!("v=>{{if(v==null)return v;{TRANSITION_ENTRIES}return p.join(\",\")||\"none\"}}")
+    format!(
+        "v=>{{if(v==null)return v;{}return p.join(\",\")||\"none\"}}",
+        TRANSITION_ENTRIES.as_str()
+    )
 });
 
 /// `text` with each `-exact-platform-color()` in it as its CSS (its `web` colour or
@@ -917,6 +1031,22 @@ static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 
+/// A bound control size's two properties, as css.rs writes a literal one's
+/// (`css/control_size.rs`): each size's value, then any other value's.
+static CONTROL_SIZE_MAPS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock::new(|| {
+    use exact_web::css::control_size::{font_size, touch_floor};
+    let map = |value: fn(&str) -> Option<String>| {
+        let js = |size| value(size).map_or("null".into(), |v| format!("{v:?}"));
+        let sizes = StyleId::ControlSize.enum_names();
+        let pairs: Vec<_> = sizes.iter().map(|s| format!("{s}:{}", js(s))).collect();
+        format!("v=>v==null?v:({{{}}})[v]??{}", pairs.join(","), js(""))
+    };
+    [
+        map(|s| Some(font_size(s))),
+        map(|s| touch_floor(s).map(Into::into)),
+    ]
+});
+
 static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let mut initial = String::new();
     exact_kernel::gradient::color_css(
@@ -957,7 +1087,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             unit: "px".into(),
             map: Some(TEXT_STYLE_MAP.as_str()),
         }],
-        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
+        StyleId::ControlSize => vec![
+            with("--exact-control-font-size", &CONTROL_SIZE_MAPS[0]),
+            with("--exact-touch-floor", &CONTROL_SIZE_MAPS[1]),
+        ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
@@ -978,6 +1111,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
             with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(var(--exact-button-title-min,min-content),auto)':'auto auto minmax(var(--exact-button-title-min,min-content),auto)'"),
             with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
+            with("--exact-button-stacked", "v=>v==null?v:v.startsWith('column')?'1':null"),
         ],
         // @ref LLP 1116 D1 — a native button's title truncates only when the
         // author keeps it to one line (exact_web's button_css.rs `rows`).
@@ -1064,8 +1198,8 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "justify-items",
             "v=>gridValue(\"justify\",v)",
         )],
-        // A spring is lowered by the engine (motion.js): the declaration
-        // is the rest, as css.rs `transition_css` leaves springs out.
+        // A spring on a physics property is the engine's (motion.js); on
+        // any other it is its `linear()`, as css.rs `transition_css` writes.
         StyleId::Transition => vec![with(
             "transition",
             TRANSITION_MAP.as_str(),
@@ -1156,6 +1290,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::BackdropFilter
             | StyleCodec::BoxShadow
             | StyleCodec::TextShadow
+            | StyleCodec::FontVariations
             | StyleCodec::CornerShape
     ) {
         return Ok((css_property(row), String::new()));

@@ -158,13 +158,13 @@ describe('composer field app bridge', () => {
     (await composerFieldAcknowledged(state.host, [observed, command.seq, true], state.host.renderedOwner));
     expect(await pending).toMatchObject({ value: { accepted: true, queued: true, applied: false } });
   });
-  test('OS calls pass through, fold metadata is consumed before the source edit', async () => {
+  test('OS calls pass through; a source edit goes to the field', async () => {
     const state = setup(), native = composerFieldNative(state.host, state.native, () => state.host.renderedOwner);
     await native.later({ op: 'pasteFiles' });
-    const pending = native.later({ op: 'editorEdit', text: '!', fold: 7 });
+    const pending = native.later({ op: 'editorEdit', text: '!' });
     await pending;
     const command = state.resource;
-    expect(state.passthrough).toEqual([{ op: 'pasteFiles' }, { op: 'editorForgetFold', id: 7 }, {op:'wake',topic:'t3.notify'}]);
+    expect(state.passthrough).toEqual([{ op: 'pasteFiles' }, {op:'wake',topic:'t3.notify'}]);
     const observed = { ...state.observation, value: 'one!', start: 4, end: 4, inputSerial: 1 };
     composerFieldObserved(state.host, [observed, true], state.host.renderedOwner);
     (await composerFieldAcknowledged(state.host, [observed, command.seq, true], state.host.renderedOwner));

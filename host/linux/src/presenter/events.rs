@@ -102,6 +102,12 @@ impl<D: DataSource> Presenter<D> {
             self.focus_out = self.host.runner().focus_bubble(id, None, false);
             return (false, None);
         }
+        // A TV remote's focus on a bar's target: its node is inert under the
+        // route the bar lifted it from, and keeps the focus (LLP 1115.001.003 D4).
+        if self.host.kernel().node(id).is_some() && self.remote() && self.bar_node(id) {
+            self.focus_out = self.host.runner().focus_bubble(id, None, false);
+            return (false, None);
+        }
         // Gone, or inert under its route (`arrive.rs` keeps which).
         self.release_focus();
         let mut error = None;
@@ -276,6 +282,9 @@ impl<D: DataSource> Presenter<D> {
             .map(|id| self.host.runner().focus_bubble(id, previous, true))
             .unwrap_or_default();
         self.focus = next;
+        if next.is_some() {
+            self.pads_follow_focus();
+        }
         self.focus_out = next
             .map(|id| self.host.runner().focus_bubble(id, None, false))
             .unwrap_or_default();
@@ -387,7 +396,9 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// A key at the focused node, by the web's name, with its physical key
+    /// A key at the focused node, or at the session's first root when
+    /// nothing is focused (the DOM's `window` listeners hear a key whose
+    /// target is `<body>`), by the web's name, with its physical key
     /// (`code`, "" when unknown) and whether it is an auto-repeat: every
     /// `keycapture` hears a keydown outermost first, then each `key` handler
     /// (`kind`; `keyup` for a release, #140) at or above it hears it,
@@ -403,7 +414,7 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
         now_ms: f64,
     ) -> (Option<String>, bool) {
-        let target = self.focus;
+        let target = self.focus.or_else(|| self.host.roots().first().copied());
         let mut path = Vec::new();
         let mut at = target.and_then(|id| self.handler_target(id, kind));
         while let Some(id) = at {
@@ -439,6 +450,8 @@ impl<D: DataSource> Presenter<D> {
                 key: name.to_owned(),
                 code: code.to_owned(),
                 repeat: repeat && kind == EventKind::Key,
+                // No input method composes text here (LLP 1005).
+                is_composing: false,
                 held: self.modifiers(),
             };
             let event = if phase == EventKind::Keycapture {
@@ -465,7 +478,7 @@ impl<D: DataSource> Presenter<D> {
         (error, prevented)
     }
 
-    /// A key's release at the focus: its `keyup` handlers (#140), by the
+    /// A key's release at the focus (or the root): its `keyup` handlers (#140), by the
     /// name its keydown had (`Space` is " "). A release has no default here.
     pub(crate) fn key_up(&mut self, key: &str, code: &str, now_ms: f64) {
         let name = match key {

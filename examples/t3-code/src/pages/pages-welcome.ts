@@ -20,6 +20,7 @@ import { pagesPrefs } from './pages-prefs';
 import { pushToast } from '../shell/toast';
 import { wallEpoch, wallIso } from '../shared/wall-clock';
 import type { T3Client } from '../client/client';
+import { copyTerminalText, mintTerminalSocket, terminalFrameId, terminalFrameMenuPick, terminalFrameMessage, terminalFrameView, type TerminalFrameView } from '../terminal/terminal-frames';
 import { ONBOARDING_THREAD, OnboardingTerminal, resolveOnboardingProviderInstallCommand, resolveOnboardingProviderLoginCommand, type SetupSession } from '../providers/onboarding-terminal';
 import { terminalLinkAction } from '../terminal/terminal-integrations';
 import { letGo } from '../client/let-go';
@@ -61,6 +62,14 @@ async function setupTerminalLink(client: T3Client, native: Native, session: Setu
   const source = focused ? null : environmentSources(client, fleet.saved, fleet.entries).find(item => item.environmentId === session.environmentId);
   await terminalLinkAction(client, native, { ...event, environmentId: session.environmentId, threadId: ONBOARDING_THREAD, cwd: session.cwd },
     focused ? {} : { environment: { config: source?.config ?? {}, request: (method, payload) => environmentRequest(client, native, session.environmentId, method, payload) } });
+}
+const setupFrameId = (session: { environmentId: string; terminalId: string }) => terminalFrameId('welcome', session.environmentId, ONBOARDING_THREAD, session.terminalId);
+/** AgentInstallTerminal's TerminalViewport: the terminal page on the setup session, with no Add to chat. */
+function setupTerminalFrame(client: T3Client, terminal: ReturnType<OnboardingTerminal['view']>): TerminalFrameView {
+  const identity = { environmentId: terminal.environmentId, threadId: ONBOARDING_THREAD, terminalId: terminal.terminalId, surface: 'welcome' };
+  return terminalFrameView(client, setupFrameId(terminal), { mode: 'session', identity, readOnly: false, canAddToChat: false,
+    attach: { threadId: ONBOARDING_THREAD, terminalId: terminal.terminalId, cwd: terminal.cwd, worktreePath: null,
+      ...(terminal.providerInstanceId ? { providerInstanceId: terminal.providerInstanceId } : {}) } });
 }
 async function closeSetupTerminals(client: T3Client): Promise<void> {
   for (const terminal of terminals.get(client)?.values() ?? []) if (terminal.state.kind !== 'closed') await terminal.close();
@@ -251,7 +260,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   const view = {
     show: false, step: input.step === 'agents' || input.step === 'import' ? input.step : 'connect',
     computers: [] as { key: string; environmentId: string; label: string; url: string; status: string; selected: boolean }[],
-    ready: false, skipped: '', machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean; terminal: ReturnType<OnboardingTerminal['view']> & { font: string; fontSize: number; light: string; dark: string } }[],
+    ready: false, skipped: '', machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean; terminal: ReturnType<OnboardingTerminal['view']> & { face: string; light: string; dark: string; frame: TerminalFrameView } }[],
     pairStartsOpen: false, scanning: false,
     scans: [] as { key: string; label: string; error: string; empty: boolean; truncated: boolean; candidates: { key: string; title: string; path: string; parent: string; detail: string; selected: boolean }[] }[],
     legend: false, candidateCount: 0, selectedCount: 0, selectionLabel: '', importLabel: 'Import 0 projects', importing: false,
@@ -318,7 +327,8 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
     const terminal = setupTerminal(client, native, source.environmentId).view(), appearance = look(client);
     const active = terminal.environmentId === source.environmentId;
     for (const agent of agents) { agent.terminalOpen = active && terminal.open && agent.driver === terminal.driver; agent.terminalAvailable = !!str(source.config.cwd); }
-    return { key: source.key, label: source.label || 'Computer', agents, terminal: { ...terminal, open: active && terminal.open, font: appearance.terminalFont, fontSize: appearance.terminalSize, light: appearance.terminalLight, dark: appearance.terminalDark }, chatgpt: arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
+    return { key: source.key, label: source.label || 'Computer', agents, terminal: { ...terminal, open: active && terminal.open, face: appearance.terminalFace, light: appearance.terminalLight, dark: appearance.terminalDark,
+      frame: setupTerminalFrame(client, terminal) }, chatgpt: arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
   });
   // ManagedCodexSetup's provider.auth / provider.install streams for the rows it shows (a host the welcome stopped showing keeps none).
   for (const host of welcomeHosts) if (!mounted.some(item => item.host === host.host)) await watchProviderSetup(host.host, host.native, 'welcome', { auth: [], install: [] });
@@ -367,9 +377,16 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
   const state = stateOf(client);
   if (op.startsWith('terminal-')) {
     const terminal = setupTerminal(client, native, id);
-    if (op === 'terminal-exited') { // every message of the setup terminal: its exit, and its links
+    if (op === 'terminal-page-menu') {
+      if (terminal.state.kind !== 'closed') await terminalFrameMenuPick(client, setupFrameId(terminal.state.session), value, text => copyTerminalText(client, native, text));
+      return '';
+    }
+    if (op === 'terminal-page' || op === 'terminal-page:ticket') { // every message of the setup terminal page: its boot and ticket, its exit, and its links
       let event: Obj = {}; try { event = obj(JSON.parse(value)); } catch { return ''; }
-      if (terminal.state.kind === 'closed' || str(event.terminalId) !== terminal.state.session.terminalId) return '';
+      if (terminal.state.kind === 'closed') return '';
+      const session = terminal.state.session;
+      if (await terminalFrameMessage(client, setupFrameId(session), event, { mint: () => mintTerminalSocket(client, native, session.environmentId) })) return '';
+      if (str(event.terminalId) !== session.terminalId) return '';
       if (event.type === 'link') await setupTerminalLink(client, native, terminal.state.session, event);
       else if (event.type === 'exited' || event.type === 'closed') await terminal.close();
       return '';

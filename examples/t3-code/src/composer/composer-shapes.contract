@@ -175,10 +175,15 @@ shape ComposerView
   sendRunning: bool
   sendLabel: string
   sendIcon: string
+  // While ⌘ or Control is held (useShortcutModifierState): the follow-up alternate's label and icon.
+  sendHeldLabel: string
+  sendHeldIcon: string
   sendStatus: string
   sendSpinner: bool
   sendTooltip: string
   sendChords: string
+  // The send chords that are not a plain send (alternate, background): an open command menu leaves them to Send.
+  sendCommandChords: string
   // The Compact chip ('' tokens when it is not offered): off keeps full history; on, the send compacts first.
   compactTokens: string
   compactKeepFull: bool
@@ -204,8 +209,6 @@ shape ComposerView
   notices: ComposerNotice[]
   // The account whose reset credit confirm is open ('' when none).
   resetConfirm: string
-  implementX: number
-  implementWidth: number
   queued: ComposerQueued[]
   contextShow: bool
   contextAria: string
@@ -219,9 +222,6 @@ shape ComposerView
   contextNote: string
   contextCompact: bool
   contextValueNow: number
-  meterX: number
-  meterWidth: number
-  actionsX: number
   toolbarTop: number
   toolbarRight: number
   sendTipWidth: number
@@ -272,12 +272,6 @@ shape ComposerView
   restingMoreMenuWidth: number
   moreMenuHeight: number
   restingMoreMenuHeight: number
-  moreX: number
-  moreWidth: number
-  traitsX: number
-  traitsWidth: number
-  runtimeX: number
-  runtimeWidth: number
   keyEffort: string
   keyMode: string
   attach: bool

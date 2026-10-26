@@ -104,10 +104,9 @@ export { traitsDisplay } from './composer-controls-model';
 export function primaryAction(client: T3Client, phase: string) {
   const setupQueue = sendQueuesBehindSetup(client), running = phase === 'running' || setupQueue, connecting = phase === 'connecting' && !setupQueue;
   const followUp = followUpBehavior(client);
-  const modifiers = str(obj(client.presentation).modifiers);
-  const held = /\b(meta|control)\b/.test(modifiers);
   const canSteer = !setupQueue && !isCompacting(client);
-  const queueing = resolveDispatchMode(running, followUp, held, canSteer) === 'queue';
+  // Send follows ⌘ or Control (useShortcutModifierState): the contract shows the held variant while one is held.
+  const queueing = resolveDispatchMode(running, followUp, false, canSteer) === 'queue', queueingHeld = resolveDispatchMode(running, followUp, true, canSteer) === 'queue';
   const resume = client.threadId ? resumeState(client.projection) : { runId: '', heldQueue: false };
   const unavailable = client.connection !== 'connected';
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
@@ -126,6 +125,8 @@ export function primaryAction(client: T3Client, phase: string) {
     sendRunning: running,
     sendLabel: queueing ? 'Queue message' : running ? 'Steer message' : 'Submit message',
     sendIcon: queueing ? 'list-plus' : running ? 'corner-up-right' : 'arrow',
+    sendHeldLabel: queueingHeld ? 'Queue message' : running ? 'Steer message' : 'Submit message',
+    sendHeldIcon: queueingHeld ? 'list-plus' : running ? 'corner-up-right' : 'arrow',
     sendStatus: status, sendSpinner: connecting || sending,
     sendTooltip: status || (running && canSteer ? `Click to ${followUp}, Ctrl/⌘-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : queueing ? 'Queue message' : 'Submit message'),
     canResume: !!resume.runId || resume.heldQueue,

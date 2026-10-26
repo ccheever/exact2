@@ -5,24 +5,36 @@ import UIKit
 /// Every node a press traversed, with the inertness rule from that side of
 /// the first presentation crossing. Held identities survive no pool reuse.
 struct PressPath {
-    private var nodes: [(held: HeldNode, crossed: Bool, epoch: UInt64, inWindow: Bool)] = []
+    private var nodes: [(held: HeldNode, crossed: Bool, epoch: UInt64, cancellation: UInt64, inWindow: Bool)] = []
     private var openings: [() -> Bool] = []
     private let reachedTarget: Bool
     let bubbled: Bool
     var presentationsOpen: Bool { openings.allSatisfy { $0() } }
 
-    init(from source: UIView, to target: UIView, presenter: Presenter) {
+    init(from source: UIView, to target: UIView? = nil, presenter: Presenter, trackOpenings: Bool = true) {
         var at: UIView? = source, crossed = false
         while let view = at {
-            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressEpoch, node.window != nil)) }
+            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressEpoch, node.pressCancellationEpoch, node.window != nil)) }
             if view === target { break }
-            if let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
+            if trackOpenings, let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
             let parent = presenter.listenerParent(of: view)
             crossed = crossed || parent !== view.superview
             at = parent
         }
-        reachedTarget = at === target
+        reachedTarget = target == nil || at === target
         bubbled = crossed
+    }
+
+    func holdFeedback(_ feedback: RecognizedPress) {
+        for entry in nodes { entry.held.node?.recognizedPress = feedback }
+    }
+
+    /// Focus may reparent a contact, but cannot undo a disable or inert cancellation.
+    func survivesFocus(in presenter: Presenter) -> Bool {
+        reachedTarget && presentationsOpen && nodes.allSatisfy { entry in
+            guard let node = entry.held.live(in: presenter) else { return false }
+            return node.pressCancellationEpoch == entry.cancellation && !node.disabled && !(entry.crossed ? node.authoredInert : node.inert)
+        }
     }
 
     func isLive(in presenter: Presenter) -> Bool {
@@ -54,14 +66,6 @@ extension Presenter {
         return viewportPoints(viewport.convert(shown, from: nil))
     }
 
-    /// A native module's own text input (a composer's UITextView) focused
-    /// where this session is mounted: the keyboard is this session's
-    /// business as for its own fields, so the page resizes above it.
-    var hasNativeKeyboardEditor: Bool {
-        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput else { return false }
-        return mounts(responder)
-    }
-
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
@@ -79,6 +83,10 @@ extension Presenter {
             return eventParent(of: node)
         }
         return view.superview
+    }
+
+    func authored(_ view: UIView, inside ancestor: UIView) -> Bool {
+        sequence(first: view, next: listenerParent).contains { $0 === ancestor }
     }
 
     /// The view a press on `target`, reached from `start` (`listenerParent`),
@@ -119,7 +127,7 @@ extension Presenter {
     /// presentation, whose editor waits for the keys to settle
     /// (`keyboardSettled`).
     func revealEditorAsTheKeysMove() {
-        if editor.map({ !modals.mounts($0) }) ?? true { reveal(editor) }
+        if editor.map({ !modals.mounts($0) }) ?? true { revealFocusedEditor() }
     }
 
     #if !os(tvOS)
@@ -130,19 +138,41 @@ extension Presenter {
     /// sheet for them, the route a point tall for a frame, and a reveal into
     /// that left the route scrolled, taking the next detent drag.
     @objc func keyboardSettled(_ n: Notification) {
+        refitKeyboard()
         guard keyboardTop != nil else { return }
         owners.revealOnceTold()
     }
     #endif
 
-    /// The editor being edited.
-    var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
+    /// The authored node containing the live keyboard editor, including a projected field.
+    var editor: NodeView? {
+        guard let native = keyboardEditor else { return nil }
+        return views.values.first(where: { $0.headerField === native }) ?? NodeView.innermost(native)
+    }
 
-    /// Reveals the editor of a presentation's route while the keys are up.
-    func revealSheetEditor() {
-        guard keyboardTop != nil, let editor,
-              modals.mounts(editor) else { return }
-        if ExactEnv.agentFreezes { reveal(editor) } else { UIView.animate(withDuration: 0.25) { self.reveal(editor) } }
+    /// A native module's input may fill a large wrapper: reveal its caret,
+    /// not that wrapper's far edge. The input keeps its own internal scrolling.
+    func revealFocusedEditor() {
+        guard let editor else { return }
+        if editor.field == nil, editor.textArea == nil,
+           let native = FirstResponder.current as? UIView, let input = native as? UITextInput,
+           let end = input.selectedTextRange?.end, let view = input.textInputView {
+            let caret = input.caretRect(for: end)
+            if !caret.isNull, !caret.isInfinite {
+                let height = min(caret.height, view.bounds.height)
+                let y = min(max(caret.minY, view.bounds.minY), view.bounds.maxY - height)
+                let rect = native is UITextField ? view.bounds : CGRect(x: caret.minX, y: y, width: caret.width, height: height)
+                reveal(editor, rect: view.convert(rect, to: editor))
+                return
+            }
+        }
+        reveal(editor)
+    }
+
+    /// Reveal after native blocks and any pending list fill have settled.
+    func revealSettledEditor() {
+        guard keyboardTop != nil else { return }
+        if ExactEnv.agentFreezes { revealFocusedEditor() } else { UIView.animate(withDuration: 0.25) { self.revealFocusedEditor() } }
     }
 }
 #endif
@@ -171,7 +201,15 @@ final class OwnerBlocks {
     /// placement unless it is presented.
     private(set) var told: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
     private var resetting = false, revealOwed = false
+    /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
+    /// as the last layout sent it: what an open popover is reported by.
+    private(set) var blockRects: [UInt32: CGRect] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
+
+    /// The batch's `block` op; one with no size takes the block away.
+    func applied(_ op: BatchOp) {
+        if op.payload["op"] as? String == "block" { blockRects[op.id] = op.blockRect }
+    }
 
     /// Every route a navigation holds, the primary stacks' first and each
     /// presentation's after, bottom to top; in each stack in its order, the
@@ -192,41 +230,31 @@ final class OwnerBlocks {
             guard let route = controller as? RouteController, let view = route.viewIfLoaded,
                   presenter.views[route.node.id] === route.node else { return nil }
             let block = self.block(in: view)
+            route.fitContentViewport(in: block)
             return (route, view, block, view.window != nil && !block.isEmpty, presented)
         }
     }
 
-    /// A route's block: its controller's view, ending where the document
-    /// ends when the view is in the document. A keyboard that resizes the
-    /// document ends it at the keys (`interactive-widget`'s
-    /// `resizes-content`), and the routes follow (LLP 1123 C29), while the
-    /// tab container keeps the screen's height so that its bar stays under
-    /// the keys (`NavigationHost.ownerFrame`). The document's end is the
-    /// routes' owner's, in its own untransformed space.
-    private func block(in view: UIView) -> CGRect {
-        guard let document = presenter.navigation.container, view.isDescendant(of: document) else {
-            // A route of the top presentation, the one that holds the focused
-            // editor, ends at the docked keyboard: the top of its sheet's
-            // keyboard layout guide, which UIKit lays out with the sheet as
-            // it grows it for the keys and as they leave, follows no
-            // undocked keyboard, and is empty without keys (it leaves out
-            // the bottom safe area, `ModalController.loadView`). The route's
-            // own scroller then reveals the field, and the sheet's bar stays
-            // (LLP 1123 C26).
-            var block = view.bounds
-            // tvOS has no keyboard layout guide.
-            #if !os(tvOS)
-            if let sheet = presenter.modals.coordinateView, view.isDescendant(of: sheet),
-               case let keys = sheet.keyboardLayoutGuide.layoutFrame, keys.height > 0 {
-                let end = view.convert(CGPoint(x: 0, y: keys.minY), from: sheet).y
-                block.size.height = max(0, min(block.height, end - block.minY))
-            }
-            #endif
+    /// A native route keeps its controller's bounds and avoids only its own keyboard.
+    /// Authored chrome keeps the document's allocation.
+    func block(in view: UIView) -> CGRect {
+        var block = view.bounds
+        if ExactEnv.authoredChrome, let document = presenter.navigation.container, view.isDescendant(of: document) {
+            let end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
+            block.size.height = max(0, min(block.height, end - block.minY))
             return block
         }
-        let end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
-        var block = view.bounds
-        block.size.height = max(0, min(block.height, end - block.minY))
+        guard presenter.ownsKeyboard(in: view) else { return block }
+        #if !os(tvOS)
+        if let sheet = presenter.modals.coordinateView, view.isDescendant(of: sheet),
+           let top = presenter.keyboardGuideTop(in: sheet) {
+            let end = view.convert(CGPoint(x: 0, y: top), from: sheet).y
+            block.size.height = max(0, min(block.height, end - block.minY))
+        } else if presenter.keyboardPolicy == "resizes-content", let top = presenter.keyboardTop, let window = view.window {
+            let end = view.convert(CGPoint(x: 0, y: top), from: window).y
+            block.size.height = max(0, min(block.height, end - block.minY))
+        }
+        #endif
         return block
     }
 
@@ -238,7 +266,7 @@ final class OwnerBlocks {
         var boxes = presenter.modals.navigations.flatMap { nav in
             routes(of: nav, presented: true).filter(\.shown).map { route in
                 TopLayerBox(view: route.view,
-                            frame: (route.route.node.id, presenter.viewportPoints(route.view.convert(route.block, to: presenter.viewport)), nil),
+                            frame: (route.route.node.id, presenter.viewportPoints(NativeGeometry.convert(route.block, from: route.view, to: presenter.viewport)), nil),
                             modal: nav === top ? nav : nil)
             }
         }
@@ -254,6 +282,7 @@ final class OwnerBlocks {
     /// what is current, and the ones behind it what changed since: none.
     func publish() {
         guard !resetting else { return }
+        presenter.nativeGeometry.changed()
         if presenter.applying {
             presenter.afterBatch { [weak self] in self?.publish() }
             return
@@ -274,6 +303,7 @@ final class OwnerBlocks {
             return
         }
         var now: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
+        for (id, block) in presenter.menus.sheets.containingBlocks { now[id] = (block, nil) }
         for (route, view, block, shown, presented) in routes {
             let id = route.node.id
             guard shown else {
@@ -296,16 +326,18 @@ final class OwnerBlocks {
         // A block taken back forgets its placement with it
         blocks += told.keys.filter { now[$0] == nil && presenter.views[$0] != nil }.map { ($0, nil) }
         told = now
-        if !blocks.isEmpty || !placements.isEmpty { session.apply(session.runtime.blocks(blocks, placements: placements)) }
-        // A sheet's editor whose keys settled shows in the blocks just told
+        if !blocks.isEmpty || !placements.isEmpty {
+            session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true)
+        }
+        // Reveal against the blocks just told, after their pending fill
         if revealOwed {
             revealOwed = false
-            presenter.revealSheetEditor()
+            presenter.revealSettledEditor()
         }
     }
 
-    /// Reveals a sheet's editor once the routes' current blocks are told,
-    /// in the order they are (`keyboardSettled`).
+    /// Reveals the editor once the routes' current blocks are told,
+    /// after a pending list fill (`keyboardSettled`).
     func revealOnceTold() {
         revealOwed = true
         publish()
@@ -323,7 +355,7 @@ final class OwnerBlocks {
     /// itself. None while the owner is not in the window.
     private func placement(of route: RouteController, block: CGRect, in view: UIView) -> BlockPlacement? {
         guard let owner = presenter.navigation.container, owner.window != nil, owner.window === view.window else { return nil }
-        return BlockPlacement(rect: view.convert(block, to: owner), within: owner.id)
+        return BlockPlacement(rect: NativeGeometry.convert(block, from: view, to: owner), within: owner.id, contentOffset: route.contentViewport?.contentOffset)
     }
 
     /// The runtime is being replaced: the routes `teardown` takes down were
@@ -333,6 +365,7 @@ final class OwnerBlocks {
         teardown()
         resetting = false
         told = [:]
+        blockRects = [:]
         revealOwed = false
     }
 }
@@ -344,7 +377,8 @@ extension Presenter {
     /// The last modal boundary leaves only it and what is above it live.
     package var openTopLayer: (frames: [TopLayerFrame], modal: Int?) {
         let boxes = owners.presented + menus.sheets.presented + menus.presented.map {
-            TopLayerBox(view: $0, frame: ($0.id, $0.topLayerFrame(in: viewport), nil), modal: nil)
+            // Reported by its block, the viewport's (stage 14 B), as a dialog's sheet is.
+            TopLayerBox(view: $0, frame: ($0.id, $0.topLayerFrame(in: viewport, containingBlock: owners.blockRects[$0.id]), nil), modal: nil)
         }
         func path(_ view: UIView) -> [Int] {
             var path: [Int] = [], at = view

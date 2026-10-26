@@ -1,12 +1,22 @@
-//! The photo editor on the web: the host's exports over the app's (empty) data
-//! source and its baked plan.
+//! The photo editor on the web: its TypeScript runs in the page's realm, and
+//! the page module is `<photo-editor>` (LLP 1067.000).
 
-#![deny(missing_docs)]
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
+const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
-/// The baked plan, written by `build.rs`.
-pub const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-
-/// The compatibility id and its inputs (LLP 1030 D3a), written beside it.
-pub const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
-
-include!(concat!(env!("OUT_DIR"), "/entry.rs"));
+type ExactEmbeddedData = exact_js_web::Module;
+fn embedded_data() -> ExactEmbeddedData {
+    exact_js_web::Module::new(APP, GRANTS, REVISION).placed(TYPESCRIPT_PLACEMENT)
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+exact_web::host!(
+    AppData,
+    PLAN,
+    COMPAT,
+    app_data,
+    [
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.module.json")) as &[u8],
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.js")) as &[u8]
+    ]
+);

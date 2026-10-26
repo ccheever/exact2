@@ -265,3 +265,35 @@ fn uses_keeps_a_conditional_active_parts_state_at_its_node() {
     assert_eq!(sites[0]["state"], "active", "{sites:?}");
     assert_eq!(sites[0]["line"], 15, "the node's line: {sites:?}");
 }
+
+/// Stage 12 B3 (round 1, Grok 1): a look resolved again keeps what its new
+/// text read beside what it read, as a row does, so a base a re-set shadow
+/// newly reads sets the look again when it is edited.
+#[test]
+fn a_look_follows_a_base_its_shadows_new_value_reads() {
+    let design =
+        "tamber t\n\ntheme\n  space.md = 10px\n  card.shadow: box-shadow = 0 2px 4px #000\n";
+    let view = "component App\n  view\n    column testId=\"card\" padding=\"space.md\"\n      :hover\n        box-shadow = \"card.shadow\"\n      text \"c\"\n";
+    let path = app(
+        "look-base",
+        &[("app.tamber", design), ("app.contract", view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
+    let shadow = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
+        format!(
+            "{:?}",
+            node.looks()
+                .iter()
+                .map(|(s, p)| (*s, p.box_shadow.clone()))
+                .collect::<Vec<_>>()
+        )
+    };
+    assert!(shadow(&r).contains("y: 2.0"), "{}", shadow(&r));
+    r.set_token("card.shadow", "0px space.md 4px #000000ff", &[])
+        .unwrap();
+    assert!(shadow(&r).contains("y: 10.0"), "{}", shadow(&r));
+    r.set_token("space.md", "30px", &[]).unwrap();
+    assert!(shadow(&r).contains("y: 30.0"), "{}", shadow(&r));
+}

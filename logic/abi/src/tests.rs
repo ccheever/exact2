@@ -180,6 +180,59 @@ fn network_request_preserves_absent_empty_and_restricted_grants() {
     }
 }
 
+/// A long poll's terms cross the seam (tag 10, LLP 1016.000 D8); bad ones
+/// are refused.
+#[test]
+fn a_long_poll_round_trips_and_bad_terms_are_refused() {
+    let Answer::Later(mut request) = Answer::stream(
+        Request::get("https://example.com/changes?since=0")
+            .independent_http(4096)
+            .long_poll("since", "meta.seq"),
+    ) else {
+        unreachable!()
+    };
+    for same in [false, true] {
+        request.long_poll.as_mut().unwrap().same_cursor_event = same;
+        let mut encoded = Writer::default();
+        encode_result(&mut encoded, Ok(Answer::Later(request.clone())));
+        let bytes = encoded.into_vec();
+        assert_eq!(bytes[0], 10);
+        let mut decoded = Reader::new(&bytes);
+        assert_eq!(
+            read_result(&mut decoded).unwrap(),
+            Ok(Answer::Later(request.clone()))
+        );
+        end(&decoded).unwrap();
+    }
+    // A module's bad terms are its own refusal, never sent; an ordered stream's too.
+    let mut bad = request.clone();
+    bad.long_poll.as_mut().unwrap().cursor = String::new();
+    let mut ordered = request.clone();
+    ordered.http = HttpScheduling::Ordered;
+    for r in [bad, ordered] {
+        let mut encoded = Writer::default();
+        encode_result(&mut encoded, Ok(Answer::Later(r)));
+        assert!(matches!(
+            read_result(&mut Reader::new(&encoded.into_vec())),
+            Ok(Err(DataError::Unavailable(why))) if why.starts_with("exactLongPoll")
+        ));
+    }
+    // A tag 10 with bad terms, however it was written, is refused as it is read.
+    let mut w = Writer::default();
+    w.u8(10);
+    w.u32(4096);
+    w.u8(0);
+    w.string("");
+    w.string("GET");
+    w.string("https://example.com/changes");
+    pairs(&mut w, &[]);
+    bytes(&mut w, &[]);
+    w.string("since");
+    w.string("a.b.c");
+    w.u8(0);
+    assert!(read_result(&mut Reader::new(&w.into_vec())).is_err());
+}
+
 #[test]
 fn storage_unknown_tags_truncation_and_oversize_are_refused_before_effects() {
     for tag in [8, 255] {
@@ -389,6 +442,25 @@ fn a_body_from_a_file_is_refused_at_the_module_seam() {
     ));
 }
 
+/// A held mark (LLP 1016.000 D9) has no encoding at the seam: refused, never
+/// silently turned into a request a clock waits on.
+#[test]
+fn a_held_request_is_refused_at_the_module_seam() {
+    let mut encoded = Writer::default();
+    encode_result(
+        &mut encoded,
+        Ok(Answer::Later(
+            Request::get("https://example.test/changes").held(),
+        )),
+    );
+    let bytes = encoded.into_vec();
+    let mut reader = Reader::new(&bytes);
+    assert!(matches!(
+        read_result(&mut reader).unwrap(),
+        Err(DataError::Unavailable(s)) if s == "a held request cannot cross the Rust module seam yet"
+    ));
+}
+
 /// A source that draws one surface, `dot`, translating once per draw: the
 /// transform persists within a generation, as a canvas's state does.
 struct Painter;
@@ -512,7 +584,7 @@ fn web_wire_enum_strings_cross_calls_and_nested_overlay_replies() {
 const src = await Bun.file(process.argv[1]).text();
 const api = new Function(src.replace(/^import .*;$/gm, '').replace(/^export /gm, '') + ';return {writer,encode};')();
 const w = api.writer(), value = ['a|b', 'n🥳', ['a|b']];
-w.u32(3); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
+w.u32(Number(process.argv[3])); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
 w.u8(6); w.u32(2); api.encode(w, 'a|b', 's'); api.encode(w, value, '{s?s[s}');
 if (process.argv[2] === 'true') {
   api.encode(w, value, '{s?s[s}'); w.u32(1); w.u64(7); w.str('save'); w.str('save');
@@ -524,6 +596,7 @@ process.stdout.write(w.done());
             .args(["--eval", js])
             .arg(&bridge)
             .arg(overlay.to_string())
+            .arg(ABI.to_string())
             .output()
             .unwrap();
         assert!(
@@ -548,4 +621,81 @@ process.stdout.write(w.done());
             );
         }
     }
+}
+
+/// A presence secret across the module seam (LLP 1133.010 D5): the per-call
+/// snapshot carries its occupancy and never its bytes, an answer that reads
+/// it with `get` fails as it would in process, and a locked write goes back
+/// to the host's store, which keeps nothing of it either.
+#[test]
+fn a_locked_name_crosses_the_seam_as_occupancy_alone() {
+    struct Locked;
+    impl DataSource for Locked {
+        fn grants(&self) -> &str {
+            "secret.keep token user-presence\ndevice.local-auth purpose.lock"
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn answer(
+            &mut self,
+            store: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            if source == "write" {
+                store.set("token", "secret-2")?;
+                return Ok(Answer::Now(Value::Bool(store.locked("token"))));
+            }
+            Ok(Answer::Now(Value::str(
+                store.get("token").unwrap_or("none"),
+            )))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            unreachable!()
+        }
+    }
+    let grants = "secret.keep token user-presence\ndevice.local-auth purpose.lock";
+    let mut store = Store::new(
+        grants,
+        [
+            ("token".into(), b"secret-1".to_vec()),
+            ("exact.presence.token".into(), b"locked".to_vec()),
+            ("exact.presence.".into(), b"1".to_vec()),
+        ],
+    );
+    let mut module = Session::new(Locked);
+    let input = call_request(&store, "read", &[], None).unwrap();
+    assert!(!input.windows(6).any(|x| x == b"secret"));
+    assert!(input.windows(6).any(|x| x == b"locked"));
+    module.dispatch(&input).unwrap();
+    let refused = call_reply(module.output(), &mut store).unwrap_err();
+    assert!(
+        refused.to_string().contains("InvalidAccessError"),
+        "{refused}"
+    );
+    module
+        .dispatch(&call_request(&store, "write", &[], None).unwrap())
+        .unwrap();
+    assert_eq!(
+        call_reply(module.output(), &mut store).unwrap(),
+        Answer::Now(Value::Bool(true))
+    );
+    assert!(!store
+        .snapshot()
+        .iter()
+        .any(|(_, v)| v.windows(6).any(|x| x == b"secret")));
+    let writes = store.take_writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(
+        writes[0].value.as_deref(),
+        Some(&b"secret-2"[..]),
+        "for the host's backend"
+    );
 }

@@ -11,7 +11,8 @@
 //! - a type: `typography`, every property written: what the token leaves
 //!   unsaid (the style's weight, its leading, the family) as the default the
 //!   web column draws, named in `unsaid`;
-//! - a shadow: `shadow`, a text shadow marked so;
+//! - a shadow: `shadow`, a text shadow marked so; a length over a base name
+//!   as a length's, the shadow's source `lossy`;
 //! - a duration: `duration` in ms;
 //! - an easing: `cubicBezier`; a keyword as its curve, a `steps()`, a
 //!   `linear()` or a spring as `linear`'s, marked `lossy`.
@@ -74,7 +75,14 @@ fn shadows(s: &crate::Shadows, dark: bool, vocab: &Vocab) -> Option<Json> {
             // `currentcolor`: black, marked by the token's `currentcolor`.
             None => json!({ "colorSpace": "srgb", "components": [0, 0, 0], "hex": "#000000" }),
         };
-        let at = |i: usize| one.lengths.get(i).copied().unwrap_or(0.0);
+        // A length over base names (stage 12 B3) folded with each base's
+        // px, as a length token's is.
+        let at = |i: usize| {
+            one.lengths
+                .get(i)
+                .map_or(Some(0.0), |l| l.px(&|n| named_px(n, vocab)))
+                .unwrap_or(1.0)
+        };
         let mut obj = Map::new();
         obj.insert("color".into(), color);
         obj.insert("offsetX".into(), dimension(at(0), "px"));
@@ -217,6 +225,10 @@ pub(crate) fn written(v: &Value, dark: bool, vocab: &Vocab) -> Option<Written> {
             }
             if s.list.is_empty() {
                 exact.insert("lossy".into(), json!("none"));
+            }
+            // Over base names: its source, as a length's (stage 12 B3).
+            if !s.bases().is_empty() {
+                exact.insert("lossy".into(), json!(s.css()));
             }
             ("shadow", shadows(s, dark, vocab)?)
         }

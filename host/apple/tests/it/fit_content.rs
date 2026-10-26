@@ -789,3 +789,42 @@ fn a_flex_texts_lines_are_placed_as_its_anonymous_item() {
         "a wrapping box's one line is placed by align-content"
     );
 }
+
+/// Astra's round-1 finding on the bottom edge's chain: a fitted sheet whose
+/// last child is a scroller UIKit insets at the bottom. Its route keeps its
+/// bottom cover and pads nothing of it (`cover::scroller_insets_bottom`), so
+/// the extent takes nothing off for it: the rows' height, as uncovered.
+#[test]
+fn a_fitted_sheet_whose_scroller_takes_the_bottom_cover_keeps_its_extent() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" padding-top=16
+        row height=44 flex-shrink=0
+          text "Title"
+        column testId="list" flex=1 min-height=0 overflow-y="auto"
+          row height=300 flex-shrink=0
+            text "Rows"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let (sheet, list) = (view(&host, "sheet"), view(&host, "list"));
+    assert_eq!(heights(&first, sheet), [16.0 + 44.0 + 300.0]);
+    let covered = host.set_covers(&[(sheet, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))]);
+    assert!(heights(&covered, sheet).is_empty(), "{covered}");
+    let inset = host.set_covers(&[
+        (sheet, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0]))),
+        (list, Some(HostCover::Inset([0.0, 34.0]))),
+    ]);
+    assert!(
+        heights(&inset, sheet).is_empty(),
+        "the rows' height still: {inset}"
+    );
+}

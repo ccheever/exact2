@@ -21,6 +21,8 @@ use PrStackPopover from "./pages-pr-quick.contract"
 use PrQuickActions from "./pages-pr-quick.contract"
 use PrRowChecks from "./pages-pr-quick.contract"
 use PrRowStack from "./pages-pr-quick.contract"
+use PrBreakdown from "./pr-breakdown.contract"
+use PrBreakdownStat from "./pr-breakdown.contract"
 
 shape PrChip
   key: string
@@ -41,6 +43,7 @@ shape PrRow
   reviewLabel: string
   additions: string
   deletions: string
+  breakdown: PrBreakdown
   author: string
   avatar: string
   initial: string
@@ -184,6 +187,7 @@ fn prGroupIcon(group: string): string = group == "authored" ? "pen-line" : group
 component PrList
   inject
     rem: number
+    interacted: action
   props
     // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
@@ -227,6 +231,7 @@ component PrList
       sweepY = e.clientY
       sweepDragging = false
   action sweepMove(e: PointerEvent)
+    interacted()
     if sweepGroup != "" and e.buttons == 1
       let nextY = e.clientY
       let started = sweepDragging or max(nextY - sweepStartY, sweepStartY - nextY) >= 6
@@ -820,10 +825,14 @@ component PrRowButton
             box flex=1 min-width=0
             if row.stackLabel != ""
               PrRowStack(rowRef=row.ref, popId=`pr-row-stack-${row.projectId}-${row.number}`, label=row.stackLabel, ariaLabel=row.stackAria, tip=row.stackTip, popover=stack, scheme=scheme, control=control, select=select)
+            // PullRequestChangeBreakdownStat: the +/- splits by file kind on hover. The row's content lets the pointer
+            // through to the row's button, so the stat takes it back to hear its hover and passes a press on as the row's.
             if row.additions != ""
-              row flex-shrink=0 align-items="baseline" gap="0.25rem"
-                text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
-                text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+              box press=select(row.ref) pointer-events="auto" cursor="pointer" flex-shrink=0 display="flex"
+                PrBreakdownStat(breakdown=row.breakdown, tipId=`pr-breakdown-${row.number}`, request=control("breakdown"))
+                  row flex-shrink=0 align-items="baseline" gap="0.25rem"
+                    text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+                    text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
           row height="1rem" min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
             row align-items="center" gap="0.25rem" min-width="0.875rem" max-width="10rem" flex-shrink=1
               PrAvatar(avatar=row.avatar, initial=row.initial, size=14)

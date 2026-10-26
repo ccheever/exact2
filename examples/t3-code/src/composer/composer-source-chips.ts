@@ -1,4 +1,6 @@
-// composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9.
+// composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9;
+// composerInlineTokens.ts (decorators), composerTrigger.ts (path words) and the provider's skill
+// chips (ComposerPromptEditorTiptap.tsx composerSkillMeta) at 74541bab17.
 import { codeAt, composerMarkdown, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown';
 import type { ComposerEdit } from './composer-markdown-edit';
@@ -27,7 +29,10 @@ export function composerCitationHref(link: string): string | null {
   return match?.[1] ?? null;
 }
 
-export function composerChips(value: string): ComposerChip[] {
+/** Whether `$name` is a skill the provider offers to users, so it becomes a chip; null: every name. */
+export type SkillOffer = ((name: string) => boolean) | null;
+
+export function composerChips(value: string, skills: SkillOffer = null): ComposerChip[] {
   const links: ComposerChip[] = [], tokens: ComposerChip[] = [];
   for (const match of value.matchAll(/(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)/g)) {
     const href = match[3] ?? '', parts = href.slice('t3-context://v1/'.length).split('/'), kind = parts[0] ?? '', id = parts[1] ?? '';
@@ -48,12 +53,16 @@ export function composerChips(value: string): ComposerChip[] {
   }
   for (const match of value.matchAll(/(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s@"]+))(?=\s)/g)) {
     const quoted = match[2], path = quoted === undefined ? match[3] ?? '' : unescape(quoted);
-    if (!path || quoted === undefined && /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*(?:\/[^\s@"]+)*$/.test(path)) continue;
+    // A scoped package (`@expo/ui`) and a decorator call (`@Component(…)`) are text unless quoted.
+    if (!path || quoted === undefined && (/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*(?:\/[^\s@"]+)*$/.test(path)
+      || /^[\p{ID_Start}_$][\p{ID_Continue}.$\u200c\u200d]*\(/u.test(path))) continue;
     const start = match.index + (match[1]?.length ?? 0), end = match.index + match[0].length;
     tokens.push({ kind: 'mention', start, end, source: value.slice(start, end), label: basename(path), path });
   }
   for (const match of value.matchAll(/(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s)/gu)) {
     const start = match.index + (match[1]?.length ?? 0), end = match.index + match[0].length, name = match[2] ?? '';
+    // `$HOME` or another provider's skill stays editable text.
+    if (skills && !skills(name)) continue;
     tokens.push({ kind: 'skill', start, end, source: value.slice(start, end), label: name, name });
   }
   const chips: ComposerChip[] = [];
@@ -73,25 +82,6 @@ export function composerChipsInBlocks(value: string, blocks: readonly ComposerBl
       && chip.start >= block.contentStart && chip.end <= block.end));
 }
 
-/** Existing atoms keep their identity when an edit only changes adjacent text,
- *  including the delimiter that originally completed a mention or skill. */
-export function reconcileComposerChips(previous: string, value: string, current: readonly ComposerChip[]): ComposerChip[] {
-  let prefix = 0, suffix = 0;
-  while (prefix < previous.length && prefix < value.length && previous[prefix] === value[prefix]) prefix++;
-  while (suffix < previous.length - prefix && suffix < value.length - prefix
-    && previous[previous.length - suffix - 1] === value[value.length - suffix - 1]) suffix++;
-  const end = previous.length - suffix, delta = value.length - previous.length;
-  const carried: ComposerChip[] = [];
-  for (const chip of current) {
-    if (previous.slice(chip.start, chip.end) !== chip.source
-      || prefix < chip.end && end > chip.start || prefix > chip.start && prefix < chip.end) continue;
-    const shift = end <= chip.start ? delta : 0, next = { ...chip, start: chip.start + shift, end: chip.end + shift };
-    if (value.slice(next.start, next.end) === chip.source) carried.push(next);
-  }
-  return [...carried, ...composerChips(value).filter(chip => !carried.some(old => overlaps(chip, old)))].sort((a, b) => a.start - b.start);
-}
-
-
 /** The selection with each end that falls inside a reference moved out of it, as the
  *  reference's atom chips never hold the caret: a caret after its reference, a range's
  *  ends outward over the references they cut. */
@@ -104,33 +94,9 @@ export function outsideComposerChips(selection: ComposerRange, chips: readonly C
   return { start: within(selection.start)?.start ?? selection.start, end: within(selection.end)?.end ?? selection.end };
 }
 
-/** Backspace or Delete at a reference removes all of its source in one edit, as at the
- *  reference's atom chip; null when the key deletes no reference. */
-export function composerChipDeletion(selection: ComposerRange, chips: readonly ComposerChip[], backward: boolean): ComposerEdit | null {
-  let range = outsideComposerChips(selection, chips);
-  if (selection.start === selection.end) {
-    const at = selection.start, chip = chips.find(chip => backward ? at > chip.start && at <= chip.end : at >= chip.start && at < chip.end);
-    if (!chip) return null;
-    range = chip;
-  } else if (range.start === selection.start && range.end === selection.end) return null;
-  return { start: range.start, end: range.end, text: '', selection: { start: range.start, end: range.start } };
-}
-
-/** Option-Backspace or Option-Delete at a reference, or with only spaces between it and the
- *  caret, removes the reference and those spaces, as word deletion takes an atom chip whole. */
-export function composerChipWordDeletion(value: string, selection: ComposerRange, chips: readonly ComposerChip[], backward: boolean): ComposerEdit | null {
-  if (selection.start !== selection.end) return composerChipDeletion(selection, chips, backward);
-  const at = selection.start, gap = (from: number, to: number) => /^[^\S\n]*$/.test(value.slice(from, to));
-  const chip = chips.find(chip => at > chip.start && at < chip.end)
-    ?? (backward ? chips.filter(chip => chip.end <= at && gap(chip.end, at)).at(-1) : chips.find(chip => chip.start >= at && gap(at, chip.start)));
-  if (!chip) return null;
-  const start = backward ? chip.start : Math.min(at, chip.start), end = backward ? Math.max(at, chip.end) : chip.end;
-  return { start, end, text: '', selection: { start, end: start } };
-}
-
 const graphemes = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
-/** What Backspace or Delete removes with no reference at the caret: the selection, or the one
- *  character beside the caret (a grapheme where the runtime segments them, else a code point). */
+/** What Backspace or Delete removes: the selection, or the one character beside the caret (a
+ *  grapheme where the runtime segments them, else a code point). */
 export function composerCharacterDeletion(value: string, selection: ComposerRange, backward: boolean): ComposerEdit | null {
   let { start, end } = selection;
   if (start === end) {
@@ -143,23 +109,13 @@ export function composerCharacterDeletion(value: string, selection: ComposerRang
   return { start, end, text: '', selection: { start, end: start } };
 }
 
-/** What Option-Backspace or Option-Delete removes with no reference beside the caret: the
- *  selection, or the word and the spaces beside the caret. */
-export function composerWordDeletion(value: string, selection: ComposerRange, backward: boolean): ComposerEdit | null {
-  let { start, end } = selection;
-  if (start === end) {
-    const word = backward ? /[\p{L}\p{N}_]*[^\p{L}\p{N}_\n]*$/u.exec(value.slice(0, start))?.[0] ?? '' : /^[^\p{L}\p{N}_\n]*[\p{L}\p{N}_]*/u.exec(value.slice(end))?.[0] ?? '';
-    if (!word) return composerCharacterDeletion(value, selection, backward);
-    if (backward) start -= word.length; else end += word.length;
-  }
-  return { start, end, text: '', selection: { start, end: start } };
-}
-
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;
   if (styling && codeAt(composerMarkdown(value, { blockOrigins }).blocks, { start: cursor, end: cursor })) return null;
   const start = value.lastIndexOf('\n', cursor - 1) + 1, prefix = value.slice(start, cursor), slash = /^\/(\S*)$/.exec(prefix);
-  if (slash) return { kind: 'slash-command', query: slash[1] ?? '', start, end: cursor };
+  // A slash word with a second slash, such as `/tmp/build.sh`, is a path; the whole word counts, so a caret
+  // before the second slash still sees it (isPathWord).
+  if (slash) return /^\/\S*\//.test(value.slice(start)) ? null : { kind: 'slash-command', query: slash[1] ?? '', start, end: cursor };
   const token = /[^ \t\r\n]*$/.exec(prefix)?.[0] ?? '', tokenStart = cursor - token.length;
   const pr = /^#([\p{L}\p{N}][\p{L}\p{N}_-]*)?$/u.exec(token);
   if (pr) return { kind: 'pull-request', query: pr[1] ?? '', start: tokenStart, end: cursor };

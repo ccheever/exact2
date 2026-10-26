@@ -35,7 +35,7 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
+use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -743,74 +743,49 @@ impl<D: DataSource> Host<D> {
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one batch.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
-        let (receipts, error) = match self.runner.set_time(epoch_at_zero, utc_offset) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("time: {e:?}"))),
-        };
-        self.batch_for(&receipts, error.as_deref())
+        let answer = self.runner.set_time(epoch_at_zero, utc_offset);
+        self.told(answer, "time")
     }
 
     /// The page's visibility, connectivity or share sheet (LLP 1069.000 D2):
     /// the `exactPage()` readers, in one batch.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
-        let (receipts, error) = match self.runner.set_page(page) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("page: {e:?}"))),
-        };
-        self.batch_for(&receipts, error.as_deref())
+        let answer = self.runner.set_page(page);
+        self.told(answer, "page")
     }
 
     /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in one
     /// batch, no resource asked again.
     pub fn set_root_font_size(&mut self, px: f64) -> String {
-        let (receipts, error) = match self.runner.set_root_font_size(px) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("root font size: {e:?}"))),
-        };
-        self.batch_for(&receipts, error.as_deref())
+        let answer = self.runner.set_root_font_size(px);
+        self.told(answer, "root font size")
     }
 
     /// The page module says `topic` changed (LLP 1016.002): the resources
     /// watching it are asked again, in one batch.
     pub fn changed(&mut self, topic: &str) -> String {
-        let (receipts, error) = match self.runner.changed(topic) {
-            Ok(Some(receipt)) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("changed: {e:?}"))),
-        };
-        self.batch_for(&receipts, error.as_deref())
+        let answer = self.runner.changed(topic);
+        self.told(answer, "changed")
     }
 
     /// The viewer's locale and zone, beside the date.
-    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
-        let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {
+    pub fn set_place(
+        &mut self,
+        locale: &str,
+        time_zone: &str,
+        seed: Option<f64>,
+        format_locale: Option<&str>,
+    ) -> String {
+        let answer = self
+            .runner
+            .set_place_formatted(locale, time_zone, seed, format_locale);
+        self.told(answer, "place")
+    }
+
+    /// A told fact's answer as one batch: its commit, nothing when the
+    /// fact is unchanged, or the refusal named by `what`.
+    fn told(&mut self, answer: Result<Option<CommitReceipt>, RunnerError>, what: &str) -> String {
+        let (receipts, error) = match answer {
             Ok(Some(receipt)) => (
                 vec![Timed {
                     at_ms: self.now_ms,
@@ -819,7 +794,7 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => (vec![], None),
-            Err(e) => (vec![], Some(format!("place: {e:?}"))),
+            Err(e) => (vec![], Some(format!("{what}: {e:?}"))),
         };
         self.batch_for(&receipts, error.as_deref())
     }
@@ -1365,9 +1340,12 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                if let Some(raw) = props.get("data-decoration-styles") {
-                    let css = crate::css::decoration_styles(raw, &self.font_names);
-                    props.insert("data-decoration-styles".into(), css);
+                // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+                for name in ["data-decoration-styles", "data-atom-styles"] {
+                    if let Some(raw) = props.get(name) {
+                        let css = crate::css::decoration_styles(raw, &self.font_names);
+                        props.insert(name.into(), css);
+                    }
                 }
                 svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
@@ -1430,9 +1408,12 @@ impl<D: DataSource> Host<D> {
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
-        if let Some(raw) = props.get("data-decoration-styles") {
-            let css = crate::css::decoration_styles(raw, &self.font_names);
-            props.insert("data-decoration-styles".into(), css);
+        // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
+        for name in ["data-decoration-styles", "data-atom-styles"] {
+            if let Some(raw) = props.get(name) {
+                let css = crate::css::decoration_styles(raw, &self.font_names);
+                props.insert(name.into(), css);
+            }
         }
         element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);

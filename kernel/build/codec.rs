@@ -1,9 +1,11 @@
-const CODEC_PATHS: [&str; 6] = [
+const CODEC_PATHS: [&str; 8] = [
     "../vendor/taffy/src/style/grid.rs",
     "build.rs",
     "build/codec.rs",
     "src/style/calc/wire.rs",
+    "src/style/calc/parse.rs",
     "src/style/grid.rs",
+    "src/style/grid/parse.rs",
     "src/wire/codec.rs",
 ];
 const SCHEMA_PATH: &str = "tables/schema.json";
@@ -185,6 +187,11 @@ fn parse_codec(s: &str) -> Codec {
             path: "crate::style::BoxShadows",
             variant: "BoxShadow",
             error: "BadBoxShadow",
+        },
+        "font-variations" => Codec::CssValue {
+            path: "crate::style::FontVariations",
+            variant: "FontVariations",
+            error: "BadFontVariations",
         },
         "text-shadow" => Codec::CssValue {
             path: "crate::style::TextShadow",

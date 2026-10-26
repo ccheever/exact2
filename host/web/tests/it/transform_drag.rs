@@ -123,7 +123,7 @@ fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
         .str(name);
     let guard = b.code(guard);
     let mut plan = b.finish().unwrap();
-    plan.bindings[handle].expr = guard;
+    plan.bindings.to_mut()[handle].expr = guard;
     plan.validate().unwrap();
     boot_plan(&plan.encode())
 }
@@ -675,6 +675,7 @@ fn each_missing_handler_refuses_publication_geometry_and_pair_admission() {
         let handler = plan.handlers.iter().position(|h| h.event == event).unwrap() as u32;
         let node = plan
             .nodes
+            .to_mut()
             .iter_mut()
             .find(|n| n.handlers.iter().any(|h| h.0 == handler))
             .unwrap();

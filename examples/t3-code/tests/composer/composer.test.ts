@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { composerPlaceholder, threadPhase, traitsMenu, commandChords, anchorsFrom, composerView, runtimeModes } from '../../src/composer/composer-presentation';
+import { composerPlaceholder, threadPhase, traitsMenu, commandChords, controlsWidth, composerView, runtimeModes } from '../../src/composer/composer-presentation';
 import { pickerCatalog, scoreModel, favoriteKeys, pickerReady } from '../../src/composer/model-catalog';
 
 const badge = () => ({ providerBadge: '', providerBadgeColor: '' });
@@ -83,9 +83,9 @@ describe('composer controls', () => {
     expect(commandChords(config, 'composer.mode', 'x')).toBe('');
     expect(commandChords({}, 'composer.mode', 'Meta+Shift+A')).toBe('Meta+Shift+A');
   });
-  test('trigger anchors come from the module status', () => {
-    expect(anchorsFrom({ anchors: { traits: [147, 90.5], runtime: [250.5, 133], controls: [0, 393] } })).toEqual({ traits: { x: 147, width: 90.5 }, runtime: { x: 250.5, width: 133 }, controls: { x: 0, width: 393 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 }, more: { x: 0, width: 0 } });
-    expect(anchorsFrom({})).toEqual({ traits: { x: 0, width: 0 }, runtime: { x: 0, width: 0 }, controls: { x: 0, width: 0 }, implement: { x: 0, width: 0 }, meter: { x: 0, width: 0 }, actions: { x: 0, width: 0 }, more: { x: 0, width: 0 } });
+  test('the controls row\'s width comes from the module\'s anchor', () => {
+    expect(controlsWidth({ anchors: { traits: [147, 90.5], controls: [0, 393] } })).toBe(393);
+    expect(controlsWidth({})).toBe(0);
   });
 });
 
@@ -114,6 +114,23 @@ describe('model picker catalog', () => {
     expect(catalog.models[2]!.label).toBe('1 models');
     expect(catalog).toMatchObject({ count: 4, legacyCount: 1 });
     expect(catalog.models[1]!.isNew).toBe(true);
+  });
+  test('a favorited legacy model rises with the favorites; unfavorited, it returns to the collapsed Legacy section', () => {
+    const legacyClient = (active: string) => client({ providerId: 'codex', modelId: active, config: { providers: [provider('codex', [{ slug: 'current', name: 'Current model' },
+      { slug: 'legacy-favorite', name: 'Legacy favorite', isLegacy: true }, { slug: 'current-favorite', name: 'Current favorite' }, { slug: 'other-legacy', name: 'Other legacy', isLegacy: true }])] } });
+    const c = legacyClient('current');
+    c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite']), JSON.stringify(['codex', 'legacy-favorite'])];
+    const rows = (catalog: ReturnType<typeof pickerCatalog>) => catalog.models.map(row => [row.kind, row.name]);
+    expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Legacy favorite'], ['model', 'Current favorite'], ['model', 'Current model'],
+      ['legacy', 'Legacy models'], ['legacy-model', 'Other legacy']]);
+    c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite'])];
+    expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Current favorite'], ['model', 'Current model'],
+      ['legacy', 'Legacy models'], ['legacy-model', 'Legacy favorite'], ['legacy-model', 'Other legacy']]);
+    // The active model's Legacy section opens expanded only when that model is not a favorite.
+    const favorite = legacyClient('legacy-favorite');
+    favorite.local.favoriteModels = [JSON.stringify(['codex', 'legacy-favorite'])];
+    expect(pickerCatalog(favorite, 'codex', '', badge).legacyDefault).toBe(false);
+    expect(pickerCatalog(legacyClient('other-legacy'), 'codex', '', badge).legacyDefault).toBe(true);
   });
   test('search crosses instances, ranks by field and boosts favorites; rail hides', () => {
     const c = two();

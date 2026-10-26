@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV launcher's banner (LLP 1115.001.003 D5), at the 320 × 180 dp Android TV asks for. Every app has this plain
+     one until a manifest names its own. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <size android:width="320dp" android:height="180dp" />
+    <solid android:color="#FF202124" />
+</shape>

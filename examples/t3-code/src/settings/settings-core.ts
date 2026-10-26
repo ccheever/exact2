@@ -1,7 +1,7 @@
 // Settings shell + General route data.
-// Reference: T3 Code 9c161462c9 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
-// settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx and
-// packages/shared/src/projectSettings.ts. Server rows read and write the connected
+// Reference: T3 Code 74541bab17 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
+// settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx, apps/web/src/modelSelection.ts
+// and packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
 import { changeCliCommand } from './cli-command';
@@ -12,6 +12,7 @@ import { ClientError, providerAvailable, type Native } from '../client/protocol'
 import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
 import { resolveTextGenerationSelection } from './text-generation-model';
+import { providerEntries, resolveAppModelSelectionForInstance, resolveSelectableProviderInstanceEntry } from '../composer/composer-provider-selection';
 import type { T3Client } from '../client/client';
 import { duplicateTheme, parseThemeFile, type CustomTheme } from '../appearance/settings-themes';
 import { themeRoles } from '../appearance/settings-appearance';
@@ -83,6 +84,8 @@ export const CLIENT_DEFAULTS = {
   // The address bar's search engine (contracts settings.ts BrowserSearchEngine, default DuckDuckGo) and the custom
   // search URL, a `%s` template kept when the engine is switched away from Custom so switching back restores it.
   browserSearchEngine: 'duckduckgo', browserCustomSearchUrl: '',
+  // Opt-in TeX typesetting in rendered Markdown (mathRenderingEnabled, default off).
+  mathRenderingEnabled: false,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
@@ -236,7 +239,7 @@ export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection
   'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode']);
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
-  snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, sidebarAutoSettleKeepPullRequests: false, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
+  snoozeLimitedThreads: false, compactIdleThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, sidebarAutoSettleKeepPullRequests: false, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
   continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
   enableAgentBrowserAccess: true,
@@ -274,7 +277,9 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
   targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; autoSettlementScopeEverywhere: boolean; settingsWritable: boolean;
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
-  catalogs: Map<string, Obj[]> };
+  catalogs: Map<string, Obj[]>;
+  /** This device's preferences: models it hides, and a model a hidden default falls back to (resolveEffectiveDefaultModelSelection). */
+  local?: object };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
 function targetValue(target: ScopedSettingsTarget, key: string): Json {
   const value = (key in target.settings ? target.settings[key] : SERVER_DEFAULTS[key]) as Json;
@@ -388,12 +393,16 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
     const resolved = resolveTextGenerationSelection(selection, providers);
     return resolved ? traitsControl(context, resolved.provider, resolved.model, resolved.options) : { kind: 'text-only', label: 'No text generation providers available.' };
   }
-  const chosen = selection && providers.find(provider => provider.instanceId === selection.instanceId && arr(provider.models).some(model => model.slug === selection.model));
-  const provider = chosen || providers[0];
-  if (!provider) return { kind: 'text-only', label: 'No providers available' };
-  const models = arr(provider.models);
-  const model = chosen ? models.find(entry => entry.slug === selection!.model)! : models.find(entry => entry.isDefault === true) || models[0];
-  return traitsControl(context, provider, model, arr(chosen ? selection!.options : []));
+  // resolveDefaultProviderModelSelection: the saved instance while it is selectable, else a ready one at its default model.
+  const entry = resolveSelectableProviderInstanceEntry(providerEntries(providers), selection ? str(selection.instanceId) : undefined);
+  if (!entry) return { kind: 'text-only', label: 'No providers available' };
+  const stored = selection && str(selection.instanceId) === entry.instanceId;
+  const storedModel = stored ? str(selection!.model) : str(entry.models.find(model => model.isDefault === true)?.slug, str(entry.models[0]?.slug));
+  // resolveEffectiveDefaultModelSelection: a saved model this device hides shows the model new drafts fall back to,
+  // with the saved options, as the new-thread composer resolves them.
+  const effective = resolveAppModelSelectionForInstance(context.local ?? {}, context.settings, providers, entry.instanceId, storedModel, true) ?? storedModel;
+  const model = entry.models.find(candidate => candidate.slug === effective) ?? (effective ? { slug: effective, name: effective } : undefined);
+  return traitsControl(context, entry.snapshot, model, stored ? arr(selection!.options) : []);
 }
 /** The model trigger and its TraitsPicker for one resolved instance, model and saved options. */
 export function traitsControl(context: { providers: Obj[] }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
@@ -401,8 +410,10 @@ export function traitsControl(context: { providers: Obj[] }, provider: Obj, mode
   const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'boolean' || descriptor.type === 'select' && arr(descriptor.options).length > 0);
   const choices = (descriptor: Obj) => descriptor.type === 'boolean' ? [{ id: 'true', label: 'On' }, { id: 'false', label: 'Off' }]
     : arr(descriptor.options).filter(entry => !Array.isArray(descriptor.promptInjectedValues) || !descriptor.promptInjectedValues.some(value => value === entry.id));
-  const current = (descriptor: Obj) => descriptor.type === 'boolean' ? String(selections.find(entry => entry.id === descriptor.id)?.value ?? descriptor.currentValue ?? false) : str(selections.find(entry => entry.id === descriptor.id)?.value,
-    str(arr(descriptor.options).find(entry => entry.isDefault === true)?.id, str(arr(descriptor.options)[0]?.id)));
+  // A saved value the model does not offer (options carried over from a hidden model) shows the descriptor's default.
+  const current = (descriptor: Obj) => descriptor.type === 'boolean' ? String(selections.find(entry => entry.id === descriptor.id)?.value ?? descriptor.currentValue ?? false)
+    : str(choices(descriptor).find(entry => entry.id === selections.find(saved => saved.id === descriptor.id)?.value)?.id,
+      str(arr(descriptor.options).find(entry => entry.isDefault === true)?.id, str(arr(descriptor.options)[0]?.id)));
   const effort = descriptors.find(descriptor => ['reasoningEffort', 'effort'].includes(str(descriptor.id)));
   const effortValue = effort ? current(effort) : '';
   // buildTraitsTriggerDisplay over every trait (TraitsPicker with the setting's options): "Medium · 1M", "High Fast".
@@ -472,6 +483,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Auto-resume limited threads', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
     serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze limited threads', 'Snooze usage-limit stops until the reported reset time. Combine with auto-resume to continue when they wake.', 'switch', {}, false),
     deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section (beta)', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
+    serverRow(context, 'compactIdleThreads', 'compact-idle-threads', 'Compact idle Claude threads (beta)', 'Compact long idle Claude threads just before their prompt cache expires, so coming back costs less.', 'switch', { resetLabel: 'compact idle Claude threads' }, false),
     ...(autoSettle ? [
       serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
       serverRow(context, 'sidebarAutoSettleAfterDays', 'auto-settle-inactive-threads', 'Auto-settle inactive threads', 'Sidebar threads with no activity for this long settle automatically.', 'switch', { checked: days.value !== null, resetLabel: 'auto-settle' }),
@@ -567,7 +579,7 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
     targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere, autoSettlementScopeEverywhere,
     settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
-    catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])) };
+    catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])), local: client.local };
 }
 /**
  * useScopedModelDisabledReason / ProjectDefaultsSettings modelDisabledReason: a model choice fans
@@ -617,7 +629,7 @@ export function settingPlan(client: T3Client, scope: CoreScope, key: string, val
 }
 const SERVER_ROW_KEYS: Record<string, string> = {
   'default-model': 'defaultModelSelection', 'default-permissions': 'defaultRuntimeMode', 'new-threads': 'defaultThreadEnvMode', 'worktree-submodules': 'worktreeSubmodules',
-  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
+  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'compact-idle-threads': 'compactIdleThreads', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
   'keep-threads-with-pr': 'sidebarAutoSettleKeepPullRequests', 'auto-settle-inactive-threads': 'sidebarAutoSettleAfterDays', 'days-before-auto-settle': 'sidebarAutoSettleAfterDays', 'response-streaming': 'responseStreamingMode',
   'provider-update-checks': 'enableProviderUpdateChecks', 'continue-threads-after-server-update': 'continueThreadsAfterServerUpdate', 'background-activity': 'backgroundActivity',
   'background-advanced': 'backgroundActivity', 'start-from-origin': 'newWorktreesStartFromOrigin', 'add-project-starts-in': 'addProjectBaseDirectory', 'text-generation-model': 'textGenerationModelSelection',
@@ -698,7 +710,8 @@ const THEME_MIX = 'themeMix';
 const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
   ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
   ['Glass opacity', 'device', ['glassOpacity']],
-  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Panel animations', 'device', ['panelAnimationDurationMs']],
+  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Render math', 'device', ['mathRenderingEnabled']],
+  ['Panel animations', 'device', ['panelAnimationDurationMs']],
   ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],

@@ -628,6 +628,63 @@ fn a_leaf_wider_than_its_column_is_as_tall_as_its_lines_at_its_used_width() {
     assert_eq!(k.node(2).unwrap().frame.height, 304.0);
 }
 
+/// The same bubble with no `max-width` of its own, its bound on the column
+/// only (chat-rooms, round 32: a time under each bubble). `break-word` adds
+/// no break to min-content (CSS Text 3 §5.5), so the shrink-to-fit leaf takes
+/// the word's width and overflows its column, as in Chrome; `anywhere` does,
+/// and it wraps at the column's width. Chrome 155, 2026-10-20, plain HTML:
+/// 16px/18px monospace; break-word: #3 one line, 34 tall, its right edge at
+/// the column's (400); anywhere: #3 at x 100, 300 wide, 340 tall.
+#[test]
+fn a_bubble_bounded_only_by_its_column_wraps_a_long_word_only_anywhere() {
+    for (wrap, want) in [
+        ("break-word", None),
+        ("anywhere", Some([100.0, 300.0, 340.0])),
+    ] {
+        let k = lay_out_with(
+            props(&vec![
+                (Display, t("flex")),
+                (JustifyContent, t("flex-end")),
+                (Width, n(400.0)),
+            ]),
+            vec![
+                (
+                    2,
+                    1,
+                    vec![
+                        (Display, t("flex")),
+                        (FlexDirection, t("column")),
+                        (AlignItems, t("flex-end")),
+                        (MaxWidth, t("75%")),
+                    ],
+                ),
+                (
+                    3,
+                    2,
+                    vec![
+                        (PaddingLeft, n(12.0)),
+                        (PaddingRight, n(12.0)),
+                        (PaddingTop, n(8.0)),
+                        (PaddingBottom, n(8.0)),
+                        (OverflowWrap, t(wrap)),
+                    ],
+                ),
+            ],
+            &[(3, &"y".repeat(480))],
+            &[],
+        );
+        let (c, f) = (k.node(2).unwrap().frame, k.node(3).unwrap().frame);
+        assert_eq!([c.x, c.width], [100.0, 300.0], "{wrap}: the column");
+        match want {
+            Some(want) => assert_eq!([f.x, f.width, f.height], want, "{wrap}"),
+            None => {
+                assert_eq!([f.x + f.width, f.height], [400.0, 34.0], "{wrap}");
+                assert!(f.width > 4000.0, "{wrap}: the word's width, {}", f.width);
+            }
+        }
+    }
+}
+
 /// A flex column whose height is automatic is as tall as its items, each
 /// clamped by its minimum and maximum (CSS Flexbox §9.2 step 4, §9.9.1),
 /// whatever space it is offered (issue X86, vendored Taffy patch 33). A

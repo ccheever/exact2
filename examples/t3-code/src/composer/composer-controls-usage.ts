@@ -10,7 +10,7 @@
 // state of each opened panel lives here (reset-credits.ts redeemStep), and "Use credit" sends a
 // detached request (composer-replies.ts) so the window stays usable while it waits.
 import { arr, obj, str, num, type Obj } from '../client/domain';
-import { ClientError, bridgeReply, type Files, type Native } from '../client/protocol';
+import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import type { T3Client } from '../client/client';
 import { composerNow } from './composer-controls';
@@ -20,7 +20,7 @@ import { PACE_LABEL, barColor, collectProviderUsageLimits, formatResetsIn, hasPr
 import { REDEEM_IDLE, redeemStep, resetCreditsShown, resetCreditsSummary, type RedeemEvent, type RedeemState } from '../usage/reset-credits';
 import { redactedValue } from '../shared/redacted-text';
 import { startDetached, type DetachedReply } from './composer-replies';
-import { letGo } from '../client/let-go';
+import { openExternal } from '../client/external-open';
 
 export { isUsageLimitsCommand };
 const DRIVER_LABELS: Record<string, string> = { codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', antigravity: 'Antigravity', pi: 'Pi', acpRegistry: 'ACP Registry' };
@@ -157,7 +157,7 @@ export async function usageLocal(client: T3Client, native: Native, op: string, i
   const current = panel.redeems.get(id) ?? REDEEM_IDLE;
   if (op === 'usage-manage') {
     const url = str(obj(account?.limits.externalUsage).url);
-    if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }).catch(error => { if (letGo(error)) throw error; });
+    if (url) openExternal(url);
     return '';
   }
   if (op === 'usage-reset-ask') {

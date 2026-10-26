@@ -93,7 +93,6 @@ describe('abandon-safe reads and traces', () => {
     const seen: Obj[] = [];
     const later = async (input: unknown) => {
       const request = obj(input); seen.push(request);
-      if (request.op === 'readPreferences') return { ok: true, generation: 1, value: { text: '' } };
       if (request.op === 'status') return { ok: true, generation: 1, value: { state: 'disconnected', origin: 'http://127.0.0.1:1', environmentId: '', message: 'Disconnected.', traces: [] } };
       if (request.fleet !== undefined || request.op === 'environments') return { ok: true, generation: 1, value: { saved: [] } };
       return { ok: true, generation: 1, value: {} };

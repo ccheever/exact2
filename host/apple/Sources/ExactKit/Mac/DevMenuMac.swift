@@ -7,7 +7,8 @@
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
 // equivalents, not key bindings; without this they are dead), with Paste
 // and Match Style, Find, Spelling and Grammar, Substitutions,
-// Transformations and Speech as AppKit's template has them; Help, with
+// Transformations and Speech as AppKit's template has them; View, with
+// Actual Size and Zoom In and Out (ZoomMac.swift); Help, with
 // AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
 // in a development build only (LLP 1115.000 D7.8: a release build has no
@@ -98,13 +99,24 @@ public enum DevMenu {
     static let target = DevMenuTarget()
     static let editTarget = EditMenuTarget()
     static let goTarget = GoMenuTarget()
+    static let zoomTarget = ZoomMenuTarget()
+    /// The identifiers `-exact-menu-remove` finds the host's own submenus
+    /// and its Develop menu by (LLP 1021 §5.3), whatever their titles.
+    static let removable: [String: NSUserInterfaceItemIdentifier] = [
+        "find": .init("exact.menu.find"), "spelling-and-grammar": .init("exact.menu.spelling-and-grammar"),
+        "substitutions": .init("exact.menu.substitutions"), "transformations": .init("exact.menu.transformations"),
+        "develop": .init("exact.menu.develop"),
+    ]
+    /// View's hidden ⌘= Zoom In beside the ⌘+ one, and the zoom group's separator.
+    static let zoomAlternate = NSUserInterfaceItemIdentifier("exact.menu.zoom-in-equals")
+    static let zoomSeparator = NSUserInterfaceItemIdentifier("exact.menu.zoom-separator")
     /// Whether a build has the Develop menu and its chords (LLP 1115.000
     /// D7.8): a development build does, a release build does not, as a
     /// shipped Mac app has no such menu. A release build is one baked with
-    /// production trust (its `compat.json`, which an app with no updater does
-    /// not record) or stamped `release` or `archive` by `build.mjs`
-    /// (`ExactBuildKind`: production trust, or `--distribution`, what
-    /// `exact release` signs). An unstamped host (a test's) is a
+    /// production trust (`ExactEnv.productionBake`) or stamped `release` or
+    /// `archive` by `build.mjs` (`ExactBuildKind`: `--release`,
+    /// `--distribution`, what `exact release` signs, or `--archive`; each
+    /// bakes production trust). An unstamped host (a test's) is a
     /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
     /// for either (`ExactEnv.devMenu`).
     static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {
@@ -114,14 +126,27 @@ public enum DevMenu {
     public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
                                          override: ExactEnv.devMenu)
     /// The session the menu reloads, describes and opens into: the key
-    /// window's, which the adapter that owns the windows keeps current.
+    /// window's. Installing the menu follows that window's key notifications.
     nonisolated(unsafe) public static weak var session: ExactSession?
     /// Where a reload without a connection restarts from: the dev loop's
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
+    nonisolated(unsafe) private static var windowKeyObserver: NSObjectProtocol?
     nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
     public static func install(session: ExactSession, planPath: String?) {
+        if windowKeyObserver == nil {
+            windowKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+                guard DevMenu.session != nil, let window = note.object as? NSWindow, let root = window.contentView else { return }
+                func sessions(in view: NSView) -> [ExactSession] {
+                    if let exact = view as? ExactView { return [exact.session] }
+                    return view.subviews.flatMap { sessions(in: $0) }
+                }
+                let owners = sessions(in: root)
+                // An embedding window with several sessions chooses its own commands.
+                if owners.count == 1 { DevMenu.select(session: owners[0]) }
+            }
+        }
         if widgetGenerationObserver == nil {
             widgetGenerationObserver = NotificationCenter.default.addObserver(forName: Notification.Name("ExactWidgetGeneration"), object: nil, queue: .main) { _ in
                 guard let session = DevMenu.session else { return }
@@ -200,10 +225,12 @@ public enum DevMenu {
         // chain's own actions, which a field's `NSTextView` answers and
         // validates, disabled where nothing does.
         edit.addItem(.separator())
-        edit.addItem(withTitle: "Find", action: nil, keyEquivalent: "").submenu = findMenu()
-        edit.addItem(withTitle: "Spelling and Grammar", action: nil, keyEquivalent: "").submenu = spellingMenu()
-        edit.addItem(withTitle: "Substitutions", action: nil, keyEquivalent: "").submenu = substitutionsMenu()
-        edit.addItem(withTitle: "Transformations", action: nil, keyEquivalent: "").submenu = transformationsMenu()
+        for (id, title, submenu) in [("find", "Find", findMenu()), ("spelling-and-grammar", "Spelling and Grammar", spellingMenu()),
+                                     ("substitutions", "Substitutions", substitutionsMenu()), ("transformations", "Transformations", transformationsMenu())] {
+            let item = edit.addItem(withTitle: title, action: nil, keyEquivalent: "")
+            item.submenu = submenu
+            item.identifier = removable[id]
+        }
         // Speech, as Apple's HIG and every AppKit text app have it (#141):
         // the responder chain's own actions, a field's `NSTextView` reading
         // its selection or its text, the session's view the selected text.
@@ -213,6 +240,21 @@ public enum DevMenu {
         edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
+        // Actual Size, Zoom In and Zoom Out, as Safari's and Preview's View
+        // has them (LLP 1021 §5.3, ZoomMac.swift). A keyboard's ⌘= reaches
+        // the ⌘+ item, but an event without the layout's (the agent's) does
+        // not: a hidden ⌘= item takes that one.
+        for (title, action, key) in [("Actual Size", #selector(ZoomMenuTarget.actualSize(_:)), "0"),
+                                     ("Zoom In", #selector(ZoomMenuTarget.zoomIn(_:)), "+"),
+                                     ("Zoom In", #selector(ZoomMenuTarget.zoomIn(_:)), "="),
+                                     ("Zoom Out", #selector(ZoomMenuTarget.zoomOut(_:)), "-")] {
+            let item = view.addItem(withTitle: title, action: action, keyEquivalent: key)
+            item.target = zoomTarget
+            if key == "=" { item.identifier = zoomAlternate; item.isHidden = true; item.allowsKeyEquivalentWhenHidden = true }
+        }
+        let zoomEnd = NSMenuItem.separator()
+        zoomEnd.identifier = zoomSeparator
+        view.addItem(zoomEnd)
         // Show Sidebar ⌃⌘S (LLP 1115.002 D3): the split view controller's
         // own action, which names the item for what it will do. There only
         // while the window's sidebar is the app's root tab bar (`ShortcutHost.sync`).
@@ -238,6 +280,7 @@ public enum DevMenu {
         NSApp.windowsMenu = window
         if develop {
             let devItem = NSMenuItem()
+            devItem.identifier = removable["develop"]
             bar.addItem(devItem)
             let dev = NSMenu(title: "Develop")
             dev.addItem(withTitle: "Reload", action: #selector(DevMenuTarget.reload(_:)), keyEquivalent: "r").target = target
@@ -337,9 +380,10 @@ public enum DevMenu {
     }
 
     /// The menu bar as drawn, for the agent's `state` (studio diary R16):
-    /// each menu's shown items, with the chord each answers (`⇧⌘Z`).
+    /// each shown menu's shown items, the app menu's first, with the chord
+    /// each answers (`⇧⌘Z`).
     public static var menuBar: [[String: Any]] {
-        (NSApp.mainMenu?.items ?? []).dropFirst().compactMap(\.submenu).map { menu in
+        (NSApp.mainMenu?.items ?? []).filter { !$0.isHidden }.compactMap(\.submenu).map { menu in
             menu.delegate?.menuNeedsUpdate?(menu)
             return ["title": menu.title, "items": menu.items.filter { !$0.isHidden }.map { item -> String in
                 if item.isSeparatorItem { return "—" }

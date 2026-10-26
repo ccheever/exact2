@@ -151,7 +151,8 @@ fn grant_sets() -> String {
         "net.fetch https://fixture.exact.test\n",
         "secret.keep dpop\n",
         "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
-        "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
+        // js/tests/fixtures/storage.ts's, as it declares them (its widget cache writes since 5363e50241).
+        "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
         "fs.read app:/\nfs.write app:/\nsqlite.open app:/data",
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
@@ -342,7 +343,8 @@ try {
     const answer=(source,args=[])=>call({op:'answer',id:module.id,source,args,store:[['token','old']],grants:['token']});
     const results=[];
     for(const name of ['alias','random','constructor','intl'])results.push(await checkpoint(answer(name)));
-    if(!results.every(r=>r.message?.includes('pass time or a random seed')))throw new Error(JSON.stringify(results));
+    // Each refused with its way out (Math.random's names crypto.getRandomValues since 24bf4fc341).
+    if(!results.every(r=>r.kind==='Unavailable'&&r.message?.includes('is unavailable in data sources')&&/pass (time or )?a (random )?seed/.test(r.message)))throw new Error(JSON.stringify(results));
     if((await checkpoint(answer('explicit',[0]))).value!==1970)throw new Error('explicit date arithmetic changed');
     const written=await checkpoint(answer('write'));
     if(written.value!=='old'||written.reads[0]!=='token'||written.writes[0][1]!=='next')throw new Error('store seam changed');
@@ -572,7 +574,7 @@ try {
     };
     // The fixture's own grants (js/tests/fixtures/storage.ts, js/tests/it/storage.rs GRANTS): its module declares
     // them, and admission refuses a module whose declaration differs from the admitted one.
-    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
+    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
@@ -679,7 +681,8 @@ try {
     performance.getEntriesByType=type=>type==='navigation'?[{name:location.origin+'/?agent=1'}]:navigationEntries.call(performance,type);
     try {
       storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
-      if(!(await storageCall('bake')).includes('unavailable in agent mode'))throw new Error('agent mode disk access');
+      // A drive that names no scratch store reads an empty one, never the app's disk (08f21295d1).
+      if(!/^Unavailable:ENOENT:.*names no scratch store/.test(await storageCall('bake')))throw new Error('agent mode disk access');
       storage.dispose();
     } finally {performance.getEntriesByType=navigationEntries;}
     const abandonedSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
@@ -913,7 +916,8 @@ try {
     train.dispose();
     return {ecdsa:globalThis.ecdsaResult,guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
   };
-  const result=await call('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true});
+  // Its busy-storage steps each wait out a lock's 10 s bound (storage-fs.js `lockPaths`, since 837ecf4360): past CDP's 15 s.
+  const result=await cdp.send('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true},sessionId,240000);
   assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value.sqliteReload));delete result.result.value.sqliteReload;
   console.log('ECDSA_RESULT '+JSON.stringify(result.result.value.ecdsa));delete result.result.value.ecdsa;
@@ -1174,6 +1178,9 @@ try {
     // the native fixture separately executes the Rust source through ABI2.
     const rows=await request('sqlite',{path:db,commands:[command('query','SELECT id,title,body,pinned FROM notes ORDER BY pinned DESC,id DESC')]});
     check(!rows.error,'portable SQL opens TS database: '+JSON.stringify(rows));
+    // Two at once take turns: a second open waiting in the worker's one queue for the first's lock would hold back the first's close until the lock's bound refused it EBUSY.
+    const both=await Promise.all([1,2].map(n=>request('sqlite',{path:db,commands:[command('query','SELECT ?',[{integer:String(n)}])]})));
+    check(both.every(r=>!r.error)&&both[1][0].rows[0][0].integer==='2','overlapping portable requests to one database both answer: '+JSON.stringify(both));
     const notes=rows[0].rows.map(r=>({id:r[0].integer,title:r[1],body:r[2],pinned:r[3].integer==='1'}));
     const text=JSON.stringify({version:1,notes},null,2);check(text===expected.backupText,'portable backup preserves exact TypeScript format');
     check(!(await request('fs.mkdir',{path:'app:/data/backups'}))?.error,'portable mkdir');

@@ -7,6 +7,8 @@
 //! structs with their `Value` conversions, for a data crate's `build.rs`.
 //! `contract verify <file.contract>` — the app against the Lean semantics
 //! (`verify.rs`; it needs Lean, and nothing else here does).
+//! `contract gallery <app> -o <dir>` — the design tool's variant gallery of the
+//! app's library components, written into `<dir>` (`contract::gallery`).
 
 use std::process::ExitCode;
 
@@ -42,6 +44,7 @@ const USAGE: &str = "usage:
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
   contract vocab [--json] [--all] [<name> …]
+  contract gallery <app> -o <dir>  (<app>: a directory or app.contract; <dir>: a build cache, never the app's tree)
   contract tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]  (<app>: a directory, app.contract or file.tamber; a flag before or after it)";
 
 #[cfg(windows)]
@@ -78,6 +81,7 @@ fn run() -> ExitCode {
         Some("lean") => lean(&args[1..]),
         Some("verify") => verify::run(&args[1..]),
         Some("vocab") => vocab::run(&args[1..]),
+        Some("gallery") => gallery(&args[1..]),
         Some("tamber") => tamber::run(&args[1..]),
         // The union of tokens a binding may name follows the design's `exports` (LLP 1121 D7).
         Some("types") => types(&args[1..], "types", "app.d.ts", |plan, path| {
@@ -89,6 +93,62 @@ fn run() -> ExitCode {
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
+        }
+    }
+}
+
+/// `contract gallery <app> -o <dir>`: a line per cell refused, and a summary.
+fn gallery(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract gallery <app> -o <dir>";
+    let (input, out) = match args {
+        [flag] if matches!(flag.as_str(), "--help" | "-h") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        [input, o, out] if o == "-o" => (input, out),
+        [o, out, input] if o == "-o" => (input, out),
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let input = std::path::Path::new(input);
+    let app = if input.is_dir() {
+        input.join("app.contract")
+    } else {
+        input.to_path_buf()
+    };
+    match contract::gallery::generate(&app, std::path::Path::new(out)) {
+        Ok(g) => {
+            for c in g.cells.iter().filter(|c| c.refused.is_some()) {
+                let what = c
+                    .varied
+                    .as_ref()
+                    .map(|(p, v)| format!("{p}={v}"))
+                    .unwrap_or_else(|| "first values".into());
+                println!(
+                    "gallery: {} · {what}: can't place: {}",
+                    c.component,
+                    c.refused.as_deref().unwrap_or("")
+                );
+            }
+            let components = g
+                .cells
+                .iter()
+                .map(|c| &c.identity)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let refused = g.cells.iter().filter(|c| c.refused.is_some()).count();
+            println!(
+                "gallery: {components} components, {} cells ({refused} refused) -> {}",
+                g.cells.len(),
+                g.source.display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("gallery: {why}");
+            ExitCode::FAILURE
         }
     }
 }

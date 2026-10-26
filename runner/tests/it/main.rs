@@ -6,6 +6,8 @@ mod active_route;
 mod app_module;
 mod canvas2d;
 mod flow_agent;
+mod font_axes;
+mod font_keyframes;
 mod foresee;
 mod format;
 mod frames_agent;

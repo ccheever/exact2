@@ -77,7 +77,9 @@ import UIKit
     }
     private func receipt(_ reply: [String: Any]) -> [String: Any] { (reply["value"] as? [String: Any])?["receipt"] as? [String: Any] ?? [:] }
     private func cleanup(_ f: Fixture) { f.registry.destroy(); f.port.destroy(); f.port.view.removeFromSuperview() }
-    private func settle() async { try? await Task.sleep(nanoseconds: 100_000_000) }
+    private func idle(_ f: Fixture) async {
+        await withCheckedContinuation { continuation in f.registry.whenIdle { continuation.resume() } }
+    }
     func run() async -> [String: Any] {
         await attempt("basic") {
             let f = try fixture(); defer { cleanup(f) }
@@ -179,7 +181,7 @@ import UIKit
             let start = Date(); f.port.destroy(); check(Date().timeIntervalSince(start) < 0.1, "native owner end does not wait behind disk worker")
             f.disk.resume.signal(); check(await result["ok"] as? Bool == false, "already-dispatched work refuses success after owner end")
             check(await perform(f)["ok"] as? Bool == false, "ended native registration cannot be forged back by same strings")
-            await settle(); try saved(f, []); _ = try f.coordinator.releaseAttachments()
+            await idle(f); try saved(f, []); _ = try f.coordinator.releaseAttachments()
             check(!FileManager.default.fileExists(atPath: f.url.path), "ended owner cleanup uses guarded candidate drain")
         }
         await attempt("owner ends before delayed worker starts") {
@@ -189,15 +191,16 @@ import UIKit
             async let first = perform(f)
             let entered = await Task.detached { f.disk.entered.wait(timeout: .now() + 3) == .success }.value
             check(entered, "first worker blocks serial queue")
-            var pending: [String: Any]?
-            f.registry.perform(request) { pending = $0 }
-            second.destroy(); f.disk.resume.signal(); _ = await first
-            for _ in 0..<30 where pending == nil { await settle() }
-            check(pending?["ok"] as? Bool == false, "claimed work queued before retirement refuses when it starts later")
+            let pending: [String: Any] = await withCheckedContinuation { continuation in
+                f.registry.perform(request) { continuation.resume(returning: $0) }
+                second.destroy(); f.disk.resume.signal()
+            }
+            _ = await first
+            check(pending["ok"] as? Bool == false, "claimed work queued before retirement refuses when it starts later")
         }
         await attempt("ended uncertainty") {
             let f = try fixture(); defer { cleanup(f) }; f.disk.failBefore = true
-            _ = await perform(f); try saved(f, []); f.port.destroy(); await settle()
+            _ = await perform(f); try saved(f, []); f.port.destroy(); await idle(f)
             check(try remove(f)["retained"] as? Bool == true, "ended unresolved candidate retains bytes")
             f.disk.failBefore = false; _ = try f.coordinator.releaseAttachments()
             check(!FileManager.default.fileExists(atPath: f.url.path), "explicit drain repairs ended candidate then cleans bytes")

@@ -172,6 +172,32 @@ fn a_haptic_kind_is_checked_in_each_arm_and_a_near_one_named() {
     );
 }
 
+#[test]
+fn a_native_button_haptic_repair_compiles() {
+    let app = |attr: &str, command: &str| {
+        format!(
+            "component App\n  action buzz\n    {command}\n  view\n    button buttonStyle=\"glass\" press=buzz {attr}\n      text \"Buzz\"\n"
+        )
+    };
+    for kind in exact_plan::HAPTIC_KINDS.into_iter().chain(["none", "buzz"]) {
+        let attr = format!("-exact-press-haptic=\"{kind}\"");
+        let e = contract::compile(&app(&attr, "")).unwrap_err();
+        assert_eq!(e.id, "lower-button-style", "{kind}: {e}");
+        let command = if exact_plan::HAPTIC_KINDS.contains(&kind) {
+            let command = format!("haptic(\"{kind}\")");
+            assert!(e.message.contains(&format!("`{command}`")), "{e}");
+            command
+        } else {
+            assert!(e.message.contains("remove `-exact-press-haptic`"), "{e}");
+            assert!(!e.message.contains("haptic("), "{e}");
+            String::new()
+        };
+        if let Err(e) = contract::compile(&app("", &command)) {
+            panic!("{kind}: {e}");
+        }
+    }
+}
+
 /// The euxy port: a cancelled pointer is a `pointerup` on every host, and
 /// the refusal of `pointercancel` says so.
 #[test]

@@ -7,7 +7,7 @@
 //! that draws the sheet reads it here; the web's sheet, which keeps no
 //! kernel, draws the same line in CSS (`host/web/index.html`).
 
-use crate::generated::{BoxSizing, Display, Overflow, PropId, StyleId, Visibility};
+use crate::generated::{BoxSizing, Direction, Display, Overflow, PropId, StyleId, Visibility};
 use crate::id::{Frame, ViewId};
 use crate::kernel::{Kernel, NodeRef};
 use crate::style::{metrics, ColorValue, StyleValue};
@@ -17,7 +17,7 @@ use crate::style::{metrics, ColorValue, StyleValue};
 pub struct GroupedSeparator {
     /// The line in the row's own space, in points: from the row's content
     /// edge to `grouped-separator-end` before its padding box's trailing
-    /// edge, one point high at the foot of its padding box; where rows
+    /// edge (mirrored right to left), one point high at the foot of its padding box; where rows
     /// stand apart (`grouped-separator-gap`, the Mac's), in that gap, below
     /// the row's box.
     pub rect: Frame,
@@ -40,7 +40,7 @@ impl Kernel {
         {
             return None;
         }
-        let (left, ..) = self.resolved_padding(row.key)?;
+        let (left, _, right, _) = self.resolved_padding(row.key)?;
         let (border_left, _, border_right, _) = self.resolved_border(row.key)?;
         let f = row.frame;
         // The Mac's destructive row is its push button's box, which stands
@@ -48,15 +48,19 @@ impl Kernel {
         // metrics): the line spans it, as it spans a row's insets.
         let pushed = row.style.box_sizing == BoxSizing::ContentBox
             && row.props.bool(PropId::Destructive) == Some(true);
-        let (from, end) = if pushed {
-            (border_left, 0.0)
+        let end = if pushed {
+            0.0
         } else {
-            (
-                border_left + left,
-                super::sheet("-exact-grouped-separator-end"),
-            )
+            super::sheet("-exact-grouped-separator-end")
         };
-        let to = f.width - border_right - end;
+        // Right to left the row's insets mirror (`style::sides::mirror_unsaid`),
+        // and the line runs from its content's right edge to the left.
+        let rtl = row.computed_row(StyleId::Direction, |s| s.direction) == Direction::Rtl;
+        let (from, to) = match (pushed, rtl) {
+            (true, _) => (border_left, f.width - border_right),
+            (false, false) => (border_left + left, f.width - border_right - end),
+            (false, true) => (border_left + end, f.width - border_right - right),
+        };
         if to <= from {
             return None;
         }

@@ -59,7 +59,7 @@ pub(crate) struct Presence {
     pub(super) frame: Option<f64>,
     /// Each virtualized list's data generation, and whether it runs along
     /// x, at the last layout.
-    generations: Vec<(ViewId, u64, bool)>,
+    pub(super) generations: Vec<(ViewId, u64, bool)>,
     /// The lists whose data this layout's commit did not change: their rows'
     /// moves are the list's own (`LayoutMotion::observe_unauthored`).
     settled: IdSet<ViewId>,
@@ -382,6 +382,7 @@ impl<D: DataSource> Host<D> {
                 self.runner.kernel(),
                 &mut self.engine,
                 &|v| runs.contains_key(&v),
+                &|v| !self.runner.handlers_of(v).is_empty(),
                 new,
             ) {
                 self.svg.played(view);

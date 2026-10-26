@@ -1,7 +1,6 @@
 // Remote open-in-editor (MIT reference, see LICENSE-T3: apps/web/src/remoteOpen.ts,
 // components/chat/OpenInPicker.tsx and OpenInPicker.logic.ts, ChatMarkdown.tsx
-// canUseMarkdownFileShellActions, apps/desktop/src/electron/ElectronShell.ts
-// parseSafeExternalUrl, at 1e2ecbd975; the remote editor links and their usernames at 74541bab17). When this client
+// canUseMarkdownFileShellActions, at 1e2ecbd975; the remote editor links and their usernames at 74541bab17). When this client
 // is not on the environment's machine, "Open" hands the OS a `vscode://vscode-remote/ssh-remote+…`
 // deep link (Zed's and JetBrains' own shapes too; the local editor connects over SSH) instead of
 // running an editor on the environment's host.
@@ -21,6 +20,7 @@ import { focusedOnPrimary } from './local-primary';
 import { savedRoutes } from './connection-routes';
 import { sshTargets } from './settings-b-ssh';
 import type { T3Client } from '../client/client';
+import { openExternal } from '../client/external-open';
 
 export type RemoteOpenHost = { kind: 'ssh-alias' | 'tailscale' | 'mdns'; host: string; username?: string };
 export type SshOpenTarget = { alias: string; username: string | null };
@@ -71,25 +71,6 @@ export function shouldShowOpenInPicker(input: { activeProjectName: string | unde
 /** canUseMarkdownFileShellActions: a Markdown file link gets editor actions only where Open runs on this machine. */
 export function canUseMarkdownFileShellActions(environmentId: string | null, remoteOpenMode: RemoteOpenMode, isRemoteOpenResolved: boolean): boolean {
   return environmentId !== null && isRemoteOpenResolved && remoteOpenMode === 'local-exec';
-}
-
-// ── Safe external URLs (ElectronShell.ts parseSafeExternalUrl; Swift's T3RemoteEditors.safeExternalUrl is the gate) ──
-const SAFE_WEB_PROTOCOLS = new Set(['http:', 'https:']);
-const REMOTE_EDITOR_PROTOCOLS = new Set(REMOTE_CAPABLE_EDITOR_IDS.flatMap(id => { const scheme = remoteSchemeForEditor(id); return scheme ? [`${scheme}:`] : []; }));
-// Zed embeds [user@]host in the path; reject passwords and ports there.
-const ZED_SSH_PATHNAME = /^\/(?:[^/@:]+@)?[^/@:]+\/.*$/;
-function isRemoteEditorUrl(url: URL): boolean {
-  return REMOTE_EDITOR_PROTOCOLS.has(url.protocol) && url.username.length === 0 && url.password.length === 0
-    && (url.protocol === 'zed:' ? url.host === 'ssh' && ZED_SSH_PATHNAME.test(url.pathname)
-      : url.protocol === 'jetbrains:' ? url.host === 'gateway' && url.pathname === '/ssh/environment' && (url.searchParams.get('h') ?? '').length > 0
-        : url.host === 'vscode-remote' && url.pathname.startsWith('/ssh-remote+') && url.pathname.length > '/ssh-remote+'.length);
-}
-export function parseSafeExternalUrl(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  try {
-    const url = new URL(raw);
-    return SAFE_WEB_PROTOCOLS.has(url.protocol) || isRemoteEditorUrl(url) ? url.href : null;
-  } catch { return null; }
 }
 
 // ── Remote-capable editors (useRemoteCapableEditors) ──
@@ -201,8 +182,7 @@ export async function openInEditorHere(client: T3Client, native: Native, cwd: st
   if (remote.state.mode === 'remote-links') {
     const url = buildRemoteOpenUrl({ editor, ...remote.state.host, absolutePath: cwd, isFile: options.isFile === true });
     if (url === undefined) return false;
-    const reply = await bridgeReply(native, { op: 'remoteEditorsOpen', url }).catch(() => null);
-    if (!reply?.ok || obj(reply.value).opened !== true) return false;
+    if (!openExternal(url)) return false;
     await markRemoteHintSeen(native);
     return true;
   }

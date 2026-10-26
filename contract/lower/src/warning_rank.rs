@@ -19,10 +19,12 @@ pub fn rank(id: &str, message: &str) -> u8 {
     match id {
         "lower-header-unplaced"
         | "lower-header-nested"
+        | "lower-header-routeless"
         | "lower-header-no-bar"
         | "lower-navigation-key"
         | "lower-screen-by-state"
         | "lower-button-unlabelled"
+        | "lower-nested-button"
         | "lower-round-button-label"
         | "lower-dialog-role"
         | "lower-level-without-heading"
@@ -31,7 +33,9 @@ pub fn rank(id: &str, message: &str) -> u8 {
         | "lower-width-padding"
         | "lower-swipe-wiring"
         | "lower-row-delete-button"
-        | "lower-delete-row" => 0,
+        | "lower-delete-row"
+        | "lower-sound-undeclared"
+        | "lower-symbol-tint" => 0,
         "lower-symbol-alias" => 2,
         _ => 1,
     }

@@ -1,5 +1,5 @@
 // An app's Rust data source as a standalone logic module (LLP 1029.000,
-// ABI 3) for the JS runtime, when the app declares none of its own: a
+// ABI 4) for the JS runtime, when the app declares none of its own: a
 // generated crate exporting the same DataSource the web build bakes with
 // (`apps/<app>/web/build.rs`'s `contract::bake(plan, <expr>)`).
 // usage: bun host/web-js/module.mjs <app> [--out <dir>] → <dir>/app.module.wasm
@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
 // them, so a prebuild optimizes and keeps what an app's build would.
 import { WEB_STD, WEB_SIZE, WEB_TOOLCHAIN, wasmRemapFlags } from '../../scripts/app.mjs';
+import { withHostDeployment } from '../../scripts/filesystem.mjs';
 import { replaceBuild } from '../web/serve.mjs';
 import { proofInputs } from '../../game/inputs.mjs';
 import { keptProducts } from '../../scripts/kept.mjs';
@@ -193,12 +194,13 @@ function ownModule(app, out, dir) {
   return module(manifest, pkg.replaceAll('-', '_'), out, `${app}: ${pkg}`);
 }
 
-/** A logic module's grants (ABI 3's first call, `meta`): what its storage
+/** A logic module's grants (the seam's first call, `meta`): what its storage
  * requests may name, which decides whether the page ships the storage
  * adapters. */
 export async function moduleGrants(path) {
   const { instance } = await WebAssembly.instantiate(readFileSync(path), {}), e = instance.exports;
-  const session = e.exact_logic_create(), request = new Uint8Array([3, 0, 0, 0, 0]), p = e.exact_logic_alloc(request.length);
+  const session = e.exact_logic_create(), request = new Uint8Array(5), p = e.exact_logic_alloc(request.length);
+  new DataView(request.buffer).setUint32(0, e.exact_logic_abi(), true);
   new Uint8Array(e.memory.buffer, p, request.length).set(request);
   if (e.exact_logic_call(session, p, request.length) !== 0) return '';
   const out = new Uint8Array(e.memory.buffer, e.exact_logic_output(session), e.exact_logic_output_len(session)).slice(), d = new DataView(out.buffer);
@@ -219,12 +221,17 @@ export function buildMarkdown({ out = resolve(MODULES, 'markdown'), keepFresh = 
 static mut OUT: Vec<u8> = Vec::new();
 #[no_mangle]
 pub extern "C" fn alloc(len: usize) -> *mut u8 { let mut v = Vec::<u8>::with_capacity(len); let p = v.as_mut_ptr(); std::mem::forget(v); p }
-/// # Safety: \`ptr\` holds \`len\` UTF-8 bytes from \`alloc\`.
+/// # Safety: \`ptr\` holds \`len\` UTF-8 bytes from \`alloc\`: the source, then
+/// \`atoms\` bytes of its \`atoms\` JSON and \`faces\` of its \`atomFaces\`.
 #[no_mangle]
-pub unsafe extern "C" fn pieces(ptr: *mut u8, len: usize) -> usize {
-    let source = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
+pub unsafe extern "C" fn pieces(ptr: *mut u8, len: usize, atoms: usize, faces: usize) -> usize {
+    let all = std::slice::from_raw_parts(ptr, len);
+    let (source, rest) = all.split_at(len - atoms - faces);
+    let (atoms, faces) = rest.split_at(atoms);
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let (source, atoms, faces) = (text(source), text(atoms), text(faces));
     drop(Vec::from_raw_parts(ptr, len, len));
-    OUT = exact_web_capabilities::markdown::pieces(&source).into_bytes();
+    OUT = exact_web_capabilities::markdown::pieces(&source, &atoms, &faces).into_bytes();
     #[allow(static_mut_refs)]
     OUT.len()
 }
@@ -406,7 +413,8 @@ async function prebuild() {
 // A game's resident producer and its proof share completed development web
 // products locally. The snapshot supplies its own inputs; the live world is never read.
 export function warmGameEnvironment(env) {
-  return {...env, EXACT_UPDATE_TRUST:env.EXACT_UPDATE_TRUST ?? 'development',
+  // The bake's own environment, which every cargo call's host deployment target is in (scripts/filesystem.mjs).
+  return {...withHostDeployment(env), EXACT_UPDATE_TRUST:env.EXACT_UPDATE_TRUST ?? 'development',
     EXACT_GAME_PARANOID:env.EXACT_GAME_PARANOID ?? '0', EXACT_WEB_LINK:env.EXACT_WEB_LINK ?? 'all',
     RUSTUP_TOOLCHAIN:WEB_TOOLCHAIN, EXACT_WEB_SIZE:WEB_SIZE};
 }

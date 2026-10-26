@@ -212,15 +212,36 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The extensions the app's module composes, a name a line.
+    /// The extensions the app's module composes, a name a line; `agent
+    /// <name>` for one bound under the agent.
     pub fn bind_extensions(&mut self, len: usize) {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
             .unwrap_or("")
             .to_owned();
-        let names: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        let (agent, real): (Vec<&str>, Vec<&str>) = (text.lines())
+            .filter(|l| !l.is_empty())
+            .partition(|l| l.starts_with("agent "));
+        let agent: Vec<&str> = agent.iter().map(|l| &l["agent ".len()..]).collect();
         if let Some(h) = self.host.as_mut() {
-            h.runner_mut().bind_extensions(&names);
+            h.runner_mut().bind_extensions(&real, &agent);
         }
+    }
+
+    /// A package picture's admission (`exact_picture`), on this target.
+    pub fn picture(&mut self, len: usize) -> u32 {
+        let source = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let target = if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "ios"
+        };
+        let out = (self.host.as_mut())
+            .and_then(|h| h.runner_mut().admit_picture(&source, target))
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        self.emit(out)
     }
 
     /// The agent's `prefer extension` in the input buffer (`Host::extension`).
@@ -232,6 +253,19 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.extension(&text));
+        self.emit(out)
+    }
+
+    /// A module event the platform reported, in the input buffer
+    /// (`Host::module_event`, LLP 1133.004 D6).
+    pub fn module_event(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.module_event(&text));
         self.emit(out)
     }
 }
@@ -261,6 +295,16 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_root_font_size(px));
+        self.emit(out)
+    }
+
+    /// The host's zoom over the root size (LLP 1021 §5.3): a relayout. Told
+    /// after boot; before it, nothing to zoom.
+    pub fn set_root_font_zoom(&mut self, factor: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_root_font_zoom(factor));
         self.emit(out)
     }
 

@@ -10,6 +10,13 @@ use crate::error::{KernelError, LayoutError};
 use crate::id::{Frame, ViewId};
 use crate::layout::LayoutMirror;
 
+impl crate::NodeRef<'_> {
+    /// The generated Neutral alert title's style, shared by layout and paint.
+    pub fn alert_title_style(&self) -> crate::StyleProps {
+        self.arena.alert_title_style(self.slot)
+    }
+}
+
 impl Kernel {
     /// Set whether `view` has the host-rendered alert title item. Reasserting
     /// presence refreshes its measurement after label or inherited-text edits.

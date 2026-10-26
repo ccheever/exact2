@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { serveAssets } from '../support/asset-server';
+import { memoryFiles } from '../support/image-accent-fixture';
 import { attachmentLocal, attachmentView, previewKind, type AttachmentMeta } from '../../src/panel/attachment-surface';
 import { isMediaPreview, mediaBody, mediaErrorMessage } from '../../src/media/attachment-media';
 import type { T3Client } from '../../src/client/client';
@@ -109,8 +110,7 @@ describe('sent videos in the transcript', () => {
   function timeline(calls: Obj[] = []) {
     return { threadId: 't1', generation: 1, environmentId: 'e', origin: 'http://127.0.0.1:1', connection: 'connected',
       projection: { visibleTurnItems: [{ sourceThreadId: 't1', sourceItemId: 'm1', item }] },
-      rpc: async (_native: Native, method: string, payload: Obj) => { calls.push({ method, ...(payload.resource as Obj) }); return { relativeUrl: `/api/assets/${(payload.resource as Obj).attachmentId}`, expiresAt: 10_000_000 }; },
-      restAccess: () => ({ call: async (request: Obj) => { calls.push({ op: request.op, url: request.url }); return { accent: '' }; } }) } as unknown as T3Client;
+      rpc: async (_native: Native, method: string, payload: Obj) => { calls.push({ method, ...(payload.resource as Obj) }); return { relativeUrl: `/api/assets/${(payload.resource as Obj).attachmentId}`, expiresAt: 10_000_000 }; } } as unknown as T3Client;
   }
   test('a video is a grid tile after the images, never a file row', () => {
     const { images, attachFiles } = messageAttachments(item);
@@ -119,10 +119,14 @@ describe('sent videos in the transcript', () => {
   });
   test('its inline URL is signed under its video type and never read for an accent', async () => {
     const calls: Obj[] = [];
-    const { items } = await attachmentUrls(timeline(calls), { available: true } as Native, 1000);
-    expect(items.map(entry => entry.id)).toEqual(['i1', 'i2', 'v1']);
-    expect(calls.filter(call => call.method === 'assets.createUrl' && call.attachmentId === 'v1').map(call => [call.mimeType, call.disposition])).toEqual([['video/mp4', 'inline']]);
-    expect(calls.filter(call => call.op === 'imageAccent').map(call => String(call.url).split('/').pop())).toEqual(['i1', 'i2']);
+    memoryFiles(null);
+    const accents = serveAssets(() => ({ status: 404 }));
+    try {
+      const { items } = await attachmentUrls(timeline(calls), { available: true } as Native, 1000);
+      expect(items.map(entry => entry.id)).toEqual(['i1', 'i2', 'v1']);
+      expect(calls.filter(call => call.method === 'assets.createUrl' && call.attachmentId === 'v1').map(call => [call.mimeType, call.disposition])).toEqual([['video/mp4', 'inline']]);
+      expect(accents.calls.map(call => call.url.split('/').pop())).toEqual(['i1', 'i2']);
+    } finally { accents.restore(); }
   });
   test('a video opens alone in the media dialog; images step among the images only', () => {
     const c = timeline();

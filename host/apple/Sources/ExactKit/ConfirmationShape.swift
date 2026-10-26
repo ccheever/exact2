@@ -30,6 +30,22 @@ enum ConfirmationShape {
 }
 
 extension NodeView {
+    /// A confirmation's rows: its children, read through the `message` box
+    /// of texts and the `actions` box of buttons the compiler groups an
+    /// alert into (`alertPart`, contract/lower/src/alert_parts.rs) so a host
+    /// that draws it can scroll its message. A box holding anything else
+    /// stays a row of its own, which no confirmation's shape admits.
+    var confirmationRows: [NodeView] {
+        container.subviews.compactMap { $0 as? NodeView }.flatMap { row -> [NodeView] in
+            let rows = row.container.subviews.compactMap { $0 as? NodeView }
+            switch (row.kind, row.props["alertPart"]) {
+            case ("view", "message") where rows.allSatisfy({ $0.kind == "text" }): return rows
+            case ("view", "actions") where rows.allSatisfy(\.isButton): return rows
+            default: return [row]
+            }
+        }
+    }
+
     /// A prompt's text field (a rename's): an `input` that edits one line of
     /// text, which the alert shows as its own field
     /// (`UIAlertController.addTextField`, `NSAlert`'s accessory view) and

@@ -58,6 +58,7 @@ impl Lowerer<'_> {
             }
             let mut seen = BTreeMap::new();
             let mut faces = Vec::new();
+            let mut variable = Vec::new();
             for face in &font.faces {
                 if seen.insert((face.weight, face.italic), ()).is_some() {
                     let weight = match face.weight {
@@ -159,6 +160,17 @@ impl Lowerer<'_> {
                 let axes = std::fs::read(&canonical)
                     .map(|bytes| crate::font_axes::read(&bytes))
                     .unwrap_or_default();
+                // (Unread, it is recorded as no length any file has, so the
+                // write check never trusts its faces: Grok's D1 round 3.)
+                if face.weight.is_none() {
+                    let m = std::fs::metadata(&canonical).ok();
+                    self.font_files.push((
+                        full.clone(),
+                        canonical.clone(),
+                        m.as_ref().map_or(u64::MAX, |m| m.len()),
+                        m.and_then(|m| m.modified().ok()),
+                    ));
+                }
                 let weight = face.weight.unwrap_or_else(|| {
                     axes.wght.map_or([400, 400], |[low, high]| {
                         [
@@ -177,7 +189,9 @@ impl Lowerer<'_> {
                     stretch,
                     italic: face.italic,
                 });
+                variable.push(axes.wght.is_some());
             }
+            join_pinned_weights(&mut faces, &variable);
             let family = self.b.font_family(&font.name, &faces);
             let stack = self
                 .b
@@ -195,55 +209,16 @@ impl Lowerer<'_> {
     }
 
     /// The declared families a node's `font-family` can name, for the face
-    /// checks: one for a literal, one per declared arm for a choice.
+    /// checks ([`font_use`]).
     pub(super) fn font_use(&self, attrs: &[Attr]) -> Result<Vec<FontUse>, LowerError> {
-        let Some(family) = attrs.iter().find(|a| a.name == "font-family") else {
-            return Ok(Vec::new());
-        };
-        let mut names = Vec::new();
-        // A family token's name is no family (stage 6 C): the families of
-        // its stack, each tuple's, are what the node uses.
-        let mut leaves = Vec::new();
-        crate::theme::leaves(&family.value, &mut Vec::new(), &mut leaves);
-        let tokens: Vec<Vec<String>> = leaves
+        let uses = font_use(&self.declared_fonts, attrs)?;
+        debug_assert!(uses
             .iter()
-            .filter_map(|e| match e {
-                Expr::Str(text, _) => crate::theme::measure_values(text).map(|(_, v)| v),
-                _ => None,
-            })
-            .collect();
-        if tokens.is_empty() {
-            let mut folded = family.value.clone();
-            fold_constant_families(&mut folded);
-            self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
-        }
-        for stack in tokens.iter().flatten() {
-            let members = exact_kernel::style::theme::typeface::family_members(stack);
-            names.extend(members.into_iter().filter(|(f, _)| *f).map(|(_, m)| m));
-        }
-        let italic = match attrs.iter().find(|a| a.name == "font-style") {
-            None => Some(false),
-            Some(a) => match &a.value {
-                Expr::Str(s, _) if s == "normal" => Some(false),
-                Expr::Str(s, _) if s == "italic" => Some(true),
-                Expr::Str(..) => Some(false), // the kernel parser names the invalid value
-                _ => None,
-            },
-        };
-        let mut uses = Vec::new();
-        for name in names {
-            if let Some((declared, font)) = self
+            .all(|u| self
                 .declared_fonts
                 .iter()
-                .find(|(declared, _)| declared.eq_ignore_ascii_case(&name))
-            {
-                debug_assert_eq!(Some(&font.stack), self.font_stacks.get(declared));
-                uses.push(FontUse {
-                    font: font.clone(),
-                    italic,
-                });
-            }
-        }
+                .any(|(name, f)| f.stack == u.font.stack
+                    && self.font_stacks.get(name) == Some(&f.stack))));
         Ok(uses)
     }
 
@@ -254,7 +229,7 @@ impl Lowerer<'_> {
         let mut folded = value.clone();
         fold_constant_families(&mut folded);
         let mut bundled = None;
-        self.family_arms(&folded, &mut |name, span| {
+        family_arms(&folded, &mut |name, span| {
             if self
                 .declared_fonts
                 .keys()
@@ -363,30 +338,6 @@ impl Lowerer<'_> {
         }
         Ok(())
     }
-
-    /// Visit the literal family names for validation, including ones beside
-    /// runtime arms; the remaining string is resolved when it changes.
-    fn family_arms(&self, e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerError> {
-        match e {
-            Expr::Str(name, _) if name.trim().is_empty() => Ok(()),
-            Expr::Str(name, span) => {
-                for member in family_names(name, *span)? {
-                    visit(&member, *span);
-                }
-                Ok(())
-            }
-            Expr::Ternary(_, yes, no, _) => {
-                self.family_arms(yes, visit)?;
-                self.family_arms(no, visit)
-            }
-            Expr::Match { some, none, .. } => {
-                self.family_arms(some, visit)?;
-                self.family_arms(none, visit)
-            }
-            Expr::Let { body, .. } => self.family_arms(body, visit),
-            _ => Ok(()),
-        }
-    }
 }
 
 /// Whether a replaced literal choice has an empty family's `none` arm.
@@ -397,6 +348,86 @@ fn has_none(e: &Expr) -> bool {
         Expr::Match { some, none, .. } => has_none(some) || has_none(none),
         Expr::Let { body, .. } => has_none(body),
         _ => false,
+    }
+}
+
+/// The families of `declared` a node's `font-family` (in `attrs`, its
+/// rows as lowered) can name, for the face checks: one for a literal, one
+/// per declared arm for a choice, each tuple's for a token. The design
+/// server's write check calls this too (`theme::rows`).
+pub(crate) fn font_use(
+    declared: &BTreeMap<String, DeclaredFont>,
+    attrs: &[Attr],
+) -> Result<Vec<FontUse>, LowerError> {
+    let Some(family) = attrs.iter().find(|a| a.name == "font-family") else {
+        return Ok(Vec::new());
+    };
+    let mut names = Vec::new();
+    // A family token's name is no family (stage 6 C): the families of
+    // its stack, each tuple's, are what the node uses.
+    let mut leaves = Vec::new();
+    crate::theme::leaves(&family.value, &mut Vec::new(), &mut leaves);
+    let tokens: Vec<Vec<String>> = leaves
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Str(text, _) => crate::theme::measure_values(text).map(|(_, v)| v),
+            _ => None,
+        })
+        .collect();
+    if tokens.is_empty() {
+        let mut folded = family.value.clone();
+        fold_constant_families(&mut folded);
+        family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
+    }
+    for stack in tokens.iter().flatten() {
+        let members = exact_kernel::style::theme::typeface::family_members(stack);
+        names.extend(members.into_iter().filter(|(f, _)| *f).map(|(_, m)| m));
+    }
+    let italic = match attrs.iter().find(|a| a.name == "font-style") {
+        None => Some(false),
+        Some(a) => match &a.value {
+            Expr::Str(s, _) if s == "normal" => Some(false),
+            Expr::Str(s, _) if s == "italic" => Some(true),
+            Expr::Str(..) => Some(false), // the kernel parser names the invalid value
+            _ => None,
+        },
+    };
+    let mut uses = Vec::new();
+    for name in names {
+        if let Some((_, font)) = declared
+            .iter()
+            .find(|(declared, _)| declared.eq_ignore_ascii_case(&name))
+        {
+            uses.push(FontUse {
+                font: font.clone(),
+                italic,
+            });
+        }
+    }
+    Ok(uses)
+}
+
+/// Visit the literal family names for validation, including ones beside
+/// runtime arms; the remaining string is resolved when it changes.
+fn family_arms(e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerError> {
+    match e {
+        Expr::Str(name, _) if name.trim().is_empty() => Ok(()),
+        Expr::Str(name, span) => {
+            for member in family_names(name, *span)? {
+                visit(&member, *span);
+            }
+            Ok(())
+        }
+        Expr::Ternary(_, yes, no, _) => {
+            family_arms(yes, visit)?;
+            family_arms(no, visit)
+        }
+        Expr::Match { some, none, .. } => {
+            family_arms(some, visit)?;
+            family_arms(none, visit)
+        }
+        Expr::Let { body, .. } => family_arms(body, visit),
+        _ => Ok(()),
     }
 }
 
@@ -556,4 +587,51 @@ fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
             )
         })
         .collect()
+}
+
+/// Several pinned weights of one variable file become one face over their
+/// span, so the web declares one `@font-face` and fetches the file once.
+/// Every host draws a request inside a range at its own `wght` (LLP 1019
+/// D2), so a weight between two of them is drawn as asked rather than at
+/// the nearer one; the declared weights draw as before. A span another face
+/// of the same style overlaps stays apart, since matching would then choose
+/// between them.
+fn join_pinned_weights(faces: &mut Vec<exact_plan::builder::Face<'_>>, variable: &[bool]) {
+    let pinned =
+        |i: usize, f: &exact_plan::builder::Face<'_>| variable[i] && f.weight[0] == f.weight[1];
+    let mut keep = vec![true; faces.len()];
+    for i in 0..faces.len() {
+        if !keep[i] || !pinned(i, &faces[i]) {
+            continue;
+        }
+        let group: Vec<usize> = (i..faces.len())
+            .filter(|&j| {
+                keep[j]
+                    && pinned(j, &faces[j])
+                    && faces[j].source == faces[i].source
+                    && faces[j].italic == faces[i].italic
+            })
+            .collect();
+        if group.len() < 2 {
+            continue;
+        }
+        let low = group.iter().map(|&j| faces[j].weight[0]).min().unwrap();
+        let high = group.iter().map(|&j| faces[j].weight[1]).max().unwrap();
+        let overlapped = (0..faces.len()).any(|k| {
+            !group.contains(&k)
+                && keep[k]
+                && faces[k].italic == faces[i].italic
+                && faces[k].weight[0] <= high
+                && faces[k].weight[1] >= low
+        });
+        if overlapped {
+            continue;
+        }
+        faces[i].weight = [low, high];
+        for &j in &group[1..] {
+            keep[j] = false;
+        }
+    }
+    let mut keep = keep.into_iter();
+    faces.retain(|_| keep.next().unwrap());
 }

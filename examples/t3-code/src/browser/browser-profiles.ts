@@ -3,12 +3,10 @@
 // apps/web/src/components/preview/{PreviewView,PreviewMoreMenu,openPreviewSession}.tsx and RightPanelTabs.tsx).
 //
 // A tab opens under a profile and keeps it: the built-in Default (persistent) and Incognito (in memory, gone when the
-// app quits), and up to 24 named profiles. Each profile is its own WebKit data store per environment
-// (T3BrowserSessions.swift `store(environment:profile:)`: a persistent `WKWebsiteDataStore(forIdentifier:)`, Incognito a
-// non-persistent one). The profiles and the default one are client settings, as in the reference (its Chromium guest is
+// app quits), and up to 24 named profiles. Each profile is its own frame partition per environment (browser-frames.ts
+// `partitionOf`: a `persist:` partition, Incognito an in-memory one). The profiles and the default one are client settings, as in the reference (its Chromium guest is
 // desktop-local): `browserProfiles` and `browserDefaultProfileId` in the preference file (t3-code.json).
-import { arr, obj, str, type Obj } from '../client/domain';
-import { named } from './browser-import-io';
+import { arr, type Obj } from '../client/domain';
 
 export const BROWSER_PROFILE_NAME_MAX_LENGTH = 48;
 export const BROWSER_PROFILE_MAX_COUNT = 24;
@@ -93,9 +91,14 @@ export function toBrowserDefaults(prefs: BrowserProfilePrefs): BrowserDefaults {
 }
 export const browserDefaults = (owner: Holder): BrowserDefaults => toBrowserDefaults(browserProfilePrefs(owner));
 
-/** openFileInPreview BrowserSettingsReadError: a tab is never opened from settings that were not read. */
+/** openFileInPreview BrowserSettingsReadError: a tab is never opened from settings that were not read. Its `name` is a
+ *  defined own property: the app's JS runtime freezes Error.prototype, so assigning `this.name` throws there (the
+ *  override mistake) while Bun allows it. */
 export class BrowserSettingsReadError extends Error {
-  constructor(readonly cause?: unknown) { super('Browser settings could not be read.'); named(this, 'BrowserSettingsReadError'); }
+  constructor(readonly cause?: unknown) {
+    super('Browser settings could not be read.');
+    Object.defineProperty(this, 'name', { value: 'BrowserSettingsReadError', writable: true, configurable: true, enumerable: false });
+  }
 }
 /** resolveBrowserDefaults: the defaults once the client's settings were actually read (`preferencesLoaded`); before that,
  *  a tab would be born under the schema defaults and never corrected, so the open is refused. */
@@ -135,18 +138,4 @@ export async function clearBrowserProfileData(bridge: BrowserProfileDataBridge |
 }
 export function browserProfileRemovalAvailable(bridgeAvailable: boolean, environmentsReady: boolean, environmentCount: number): boolean {
   return bridgeAvailable && environmentsReady && environmentCount > 0;
-}
-
-type Raw = (request: Obj) => Promise<{ ok: boolean; value?: unknown; error?: unknown }>;
-/**
- * The module's half of the bridge (T3BrowserSessions+Profiles.swift `browserClearData`): cookies are cookies, local
- * storage, IndexedDB and service workers (the reference's `clearStorageData` storages); the cache is the HTTP cache.
- * Only that environment's store for that profile is touched.
- */
-export function nativeProfileBridge(raw: Raw): BrowserProfileDataBridge {
-  const clear = async (environmentId: string, profileId: string, what: 'cookies' | 'cache') => {
-    const reply = await raw({ op: 'browserClearData', environment: environmentId, profile: profileId, what });
-    if (!reply.ok || obj(reply.value).cleared !== true) throw new Error(str(obj(reply.error).message, `Could not clear the ${what}.`));
-  };
-  return { clearCookies: (environmentId, profileId) => clear(environmentId, profileId, 'cookies'), clearCache: (environmentId, profileId) => clear(environmentId, profileId, 'cache') };
 }

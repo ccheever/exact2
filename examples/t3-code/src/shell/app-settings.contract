@@ -124,7 +124,6 @@ component SettingsWindow
     rest: action
     restInput: action
     restLocal: action
-    importWizardFocusMoved: action
     integrations: IntegrationsPage
     snapshotSettings: SnapshotSettings
     snapshotSetupOpen: bool
@@ -361,6 +360,7 @@ component SettingsWindow
     DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "remove" and settingsCore.themes.filter(card => card.id == settingsThemeSubject and card.collection).length > 0), owner="theme-remove-collection")
     DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "remove" and settingsCore.themes.filter(card => card.id == settingsThemeSubject and not card.collection).length > 0), owner="theme-remove")
     DialogFinalFocus(open=(settingsOpen and settingsCore.hostEditor.open), owner="device-host-dialog")
+    DialogFinalFocus(open=(settingsOpen and settingsCore.easEditor.open), owner="eas-host-dialog")
     DialogFinalFocus(open=(settingsOpen and settingsRestoreOpen), owner="restore-defaults-dialog")
     DialogFinalFocus(open=(settingsOpen and settingsCore.updateConfirm), owner="update-install")
     DialogFinalFocus(open=(settingsOpen and settingsCore.killConfirm.pid != ""), owner="signal-kill")
@@ -369,9 +369,9 @@ component SettingsWindow
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     if settingsOpen and settingsRestoreOpen
       SettingsRestoreDialog(core=settingsCore, busy=commandPending, cancel=coreRestoreClose, confirm=coreRestoreConfirm)
-    // "Remove “<name>”?" and the cookie import wizard (browser-profiles.contract), over the window.
+    // "Remove “<name>”?" (browser-profiles.contract), over the window.
     if settingsOpen and settingsRoute == "integrations"
-      BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, track=importWizardFocusMoved, still=viewport.prefersReducedMotion)
+      BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal)
 
 // Settings editors: the scheduled-task and project dialogs (settings-rest/settings-b).
 component ProjectDialogs

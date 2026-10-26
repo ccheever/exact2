@@ -167,7 +167,7 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                         let before = bridge::set_tuple(t as u32);
                         let mut patch = StyleProps::default();
                         let (_, read) = exact_kernel::style::theme::recorded(|| {
-                            bridge::set_binding_style(&mut patch, b, v, plan)
+                            bridge::set_binding_style(&mut patch, &b, v, plan)
                         });
                         bridge::set_tuple(before);
                         for entry in read {

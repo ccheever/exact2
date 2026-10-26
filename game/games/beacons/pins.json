@@ -4,16 +4,24 @@
     "90": "0xdf2367cf46480dc2"
   },
   "saves": {
-    "continuation": "78a0b179e63ae2b66c50f02a1fa0dd1e80debae181678e7925b66cfaa761f47b"
+    "continuation": "bb3a308692972a706e8746420a154ea81ad04fe6c4317d9b73a27c20c455fff3"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "18229a5ebff2dceb52d738497c22804a6c3a1f36325d588d56f09bfb3eb16bbf",
-  "sourceInputs": "5496dd98f3beec2e8bac8053f0ef7cdfdfd22f11f222325bdeacf7d64a2544f5",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "375f2d62321c7fba3e2788255abf02b4eb0cf8d04c6ee509263bab6c7c52ace7",
+  "sourceInputs": "5bb5595617941f6ef0e07cb82ea52d08ca3aec1fcb4aa3ae3837311e5d5ab6de",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "b671b1c006b24915e786b30647f0c70b0a47141f",
-  "reason": "movement tables (TableValues in the hash) on main's rings-and-halos baseline; EXGAME v6 (tableInputs)"
+  "at": "7264fa20ac285687b76520e05166fbec1444a0e2",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged; and the InputState resource its sprint hold and context put in the world"
 }

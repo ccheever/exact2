@@ -44,7 +44,7 @@ const CONVERSIONS: &[&str] = &[
     "a length: `$type: dimension`, px or `rem`; an `em`, a text style, the hairline or a base name the design leaves unset (its neutral column, the web's look) as px at the default root size (16), its source in `$extensions.exact.lossy`",
     "a number: `$type: number`; a family: `$type: fontFamily`, its members unquoted",
     "a type: `$type: typography`, every property written; what the token leaves unsaid (the text style's weight and leading, the family) as the web's default, named in `$extensions.exact.unsaid`; a style in `fontStyle`, a line height that is no number in `leading`",
-    "a shadow: `$type: shadow`, a text shadow marked `kind: text-shadow`, `currentcolor` as black marked `currentcolor`",
+    "a shadow: `$type: shadow`, a text shadow marked `kind: text-shadow`, `currentcolor` as black marked `currentcolor`, a length over a base name the design leaves unset as a length's, the shadow's source in `lossy`",
     "a duration: `$type: duration` in ms; an easing: `$type: cubicBezier`, a keyword as its curve, `steps()`, `linear()` and a spring as `linear`'s, the source in `lossy`",
 ];
 
@@ -726,15 +726,13 @@ pub fn reimport_against(
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
-    let doc: Value =
-        serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
+    let doc: Value = crate::import::dtcg_doc(incoming, &refuse)?;
     let cur = crate::check(current, vocab)?;
     let fresh = dtcg(&cur, vocab)?;
     let baseline = match explicit {
         Some(b) => {
             let (theirs, ours): (Value, Value) = (
-                serde_json::from_str(b)
-                    .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?,
+                crate::import::dtcg_doc(b, &|m| refuse(format!("the baseline: {m}")))?,
                 serde_json::from_str(&fresh)
                     .map_err(|e| refuse(format!("the design's export: {e}")))?,
             );
@@ -1230,8 +1228,13 @@ pub fn reimport_against(
                 .filter(|(a, _)| !(light_moved && under.contains(&a.as_str())))
                 .collect();
             let mut found: Option<Modes> = None;
+            let mut tried = 0; // (past SELECTORS, the line naming every axis)
             'size: for size in 0..=axes.len() {
-                for pick in subsets(axes.len(), size) {
+                for pick in crate::selectors::subsets(axes.len(), size) {
+                    tried += 1;
+                    if tried > crate::selectors::SELECTORS {
+                        break 'size;
+                    }
                     let conds: Modes = pick.iter().map(|&k| axes[k].clone()).collect();
                     if conds.is_empty() {
                         continue;
@@ -1422,11 +1425,11 @@ pub fn reimport_against(
     let pins = crate::export_dials::marks(&cur, current, &ops, &mut dials, vocab, &under, &branch);
     Ok(Import {
         ops,
-        offers: Vec::new(),
         unmapped,
         counted,
         dials,
         pins,
+        ..Import::default()
     })
 }
 
@@ -1478,22 +1481,4 @@ fn sides_of(text: &str) -> Option<[String; 2]> {
         }
     }
     None
-}
-
-/// Each choice of `size` of `n` indices, in order.
-fn subsets(n: usize, size: usize) -> Vec<Vec<usize>> {
-    if size == 0 {
-        return vec![Vec::new()];
-    }
-    (0..n)
-        .flat_map(|first| {
-            subsets(n - first - 1, size - 1)
-                .into_iter()
-                .map(move |rest| {
-                    std::iter::once(first)
-                        .chain(rest.into_iter().map(|r| r + first + 1))
-                        .collect()
-                })
-        })
-        .collect()
 }

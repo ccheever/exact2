@@ -5,7 +5,8 @@
 // not the substitute. The platform's own means answer its side: on a
 // simulator `simctl privacy grant` and `simctl location set`. macOS lets no
 // tool grant location, so there the suite checks what holds before a
-// person's grant and names what it skips.
+// person's grant and names what it skips. On iOS a second fixture, granted
+// the approximate line, checks that line's ceiling.
 //
 // usage: bun packages/geolocation/test/apple.mjs [macos] [ios] [--sim <name|udid>] [--ask]
 //   (--ask: on macOS, the request opens the system's dialog for a person to answer)
@@ -37,6 +38,37 @@ const until = async (s, testId, want, ms = 15000) => {
   return got;
 };
 const WORDS = ['notDetermined', 'restricted', 'denied', 'authorizedWhenInUse', 'authorizedAlways'];
+
+/** The approximate line as a ceiling on iOS (D7): the fixture made with it,
+ * granted full accuracy, reads approximate positions and status. */
+async function approximate(udid) {
+  const where = 'ios-simulator approximate', fixture = makeFixture({ approximate: true });
+  process.env.EXACT_APP_DIR = fixture.app;
+  try {
+    run('bun', [resolve(root, 'host/apple/build.mjs'), '--ios', '--sim', udid, `${name}-apple`], root);
+    run('xcrun', ['simctl', 'privacy', udid, 'grant', 'location', fixture.id]);
+    run('xcrun', ['simctl', 'location', udid, 'set', '48.8566,2.3522']);
+    const s = await open({ host: 'ios', app: name, bind: 'geolocation' });
+    try {
+      const status = await until(s, 'status', (t) => /^true granted/.test(t ?? ''));
+      check(where, 'full accuracy granted, the status is approximate', status === 'true granted approximate', status);
+      await s.tap('watch');
+      const spot = await until(s, 'spot', (t) => /^-?\d/.test(t ?? ''), 30000);
+      const [lat, lon] = (spot ?? '').split(',').map(Number);
+      const off = Math.hypot(lat - 48.8566, (lon - 2.3522) * Math.cos(lat * Math.PI / 180)) * 111;
+      check(where, 'the position is reduced: near, not the point', spot !== '48.8566,2.3522' && off < 25, `${spot} (${off.toFixed(2)} km)`);
+      await s.tap('raise');
+      const precise = await until(s, 'precise-error', (t) => t !== undefined, 5000);
+      const after = (await texts(s)).status;
+      check(where, 'requestPreciseLocation asks nothing and stays approximate', precise === '' && after === 'true granted approximate', `${precise} ${after}`);
+    } finally {
+      await s.close();
+    }
+  } finally {
+    process.env.EXACT_APP_DIR = app;
+    rmSync(dirname(fixture.app), { recursive: true, force: true });
+  }
+}
 
 for (const host of hosts.length ? hosts : ['macos', 'ios']) {
   const where = host === 'ios' ? 'ios-simulator' : 'macos';
@@ -96,6 +128,9 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
       const moved = await until(s, 'spot', (t) => t === '51.5074,-0.1278');
       check(where, 'a move asks the reader again', moved === '51.5074,-0.1278', moved);
     }
+    // Each fix asks the reader again; while it does, its module request is what reads the watch.
+    const kept = JSON.stringify(await s.logs());
+    check(where, 'the watch is kept while its reader is asked again', !kept.includes('release geolocation.watchPosition'));
     await s.tap('watch');
     const off = await until(s, 'spot', (t) => t === 'off');
     const logs = JSON.stringify(await s.logs());
@@ -107,6 +142,7 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
   } finally {
     await s.close();
   }
+  if (udid) await approximate(udid);
 }
 rmSync(dirname(app), { recursive: true, force: true });
 console.log(failed() ? `${failed()} failed` : 'all passed');

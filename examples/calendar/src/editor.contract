@@ -1,5 +1,6 @@
 use Viewport, dialogIn from "./models.contract"
-use Event from "./models.contract"
+use Event, Guest from "./models.contract"
+use Guests from "./device.contract"
 style FieldLabel
   font-size=12 font-weight=500 color="#74747c"
 style DateField
@@ -87,6 +88,12 @@ component Editor
     closeEditor: action
     panSheet: action
     releaseSheet: action
+    guests: Guest[]
+    canInvite: bool
+    canAdd: bool
+    calendarNote: string
+    invite: action
+    addToCalendar: action
   view
     if editorOpen
       box testId="editor-backdrop" press=refocusEditor position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 background-color="rgba(28, 31, 44, 0.24)" display="flex" align-items=(compact ? "flex-end" : "center") justify-content="center" opacity=(editorClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : (editorClosing ? "opacity 120ms ease-in" : "opacity 160ms ease-out"))
@@ -136,6 +143,8 @@ component Editor
                 ColorChoice(value="#F39B65", label="Honey", selected=color, disabled=(busy or not editorReady), pick=pickColor)
                 ColorChoice(value="#D4BEF1", label="Lilac", selected=color, disabled=(busy or not editorReady), pick=pickColor)
                 ColorChoice(value="#EE8192", label="Rose", selected=color, disabled=(busy or not editorReady), pick=pickColor)
+              if editId != "" and editorKind != "todo" and (canInvite or canAdd or guests.length > 0)
+                Guests(guests=guests, canInvite=canInvite, canAdd=canAdd, note=calendarNote, disabled=(busy or not editorReady), ink=themeInk, muted=themeMuted, invite=invite, addToCalendar=addToCalendar)
               if error != ""
                 text error testId="editor-error" aria-live="assertive" font-size=13 color="#b74238" padding=10 border-radius=8 background-color=themeField
           row testId="editor-footer" height=56 flex-shrink=0 box-sizing="border-box" padding-left=20 padding-right=20 align-items="center" gap=8 border-style="solid" border-top-width=1 border-right-width=0 border-bottom-width=0 border-left-width=0 border-color=themeBorder

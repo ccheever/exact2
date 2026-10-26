@@ -751,9 +751,10 @@ test('SDK CLI entrypoint executes with spaces in its real file path', () => {
 
 test('caps command really runs from a checkout path containing spaces', () => {
   const root=resolve(import.meta.dir,'..');
-  const result=spawnSync(process.execPath,[resolve(import.meta.dir,'caps.mjs')],{cwd:root,encoding:'utf8'});
+  const result=spawnSync(process.execPath,[resolve(import.meta.dir,'caps.mjs')],{cwd:root,encoding:'utf8',env:{...process.env,EXACT_CAPS_WASM:'0'}}); // the wasm32 check is wasm-check.test's
   expect(result.stdout).toContain('caps — budgets declared');
-  expect(result.status).toBe(runCaps(root).problems.length ? 1 : 0);
+  const kept=process.env.EXACT_CAPS_WASM; process.env.EXACT_CAPS_WASM='0';
+  try { expect(result.status).toBe(runCaps(root).problems.length ? 1 : 0); } finally { if (kept===undefined) delete process.env.EXACT_CAPS_WASM; else process.env.EXACT_CAPS_WASM=kept; }
 });
 
 test('filesystem errors distinguish Windows access denial from Unix IO failure', () => {

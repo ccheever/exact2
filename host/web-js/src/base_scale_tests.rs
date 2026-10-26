@@ -601,3 +601,104 @@ fn an_expression_over_base_names_is_a_calc_over_their_properties() {
         "{token}"
     );
 }
+
+/// Stage 12 B3: a shadow token whose lengths are over base names is the
+/// row's CSS with each such length its property or a `calc()` over them,
+/// which the browser folds, so the sheet declares the scale although only
+/// the shadow names it; a release's static row is the build's column's
+/// px, as the kernel folds it.
+#[test]
+fn a_shadow_over_base_names_writes_their_properties() {
+    use exact_kernel::style::theme::Kind;
+    let text = "inset 0px space.md calc(space.sm * 2) #000000ff, 0px 1px 2px #000000ff";
+    let css = crate::measures::css(Kind::BoxShadow, text);
+    assert!(
+        css.starts_with("inset 0px var(--exact-space-md) calc(var(--exact-space-sm) * 2) 0px ")
+            && css.contains(", 0px 1px 2px 0px "),
+        "{css}"
+    );
+    assert!(
+        crate::measures::css(Kind::TextShadow, "0px space.xs space.sm #ff0000ff")
+            .starts_with("0px var(--exact-space-xs) var(--exact-space-sm) "),
+    );
+    // A colour whose words name a base (a platform colour's asset) is a
+    // colour, kept whole, and no length is paired with it (round 3): the
+    // row's CSS, as with no base at all.
+    for (kind, text) in [
+        (
+            Kind::BoxShadow,
+            "0px 1px 2px -exact-platform-color(ios named:space.md, #000000)",
+        ),
+        (
+            Kind::TextShadow,
+            "0px 1px -exact-platform-color(ios named:space.md, #000000)",
+        ),
+    ] {
+        let css = crate::measures::css(kind, text);
+        let plain = match kind {
+            Kind::BoxShadow => exact_kernel::style::BoxShadows::parse(text).map(|s| s.css()),
+            _ => exact_kernel::style::TextShadow::parse(text).map(|s| s.css()),
+        };
+        assert!(!css.contains("var("), "{kind:?}: {css}");
+        assert_eq!(Some(css), plain, "{kind:?}");
+    }
+    // Over no base name: the row's CSS, as before.
+    assert_eq!(
+        crate::measures::css(Kind::BoxShadow, "0px 1px 2px #000000ff"),
+        exact_kernel::style::BoxShadows::parse("0px 1px 2px #000000ff")
+            .unwrap()
+            .css()
+    );
+    let dir = std::env::temp_dir().join(format!("exact-web-js-shadow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column box-shadow=\"card.shadow\"\n      text \"a\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let column = metrics::column();
+    let px = |expr: &str| format!("{}px", scale::evaluate(expr, column).unwrap());
+    // A release: the static row is the column's px, the nine declared.
+    let release = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(
+        release.css.contains(&format!(
+            "box-shadow:0px {} {} 0px",
+            px("calc(space.md)"),
+            px("calc(space.sm * 2)")
+        )),
+        "{}",
+        release.css
+    );
+    assert!(
+        release
+            .css
+            .contains(&format!("--exact-space-md:{};", kernel("space.md"))),
+        "{}",
+        release.css
+    );
+    // A development build: the token's property is over the bases'.
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    let token = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "card.shadow")
+        .unwrap()
+        .clone();
+    let css = token["css"][0].as_str().unwrap_or_default();
+    assert!(
+        css.starts_with("0px var(--exact-space-md) calc(var(--exact-space-sm) * 2) 0px "),
+        "{token}"
+    );
+}

@@ -105,7 +105,7 @@ export const SETTINGS_ICONS = [
   'link-2', 'lock-open', 'memory-stick', 'minus', 'palette', 'panel-left-close', 'pencil',
   ['play', '<polygon points="6 3 20 12 6 21 6 3"/>'], 'plus', 'refresh-cw', 'rotate-ccw', 'search', 'settings-2',
   ['snap-shot', '<path d="M8 3H6a3 3 0 0 0-3 3v2M16 3h2a3 3 0 0 1 3 3v2M21 16v2a3 3 0 0 1-3 3h-2M8 21H6a3 3 0 0 1-3-3v-2"/><rect width=10 height=8 x=7 y=8 rx=2/><circle cx=12 cy=12 r=1.5/>'],
-  'trash-2', 'triangle-alert', 'undo-2', 'x', 'ellipsis', 'circle-x', 'laptop',
+  'trash-2', 'triangle-alert', 'undo-2', 'x', 'ellipsis', 'circle-x', 'laptop', 'cloud',
 ];
 
 /** diff-glyphs.contract DiffGlyph's 24-grid glyphs: the panel's controls, DiffFileStatus (RotateCw, Info),

@@ -325,6 +325,50 @@ fn a_colour_token_inside_a_shadow_is_its_light_dark_pair() {
             ),
         ],
     );
+    // A name no token has, in the colour row's words (stage 12 B3, QUEUE's
+    // item): no longer the kernel's "neither a length nor a colour".
     let e = contract::compile_path(&unknown).unwrap_err();
-    assert_eq!(e.id, "lower-attr-value", "{e:?}");
+    assert_eq!(e.id, "tamber-unknown-token", "{e:?}");
+    assert!(e.message.contains("`eu.nope` is no token"), "{e:?}");
+}
+
+/// Stage 12 B3: a shadow over a base name reads the base as an alias does,
+/// the design's own first, and the read is recorded, so a live edit of the
+/// base (`set-token space.md`) sets the shadow's row again. (The plan keeps
+/// `space.md` only where the design sets it; the shadow's text over it is
+/// a live edit's, as the design server sends one.)
+#[test]
+fn a_live_edit_of_a_base_sets_a_shadow_over_it_again() {
+    let design =
+        "tamber t\n\ntheme\n  space.md = 10px\n  card.shadow: box-shadow = 0 2px 4px #000\n";
+    let path = app(
+        "base-edit",
+        &[
+            ("app.tamber", design),
+            ("app.contract", "component App\n  view\n    column testId=\"card\" padding=\"space.md\" box-shadow=\"card.shadow\"\n      text \"a\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    assert!(row(&r, "card", StyleId::BoxShadow).contains("offset: Vec2 { x: 0.0, y: 2.0 }"));
+    let (_, set) = r
+        .set_token(
+            "card.shadow",
+            "0px space.md calc(space.md / 2) #000000ff",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(set, 1);
+    let card = row(&r, "card", StyleId::BoxShadow);
+    assert!(
+        card.contains("offset: Vec2 { x: 0.0, y: 10.0 }") && card.contains("blur: 5.0"),
+        "{card}"
+    );
+    // The base's edit: the padding and the shadow, both read it.
+    let (receipt, set) = r.set_token("space.md", "20px", &[]).unwrap();
+    assert!(set > 1 && receipt.layout_invalidated, "{set}");
+    let card = row(&r, "card", StyleId::BoxShadow);
+    assert!(
+        card.contains("offset: Vec2 { x: 0.0, y: 20.0 }") && card.contains("blur: 10.0"),
+        "{card}"
+    );
 }

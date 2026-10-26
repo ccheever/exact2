@@ -1,0 +1,15 @@
+# Code review: Tamber stage 13 D, the write check's gaps (LLP 1121), narrow re-check, 2026-10-21 (grok)
+
+- **Family:** xAI. Grok via `grok -p`, reasoning effort xhigh, Edit and Write denied, a throwaway worktree at `df08adcb4a`.
+- **Method:** one brief (sha256 `89abdf91e1dedb0a939148db0d8c891b4fdbbf93f3feb222b90cb2b0f93b1a14`), blind to the other reviewer; D1 and D3 3 rounds (they touch lowering's shared code), D2 2 rounds (theme2's 15:31 approval), then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+
+I'll re-check only the stage 13 D fix in `scan.rs` from `df08adcb4a`: address-stable recording, rebuilt-node mapping through `parts()`/`swiped()`, and `written()` through elements/if/match, without editing anything.The diff records yielding rows by expanded-tree address and extends a nested section's set. I'll read `grouped`, `parts`, `swiped`, and `written` against that mapping.Nothing blocks. The fix in `df08adcb4a` is right and complete for the two holes from `0c1dd8f1a3`.
+
+Addresses stay valid for the whole walk. `Said::of` only holds `&Node` into `root.view`, and `swipe_rows::grouped` clones; it does not mutate that tree. `parts().content` is the only node passed to `row` that is not in the tree, and the callback stores the walked node for that case, so the `usize` keys are never a freed address.
+
+The rebuilt-node mapping matches what `parts` and `swiped` pass in. `grouped` calls `row` with exactly one of: the walked node (`row(node, false)`), `&parts.content` (a `delete=` row), or the original content element `written` found. `parts` copies the walked element’s span onto that new node and then `swiped` passes that node through. Same span and a different address is that rebuild, so recording the walked node is the row the look is judged on. A hand-written swipe never takes that path: `written` returns first and passes the tree node.
+
+`written` through elements, `if`, and `match` still names the tree node the walk will visit. `styled` borrows the scroll’s own `children`, `then`/`otherwise`, and `some`/`none` slices, and `swiped` calls `row` on that borrow. Those addresses are the ones later pushed from the same vectors. A `for` still counts as more than one content, so it still is not the row.
+
+Nested copies no longer collapse. Two expansions of one component share a span (and, unmapped, `instance` 0) but not an address, and `over` yields only the section-body element, so the inner copy keeps its look. A grouped list inside a section row no longer clears the set: `Grouped::Row` clones the inherited addresses and appends. A node yields only when its own address was handed to `row` and it carries `-exact-row-look`, so the extra inherited addresses do not drop or keep a different look. Kept rows are still the original element’s, which carries the same look attributes `parts` copied onto the rebuild, so the refusal stays on that same span.

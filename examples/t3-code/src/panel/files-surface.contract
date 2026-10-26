@@ -313,6 +313,22 @@ component FilePreview
     if k == "Escape"
       preventDefault()
       blur()
+  // A press in the file's body mounts the editor in its own action, so the host begins editing it under the press
+  // (focus taken from the composer, the caret under the click, the end below the text), as the reference's
+  // contenteditable takes a click. Once the data module has heard that press (`files.editPress`), its `files.editing`
+  // keeps the editor mounted and the press's mark no longer counts, so a file left while editing does not reopen it.
+  state pressedEdit = ""
+  state pressedSerial = 0
+  derive editing = files.editing or (files.editable and pressedEdit == files.path and files.editPress != `${pressedSerial}`)
+  action beginEdit
+    let serial = pressedSerial + 1
+    pressedSerial = serial
+    if files.editable
+      pressedEdit = files.path
+    local("surface-files-begin-edit", files.path, `${serial}`)
+  action endEdit
+    pressedEdit = ""
+    local("surface-files-end-edit", files.path, "")
   view
     if files.preview == "loading"
       column flex=1 align-items="center" justify-content="center" testId="file-loading"
@@ -355,10 +371,10 @@ component FilePreview
     if files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
         // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
-        column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=local("surface-files-begin-edit", files.path, "") role="code" aria-label=files.path testId="file-lines"
+        column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=beginEdit role="code" aria-label=files.path testId="file-lines"
           for line in files.lines key=line.id
             if line.kind == "line"
-              FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or files.editing), local=local, begin=beginComment)
+              FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or editing), local=local, begin=beginComment)
             if line.kind == "note"
               DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
             if line.kind == "draft"
@@ -366,8 +382,8 @@ component FilePreview
               // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
               DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
-          if files.editing
-            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family=family font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false" data-editable="yes"
+          if editing
+            textarea id="file-editor" value=(files.editing ? files.editorText : files.text) input=local("surface-files-edit", files.path) key=editorKey blur=endEdit autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family=family font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false" data-editable="yes"
 
 // FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975). A press on the number starts
 // a selection that follows the pointer over the file's lines (Shift extends it), a press on the gutter's "+" a range from the
@@ -383,6 +399,8 @@ component FilePreview
 // number only (#d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the code row and the comment card
 // under it stay the surface's, and there is no bar).
 component FilesCodeRow
+  inject
+    interacted: action
   props
     family: string
     line: FilesCodeLine
@@ -405,6 +423,7 @@ component FilesCodeRow
   // The release lets go of the focus the press gave the gutter cell (a pressable node takes it on macOS), so the draft
   // that opens takes it (DiffDraftCard's autofocus), as FilePreviewPanel's beginComment blurs and focuses the draft.
   action move(e: PointerEvent)
+    interacted()
     // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
     if dragging and e.buttons == 0
       dragging = false

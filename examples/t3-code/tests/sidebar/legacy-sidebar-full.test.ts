@@ -29,6 +29,7 @@ import { terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const files: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
@@ -136,14 +137,16 @@ describe('the pull request glyph (handlePrClick)', () => {
   test('⌘ or Ctrl leaves it to the system browser; a link no project reads follows "Open links in"', async () => {
     // `mod:`: the click's own MouseEvent held ⌘ or Ctrl (legacy-sidebar.contract prPress).
     const held = rig();
+    resetExternalOpensForTests();
     expect(await sidebarCommand(held.client, held.native, files, 'legacy-pr', 'thread-2', 'mod:')).toBe('');
     expect(opsOf(held.ops, 'sidebarModifiers')).toEqual([]);
-    expect(opsOf(held.ops, 'remoteEditorsOpen').map(op => op.url)).toEqual([PR]);
+    expect(externalOpensForTests()).toEqual([PR]);
     expect(surfaceStore(held.client).panels.get('local:thread-2')).toBeUndefined();
     const elsewhere = 'https://github.com/other/repo/pull/3';
     const system = rig({ threads: [thread('thread-1'), thread('thread-2', { pullRequests: linked(elsewhere) })], caps: { threadPullRequests: false } });
+    resetExternalOpensForTests();
     expect(await sidebarCommand(system.client, system.native, files, 'legacy-pr', 'thread-2', '')).toBe('');
-    expect(opsOf(system.ops, 'remoteEditorsOpen').map(op => op.url)).toEqual([elsewhere]);
+    expect(externalOpensForTests()).toEqual([elsewhere]);
     expect(system.opened).toEqual([]);
     const app = rig({ threads: [thread('thread-1'), thread('thread-2', { pullRequests: linked(elsewhere) })], caps: { threadPullRequests: false }, settings: { browserLinkTarget: 'app' } });
     expect(await sidebarCommand(app.client, app.native, files, 'legacy-pr', 'thread-2', '')).toBe('');

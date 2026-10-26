@@ -36,13 +36,22 @@ fn colors(node: &exact_kernel::NodeRef<'_>, out: &mut String) {
         );
     }
 }
-/// The lines `leaf`'s decorating ancestors, up to the paragraph `owner`, draw
-/// through its text (CSS Text Decoration 3 §2.1), each in that box's colour:
-/// the nearest box's, as `Run.propagate` takes them, whatever the box's
-/// own visibility.
+/// The lines `leaf`'s decorating ancestors draw through its text (CSS Text
+/// Decoration 3 §2.1), each in that box's colour: the nearest box's, as
+/// `Run.propagate` takes them, whatever the box's own visibility. Up to the
+/// paragraph `owner`, and past it the boxes it stands in, as `NodeText`'s
+/// `decoratingAncestors` reads them: a box out of flow or an atomic one (a
+/// button, a control) takes none from the boxes above it.
 fn propagated(kernel: &Kernel, leaf: &exact_kernel::NodeRef<'_>, owner: ViewId, out: &mut String) {
+    use exact_kernel::PositionType;
     let (mut underline, mut strike) = (None, None);
-    let mut at = if leaf.id == owner { None } else { leaf.parent };
+    // Inline runs up to the paragraph, then the boxes it stands in.
+    let mut inside = leaf.id != owner;
+    let mut at = if inside {
+        leaf.parent
+    } else {
+        beyond(kernel, owner)
+    };
     while let Some(node) = at.and_then(|id| kernel.node(id)) {
         let (under, through) = match node.style.text_decoration_line {
             TextDecorationLine::None => (false, false),
@@ -56,7 +65,20 @@ fn propagated(kernel: &Kernel, leaf: &exact_kernel::NodeRef<'_>, owner: ViewId, 
         if through && strike.is_none() {
             strike = Some(node.text_color());
         }
-        at = if node.id == owner { None } else { node.parent };
+        at = if inside && node.id != owner {
+            node.parent
+        } else {
+            inside = false;
+            beyond(kernel, node.id)
+        };
+    }
+    /// The box `id` stands in, unless `id` is out of flow or atomic.
+    fn beyond(kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+        let node = kernel.node(id)?;
+        // A popover is out of flow too (the kernel's top layer), unless sticky.
+        let out_of_flow = node.layout_position() == PositionType::Absolute;
+        let atomic = matches!(node.node_type, NodeType::Pressable | NodeType::Control);
+        (!out_of_flow && !atomic).then_some(node.parent).flatten()
     }
     for (line, color) in [("underline", underline), ("strike", strike)] {
         let Some(color) = color else { continue };

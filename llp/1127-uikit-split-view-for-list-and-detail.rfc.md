@@ -186,7 +186,7 @@ The split shows under `--chrome platform` (the default of an app's `exact.mjs ag
 
 ### D12 — Duo Lab keeps Fold and gains a split screen
 
-Fold stays: it is LLP 1078's consumer of authored segments, and its two-down panes are the only device check of vertical segments (`smoke duo`'s rotate and resize legs; `contract/corpus/segments.contract` branches only on two horizontal segments). A fifth tab (`tab split "/split"`, a child `item "/split/:id"`, rows that are links, a header on each route) is the split, and `smoke duo` checks it (§3).
+Fold stays: it is LLP 1078's consumer of authored segments, and its two-down panes are the only device check of vertical segments (`smoke duo`'s rotate, resize and web legs; `contract/corpus/segments.contract` branches only on two horizontal segments). A fifth tab (`tab split "/split"`, a child `item "/split/:id"`, rows that are links, a header on each route) is the split, and `smoke duo` checks it (§3).
 
 ### D13 — Every host
 

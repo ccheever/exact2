@@ -52,8 +52,12 @@ impl Recorder {
                     continue;
                 }
             }
-            let optical = self.optical_size(&run.font, run.size);
-            let font = self.font(&file, run.weight, &run.synthesis, optical);
+            let optical = if run.optical_sizing {
+                self.optical_size(&run.font, run.size)
+            } else {
+                None
+            };
+            let font = self.font(&file, run.weight, &run.synthesis, optical, &run.variations);
             if self.blur > 0.0 {
                 self.ops.push(BLUR);
                 self.f(self.blur);
@@ -96,18 +100,29 @@ impl Recorder {
         weight: u16,
         synthesis: &fontique::Synthesis,
         optical: Option<f32>,
+        variations: &exact_kernel::style::FontVariations,
     ) -> u32 {
         // Fontique sets at most three axes (`wdth`, `wght`, `ital` or
-        // `slnt`); the shaper adds `opsz`.
-        let mut axes = [(0u32, 0u32); 4];
-        let vars = synthesis.variation_settings();
-        for (slot, (tag, value)) in axes.iter_mut().zip(vars) {
-            *slot = (u32::from_be_bytes(tag.to_be_bytes()), value.to_bits());
+        // `slnt`); the shaper adds `opsz`, then `font-variation-settings`
+        // (at most eight), each replacing an axis already set.
+        let mut axes = [(0u32, 0u32); 12];
+        let mut n = 0;
+        let mut set = |tag: u32, value: f32| {
+            if let Some(slot) = axes[..n].iter_mut().find(|(t, _)| *t == tag) {
+                slot.1 = value.to_bits();
+            } else if n < axes.len() {
+                axes[n] = (tag, value.to_bits());
+                n += 1;
+            }
+        };
+        for (tag, value) in synthesis.variation_settings() {
+            set(u32::from_be_bytes(tag.to_be_bytes()), *value);
         }
-        let mut n = vars.len().min(3);
         if let Some(size) = optical {
-            axes[n] = (u32::from_be_bytes(*b"opsz"), size.to_bits());
-            n += 1;
+            set(u32::from_be_bytes(*b"opsz"), size);
+        }
+        for (tag, value) in variations.axes() {
+            set(*tag, *value);
         }
         let key = (file.0.clone(), file.1, weight, axes);
         if let Some(k) = self.fonts.get(&key) {

@@ -1,14 +1,15 @@
+# The photo editor on Apple platforms (LLP 1067.000): the host's C exports
+# over its TypeScript source and baked plan. `<photo-editor>` is the app's
+# module artifact (modules/apple), which the host loads per session.
 [package]
 name = "photo-editor-apple"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The photo editor on Apple platforms: the host's C exports over its baked plan"
 publish = false
 build = "build.rs"
 
 [lib]
-name = "photo_editor_apple"
 crate-type = ["rlib"]
 test = false
 bench = false
@@ -16,9 +17,7 @@ bench = false
 [dependencies]
 exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
-photo-editor-data = { path = "../data" }
+exact-js = { path = "../../../js" }
 
 [build-dependencies]
-contract = { path = "../../../contract/cli" }
-exact-bake = { path = "../../../bake" }
-photo-editor-data = { path = "../data" }
+exact-js-bake = { path = "../../../js/bake" }

@@ -16,6 +16,7 @@ import { formatAttachmentSize } from '../composer/composer-editor-files';
 import { tableRows } from './rendered-previews';
 import { codeLines, type CodeLine, type MarkdownSource } from './files-surface';
 import { markdownEnv, messageChips, type MarkdownEnv } from '../timeline/message-chips';
+import { withFileLinkMenus } from '../timeline/file-link-menu';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-mermaid';
 import { timelineView } from '../timeline/timeline-presentation';
@@ -133,7 +134,7 @@ async function renderedAttachment(client: T3Client, native: Native | null | unde
   const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `attachment:${id}`, kind: 'attachment', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${id}`, { thread: false }, client) }, // the owner names the document
+    md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, '', [], `attachment:${id}`, { thread: false }, client)) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

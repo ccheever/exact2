@@ -11,6 +11,7 @@ use ImportView from "../appearance/settings-appearance-editor-shapes.contract"
 use KillConfirm from "./settings-a-telemetry.contract"
 use HostEditorView from "../device/settings-a-hosts.contract"
 use HostCheckGroup from "../device/settings-a-hosts.contract"
+use EasEditorView from "../device/settings-eas-hosts.contract"
 use Wordmark from "../shared/icons.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use SidebarUpdatePill from "../sidebar/sidebar-icons-kit.contract"
@@ -256,12 +257,15 @@ shape SettingsCore
   codePreview: FontDiffPreview
   wordWrap: bool
   panelDuration: number
+  // The Quit shortcut setting ("direct", "hold" or "double-click"), which the window's ⌘Q hold reads (app.contract quitHoldKey).
+  quitMode: string
   background: BackgroundDialog
   archiveConfirm: ArchiveConfirm
   updateConfirm: bool
   killConfirm: KillConfirm
   hostEditor: HostEditorView
   hostChecks: HostCheckGroup[]
+  easEditor: EasEditorView
   saOpen: bool
   editor: EditorView
   themeImport: ImportView
@@ -323,6 +327,10 @@ component SettingsNav
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  // SettingsSidebarNav's search ignores a key that confirms an input method's candidate.
+  action searchKey(k: string, e: KeyboardEvent)
+    if not e.isComposing
+      onKey(k)
   // Back (Escape too): useEscapeToGoBack blurs the focus before it leaves Settings, so a field of the
   // floating theme editor, which stays, keeps none.
   action leave
@@ -346,7 +354,7 @@ component SettingsNav
           box flex=1 min-width=0 height="1.3125rem" position="relative"
             if query == ""
               text "Search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder" id="settings-search-placeholder" data-paint="mutedForeground" data-pick="mutedForeground"
-            input value=query input=edit key=onKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off" data-paint="sidebar" data-pick="sidebar" data-editable="yes"
+            input value=query input=edit key=searchKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off" data-paint="sidebar" data-pick="sidebar" data-editable="yes"
           if query != ""
             button press=clear class=SettingsGhost width="1.25rem" height="1.25rem" min-height="1.25rem" padding="0.25rem" border-radius="0.375rem" aria-label="Clear settings search" testId="clear-settings-search" title=""
               CorePaintIcon(ownId=`paint-icon-SettingsNav-3-${route}`, paint="mutedForeground", name="x", size=12, color=pal.sidebarMuted)
@@ -379,7 +387,7 @@ component SettingsNav
           SidebarUpdatePill(color=pal.sidebarIcon, testId="settings-check-updates")
       button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-search-shortcut" title=""
       // ⌘F focuses it too, from a text field as well (SettingsSidebarNav's isFindShortcut).
-      button press=onKey("/") aria-keyshortcuts="Meta+F" aria-label="Find in settings" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-find-shortcut" title=""
+      button -exact-menu="none" press=onKey("/") aria-keyshortcuts="Meta+F" aria-label="Find in settings" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-find-shortcut" title=""
 
 // Settings' main sidebar trigger (AppSidebarLayout's SidebarControl over the settings nav, Toggle main sidebar): one
 // node at the window controls whether the nav is open or closed, so a VoiceOver press on it is answered by the element
@@ -396,7 +404,7 @@ component SettingsSidebarToggle
   view
     box position="absolute" left=controlsLeft top="0.75rem" testId="settings-sidebar-control"
       Tip(label=(keySidebar == "" ? "Toggle main sidebar" : `Toggle main sidebar (${keySidebar})`), side="bottom", align="center", offset=32)
-        button press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="settings-toggle-sidebar" id="settings-sidebar-trigger" title=""
+        button -exact-menu="none" press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="settings-toggle-sidebar" id="settings-sidebar-trigger" title=""
           if open
             CorePaintIcon(ownId=`paint-icon-SettingsNav-1-${route}`, paint=(artwork ? "" : "mutedForeground"), name="panel-left-close", size=16, color=(artwork ? "#d8daed" : pal.sidebarMuted))
           else

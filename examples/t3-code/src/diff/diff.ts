@@ -57,7 +57,7 @@ export class DiffState {
   /** `previous` and `status`: the file's old path and change type as the draft opened, which name its file (AnnotatableCodeView's fileKey). */
   draft: { scope: string; path: string; previous: string; status: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
-  /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's Send then leaves ⌘↩ to it
+  /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's send chords then leave ⌘↩ to it
    * (composer-presentation.ts). The host sends no blur when a focused view leaves the tree (LLP 1008), so it counts only
    * on that thread and while the draft's card is drawn (draftHoldsCommandEnter). */
   draftFocus = '';
@@ -535,7 +535,7 @@ function draftDrawn(client: T3Client): boolean {
   return lineIndex(reviewLinesOf(state, file)).has(sideKey(draft.range.endSide, draft.range.end));
 }
 /**
- * A Diff comment draft on show holds the focus, so ⌘↩ is its own (composer-presentation.ts gives the Send button no chords
+ * A Diff comment draft on show holds the focus, so ⌘↩ is its own (composer-presentation.ts gives the composer no send chords
  * then). A draft that is no longer drawn (another thread, a diff without its line, its file collapsed) holds nothing, though
  * no blur said so.
  */

@@ -6,8 +6,9 @@ connections (HTTP, WebSocket RPC, the saved environments and their credentials).
 Markdown editor owns composer text, selection, styling and undo; TypeScript supplies the
 source's block and reference projection and guarded edit intents. A drop, a paste and Attach files
 are Contract's `drop`, `paste` and file input, their files staged in TypeScript
-(`composer-attach-stage.ts`). An app-local Swift module (`modules/apple/`) adapts focus and
-modifier events, Paste as Text, large pastes, terminal and browser web views, menus,
+(`composer-attach-stage.ts`), and a large text paste folds into a file in the composer's `paste`.
+The terminal is T3 Code's own page in an `iframe`, with its own server socket. An app-local Swift
+module (`modules/apple/`) adapts type-to-focus, modifier events, the browser web view, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
@@ -36,8 +37,8 @@ bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
 The terminal page is a build output: the Apple bundle copies `assets/` as it is and has no
-step that makes an app's assets first, so without `terminal-host/build.mjs` the terminal view
-stays blank and its status names the load error.
+step that makes an app's assets first, so without `terminal-host/build.mjs` the terminal frame
+stays blank and the host logs that `assets/terminal/index.html` is not an app asset.
 
 Generated sources are built, not committed. `tools/generate/generate.mjs` makes them from the
 packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the versions the
@@ -51,7 +52,7 @@ and `settings-brands`, each a `.contract` in its feature's folder under `src/`, 
 in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their hand-written
 components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
 and the terminal buffer vectors
-(`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
+(`tests/terminal/vectors.json`, whose expectations are test data committed in
 `gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
@@ -97,9 +98,9 @@ and both variables set) runs the development binary, which carries no bundle res
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
 (the driver then skips its stale-build check, so rebuild after every source change).
 
-Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
-terminal, the browser surface, the rendered-HTML preview) are
-`isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
+Safari's Web Inspector (exact2 #101): in a development build the rendered-HTML preview's web view is
+`isInspectable`, so Safari's Develop menu lists it, and a Browser tab's frame follows main's rule for
+Exact's own `iframe` web views. A release build's are not: the packaged
 build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
 (`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
@@ -171,9 +172,13 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Conversation: bounded history with older-page loading, streaming assistant and
   tool rows, work-log inspector, checkpoints and changed files, fork dividers, answered
   questions, mention and file chips, Markdown with code blocks (wrap, copy) and Mermaid
-  diagrams: each fence renders in the Mermaid page (`assets/mermaid/`, an `iframe` per fence,
-  LLP 1020.001) with the Mermaid and DOMPurify builds the reference locks, which
-  `tools/generate/` vendors into `assets/mermaid/vendor/`. A failed workspace
+  diagrams: each closed fence, also while its reply streams, renders in the Mermaid page
+  (`assets/mermaid/`, an `iframe` per fence, LLP 1020.001) with the pele and DOMPurify builds
+  the reference locks, which `tools/generate/` vendors into `assets/mermaid/vendor/`; pele lays
+  a diagram out for the lane's width. With Settings › Appearance › Render math on, a display
+  formula (`$$…$$` or `\[…\]` opening and closing a line, or a ```math fence) is typeset by
+  the reference's KaTeX in the math page (`assets/math/`, an `iframe` per formula); inline math
+  stays TeX source until Markdown text has an inline atom (draft PR #888). A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
   supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
@@ -194,7 +199,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
   composer stays usable: Send declines the approvals it shows, then steers the turn with the message
   (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
-  stays with its thread until the question resolves.
+  stays with its thread until the question resolves. While the composer answers a question the server lets
+  carry attachments, its shelf is that question's (`question-attachments.ts`): a dropped, pasted or picked image
+  joins it without a chip, as does a SnapShot taken while the question is open (pinned when the capture is
+  first seen); a question whose shelf is still staging files stays unanswered; the answer uploads each question's
+  images beside its file chips, its shelves taking and giving up nothing meanwhile, and the drafts go when the
+  request resolves.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
   menu, the commit dialog (file selection, message, "Commit on new branch"), the
@@ -277,23 +287,31 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   where the reader may not comment; the host's conversations on their lines; what a failed diff
   read means, with Try again), hand-offs and quick actions (`pages-pr-handoffs*`,
   `pages-pr-quick*`) and the thread links (`pages-pr-links*`). A thread's pull request surface
-  keeps the tab it was left on.
+  keeps the tab it was left on. Every +/- splits into code, tests, mocks, generated files and docs
+  (`pr-change-breakdown.ts`, the server's `pullRequests.changeBreakdown`): a list row's on its first
+  hover, the detail's at once (drawn by the window's hover layer, since the header folds), the
+  details card's inline under the diff size.
 - Terminal: the thread terminal drawer below the chat column (`terminal.contract`,
   `terminal-drawer*.ts`; T3 Code's ThreadTerminalDrawer in its drawer mode): sessions on the
-  server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
-  Ghostty emulator page (`terminal-host/`, built into `assets/`) in a web view
-  (`T3TerminalView.swift`); the sessions are native (`T3TerminalSessions.swift`).
+  server, split and close, the drawer's state kept per thread. Each pane is T3 Code's own
+  Ghostty emulator page (`terminal-host/`, built into `assets/terminal/`) as a bundled page in an
+  `iframe` (`terminal-frame.contract`, LLP 1020.001). The page holds the session and its buffer and
+  opens its own server socket with a ticket the transport mints for the terminal's environment
+  (`terminal-host/src/session.ts`, `terminal-frames.ts`), as the reference's renderer holds the
+  attach stream, so output never passes a commit. A pane shown again (a thread switch, a remount)
+  attaches again and gets its history back from the server's attach snapshot. The theme, font,
+  keybindings and visibility go to the page by `postMessage`; the selection popup and the context
+  menu are a menu-shaped popover at the point the page names (an NSMenu).
   ANSI colours use VS Code's palette for the scheme. Shift+PageUp and Shift+PageDown page through
   the scrollback, ⌘⇧Home and ⌘⇧End jump to its start and the latest output (full-screen programs
   keep these keys), and ⌘A or the context menu's Select all selects the whole history; Jump to
   latest returns to the current output. The divider drags are native, outside the page, so the
   view forwards each mouse release in the window to the page, which sends the settled grid to
   the shell at once, as T3 Code's window listener does.
-- Browser surface: a right-panel Browser tab on a `WKWebView` in the module
-  (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
-  offer, #100): tabs and the chrome row, history and local servers, the address bar's search
+- Browser surface: a right-panel Browser tab is a partitioned `iframe` (LLP 1020.002; `browser-frames.*`,
+  `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not offer, #100): tabs and the chrome row, history and local servers, the address bar's search
   engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
-  floating player, profiles and cookie import, and an agent's `previewAutomation` requests.
+  floating player, profiles, and an agent's `previewAutomation` requests.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -301,44 +319,61 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   VS Code theme import, keybindings, providers (sign-in and runtime install), connections
   (pairing, SSH, outdated-host update), scheduled tasks, SnapShots, diagnostics and licenses.
 
-Return sends; Shift-Return inserts a newline; IME marked text stays an editor action.
+Return sends; Shift-Return inserts a newline, continues a Markdown list (renumbering the numbered
+items below) or leaves an empty item or quote line, with rich text on or off; IME marked text stays an
+editor action. A bracket or quote typed over a selection wraps it.
 ⌘↩ sends from the button; in a new-thread draft it starts the thread in the background
 when the server binds `composer.sendBackground`; ⌥⌘↩ on an existing thread sends and
-opens a fresh draft in the same project. Other chords follow the server's keybindings
+opens a fresh draft in the same project. With Settings › Send shortcut set so that Return needs ⌘,
+⌘↩ follows the Follow-up behaviour setting while a turn runs and ⌘⇧↩ takes the other. Other chords follow the server's keybindings
 (⌘K palette, ⌘N new thread, ⇧⌘M model picker, ⇧⌘K copy PR number, ⌘B sidebar). ⌘B bolds instead
 while the rich-text composer has the focus, as Tiptap does: a click into an existing draft
-counts as focus (the window's first responder is followed, `T3ComposerInput.swift`), and ⌘B / ⌘I end
+counts as focus (Exact fires the field's `focus` on the click), and ⌘B / ⌘I end
 a composing syllable first and match by key code under a non-Latin source such as Korean 2-Set. Outside
 the composer a ⌘ or ⌃ letter chord under a non-Latin source is re-issued with its key's Latin
-character, as the reference's `resolveEventKeys` does (`T3LatinChords.swift`), so ⌘B, ⌘K and menu
-equivalents still match. exact2 #168 matches declared chords by physical key itself, but not
-the menu's standard items, the terminal's web view or the module's own key monitors, so the
-re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
+character, as the reference's `resolveEventKeys` does (`T3LatinChords.swift`), so ⌘B and ⌘K
+still match. exact2 #168 matches declared chords by physical key itself, and AppKit matches the
+menu's own items by the key's Latin letter, but neither reaches the module's own key monitors, so
+the re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
 slid under it is hovered, as a browser's synthetic mouse move does (the host's own, exact2 #139). The menu bar is the reference
-desktop app's (`T3MenuBar.swift`): File shows only Close Window, View starts with Reload
-and Force Reload (two Contract buttons the host files there, `-exact-menu="view"`, which run
-`reload()`; settings-shortcuts.contract `ViewReload`), and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
-editor) and ⌘1–9 reach the window; every button chord stays a hidden File key equivalent,
-one dispatch button per chord (⌘N and ⇧⌘O both start a thread with no text field focused).
-Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and ⌘W closes the
-active right-panel surface tab (its neighbour becomes active; the last tab closes the panel;
-on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
+desktop app's (DesktopApplicationMenu.ts), built from main's menu hints (LLP 1021 §5.3.1): the app
+menu has Check for Updates… directly under About and Help holds it alone (two app-wide Contract
+buttons, `-exact-menu="about"` and `"help"`, enabled under a sheet or with no key window; settings-shortcuts.contract
+`UpdateMenuItems`), File shows only Close Window, View starts with Reload and Force Reload (two
+Contract buttons the host files there, `-exact-menu="view"`, which run `reload()`; `ViewReload`)
+and then Actual Size ⌘0, Zoom In ⌘= and Zoom Out ⌘- (the app's own commands, which take the host items'
+places, stepping by half a Chromium zoom level as the root font size; `ViewZoom`), and the window's root removes the Develop
+and Go menus, the help book and Edit's template items (`-exact-menu-remove`, app-window.contract), so
+⌘D (diff), ⌘O (open in editor) and ⌘1–9 reach the window. Every button chord is a shortcut with no
+item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,), one dispatch button
+per chord (⌘N and ⇧⌘O both start a thread with no text field focused). While the sidebar's undo
+notice claims ⌘Z, thread.undo stands in for Edit › Undo. ⌘W closes the active right-panel surface
+tab (its neighbour becomes active; the last tab closes the panel; on the Pull Requests page the open
+pull request) before it closes the window: the window root's capture handler hears it ahead of the
+menu (`app-window.contract` `modifierDown`), so File › Close Window keeps ⌘W; a held ⌘W's repeats
+are dropped.
+The Quit shortcut setting's hold (Hold ⌘Q or press twice) is the window root's `key` handler, ahead
+of the menu's Quit (`quit-hold.contract`). Edit's Paste as Text (⇧⌘V) stays the module's
+(`T3Menus.swift`): it is the responder chain's `pasteAsPlainText:`, which a button's press is not. The surface launcher takes the focus when it mounts (`autofocus`), and
 its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
 menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
 focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
-row, selection and project menus, the Files tree's, a panel tab's and a pull request number's. A draft
-row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. The branch
-picker's Copy branch name, the chat's file and web link menus, the media menu and the legacy sidebar's
-choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
+row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, the branch
+picker's Copy branch name (on its trigger and on each ref in the open picker, which stays open under it), and the chat's
+web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
+`external-link-menu.ts` and `file-link-menu.ts`). A draft
+row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
+xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The media menu and
+the legacy sidebar's choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
 t3-catalog`, kept in the Keychain on macOS; `transport-catalog.ts`), each token scoped to the server
-origin and environment. The Swift module atomically saves the versioned `t3-code.json` preference file (selections,
-drafts, sidebar and page preferences, dismissed notices, pending operation identities)
-under Exact's app data directory. **Disconnect** keeps the credential; **Forget**
+origin and environment. The data module atomically saves the versioned preference file, `app:/data/t3-code.json`
+(selections, drafts, sidebar and page preferences, dismissed notices, pending operation identities), through
+Exact's `storage.fs` (`protocol.ts` `preferenceFiles`); a drive that names no scratch store keeps none of it. **Disconnect** keeps the credential; **Forget**
 removes it. The embedded server is the primary environment, "This machine"
 (`local-primary.ts`): the client connects to it with the
 bearer the server issued at start (memory only, never kept), never saves it and never
@@ -428,6 +463,22 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
   #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
   Contract tasks.
+- The ContextMenu key and VoiceOver's show menu on a reply's mailto, irc, xmpp or fragment link open nothing,
+  where the reference opens the desktop shell's menu: those links write no `contextmenu`, and on macOS a
+  keyboard or VoiceOver menu request that no node answers ends (`MouseEventsMac.swift` `contextTarget`),
+  while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
+- On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
+  reference opens it at the click.
+- View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
+  the module's native views, where Electron's page zoom scales the whole page.
+- A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
+  screen and turns the window transparent first (concealPendingQuitWindow), and Contract has neither.
+- Edit › Undo chosen from the menu while the undo notice claims ⌘Z is thread.undo, also with a field
+  focused, where the reference's menu item undoes the field's text (its ⌘Z is thread.undo then too).
+- Check for Updates… shows in every build. In a build with an update store its press would do nothing (the
+  module has no hook into the host's check); no build has one while `deploy.store` is `"0"`.
+- An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
+  reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
@@ -450,14 +501,12 @@ These it does not use, because on macOS they do not do what the reference does:
   by a click gives the focus back to nothing. So each dialog keeps its own Tab trap
   (`dialog-trap.contract` says why), and closing a dialog whose opener the view cannot name
   still leaves the focus nowhere (Base UI gives it back).
-- The rest of the menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
-  On main (checked at `44ad32092`) an `-exact-menu` item is still enabled only while its window is key and has
-  no sheet (`ShortcutsMac.swift` `validateMenuItem`), app-menu items are still filed after About's separator
-  (`sync`), and `-exact-menu-remove` still takes only its twelve standard ids. So Check for Updates… (always
-  enabled and directly under About in the reference, with a box that has no parent window where a Contract
-  `alertdialog` is a sheet), Paste as Text, View's zoom, the hidden Help book item, the ⌘Q hold and the
-  trimmed File, Edit, Develop and Go stay the module's (`T3Menus.swift`, `T3MenuBar.swift`, `T3LatinChords.swift`).
-  Settings… is the host's: it files the ⌘, dispatch button there.
+- The menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+  Main's #947 (LLP 1021 §5.3.1) gave app-wide items, `-exact-menu="about"` and `"none"`, the Edit, Help, Go
+  and Develop removals, View's zoom and a root `key` handler that holds ⌘Q, and the clone adopts them. Two
+  things stay the module's: the "Updates unavailable" box, which has no parent window where a Contract
+  `alertdialog` is a sheet, and Paste as Text (`T3Menus.swift`). Settings… is the host's: it files the ⌘,
+  dispatch button there.
 - The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
   Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
   sound (`Notify.swift` posts with `.default` and presents with `.sound`; the reference's notification is
@@ -473,6 +522,12 @@ These it does not use, because on macOS they do not do what the reference does:
 App Swift this clone keeps, where moving it onto what main offers would change what someone using
 the app sees, or where main has nothing to move it onto (each is a framework capability to add):
 
+- `T3BrowserPage.swift`, `T3BrowserRecorder.swift`, `T3BrowserAgentCursor.swift` and `T3BrowserCapture.swift`: what a
+  Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
+  source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
+  snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
+  files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call; a saved
+  recording's bytes go to the environment from there, since the data module reads only the app's files.
 - `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
   top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
   `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
@@ -482,44 +537,57 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
   the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
   at the focused node's centre.
-- `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
-  light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
-- `T3ImageAccent.swift` and `T3ComposerImageChip.swift`: an image's average colour needs its
-  pixels, and readback is refused. The latter supplies raw image facts only.
-- `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
-  an `aria-keyshortcuts` button hears its chord before a field's `key` handler.
-- `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
-  opens only http, https, mailto and tel), `T3InstalledFonts.swift` (no `queryLocalFonts`),
-  `T3Locale.swift` (`exactTime().locale` is the preferred language, where Electron's
-  `getSystemLocale` follows the Region setting), `T3WindowChrome.swift` (no
-  `env(titlebar-area-*)`), `T3RootFont.swift` (the native views' rem), `T3PanelsNative.swift` (the
-  Files editor's caret under the press that mounted it), and the data module's sleep
-  (`timelineSleep`: data modules have no timers).
-- Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
-  `T3ComposerEditor`) retain large-paste folding, Paste as Text, modifier and focus routing, and a
-  video's first frame and typed link. A drop on the chat column or a sidebar row, a paste's files
+- `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; the client's
+  opens are Contract's `openURL`, with the editors' schemes in `app.json` `open_url`),
+  `T3InstalledFonts.swift` (no `queryLocalFonts`), `T3WindowChrome.swift` (the traffic lights at the
+  reference's x = 16: the host's tall title row, `display_override`, leaves them where AppKit puts
+  them, LLP 1039 D8), `T3RootFont.swift` (the native views' rem), and the data module's sleep
+  (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
+  answer settles is refused as pending on nothing when no fetch or storage step is in flight).
+- The composer's OS adapter (`T3Composer`) keeps type-to-focus. The send chords, the queued edit's ⌥↑ and
+  the open menus' keys are the composer's own `key` action (`app.contract` `composerKeyEvent`); the
+  layouts' window-space boxes are `frame` reads on `resize` (`layoutFrames`, `src/shell/layout-frames.ts`),
+  and a composer menu's trigger is measured with `frame` as the menu opens. A drop on the chat column or a sidebar row, a paste's files
   and Attach files are Contract's `dragenter`, `dragleave`, `drop`, `paste`
   (`ClipboardEvent.files`) and `input type="file"`; TypeScript stages each file
   (`composer-attach-stage.ts`), reads it at send and removes it (`composer-staged-copies.ts`).
   An image within its limits keeps its bytes and type; one over them is encoded by
-  `compressImage`. What stays native, and why: Paste as Text, because AppKit's
-  `pasteAsPlainText:` fires no `paste` and `ClipboardEvent` has no Paste as Text flag (the module
-  presses a hidden key the Contract hears, then pastes); ⌘V with only image data on the
-  pasteboard, because AppKit disables a plain text view's Paste for it (the module sends the
-  text view's paste, whose `paste` carries `image.png`); large-paste folding, which reads the
-  text view's edit before it lands (moving it to the Contract `paste` is open); and the first
-  frame (AVFoundation) and the typed link a video or audio file plays from. The composer is
+  `compressImage`. Paste as Text is the Contract's: Exact fires `paste` for `pasteAsPlainText:` as
+  for Paste, and the composer's `key` handler arms the paste its ⇧⌘V brings, as the reference's
+  keydown does (`isPasteAsTextShortcut`); Edit › Paste as Text chosen with the pointer arms it in the
+  module (`T3Menus.swift`, the reference's `DESKTOP_PASTE_AS_TEXT_EVENT`), which TypeScript reads for
+  the paste it holds or the files it attaches. Paste is enabled for files or image data alone where a
+  `paste` is heard. A text paste of 32 KB or more (UTF-16 units or UTF-8 bytes), or one that
+  would take the prompt past 120,000 units, is the composer's `paste` too (`composer.contract`
+  `pasted`, `composerPasteDisposition`): lengths decide most pastes there, and a paste only its byte
+  count can decide is held for TypeScript to measure. A held paste is prevented and goes, with the
+  field's value and selection, through `attachFiles`' queue to `composer-editor-files.ts` `foldPaste`,
+  which stages a `pasted-text.txt` file whose chip one guarded `setRangeText` puts in the paste's
+  place, shows the reference's refusal, or puts the text in as the field's paste would. A paste
+  Paste as Text armed, and every paste into a literal answer, stays inline; a question that takes
+  attachments folds as the thread's draft does.
+  A staged video or audio file keeps its extension (`composer-staged-copies.ts` `stagedName`),
+  which AVFoundation needs to play it; a video's shelf tile is a muted, paused `video` of that
+  copy sought to its first frame, and its display size for the preview is read from its header
+  (`composer-video.ts` `videoFrameSize`). The composer is
   Exact's Markdown editor (`textarea
   markup="markdown"`, LLP 1045): it styles lists, tasks, quotes, headings, rules and fenced code
   as they are typed, owns ⌘B/⌘I (`format`), and keeps native undo. The app reads the source
   selection from its `beforeinput`, `input` and `selectionchange`, and edits it only with
   `setRangeText` (one undo step each) and `setSelectionRange`: completions, draft history, the
-  code language picker, citations and Enter/Tab/paste in code. References and code languages are
-  ordinary controls beside the field. Plain and literal answers stay ordinary textareas. The
-  editor does not draw app-supplied highlights or atomic chips; references stay source text.
+  code language picker, citations and Enter/Tab/paste in code. A reference (a file link or `@path`,
+  a `$skill`, a citation, a context reference) is an atom of the editor (LLP 1045.000): its pill
+  shows the label, glyph and tooltip `composerChips` gives its source, the editor keeps the caret
+  out of it and deletes it whole, a copy takes its source, and a press opens it, anchored at the
+  pill. Code languages are ordinary controls beside the field. Plain and literal answers stay
+  ordinary textareas.
 
 Differences that belong to the app:
 
+- With Markdown formatting off the composer is a plain `textarea` (`markup="none"`), where a held paste's
+  `setRangeText` (a folded chip, or text a held paste puts in) is no undo step, and Apple clears the
+  field's undo history when its value changes (`docs/contract-grammar.md`, `setRangeText`): ⌘Z
+  does not take it back, where the reference's undoes it. In the Markdown editor each call is one undo step.
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
@@ -535,12 +603,28 @@ Differences that belong to the app:
   its timeout can come up to a second early. A connect replies once the socket's URL is in, not
   once the socket opens, since an answer may await only what this module's fetch, storage or open
   stream settles.
-- The terminal's attach stream, the Browser's automation replies and the device hub's tickets keep
-  a second, module-owned socket per environment (`T3Link.swift`), which the transport's `links` op
-  tells the routes and bearers of the environments it has connected: the terminal's bytes go
-  straight to its web view instead of through a commit each. The global pointer and key monitor
-  that dates the last interaction stays native too (`T3ActivityInput.swift`); the activity reporter
-  is TypeScript.
+- The module holds no server connection or bearer. The device hub's tickets are minted by the
+  transport (`deviceHubAccess`) when the module asks for one (`presentation.deviceHub.want`) and
+  reach the device view as its `t3-media` node's `data-device-origin` and `data-device-ticket`,
+  which the node drops once the module reports the ask answered; the Tools drawer's feeds and
+  accessibility reads reuse a ticket for 60 s, as the reference keeps its hub access. A
+  Browser recording's upload is minted and cleaned up on the transport's socket; only its bytes go
+  from the module (`browserRecordingUpload`), because the saved recording is in the artifact
+  directory, outside the app's files the data module can read. Each terminal page opens a socket of
+  its own (one per pane, the reference's renderer has one for all).
+- The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
+  window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
+  (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
+  never reach the root: typing in the terminal alone does not keep the reader recent, where the
+  reference's terminal is in its page (an `iframe` guest's events stay in its page). The root
+  hears a hovering pointer only while the window is key (ExactKit's hover tracking), where
+  Chromium's window listeners also hear one over a background window.
+- While the device tab's rename field has the focus, the keybinding chords of the reference's
+  bubble-phase window listeners stay in the menu bar disabled, and the composer's send chords and
+  the Escape buttons beside the tab strip drop theirs (app.contract `renameHoldsKeys`): an
+  `aria-keyshortcuts` button hears its chord before any field, where the reference's input stops
+  the key's propagation. A held chord that is a text field's editing chord (⌘Z, ⌘C, ⌘A…) drops out
+  of the menu instead, so the field edits with it.
 - Under the agent driver, a clock step that has a timer due first waits for every answer in flight,
   up to 20 s. Answers send their own requests, so that wait ends when the server replies, not after
   20 s; the app itself runs its timers on the wall clock. Under the agent the transport's
@@ -549,6 +633,23 @@ Differences that belong to the app:
   already ran and does nothing.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). Pages get no
   geolocation. A page's notification permission request is denied, as in the reference.
+- A Browser tab is a partitioned `iframe` (LLP 1020.002), so the platform answers what the reference's Electron
+  shell drew: `alert`, `confirm` and `prompt` are sheets titled with the page's origin (a `prompt` is answered), the
+  file chooser and a download's destination are the platform's panels, another app's scheme asks in Safari's words,
+  fullscreen takes the screen, and camera, microphone, geolocation and clipboard reads are refused. Each profile is a
+  `persist:` partition per environment and Incognito an in-memory one, and cookies cannot be imported from other
+  browsers (LLP 1020.002 D4). A profile's cookies from the module's old stores move into its partition once, and the
+  page reloads for them; its local storage, IndexedDB and cache stay behind, since WebKit reads none of them out of a
+  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
+  timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
+  the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
+  reports no focus); ⇧⌘R reloads the window, as the reference's menu does, and ⌘L does nothing. A page's dialog while
+  an agent request runs on its tab is answered at once (OK for `alert`, Cancel for `confirm` and `prompt`); one left
+  from an agent's run shows over the page as Chromium's tab-modal dialog and takes the person's answer. The console,
+  network log and media scripts go in as each document commits, so what a page logs before that is not kept
+  (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
+  from the page every few seconds
+  rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
@@ -606,35 +707,46 @@ above.
   JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
   floating preview works.
 - No development web view inspection on Android: the clone does not run on Android yet.
-- A citation or an attached file is a link label in the composer and a chip in the References row
-  below it, not the reference's inline chip: the Markdown editor has no atomic links. The app still
-  treats each reference as one unit, as the chip is: Backspace or Delete at it (⌃H and ⌃D too)
-  removes all of its source in one undo step, and ⌥ takes the spaces between as well; a caret put
-  inside it moves to the nearer edge of its shown label; a selection that cuts it takes it whole,
-  so a cut or copy does too; an unmodified ← or → at its edge steps over it; text typed,
-  pasted or dropped inside it goes after it; and text put over a selection that holds it
-  replaces the whole selection, its hidden destination included. A citation is known by its
-  `t3-citation:` destination, whatever its label reads.
-- Held Shift or ⌘ does nothing after the focused control unmounts (opening Linked pull requests from
-  the panel launcher, or at launch with no thread open) until the next click: with nothing focused,
-  the window root hears no keys, where Chromium's `window` listeners hear every key.
-- Edit › Paste is enabled after a click on blank ground, and choosing it only forgets the held
-  keys: the window root takes that focus and hears `paste`. Elsewhere AppKit disables Paste when
-  nothing can take it. The reference's Paste is always enabled.
-- A folder dropped on the chat column is not mentioned in the prompt. The reference inserts its
-  absolute path as an `@` mention (ChatComposer.tsx `addDroppedFolders`); a dropped folder reaches
-  the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the reference's
-  own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"', "Type the
-  folder path with @ instead." Files dropped with it attach.
+- A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
+  colours, with the platform's padding and radius and no border; its glyph is the nearest SF
+  Symbol (a document for any file, not its file-type icon; no project favicon or image
+  thumbnail), as the Apple editor draws only `symbol:sf/` icons; and every context reference
+  (an image, file, thread, terminal excerpt or comment) takes one look, since a kind's paint is
+  per scheme.
+- A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
+  chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
+- With Markdown formatting off a reference shows its source: the editor draws atoms only where
+  it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
+  Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
+  disables rich syntax.
+- A character typed right after a mention or a skill makes its source longer, and deleting the
+  space after one makes it text again; the reference keeps the chip until its document is
+  rebuilt (LLP 1045.000 §6).
+- Edit › Paste as Text chosen with the pointer is a Paste: no key comes before it to arm the
+  composer, where the reference's menu item arms it over IPC before pasting. Its ⇧⌘V is Paste as Text.
+- A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
+  reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
+  folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
+  reference's own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"',
+  "Type the folder path with @ instead." Files dropped or pasted with it attach.
+- A whole-word `_text_` in the composer is drawn in italic, where the reference's composer keeps typed
+  underscores literal: Exact's Markdown field paints CommonMark emphasis and has no option to leave `_`
+  out (clone `issues/composer-editing-underscore-emphasis.md`). `node_modules` and an underscore in a
+  code span stay plain, and the sent message renders the same in both.
+- An image or a file chip copied from the composer pastes whole only within this app: the reference
+  carries the chip's record in a clipboard type of its own, and Exact's clipboard holds text, so the
+  clone finds the record by the id in the pasted link, in the draft that holds it or in the latest copy
+  (`composer-copied-chips.ts`). The latest copy's image bytes stay until another copy replaces it, as
+  the reference keeps that copy's files in memory.
+- Leaving a quote with an empty `> ` line leaves a blank line under it, which the clone's composer
+  shows: the reference's composer hides the blank line it writes there, so that the comment under the
+  quote is its own paragraph and not a lazy continuation of the quote.
 - An image over 10 MB is re-encoded as a PNG when it can hold transparency and else as a JPEG; the
   reference prefers WebP, which `compressImage` does not write. An image within its limits keeps its
   bytes and type, and a PNG or JPEG over 2000 px is fitted in its own type, as the reference's are.
 - A dropped or pasted file's MIME type comes from its extension, by the names macOS gives
   (`composer-attach-stage.ts`), where Chromium's `File.type` reads its own table first; a
   picked file's is the picker's.
-- Edit › Paste stays disabled with only image data on the pasteboard (a screenshot copied to the
-  clipboard): AppKit enables a plain text view's Paste only for the types it reads. ⌘V pastes
-  it: the module sends the text view's paste, whose `paste` carries `image.png`.
 
 **Not failures:**
 
@@ -950,10 +1062,11 @@ click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeh
 - Terminal, Korean 2-Set with VoiceOver on (C9): VoiceOver was not the cause. When another
   process selects the input source with TISSelectInputSource (an input switcher, or the
   real-input harness's own tool) while the terminal has the focus, WebKit's input context can be
-  left with no input method, and keys reached the shell as the layout's characters (ㅎ ㅏ ㄴ or
-  g k s). The terminal now reconnects its input context when the selected source changes
-  (T3TerminalInputSource.swift). T3 Code under Chromium loses at most the first key in that
-  case. Not yet investigated: in a freshly launched lane the native composer once sent the first
+  left with no input method, and keys reach the shell as the layout's characters (g k s). The
+  native terminal reconnected its input context when the selected source changed; the terminal
+  page's web view is the host's `iframe`, which does not yet (`clone/issues/terminal-page-socket-input-source.md`).
+  Selecting the source before focusing the terminal composes. T3 Code under Chromium loses at most
+  the first key in that case. Not yet investigated: in a freshly launched lane the native composer once sent the first
   2-Set syllable as jamo (ㅎㅏㄴ한글).
 
 - Terminal, Korean 2-Set, first syllable: in an app it has not yet met, macOS's Korean input
@@ -969,9 +1082,10 @@ click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeh
   Code: the syllable goes to the shell when the input method commits it, and the candidate picked
   (or the syllable again, on Escape) follows it, as under T3 Code's Chromium page. ⌃C commits the
   syllable alone, and a second ⌃C is the shell's. ⌃L commits it without clearing, as T3 Code
-  does: its drawer reads the "Process" key's `key` ("ㅣ"), so a ⌃ chord typed during a terminal
-  composition is no longer re-issued with its Latin letter (T3LatinChords). A composing syllable is
-  not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
+  does: its drawer reads the "Process" key's `key` ("ㅣ"). A ⌃ chord or ⌥Return the input method
+  declines comes to the page with its own key right after the commit, where Chromium sends
+  "Process"; the page counts it as the input method's (entry.ts `CompositionTracker`). A composing
+  syllable is not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
 
 Real-input sessions should type IME rows with held keys: orca's zero-dwell press-key can make the
 input method commit a jamo at once. They should switch input sources with the system shortcut or
@@ -1090,7 +1204,10 @@ module facade, the app's generated data keys, every file in `modules/apple/` (th
 `composer`, `menus` and `panels-native` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
-directory's sources, and every one Exact's `host/apple/modules/ExactTamber.swift`.
+directory's sources, and every one the rest of Exact's module seam
+(`host/apple/compose.mjs`'s `moduleSeam`: `ExactNativeViews.swift`, `ExactTamber.swift`,
+`ExactExtensions.swift`) with empty extension and view tables (`ExactComposed.swift`, as
+`host/apple/build.mjs` composes it for an app that uses no package).
 `EXACT_ASSETS` must be an absolute path: the modules resolve their bundled assets under that
 root. Run from the repository root:
 
@@ -1098,16 +1215,17 @@ root. Run from the repository root:
 X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
 R="$PWD/target/t3-tests"; mkdir -p "$R"; export T3_APP_DIR="$PWD/examples/t3-code"
 T3_DK="$R" bun -e 'import { writeDataKeys } from "./host/apple/data-keys.mjs"; import manifest from "./examples/t3-code/app.json"; writeDataKeys({ manifest }, process.env.T3_DK + "/ExactDataKeys.swift");'
+T3_DK="$R" bun -e 'import { composedModule } from "./host/apple/compose.mjs"; await Bun.write(process.env.T3_DK + "/ExactComposed.swift", composedModule([], true));'
 for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
   M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|panels-native) M=$(echo "$M" | grep -v /T3Module);; esac
-  T=host/apple/modules/ExactTamber.swift
+  T="host/apple/modules/ExactNativeViews.swift host/apple/modules/ExactTamber.swift host/apple/modules/ExactExtensions.swift $R/ExactComposed.swift"
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests"
+  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests"
 done
 ```
 
@@ -1133,17 +1251,16 @@ xcrun swiftc -swift-version 5 -package-name apple -module-name ExactKit -I host/
 target/t3-tests/timeline-keyboard-tests
 ```
 
-`terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
-`assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
-`bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
+The terminal page's tests are Bun's (`terminal-host/src/*.test.ts`, the vendored surface's among
+them); `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
 The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
 `macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password
 prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it and
 `FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
-`T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances, and
-`T3_PERMISSION_HELPER_EVIDENCE` the snapshot test's permission helper panel.
+`T3_PERMISSION_HELPER_EVIDENCE` set to a directory renders the snapshot test's permission helper panel.
 **Check for Updates…** (under About and in Help) reads the bundle's receipt: a build
 without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic
-updates are not available right now." box; a build with one omits both items.
+updates are not available right now." box; a build with one does nothing (the module has no
+hook into the host's check).

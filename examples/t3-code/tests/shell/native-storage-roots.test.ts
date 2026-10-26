@@ -9,7 +9,7 @@ describe('what #327 retires', () => {
   test('the module keeps its files where its context says (named roots under --storage), no TMPDIR re-rooting', async () => {
     const swift = await Promise.all(readdirSync(appPath('modules/apple')).filter(name => name.endsWith('.swift')).map(name => source(`modules/apple/${name}`)));
     expect(swift.filter(text => text.includes('T3Storage'))).toEqual([]);
-    const module = await source('modules/apple/T3Module.swift');
-    expect(module).toContain('preferencesURL = context.data.appendingPathComponent("t3-code.json"');
+    // The preference file is Exact's own storage, app:/data/t3-code.json: the module's data root (protocol.ts preferenceFiles).
+    expect(await source('app.ts')).toContain('fs.write app:/data/t3-code.json');
   });
 });

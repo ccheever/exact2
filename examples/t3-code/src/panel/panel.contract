@@ -1,4 +1,5 @@
 use PrQuickActions from "../pull-requests/pages-pr-quick.contract"
+use PrBreakdownStat from "../pull-requests/pr-breakdown.contract"
 use kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
 use TerminalContent from "../terminal/terminal.contract"
 use Look from "../appearance/settings-appearance-look.contract"
@@ -77,6 +78,8 @@ component PanelHeader
 
 // The bar itself, drawn by PanelHeader.
 component PanelHeaderBar
+  inject
+    renameHoldsKeys: bool
   props
     panel: PanelView
     surfaces: ShellSurface[]
@@ -189,7 +192,7 @@ component PanelHeaderBar
       // the focus the field takes the key and closes the sheet (FilesExplorer searchKey). The thread details popover drawn
       // above the sheet (app-overlays.contract) is the topmost layer while it shows, so its Escape comes first.
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=(renameHoldsKeys ? "" : ((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "")) testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 
@@ -253,11 +256,10 @@ component PanelTabChip
           box position="absolute" right=-1 bottom=-1 width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
       if tab.audio == "audible" or tab.audio == "muted"
         BrowserAudioButton(tabId=tab.id, title=tab.title, audio=tab.audio, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), local=local)
-      box hatch="t3-anchor" data-anchor=`tab-cancel:${tab.id}` press=local("surface-rename-cancel", tab.id, "") tabindex=-1 width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
       if tab.renaming
         PanelTabNameField(tab=tab, local=local)
       else
-        button id=`panel-tab-title-${tab.id}` hatch="t3-anchor" data-anchor=`tab-focus:${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey(`panel-tab-title-${tab.id}`) aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        button id=`panel-tab-title-${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey(`panel-tab-title-${tab.id}`) aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 
@@ -265,18 +267,32 @@ component PanelTabChip
 // name"): mounted when renaming starts, focused with its text selected (FieldOpenSelect). The
 // name is the field's own state, and Enter and blur commit it as their argument, as
 // SidebarRenameField does: a commit never depends on an earlier per-keystroke command having
-// landed (a drive that typed then pressed Enter kept the old name). Escape is the native
-// monitor's tab-cancel, which closes the editor first, so the blur after it commits nothing.
+// landed (a drive that typed then pressed Enter kept the old name). While it has the focus the
+// window's bubble-phase chords and Escape buttons stand aside (app.contract `renameHoldsKeys`), as
+// its keydown's stopPropagation keeps a key from those listeners; Escape restores the title and
+// closes the editor first, so the blur after it commits nothing.
 component PanelTabNameField
+  inject
+    renameFocused: action
   props
     tab: PanelTab
     local: action
   state name = tab.renameValue
   action edit(value: string)
     name = value
+  action focused
+    renameFocused(true)
+  action blurred
+    renameFocused(false)
+    local("surface-rename-commit", tab.id, name)
+  action keys(k: string, e: KeyboardEvent)
+    if k == "Escape"
+      preventDefault()
+      name = tab.renameValue
+      local("surface-rename-cancel", tab.id, "")
   view
     FieldOpenSelect(target=`tab-name-${tab.id}`, length=tab.renameValue.length)
-    input hatch="t3-anchor" data-anchor=`tab-editor:${tab.id}` id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
+    input id=`tab-name-${tab.id}` value=name input=edit keycapture=keys focus=focused blur=blurred submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
 
 // "Add panel surface": a 24pt ghost-muted "+" and the menu of every surface,
 // unavailable ones at 64% with their reason.
@@ -422,6 +438,7 @@ component LinkedPrRowView
     rem: number
     prSpeedMode: bool // Shift alone (app.contract modifierKey)
     dialogMenuEntered: action
+    interacted: action
   props
     row: LinkedPrRow
     local: action
@@ -462,6 +479,7 @@ component LinkedPrRowView
   action ignoreDown(kind: string, e: PointerEvent)
     dragging = false
   action ignoreMove(e: PointerEvent)
+    interacted()
     middleDown = false
   action quick(op: string, value: string)
     local("surface-pr-quick", "", value)
@@ -500,10 +518,12 @@ component LinkedPrRowView
                 box width="0.875rem" height="0.875rem" aria-label=row.reviewLabel
                   PgIcon(name=prReviewIcon(row.review), size=14, color=prReviewTone(row.review))
           box flex=1 min-width=0
+          // PullRequestChangeBreakdownStat where the thread has a project (ThreadPullRequestsPanel LinkRow).
           if row.additions != ""
-            row flex-shrink=0 align-items="baseline" gap="0.25rem"
-              text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
-              text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#fb2c36, #fb414a)"
+            PrBreakdownStat(breakdown=row.breakdown, tipId=`linked-pr-breakdown-${row.number}`, request=local("surface-pr-breakdown", "linked"))
+              row flex-shrink=0 align-items="baseline" gap="0.25rem"
+                text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
+                text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#fb2c36, #fb414a)"
         row min-width=0 height="1rem" align-items="center" gap="0.375rem" overflow="hidden"
           if row.stackSize > 0
             row flex-shrink=0 align-items="center" gap="0.125rem" aria-label=row.stackLabel

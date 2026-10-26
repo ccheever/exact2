@@ -1,0 +1,96 @@
+// The conformance fixture (LLP 1133.001 D7): every name of @exact/calendar,
+// read and sent as an app would, each answer shown by testId for the suite.
+// The store is read by data code (app.ts), a page at a time.
+use calendarStatus, showEventEditor, saveEvent, removeEvent, requestFullCalendarAccess, CalendarStatus, CalendarEvent, EventEditorResult, RemovedEvent from "@exact/calendar"
+
+shape Line
+  text: string
+
+shape Page
+  text: string
+  next: string
+
+// 08:00 to 08:30 UTC on 16 September 2026.
+fn sample(): CalendarEvent = CalendarEvent(id=none, uid=none, calendarId=none, title="Suite event", description=some("Written by the suite."), start="2026-09-16T08:00:00", timeZone=some("UTC"), duration="PT30M", showWithoutTime=false, location=none, url=none, status="confirmed", freeBusyStatus="busy", recurrenceId=none, utcStart=none, utcEnd=none, apple=none)
+
+component Fixture
+  state days = 61
+  state after = ""
+  resource status = calendarStatus() as shape CalendarStatus
+  resource list = calendarList() as shape Line
+  resource walk = walk(days, 3) as shape Line
+  resource page = page(3, after) as shape Page
+  mutation saved as shape CalendarEvent
+  mutation removed as shape RemovedEvent
+  mutation raised as shape CalendarStatus
+  mutation edited as shape EventEditorResult
+  action save
+    send saved = saveEvent(event=sample())
+  action remove
+    match saved
+      case some(e)
+        send removed = removeEvent(id=(match e.id { case some(i) => i, case none => "" }))
+      case none
+        after = after
+  action raise
+    send raised = requestFullCalendarAccess()
+  action edit
+    send edited = showEventEditor(event=sample())
+  action more
+    after = page.next
+  action tooLong
+    days = 1500
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state} ${status.access} ${status.editor}` testId="status"
+      text list.text testId="calendars"
+      text walk.text testId="walk"
+      text page.text testId="page"
+      text page.next testId="next"
+      button press=more testId="more"
+        text "More"
+      button press=tooLong testId="too-long"
+        text "Four years and more"
+      button press=save testId="save"
+        text "Save"
+      button press=remove testId="remove"
+        text "Remove"
+      button press=raise testId="raise"
+        text "Full access"
+      button press=edit testId="edit"
+        text "Editor"
+      match saved
+        case some(e)
+          text `${match e.id { case some(i) => i, case none => "none" }} ${match e.calendarId { case some(c) => c, case none => "none" }}` testId="saved"
+        case none
+          text "" testId="saved"
+      match failure(saved)
+        case some(f)
+          text `${f.code} ${f.message}` testId="saved-error"
+        case none
+          text "" testId="saved-error"
+      match removed
+        case some(r)
+          text r.id testId="removed"
+        case none
+          text "" testId="removed"
+      match failure(removed)
+        case some(f)
+          text `${f.code} ${f.message}` testId="removed-error"
+        case none
+          text "" testId="removed-error"
+      match raised
+        case some(s)
+          text s.access testId="raised"
+        case none
+          text "" testId="raised"
+      match failure(raised)
+        case some(f)
+          text f.code testId="raised-error"
+        case none
+          text "" testId="raised-error"
+      match edited
+        case some(r)
+          text r.action testId="edited"
+        case none
+          text "" testId="edited"

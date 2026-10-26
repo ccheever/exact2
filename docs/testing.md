@@ -118,6 +118,41 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+With an iOS session using `touch: 'platform'`, `await session.back({ native: true })`
+locates UIKit's Back button through XCTest inside the active navigation container
+and taps it. Embedded sessions target their own container. The driver refuses missing
+or ambiguous containers or buttons, so it cannot choose another session's Back.
+Settle the session and assert its resulting route or screen.
+The ordinary `back()` invokes the platform's handler;
+it does not establish touch delivery. XCTest can wait a minute for the app and another
+minute for SpringBoard to idle before tapping, so the native call has a 150-second bound.
+
+`ModalStackIOSTests` also drives UIKit's animated `popToViewController` to
+check multi-entry Back in primary and presented stacks. It asserts the retained
+controllers and the router's chosen visit, including return to the sheet root
+without changing the background stack. It also checks that header search commits
+and blurs once before dispatch, newer app navigation wins during a pop (including
+navigation from blur), and an unmapped destination restores the declared stack.
+A test sends UIKit's registered search-cancellation action and checks the live query and native bar state.
+The runner tests distinguish visits with the same URL and reject stale or
+cross-tab jumps. These tests use UIKit's public stack API; they do not establish
+activation of its Back-history menu.
+
+With `EXACT_SIM` naming an iPhone Duo, rebuild Duo Lab and the host fixture, then run
+`bun scripts/smoke.mjs duo --only navigation,navigation-gestures,host-navigation`.
+These legs cover native Back taps, completed and cancelled edge and content swipes,
+and Back in independent embedded sessions. The gesture checks observe UIKit's held
+interactive transition and check content clearance within the moving route. After
+release they assert the route, draft, focus and scroll position. UIKit owns the
+[content swipe recognizer](https://developer.apple.com/documentation/uikit/uinavigationcontroller/interactivecontentpopgesturerecognizer).
+
+`--only secondary-navigation` checks an unfolded Duo's centered UIKit sheet
+with its own navigation stack over a background stack that also has Back.
+It covers native Back taps, completed and cancelled edge and content swipes,
+the secondary editor's focus and draft, destination scroll restoration, and
+horizontal clearance during the gesture. The sheet's root refuses a native
+Back tap rather than targeting the stack behind it.
+
 ## Browsers
 
 - **Launch Chromium through `chromium()`, never by a path.** It
@@ -148,6 +183,41 @@ its time counts too.
   fails there first. `document.fullscreenElement` is set before the
   display-mode media changes are sent; `fullscreenchange` comes after them.
 
+## Windows: the NucBox
+
+Windows's oracle and its consumers' drives run on the NucBox, `nucbox-evo-x2`
+on the tailnet (LLP 1115.004 D13). As recorded on 2026-10-23:
+
+- **The machine.** Windows 11 Pro 25H2, build 26200, x64; an AMD Ryzen AI
+  Max+ 395 with Radeon 8060S graphics. It has Rust's `x86_64-pc-windows-msvc`,
+  Bun 1.4.2, and the .NET SDKs 9.0.313 and 10.0.203.
+- **The display and input.** One display, a Samsung C49RG9x at 5120×1440, with
+  no display scale or text scale set. It has no precision touchpad; D8 needs
+  one added.
+- **Reaching it.** SSH as `charlie cheever`, whose shell is PowerShell:
+  `ssh -l "charlie cheever" nucbox-evo-x2`. `scp` refuses a space in
+  `user@host`, so name the user in a config file (`User "charlie cheever"`)
+  and pass it with `-F`. An SSH session has no GitHub credentials, so send
+  commits as a bundle: `git bundle create`, copy it, then
+  `git fetch <bundle> main:refs/remotes/origin/main` and `git merge --ff-only`.
+- **SSH is not the desktop.** An SSH session sees one 1024×768 stand-in
+  display (`WinDisc`), so a window it opens is never shown. Headless drives
+  work (`bun scripts/agent.mjs windows --app shelf --storage <name> …`); a
+  real window must open in the signed-in console session, as
+  `host/windows/reference/draw.mjs` opens WinUI's, with a one-off scheduled
+  task whose principal logs on interactively. WinUI launched from SSH exits
+  with `0xC000027B` before its first frame.
+- **The WinUI reference** pins Windows App SDK 1.8.260921001
+  (`host/windows/reference/Reference.csproj` and its `packages.lock.json`) and
+  builds with the .NET 9 SDK: `bun host/windows/reference/draw.mjs` draws each
+  specimen of `specimens.json` in light and dark, at the display's 100%.
+- **The drive's font.** The agent pins DejaVu Sans on Windows as on Linux
+  (`scripts/agent-stdio.mjs`), so a drive draws the fixture font, not Segoe UI
+  Variable. Set `EXACT_FONT` to a family to draw another, or to a name that
+  is not installed (`EXACT_FONT=unpinned`) to draw the system's own. In
+  PowerShell, `$env:EXACT_FONT = ""` removes the variable, and the pin
+  returns.
+
 ## Pixels
 
 - **Downsample and crop.** Compare at 1x or lower, cropped to the region the
@@ -166,7 +236,11 @@ its time counts too.
 - **Measure with a pruned `target/`.** Cargo never deletes old object files
   from `target/debug/deps`, and on macOS a test that touches the main bundle
   lists that directory, so hundreds of thousands of files there cost seconds
-  of system time per test process.
+  of system time per test process. For URLSession startup stalls in
+  `CFBundleCopyBundleLocalizations`, changing the working directory is
+  insufficient: Foundation inspects the executable's directory. Copy the
+  test executable into an empty temporary directory and run that copy with
+  the same filters and deadlines to isolate directory accumulation.
 - **Gatekeeper scans each newly built binary when it first runs.** After a
   kernel edit, the scans added about 95–130% to the wall time of rebuilding
   and running ten packages' Rust tests. Adding the program that starts the

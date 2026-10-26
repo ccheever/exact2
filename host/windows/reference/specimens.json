@@ -1,0 +1,19 @@
+{
+  "about": "LLP 1115.004 D13: each specimen is drawn by WinUI 3 at the pinned Windows App SDK (Specimens.cs) in light and dark, on Fluent's base background with a 16-pixel margin for its shadow. These are S1's controls, the ones Shelf's and Excord's first screens have (§3). `size` fixes the specimen's layout box in effective pixels; without it the control takes its own size.",
+  "schemes": ["light", "dark"],
+  "specimens": [
+    { "id": "text-field-empty", "component": "TextBox", "size": [296, null] },
+    { "id": "text-field-filled", "component": "TextBox", "size": [296, null] },
+    { "id": "text-field-disabled", "component": "TextBox", "size": [296, null] },
+    { "id": "text-field-focused", "component": "TextBox", "size": [296, null] },
+    { "id": "number-field", "component": "NumberBox", "size": [296, null] },
+    { "id": "search", "component": "AutoSuggestBox", "size": [296, null] },
+    { "id": "button", "component": "Button" },
+    { "id": "button-accent", "component": "Button" },
+    { "id": "button-disabled", "component": "Button" },
+    { "id": "segmented", "component": "SelectorBar" },
+    { "id": "list-row", "component": "ListView", "size": [360, null] },
+    { "id": "progress", "component": "ProgressBar", "size": [296, null] },
+    { "id": "navigation-pane", "component": "NavigationView", "size": [640, 360] }
+  ]
+}

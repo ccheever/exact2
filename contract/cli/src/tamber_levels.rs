@@ -4,8 +4,8 @@
 //! app token, a package token), at most [`HOPS`] hops, to the line whose
 //! value is no reference (a literal or an expression), a base name or a
 //! role. `explain` and `resolve` of a param say its `levels`, `resolve`'s
-//! tuples each their winning `level` and `name`, and `describe`'s param
-//! rows what their default `reaches`.
+//! tuples each their winning `level` and `name` per side (`{light, dark}`),
+//! and `describe`'s param rows what their default `reaches`.
 
 use crate::tamber_params::AppParams;
 use contract_lower::params::{self, ParamToken};
@@ -134,13 +134,17 @@ impl<'a> Designs<'a> {
         Some((role.to_string(), t))
     }
 
-    /// A package's token `name` (a package's icons are not read yet).
+    /// A package's line `name` reads: a token, or an icon (stage 13).
     fn package_token(
         &self,
         name: &str,
     ) -> Option<(&contract_syntax::DesignSource, &exact_tamber::Token)> {
         self.packages.iter().find_map(|(s, d)| {
-            let t = d.tokens.iter().find(|t| t.name.value == name)?;
+            let t = d
+                .tokens
+                .iter()
+                .chain(&d.icons)
+                .find(|t| t.name.value == name)?;
             Some((*s, t))
         })
     }
@@ -163,13 +167,12 @@ impl<'a> Designs<'a> {
                 || self.row(r).is_some())
     }
 
-    /// A line's value in `tuple`: its `when` line's that holds most (the
-    /// first of those, as the checker's `select`), else its own. A `when`
-    /// naming an axis `under scheme=dark` is a colour's light/dark pair (the
-    /// checker's `under_value`: its light side another line's): no one
-    /// side is followed, so its value here is none (`""`), and the line
-    /// that owns the pair wins.
-    fn value_in<'t>(&self, t: &'t exact_tamber::Token, tuple: usize) -> &'t str {
+    /// A line's value in `tuple`'s light or `dark` side: its `when` line's
+    /// that holds most (the first of those, as the checker's `select`),
+    /// else its own. A `when` naming an axis `under scheme=dark` is the
+    /// dark side's alone (the checker's `under_value`): the light side
+    /// takes the most specific holding `when` naming none.
+    fn value_in<'t>(&self, t: &'t exact_tamber::Token, tuple: usize, dark: bool) -> &'t str {
         let axes = self.axes();
         let mut rest = tuple;
         let mut chosen = vec![""; axes.len()];
@@ -182,30 +185,30 @@ impl<'a> Designs<'a> {
                 .position(|a| &a.name.value == axis)
                 .is_some_and(|i| chosen[i] == v)
         };
-        let holding: Vec<usize> = (0..t.whens.len())
-            .filter(|&i| t.whens[i].conds.iter().all(holds))
-            .collect();
-        let most = holding.iter().map(|&i| t.whens[i].conds.len()).max();
         let under = |(axis, _): &(String, String)| {
             axes.iter().any(|a| &a.name.value == axis && a.under_dark)
         };
+        let holding: Vec<usize> = (0..t.whens.len())
+            .filter(|&i| t.whens[i].conds.iter().all(holds))
+            .filter(|&i| dark || !t.whens[i].conds.iter().any(under))
+            .collect();
+        let most = holding.iter().map(|&i| t.whens[i].conds.len()).max();
         match holding
             .into_iter()
             .find(|&i| Some(t.whens[i].conds.len()) == most)
         {
-            Some(i) if t.whens[i].conds.iter().any(under) => "",
             Some(i) => &t.whens[i].value.value,
             None => &t.value.value,
         }
     }
 
-    /// The walk of param `p` in `tuple`.
-    pub fn walk(&self, p: &ParamToken, tuple: usize) -> Step {
+    /// The walk of param `p` in `tuple`'s light or `dark` side.
+    pub fn walk(&self, p: &ParamToken, tuple: usize, dark: bool) -> Step {
         let start = |q: &ParamToken| match self.set(q) {
             Some(e) => (
                 "app-param",
                 q.full.clone(),
-                self.value_in(e, tuple).to_string(),
+                self.value_in(e, tuple, dark).to_string(),
             ),
             None => ("default", q.full.clone(), q.param.default.clone()),
         };
@@ -218,9 +221,13 @@ impl<'a> Designs<'a> {
             if let Some(q) = self.param(&r) {
                 (level, name, value) = start(q);
             } else if let Some((shown, t)) = self.app_token(&r) {
-                (level, name, value) = ("app-token", shown, self.value_in(t, tuple).to_string());
+                (level, name, value) = (
+                    "app-token",
+                    shown,
+                    self.value_in(t, tuple, dark).to_string(),
+                );
             } else if let Some((_, t)) = self.package_token(&r) {
-                (level, name, value) = ("package", r, self.value_in(t, tuple).to_string());
+                (level, name, value) = ("package", r, self.value_in(t, tuple, dark).to_string());
             } else if exact_kernel::style::scale::is_base(&r) {
                 return Step {
                     level: "base",
@@ -288,14 +295,15 @@ impl<'a> Designs<'a> {
     }
 
     /// Param `p`'s additions to a `resolve` or `explain` answer: each of
-    /// its tuples' `level` and `name`, and its `levels` (null for a
-    /// literal or an expression default).
+    /// its tuples' `level` and `name`, each `{light, dark}` as its value
+    /// is (a `when` under `scheme=dark` decides the dark side alone), and
+    /// its `levels` (null for a literal or an expression default).
     pub fn annotate(&self, p: &ParamToken, out: &mut Value) {
         if let Some(tuples) = out["tuples"].as_array_mut() {
             for (tuple, row) in tuples.iter_mut().enumerate() {
-                let step = self.walk(p, tuple);
-                row["level"] = json!(step.level);
-                row["name"] = json!(step.name);
+                let (light, dark) = (self.walk(p, tuple, false), self.walk(p, tuple, true));
+                row["level"] = json!({"light": light.level, "dark": dark.level});
+                row["name"] = json!({"light": light.name, "dark": dark.name});
             }
         }
         out["levels"] = self.levels(p).unwrap_or(Value::Null);
@@ -306,13 +314,13 @@ impl<'a> Designs<'a> {
         self.axes().iter().map(|a| a.values.len().max(1)).product()
     }
 
-    /// The base name every tuple's walk of `p` reaches, when they all
-    /// reach the same one; none when any reaches no base or another
-    /// (each tuple's own is on `resolve`'s tuples).
+    /// The base name every tuple's walk of `p`, on either side, reaches,
+    /// when they all reach the same one; none when any reaches no base or
+    /// another (each tuple's own is on `resolve`'s tuples).
     fn base(&self, p: &ParamToken) -> Option<String> {
         let mut base = None;
-        for tuple in 0..self.tuples() {
-            let step = self.walk(p, tuple);
+        for (tuple, dark) in (0..self.tuples()).flat_map(|t| [(t, false), (t, true)]) {
+            let step = self.walk(p, tuple, dark);
             if step.level != "base" || base.as_ref().is_some_and(|b| *b != step.name) {
                 return None;
             }

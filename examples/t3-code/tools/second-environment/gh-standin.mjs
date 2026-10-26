@@ -23,7 +23,8 @@ const listItem = () => ({
   mergedAt: null, closedAt: null, createdAt: pr.createdAt, updatedAt: pr.updatedAt, isCrossRepository: false,
   headRepository: { name: pr.name, nameWithOwner: `${pr.owner}/${pr.name}` }, headRepositoryOwner: { login: pr.owner },
 });
-const counts = { additions: 12, deletions: 3, changedFiles: 2 };
+// The counts of the patch the API stand-in serves (github-api-detail.mjs DETAIL_PATCH), so a link snapshot read either way agrees with the split.
+const counts = { additions: 203, deletions: 1, changedFiles: 3 };
 const summary = () => ({ ...listItem(), ...counts, mergeable: "MERGEABLE", reviewDecision: null, author,
   latestReviews: { nodes: [] }, commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, stack: null, stackEntry: null });
 const detail = () => ({ data: { repository: { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, viewerPermission: "WRITE",

@@ -70,6 +70,14 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   held` for automatic fire). The same goes for a mouse button bound as `MouseLeft`
   during a fast flick. [Same-tick press](../game/recipes/same-tick-press.md) is the
   doc-test that shows both. (Rivals diary; Fishslop run 1, 2026-10-18.)
+- **`tap world stick left 0 1` walks the player backward.** The agent's stick is a
+  pad's raw axes, as the Gamepad API reports them: positive y is down. `input.stick`
+  turns it so positive y is forward. Forward is `tap world stick left 0 -1`. (LLP
+  1127.003, 2026-10-18.)
+- **A pad's stick moves the player a little short of a key.** Cause: the stick's radial
+  dead zone (0.15 unless `Stick::dead_zone` names another) rescales a partial deflection;
+  only full deflection reads 1, as a key does. A test comparing a key and a stick drives
+  the stick to 1. (LLP 1127.003, 2026-10-18.)
 
 - **Two taps before one tick are one tick's presses, handled in the tick's order.**
   `sim.tap("Digit2"); sim.tap("Digit1"); sim.run(20.)` in a shop where item 2 needs

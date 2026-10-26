@@ -21,6 +21,7 @@ use winit::{
 
 struct App<D: DataSource> {
     name: String,
+    min_size: (f32, f32),
     config: Config,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
@@ -43,6 +44,7 @@ struct App<D: DataSource> {
     samples: Vec<(f64, f64, f64)>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
+    pads: crate::pad_poll::Pads,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -74,6 +76,7 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
 
 pub(super) fn run<D: DataSource + Default + 'static>(
     name: &str,
+    opening: crate::Window,
     plan: &[u8],
     compat: &str,
     hatches: Option<exact_linux::hatches::Install>,
@@ -134,7 +137,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         return app::run_config::<D>(&mut config, started);
     }
     if std::env::var_os("EXACT_SIZE").is_none() {
-        config.size = (1280.0, 720.0);
+        config.size = (opening.width, opening.height);
     }
     let event_loop = match EventLoop::<()>::with_user_event().build() {
         Ok(value) => value,
@@ -149,6 +152,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     })));
     let mut state = App::<D> {
         name: name.to_owned(),
+        min_size: (opening.min_width, opening.min_height),
         config,
         window: None,
         surface: None,
@@ -171,6 +175,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         samples: Vec::new(),
         frame_limit,
         first_tap,
+        pads: Default::default(),
     };
     if let Err(e) = event_loop.run_app(&mut state) {
         eprintln!("exact-windows: {e}");
@@ -383,7 +388,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                         && std::env::var_os("EXACT_AGENT_WINDOW_FULLSCREEN").is_some())
                     .then_some(Fullscreen::Borderless(None)),
                 )
-                .with_inner_size(LogicalSize::new(self.config.size.0, self.config.size.1)),
+                .with_inner_size(LogicalSize::new(self.config.size.0, self.config.size.1))
+                .with_min_inner_size(LogicalSize::new(self.min_size.0, self.min_size.1)),
         ) {
             Ok(value) => Rc::new(value),
             Err(e) => {
@@ -473,6 +479,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                     self.buttons = 0;
                     let _ = p.pointer_lost(now);
                     p.blur();
+                    // Unfocused, the pads are not read: what they were is no longer known.
+                    p.forget_pads();
+                    self.pads.forget();
                 }
             }
             WindowEvent::Occluded(occluded) => {
@@ -552,10 +561,21 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
-        let Some(p) = &self.presenter else { return };
+        let Some(p) = &mut self.presenter else { return };
         if self.minimized {
             events.set_control_flow(ControlFlow::Wait);
             return;
+        }
+        // Pads are polled while the window has focus (below: when it wakes for them).
+        if self.focused {
+            let at = self.started.elapsed().as_secs_f64() * 1000.;
+            self.pads.poll(
+                Instant::now(),
+                crate::pads::read,
+                |index, connected, buttons, axes| {
+                    p.hardware_pad(index, connected, buttons, axes, at)
+                },
+            );
         }
         if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {
             if Instant::now() >= self.next_frame {
@@ -574,6 +594,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
+        }
+        // While focused the window wakes to poll the pads: often while one is
+        // connected, and steadily for one that connects.
+        if self.focused {
+            let soon = self.pads.next_poll(Instant::now());
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
+                events.set_control_flow(ControlFlow::WaitUntil(soon));
+            }
         }
     }
 }

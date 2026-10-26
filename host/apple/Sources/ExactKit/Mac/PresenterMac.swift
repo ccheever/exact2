@@ -168,7 +168,6 @@ package final class Presenter {
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
         viewport.autohidesScrollers = true
-        viewport.scrollerStyle = .overlay
         viewport.automaticallyAdjustsContentInsets = false
         viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
@@ -595,6 +594,7 @@ package final class Presenter {
         focusEvents.reset()
         pointerHeld = nil; pointerPath = []; pointerSource = nil; mouseChain.bubbledPress?.cancel()
         elements.reset()
+        blocks.forgetRects() // the new runtime's ids are its own
         resetFlights()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
@@ -654,12 +654,7 @@ package final class Presenter {
         for r in root.subviews {
             // What overflows a root that does not clip is the document's (`content`).
             let v = r as? NodeView, extent = v.flatMap { $0.scroll == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
-            // Through the root's layer transform, which AppKit's `convert` does not see (`plane`).
-            let reach = extent.map { e -> CGRect in
-                guard let h = v?.plane else { return r.convert(CGRect(origin: .zero, size: e), to: root) }
-                let corners = [CGPoint.zero, CGPoint(x: e.width, y: 0), CGPoint(x: 0, y: e.height), CGPoint(x: e.width, y: e.height)].map { NodeView.map(h, $0) }
-                return CGRect(x: 0, y: 0, width: corners.map(\.x).max() ?? 0, height: corners.map(\.y).max() ?? 0)
-            } ?? .zero
+            let reach = extent.flatMap { _ in v?.documentOverflow(in: root) } ?? .zero
             size.width = max(size.width, r.frame.maxX, reach.maxX)
             size.height = max(size.height, r.frame.maxY, reach.maxY)
         }
@@ -836,6 +831,7 @@ package final class Presenter {
         let gone = views.removeValue(forKey: id)
         chrome.forget(id)
         scrollers.remove(id)
+        covers.report("scroller-\(id)", [:])
         pendingScrolls.remove(id)
         listViews.removeValue(forKey: id)
         listTravel.removeValue(forKey: id)
@@ -861,20 +857,25 @@ package final class Presenter {
     private var hoverTransition: UInt64 = 0
     var hoveredInline: UInt32?
     var inlineHoverTransition: UInt64 = 0
-
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false) {
-        pressHeld = held; defer { pressHeld = "" }
-        guard let node = textHost(id), !(bubbled ? node.authoredInert : node.inert), !node.disabled,
+    /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
+    var pressClick: NSEvent?
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false, click: NSEvent? = nil) {
+        pressHeld = held; defer { pressHeld = "" } // `outsideModal`: an app-wide menu item's (ShortcutsMac `enabled`)
+        guard let node = textHost(id), !(bubbled || outsideModal ? node.authoredInert : node.inert), !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
+        guard views[node.id] === node else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
-        if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
-        command?()
-        popover?()
+        if node.isButton, !node.handlers.contains("press") { dispatchButtonAncestor(node, click: click ?? pressClick) }
+        else if (command == nil && popover == nil) || node.handlers.contains("press") { pressClick = click ?? pressClick; onPress?(id); pressClick = nil }
+        guard views[node.id] === node else { return }
+        guard node !== menus.invocationOwner else { return }
+        dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)?()
+        menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)?()
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
@@ -1015,7 +1016,8 @@ package final class Presenter {
         let bar = toolbar.concerns(batch)
         if bar { toolbar.prepare() }
         anchorChanges.reset()
-        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
+        let anchorFocus = scrollers.isEmpty ? nil : focusedNode
+        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition(focused: anchorFocus) }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
             // SVG text shapes with the session's fonts (LLP 1055.000 D11).
@@ -1101,6 +1103,7 @@ package final class Presenter {
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
+                if let view = views[id] { anchorChanges.noteProps(op, on: view) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
@@ -1109,7 +1112,8 @@ package final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
                 v.applyStyle(v.presented(op.style))
-                anchorChanges.note(id, from: old, to: v.style)
+                v.refreshPressInheritance()
+                anchorChanges.note(id, from: old, to: v.style, popover: v.props["popover"] != nil)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);
                 // a view that paints in an appearance of its own says so
@@ -1172,7 +1176,7 @@ package final class Presenter {
                 }
             case .frame:
                 guard let v = views[id] else { continue }
-                let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                let frame = v.frameInScrollDocument(NSRect(x: op.x, y: op.y, width: op.w, height: op.h))
                 if flightFrame(id, frame) { continue }
                 if !dialogs.frame(v, frame) && !menus.frame(v, frame) && !tables.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
@@ -1324,7 +1328,7 @@ package final class Presenter {
                   let source = views.values.first(where: { $0.props["id"] == target }),
                   source.window != nil else { continue }
             var ancestor = preview.superview as? NodeView
-            while let node = ancestor, node.style["position_type"]?.string != "absolute" {
+            while let node = ancestor, node.layoutPosition != "absolute" {
                 ancestor = node.superview as? NodeView
             }
             guard let panel = ancestor, let parent = panel.superview else { continue }
@@ -1334,9 +1338,7 @@ package final class Presenter {
             // nearest positioned ancestor, expressed in the parent coordinates.
             var containing = parent
             while containing !== root && containing.superview !== root {
-                if let node = containing as? NodeView,
-                   node.style["position_type"]?.string != nil,
-                   node.style["position_type"]?.string != "static" { break }
+                if let node = containing as? NodeView, node.layoutPosition != "static" { break }
                 guard let ancestor = containing.superview else { break }
                 containing = ancestor
             }
@@ -1408,80 +1410,6 @@ package enum Capture {
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep
-    }
-}
-
-/// Paragraph geometry in each scroll document's own coordinates. A scroll
-/// changes the query rectangle, never the index. Layout/structure changes
-/// discard it. Selection and copy keep their complete document order.
-/// @ref LLP 1033 (long documents), LLP 1010 (native scrolling)
-struct TextViewportIndex {
-    private struct Entry {
-        let node: NodeView
-        let rect: NSRect
-        var bottom: CGFloat
-    }
-    private struct Group {
-        let document: NSView
-        var entries: [Entry]
-    }
-    private var groups: [Group] = []
-
-    init(_ paragraphs: [NodeView]) {
-        var positions: [ObjectIdentifier: Int] = [:]
-        for node in paragraphs {
-            guard let document = node.enclosingScrollView?.documentView else { continue }
-            let key = ObjectIdentifier(document)
-            let index: Int
-            if let found = positions[key] { index = found }
-            else {
-                index = groups.count
-                positions[key] = index
-                groups.append(Group(document: document, entries: []))
-            }
-            let rect = node.convert(node.bounds, to: document)
-            groups[index].entries.append(Entry(node: node, rect: rect, bottom: rect.maxY))
-        }
-        for i in groups.indices {
-            groups[i].entries.sort { $0.rect.minY < $1.rect.minY }
-            var bottom = -CGFloat.infinity
-            for j in groups[i].entries.indices {
-                bottom = max(bottom, groups[i].entries[j].rect.maxY)
-                groups[i].entries[j].bottom = bottom
-            }
-        }
-    }
-
-    /// Paragraphs within `reach`, nearest each scroll document's visible rect
-    /// first. A tall distant paragraph must not delay a short imminent one.
-    func candidates(reach: CGFloat = 0) -> [NodeView] {
-        var result: [(CGFloat, NodeView)] = []
-        for group in groups {
-            let shown = group.document.visibleRect
-            guard !shown.isEmpty else { continue }
-            let visible = shown.insetBy(dx: -reach, dy: -reach)
-            // Prefix maxima include tall/overlapping paragraphs that start
-            // before the viewport. Binary-searching only minY loses them.
-            var lo = 0, hi = group.entries.count
-            while lo < hi {
-                let mid = lo + (hi - lo) / 2
-                if group.entries[mid].bottom <= visible.minY { lo = mid + 1 }
-                else { hi = mid }
-            }
-            var index = lo
-            while index < group.entries.count && group.entries[index].rect.minY < visible.maxY {
-                let entry = group.entries[index]
-                if entry.rect.intersects(visible) {
-                    let dx = max(0, shown.minX - entry.rect.maxX, entry.rect.minX - shown.maxX)
-                    let dy = max(0, shown.minY - entry.rect.maxY, entry.rect.minY - shown.maxY)
-                    result.append((max(dx, dy), entry.node))
-                }
-                index += 1
-            }
-        }
-        return result.sorted {
-            $0.0 == $1.0 ? $0.1.id < $1.1.id : $0.0 < $1.0
-        }.map { $0.1 }
     }
 }
 

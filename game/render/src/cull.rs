@@ -38,7 +38,7 @@ pub(crate) const EXEMPT: u32 = 32;
 const CHUNK: u32 = 64;
 /// Words per item of the cull's account for a look frame (cull.wgsl `probe`).
 pub(crate) const PROBE_WORDS: u32 = 6;
-const UNIFORM_BYTES: u64 = 24 * 16 + 4 * 16;
+const UNIFORM_BYTES: u64 = 24 * 16 + 4 * 16 + 18 * 16;
 
 /// One indirect draw per view: a contiguous slot-list range with one pipeline.
 #[derive(Clone, Debug, PartialEq)]
@@ -495,12 +495,14 @@ impl Cull {
         (!self.first_instance).then_some(self.window)
     }
 
-    /// Per-frame view planes and counts; `items` is the slot-list length, and
+    /// Per-frame view planes and counts; `outlines` the cascades' further
+    /// planes (`Cascades::outlines`), `items` the slot-list length, and
     /// `occluding` whether the bound pyramid is this frame's.
     pub fn write_views(
         &mut self,
         queue: &wgpu::Queue,
         views: &[Mat4],
+        outlines: &[[[f32; 4]; 6]; crate::shadows::MAX_CASCADES],
         items: u32,
         occluding: bool,
     ) {
@@ -530,6 +532,10 @@ impl Cull {
         ]);
         data[tail + 12] = u32::from(occluding);
         data[tail + 13] = u32::from(self.first_instance);
+        for (k, plane) in outlines.iter().flatten().enumerate() {
+            let at = tail + 16 + k * 4;
+            data[at..at + 4].copy_from_slice(&plane.map(f32::to_bits));
+        }
         queue.write_buffer(&self.uniform, 0, bytes(&data));
     }
 

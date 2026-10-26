@@ -100,6 +100,10 @@ shape GitCard
   confirmTitle: string
   confirmDescription: string
   confirmContinue: string
+  // Why "Check out feature branch & continue" is unavailable, or "".
+  confirmFeatureReason: string
+  // GitActionsControl canChangeThreadBranch: whether a feature ref can be checked out for this thread.
+  canChangeBranch: bool
   publishStep: number
   publishProviders: GitProvider[]
   publishRows: GitProviderRow[]
