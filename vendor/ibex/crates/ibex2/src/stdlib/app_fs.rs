@@ -8,7 +8,7 @@ mod implementation;
 #[cfg(any(unix, windows))]
 pub use implementation::*;
 #[cfg(any(unix, windows))]
-pub(crate) use implementation::{atomic_native, document};
+pub(crate) use implementation::{atomic_native, document, document_file};
 
 #[cfg(unix)]
 pub(crate) use implementation::remove_native;
@@ -56,7 +56,21 @@ mod implementation {
             "document filesystem unsupported",
         ))
     }
+    pub(crate) fn document_file(_root: &std::fs::File, _path: &str) -> std::io::Result<std::fs::File> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "document filesystem unsupported",
+        ))
+    }
     impl AppDirectories {
+        pub(crate) fn copy_in<G>(
+            &self,
+            _grants: &GrantSet,
+            _destination: &str,
+            _source: impl FnOnce() -> Result<(std::fs::File, G), HostError>,
+        ) -> Result<FsResult, HostError> {
+            Err(unsupported())
+        }
         pub(crate) fn prepare_atomic(
             &self,
             _grants: &GrantSet,
@@ -112,4 +126,4 @@ mod implementation {
 #[cfg(not(any(unix, windows)))]
 pub use implementation::*;
 #[cfg(not(any(unix, windows)))]
-pub(crate) use implementation::{atomic_native, document};
+pub(crate) use implementation::{atomic_native, document, document_file};

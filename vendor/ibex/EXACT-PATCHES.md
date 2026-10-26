@@ -321,6 +321,17 @@ workers kept through a quiet spell otherwise keep every page a job reached
 dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
 Replay on a refresh.
 
+## Local patch 18, `copyFile` from a chosen document into an app file
+
+`stdlib/documents.rs` adds `copy_document`, which `fs::run_with_documents`
+runs for `copyFile` from a `doc:` path to an `app:` path (exact2 LLP 1069.010
+D1, ruled 2026-10-26); every other two-path document operation is still
+refused. It admits `fs.read` on the document, then
+`AppDirectories::copy_in` admits `fs.write` on the destination, and only then
+is the provider asked. The source opens as `readFile` opens it
+(`app_fs::document_file`, Unix and Windows) and the host copies its bytes, so
+no result envelope bounds them. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
