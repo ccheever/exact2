@@ -188,7 +188,7 @@ pub fn compatibility_id_sources_with_entries(
     if let Some(rust) = rust_grants {
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
-    crate::reach::derive(app_dir, platform, &mut compat)?;
+    crate::reach::derive(app_dir, platform, plan.as_ref(), &mut compat)?;
     // The entry plans, resolved once (the receipt writes them); an even-odd
     // icon in any plan that ships moves the id (stage 14 C2, icon_rules.rs).
     let mut owned = None;
