@@ -6,6 +6,7 @@
 // it); its identity in the list is its key, which a confirmation keeps.
 
 use Run, Block, Media, FileRef, Embed, Reaction, Poll, ReplyRef, Message from "./shapes.contract"
+use Translated, TranslationView from "./translate.contract"
 use Badge from "exact:content"
 
 // A code token's colour, after Xcode's default theme in the platform's palette.
@@ -52,6 +53,9 @@ component MessageRow
     profile: action
     follow: action
     poll: action
+    // Translations kept for the session, and Show Original's action (translate.contract).
+    translations: Translated[]
+    original: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -159,6 +163,8 @@ component MessageRow
                     EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow)
                   for p in m.poll key=p.question
                     PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
+                for t in translations.filter(x => x.id == m.id) key = t.id
+                  TranslationView(t=t, original=original)
                 if m.reactions.length > 0
                   row gap=6 flex-wrap="wrap" padding-top=2
                     for x in m.reactions key=x.id

@@ -1321,3 +1321,31 @@ test "a file that is not a picture goes up with the message, shown by its name"
   clock settle
   clock data
   expect state picked.length == 0
+
+test "Translate shows a message in the reader's language until Show Original (LLP 1133.027 drive 7)"
+  clock +2000 real
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-japanese"
+  clock settle
+  tap "明日の会議は十時からです。" contextmenu
+  clock data
+  tap "menu-translate"
+  clock data
+  expect state translated.0.text == "[en] 明日の会議は十時からです。"
+  expect state translated.0.line == "Translated from Japanese"
+  tap "Show Original"
+  expect state translated == []
+
+test "a message in the reader's own language offers no Translate"
+  clock +2000 real
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-message"
+  clock settle
+  tap "The new build is ready to try." contextmenu
+  clock data
+  expect tree has "menu-copy"
+  expect tree missing "menu-translate"

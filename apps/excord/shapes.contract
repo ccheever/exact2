@@ -410,3 +410,43 @@ shape MemberRow
   avatar: string
   color: string
   status: string
+
+// The app's own shapes and helpers.
+
+shape MediaPreferences
+  prefersContrast: string
+fn noAnswers(): string[] = []
+
+// Where a reader left a channel, kept for the session (§3.3).
+shape Place
+  channel: string
+  anchor: string
+  key: string
+  offset: number
+  atEnd: bool
+
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
+// The gateway holds a session, or is opening one, so the heartbeat runs.
+fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
+
+// Drafts are kept per channel, across launches, as `channel\ttext` entries.
+fn draftOf(drafts: string[], channel: string): string = match first(drafts.filter(d => d.startsWith(`${channel}\t`))) { case some(d) => d.slice(channel.length + 1), case none => "" }
+fn withDraft(drafts: string[], channel: string, text: string): string[] = drafts.filter(d => not d.startsWith(`${channel}\t`)).concat(text == "" ? [] : [`${channel}\t${text}`])
+
+fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
+
+// The `i`th piece of a split string, "" past its end.
+fn piece(parts: string[], i: number): string = match parts.at(i) { case some(v) => v, case none => "" }
+
+// A row's key for a message id: a send confirmed here keeps its nonce as key.
+fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
+shape Viewport
+  width: number
+  displayMode: string
+  prefersReducedMotion: bool
+  pointer: string
+
+// The page's visibility, for acknowledging what the reader sees (§2: an ack is a
+// write, sent as the official client sends it).
+shape Page
+  visibilityState: string
