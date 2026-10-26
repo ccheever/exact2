@@ -26,22 +26,48 @@ fn an_old_spelling_is_refused_with_the_css_name() {
 }
 
 /// A state part on an element (LLP 1121 D8, `:hover` then its rows) is linted
-/// as the rows it holds, as lowering reads it: a row it can hold passes, a
-/// name that is no row is refused (Excord's emoji button, f8b012ef1e).
+/// as lowering folds it: a row its state takes passes, checked as the row it
+/// lowers to (`:active`'s colour as the press's, which inherits nothing); a
+/// row it takes none of, or a name that is no row, is refused (Excord's
+/// emoji button, f8b012ef1e).
 #[test]
-fn an_elements_state_part_is_linted_as_its_rows() {
-    let lint = |part: &str| {
-        let src = format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go aria-label=\"Go\" opacity=0.6\n      :hover\n        {part}\n      text \"a\"\n");
-        contract_lower::lint(&contract_syntax::parse(&src).unwrap())
+fn an_elements_state_part_is_linted_as_lowering_folds_it() {
+    let src = |state: &str, row: &str| {
+        format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button appearance=\"none\" press=go aria-label=\"Go\" opacity=0.6\n      :{state}\n        {row}\n      text \"a\"\n")
     };
-    assert!(lint("opacity=1").is_empty(), "{:?}", lint("opacity=1"));
-    assert!(lint("opacity = 1").is_empty(), "{:?}", lint("opacity = 1"));
-    let bad = lint("opacty=1");
-    assert_eq!(
-        bad.iter().map(|e| e.id).collect::<Vec<_>>(),
-        ["lower-unknown-attr"],
-        "{bad:?}"
-    );
+    let lint = |state: &str, row: &str| {
+        contract_lower::lint(&contract_syntax::parse(&src(state, row)).unwrap())
+            .iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+    };
+    for (state, row) in [
+        ("hover", "opacity=1"),
+        ("hover", "opacity = 1"),
+        ("active", "opacity=0.5"),
+        ("active", "color=\"#000000\""),
+    ] {
+        assert!(
+            lint(state, row).is_empty(),
+            "{state} {row}: {:?}",
+            lint(state, row)
+        );
+        contract::compile(&src(state, row)).unwrap_or_else(|e| panic!("{state} {row}: {e}"));
+    }
+    for (state, row, id) in [
+        ("hover", "opacty=1", "lower-state-row"),
+        ("hover", "width=10", "lower-state-row"),
+        ("hover", "color=\"#000000\"", "lower-state-row"),
+        ("active", "-exact-press-opacity-to=0.5", "lower-state-row"),
+        ("active", "color=\"inherit\"", "lower-attr-value"),
+    ] {
+        let found = lint(state, row);
+        assert_eq!(found.first().copied(), Some(id), "{state} {row}: {found:?}");
+        assert!(
+            contract::compile(&src(state, row)).is_err(),
+            "{state} {row} compiles"
+        );
+    }
 }
 
 /// What a React Native port writes first is refused with what to write
