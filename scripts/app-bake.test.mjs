@@ -12,6 +12,49 @@ import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { pinned } from './test-workspace.mjs';
 
+test('kept registry units rebuild foreign dep-info while retaining valid units', async () => {
+  const { keptCrates } = await import('../host/apple/crates.mjs');
+  const { unitDepInfo } = await import('./cargo-dep-info.mjs');
+  const root = pinned(realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-crate-proof-'))));
+  const profile = 'cache-proof', first = resolve(root, 'first'), second = resolve(root, 'second');
+  const metadata = target => ({ target_directory: target, build_directory: target });
+  const build = target => {
+    const result = spawnSync('cargo', ['build', '--offline', '--profile', profile, '--lib', '--message-format=json-render-diagnostics'], {
+      cwd: root, env: { ...process.env, CARGO_TARGET_DIR: target }, encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim().split('\n').map(line => JSON.parse(line)).filter(row => row.reason === 'compiler-artifact');
+  };
+  try {
+    mkdirSync(resolve(root, 'src'));
+    writeFileSync(resolve(root, 'Cargo.toml'), `[workspace]\n[package]\nname="cache-proof"\nversion="0.1.0"\nedition="2021"\n[dependencies]\nzeroize="=1.9.0"\ncfg-if="=1.0.4"\n[profile.${profile}]\ninherits="dev"\ndebug=false\n`);
+    writeFileSync(resolve(root, 'src/lib.rs'), 'pub fn clear(bytes: &mut [u8]) { zeroize::Zeroize::zeroize(bytes); }\n');
+    const original = build(first).find(row => row.target.name === 'zeroize');
+    const dep = unitDepInfo(original, root, metadata(first)), before = statSync(dep);
+    const contents = readFileSync(dep, 'utf8');
+    assert.ok(contents.startsWith(dep + ': '));
+    writeFileSync(dep, resolve(root, 'foreign', basename(dep)) + contents.slice(dep.length));
+    utimesSync(dep, before.atime, before.mtime);
+    assert.throws(() => unitDepInfo(original, root, metadata(first)), /no matching rustc unit dep-info for zeroize/);
+    const home = resolve(root, 'cache-home');
+    const cache = keptCrates({ root, profile, env: { HOME: home, RUSTUP_TOOLCHAIN: 'fixture' } });
+    cache.keep(first, 'app', resolve(root, 'Cargo.lock'));
+    const store = resolve(home, '.cache/exact/apple-crates', `fixture-${profile}`, 'app');
+    const generation = resolve(store, readdirSync(store).find(name => name.startsWith('gen-')));
+    const snapshot = () => readdirSync(generation, { recursive: true }).sort().map(file => {
+      const path = resolve(generation, file), stat = statSync(path, { bigint: true });
+      return [file, stat.mtimeNs, stat.isFile() ? createHash('sha256').update(readFileSync(path)).digest('hex') : null];
+    });
+    const kept = snapshot();
+    cache.take(second, 'app');
+    const rebuilt = build(second), zeroize = rebuilt.find(row => row.target.name === 'zeroize');
+    assert.ok(unitDepInfo(zeroize, root, metadata(second)).startsWith(second));
+    assert.equal(zeroize.fresh, false, 'invalid evidence forces Cargo to regenerate the unit');
+    assert.equal(rebuilt.find(row => row.target.name === 'cfg_if').fresh, true, 'valid registry units stay reusable');
+    assert.deepEqual(snapshot(), kept, 'importing and rebuilding must leave the source generation unchanged');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);
+
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
