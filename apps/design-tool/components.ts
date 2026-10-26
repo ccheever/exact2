@@ -39,17 +39,16 @@ export const levelWords = (level: string, name: string, self = '') => {
 };
 
 /** Each package param's winning level (stage 12 B2-levels' `resolve` tuples, each side's `{light, dark}`), read after
- * the design shows, a few at a time: one that fails or does not fit the design's read (`fits`) has no row, so no words;
- * a reply with no level says so. One with no answer at all (its wait out) takes no more: the server answers in turn,
- * so each would queue behind it. Said for the first tuple: one level where both sides agree, else each side's. */
+ * the design shows (each `ask` its answer, all asked at once): one that fails or does not fit the design's read
+ * (`fits`) has no row, so no words; a reply with no level says so. Said for the first tuple: one level where both
+ * sides agree, else each side's. */
 export async function levelsOf(names: string[], ask: (name: string) => Promise<{ error: string; reply: any }>, still: () => boolean, fits: (ok: any) => boolean) {
   const rows: { name: string; level: string; text: string }[] = [];
   const side = (v: unknown, s: 'light' | 'dark') => String((v as Record<string, unknown> | null)?.[s] ?? '');
-  let next = 0, stalled = false;
+  let next = 0;
   await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
-    while (next < names.length && still() && !stalled) {
+    while (next < names.length && still()) {
       const name = names[next++], r = await ask(name), t = (r.reply?.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[];
-      if (r.error && !r.reply?.error) stalled = true;
       if (r.error || !fits(r.reply.ok)) continue;
       const [l, d] = (['light', 'dark'] as const).map(s => ({ level: side(t[0]?.level, s), name: side(t[0]?.name, s) }));
       if (!l.level || !d.level) { rows.push({ name, level: '', text: 'wins: not known (this server says no level)' }); continue; }

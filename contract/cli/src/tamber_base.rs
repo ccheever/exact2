@@ -462,7 +462,8 @@ impl Server {
             }
             answers.push(answer);
         }
-        Ok(json!({"files": files_json(&snap), "answers": answers}))
+        // (Its `files` named as one alone's are, once.)
+        Ok(json!({"files": self.present(files_json(&snap)), "answers": answers}))
     }
 
     /// [`Self::resolve`] of the name `given`, looked up as `name`, in
