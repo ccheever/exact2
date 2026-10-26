@@ -135,6 +135,42 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(p.root.isDescendant(of: p.viewport), "the document retains one scrolling parent")
     }
 
+    func testALiftedNarrowHeaderKeepsNativeNavigationInItsViewport() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "native header projection needs a scene's viewport allocation") }
+        let session = try fixture("rail-overflow", plan: "EXACT_NAVIGATION_BARS_PLAN"), p = session.presenter
+        session.apply(session.runtime.hostGo("/rows", now: session.now()))
+        until("Rows is shown") { p.navigation.activeRoute?.node.props["testId"] == "route-rows" && !p.navigation.inTransition }
+        let owner = try XCTUnwrap(p.navigation.primaryOwner?.view), window = try XCTUnwrap(window)
+        let allocation = owner.convert(owner.bounds, to: window)
+        let covers = p.onCovers
+        var allocations: [CGRect] = []
+        p.onCovers = { changes in
+            allocations.append(owner.convert(owner.bounds, to: window))
+            covers?(changes)
+        }
+        defer { p.onCovers = covers }
+        session.apply(session.runtime.hostGo("/rail", now: session.now()))
+        until("the narrow header is lifted") {
+            p.navigation.activeRoute?.node.props["testId"] == "route-rail" && !p.navigation.inTransition
+                && (try? self.node(session, "header-rail"))?.isHidden == true
+        }
+        _ = Agent(session: session).clock(["settle": true])
+        XCTAssertFalse(allocations.isEmpty, "projection changes the header's cover")
+        XCTAssertTrue(allocations.allSatisfy { $0 == allocation }, "header overflow never resizes or moves UIKit's container")
+        XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation)
+        XCTAssertTrue(p.root.isDescendant(of: p.viewport), "the document retains one scrolling parent")
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        let content = try XCTUnwrap(route.contentViewport)
+        XCTAssertLessThanOrEqual(content.contentSize.width, content.bounds.width + 0.5, "the lifted header leaves no horizontal range")
+        XCTAssertEqual(content.contentOffset, .zero)
+        XCTAssertEqual(route.navigationItem.rightBarButtonItems?.count, 2)
+        try tapNode(session, "rail-share")
+        XCTAssertEqual(text(session, "rail-actions"), "Actions 1")
+        _ = Agent(session: session).back()
+        until("the starting route returns") { p.navigation.activeRoute?.node.props["testId"] == "route-start" && !p.navigation.inTransition }
+        XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation)
+    }
+
     func testVisualKeyboardInsetsRevealALowNativeRouteFieldWithoutAnInnerScroller() throws {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "keyboard ownership requires the hosted app responder chain")
