@@ -1,0 +1,543 @@
+{
+ "app": "dev.bakeoff.expenses.b577f3e",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 870,
+  "motionS": 14.72,
+  "fps": 60,
+  "hitchRatio": 14.7,
+  "longestFrameMs": 37.7,
+  "hitches": 13,
+  "hitchAt": [
+   {
+    "gesture": "slow-drag",
+    "ms": 33.5,
+    "mainMs": 14.9,
+    "late": 16.8,
+    "where": {
+     "Exact host": 5.4,
+     "Exact host · UIKit": 10.7,
+     "Exact host · text & drawing": 2.7
+    },
+    "via": {
+     "the main queue": 16.1,
+     "display links and ports": 2.7
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-1500",
+    "ms": 33.3,
+    "mainMs": 24.5,
+    "late": 16.7,
+    "where": {
+     "Exact host": 13,
+     "Exact host · UIKit": 13
+    },
+    "via": {
+     "the main queue": 20.8,
+     "display links and ports": 5.2
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 37.7,
+    "mainMs": 39.4,
+    "late": 21.1,
+    "where": {
+     "Exact host · accessibility": 2.5,
+     "Exact host · text & drawing": 2.5,
+     "Exact host · UIKit": 25,
+     "Exact host": 7.5,
+     "Exact host · Core Animation": 7.5
+    },
+    "via": {
+     "the main queue": 32.5,
+     "display links and ports": 10,
+     "events": 2.5
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 28.9,
+    "mainMs": 4.9,
+    "late": 12.3,
+    "where": {
+     "Exact host · text & drawing": 2.6,
+     "Exact host · UIKit": 12.8,
+     "Exact host": 7.7,
+     "Exact host · Core Animation": 2.6
+    },
+    "via": {
+     "the main queue": 23,
+     "display links and ports": 2.6
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 23.2,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 12.6,
+     "Exact host": 10.1,
+     "Exact host · text & drawing": 2.5
+    },
+    "via": {
+     "the main queue": 22.7,
+     "display links and ports": 2.5
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 24.1,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 23.2,
+     "Exact host": 2.6
+    },
+    "via": {
+     "the main queue": 20.7,
+     "display links and ports": 5.2
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 23.7,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 20.4,
+     "Exact host": 5.1
+    },
+    "via": {
+     "the main queue": 20.4,
+     "display links and ports": 5.1
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 22.2,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 21,
+     "Exact host": 2.6,
+     "Exact runtime": 2.6
+    },
+    "via": {
+     "the main queue": 21,
+     "display links and ports": 5.2
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 21.8,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 18.5,
+     "Exact host": 2.6
+    },
+    "via": {
+     "the main queue": 21.2
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 24.5,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 19.6,
+     "Exact host": 4.9,
+     "Exact host · Core Animation": 2.5
+    },
+    "via": {
+     "the main queue": 22.1,
+     "display links and ports": 4.9
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 22.9,
+    "late": 16.7,
+    "where": {
+     "Exact host": 5,
+     "Exact host · UIKit": 17.5,
+     "Exact host · Core Animation": 2.5
+    },
+    "via": {
+     "the main queue": 22.5,
+     "display links and ports": 2.5
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 22.6,
+    "late": 16.7,
+    "where": {
+     "Exact host": 8.5,
+     "Exact host · UIKit": 11.4,
+     "Exact host · Core Animation": 2.8
+    },
+    "via": {
+     "the main queue": 19.9,
+     "display links and ports": 2.8
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 33.3,
+    "mainMs": 25.3,
+    "late": 16.7,
+    "where": {
+     "Exact host · UIKit": 21.3,
+     "Exact host · Core Animation": 2.7
+    },
+    "via": {
+     "the main queue": 21.3,
+     "display links and ports": 2.7
+    },
+    "cause": "scroll"
+   }
+  ],
+  "mainMs": 2.91,
+  "mainP95Ms": 5.1,
+  "tickHitchRatio": 0,
+  "scrollHitchRatio": 14.7,
+  "where": [
+   {
+    "gesture": "slow-drag",
+    "frames": 1,
+    "lateMs": 16.8,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 18.8,
+      "what": [
+       [
+        "UIKit",
+        10.7
+       ],
+       [
+        "text & drawing",
+        2.7
+       ]
+      ]
+     }
+    ],
+    "via": {
+     "the main queue": 16.1,
+     "display links and ports": 2.7
+    }
+   },
+   {
+    "gesture": "fling-1500",
+    "frames": 1,
+    "lateMs": 16.7,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 26,
+      "what": [
+       [
+        "UIKit",
+        13
+       ]
+      ]
+     }
+    ],
+    "via": {
+     "the main queue": 20.8,
+     "display links and ports": 5.2
+    }
+   },
+   {
+    "gesture": "fling-6000",
+    "frames": 11,
+    "lateMs": 183.7,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 290.6,
+      "what": [
+       [
+        "UIKit",
+        203.3
+       ],
+       [
+        "Core Animation",
+        20.6
+       ],
+       [
+        "text & drawing",
+        7.6
+       ],
+       [
+        "accessibility",
+        2.5
+       ]
+      ]
+     },
+     {
+      "who": "Exact runtime",
+      "ms": 2.6,
+      "what": []
+     }
+    ],
+    "via": {
+     "the main queue": 247.3,
+     "display links and ports": 43.5,
+     "events": 2.5
+    }
+   }
+  ],
+  "verdict": {
+   "hitch": "bad",
+   "stall": "tell",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 0.917,
+  "lagFrames": 3,
+  "maxErrorPt": 64.9,
+  "slopPt": 10,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "tell",
+   "lag": "bad",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 760,
+   "tauMs": 510,
+   "ratePerMs": 0.99804,
+   "r2": 0.9869,
+   "contentV": 1283,
+   "handoff": 0.86,
+   "frames": 87,
+   "jumps": 1,
+   "travelPt": 404,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 4.7,
+   "contentSizeChanges": 14
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 3003,
+   "tauMs": 513,
+   "ratePerMs": 0.99805,
+   "r2": 0.9648,
+   "contentV": 4227,
+   "handoff": 1.06,
+   "frames": 116,
+   "jumps": 0,
+   "travelPt": 1838,
+   "contentSizeChanges": 18
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 3030,
+   "tauMs": 539,
+   "ratePerMs": 0.99815,
+   "r2": 0.8913,
+   "contentV": 5306,
+   "handoff": 0.88,
+   "frames": 123,
+   "jumps": 28,
+   "travelPt": 2476,
+   "liftFrameMs": 37.7,
+   "liftMainMs": 39.4,
+   "contentSizeChanges": 21
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -5300,
+   "tauMs": 536,
+   "ratePerMs": 0.99814,
+   "r2": 0.8817,
+   "contentV": -3386,
+   "handoff": 0.42,
+   "frames": 78,
+   "jumps": 0,
+   "travelPt": 1623,
+   "contentSizeChanges": 28
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -5300,
+   "tauMs": 555,
+   "ratePerMs": 0.9982,
+   "r2": 0.6985,
+   "contentV": -3134,
+   "handoff": 0.39,
+   "frames": 80,
+   "jumps": 0,
+   "travelPt": 1636,
+   "contentSizeChanges": 33
+  },
+  {
+   "name": "fling-up-3",
+   "asked": 8000,
+   "fingerV": -5300,
+   "tauMs": 546,
+   "ratePerMs": 0.99817,
+   "r2": 0.8723,
+   "contentV": -3280,
+   "handoff": 0.41,
+   "frames": 77,
+   "jumps": 0,
+   "travelPt": 1568,
+   "contentSizeChanges": 36
+  },
+  {
+   "name": "fling-up-4",
+   "asked": 8000,
+   "fingerV": -5300,
+   "tauMs": 957,
+   "ratePerMs": 0.99896,
+   "r2": 0.0045,
+   "contentV": -2551,
+   "handoff": 0.32,
+   "frames": 12,
+   "jumps": 0,
+   "travelPt": 544,
+   "contentSizeChanges": 8
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 1450,
+   "tauMs": 504,
+   "ratePerMs": 0.99802,
+   "r2": 0.9976,
+   "contentV": 3245,
+   "handoff": 1.08,
+   "frames": 118,
+   "jumps": 0,
+   "travelPt": 1595,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.7,
+   "contentSizeChanges": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 3023,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": 4460,
+   "handoff": 1.12,
+   "frames": 22,
+   "jumps": 0,
+   "travelPt": 1106,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.2,
+   "contentSizeChanges": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 513,
+  "handoff": 1.06,
+  "jumps": 29,
+  "contentSizeChanges": 158,
+  "liftDrops": 1,
+  "lifts": 4,
+  "liftMainMs": 39.4,
+  "verdict": {
+   "lift": "tell",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "bad"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-up-4",
+  "overshootPt": 90.3,
+  "entryV": -2580,
+  "settleS": 0.77,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 144.3,
+  "fingerPt": 229.7,
+  "ratio": 0.63,
+  "settleS": 0.58,
+  "bounces": true,
+  "verdict": {
+   "ratio": "ok",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1845,
+  "reached": true,
+  "startS": 0.16,
+  "durationS": 0.82,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 2000,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 133,
+  "uniformSamples": 0,
+  "checked": 0,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 1.06,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "list": {
+  "cls": "ExactGroupedLists.GroupedCollectionView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 17027.833333333303
+ }
+}

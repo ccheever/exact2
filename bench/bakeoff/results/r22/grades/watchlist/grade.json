@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, $price and signed % change in green/red; disclosure chevron per row."},
+      {"n": 2, "status": "pass", "note": "Prices tick about once a second in place, including during scrolling. With price/change sort the rows re-sort live, so they shuffle under the finger; in one mid-fling frame a row was caught squashed with its % clipped."},
+      {"n": 3, "status": "pass", "note": "Native pull-down sort menu (Symbol A–Z, Price high–low, Change high–low) with checkmark; no direction toggle. Search matches symbol and name (\"bio\" gives 25, \"zexo\" gives 1) and has a No Results empty state."},
+      {"n": 4, "status": "pass", "note": "Blue star per row toggles fill; native segmented control All / My List filters correctly with count."},
+      {"n": 5, "status": "pass", "note": "Detail shows name, large price, % since open, Open, Volume and a line chart that grows to 60 samples live with low/high labels."},
+      {"n": 6, "status": "pass", "note": "My List and sort (also the All/My List scope) restored after relaunch."}
+    ],
+    "bugs": [
+      "The bottom search field does not rise above the keyboard: once focused it stays hidden behind the keyboard, so the query being typed is not visible.",
+      "In one mid-fling frame a row was caught squashed with its change text clipped while live re-sorting animated rows."
+    ],
+    "tells": [
+      "No large title on the main screen; a small inline 'Watchlist' title only.",
+      "Rows have no swipe actions; a horizontal swipe on a row just opens the detail screen.",
+      "Row has both a chevron and a trailing star button, which is a slightly crowded, non-standard row layout.",
+      "Detail star button in the nav bar is black rather than tinted, which doesn't match the blue stars in the list."
+    ],
+    "scroll": "Whole-screen list with native momentum, bounce and scroll-edge blur under the bar; smooth, though rows re-sort live under the finger when sorted by price or change.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers with symbol, name, price (no currency sign) and % change with up/down arrow glyph in green/red."},
+      {"n": 2, "status": "pass", "note": "Prices update about once a second in place, including while scrolling; rows re-sort live under price/change sort."},
+      {"n": 3, "status": "pass", "note": "Native menu: Symbol / Price / Change plus a direction toggle (Z to A); search matches symbol and name."},
+      {"n": 4, "status": "pass", "note": "Leading star per row toggles; custom green-tinted segmented control All / My List filters, with 'N companies saved' count."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, % and $ change since open, open, volume, a 60-second area chart with gridlines and LIVE badge updating live, and an Add/Remove button."},
+      {"n": 6, "status": "pass", "note": "My List and sort (with direction) restored after relaunch."}
+    ],
+    "bugs": [
+      "When the search field is focused it slides up and gets clipped under the navigation bar: the field and its typed text are almost entirely hidden (only its bottom edge shows), and the sort button/count disappear.",
+      "The list is a fixed-height table under a non-scrolling header (title, tagline, search, segmented control, sort): only about 6 rows are visible, and at the largest text size only about 1.5."
+    ],
+    "tells": [
+      "Header area doesn't scroll away with the list, unlike a native large-title list; the large title never collapses on scroll.",
+      "Segmented control is restyled with a solid green selected pill and its taller metrics are non-standard.",
+      "Custom search capsule placed in content rather than a system search bar in the navigation bar.",
+      "Rows have no swipe actions; a horizontal swipe opens the detail screen.",
+      "Leading star in the row's leading position and no disclosure chevron; marketing-style tagline 'A little perspective. Every second.'",
+      "Detail screen is a bespoke card layout (custom chart card, full-width 'In My List' button) rather than an inset grouped list."
+    ],
+    "scroll": "Momentum and bounce feel native, but the scrolling area is a small window under a fixed header, so flings move through few rows and the page feels cramped; rows also re-sort live.",
+    "scores": {"features": 9, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet every requirement, and in both the search text is hidden while typing (A's field stays behind the keyboard, B's is clipped under the nav bar). A's full-screen list, stock segmented control and inset grouped detail screen read much more like a stock iOS app. B's fixed header leaves only a small scrolling window for the list, which is cramped at normal text and nearly unusable at the largest size, even though its chart is richer."
+}

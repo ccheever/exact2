@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, Pinned section first, then Notes, both newest first. Each row has a title, a short date (10:13 AM / Thursday / 9/27/26) and a one-line preview. The preview shows only the body's first line, and long titles wrap to two lines."},
+      {"n": 2, "status": "partial", "note": "Filters by title and body as you type, with a proper 'No Results for …' empty state. But the search field stays pinned at the bottom behind the keyboard, so you cannot see what you type."},
+      {"n": 3, "status": "pass", "note": "Title and body edit in place with no Save button. The note moves to the top of its section, the date changes to 'Today at …', and scroll position is kept on return."},
+      {"n": 4, "status": "pass", "note": "Compose button opens a blank note with Title focused. Leaving it empty discards it (count stays 90); a note with text is kept (91)."},
+      {"n": 5, "status": "pass", "note": "Long-press menu has Pin/Unpin Note and Delete; swiping left shows Delete; the editor has a pin button. There is no leading swipe to pin, and a right swipe opens the note instead. A full left swipe does not delete."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' under the large title, and in the inline title when scrolled. It updates on create and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins, unpins and deletes all survived a relaunch."}
+    ],
+    "bugs": [
+      "The search field does not move above the keyboard: it stays at the bottom, hidden behind it, and the typed query is only a ghost behind the keys (default and largest text).",
+      "In the editor the title is a single-line field, so long titles are cut off with an ellipsis ('Meeting notes with the de…', and 'Gift ideas fo…' at the largest text size). You cannot read the whole title."
+    ],
+    "tells": [
+      "When scrolled, the inline 'Notes / 91 Notes' title sits over sharp list text with almost no edge blur or bar material, so the two overlap and are hard to read.",
+      "No leading swipe to pin; a horizontal right drag on a row opens the note.",
+      "A full left swipe does not delete; it only reveals the Delete button.",
+      "No Done/checkmark button to dismiss the keyboard while editing a note.",
+      "The empty-note 'Note' placeholder is drawn in a wide, oddly tracked font unlike the system font.",
+      "The context menu's Unpin item uses the plain pin glyph, not pin.slash.",
+      "The compose button is at the top right, not in the bottom toolbar next to search as iOS 26+ Notes has it (a small difference)."
+    ],
+    "scroll": "Slow drags, flings, flinging back to the top and pulling past the top all felt native: no blank rows, jumps or pop-in, and position was kept after returning from a note. The only flaw is the weak top edge effect, so rows show crisply under the inline title.",
+    "scores": {"features": 7, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, newest first. The date is in primary colour followed by a grey preview of the body on one line, like Apple Notes. Long titles truncate to one line."},
+      {"n": 2, "status": "pass", "note": "Filters by title and body as you type. The search field rises above the keyboard with a clear button and a close X, and there is a 'No Results' empty state with an icon."},
+      {"n": 3, "status": "pass", "note": "Edits save without a Save button, and a Done checkmark appears while editing. The note moves to the top of its section with an updated date, and scroll position is kept on return."},
+      {"n": 4, "status": "pass", "note": "Compose button in the bottom toolbar. Leaving an empty new note discards it (count stays 90); a note with text is kept."},
+      {"n": 5, "status": "pass", "note": "Leading swipe gives Pin/Unpin (a full swipe runs it), trailing swipe gives Delete (a full swipe deletes), and the long-press menu has Pin/Unpin Note (pin.slash icon) and Delete."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' under the large title, and in the inline title when scrolled. It updates on create and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins, unpins and deletes all survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The lifted row in the context-menu preview has square corners, not the rounded preview iOS gives a cell.",
+      "After coming back from the editor, the gap above the 'Pinned' header got taller (38 to 55 pt), so the list shifted down slightly.",
+      "A tap on a row's lower edge just above the floating search bar did not open the note (the toolbar area is slightly greedy)."
+    ],
+    "scroll": "Smooth and native in slow drags, flings, flinging back and rubber-banding at the top. The bar material blurs content properly under the inline title, and scroll position was kept after returning from a note.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both cover the whole spec and persist correctly. A hides its search field behind the keyboard and truncates long titles in its editor. B behaves like Apple Notes: full leading and trailing swipe actions, search that rises with the keyboard, a Done button, wrapping titles and a proper bar material. B is the one I'd rather use and ship."
+}

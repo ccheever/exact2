@@ -1,0 +1,122 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "All contacts sorted by last name in lettered sections. The section index (\u2605, A\u2013Z) jumps correctly. A contact with no last name sorts by first name."
+      },
+      {
+        "n": 2,
+        "status": "partial",
+        "note": "Filtering by name, company, phone and email works as you type, and clearing restores the full list. But the bottom toolbar search field stays hidden behind the keyboard while typing, so you can't see the query, the clear button or the close button. The query also survives relaunch, so the app can reopen on a 'No Results' screen."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Details show name, company, phone, email and birthday (birthday only when known). Phone and email are blue and tappable."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "An Add to / Remove from Favorites row on the details screen works. Favorites show as a section at the top of the list and persist."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "New Contact / Edit Contact sheet with all five fields. Done is disabled with an 'Enter a first or last name' hint until a name is entered. Edits apply right away."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Swipe-to-delete in the list, including favorite rows. Delete Contact on the details screen with a confirmation alert."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Added, edited, favorited and deleted contacts all survived relaunch."
+      }
+    ],
+    "bugs": [
+      "The search field sits in the bottom toolbar and does not move above the keyboard. While typing, the query, the clear (x) button and the close button are all covered by the keyboard. Taps aimed at them land on the keyboard, and you have to press Return to see or clear the field.",
+      "The search query persists across relaunch: the app reopened filtered to 'No Results' for an old query.",
+      "Scrolling the list does not dismiss the search keyboard."
+    ],
+    "tells": [
+      "No large title on the main screen; only a small inline 'Contacts' title.",
+      "Inset-grouped cards are used for the alphabetical list, so section headers don't stick as they do in a plain contacts list.",
+      "Rows show the name only: no company and no star on favorites in the alphabetical section.",
+      "At the largest text size the email wraps mid-word ('elena.alvarez@e / xample.com') and the phone number splits across two lines.",
+      "At the largest text size the edit form's fields truncate ('(405) 528-1\u2026'), and the fields have no visible labels once filled in.",
+      "The details screen's avatar is a generic grey person glyph."
+    ],
+    "scroll": "Smooth native scrolling with no blank or popping rows. Flings and fling-back to the top behave normally, the scroll position is kept when returning from details, and the section index jumps instantly.",
+    "scores": {
+      "features": 8,
+      "platform": 7,
+      "polish": 6,
+      "overall": 6
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Sorted by last name in sections with sticky letter headers. The section index (\u2605, A\u2013Z) jumps correctly and a footer shows the count. A contact with no last name lands under its first-name letter."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Filters by name, company, phone digits and email as you type and shows an 'N results' count. Clear and Cancel restore the full list, and the field stays visible above the keyboard."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Details show avatar, name, company, Call/Email buttons, tinted tappable phone and email, and birthday only when known."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "A favorite toggle row on the details screen works. Favorites appear at the top as a horizontal card carousel with a count and 'See all', plus stars in the rows. They persist."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "New/Edit Contact sheet with labelled fields, a phone keypad and a keyboard Done button. Save is disabled until a first or last name is entered, with the hint 'A first or last name is required.'"
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Swipe-to-delete in the list and Delete Contact on the details screen, both with a confirmation."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Added, edited, favorited and deleted contacts all survived relaunch."
+      }
+    ],
+    "bugs": [
+      "Quick downward flicks barely move the list (about 30pt). Only slower drags scroll back up.",
+      "The delete confirmation is a popover pinned near the top of the screen, pointing at nothing instead of the row or button that was tapped.",
+      "On the details screen at the largest text size, the favorite star badge covers the avatar initials."
+    ],
+    "tells": [
+      "The large title never collapses: the title, a decorative subtitle ('319 people, always close.') and the search field stay pinned above the list. At the largest text size this takes up about half the screen.",
+      "A hand-drawn search text field instead of a system search bar.",
+      "A favorites carousel of tinted cards. Its last card slides under the section index and is clipped by it.",
+      "The swipe Delete button is the app's green tint rather than destructive red, and the section index partly covers it.",
+      "Custom green accent and coloured initial avatars give a branded look rather than stock iOS.",
+      "Section index letters overlap the row separators. At the largest text size the index is cramped."
+    ],
+    "scroll": "Upward drags and flings are smooth, with sticky headers and no blank rows, and the scroll position is kept when returning from details. Quick downward flicks barely move the list, and the fixed header leaves a short scrolling area.",
+    "scores": {
+      "features": 9,
+      "platform": 6,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist changes. B's search, form (labelled fields, phone keypad) and details screen (Call/Email buttons) are noticeably more complete. A's search field disappears behind the keyboard, which hurts the core search task. B looks less like stock iOS (non-collapsing custom header, green Delete button, popover in the wrong place) and its downward flicks are sluggish, but on balance it is the one I would rather use."
+}

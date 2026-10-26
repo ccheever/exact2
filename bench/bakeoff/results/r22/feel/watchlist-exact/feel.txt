@@ -1,0 +1,25 @@
+dev.bakeoff.watchlist.b387854: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 14.77 s of motion
+  bad   hitch ratio (ms/s)                     16.6
+  tell  longest frame (ms)                     51.9
+  tell  main thread p95 (ms/frame)             12.37
+  ok    tracking ratio                         0.981
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       507
+  ok    momentum hand-off (content/asked)      1.03
+  ok    flings that drop a frame at the lift   0/4
+  bad   offset jumps while decelerating        10
+  ok    edge bounce settle (s)                 0.8
+  ok    rubber band (overscroll/finger)        0.49
+  ok    rubber band settle (s)                 0.55
+  ok    status-bar scroll to top (s)           0.94
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  12 ok, 2 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 15.8, from scrolling 0.8):
+    slow-drag: 1 late frame (1 on a timer's tick), 18 ms late; Exact host 15 ms (in UIKit 9) · Exact runtime (main waits on exact.owner) 3 ms · Exact host (main waits on exact.owner) 3 ms; in timers 15 ms, display links and ports 6 ms, events 3 ms
+    fling-1500: 3 late frames (3 on a timer's tick), 51 ms late; Exact host 38 ms (in UIKit 12) · Exact host (main waits on exact.owner) 15 ms · app JS (main waits on exact.owner) 12 ms; in timers 49 ms, events 12 ms, the main queue 3 ms, display links and ports 3 ms
+    fling-6000: 3 late frames (3 on a timer's tick), 71 ms late; Exact host 48 ms (in UIKit 24) · Exact runtime (main waits on exact.owner) 11 ms · Exact host (main waits on exact.owner) 11 ms; in timers 56 ms, the main queue 16 ms, display links and ports 5 ms, events 3 ms
+    pull-top: 1 late frame (1 on a timer's tick), 17 ms late; Exact runtime (main waits on exact.owner) 6 ms · Exact host (main waits on exact.owner) 6 ms · Exact host 3 ms; in timers 18 ms
+    fling-partway: 3 late frames (3 on a timer's tick), 55 ms late; Exact host 37 ms (in UIKit 10) · Exact host (main waits on exact.owner) 22 ms (in text & drawing 3) · Exact runtime (main waits on exact.owner) 8 ms; in timers 53 ms, events 13 ms, display links and ports 5 ms, the main queue 3 ms
+    status-bar: 2 late frames (1 on a timer's tick), 33 ms late; Exact host 23 ms (in UIKit 11) · Exact runtime (main waits on exact.owner) 5 ms · Exact host (main waits on exact.owner) 3 ms; in timers 21 ms, events 5 ms, display links and ports 5 ms, the main queue 2 ms

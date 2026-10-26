@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 rows. Each row has a category SF Symbol, the title in bold, and 'Category · time · ★ rating' below; times read as '1 hr 5 min'."},
+      {"n": 2, "status": "pass", "note": "A horizontal row of chips: All plus all nine categories. Search covers titles and ingredients and combines with the category (Desserts + 'butter' gives 8 rows, each marked 'Contains butter'). The empty result is a ContentUnavailableView-style 'No Recipes Found' that names the category and the query."},
+      {"n": 3, "status": "pass", "note": "The sort button opens a menu (Name A to Z / Time, quickest first / Rating, highest first) with a checkmark and icons. All three sort correctly, and the choice survives relaunch."},
+      {"n": 4, "status": "pass", "note": "Header card shows category, a large title, and time/servings/rating with icons. A grouped stepper scales the amounts with tidy fractions (4½ tsp, ⅔, 1⅓) and shows a 'scaled from the original 6-serving' footer and a Reset button. Decrement is disabled at 1. Steps are numbered with filled number circles."},
+      {"n": 5, "status": "pass", "note": "The heart in the nav bar toggles and fills red. The Favorites tab lists saved recipes, has a 'Remove' swipe action, and shows a helpful empty state with a 'Browse Recipes' button."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The category filter is hand-made capsule chips in a horizontal scroller, where iOS would more often use a menu or segmented picker. They are well made, though.",
+      "Gram amounts scale as decimals (1.5 g, 0.3 g) while other units use fractions. This looks deliberate but is mixed.",
+      "The swiped row keeps a grey highlight behind the Remove action."
+    ],
+    "scroll": "Smooth and native. No blank or popping rows when flung. The search bar stays pinned as the large title collapses. Scroll position is kept after pushing a recipe and coming back. Fling back to the top and pull past the top behave normally.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 rows: title, 'Category · time', and an orange star rating on the trailing side. A section header reads 'All · 160 recipes by name'."},
+      {"n": 2, "status": "pass", "note": "A Category menu in the toolbar offers All Recipes plus nine categories. Search covers titles and ingredients and combines with the category (Desserts + 'butter' gives 8). The empty state has a 'Show All Recipes' button. The list doesn't say why a recipe matched an ingredient search."},
+      {"n": 3, "status": "pass", "note": "A sort menu with name, time and rating. All three sort correctly, the button's label shows the current sort, and the choice survives relaunch."},
+      {"n": 4, "status": "pass", "note": "A settings-style grouped form: Category, Time, Rating, Servings. The servings stepper also has an editable number field (number pad with a Done key; out-of-range input is clamped to 99). Scaling is correct with fractions. Decrement is disabled at 1. Steps are numbered with plain grey digits."},
+      {"n": 5, "status": "pass", "note": "The heart toggles. The Favorites tab shows a count header and a 'Delete' swipe action. The empty state is helpful and has a 'Browse Recipes' button."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size, list titles break inside a word with no hyphen ('Muffin' / 's').",
+      "At the largest text size on the recipe screen, the Rating row's value runs into the Servings row below it, and the stepper shrinks to a tiny control under the label."
+    ],
+    "tells": [
+      "The empty-state titles ('No Recipes Found', 'No Favorites Yet') are regular weight, not the bold ContentUnavailableView title.",
+      "The accent colour is inconsistent: the tab bar and cursor are system blue, but the stars are orange.",
+      "Rows are tall (78 pt) for two lines of text.",
+      "The keyboard stays on Shift (capitals) while typing in the search field.",
+      "The recipe screen is a plain settings-style form with no prominent title; the name appears only in the small inline nav title.",
+      "The swipe action is labelled 'Delete' for un-favoriting, which isn't quite the right word."
+    ],
+    "scroll": "Smooth. No blank or popping rows when flung, and scroll position is kept on returning from a recipe. Fling to the top and pull past the top behave natively.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and scroll natively. A is more finished: a real recipe header card, numbered step circles, proper bold empty states, ingredient-match hints in search results, and a clean layout at the largest text size. B breaks words mid-word and crowds the recipe rows at the largest size, and its accent colours, empty-state type and form-style detail screen read as less carefully made."
+}

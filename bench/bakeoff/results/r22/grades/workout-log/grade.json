@@ -1,0 +1,43 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "History is grouped by month, newest first. Each row shows name, date, exercise count and volume (e.g. Legs, Sun Oct 25 2026, 4 exercises, 6,767.5 lb)."},
+      {"n": 2, "status": "pass", "note": "The detail screen has a summary (date, exercises, sets, total volume), then each exercise with muscle and equipment, its sets, and a per-exercise volume footer."},
+      {"n": 3, "status": "partial", "note": "Naming (Start stays disabled while the name is empty), the picker with bottom search and a muscle filter menu, the add-set sheet with validation, editing, swipe or button delete, and Finish all work. After cancelling the set sheet, the exercise and set rows stop responding to taps (and drop out of the accessibility tree) until you switch tabs, so the set cannot be edited in that state."},
+      {"n": 4, "status": "pass", "note": "The Exercises tab is grouped by muscle, with a large title and pull-down search."},
+      {"n": 5, "status": "pass", "note": "Shows the best set (heaviest weight, ties go to more reps) with its workout and date, and lists the workouts it appears in. Updated with the new workout."},
+      {"n": 6, "status": "pass", "note": "The in-progress workout and its sets survived a relaunch, and the finished workout stayed in History after a relaunch."}
+    ],
+    "bugs": [
+      "After you cancel the Add Set sheet, the exercise header and set rows in the workout stop responding to taps and vanish from the accessibility tree; they come back only after switching tabs or relaunching."
+    ],
+    "tells": [
+      "While scrolling, list text shows through and overlaps the inline 'History' title; the top scroll-edge blur is weaker than the system's.",
+      "Set rows have no visible tap affordance (no chevron), so it is not obvious they can be edited.",
+      "Weight accepts arbitrary decimals (135.55 lb) with no rounding to a plate increment; minor."
+    ],
+    "scroll": "History and the library scroll and fling smoothly, with no blank rows or jumps, and scroll position is kept on returning from a detail screen. Content shows faintly through the collapsed nav bar.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "History is grouped by month, newest first. Each row has name, date, and SF-Symbol-labelled exercise count and volume."},
+      {"n": 2, "status": "pass", "note": "The detail screen has a large-title summary, then tinted exercise headers that link to the exercise, with sets and per-exercise volume."},
+      {"n": 3, "status": "pass", "note": "The New Workout form has recent-name suggestions. The multi-select picker has search plus muscle chips and an 'Add (n)' button. The set sheet is prefilled from last time and has steppers. Edit (tap a set), delete (swipe or a Delete button), a 'Last time' hint, a running duration and volume, a Finish confirmation that warns about exercises with no sets, and Discard all work."},
+      {"n": 4, "status": "pass", "note": "The Library tab is grouped by muscle, with a count per section and a search bar that is always shown."},
+      {"n": 5, "status": "pass", "note": "Shows the best set with a trophy, its workout and date, and the workouts it appears in with their sets. Updated with the new workout."},
+      {"n": 6, "status": "pass", "note": "The in-progress workout (sets, duration) survived a relaunch and the app reopened on it. The finished workout persisted."}
+    ],
+    "bugs": [],
+    "tells": [
+      "After pushing to a workout from an exercise screen and coming back, that row stays highlighted grey (the selection is not cleared).",
+      "The muscle filter is a hand-made row of horizontally scrolling chips rather than a system menu or scope bar.",
+      "The Library uses a small inline title with a pinned search bar, while the other tabs use large titles, which is inconsistent.",
+      "At the largest text size, 'lb' wraps away from its number in the 'Last time' footer, and the muscle · equipment subtitle is oddly indented."
+    ],
+    "scroll": "Smooth list scrolling with a proper scroll-edge blur under the nav bar, no blank rows or jumps, and scroll position is kept on returning from a detail screen.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet the whole spec and look like native iOS 26-style apps. A has a real interaction bug: set rows go dead after you cancel the set sheet. B is richer (multi-select picker, sets prefilled from last time with steppers, a Finish confirmation, a duration timer, reopening on the in-progress workout) and has only cosmetic tells such as a row that stays highlighted."
+}

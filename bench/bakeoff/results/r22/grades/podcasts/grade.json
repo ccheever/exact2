@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 420 newest first; artwork, show, title, date · length, and a Played/Unplayed line with an icon."},
+      {"n": 2, "status": "pass", "note": "All/Unplayed segmented control (becomes a switch at the largest text size); count updates and a row drops out when marked played."},
+      {"n": 3, "status": "partial", "note": "Shows list has the 12 shows with episode and unplayed counts, and tapping a show lists its episodes. But tapping an episode in a show's list doesn't open it: the stack becomes Shows > Episode > Show, so you stay on the show screen and the episode is only reachable via Back."},
+      {"n": 4, "status": "pass", "note": "Summary, date, length; Play marks it played and shows 'Now playing' with a Pause button; queue toggle and mark-unplayed are also there."},
+      {"n": 5, "status": "pass", "note": "Native ⋯ menu (Mark as played / Add to Up Next), full-swipe leading action toggles played, trailing swipe adds to Up Next."},
+      {"n": 6, "status": "pass", "note": "Up Next tab with system Edit mode: reorder handles, delete controls, swipe-to-remove."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents and order all survive relaunch."}
+    ],
+    "bugs": [
+      "Tapping an episode inside a show's episode list doesn't open it: the stack ends up Shows > Episode > Show, so you stay on the show page and Back takes you to the episode. Reproduced from a fresh launch."
+    ],
+    "tells": [
+      "Hand-styled editorial look (cream background, serif display headings, letter-spaced orange eyebrows, 'Find your next listen.' hero blocks) instead of system large titles; nav titles are always inline.",
+      "Every tab opens with a marketing-style hero block that pushes content down.",
+      "Dark mode: white label on the mint 'Play episode' button has poor contrast.",
+      "Played rows carry the 'selected' trait.",
+      "Otherwise native: UIKit menus, swipe actions, edit mode, blurred nav bar, the hero adapts at the largest text size."
+    ],
+    "scroll": "Smooth native collection-view scrolling with blur under the nav bar, normal fling and rubber-band; no blank or popping rows; position kept on return from detail.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 420 newest first: show (pink), title, date · min, Played/Unplayed text, plus circle and + buttons per row."},
+      {"n": 2, "status": "pass", "note": "Filter button in the nav bar toggles unplayed-only (icon becomes a checkmark); counts update; the filter persists across launches."},
+      {"n": 3, "status": "pass", "note": "Inset grouped Shows list with episode and unplayed counts; tapping a show lists its episodes, and those open correctly."},
+      {"n": 4, "status": "pass", "note": "Card with show, title, date · length, status; Play turns into Pause with 'Now playing' and marks the episode played; summary is shown."},
+      {"n": 5, "status": "pass", "note": "Circle button per row toggles played. No swipe actions: a horizontal swipe opens the episode instead."},
+      {"n": 6, "status": "pass", "note": "+ adds to Up Next; Edit shows remove, up/down arrows and a working drag grip."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents and order survive relaunch."}
+    ],
+    "bugs": [
+      "On the episode screen the 'Mark as Played' row shows a checkmark while the episode is unplayed, and an empty circle once it's played (inverted state).",
+      "Queued rows show a checkmark as the remove-from-Up-Next button, which reads as 'done' rather than 'remove'.",
+      "Once the episode list is scrolled the search field disappears and pulling to the top doesn't bring it back (leaves a blank gap).",
+      "A horizontal swipe on a row opens the episode instead of revealing actions."
+    ],
+    "tells": [
+      "The large title and count header are pinned: the list scrolls in an inner scroll view under a fixed header, so the large title never collapses into the nav bar.",
+      "Up Next edit mode is hand-built (red minus, up/down arrow buttons, a grip floating mid-row) instead of the system edit controls.",
+      "No swipe actions or context menus anywhere.",
+      "Two stacked accent icon buttons on every row; separators run edge to edge on the main list, and the show detail and Up Next lists have none.",
+      "Odd tab icons (3D stacked squares, # in a square) and a hard magenta accent for show names next to system blue.",
+      "Section header '46 episodes · 30 unplayed' styled as a large grey heading; the pause glyph is two thin bars rather than the system pause icon.",
+      "Accessibility tree exposes rows as 'Link' plus a stray horizontal scroll bar: web-like structure."
+    ],
+    "scroll": "Scrolls inside an inner scroller under a fixed large title, so the title never collapses and the search field is lost once scrolled; flings are smooth but scroll position shifts about 70 pt when returning from an episode.",
+    "scores": {"features": 7, "platform": 4, "polish": 5, "overall": 5}
+  },
+  "better": "A",
+  "why": "A uses real iOS machinery throughout (menus, swipe actions, system edit mode with reorder, native scrolling) and has a distinctive, polished design that holds up in dark mode and at large text. Its one real bug is opening an episode from a show's list. B covers the spec too, but it feels like a web page: the title never collapses, the search field is lost after scrolling, edit mode is hand-built with arrows, there are no swipe actions, and its played and queue icons read backwards."
+}

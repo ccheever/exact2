@@ -1,0 +1,26 @@
+{
+  "spec": "notes",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.notes.b884ecb",
+  "assignedId": "dev.bakeoff.notes.b884ecb",
+  "appName": "Notes",
+  "sim": "EEFC0029-1010-45E4-8242-42CF67E16C96",
+  "pin": "37b662fc24",
+  "minutes": 12.87,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 2618759,
+    "fresh": 86672,
+    "input": 2595900,
+    "cached": 2509228,
+    "output": 22859,
+    "cost": 1.6521055999999996,
+    "calls": 78,
+    "toolCalls": 40
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r22/built/notes-exact.app",
+  "notes": true,
+  "finished": "2026-10-26T17:48:01.740Z"
+}

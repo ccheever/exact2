@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles: mine blue on the right, Sam's grey on the left, oldest at top. Centred date headings where the day changes. Opens at the newest message. Headings always include the year ('Aug 31, 2026 at 3:24 AM'). Bubbles have no tails and no grouping."},
+      {"n": 2, "status": "pass", "note": "Send appends the message under a 'Today at …' heading, stays at the bottom and clears the composer. Send is disabled for empty or whitespace-only text."},
+      {"n": 3, "status": "pass", "note": "The composer rides above the keyboard and the newest messages stay visible. The keyboard dismisses interactively when you drag down."},
+      {"n": 4, "status": "pass", "note": "A typing bubble with three dots and the caption 'Sam is typing…' appears, then a canned reply ('Sounds good!') arrives after about 2 s."},
+      {"n": 5, "status": "partial", "note": "Long-press opens a system context menu with Copy and Delete, and both work (the paste suggestion offered the copied text). But the lifted preview of the pressed bubble is a blank white pill with no text."},
+      {"n": 6, "status": "partial", "note": "Reaches message 1 (Jul 1). A 'Newest messages' button appears when far up. Once, tapping it after a fling landed about two screens short of the bottom (Oct 24, not the newest), and the scroll-bar page count drifts (26 → 34 pages) as rows are measured. Tapping again once settled reached the bottom."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies were still there after relaunch, and a deletion persisted too."}
+    ],
+    "bugs": [
+      "The context-menu preview of a long-pressed bubble renders as an empty white rounded rectangle; the message text and bubble colour are missing.",
+      "The jump-to-newest button once scrolled to a point about two screens above the newest message instead of the bottom; the scroll-bar page estimate changes (26→34 pages) while scrolling, so the content height is not stable.",
+      "At the largest text size the jump button's arrow glyph scales up far beyond its fixed 44 pt circle and is clipped into an unreadable shape."
+    ],
+    "tells": [
+      "The navigation bar is a plain opaque strip with a bare 'Sam' title: no avatar, no material. Messages are clipped at a hard edge under it instead of scrolling beneath a blurred bar.",
+      "Messages are also clipped at a hard line above the composer instead of passing under a translucent input bar.",
+      "Bubbles are plain capsules with no tail, and runs of messages from the same sender have no grouping or corner shaping; it looks like a web chat rather than Messages.",
+      "Date headings always include the year and read 'Aug 31, 2026 at 3:24 AM', not iOS's 'Mon, Aug 31 3:24 AM' style.",
+      "The jump-to-newest control is a small grey translucent square-ish blob with a thin black arrow that overlaps bubbles; it doesn't look like a system glass button.",
+      "The send button is an outlined arrow on a grey pill, not a filled circular arrow.up. At the largest text size it balloons into a large oval.",
+      "Accessibility: each bubble is a bare StaticText with no sender or time in its label."
+    ],
+    "scroll": "Scrolling and flinging run all the way to the first message without blank rows, but the content height is estimated and keeps changing (scroll bar 26→34 pages), and one jump to the newest message undershot.",
+    "scores": {"features": 7, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles: mine blue on the right, Sam's grey on the left, with tails on the last bubble of a group and tighter spacing within a group. iMessage-style date headings ('Sat, Sep 19 7:03 AM', 'Today 12:18 PM', day in bold). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send appends the message, stays at the bottom and clears the field. The send arrow is grey and disabled for empty or whitespace-only text, and turns blue when there is text."},
+      {"n": 3, "status": "pass", "note": "The glass composer sits above the keyboard and the newest messages stay visible. The keyboard dismisses interactively when you drag down."},
+      {"n": 4, "status": "pass", "note": "A 'Sam is typing…' bubble appears in the thread and the nav header subtitle switches to 'typing…'. The reply ('👍' or 'Totally') arrives at about 2 s."},
+      {"n": 5, "status": "pass", "note": "Long-press lifts a correct preview of the bubble and shows a system menu with Copy and Delete. Both work (the paste suggestion offered the copied text)."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches the first message (Wed, Jul 1). A floating glass arrow button appears when far up and returns to the newest message in one tap."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive relaunch; deletions persist too."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the bubble corner radius stays small, so big bubbles look like rounded rectangles rather than pills (minor).",
+      "Return in the composer inserts a newline rather than sending, which is the same as Messages and not really a flaw.",
+      "The send arrow is a fairly small 32 pt grey circle when disabled. Otherwise the header (avatar plus name, content blurring beneath it), the glass composer and the glass scroll button all look native to iOS 27."
+    ],
+    "scroll": "Scrolling feels like a native list: content glides under the blurred header and glass composer, flings run to the first message without blank or popping rows, and the jump button lands exactly at the bottom.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet the core spec. B looks and behaves like a native iOS 27 Messages thread: tailed and grouped bubbles, an avatar header with a 'typing…' subtitle, a glass composer, and content scrolling under translucent bars. A has a broken blank preview on long-press, a jump button that once undershot, and a flatter, more web-like look with hard clipping edges and tail-less capsules."
+}
