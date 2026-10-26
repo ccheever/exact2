@@ -345,6 +345,14 @@ fn an_app_design_that_is_a_packages_design_keys_the_params_by_its_text() {
 #[test]
 fn a_package_design_linked_out_with_the_same_bytes_and_no_app_design_loads_the_params_again() {
     let dir = setup("walk-linked");
+    // (A package design naming no SVG: the graph then reads the same files either way, so only the read's failure
+    // moves the params' key.)
+    let package = dir.join("node_modules/@acme/reading/reading.tamber");
+    std::fs::write(
+        &package,
+        "tamber reading\n\ntheme\n  reading.pin = #112233\n\ncomponent Map\n  params\n    pin: color = reading.pin\n",
+    )
+    .unwrap();
     let (mut s, log) = start(&dir);
     s.ask(json!({"method": "hello", "paths": true}));
     s.ask(json!({"method": "describe"}));
@@ -352,7 +360,6 @@ fn a_package_design_linked_out_with_the_same_bytes_and_no_app_design_loads_the_p
     std::fs::remove_file(dir.join("app.tamber")).unwrap();
     assert_eq!(gone(&mut s, &log), ["walk designs"]);
     s.ask(json!({"method": "describe"}));
-    let package = dir.join("node_modules/@acme/reading/reading.tamber");
     let outside = dir.join("outside.tamber");
     std::fs::copy(&package, &outside).unwrap();
     std::fs::remove_file(&package).unwrap();
