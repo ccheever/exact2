@@ -14,12 +14,16 @@ import { killGroup, orphaned } from './check-group.mjs';
 
 const [caller, builder, ...args] = process.argv.slice(2);
 let child = null, builderPid = 0, ended = false;
-// The leader told to stop (on Windows, which can't signal it, its tree killed while it still roots one), and the
-// builder's group killed by the pid the leader sent.
+// The leader told to stop (woken first, should it be stopped; on Windows, which can't signal it, its tree killed
+// while it still roots one), and the builder's group killed by the pid the leader sent, then the leader itself, so
+// nothing holding the caller's pipes is left. (Before the pid comes, the leader's own SIGTERM handler takes the
+// builder's group: the window that leaves a builder is a SIGKILL of the leader alone between its spawn and its
+// fd-3 write.)
 const group = () => {
   if (!child?.pid) return;
-  if (process.platform === 'win32') killGroup(child.pid); else try { process.kill(child.pid, 'SIGTERM'); } catch {}
-  killGroup(builderPid);
+  if (process.platform === 'win32') killGroup(child.pid);
+  else for (const signal of ['SIGCONT', 'SIGTERM']) try { process.kill(child.pid, signal); } catch {}
+  if (killGroup(builderPid) && process.platform !== 'win32') killGroup(child.pid);
 };
 const end = (code, said) => {
   if (ended) return;

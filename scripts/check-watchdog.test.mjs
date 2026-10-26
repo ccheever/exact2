@@ -90,6 +90,17 @@ test('the leader killed alone (SIGKILL): the supervisor fails the check and kill
   expect(await left(pids)).toEqual([]);
 }, 60_000);
 
+test('a stopped leader (SIGSTOP) does not hold the check past its bound: the caller gets its answer, nothing left', async () => {
+  const dir = scratch();
+  const supervisor = spawn(process.execPath, [SUPERVISE, String(process.pid), spinner(dir), 'app', '--check'], { stdio: ['ignore', 'pipe', 'pipe'], env: timed });
+  const answered = new Promise(done => supervisor.on('close', code => done(code)));
+  const pids = await pidsOf(dir), leader = ps('ppid', pids[0]);
+  await Bun.sleep(300); // (the builder's pid read by the supervisor)
+  process.kill(leader, 'SIGSTOP');
+  expect(await answered).toBe(1);
+  expect(await left([leader, ...pids])).toEqual([]);
+}, 60_000);
+
 test('the supervisor killed outright just as the builder finishes: what the builder left running goes too', async () => {
   const dir = scratch();
   const supervisor = spawn(process.execPath, [SUPERVISE, String(process.pid), finisher(dir), 'app', '--check'], { stdio: 'ignore' });
