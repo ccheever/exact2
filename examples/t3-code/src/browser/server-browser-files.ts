@@ -3,7 +3,7 @@
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { str } from '../client/domain';
-import { appFiles, saveBytes, saveName } from '../media/save-file';
+import { appFiles, saveDownload, saveName } from '../media/save-file';
 export type StreamPicked = { path: string; name: string; type: string; size: number };
 export async function streamMediaUrl(client: T3Client, native: Native, threadId: string, tabId: string, operation: 'download' | 'upload', id: string): Promise<string> {
   const access = await client.call(native, { op: 'previewStreamAccess' });
@@ -13,10 +13,8 @@ export async function streamMediaUrl(client: T3Client, native: Native, threadId:
 }
 export async function downloadStreamFile(client: T3Client, native: Native, threadId: string, tabId: string, download: { id: string; fileName: string; sizeBytes: number }, current: () => boolean): Promise<void> {
   const url = await streamMediaUrl(client, native, threadId, tabId, 'download', download.id);
-  const reply = await fetch(url, { redirect: 'error', exactIndependentHttp: { maxResponseBytes: Math.max(1, download.sizeBytes) } } as RequestInit);
-  if (!reply.ok) throw new Error('The browser download was refused.');
-  const bytes = new Uint8Array(await reply.arrayBuffer());
-  if (current()) await saveBytes(client, bytes, saveName(download.fileName, 'download'));
+  try { await saveDownload(client, url, saveName(download.fileName, 'download'), { init: { redirect: 'error' }, maxBytes: Math.max(1, download.sizeBytes), current }); }
+  catch { throw new Error('The browser download was refused.'); }
 }
 /** Multipart is bytes here: the data module has fetch and typed arrays, without
  * relying on a DOM FormData implementation. A picked file is app-owned storage. */
