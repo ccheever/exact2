@@ -112,6 +112,11 @@ export function analyze(t, meta) {
   const scanView = (s) => s?.views.find((v) => v.id === listId);
   const config = scanView(t.scans.findLast((s) => scanView(s))) ?? null;
 
+  // Where the content shows: `vy`, the offset less the content's shift under it so far. A list that measures rows
+  // above the viewport moves its content under the offset (`ag`, feel.m) and its offset by as much in the same
+  // frame, which nobody sees; motion is measured on `vy`.
+  let shifted = 0;
+  for (const f of frames) if (f.v === listId) { shifted += f.ag ?? 0; f.vy = f.oy - shifted; }
   // Consecutive frames of the list: velocity (pt/s, + is down the list) and the app's main-thread time.
   const steps = [];
   for (let i = 1; i < frames.length; i++) {
@@ -119,7 +124,7 @@ export function analyze(t, meta) {
     // Consecutive ticks only: `dt` is the recorder's time since its previous tick, recorded or not.
     if (b.v !== listId || a.v !== listId || b.t <= a.t || Math.abs(b.t - a.t - b.dt / 1000) > 0.002) continue;
     const prior = sampled.get(a.t.toFixed(4));
-    steps.push({ f: b, prev: a, dt: b.t - a.t, v: (b.oy - a.oy) / (b.t - a.t),
+    steps.push({ f: b, prev: a, dt: b.t - a.t, v: (b.vy - a.vy) / (b.t - a.t), shift: b.ag ?? 0,
       app: b.busy - a.own - (prior?.cost ?? 0) });
   }
   const minOff = (f) => -f.it, maxOff = (f) => Math.max(-f.it, f.ch - f.bh + f.ib);
@@ -158,14 +163,14 @@ export function analyze(t, meta) {
   const byName = (re) => gestures.filter((g) => re.test(g.name));
   const out = { smooth };
 
-  // Finger tracking: the slow drag, finger position at each frame's callback against the content offset.
+  // Finger tracking: the slow drag, finger position at each frame's callback against where the content shows (`vy`).
   const slow = byName(/^slow-drag$/)[0];
   if (slow) {
     const tt = touchesIn(slow), began = tt.find((x) => x.ph === 'began'), ended = tt.findLast((x) => x.ph === 'ended');
     const fs = framesIn(slow).filter((f) => f.down > 0 && began && f.c >= began.t);
     const fingerAt = (c) => tt.findLast((x) => x.t <= c && (x.ph === 'began' || x.ph === 'moved'))?.y;
-    const o0 = fs[0]?.oy;
-    const firstMove = fs.findIndex((f) => Math.abs(f.oy - o0) > 0.5);
+    const o0 = fs[0]?.vy;
+    const firstMove = fs.findIndex((f) => Math.abs(f.vy - o0) > 0.5);
     let best = null;
     if (firstMove > 0) {
       // Lag k: content at frame i against the finger k frames earlier; the k that fits best.
@@ -174,7 +179,7 @@ export function analyze(t, meta) {
         for (let i = Math.max(firstMove + 1, k); i < fs.length; i++) {
           const y = fingerAt(fs[i - k].c);
           if (y == null || !inside(fs[i])) continue;
-          xs.push(y); ys.push(fs[i].oy);
+          xs.push(y); ys.push(fs[i].vy);
         }
         if (xs.length < 5) continue;
         const r = fit(xs, ys);
@@ -187,8 +192,8 @@ export function analyze(t, meta) {
     const atLift = fs.findLast((f) => f.c <= lift + P) ?? fs.at(-1);
     out.tracking = {
       ratio: round(best?.ratio, 3), lagFrames: best?.k ?? null, maxErrorPt: round(best?.err),
-      slopPt: firstMove > 0 && began ? round(Math.abs(began.y - fingerAt(fs[firstMove].c)) - Math.abs(fs[firstMove].oy - o0)) : null,
-      glidePt: atLift && after.length ? round(Math.max(...after.map((f) => Math.abs(f.oy - atLift.oy)))) : null,
+      slopPt: firstMove > 0 && began ? round(Math.abs(began.y - fingerAt(fs[firstMove].c)) - Math.abs(fs[firstMove].vy - o0)) : null,
+      glidePt: atLift && after.length ? round(Math.max(...after.map((f) => Math.abs(f.vy - atLift.vy)))) : null,
     };
     out.tracking.verdict = { ratio: band(out.tracking.ratio, ...T.ratio), lag: band(out.tracking.lagFrames, ...T.lag), glide: band(out.tracking.glidePt, ...T.glide) };
   }
@@ -208,14 +213,18 @@ export function analyze(t, meta) {
     const r = { name: g.name, asked: g.velocity, fingerV: round(finger, 0) };
     if (usable.length >= 6) {
       const ms = usable.map((s) => (s.f.t - ended.t) * 1000), f = fit(ms, usable.map((s) => Math.log(Math.abs(s.v))));
-      const predicted = (s) => Math.exp(f.a + f.b * (s.f.t - ended.t) * 1000);
-      // A frame whose step is far from the fitted curve: a stall, a frozen frame or a jump in the offset.
-      const jumpers = usable.filter((s) => !s.f.s && !s.prev.s && Math.abs(Math.abs(s.v) - predicted(s)) > Math.max(0.15 * predicted(s), 150)), jumps = jumpers.length;
+      const predicted = (s) => dir * Math.exp(f.a + f.b * (s.f.t - ended.t) * 1000);
+      // A frame whose step is far from the fitted curve: a stall, a frozen frame or a jump in the offset, the
+      // content moving back included (fitted on the frames that move the fling's way). A still frame in the two
+      // after the lift is the hand-off's (`liftFrameMs`); UIKit's lists have one too.
+      const handing = (s) => s.f.t - ended.t < 2 * P + 0.002 && Math.abs(s.v) < 60;
+      const jumpers = dec.filter((s) => !s.f.s && !s.prev.s && !handing(s) && Math.abs(s.v - predicted(s)) > Math.max(0.15 * Math.abs(predicted(s)), 150)), jumps = jumpers.length;
       Object.assign(r, {
         tauMs: round(-1 / f.b, 0), ratePerMs: round(Math.exp(f.b), 5), r2: round(f.r2, 4), contentV: round(Math.exp(f.a) * Math.sign(usable[0].v), 0),
         // Against the asked speed: the synthesizer's moves are too few and uneven to give the finger's speed at the lift.
         handoff: round(Math.exp(f.a) / g.velocity, 2), frames: usable.length, jumps,
-        travelPt: round(Math.abs(dec.at(-1).f.oy - dec[0].prev.oy), 0),
+        jumpAt: jumpers.map((s) => ({ ms: round((s.f.t - ended.t) * 1000, 0), v: round(s.v, 0), fit: round(predicted(s), 0), dtMs: round(s.dt * 1000, 1) })),
+        travelPt: round(Math.abs(dec.at(-1).f.vy - dec[0].prev.vy), 0),
       });
     }
     // The hand-off itself: the longest of the three frames after the lift, when blanks were not being sampled.
@@ -223,12 +232,14 @@ export function analyze(t, meta) {
     if (atLift.length && !atLift.some((s) => s.f.s || s.prev.s)) Object.assign(r, { liftFrameMs: round(Math.max(...atLift.map((s) => s.dt)) * 1000), liftMainMs: round(Math.max(...atLift.map((s) => s.app))) });
     const all = framesIn(g);
     r.contentSizeChanges = all.filter((f, i) => i && f.ch !== all[i - 1].ch).length;
+    r.contentShifts = dec.filter((s) => Math.abs(s.shift) > 0.5).length;
     out.flings.push(r);
   }
   const fitted = out.flings.filter((f) => f.tauMs != null && !/^fling-up|for-tap/.test(f.name));
   out.momentum = {
     tauMs: round(pct(fitted.map((f) => f.tauMs), 0.5), 0), handoff: round(pct(fitted.map((f) => f.handoff).filter((x) => x != null), 0.5), 2),
     jumps: out.flings.reduce((s, f) => s + (f.jumps ?? 0), 0), contentSizeChanges: out.flings.reduce((s, f) => s + f.contentSizeChanges, 0),
+    contentShifts: out.flings.reduce((s, f) => s + f.contentShifts, 0),
   };
   const lifts = out.flings.filter((f) => f.liftFrameMs != null);
   out.momentum.liftDrops = lifts.filter((f) => f.liftFrameMs > 1.5 * P * 1000).length;
@@ -290,11 +301,11 @@ export function analyze(t, meta) {
     const tt = touchesIn(tap), began = tt.find((x) => x.ph === 'began');
     const pre = stepsIn(tap.m0 - 0.1, began?.t ?? tap.m1).filter((s) => s.f.c < (began?.t ?? Infinity));
     const fs = began ? framesIn(tap, began.t) : [];
-    const stopI = fs.findIndex((f, i) => i && fs.slice(i).every((x) => Math.abs(x.oy - f.oy) < 0.5));
+    const stopI = fs.findIndex((f, i) => i && fs.slice(i).every((x) => Math.abs(x.vy - f.vy) < 0.5));
     const view = scanView(t.scans.at(-1));
     const activated = !view || !view.reach || !view.shown;
     const v = out.tapToStop = { beforeV: round(pre.at(-1)?.v, 0), stopFrames: stopI >= 0 ? stopI : null,
-      travelPt: fs.length ? round(Math.abs(fs.at(-1).oy - fs[0].oy)) : null, activated };
+      travelPt: fs.length ? round(Math.abs(fs.at(-1).vy - fs[0].vy)) : null, activated };
     v.verdict = { stop: !began || Math.abs(v.beforeV ?? 0) < 100 ? 'n/a' : activated ? 'bad' : v.travelPt < 5 ? 'ok' : v.travelPt < 50 ? 'tell' : 'bad' };
   }
 

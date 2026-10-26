@@ -44,16 +44,27 @@ result is `no-scrollable-list` (exit 0), not a failure.
 The recorder hooks `-[UIApplication sendEvent:]` to log touches and runs a display link at the screen's maximum
 rate. On every frame while a finger is down or a scroll view moves, it records the moving scroll view (the innermost
 one tracking, dragging or decelerating, else the one whose offset changed), its offset, content size, insets and
-flags, and the main run loop's busy time since the last frame. While the driver asks for it, every 4th moving frame
+flags, and the main run loop's busy time since the last frame.
+
+A list that measures rows as they show (Exact's, a chat's) moves its content under the offset when a row above the
+viewport changes height, and moves its offset by as much in the same frame to keep what is shown in place: the
+offset jumps and nobody sees it. So each frame also records how far a layer holding the middle of the viewport (a
+row) moved in the content since the last frame (`ag`), and every motion metric reads where the content shows, the
+offset less those moves. A row above that grows while the offset stays is still a jump: in a plain `UIScrollView`
+whose row two above the viewport grows 60 pt every 100 ms of motion, the probe reads 18 jumps and a tracking ratio
+of 0.59 with the offset left, and 0 and 1.0 with it moved by as much.
+
+While the driver asks for it, every 4th moving frame
 is rendered after Core Animation's commit and searched for uniform bands (60 pt or more of uniform scanlines where
 the list has content).
 
 A uniform band is not yet a blank: a grouped list's background, the space under its last section and a row's own
 plain area are uniform at rest too. After each sampled gesture the probe asks for the blank check: the recorder
 takes up to 10 of the frames with a band, spread over them, moves the list to each one's offset, and draws the
-same region again 150 ms later (and 500 ms, when nothing new is drawn yet). Lists that measure rows as they show
-(Exact's, SwiftUI's) move their content under a fixed offset, so the frame at rest is first aligned to the sampled
-one: the shift whose scanlines differ least from the sample's inked ones, accepted only when they differ by under
+same region again 150 ms later (and 500 ms, when nothing new is drawn yet), both moved by the content's recorded
+moves since the sample. Lists that measure rows as they show (Exact's, SwiftUI's) can still move their content
+under a fixed offset in ways the anchor does not see, so the frame at rest is first aligned to the sampled one: the
+shift whose scanlines differ least from the sample's inked ones, accepted only when they differ by under
 1 (of 255) on average; a band the shift puts off screen, or a frame that aligns nowhere, is not judged. A band
 counts as blank when the frame at rest has at least 12 pt of ink inside it: rows that will be drawn, not drawn yet.
 The share of the judged bands that are blank stands for all of them. The list goes back to where it was, and the
@@ -101,7 +112,7 @@ Each line is a verdict (`ok`, `tell` — someone who knows iOS would notice — 
 | deceleration τ | the time constant of v(t) = v₀·e^(−t/τ) fitted to each fling's momentum (median) | 440–560 ms (UIKit `.normal`: 0.998/ms, 500 ms) |
 | momentum hand-off | the fitted velocity at the lift ÷ the asked speed (median of the three flings down and the 3,000 pt/s one) | 0.8–1.25 |
 | flings that drop a frame at the lift | of the flings without blank sampling, those with a frame over 1.5 periods in the three after the lift | none |
-| offset jumps while decelerating | frames off the fitted curve by more than 15 % (or 150 pt/s): a stall, a frozen frame or a catch-up | none |
+| offset jumps while decelerating | frames off the fitted curve by more than 15 % (or 150 pt/s): a stall, a frozen frame, a catch-up or the content moving back; a still frame in the two after the lift is the hand-off's | none |
 | edge bounce settle | from momentum crossing the top to resting there | 0.25–1.0 s |
 | rubber band | overscroll ÷ finger travel past the top; and the time from the lift to resting | 0.3–0.65; 0.25–1.0 s |
 | status-bar scroll to top | from the tap to the top | ≤ 1.0 s |
@@ -122,7 +133,7 @@ platform's work for the rows.
 ```
 
 `feel.json` has every number behind these, per fling (`flings`: τ, R², content speed, lift frame and main-thread
-time, content-size changes) and where each hitch was (`smooth.hitchAt`), plus the list's declared
+time, content-size changes, `contentShifts`: frames whose content moved under the offset, `jumpAt`) and where each hitch was (`smooth.hitchAt`), plus the list's declared
 `decelerationRate`, `bounces`, `scrollsToTop` and `delaysContentTouches`.
 
 ## Calibration

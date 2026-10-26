@@ -7,7 +7,8 @@
 //   {"k":"scan", t, views:[…]}   every visible UIScrollView, when the set or a size changes
 //   {"k":"touch", t, ph, x, y}   each touch phase the application dispatched (window points)
 //   {"k":"f", …}                 one display-link frame (`tick:`), written while a
-//                                finger is down, a scroll view moves, and 0.5 s after
+//                                finger is down, a scroll view moves, and 0.5 s after; `ag` is
+//                                the content's shift under the offset since the last one
 //   {"k":"where", t, dt, ms, via, samples}  a late frame: where the main thread's time went
 // Times are CACurrentMediaTime seconds (the host's mach clock on a simulator);
 // `hello` pairs it with the wall clock so the driver's gesture times map onto it.
@@ -378,6 +379,31 @@ static void feel_sendEvent(id self, SEL _cmd, UIEvent *e) {
 @implementation FeelView
 @end
 
+/// A layer drawn under `s` that holds the middle of its viewport and is shorter than 0.6 of it (a row, or what draws
+/// one), the shallowest; not a scroll indicator's. Its position in `s`'s content tells content that moved under the
+/// offset from a list that scrolled.
+static CALayer *anchorIn(UIScrollView *s) {
+  CGRect b = s.bounds;
+  double mid = CGRectGetMidY(b);
+  NSMutableArray<CALayer *> *level = [NSMutableArray arrayWithObject:s.layer];
+  for (int depth = 0; depth < 6 && level.count; depth++) {
+    NSMutableArray<CALayer *> *next = [NSMutableArray array];
+    for (CALayer *parent in level) {
+      for (CALayer *l in parent.sublayers) {
+        if (l.hidden || l.opacity < 0.01) continue;
+        id d = l.delegate;
+        if ([d isKindOfClass:UIView.class] && strstr(object_getClassName(d), "ScrollIndicator")) continue;
+        CGRect r = [l convertRect:l.bounds toLayer:s.layer];
+        if (r.origin.y > mid || CGRectGetMaxY(r) <= mid || r.size.width < 1) continue;
+        if (r.size.height >= 4 && r.size.height < 0.6 * b.size.height) return l;
+        [next addObject:l];
+      }
+    }
+    level = next;
+  }
+  return nil;
+}
+
 static NSArray<UIWindow *> *visibleWindows(void) {
   NSMutableArray *out = [NSMutableArray array];
   for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
@@ -404,6 +430,7 @@ static void collect(UIView *v, NSInteger depth, NSMutableArray *out) {
 @property (nonatomic) double t, blank;
 @property (nonatomic) CGPoint offset;
 @property (nonatomic) CGRect rect;
+@property (nonatomic) double shift;  // the list's content shift under its offset when sampled (`shiftOf:`)
 @property (nonatomic, strong) NSData *rows;
 @end
 @implementation FeelBand
@@ -421,6 +448,9 @@ static void collect(UIView *v, NSInteger depth, NSMutableArray *out) {
 @property (nonatomic) CGPoint checkBack;
 @property (nonatomic) NSUInteger checkKept;
 @property (nonatomic) NSInteger checkDone;
+@property (nonatomic, weak) CALayer *anchor;
+@property (nonatomic, weak) UIScrollView *anchorOf;
+@property (nonatomic) double anchorY, contentShift;
 @end
 
 @implementation FeelProbe
@@ -438,6 +468,16 @@ static void collect(UIView *v, NSInteger depth, NSMutableArray *out) {
     gSampling = access(gSwitch, F_OK) == 0;
     if (!gChecking && access(gCheckSwitch, F_OK) == 0) { unlink(gCheckSwitch); [self check]; }
   }] forMode:NSRunLoopCommonModes];
+}
+
+/// How far `s`'s content has moved under its offset since the anchor was first taken in it: the ticks' `ag`, and
+/// the anchor's move since the last tick (a layout after it).
+- (double)shiftOf:(UIScrollView *)s {
+  CALayer *a = self.anchor;
+  if (!a || self.anchorOf != s) return self.contentShift;
+  CALayer *up = a;
+  while (up && up != s.layer) up = up.superlayer;
+  return self.contentShift + (up ? [a convertRect:a.bounds toLayer:s.layer].origin.y - self.anchorY : 0);
 }
 
 /// Every visible scroll view, registered; a `scan` line when the set or a geometry changed.
@@ -617,7 +657,7 @@ static double latePoints(NSData *rows, NSData *settled, double *alignErr, long *
   }
   if (blank > 0 && gBands.count < 256) {
     FeelBand *b = [FeelBand new];
-    b.view = s; b.t = t; b.blank = blank; b.offset = s.contentOffset; b.rect = r; b.rows = rows;
+    b.view = s; b.t = t; b.blank = blank; b.offset = s.contentOffset; b.rect = r; b.rows = rows; b.shift = [self shiftOf:s];
     [gBands addObject:b];
   }
   return blank;
@@ -658,7 +698,9 @@ static const NSUInteger kChecks = 10;
     [self checkNext];
     return;
   }
-  [s setContentOffset:b.offset animated:NO];
+  // Where the sampled content is now: a list that measured rows above it since has moved it down.
+  double moved = [self shiftOf:s] - b.shift;
+  [s setContentOffset:CGPointMake(b.offset.x, b.offset.y + moved) animated:NO];
   // Drawn again after 150 ms, and once more after 500 ms when the first shows nothing new.
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ [self checkLook:b after:150]; });
 }
@@ -667,7 +709,7 @@ static const NSUInteger kChecks = 10;
   UIScrollView *s = b.view;
   NSString *name = nil;
   if (gDump && gDumped < 16) name = [NSString stringWithFormat:@"check-%ld-%.0fms", (long)gDumped++, ms];
-  NSData *rows = s.window ? [self uniformIn:s rect:b.rect name:name] : nil;
+  NSData *rows = s.window ? [self uniformIn:s rect:CGRectOffset(b.rect, 0, [self shiftOf:s] - b.shift) name:name] : nil;
   double err = 0; long shift = 0;
   double late = rows ? latePoints(b.rows, rows, &err, &shift) : -1;
   if (late > 0 || ms >= 500 || !rows) {
@@ -724,6 +766,17 @@ static const NSUInteger kChecks = 10;
     [line appendFormat:@",\"v\":%ld,\"ox\":%.3f,\"oy\":%.3f,\"py\":%.3f,\"cw\":%.1f,\"ch\":%.1f,\"bw\":%.1f,\"bh\":%.1f,\"it\":%.1f,\"ib\":%.1f,\"tr\":%d,\"dr\":%d,\"de\":%d",
       (long)fv.ident, o.x, o.y, pl ? pl.bounds.origin.y : o.y, s.contentSize.width, s.contentSize.height, s.bounds.size.width, s.bounds.size.height,
       in.top, in.bottom, s.isTracking, s.isDragging, s.isDecelerating];
+    // `ag`: how far the content under the offset moved since the last tick, as last tick's anchor moved in the
+    // content; a list that measures rows above the viewport and keeps what is shown in place moves its offset by
+    // as much in the same frame.
+    if (self.anchor && self.anchorOf == s) {
+      double ag = [self shiftOf:s] - self.contentShift;
+      self.contentShift += ag;
+      [line appendFormat:@",\"ag\":%.3f", ag];
+    } else if (self.anchorOf != s) self.contentShift = 0;
+    CALayer *a = anchorIn(s);
+    self.anchor = a; self.anchorOf = s;
+    self.anchorY = a ? [a convertRect:a.bounds toLayer:s.layer].origin.y : 0;
   }
   if (gSampling || gChecking) [line appendString:@",\"s\":1"];
   [line appendFormat:@",\"own\":%.3f}", (CACurrentMediaTime() - t0) * 1000];
