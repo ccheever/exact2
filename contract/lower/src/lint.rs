@@ -443,7 +443,8 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                         name: name.to_string(),
                                         ..a.clone()
                                     };
-                                    if let Some(e) = crate::states::refusal(state, &written) {
+                                    if let Some(e) = crate::states::refusal(state, &written, false)
+                                    {
                                         errors.push(e);
                                         continue;
                                     }

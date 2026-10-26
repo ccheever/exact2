@@ -106,9 +106,10 @@ fn admitted(name: &str, state: &str) -> bool {
 }
 
 /// Why `state` refuses `row` (its row as written, its span the part's): a
-/// row it takes none of, or a host-known state's computed value; what the
-/// fold refuses and the element lint says alike.
-pub(crate) fn refusal(state: &str, row: &Attr) -> Option<LowerError> {
+/// row it takes none of, or, with `values`, a host-known state's computed
+/// value; what the fold refuses and the element lint says alike (the lint,
+/// before a component's params are put in, without `values`).
+pub(crate) fn refusal(state: &str, row: &Attr, values: bool) -> Option<LowerError> {
     let host = !matches!(state, "disabled" | "checked");
     if !admitted(&row.name, state) {
         let rows: Vec<&str> = match state {
@@ -136,7 +137,7 @@ pub(crate) fn refusal(state: &str, row: &Attr) -> Option<LowerError> {
             span: row.span,
         });
     }
-    if host && !matches!(row.value, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..)) {
+    if values && host && !matches!(row.value, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..)) {
         return Some(LowerError {
             id: "lower-state-literal",
             message: format!("`{}` in `:{state}` is computed: the host applies its state on its own, with no round trip to the runner, so its rows are literals (a token's name is one)", row.name),
@@ -418,7 +419,7 @@ impl Lowerer<'_> {
                 let fns = &self.fns;
                 shorthands::computed_list(&row.name, &row.value, &|f| fns.get(f).map(|(_, b)| *b))?;
             }
-            if let Some(e) = refusal(state, row) {
+            if let Some(e) = refusal(state, row, true) {
                 return Err(e);
             }
         }

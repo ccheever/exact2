@@ -54,6 +54,11 @@ fn an_elements_state_part_is_linted_as_lowering_folds_it() {
         );
         contract::compile(&src(state, row)).unwrap_or_else(|e| panic!("{state} {row}: {e}"));
     }
+    // A prop put in before the fold: a row that reads one is the fold's to judge, not the lint's (Astra's re-check).
+    let param = "component App\n  view\n    Dim(level=0.8)\ncomponent Dim\n  props\n    level: number\n  view\n    column opacity=0.6\n      :hover\n        opacity=level\n      text \"a\"\n";
+    let found = contract_lower::lint(&contract_syntax::parse(param).unwrap());
+    assert!(found.is_empty(), "{found:?}");
+    contract::compile(param).unwrap_or_else(|e| panic!("{e}"));
     for (state, row, id) in [
         ("hover", "opacty=1", "lower-state-row"),
         ("hover", "width=10", "lower-state-row"),
