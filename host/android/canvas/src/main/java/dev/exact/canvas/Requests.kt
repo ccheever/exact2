@@ -82,6 +82,7 @@ internal class Requests(private val activity: ExactActivity) {
                     HATCH -> activity.hatches()?.told(words, body, i)
                     MODULE -> Extensions.call(id, string(words, body).first)
                     PRESENCE -> Presence.check(string(words, body).first)
+                    ORIENTATION -> orientation.told(words, body)
                 }
             } catch (e: RuntimeException) {
                 // The platform refused (no activity to start from, a full clipboard transaction): the app goes on.
@@ -90,6 +91,9 @@ internal class Requests(private val activity: ExactActivity) {
             }
         }
     }
+
+    /** The session's orientation lock (LLP 1133.029 D6), on this activity. */
+    private val orientation = Orientation(activity) { w, at -> string(w, at) }
 
     /** The string at [at]: its bytes' count, then UTF-8 padded to whole words. And the index after it. */
     private fun string(w: IntArray, at: Int): Pair<String, Int> {
@@ -245,6 +249,7 @@ internal class Requests(private val activity: ExactActivity) {
         const val HATCH = 10
         const val MODULE = 11
         const val PRESENCE = 12
+        const val ORIENTATION = 13
         /** How long after the activity is in front again a share sheet's choice is still waited for. */
         const val DISMISSED_MS = 500L
     }
