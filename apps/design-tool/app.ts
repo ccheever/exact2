@@ -22,6 +22,7 @@ import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from 
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
+import { buildRow, Gone } from './builds';
 export { joined, missing, partsOf } from './parts';
 
 export const appId = 'com.exact.design-tool';
@@ -329,13 +330,7 @@ function wroteMine(ok: { write?: number; diff?: string; before?: Record<string, 
 // command it could not apply, kept while that pin is its pin.
 type BuildState = { inspectRefused?: string | null; refusalSeq?: number; id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
 let buildsNow = new Map<string, BuildState>();
-// The builds gone from the server's list, by id, each numbered by its going (stage 15 D1.2): a build that was
-// connected and goes is one reloading until it registers again under its id (stable across its reloads), for at
-// most the window the root's task bounds (app.contract `reloadWindow`), after which it is no build. A new run of the
-// server forgets them. The newest 16.
-const goneNow = new Map<string, { id: string; host: string; gen: number }>();
-let goneGen = 0;
-const back = (id: string) => goneNow.delete(id);
+const goneNow = new Gone();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
 // to the same facts is another document). And the builds this tool turned
@@ -368,7 +363,7 @@ let polls = 0, resync = true, polled = '', seeded = '';
 // The changes' poll (stage 14 D): `reread`, a reply the long poll could not fold alone (a coalesced one, from
 // another cursor, or starting again), so the next ask reads once by POST; its answers' common part.
 let reread = false, byCursor = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
-const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold} ${written}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), reloading: [...goneNow.values()], reloadGen: goneGen, ...refusalRows(buildsNow.values()) });
+const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold} ${written}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), reloading: goneNow.rows(), reloadGen: goneNow.newest, ...refusalRows(buildsNow.values()) });
 /** One reply of the long poll (wire.ts `longPoll`), folded as it comes, or the poll's end (`ok: false`, asked again
  * after 3 s). A reply that names another cursor than the last folded, or carries others folded into it (D4's
  * coalescing keeps the newest), or starts again (missed, another run), is read again once by POST instead, which
@@ -481,7 +476,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // which tells it again when it is back).
     if (e.event === 'builds' || e.event === 'build-status') moving = null; // (a move's report is never carried past its build moving)
     if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
-    else if (e.event === 'build-status' && e.build?.id) { back(String(e.build.id)); buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
+    else if (e.event === 'build-status' && e.build?.id) { goneNow.back(String(e.build.id)); buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
     // This tool's scrub, ended by the server (another write, idle, the
     // tool gone, the server lost): said, and a new one is chosen again.
     else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
@@ -531,22 +526,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   return !!anew;
 }
 
-const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
-/** Builds as the panel lists them: each one's effective scheme, contrast,
- * mode and root font size from its status (an app's own setScheme beats a
- * pin, D3), its pin, whether its status has caught up with the last pin
- * frame it was sent (a pin, or a hand-back; none before it reports), and
- * the last command it could not apply, as the server keeps it. */
-const buildRows = () => [...buildsNow.values()].map(b => {
-  const st = b.status ?? {};
-  const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
-  return {
-    id: b.id, host: b.host, gallery: b.page === 'gallery', reported: b.status != null, scheme: String(st.scheme ?? ''), contrast: String(st.contrast ?? ''), mode, rootFontSize: Number(st.rootFontSize ?? 0),
-    pin: pinText(b.pin), caughtUp: Number.isSafeInteger(st.revision) && st.revision >= b.pinRevision,
-    behind: Number.isSafeInteger(st.revision) && st.revision < b.pinRevision,
-    unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
-  };
-});
+const buildRows = () => [...buildsNow.values()].map(buildRow);
 const buildOf = (b: any, was?: BuildState): BuildState => {
   // Its hold's last word as the listing moves it, and none asked of a hold gone.
   const id = String(b.id), holding = holdingOf(b, was?.holding), note = holdNote(holding, was?.holding, holdNotes.get(id) ?? '');
@@ -557,11 +537,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
-  stepsAgain(list ?? [], buildsNow);
-  const listed = new Set((list ?? []).map(b => String(b.id)));
-  for (const [id, b] of buildsNow) if (!listed.has(id)) { goneNow.delete(id); goneNow.set(id, { id, host: b.host, gen: ++goneGen }); }
-  for (const id of listed) back(id);
-  while (goneNow.size > 16) goneNow.delete(goneNow.keys().next().value!);
+  stepsAgain(list ?? [], buildsNow); goneNow.listed(buildsNow, (list ?? []).map(b => String(b.id)));
   buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
   for (const b of list ?? []) owned(b, client);
 };
