@@ -801,8 +801,12 @@ impl AppDirectories {
         getrandom::getrandom(&mut bytes).map_err(error)?;
         let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
         let temp = format!(".exact-{hex}.partial");
-        let file = open_at(&parent, &temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)
-            .map_err(error)?;
+        let file = open_at(
+            &parent,
+            &temp,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        )
+        .map_err(error)?;
         Ok(Staged {
             parent,
             leaf,
