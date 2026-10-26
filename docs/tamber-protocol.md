@@ -185,9 +185,9 @@ on macOS and Linux.
   one snapshot and one fold, `{files, answers}`, each answer the one `resolve` with that `token` gives but its `files`
   (said once), and a name one would refuse answered `{error}` in its place. At most 4,096 names: more, `token` beside
   it, or `tokens` not a list of names is refused whole, before any fold (`tamber-resolve-batch` for the bound); its
-  answers are at most 16 MiB, refused whole (`tamber-resolve-batch`) once they pass it, so a client reading a batch
-  raises its reply cap past a native Exact fetch's default 1 MiB (the web's is 64 MiB; the clone's answers are about 370 B a name, 4,096 of them
-  about 1.5 MB): the design tool asks at most 1,024 names at once, its reply cap 17 MiB, and an ask refused for its
+  answers are at most 16 MiB, refused whole (`tamber-resolve-batch`) once they pass it, inside an Exact fetch's
+  default reply cap (64 MiB; a stream's is 1 MiB). The clone's answers are about 370 B a name, 4,096 of them about
+  1.5 MB. The design tool asks at most 1,024 names at once, its reply cap said as 17 MiB, and an ask refused for its
   bytes again in halves. Its
   scope is `resolve`'s, `read`. And it says what a write's and a scrub frame's `changed` always held: the app's
   design is planned folded with its packages' designs, so `changed` names a package's token derived from one the app
