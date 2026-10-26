@@ -20,6 +20,10 @@
 use super::*;
 use exact_runner::share::Share;
 
+mod packages;
+#[cfg(test)]
+mod packages_tests;
+
 /// What the presenter asks of its shell. The number is the kind on the wire.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Request {
@@ -209,6 +213,11 @@ pub(super) struct State {
     inbox: Inbox,
     /// Module calls the shell took, by id, until it answers.
     modules: BTreeMap<u32, exact_runner::Reply>,
+    /// The packages this binary composes, which answer their extensions'
+    /// calls on the loop's thread.
+    packages: packages::Packages,
+    /// Whether the native slot's handler is installed.
+    handling: bool,
 }
 
 /// `EXACT_LOG_REQUESTS=1`: each request and each answer on stderr (a
@@ -276,6 +285,42 @@ impl<D: DataSource> Presenter<D> {
         (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
         // The shell's extensions answer the module calls the runner hands
         // the native slot, once their names are bound (`bind_extensions`).
+        self.handle_modules();
+    }
+
+    /// The packages this binary composes (`crate::package`, LLP 1133.022
+    /// D10 item 5): bound now, each told it runs under the agent unless the
+    /// drive binds it (`--bind`), on the target this binary was built for.
+    pub fn serve_packages(&mut self, table: Vec<crate::package::Entry>) {
+        let agent = self.agent || std::env::var("EXACT_AGENT").as_deref() == Ok("1");
+        self.requests.packages.set(table, agent);
+        if self.requests.packages.is_empty() {
+            return;
+        }
+        self.handle_modules();
+        let (real, under) = self.requests.packages.bound();
+        let target = if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "linux"
+        };
+        let runner = self.host.runner_mut();
+        runner.set_module_target(target);
+        runner.bind_extensions(&real, &under);
+    }
+
+    /// The session ends: each package instance's `destroy`.
+    pub fn end_packages(&mut self) {
+        self.requests.packages.destroy();
+        self.package_lines();
+    }
+
+    /// The native slot's one handler: every module call queued, with its
+    /// reply, for the loop's turn (`modules_in`), and the loop woken.
+    fn handle_modules(&mut self) {
+        if std::mem::replace(&mut self.requests.handling, true) {
+            return;
+        }
         let (inbox, wake) = (self.requests.inbox.clone(), self.executor.waker());
         let handler: exact_runner::NativeHandler = std::sync::Arc::new(move |body, reply| {
             inbox
@@ -287,8 +332,9 @@ impl<D: DataSource> Presenter<D> {
         self.host.runner().native_slot().host(Some(handler));
     }
 
-    /// The module calls handed over since the last turn, queued for the
-    /// shell, each answered by its id (`answer_request`).
+    /// The module calls handed over since the last turn: a composed
+    /// package's, called now; a shell's, queued for it, each answered by its
+    /// id (`answer_request`); any other, `NotSupportedError`.
     pub(super) fn modules_in(&mut self) {
         let calls = std::mem::take(
             &mut *self
@@ -300,11 +346,33 @@ impl<D: DataSource> Presenter<D> {
         if calls.is_empty() {
             return;
         }
+        let mut queued = false;
+        let (native, wake) = (self.host.runner().native_slot(), self.executor.waker());
         for (body, reply) in calls {
-            let id = self.queue(Request::Module(String::from_utf8_lossy(&body).into_owned()));
-            self.requests.modules.insert(id, reply);
+            let extension = packages::extension_of(&body).unwrap_or_default();
+            if self.requests.packages.serves(&extension) {
+                let now = self.host.now();
+                let inbox = self.requests.inbox.clone();
+                (self.requests.packages).dispatch(&body, reply, now, &native, &inbox, &wake);
+            } else if self.requests.shell {
+                let id = self.queue(Request::Module(String::from_utf8_lossy(&body).into_owned()));
+                self.requests.modules.insert(id, reply);
+                queued = true;
+            } else {
+                crate::package::Reply::new(reply).error("NotSupportedError", None);
+            }
         }
-        self.executor.notify();
+        self.package_lines();
+        if queued {
+            self.executor.notify();
+        }
+    }
+
+    /// The packages' journal lines, into the journal.
+    fn package_lines(&mut self) {
+        for line in self.requests.packages.take_lines() {
+            self.host.log(line);
+        }
     }
 
     /// Whether a shell takes requests.
