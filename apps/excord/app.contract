@@ -163,8 +163,8 @@ component Excord
   state composing = false
   // Files picked for the next send: their copies under app:/tmp/picked.
   state picked: Picked[] = []
-  // Why a pasted picture could not be added ("" when every one was).
-  state pasteError = ""
+  // Why a picked file or a pasted picture could not be added ("" when every one was).
+  state attachError = ""
   state swipeKey = ""
   state swipeX = 0
   state dragging = false
@@ -474,7 +474,7 @@ component Excord
     cancelEditLookup()
     editError = ""
     picked = []
-    pasteError = ""
+    attachError = ""
     highlight = ""
     away = false
     historyStart = false
@@ -794,7 +794,7 @@ component Excord
       else
         send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow(), picked, replyMention)
         picked = []
-        pasteError = ""
+        attachError = ""
         replyTo = ""
         drafts = withDraft(drafts, open, "")
         if away or anchor != ""
@@ -1062,14 +1062,19 @@ component Excord
     send deleted = deleteMessage(open, key)
   action attach
     showPicker("attach")
+  // Discord refuses a file over its 10 MB limit; a picture over it is made smaller when it is sent (`upload`).
   action filesPicked(files: Picked[])
-    picked = picked.concat(files).slice(0, 10)
+    let refused = files.filter(f => f.size > 10485760 and not f.type.startsWith("image/"))
+    let fit = files.filter(f => f.size <= 10485760 or f.type.startsWith("image/"))
+    let over = picked.length + fit.length > 10
+    picked = picked.concat(fit).slice(0, 10)
+    attachError = refused.length > 0 ? `${refused.map(f => f.name).join(", ")} ${refused.length == 1 ? "is" : "are"} over Discord's 10 MB limit.` : over ? "A message takes up to 10 files." : ""
     focus("composer")
   // Pictures pasted into the composer join the picked ones, as Discord's do; text pastes as text.
   action pastedInto(e: ClipboardEvent)
     if e.files.length > 0 and editing == ""
       preventDefault()
-      pasteError = ""
+      attachError = ""
       send pastedPictures = adoptPasted(open, e.files, time.epochAtZero + performanceNow())
   // A paste's pictures join its own channel's composer: one left while they were copied keeps none.
   action takePasted
@@ -1078,7 +1083,7 @@ component Excord
         if r.channel == open
           let over = picked.length + r.files.length > 10
           picked = picked.concat(r.files).slice(0, 10)
-          pasteError = over ? (r.error != "" ? `A message takes up to 10 pictures; ${r.error}` : "A message takes up to 10 pictures.") : r.error
+          attachError = over ? (r.error != "" ? `A message takes up to 10 pictures; ${r.error}` : "A message takes up to 10 pictures.") : r.error
       case none
         aimed = aimed
   action unpick(path: string)
@@ -1381,14 +1386,20 @@ component Excord
                       button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
                         image "symbol:close"
                   // One line of text is as tall as Send beside it, so the text sits at its middle.
-                  if pasteError != ""
-                    text pasteError font="-exact-footnote" color="-exact-system-red" margin="0px 4px 6px" testId="paste-error"
+                  if attachError != ""
+                    text attachError font="-exact-footnote" color="-exact-system-red" margin="0px 4px 6px" testId="attach-error"
                   if picked.length > 0
                     scroll overflow-x="auto" overflow-y="hidden" height=88 flex-shrink=0 margin="0px 0px 6px" testId="picked"
                       row gap=8 padding="6px 2px"
                         for f in picked key=f.path
                           view position="relative" flex-shrink=0
-                            image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
+                            if f.type.startsWith("image/")
+                              image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
+                            else
+                              // Any other file: its icon and name, as Discord's composer shows one.
+                              column width=72 height=72 box-sizing="border-box" padding="8px 6px" gap=4 align-items="center" justify-content="center" border-radius=8 background-color="-exact-tertiary-fill" aria-label=f.name testId=`picked-file-${f.name}`
+                                image "symbol:document" width=24 height=24 color="AccentColor" flex-shrink=0
+                                text f.name font="-exact-caption2" text-align="center" line-clamp=2 max-width="100%" overflow-wrap="anywhere"
                             button appearance="none" press=unpick(f.path) aria-label=`Remove ${f.name}` position="absolute" top=4 right=4 width=22 height=22 border-radius=11
                               display="flex" align-items="center" justify-content="center" background-color="-exact-label" testId=`unpick-${f.name}`
                               image "symbol:close" width=10 height=10 color="-exact-background"
@@ -1406,8 +1417,8 @@ component Excord
                               text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
                   row align-items="flex-end" gap=8
                     // Pictures only: uploading other files is out of Excord's scope (llp/0001 §1).
-                    input type="file" accept="image/*" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
-                    button press=attach aria-label="Add a picture" testId="attach" disabled=(editing != "") margin-bottom=4
+                    input type="file" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
+                    button press=attach aria-label="Add a file" testId="attach" disabled=(editing != "") margin-bottom=4
                       image "symbol:add"
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
