@@ -347,6 +347,8 @@ test "Escape from history returns to the end and marks the channel read (§3.13)
   type "composer" "a saved draft"
   tap "transcript" into "1562230937540887704"
   clock data
+  // The list reports its scroll (which sets `away`) after `clock data` can return: wait for it.
+  clock settle
   expect state away == true
   type "composer" key "Escape"
   clock settle
@@ -747,6 +749,8 @@ test "scrolling up from the end acknowledges what was on screen (re-check: Grok 
   clock data
   tap "transcript" into "1562755578936174328"
   clock data
+  // The list reports its scroll (which sets `away`) after `clock data` can return: wait for it.
+  clock settle
   expect state away == true
   expect state channels.0 .unread == 0
 
@@ -793,6 +797,8 @@ test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
   clock settle
   tap "transcript" into "1562230937540887704"
   clock data
+  // The list reports its scroll (which sets `away`) after `clock data` can return: wait for it.
+  clock settle
   expect state away == true
   tap "mark-read"
   clock data
