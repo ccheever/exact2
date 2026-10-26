@@ -12,6 +12,7 @@
 mod bound;
 mod budget;
 mod check;
+mod checked;
 mod color_fn;
 mod component;
 mod css;
@@ -220,7 +221,11 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
-pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    checked::cached(design, vocab, check_uncached)
+}
+
+fn check_uncached(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
     // The checker's own bounds first: a value past them is refused where it
     // is written, before anything reads it (`bound::preflight`).
     let over = bound::preflight(&design);
