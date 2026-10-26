@@ -58,6 +58,13 @@ pub struct Candidate {
     value: String,
 }
 
+impl Candidate {
+    /// The token, as the design spells it (what `dials` asks a literal by).
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+}
+
 /// The token's literal operations, for when its dial cannot take the change,
 /// or the line and why they are refused too.
 pub(crate) type Literal = Result<Vec<Op>, (String, String)>;

@@ -1235,11 +1235,13 @@ fn reimport_within(
     // Each candidate's place: its index, and where its own report would go
     // among the others (a report that leaves it out of its dial's change, as
     // it was said before the dial was decided first).
-    let mut place: HashMap<String, (usize, usize)> = HashMap::new();
+    // (by the candidate's token, as the design spells it, which `dials` asks
+    // by: an export's name can differ, a role override's, Astra's check)
+    let mut place: HashMap<String, (usize, usize, String)> = HashMap::new();
     for (i, (name, p)) in names.iter().zip(&planned).enumerate() {
         match p {
             Planned::Colour { dial: Some(c), .. } if alone.contains(&i) => {
-                place.insert(name.clone(), (i, unmapped.len()));
+                place.insert(c.token().to_string(), (i, unmapped.len(), name.clone()));
                 dialed.push(c.clone());
             }
             Planned::Report(block, why) => report(&mut unmapped, name, block, why.clone()),
@@ -1248,7 +1250,7 @@ fn reimport_within(
             Planned::Colour { ops, why, dial, .. } => match (dial, why) {
                 (Some(c), why) => {
                     // (a candidate a round settled: its literal known)
-                    place.insert(name.clone(), (i, unmapped.len()));
+                    place.insert(c.token().to_string(), (i, unmapped.len(), name.clone()));
                     let _ = (ops, why);
                     dialed.push(c.clone());
                 }
@@ -1312,10 +1314,11 @@ fn reimport_within(
     let mut own: Vec<(usize, Unmapped)> = dialed
         .reported
         .iter()
-        .map(|(name, block, why)| {
+        .map(|(token, block, why)| {
+            let (_, at, name) = &place[token.as_str()];
             let mut one = Vec::new();
             report(&mut one, name, block, why.clone());
-            (place[name.as_str()].1, one.pop().expect("one"))
+            (*at, one.pop().expect("one"))
         })
         .collect();
     own.sort_by_key(|(at, _)| *at);

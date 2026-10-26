@@ -343,3 +343,38 @@ fn no_client_operation_adds_a_dial() {
         }
     }
 }
+
+/// A candidate whose export name differs from the design's spelling (a role
+/// override's) is found again when its dial falls back (Astra's check of the
+/// dial step: a lookup by the export's name panicked).
+#[test]
+fn a_role_overrides_literal_is_found_when_its_dial_falls_back() {
+    let src = "tamber t\n\ndials\n  c: color = #000000\n\ntheme\n  ink = #111111\n  accentcolor = c\n  peer = c\n";
+    let vocab = crate::common::vocab();
+    let folded = exact_tamber::check(src, &vocab).unwrap();
+    let export = exact_tamber::export::dtcg(&folded, &vocab).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_str(&export).unwrap();
+    let contexts = doc.pointer_mut("/modifiers/mode/contexts").unwrap();
+    let mut named = Vec::new();
+    for sets in contexts.as_object_mut().unwrap().values_mut() {
+        for set in sets.as_array_mut().unwrap() {
+            for (name, v) in set.as_object_mut().unwrap() {
+                let hex = match name.as_str() {
+                    "peer" => "#ff0000",
+                    n if n.eq_ignore_ascii_case("accentcolor") => "#ffffff",
+                    _ => continue,
+                };
+                named.push(name.clone());
+                let c = |i: usize| {
+                    u8::from_str_radix(&hex[1 + 2 * i..3 + 2 * i], 16).unwrap() as f64 / 255.0
+                };
+                v["$value"] = serde_json::json!({"colorSpace": "srgb", "components": [c(0), c(1), c(2)], "hex": hex});
+            }
+        }
+    }
+    assert!(named.iter().any(|n| n != "peer"), "{named:?}");
+    let import =
+        exact_tamber::export::reimport_against(&doc.to_string(), Some(&export), &[], src, &vocab);
+    let import = import.unwrap_or_else(|d| panic!("{d:?}"));
+    assert!(import.dials.is_empty(), "{:?}", import.dials);
+}
