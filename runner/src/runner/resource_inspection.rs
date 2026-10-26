@@ -6,6 +6,19 @@ use crate::perf::ResourceWork;
 use std::fmt::Write as _;
 
 impl<D: DataSource> Runner<D> {
+    /// Same immutable plan as a targeted node read. No work until an inspector
+    /// requests identity; a replacement runner owns a fresh cache.
+    pub fn inspection_digest(&self) -> &str {
+        self.inspection_digest.get_or_init(|| {
+            use sha2::{Digest, Sha256};
+            let mut out = String::with_capacity(64);
+            for byte in Sha256::digest(self.plan.encode()) {
+                write!(out, "{byte:02x}").unwrap();
+            }
+            out
+        })
+    }
+
     fn inspection_id(&mut self) -> u64 {
         self.ids.work.resource_serial += 1;
         self.ids.work.resource_serial
