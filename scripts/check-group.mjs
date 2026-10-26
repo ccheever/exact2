@@ -8,3 +8,10 @@ export function killGroup(pid) {
   if (process.platform === 'win32') return spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).status === 0;
   try { process.kill(-pid, 'SIGKILL'); return true; } catch { return false; }
 }
+
+/** Gone, the parent this process was given: on POSIX it is re-parented (its ppid changes); Windows keeps a dead
+ *  parent's pid as its ppid, so that pid is also asked whether it still runs. */
+export function orphaned(parent) {
+  if (process.ppid !== parent) return true;
+  try { process.kill(parent, 0); return false; } catch (e) { return e.code !== 'EPERM'; }
+}
