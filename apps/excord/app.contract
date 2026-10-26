@@ -1,6 +1,5 @@
 // Excord (apps/excord/llp/0001): a Discord client. Stage 1 is the transcript and
 // its composer on iOS, against the fixture server (§3, §4.2, §4.4).
-//
 // The data seam is §4.2's: `gatewayState` is the gateway's stream and its small
 // snapshot (a version for the lists and one per channel); each list is a
 // resource taking its version, and the transcript is one resource, `loadWindow`,
