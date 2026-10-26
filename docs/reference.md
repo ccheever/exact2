@@ -2547,7 +2547,11 @@ the Contract compiler refuses either handler there, on every target.
 row may be up to that far past the port. It is a literal, one or two nonnegative
 px or % lengths (before and after; a percentage is of the list's port along its
 axis), and defaults to one port, `"100%"`. `reach-margin="200%"` asks for the
-next page when the last row is two ports away (LLP 1145 D4).
+next page when the last row is two ports away (LLP 1145 D4). That is the
+distance at rest. While the list scrolls toward an end, the margin on that side
+grows by as much as the list's window leads for the scroll: a quarter second of
+travel, up to two ports. A fling up a transcript at 4,000 px/s in a 320 px port
+asks for older rows once the first row is within 960 px (LLP 1027.004 D3).
 
 For a plain feed or masonry, use `intersect=` on a marker at the end of the
 content, after the columns, inside the same scroller:

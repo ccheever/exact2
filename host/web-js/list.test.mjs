@@ -514,3 +514,83 @@ test('reach-margin moves reachend earlier or later; the default is one port', as
   })()`);
   expect(result).toEqual([5768, 5128, 5128, 6080]);
 }, 60_000);
+
+// @ref LLP 1027.004 D3 — the edge band leads a fling as the window does (reach.rs `Margin::band`). The
+// agent's reports carry no velocity, so these are made here: one at rest, then one moving at -4,000 px/s.
+test('a fling toward the start fires reachstart as far ahead as the window leads', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = [undefined, '0px', '200%'].map(reach => {
+      const el = document.createElement('div');
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const l = { el, starts: 0 };
+      l.own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], start: () => { l.starts++; }, reach}));
+      l.c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+      return l;
+    });
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    await Promise.all(lists.map(({el}) => new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 1000; })));
+    await exact.lists.settle();
+    // Row 0 ends at 32; the band before a port at rest is the margin, and
+    // moving toward the start a quarter second of travel more, up to two ports.
+    const report = (c, offset, velocity) => {
+      const f = { ...c.geometry, revision: c.revision, scroll_sequence: c.geometry.scroll_sequence + 1, offset, measurements: [] };
+      const byView = c.prepare(f);
+      return byView ? c.feedback(f, byView, { velocity, limit: null })[1]?.first ?? null : 'refused';
+    };
+    const out = lists.map(({c}) => [
+      [960, 0], [960, -4000], [991, -4000], [992, -4000], [640, 0], [640, -4000], [671, 0], [1311, -4000], [1312, -4000],
+    ].map(([offset, velocity]) => { const edge = report(c, offset, velocity); if (edge === 0) c.edgeArmed[0] = true; return edge; }));
+    for (const {el, own} of lists) { rt.end(own); el.remove(); }
+    rt.settled();
+    return out;
+  })()`);
+  const N = null;
+  expect(result).toEqual([
+    [N, 0, 0, N, N, 0, N, N, N],
+    [N, N, N, N, N, 0, N, N, N],
+    [N, 0, 0, 0, 0, 0, 0, 0, N],
+  ]);
+}, 60_000);
+
+// reach.rs `geometric_edges`: a page smaller than a fling's band re-arms its edge by the band at rest.
+test('a page that lands within a fling\'s band re-arms reachstart', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    let starts = 0;
+    const rows = rt.sig(Array.from({length:200}, (_, i) => i));
+    const own = rt.scope(() => list.vl(el, rows, i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+    }, {est:32, pw:[], ph:[320], start: () => { starts++; }}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 1000; });
+    await exact.lists.settle();
+    const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+    const report = (offset, velocity) => {
+      const f = { ...c.geometry, revision: c.revision, scroll_sequence: c.geometry.scroll_sequence + 1, offset,
+        measurements: c.mounted.map(m => ({ view: m.view, epoch: m.epoch, size: 32 })) };
+      const byView = c.prepare(f);
+      if (!byView) return 'refused';
+      const edge = c.feedback(f, byView, { velocity, limit: null })[1];
+      if (edge?.first === 0) starts++;
+      return edge?.first ?? null;
+    };
+    const out = [report(960, -4000), report(900, -4000)];
+    // A message at the end re-arms nothing: the first row is the one it fired at.
+    rt.commit(() => rt.W(rows, [...rows(), ...Array.from({length:20}, (_, i) => 200 + i)]));
+    rt.settled();
+    out.push(report(900, -4000), report(900, -4000), report(100, -4000));
+    rt.commit(() => rt.W(rows, [...Array.from({length:20}, (_, i) => i - 20), ...rows()]));
+    rt.settled();
+    out.push(c.correction?.offset, report(740, -4000));
+    rt.end(own); el.remove(); rt.settled();
+    return out;
+  })()`);
+  expect(result).toEqual([0, null, null, null, null, 740, 0]);
+}, 60_000);
