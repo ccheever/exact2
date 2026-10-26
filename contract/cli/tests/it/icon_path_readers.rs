@@ -133,27 +133,39 @@ const LINES: &[(&str, &str, &str)] = &[
     ),
 ];
 
-fn files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let path = e.path();
-        let name = e.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
-            if !matches!(
-                name.as_str(),
-                "target" | "node_modules" | "dist" | "web-dist"
-            ) && !name.starts_with('.')
-            {
-                files(&path, out);
-            }
-        } else if [".rs", ".js", ".mjs", ".ts"]
-            .iter()
-            .any(|x| name.ends_with(x))
+/// The tracked source files under `dir` (`git ls-files`), never what a build
+/// left on disk: a built web host's `host/web/dist.gen/` is gitignored output
+/// (bundled, minified copies of the sources), and a disk walk read it as
+/// readers. Under the same names as before: `.rs`, `.js`, `.mjs` and `.ts` but
+/// `.d.ts`, outside `target`, `node_modules`, `dist`, `web-dist` and dot
+/// directories.
+fn files(root: &Path, dir: &str, out: &mut Vec<PathBuf>) {
+    let listed = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--", dir])
+        .current_dir(root)
+        .output()
+        .expect("git ls-files: the guard reads the tracked sources");
+    assert!(
+        listed.status.success(),
+        "git ls-files -- {dir} failed: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    for rel in String::from_utf8(listed.stdout)
+        .expect("UTF-8 paths")
+        .split('\0')
+        .filter(|p| !p.is_empty())
+    {
+        let (parents, name) = rel.rsplit_once('/').unwrap_or(("", rel));
+        let skipped = parents.split('/').any(|d| {
+            matches!(d, "target" | "node_modules" | "dist" | "web-dist") || d.starts_with('.')
+        });
+        if !skipped
+            && [".rs", ".js", ".mjs", ".ts"]
+                .iter()
+                .any(|x| name.ends_with(x))
             && !name.ends_with(".d.ts")
         {
-            out.push(path);
+            out.push(root.join(rel));
         }
     }
 }
@@ -216,7 +228,7 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
     let mut escapes = (0, 0);
     for dir in SCANNED {
         let mut all = Vec::new();
-        files(&root.join(dir), &mut all);
+        files(&root, dir, &mut all);
         for path in all {
             let rel = path
                 .strip_prefix(&root)
@@ -260,6 +272,59 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
         stale.is_empty(),
         "an allowed line is no longer present; remove it:\n{}",
         stale.join("\n")
+    );
+}
+
+/// A built web host's output is no reader: an ignored `host/web/dist.gen/`
+/// file and an untracked one holding a forbidden line are not scanned, while
+/// a tracked file with the same line still fails.
+#[test]
+fn the_scan_reads_tracked_files_not_build_output() {
+    let tmp = std::env::temp_dir().join(format!("exact-icon-guard-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let git = |args: &[&str]| {
+        let r = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        assert!(
+            r.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&r.stderr)
+        );
+    };
+    let forbidden = "const symbolSource = s; const parts = s.split(\"|\");\n";
+    for (rel, text) in [
+        (".gitignore", "host/web/dist.*\n"),
+        ("host/web/dist.gen/abc/app.js", forbidden),
+        ("host/web/untracked.js", forbidden),
+        ("host/web/src/tracked.js", forbidden),
+    ] {
+        let path = tmp.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    git(&["init", "-q"]);
+    git(&["add", ".gitignore", "host/web/src/tracked.js"]);
+    let mut all = Vec::new();
+    files(&tmp, "host", &mut all);
+    let found: Vec<String> = all
+        .iter()
+        .flat_map(|p| {
+            let rel = p
+                .strip_prefix(&tmp)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            readers(&rel, &std::fs::read_to_string(p).unwrap()).0
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].starts_with("host/web/src/tracked.js:1:"),
+        "{found:?}"
     );
 }
 
