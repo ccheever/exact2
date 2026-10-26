@@ -1062,6 +1062,39 @@ reading. Nothing that isn't HTML is added by it.
   `user*` and `fullSensor` forms, Apple's
   `preferredInterfaceOrientationForPresentation`, and dotted platform
   words on an attribute.
+- **Expanded (Charlie, 2026-10-26, "Accept r5, build gamepad first
+  (Recommended)", on LLP 1133.022 §22 question 8; waived):** the Gamepad
+  API's names over the hosts' pads (`getGamepads`, `gamepadconnected`,
+  `gamepaddisconnected`, `playEffect`, `resetEffects` and the shared word
+  `setLight`, imported from `@exact/gamepad`), on the web, Apple, Android,
+  Linux and Windows: one pad registry per process, the host's, opened to
+  packages, with effects and lights as claims a session holds on a device.
+  With it, LLP 1133.001 D5's `rust-static` builder and the Linux and
+  Windows loops' package dispatch ("Build it now (Recommended)", question
+  1). Consumer: Beacons' prompt, rumble and light bar. Unblocks a pad's own
+  button names, rumble and light from Contract without app Swift or
+  Kotlin. Take: none named; the ruling is its own waiver. Still out, each
+  until a consumer asks (LLP 1133.022 §20): a world driving a pad's motors
+  or light below the runner; `GamepadTouch`, a pad's motion as tier 1,
+  battery and player LEDs as tier 1 words, several players' pads; Linux's
+  lights and Windows' trigger rumble; and the visionOS cell.
+- **Expanded (Charlie, 2026-10-26, the same ruling, on LLP 1133.022 §22
+  question 8; waived):** Web Bluetooth's GATT client (`bluetoothStatus`,
+  `requestDevice`, `getDevices`, `connectGATT`, `characteristicValue` and
+  the rest, imported from `@exact/bluetooth`), on the web, Apple, Android
+  and Windows: a chooser by platform (the browser's, the module's own
+  sheet on Apple, AccessorySetupKit as an app-wide tier 2 mode on iOS 18
+  and later, CompanionDeviceManager on Android, `DevicePicker` on
+  Windows), values in data code only, and notifications in batches under
+  a cursor the runner holds. Consumer: Pulse, a heart-rate strap's
+  display. Unblocks reading a Bluetooth LE peripheral without app Swift or
+  Kotlin. Take: none named; the ruling is its own waiver. Still out, each
+  until a consumer asks (LLP 1133.022 §20): Bluetooth in the background,
+  `bluetooth-central`, iOS state restoration and Android's companion
+  presence wakes; scanning for advertisements, the peripheral role and
+  Bluetooth Classic; `exclusionFilters` and filters with several
+  services; an app's own scan list on Android; and the Linux, visionOS and
+  watchOS cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
